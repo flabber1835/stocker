@@ -111,7 +111,7 @@ jobs:
       - name: Verify V2 source lock
         run: |
           set -euo pipefail
-          python backtester/historical_metadata_reconstruction_v2.py verify-source-lock \
+          python -m backtester.historical_metadata_reconstruction_v2 verify-source-lock \
             --lock "${SOURCE_LOCK}" \
             --sec-dir sec \
             --generated-dir "${EXISTING}" \
@@ -120,7 +120,7 @@ jobs:
       - name: Verify every retained SEC archive byte-for-byte
         run: |
           set -euo pipefail
-          python backtester/verify_historical_metadata_archives_v2.py \
+          python -m backtester.verify_historical_metadata_archives_v2 \
             --sec-dir sec \
             --coverage "${EXISTING}/coverage.json" \
             --source-lock "${SOURCE_LOCK}"
@@ -139,23 +139,23 @@ jobs:
           docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL}"
           docker rm "${CONTAINER}"
           trap - EXIT
-          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset "${CANONICAL}"
+          python -m backtester.canonical_pit_package verify --pointer "${POINTER}" --dataset "${CANONICAL}"
 
       - name: Build and sanitize 2006-2026 unresolved candidate episodes
         run: |
           set -euo pipefail
           rm -rf "${PREP}" && mkdir -p "${PREP}"
-          python backtester/historical_metadata_reconstruction_v2.py prepare-candidates \
+          python -m backtester.historical_metadata_reconstruction_v2 prepare-candidates \
             --canonical-dataset "${CANONICAL}" \
             --output "${PREP}/candidates" \
             --from-year 2006 --through-year 2026
-          python backtester/sanitize_historical_metadata_candidates_v2.py \
+          python -m backtester.sanitize_historical_metadata_candidates_v2 \
             --candidate-dir "${PREP}/candidates"
 
       - name: Build full-canonical ticker episode guard
         run: |
           set -euo pipefail
-          python backtester/build_historical_metadata_episode_guard_v2.py \
+          python -m backtester.build_historical_metadata_episode_guard_v2 \
             --canonical-dataset "${CANONICAL}" \
             --output "${PREP}/guard" \
             --from-year 2006 --through-year 2026
@@ -163,18 +163,18 @@ jobs:
       - name: Parse authenticated SEC bulk archives — LIVE PROGRESS
         run: |
           set -euo pipefail
-          python backtester/parse_historical_metadata_bulk_v2.py \
+          python -m backtester.parse_historical_metadata_bulk_v2 \
             --sec-dir sec \
             --candidates "${PREP}/candidates/candidate_episodes.csv.gz" \
             --output "${PREP}/bulk"
-          python backtester/enforce_historical_metadata_type_authority_v2.py demote-bulk \
+          python -m backtester.enforce_historical_metadata_type_authority_v2 demote-bulk \
             --bulk-dir "${PREP}/bulk"
-          python backtester/historical_metadata_reconstruction_v2.py verify --root "${PREP}/bulk"
+          python -m backtester.historical_metadata_reconstruction_v2 verify --root "${PREP}/bulk"
 
       - name: Derive local-only guarded timeline before web access
         run: |
           set -euo pipefail
-          python backtester/derive_historical_metadata_timeline_guarded_v2.py \
+          python -m backtester.derive_historical_metadata_timeline_guarded_v2 \
             --candidates "${PREP}/candidates/candidate_episodes.csv.gz" \
             --episode-guard "${PREP}/guard/canonical_ticker_episode_guard.csv.gz" \
             --bulk "${PREP}/bulk" \
@@ -184,20 +184,20 @@ jobs:
       - name: Acquire one SEC discovery index
         run: |
           set -euo pipefail
-          python backtester/historical_metadata_reconstruction_v2.py fetch-discovery \
+          python -m backtester.historical_metadata_reconstruction_v2 fetch-discovery \
             --output "${PREP}/discovery" --min-interval 1.0
 
       - name: Build bounded stable-CIK web fallback plan
         run: |
           set -euo pipefail
-          python backtester/historical_metadata_reconstruction_v2.py build-web-plan \
+          python -m backtester.historical_metadata_reconstruction_v2 build-web-plan \
             --candidates "${PREP}/candidates/candidate_episodes.csv.gz" \
             --timeline "${PREP}/preliminary-timeline" \
             --discovery "${PREP}/discovery/sec_company_tickers.json" \
             --output "${PREP}/web-plan"
-          python backtester/bound_historical_metadata_web_plan_v2.py \
+          python -m backtester.bound_historical_metadata_web_plan_v2 \
             --plan-dir "${PREP}/web-plan"
-          python backtester/shard_historical_metadata_web_plan_v2.py \
+          python -m backtester.shard_historical_metadata_web_plan_v2 \
             --plan-dir "${PREP}/web-plan" \
             --output "${PREP}/web-shards" \
             --shards 32
@@ -284,7 +284,7 @@ jobs:
       - name: Verify preparation and choose bounded probe shard
         run: |
           set -euo pipefail
-          python backtester/historical_metadata_reconstruction_v2.py verify --root "${PREP}"
+          python -m backtester.historical_metadata_reconstruction_v2 verify --root "${PREP}"
           SHARD=$(python - <<'PY'
           from backtester import historical_metadata_reconstruction_v2 as b
           rows = b.read_gzip_csv('backtester-results/metadata-v2-prep/web-shards/web_shard_manifest.csv.gz')
@@ -299,7 +299,7 @@ jobs:
           CANON=$(python -c "import json; print(json.load(open('${PREP}/prepare_manifest.json'))['canonical_dataset_sha256'])")
           CAND=$(python -c "import json; print(json.load(open('${PREP}/prepare_manifest.json'))['candidate_sha256'])")
           PARSER=$(python -c "import json; print(json.load(open('${PREP}/prepare_manifest.json'))['parser_source_bundle_sha256'])")
-          python backtester/run_historical_metadata_web_shard_v2.py \
+          python -m backtester.run_historical_metadata_web_shard_v2 \
             --plan "${PREP}/web-shards/web_plan_shard_${SHARD}.csv.gz" \
             --output backtester-results/metadata-v2-probe \
             --source-sha "${GITHUB_SHA}" \
@@ -374,7 +374,7 @@ jobs:
           CAND=$(python -c "import json; print(json.load(open('${PREP}/prepare_manifest.json'))['candidate_sha256'])")
           PARSER=$(python -c "import json; print(json.load(open('${PREP}/prepare_manifest.json'))['parser_source_bundle_sha256'])")
           echo "[PROGRESS] shard=${SHARD} start cache_restored=${{ steps.restore.outputs.cache-hit || 'prefix-or-miss' }}"
-          python backtester/run_historical_metadata_web_shard_v2.py \
+          python -m backtester.run_historical_metadata_web_shard_v2 \
             --plan "${PREP}/web-shards/web_plan_shard_${SHARD}.csv.gz" \
             --output "${WEB_OUT}" \
             --source-sha "${GITHUB_SHA}" \
@@ -433,7 +433,7 @@ jobs:
       - name: Merge and verify source corpus — LIVE PROGRESS
         run: |
           set -euo pipefail
-          python backtester/merge_historical_metadata_web_shards_v2.py \
+          python -m backtester.merge_historical_metadata_web_shards_v2 \
             --root backtester-results/web-artifacts \
             --output backtester-results/metadata-v2-web-merged \
             --expected-shards 32
@@ -504,23 +504,23 @@ jobs:
           docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL}"
           docker rm "${CONTAINER}"
           trap - EXIT
-          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset "${CANONICAL}"
+          python -m backtester.canonical_pit_package verify --pointer "${POINTER}" --dataset "${CANONICAL}"
 
       - name: Derive final guarded timeline and audit every canonical observation
         run: |
           set -euo pipefail
-          python backtester/derive_historical_metadata_timeline_guarded_v2.py \
+          python -m backtester.derive_historical_metadata_timeline_guarded_v2 \
             --candidates "${PREP}/candidates/candidate_episodes.csv.gz" \
             --episode-guard "${PREP}/guard/canonical_ticker_episode_guard.csv.gz" \
             --bulk "${PREP}/bulk" \
             --existing-sic "${EXISTING}/sec_sic_submissions.csv.gz" \
             --web backtester-results/metadata-v2-web-merged \
             --output backtester-results/metadata-v2-final-timeline
-          python backtester/historical_metadata_reconstruction_v2.py audit-coverage \
+          python -m backtester.historical_metadata_reconstruction_v2 audit-coverage \
             --canonical-dataset "${CANONICAL}" \
             --timeline backtester-results/metadata-v2-final-timeline \
             --output backtester-results/metadata-v2-canonical-coverage.json
-          python backtester/historical_metadata_reconstruction_v2.py final-manifest \
+          python -m backtester.historical_metadata_reconstruction_v2 final-manifest \
             --lock "${SOURCE_LOCK}" \
             --candidates-dir "${PREP}/candidates" \
             --bulk-dir "${PREP}/bulk" \

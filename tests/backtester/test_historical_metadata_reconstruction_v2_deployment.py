@@ -18,6 +18,31 @@ CANDIDATE_FIELDS = [
 
 
 class HistoricalMetadataV2DeploymentTests(unittest.TestCase):
+    def test_workflow_uses_import_safe_module_entrypoints(self):
+        workflow = (
+            Path(__file__).resolve().parents[2]
+            / ".github"
+            / "workflows"
+            / "backtester-historical-metadata-reconstruction-v2.yml"
+        ).read_text(encoding="utf-8")
+        self.assertNotIn("python backtester/", workflow)
+        modules = (
+            "historical_metadata_reconstruction_v2",
+            "verify_historical_metadata_archives_v2",
+            "canonical_pit_package",
+            "sanitize_historical_metadata_candidates_v2",
+            "build_historical_metadata_episode_guard_v2",
+            "parse_historical_metadata_bulk_v2",
+            "enforce_historical_metadata_type_authority_v2",
+            "derive_historical_metadata_timeline_guarded_v2",
+            "bound_historical_metadata_web_plan_v2",
+            "shard_historical_metadata_web_plan_v2",
+            "run_historical_metadata_web_shard_v2",
+            "merge_historical_metadata_web_shards_v2",
+        )
+        for module in modules:
+            self.assertIn(f"python -m backtester.{module}", workflow)
+
     def test_candidate_sanitizer_removes_invalid_cik_and_disables_vendor_alias(self):
         with tempfile.TemporaryDirectory() as td:
             root = Path(td)
