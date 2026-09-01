@@ -39,14 +39,13 @@ _run_producer_identity = _core._run_producer_identity
 PITR_EVIDENCE_SCHEMA = "sentinel.corpus-publication-pitr/1"
 
 
-def _publication_recovery_target(conn) -> dict[str, str]:
+def _publication_recovery_target(conn) -> dict[str, object]:
     """Bind this publication to the exact PostgreSQL transaction that commits it.
 
-    PostgreSQL physical recovery can stop *after* one transaction ID.  Capturing
-    the current xid inside the publication transaction therefore turns the
-    already-required base-backup + continuous-WAL archive into exact historical
-    reconstruction authority for this corpus version.  No full corpus copy is
-    needed per daily publication.
+    PostgreSQL physical recovery can target this transaction ID inclusively and
+    promote immediately after replaying it. Capturing the current xid inside the
+    publication transaction turns the already-required base-backup + continuous
+    WAL archive into an exact historical recovery target for this corpus version.
     """
     with conn.cursor() as cur:
         cur.execute("SELECT pg_current_xact_id()::text")
@@ -57,7 +56,8 @@ def _publication_recovery_target(conn) -> dict[str, str]:
     return {
         "schema": PITR_EVIDENCE_SCHEMA,
         "recovery_target_xid": str(row[0]),
-        "recovery_target_action": "promote-after",
+        "recovery_target_inclusive": True,
+        "recovery_target_action": "promote",
     }
 
 
