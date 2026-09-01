@@ -1,11 +1,13 @@
 """Runtime proof that the external backup target still has a restore horizon.
 
 The host provisioning scripts prove that the configured path is an independent
-durable target.  Unattended services cannot trust a path string after a reboot:
-a missing external mount can expose the underlying local directory.  When the
+durable target. Unattended services cannot trust a path string after a reboot:
+a missing external mount can expose the underlying local directory. When the
 reviewed production mode is enabled, ask PostgreSQL to prove the durable-target
-markers and a contiguous full-size WAL chain from the newest complete base
-backup through the archiver's latest successful segment.
+markers and a contiguous full-size external WAL chain from the newest base
+backup's post-backup recovery marker through the archiver's latest successful
+segment. The base itself uses streamed WAL, so its START WAL is not the external
+archive continuity boundary.
 """
 from __future__ import annotations
 
@@ -21,7 +23,7 @@ BASE_ROOT = "/sentinel-backup/base"
 WAL_ROOT = "/sentinel-backup/wal"
 _BASE_NAME = re.compile(r"base-[0-9]{8}T[0-9]{6}Z\Z")
 _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
-_START_WAL = re.compile(r"START WAL LOCATION:.*\(file ([0-9A-F]{24})\)")
+_RECOVERY_WAL = re.compile(r"^wal=([0-9A-F]{24})$", re.MULTILINE)
 
 
 class BackupRuntimeUnavailable(RuntimeError):
@@ -73,14 +75,15 @@ def _latest_complete_base(conn) -> str:
     raise BackupRuntimeUnavailable("no complete physical base backup is present")
 
 
-def _start_wal(conn, base: str) -> str:
-    label = _read_text(conn, f"{BASE_ROOT}/{base}/backup_label", missing_ok=False)
-    assert label is not None
-    match = _START_WAL.search(label)
-    if match is None:
+def _recovery_wal(conn, base: str) -> str:
+    metadata = _read_text(
+        conn, f"{BASE_ROOT}/{base}/sentinel-recovery-marker", missing_ok=False)
+    assert metadata is not None
+    matches = _RECOVERY_WAL.findall(metadata)
+    if len(matches) != 1:
         raise BackupRuntimeRefused(
-            f"base backup {base} has no parseable START WAL filename")
-    return match.group(1)
+            f"base backup {base} has no unique post-base recovery WAL")
+    return matches[0]
 
 
 def _wal_index(name: str, *, segments_per_log: int) -> tuple[int, int, int]:
@@ -109,7 +112,8 @@ def _expected_wals(start: str, end: str, *, segment_size: int) -> tuple[str, ...
     first = sl * segments_per_log + ss
     last = el * segments_per_log + es
     if last < first:
-        raise BackupRuntimeRefused("archived WAL frontier precedes base backup")
+        raise BackupRuntimeRefused(
+            "archived WAL frontier precedes the base recovery marker")
     # A pathological stale base could otherwise turn every order into an
     # unbounded filesystem traversal. More than one million 16MiB segments is
     # already far beyond the reviewed appliance retention envelope.
@@ -129,7 +133,7 @@ def require(conn, *, operation: str) -> dict:
     _require_marker(conn, WAL_ROOT)
     _require_marker(conn, BASE_ROOT)
     base = _latest_complete_base(conn)
-    start = _start_wal(conn, base)
+    start = _recovery_wal(conn, base)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT last_archived_wal,"
