@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import os
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -11,7 +12,9 @@ from sentinel.automation import store as automation_store
 from sentinel.automation.model import (
     AutomationConfig,
     CallbackDeadlineExceeded,
+    CycleRecord,
     CycleState,
+    LeaderPermit,
     NonRetryableCallbackRefused,
     TickAction,
     TransientInfrastructureFailure,
@@ -20,7 +23,8 @@ from sentinel.automation_resilience import RecoveryAutomationService
 from sentinel.automation_recovery import ProductionAutomation
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
+            or Path(__file__).resolve().parents[2])
 
 
 async def _noop(_context):
@@ -82,10 +86,18 @@ def test_long_data_callback_restarts_after_deadline_without_blocking():
 def test_execution_callback_deadline_routes_to_read_only_recovery(monkeypatch):
     service = _service(execute_max_attempts=100)
     now = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
-    cycle = SimpleNamespace(cycle_id="cycle-1")
-    permit = SimpleNamespace()
+    cycle = CycleRecord.model_construct(
+        cycle_id="cycle-1", state=CycleState.EXECUTING)
+    permit = LeaderPermit(
+        holder_id="recovery-test",
+        fence_token=1,
+        control_generation=1,
+        acquired_at=now,
+        expires_at=now + timedelta(seconds=30),
+    )
     captured = {}
-    reconciled = SimpleNamespace(state=CycleState.RECONCILING)
+    reconciled = CycleRecord.model_construct(
+        cycle_id="cycle-1", state=CycleState.RECONCILING)
 
     def transition(_conn, **kwargs):
         captured.update(kwargs)
