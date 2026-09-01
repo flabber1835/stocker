@@ -9,6 +9,7 @@ on:
       - 'backtester/**'
       - 'services/backtester/**'
       - 'tests/backtester/**'
+      - 'tests/support/**'
       - 'tests/conftest.py'
       - '.github/workflows/backtester-production-strict-pit-20y.yml'
       - '.github/workflows/backtester-production-strict-pit-year-worker.yml'
@@ -42,7 +43,11 @@ jobs:
             /tests/__init__.py
             /tests/conftest.py
             /tests/backtester/**
+            /tests/support/**
             /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
             /pytest.ini
 
       - name: Check out exact current main production source
@@ -89,7 +94,7 @@ jobs:
           PYTHONPATH: ${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared:${{ github.workspace }}
         run: |
           set -euo pipefail
-          python -m compileall -q -f backtester services/backtester tests/backtester
+          python -m compileall -q -f backtester services/backtester tests/backtester tests/support
           python -m py_compile \
             main-src/sentinel/core/kernel.py \
             main-src/sentinel/core/production.py \
