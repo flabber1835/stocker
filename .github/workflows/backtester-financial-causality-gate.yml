@@ -38,6 +38,8 @@ jobs:
             /.github/workflows/backtester-financial-causality-gate.yml
             /.github/workflows/backtester-production-strict-pit-20y.yml
             /.github/workflows/backtester-production-strict-pit-year-worker.yml
+            /.github/workflows/backtester-research-only-20y.yml
+            /.github/workflows/backtester-strict-pit-20y.yml
             /backtester/**
             /tests/__init__.py
             /tests/conftest.py
