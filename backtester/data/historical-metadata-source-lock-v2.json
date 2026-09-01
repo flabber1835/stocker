@@ -41,6 +41,8 @@
   "web_fallback": {
     "current_sec_company_tickers_role": "discovery-only; never causal authority",
     "partitioning": "unique validated CIK/source objects, not calendar year",
+    "source_selection_window": "three-year filing lookback ending at the first unresolved canonical observation; later filings are not downloaded because they cannot repair that earlier gap",
+    "global_request_governor": "single sequential client; minimum 0.25 seconds between requests with explicit SEC throttle/backoff handling",
     "required_resume_identity": [
       "source_sha",
       "canonical_dataset_sha256",
