@@ -84,14 +84,14 @@ def test_strict_research_and_production_entrypoints_force_pit_mode() -> None:
         "backtester/run_production_strict_pit_certification.py",
     ):
         text = (ROOT / relative).read_text(encoding="utf-8")
-        assert 'CERTIFICATION_STRICT_PIT' in text, relative
+        assert "CERTIFICATION_STRICT_PIT" in text, relative
 
 
 def test_certified_launch_workflows_preserve_strict_pit_contracts() -> None:
     research_only = (
         ROOT / ".github/workflows/backtester-research-only-20y.yml"
     ).read_text(encoding="utf-8")
-    combined = (
+    retired_combined = (
         ROOT / ".github/workflows/backtester-strict-pit-20y.yml"
     ).read_text(encoding="utf-8")
 
@@ -100,22 +100,21 @@ def test_certified_launch_workflows_preserve_strict_pit_contracts() -> None:
     assert "ref: 887f479b15ad861313da666ad698034d3847121c" in research_only
     assert "test -z \"$(git -C main-src status --porcelain)\"" in research_only
 
-    assert "run_production_strict_pit_20y_checkpointed.py" in combined
-    assert "run_research_strict_pit_20y_checkpointed.py" in combined
-    assert "run_certification_parallel_20y_checkpointed.py" in combined
-    assert "ref: 887f479b15ad861313da666ad698034d3847121c" in combined
-    assert "CERTIFICATION_SEGMENT_END_SESSION" in combined
-    assert "CANONICAL_PIT_EXPECTED_END=2026-07-31" in combined
+    assert "RETIRED" in retired_combined
+    assert "HISTORICAL_EVIDENCE_ONLY" in retired_combined
+    assert "backtester-production-strict-pit-20y.yml" in retired_combined
+    assert "exit 1" in retired_combined
+    assert "887f479b15ad861313da666ad698034d3847121c" not in retired_combined
+    assert "apply_production_cooldown_age_zero.py" not in retired_combined
+    assert "run_production_strict_pit_20y" not in retired_combined
+    assert "run_research_strict_pit_20y" not in retired_combined
+    assert "run_certification_parallel" not in retired_combined
 
 
 def test_research_review_basis_contract_is_present_in_financial_transform() -> None:
     text = (ROOT / "backtester" / "run_research_ldrc_nonpit_vs_fullpit.py").read_text(
         encoding="utf-8"
     )
-    # Exact execution-open semantics are exercised by
-    # test_research_review_basis.py in the same mandatory gate. This static
-    # guard ensures the financial transform still owns the explicit review-basis
-    # state seam that regression test validates.
     assert "entry_split_adjusted_price" in text or "entry_sig" in text
 
 
