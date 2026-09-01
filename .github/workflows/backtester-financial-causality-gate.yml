@@ -4,7 +4,7 @@ on:
   workflow_dispatch:
   push:
     branches:
-      - codex/fix-backtester-financial-audit-20260831
+      - research/backtester
     paths:
       - 'backtester/**'
       - 'tests/backtester/**'
@@ -24,7 +24,7 @@ jobs:
       PYTHONUNBUFFERED: '1'
 
     steps:
-      - name: Check out isolated backtester remediation
+      - name: Check out backtester branch
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 1
