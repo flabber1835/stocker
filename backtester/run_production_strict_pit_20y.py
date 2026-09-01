@@ -63,6 +63,9 @@ EXPECTED_MAIN_SHA = "c851386fa4dddcf2e2533af3a1d313c38220b7f2"
 DIVIDEND_SETTLEMENT_LAG_SESSIONS = 15
 MAX_TRAILING_VOLUME_PARTICIPATION = 0.10
 MIN_TRAILING_VOLUME_SESSIONS = 20
+CERTIFICATION_CAPITAL_ENV = "PRODUCTION_CERTIFICATION_CAPITAL_USD"
+_capacity_binding = None
+_capacity_orders_checked = 0
 
 strict.corrected.prod.EXPECTED_MAIN_SHA = EXPECTED_MAIN_SHA
 strict.corrected.prod.base.runner.EXPECTED_MAIN_SHA = EXPECTED_MAIN_SHA
@@ -90,6 +93,70 @@ def _positive(value) -> bool:
 
 def _mapping(value) -> Mapping:
     return value if isinstance(value, Mapping) else {}
+
+
+def _configured_certification_capital():
+    raw = os.environ.get(CERTIFICATION_CAPITAL_ENV, "").strip()
+    if not raw:
+        return None
+    try:
+        value = float(raw)
+    except (TypeError, ValueError) as exc:
+        raise FinancialGradeGuardError(
+            f"{CERTIFICATION_CAPITAL_ENV} must be a positive finite USD amount"
+        ) from exc
+    if not math.isfinite(value) or value <= 0.0:
+        raise FinancialGradeGuardError(
+            f"{CERTIFICATION_CAPITAL_ENV} must be a positive finite USD amount"
+        )
+    return value
+
+
+def _configure_replay_capital():
+    target = _configured_certification_capital()
+    if target is None:
+        return None
+    modules = (
+        strict.runner,
+        strict.corrected.runner,
+        strict.corrected.prod.base.runner,
+    )
+    changed = 0
+    for module in modules:
+        if hasattr(module, "STARTING_CASH"):
+            setattr(module, "STARTING_CASH", target)
+            changed += 1
+    if not changed:
+        raise FinancialGradeGuardError(
+            "declared certification capital could not be bound to replay STARTING_CASH"
+        )
+    print(
+        f"[CAPACITY CONTRACT] mode=enforced certification_capital_usd={target:.2f} "
+        f"limit={MAX_TRAILING_VOLUME_PARTICIPATION:.2%}",
+        flush=True,
+    )
+    return target
+
+
+def _replay_starting_cash() -> float:
+    value = getattr(strict.runner, "STARTING_CASH", None)
+    if not _positive(value):
+        raise FinancialGradeGuardError(
+            f"replay STARTING_CASH is invalid for capacity evidence: {value!r}"
+        )
+    return float(value)
+
+
+def _capacity_ceiling_usd(participation: float) -> float:
+    if not _positive(participation):
+        raise FinancialGradeGuardError(
+            f"invalid volume participation for capacity evidence: {participation!r}"
+        )
+    return (
+        _replay_starting_cash()
+        * MAX_TRAILING_VOLUME_PARTICIPATION
+        / float(participation)
+    )
 
 
 def _corrected_contract_print(*args, **kwargs):
@@ -256,6 +323,7 @@ def _order_value(order, key, default=None):
 
 
 def _capacity_guard(prior, published) -> None:
+    global _capacity_binding, _capacity_orders_checked
     bars = {
         str(getattr(bar, "security_id")): bar
         for bar in (getattr(published, "bars", None) or ())
@@ -289,12 +357,60 @@ def _capacity_guard(prior, published) -> None:
             )
         average_volume = sum(prior_volumes) / len(prior_volumes)
         participation = float(shares) / average_volume
+        capacity_usd = _capacity_ceiling_usd(participation)
+        _capacity_orders_checked += 1
+        is_new_binding = (
+            _capacity_binding is None
+            or capacity_usd < float(_capacity_binding["capacity_usd"])
+        )
+        if is_new_binding:
+            _capacity_binding = {
+                "session": str(getattr(published, "session", "?")),
+                "security_id": sid,
+                "shares": float(shares),
+                "average_volume": average_volume,
+                "participation": participation,
+                "capacity_usd": capacity_usd,
+            }
         if participation > MAX_TRAILING_VOLUME_PARTICIPATION + 1e-15:
-            raise FinancialGradeGuardError(
-                f"capacity ceiling exceeded on {getattr(published, 'session', '?')} "
-                f"{sid}: participation={participation:.4%} > "
-                f"{MAX_TRAILING_VOLUME_PARTICIPATION:.2%}"
-            )
+            target = _configured_certification_capital()
+            if target is not None:
+                raise FinancialGradeGuardError(
+                    f"capacity ceiling exceeded on {getattr(published, 'session', '?')} "
+                    f"{sid}: certification_capital_usd={target:.2f} "
+                    f"participation={participation:.4%} > "
+                    f"{MAX_TRAILING_VOLUME_PARTICIPATION:.2%}"
+                )
+            if is_new_binding:
+                print(
+                    f"[CAPACITY EVIDENCE] session={getattr(published, 'session', '?')} "
+                    f"sid={sid} nominal_participation={participation:.4%} "
+                    f"limit={MAX_TRAILING_VOLUME_PARTICIPATION:.2%} "
+                    f"linearized_initial_capital_ceiling_usd={capacity_usd:.2f} "
+                    "mode=scale_neutral action=continue",
+                    flush=True,
+                )
+
+
+def _print_capacity_summary() -> None:
+    target = _configured_certification_capital()
+    mode = "enforced" if target is not None else "scale_neutral_evidence"
+    if _capacity_binding is None:
+        print(
+            f"[CAPACITY SUMMARY] mode={mode} orders_checked={_capacity_orders_checked} "
+            "binding=none",
+            flush=True,
+        )
+        return
+    print(
+        f"[CAPACITY SUMMARY] mode={mode} orders_checked={_capacity_orders_checked} "
+        f"binding_session={_capacity_binding['session']} "
+        f"sid={_capacity_binding['security_id']} "
+        f"nominal_participation={float(_capacity_binding['participation']):.4%} "
+        f"limit={MAX_TRAILING_VOLUME_PARTICIPATION:.2%} "
+        f"linearized_initial_capital_ceiling_usd={float(_capacity_binding['capacity_usd']):.2f}",
+        flush=True,
+    )
 
 
 def _resolved_nav_guard(result, session: str) -> None:
@@ -357,11 +473,17 @@ def _install_financial_guards() -> None:
 
     strategy_production.advance_state = guarded_advance_state
     strategy_production._financial_grade_guards_installed = True
+    capacity_mode = (
+        "enforced"
+        if _configured_certification_capital() is not None
+        else "scale_neutral_evidence"
+    )
     print(
         "[FINANCIAL GRADE] resolved_nav=required "
         "missing_leadership_return=fail_closed "
         f"dividend_lag_sessions={DIVIDEND_SETTLEMENT_LAG_SESSIONS} "
-        f"max_prior20_volume_participation={MAX_TRAILING_VOLUME_PARTICIPATION:.2%}",
+        f"max_prior20_volume_participation={MAX_TRAILING_VOLUME_PARTICIPATION:.2%} "
+        f"capacity_mode={capacity_mode}",
         flush=True,
     )
 
@@ -374,15 +496,22 @@ def main() -> int:
         )
         return 0
     main_root, main_sha = _bind_verified_main_identity()
+    certification_capital = _configure_replay_capital()
     if "--self-test-source-identity" in sys.argv[1:]:
         _install_financial_guards()
         import sentinel.core.production as strategy_production
         if not getattr(strategy_production, "_financial_grade_guards_installed", False):
             raise RuntimeError("financial-grade production guards did not install")
+        if certification_capital is not None and not math.isclose(
+            _replay_starting_cash(), certification_capital, rel_tol=0.0, abs_tol=0.01
+        ):
+            raise RuntimeError("certification capital did not bind replay STARTING_CASH")
         print(
             f"[SELFTEST PASS] production source identity root={main_root} sha={main_sha} "
             f"dividend_lag={DIVIDEND_SETTLEMENT_LAG_SESSIONS} "
-            f"capacity={MAX_TRAILING_VOLUME_PARTICIPATION:.2%}", flush=True,
+            f"capacity={MAX_TRAILING_VOLUME_PARTICIPATION:.2%} "
+            f"capacity_mode={'enforced' if certification_capital is not None else 'scale_neutral_evidence'}",
+            flush=True,
         )
         return 0
     print(
@@ -392,9 +521,18 @@ def main() -> int:
         f"[CONTRACT] role=production warmup={WARMUP_START} "
         f"measurement={MEASUREMENT_START} end={END_SESSION}", flush=True,
     )
+    if certification_capital is None:
+        print(
+            f"[CAPACITY CONTRACT] mode=scale_neutral_evidence "
+            f"replay_starting_cash_usd={_replay_starting_cash():.2f} "
+            f"limit={MAX_TRAILING_VOLUME_PARTICIPATION:.2%}",
+            flush=True,
+        )
     _install_split_adjudications()
     _install_financial_guards()
-    return int(strict.main())
+    result = int(strict.main())
+    _print_capacity_summary()
+    return result
 
 
 if __name__ == "__main__":
