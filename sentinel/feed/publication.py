@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import json
+import re
 
 from sentinel.feed import _publication_impl as _core
 from sentinel.feed._publication_impl import (  # noqa: F401
@@ -36,26 +37,50 @@ from sentinel.feed.operational_coherence import (  # noqa: F401
 # Explicit static seam retained for provenance/certification tests.
 _run_producer_identity = _core._run_producer_identity
 
-PITR_EVIDENCE_SCHEMA = "sentinel.corpus-publication-pitr/1"
+PITR_EVIDENCE_SCHEMA = "sentinel.corpus-publication-pitr/2"
+_XID_MODULUS = 1 << 32
+_TIMELINE_RE = re.compile(r"^[0-9A-F]{8}$")
 
 
 def _publication_recovery_target(conn) -> dict[str, object]:
-    """Bind this publication to the exact PostgreSQL transaction that commits it.
+    """Bind this publication to one branch-unique PostgreSQL recovery target.
 
-    PostgreSQL physical recovery can target this transaction ID inclusively and
-    promote immediately after replaying it. Capturing the current xid inside the
-    publication transaction turns the already-required base-backup + continuous
-    WAL archive into an exact historical recovery target for this corpus version.
+    ``recovery_target_xid`` matches the on-disk 32-bit TransactionId.  The
+    64-bit xid8 is retained to identify its wraparound epoch, and an admissible
+    base backup must come from that same epoch so the 32-bit target occurs only
+    once in the replay interval.  The WAL timeline is recorded explicitly:
+    PostgreSQL defaults targeted recovery to the latest archived timeline, which
+    is unsafe after an earlier PITR has forked history.
     """
     with conn.cursor() as cur:
-        cur.execute("SELECT pg_current_xact_id()::text")
+        cur.execute(
+            "SELECT pg_current_xact_id()::text,"
+            " substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8)")
         row = cur.fetchone()
-    if row is None or not str(row[0] or "").strip():
+    if row is None or len(row) < 2:
         raise _core.CorpusIncoherent(
-            "PostgreSQL did not return a transaction id for publication PITR")
+            "PostgreSQL did not return transaction/timeline authority for PITR")
+    try:
+        source_xid8 = int(str(row[0] or "").strip())
+    except ValueError as exc:
+        raise _core.CorpusIncoherent(
+            "PostgreSQL returned a malformed xid8 for publication PITR") from exc
+    timeline_hex = str(row[1] or "").strip().upper()
+    if source_xid8 < 3 or not _TIMELINE_RE.fullmatch(timeline_hex):
+        raise _core.CorpusIncoherent(
+            "PostgreSQL returned invalid transaction/timeline authority for PITR")
+    recovery_xid = source_xid8 % _XID_MODULUS
+    if recovery_xid < 3:
+        raise _core.CorpusIncoherent(
+            "publication xid maps to a reserved 32-bit recovery transaction id")
+    xid_epoch = source_xid8 // _XID_MODULUS
     return {
         "schema": PITR_EVIDENCE_SCHEMA,
-        "recovery_target_xid": str(row[0]),
+        "source_xid8": str(source_xid8),
+        "source_xid_epoch": xid_epoch,
+        "recovery_target_xid": str(recovery_xid),
+        "recovery_target_timeline": f"0x{timeline_hex}",
+        "required_base_xid_epoch": xid_epoch,
         "recovery_target_inclusive": True,
         "recovery_target_action": "promote",
     }
