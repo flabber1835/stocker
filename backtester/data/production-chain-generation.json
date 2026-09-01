@@ -1,8 +1,8 @@
 {
   "schema": "backtester.production-chain-generation/1",
-  "generation": 3,
-  "supersedes_generation": 2,
-  "historical_descriptor": "backtester/data/production-chain-generation-2.json",
+  "generation": 4,
+  "supersedes_generation": 3,
+  "historical_descriptor": "backtester/data/production-chain-generation-3.json",
   "years": {
     "first": 2006,
     "last": 2026,
@@ -17,14 +17,14 @@
   "resume_equivalence_schema": "backtester.production-resume-equivalence/1",
   "canonical_dataset_hash": "f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b",
   "terminal_correction_sha256": "cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc",
-  "production_main_sha": "89f6218ff116b4dafc4ca8ac6159337d1718e2e1",
+  "production_main_sha": "80e89b3f894f826e64139b1e0fedd5d42ef937f8",
   "production_source_mode": "pristine-current-main",
   "production_overlay_sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
   "production_blob_ids": {
     "sentinel/core/kernel.py": "12617af8eb954d4ae18fef2ae16977048e2e40cd",
-    "sentinel/core/production.py": "1809c2a31216b247dd0b727178680d41fce80c48",
+    "sentinel/core/production.py": "e4ebfebae2fa1a737c52063af63003a82b6e19cf",
     "shared/stock_strategy_shared/wealth_core/adapter.py": "466a8f8202692e65e08596a7a47d45bd15bb3fd3",
-    "shared/stock_strategy_shared/wealth_core/state.py": "8dd316ed28ff9b82c216f852118f8ef83d8510ad"
+    "shared/stock_strategy_shared/wealth_core/state.py": "1921399aca503ae5e2cbfd6125792c09464ba22b"
   },
   "execution": {
     "orchestration": "one immutable workflow run with 21 explicitly dependency-chained annual jobs",
