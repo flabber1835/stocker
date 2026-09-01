@@ -11,7 +11,7 @@ import os
 from pathlib import Path
 import sys
 
-# This file is executed directly by the parallel orchestrator.  Bootstrap the
+# This file is executed directly by the parallel orchestrator. Bootstrap the
 # repository root locally so package imports do not depend on PYTHONPATH.
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
@@ -23,6 +23,7 @@ if PINNED_MAIN_ROOT.is_dir() and str(PINNED_MAIN_ROOT) not in sys.path:
 os.environ["CERTIFICATION_STRICT_PIT"] = "1"
 
 import backtester.run_research_strict_pit_certification as strict
+from backtester.research_terminal_grace_overlay import install as install_terminal_grace
 
 corrected = strict.corrected
 old = strict.old
@@ -30,6 +31,7 @@ WARMUP_START = "2006-01-03"
 MEASUREMENT_START = "2006-07-31"
 FULL_END_SESSION = "2026-07-31"
 END_SESSION = os.environ.get("CERTIFICATION_END_SESSION", FULL_END_SESSION)
+FINANCIAL_GRADE_DIVIDEND_LAG_SESSIONS = 15
 
 corrected.WARMUP_START = WARMUP_START
 corrected.MEASUREMENT_START = MEASUREMENT_START
@@ -120,16 +122,47 @@ def _twenty_year_transform(mode: str, output: Path) -> str:
             elig=_sec_ok&_base_elig"""
     text = _replace_once(text, old_elig, new_elig, "candidate/session security-type coverage")
 
+    # Financial-grade cash timing: dividend entitlement remains an asset on the
+    # ex-date, but it cannot finance a new admission until the conservative
+    # declared settlement lag has elapsed.
+    text = _replace_once(
+        text,
+        "book.receivables.append((gday+1,q*rawdiv))",
+        f"book.receivables.append((gday+{FINANCIAL_GRADE_DIVIDEND_LAG_SESSIONS},q*rawdiv))",
+        "dividend settlement lag",
+    )
+
+    # Missing next-close leadership observations are economically ambiguous.
+    # Zero-return imputation can move the LD-RC controller, so certification
+    # refuses the observation until an explicit terminal/identity outcome exists.
+    old_leadership = "vals.append(float(p1)/float(p0)-1 if finite(p0) and p0>0 and finite(p1) and p1>0 else 0.0)"
+    new_leadership = """if not(finite(p0) and p0>0 and finite(p1) and p1>0):
+                        raise RuntimeError(f'unresolved recent-leadership return: {ds} {tick[int(tid0)]}')
+                    vals.append(float(p1)/float(p0)-1)"""
+    text = _replace_once(text, old_leadership, new_leadership, "leadership missing-return fail-closed")
+
+    # A stale last mark may be useful operational evidence, but it cannot enter
+    # a financially certified NAV or controller history.
+    text = _replace_once(
+        text,
+        "            eq,unresolved=book.equity(clraw)\n",
+        "            eq,unresolved=book.equity(clraw)\n            if unresolved and date>=START:\n                raise RuntimeError(f'financial-grade NAV unresolved on {ds}')\n",
+        "resolved NAV certification gate",
+    )
+
     summary_needle = "'strict_security_type_counts':_SEC_COUNTS,"
     text = _replace_once(
         text,
         summary_needle,
-        summary_needle + "\n        'strict_candidate_security_type_coverage':_CANDIDATE_COVERAGE,\n        'strict_candidate_security_type_unknown_breakdown':_UNKNOWN_DETAIL,",
+        summary_needle + f"\n        'financial_grade_dividend_lag_sessions':{FINANCIAL_GRADE_DIVIDEND_LAG_SESSIONS},\n        'financial_grade_requires_resolved_nav':True,\n        'financial_grade_missing_leadership_return_policy':'FAIL_CLOSED',\n        'strict_candidate_security_type_coverage':_CANDIDATE_COVERAGE,\n        'strict_candidate_security_type_unknown_breakdown':_UNKNOWN_DETAIL,",
         "candidate coverage evidence",
     )
     if os.environ.get("CANONICAL_PIT_DATASET"):
         text = strict._canonical_unknown_diagnostics(text)
-    return text
+
+    # Terminal grace and same-session split/dividend ordering are canonical
+    # economics for every 20-year research run, not an optional launcher patch.
+    return install_terminal_grace(text)
 
 
 corrected.transformed_source = _twenty_year_transform
@@ -172,6 +205,12 @@ def _finalize_coverage(output: Path) -> None:
     audit = json.loads(audit_path.read_text(encoding="utf-8"))
     audit["candidate_session_security_type_coverage"] = coverage
     audit["candidate_session_security_type_unknown_breakdown"] = unknown_detail
+    audit["financial_grade"] = {
+        "dividend_lag_sessions": FINANCIAL_GRADE_DIVIDEND_LAG_SESSIONS,
+        "requires_resolved_nav": True,
+        "missing_leadership_return_policy": "FAIL_CLOSED",
+        "terminal_grace_integrated": True,
+    }
     audit_path.write_text(json.dumps(audit, indent=2, sort_keys=True) + "\n", encoding="utf-8")
 
     files = [output / "daily.csv.gz", output / "metrics.csv", summary_path, audit_path, coverage_path, unknown_path]
@@ -201,15 +240,28 @@ def _finalize_coverage(output: Path) -> None:
 
 def main() -> int:
     if "--self-test-imports" in sys.argv[1:]:
+        generated = corrected.transformed_source("fullpit", Path("/tmp/research-financial-grade-selftest"))
+        compile(generated, "<research-financial-grade-generated>", "exec")
+        required = (
+            "terminal_pending",
+            f"gday+{FINANCIAL_GRADE_DIVIDEND_LAG_SESSIONS}",
+            "financial-grade NAV unresolved",
+            "unresolved recent-leadership return",
+        )
+        missing = [needle for needle in required if needle not in generated]
+        if missing:
+            raise RuntimeError(f"financial-grade transform missing: {missing}")
         print(
             f"[SELFTEST PASS] research 20y entrypoint root={ROOT} "
-            f"backtester_import={Path(strict.__file__).resolve()}",
+            f"backtester_import={Path(strict.__file__).resolve()} "
+            f"dividend_lag={FINANCIAL_GRADE_DIVIDEND_LAG_SESSIONS}",
             flush=True,
         )
         return 0
     print(
         f"[CONTRACT] role=research warmup={WARMUP_START} "
-        f"measurement={MEASUREMENT_START} end={END_SESSION}",
+        f"measurement={MEASUREMENT_START} end={END_SESSION} "
+        f"dividend_lag={FINANCIAL_GRADE_DIVIDEND_LAG_SESSIONS}",
         flush=True,
     )
     rc = int(strict.main())
