@@ -144,6 +144,10 @@ async def recover_automated_paper_cycle(
         rollout = load_rollout_state(conn)
         _controller_config, strategy = _default_paper_strategy()
         current = publication.require_current(conn)
+        # Recovery reads the command/expected book and corporate-action units.
+        # Historical-only price evidence may be routed around, but an
+        # operational candidate must stop before the first broker observation.
+        publication.assert_operationally_coherent(conn)
         authority_kwargs = dict(
             runtime_identity=system_identity.rehearsal_identity(),
             strategy_identity=strategy, required_mode=rollout.mode,

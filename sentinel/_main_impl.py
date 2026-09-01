@@ -285,7 +285,8 @@ async def _migration_plan(config: SentinelConfig, args) -> int:
                         (frontier,))
             marks = {str(t): float(p) for t, p in cur.fetchall() if p}
         book = bootstrap(conn, start=start, end=frontier,
-                         starting_cash=float(getattr(account, "equity", 0.0) or 0.0))
+                         starting_cash=float(getattr(account, "equity", 0.0) or 0.0),
+                         coherence_scope="operational")
     except _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:
@@ -341,7 +342,8 @@ def cmd_target_book(config: SentinelConfig, args) -> int:
                         (args.sessions,))
             start = str(cur.fetchone()[0])
         book = bootstrap(conn, start=start, end=frontier,
-                         starting_cash=args.cash)
+                         starting_cash=args.cash,
+                         coherence_scope="operational")
     finally:
         conn.close()
 
@@ -786,6 +788,7 @@ def cmd_feed_status(config: SentinelConfig, limit: int) -> int:
     healthy one indistinguishable. This reads committed rows, so it is correct
     while a seed runs, after it finishes, and after it dies.
     """
+    from sentinel.feed import publication
     from sentinel.feed import store as feed_store
 
     if not config.database_url:
@@ -794,6 +797,7 @@ def cmd_feed_status(config: SentinelConfig, limit: int) -> int:
     conn = feed_store.connect(config.database_url)
     try:
         rows = feed_store.run_status(conn, limit)
+        quarantines = publication.quarantine_status(conn, limit=limit)
     finally:
         conn.close()
 
@@ -822,6 +826,23 @@ def cmd_feed_status(config: SentinelConfig, limit: int) -> int:
         if r["error_message"]:
             print(f"  ! {r['error_message'][:150]}")
         print("  " + "-" * 68)
+    if quarantines:
+        print("\n  UNPUBLISHED CORPUS CLASSIFICATION")
+        print("  " + "-" * 68)
+        for item in quarantines:
+            verdict = ("PRODUCTION-BLOCKING" if item["production_blocking"]
+                       else "HISTORICAL-ONLY")
+            securities = item["affected_securities"] or {}
+            sample = ", ".join(securities.get("sample") or []) or "-"
+            kinds = ", ".join(item["evidence_kinds"] or []) or "-"
+            reasons = "; ".join(item["reasons"] or [])
+            print(f"  {str(item['run_id'])}  {verdict}")
+            print(f"  dates {item['affected_start']}..{item['affected_end']}  "
+                  f"operational {item['boundary_start']}..{item['boundary_end']}")
+            print(f"  securities {securities.get('count', 0)} [{sample}]")
+            print(f"  evidence {kinds}")
+            print(f"  why {reasons}")
+            print("  " + "-" * 68)
     return EXIT_OK
 
 

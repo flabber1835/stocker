@@ -108,22 +108,26 @@ class TargetBook:
 def bootstrap(conn, *, start: str, end: str, starting_cash: float,
               cfg: WealthCoreConfig | None = None,
               eligibility_cfg: EligibilityConfig | None = None,
-              window: Optional[CorpusWindow] = None) -> TargetBook:
+              window: Optional[CorpusWindow] = None,
+              coherence_scope: str = "full_historical") -> TargetBook:
     """Warm the feed over [start, end), then decide on `end`."""
     cfg = cfg or WealthCoreConfig()
     elig = eligibility_cfg or EligibilityConfig()
 
-    # FAIL CLOSED BEFORE READING. The loader already refuses to SEE rows from an
-    # unpublished ingest, so the book would be correct either way — this is
-    # about the other failure mode, which is silence: a publication that failed
-    # on Tuesday freezes the corpus at Monday, and a frozen corpus plans a
-    # perfectly coherent, perfectly stale book every evening for a week without
-    # a single thing looking wrong.
+    # FAIL CLOSED BEFORE READING. Certification defaults to the whole retained
+    # corpus. Explicit current production callers use the operational closure;
+    # both scopes retain the same publication visibility rule.
     version: Optional[int] = None
     if conn is not None:
         from sentinel.feed import publication
 
-        publication.assert_coherent(conn)
+        if coherence_scope == "full_historical":
+            publication.assert_full_historical_coherent(conn)
+        elif coherence_scope == "operational":
+            publication.assert_operationally_coherent(conn, frontier=end)
+        else:
+            raise ValueError(
+                "coherence_scope must be 'full_historical' or 'operational'")
         pub = publication.current(conn)
         version = pub.version if pub else None
 

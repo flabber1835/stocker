@@ -102,8 +102,8 @@ def test_outage_current_frontier_does_not_skip_incoherence_repair(monkeypatch):
     monkeypatch.setattr(
         outage_recovery.store, "latest_visible_session", lambda _conn: "2026-08-25")
     monkeypatch.setattr(
-        outage_recovery.publication, "coherence",
-        lambda _conn: SimpleNamespace(coherent=False))
+        outage_recovery.publication, "operational_coherence",
+        lambda _conn, **_kwargs: SimpleNamespace(coherent=False))
     monkeypatch.setattr(
         outage_recovery.publication, "chain_gaps", lambda _conn: [])
     monkeypatch.setattr(
@@ -113,7 +113,8 @@ def test_outage_current_frontier_does_not_skip_incoherence_repair(monkeypatch):
         outage_recovery.ingest, "daily",
         lambda _conn, *, today: calls.append(("daily", today)))
     monkeypatch.setattr(
-        outage_recovery.publication, "assert_coherent", lambda _conn: None)
+        outage_recovery.publication, "assert_operationally_coherent",
+        lambda _conn, **_kwargs: None)
 
     result = outage_recovery.catch_up(conn, target_session="2026-08-25")
 
@@ -126,8 +127,8 @@ def test_outage_current_coherent_frontier_remains_read_only(monkeypatch):
     monkeypatch.setattr(
         outage_recovery.store, "latest_visible_session", lambda _conn: "2026-08-25")
     monkeypatch.setattr(
-        outage_recovery.publication, "coherence",
-        lambda _conn: SimpleNamespace(coherent=True))
+        outage_recovery.publication, "operational_coherence",
+        lambda _conn, **_kwargs: SimpleNamespace(coherent=True))
     monkeypatch.setattr(
         outage_recovery.publication, "chain_gaps", lambda _conn: [])
     monkeypatch.setattr(

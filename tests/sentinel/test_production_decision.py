@@ -445,6 +445,7 @@ def test_data_semantics_bundle_names_transitive_book_dependencies():
         "sentinel.execution.target_reprojection",
         "sentinel.feed.actions_map",
         "sentinel.feed.domains",
+        "sentinel.feed.operational_coherence",
         "sentinel.feed.staging",
         "sentinel.paper",
         "sentinel.regime.spy",

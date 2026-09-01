@@ -126,6 +126,8 @@ def _install_recovery_harness(
     monkeypatch.setattr(
         publication, "require_current", lambda *_: SimpleNamespace(version=1))
     monkeypatch.setattr(
+        publication, "assert_operationally_coherent", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
         paper_recovery, "require_current_authority",
         lambda *_args, **_kwargs: SimpleNamespace(
             certificate_sha256=grant.certificate_sha256))

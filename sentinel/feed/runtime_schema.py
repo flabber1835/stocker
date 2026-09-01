@@ -56,6 +56,7 @@ _RELATIONS = {
     "sentinel_action_generation_events": ("r", "p", False, False, False),
     "sentinel_anomaly_observation_events": ("r", "p", False, False, False),
     "sentinel_readiness_snapshots": ("r", "p", False, False, False),
+    "sentinel_corpus_quarantine": ("r", "p", False, False, False),
     "sentinel_sep_staging": ("r", "u", False, False, False),
     "sentinel_active_ingest_rejections": ("v", "p", False, False, False),
     "sentinel_active_actions": ("v", "p", False, False, False),
@@ -190,6 +191,19 @@ _COLUMNS = {
         "ready": ("boolean", True), "checks_passed": ("integer", True),
         "checks_total": ("integer", True), "checks": ("jsonb", True),
     },
+    "sentinel_corpus_quarantine": {
+        "assessment_id": ("bigint", True),
+        "assessment_sha256": ("text", True),
+        "assessed_at": ("timestamp with time zone", True),
+        "run_id": ("uuid", True),
+        "publication_version": ("bigint", False),
+        "boundary_start": ("date", True), "boundary_end": ("date", True),
+        "affected_start": ("date", True), "affected_end": ("date", True),
+        "production_blocking": ("boolean", True),
+        "affected_securities": ("jsonb", True),
+        "evidence_kinds": ("jsonb", True), "reasons": ("jsonb", True),
+        "row_counts": ("jsonb", True),
+    },
     "sentinel_sep_staging": {
         "run_id": ("uuid", True), "chunk": ("text", True),
         "session": ("date", True), "ticker": ("text", True),
@@ -235,6 +249,7 @@ _PRIMARY_KEYS = {
     "sentinel_action_generation_events": "primary key (event_id)",
     "sentinel_anomaly_observation_events": "primary key (event_id)",
     "sentinel_readiness_snapshots": "primary key (snapshot_id)",
+    "sentinel_corpus_quarantine": "primary key (assessment_id)",
 }
 
 _CONSTRAINT_WITNESSES = {
@@ -305,6 +320,9 @@ _INDEXES = {
     "idx_sentinel_anomaly_events_latest": False,
     "uq_sentinel_anomaly_terminal_event": True,
     "idx_sentinel_readiness_computed": False,
+    "sentinel_corpus_quarantine_assessment_sha256_key": True,
+    "idx_sentinel_quarantine_run_assessed": False,
+    "idx_sentinel_quarantine_blocking": False,
 }
 
 _INDEX_WITNESSES = {
@@ -388,6 +406,7 @@ _TRIGGER_WITNESSES = {
             "sentinel_corpus_publications",
             "sentinel_action_generation_events",
             "sentinel_anomaly_observation_events",
+            "sentinel_corpus_quarantine",
         )
     },
 }

@@ -490,7 +490,8 @@ def _require_fresh_genesis_authority(
         conn, *, current, first_session: str,
         runtime_identity: Mapping) -> dict:
     """Prove a warm seed is being born on the exact live ready corpus."""
-    publication.assert_coherent(conn)
+    publication.assert_operationally_coherent(
+        conn, frontier=first_session)
     if publication.chain_gaps(conn):
         raise ShadowRuntimeRefused(
             "corpus publication chain has gaps; shadow genesis refused")

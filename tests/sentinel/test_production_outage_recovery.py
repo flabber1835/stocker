@@ -131,7 +131,9 @@ def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch):
         seeded["args"] = (date_from, date_to)
 
     monkeypatch.setattr(outage_recovery.ingest, "seed", seed)
-    monkeypatch.setattr(outage_recovery.publication, "assert_coherent", lambda _c: None)
+    monkeypatch.setattr(
+        outage_recovery.publication, "assert_operationally_coherent",
+        lambda _c, **_kwargs: None)
     monkeypatch.setattr(outage_recovery.publication, "chain_gaps", lambda _c: [])
 
     conn = SimpleNamespace(rollback=lambda: None)

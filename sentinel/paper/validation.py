@@ -309,6 +309,7 @@ def _validate_broker_grant(
                 runtime_identity=runtime_strategy, rollout=rollout)
             return
         if grant.operation_scope == "RECOVER":
+            publication.assert_operationally_coherent(conn)
             return
     elif isinstance(grant, PaperPreparationGrant):
         if binding.broker_account_id != grant.expected_account:

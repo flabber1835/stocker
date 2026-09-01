@@ -1031,7 +1031,8 @@ def _install_runtime_gates(monkeypatch, conn, *, session=FIRST, version=7):
 
     monkeypatch.setattr(publication_store, "pinned", pinned)
     monkeypatch.setattr(
-        publication_store, "assert_coherent", lambda actual: None)
+        publication_store, "assert_operationally_coherent",
+        lambda actual, **_kwargs: None)
     monkeypatch.setattr(publication_store, "chain_gaps", lambda actual: [])
     monkeypatch.setattr(
         feed_store, "latest_visible_session", lambda actual: session)
@@ -1111,8 +1112,8 @@ def test_postgres_publication_source_holds_pin_and_passes_restart_anchors(
 
     monkeypatch.setattr(publication_store, "pinned", pinned)
     monkeypatch.setattr(
-        publication_store, "assert_coherent",
-        lambda conn: events.append("coherent"))
+        publication_store, "assert_operationally_coherent",
+        lambda conn, **_kwargs: events.append("coherent"))
 
     def load_published(conn, session, *, known_feed_security_ids):
         events.append((conn, session, tuple(known_feed_security_ids)))
@@ -1147,7 +1148,9 @@ def test_only_real_postgres_runtime_promotes_candidate_to_shadow_go(
         yield publication
 
     monkeypatch.setattr(publication_store, "pinned", pinned)
-    monkeypatch.setattr(publication_store, "assert_coherent", lambda actual: None)
+    monkeypatch.setattr(
+        publication_store, "assert_operationally_coherent",
+        lambda actual, **_kwargs: None)
     monkeypatch.setattr(publication_store, "chain_gaps", lambda actual: [])
     monkeypatch.setattr(
         feed_store, "latest_visible_session", lambda actual: FIRST)
@@ -1197,7 +1200,9 @@ def test_postgres_runtime_refuses_go_when_full_readiness_fails(monkeypatch):
         yield publication
 
     monkeypatch.setattr(publication_store, "pinned", pinned)
-    monkeypatch.setattr(publication_store, "assert_coherent", lambda actual: None)
+    monkeypatch.setattr(
+        publication_store, "assert_operationally_coherent",
+        lambda actual, **_kwargs: None)
     monkeypatch.setattr(publication_store, "chain_gaps", lambda actual: [])
     monkeypatch.setattr(
         feed_store, "latest_visible_session", lambda actual: FIRST)

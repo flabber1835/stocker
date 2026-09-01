@@ -1069,6 +1069,28 @@ produced this value" without bar revision history. **Published is what readable
 means**: `publication.visible_predicate` hides any row whose writer run has no
 publication. Rows with a NULL run id stay visible because they predate tracking.
 
+Coherence has two named scopes. `full_historical_coherence` reports every live
+unpublished candidate in the retained corpus and is the certification/research
+gate. `operational_coherence` is the production-planning gate. It computes a
+bounded XNYS session boundary from the preferred production history margin,
+the persisted catch-up cursor, and the required predecessor, then expands the
+classification with permanent identities and ticker aliases from durable
+portfolio state, the current plan/command journal, and the current universe.
+Rows in the session window block. Older ordinary price rows may be classified
+historical-only; older action-bearing bars, ACTIONS observations, split repair
+or anomaly evidence, and terminal/universe identity evidence block whenever
+their identity is in that closure. Unknown/unclassifiable candidate shapes fail
+closed.
+
+The classification never changes visibility and never publishes candidate
+evidence. Each assessment is appended durably with run id, affected date range,
+affected securities, evidence kinds, blocking verdict, boundary, publication
+version, and explicit reasons. A historical-only candidate therefore remains
+visible to operators and full-history certification while current planning
+continues against exactly the prior published version. Classification output is
+not an economic plan input and is excluded from state, target, plan, and
+execution fingerprints.
+
 ACTIONS uses the stronger snapshot form needed by a complete-source response.
 `sentinel_actions` is the immutable pre-upgrade baseline;
 `sentinel_action_generations` records each explicitly and completely fetched raw

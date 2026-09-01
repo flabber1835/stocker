@@ -748,6 +748,32 @@ DDL = [
         ON sentinel_readiness_snapshots (computed_at DESC)""",
 
     # ------------------------------------------------------------------
+    # UNPUBLISHED CANDIDATE CLASSIFICATION, append-only.  This is evidence
+    # about why production did or did not stop; it is not corpus publication
+    # and never changes candidate visibility.
+    # ------------------------------------------------------------------
+    """CREATE TABLE IF NOT EXISTS sentinel_corpus_quarantine (
+        assessment_id       BIGSERIAL PRIMARY KEY,
+        assessment_sha256   TEXT NOT NULL UNIQUE,
+        assessed_at         TIMESTAMPTZ NOT NULL DEFAULT NOW(),
+        run_id              UUID NOT NULL,
+        publication_version BIGINT,
+        boundary_start      DATE NOT NULL,
+        boundary_end        DATE NOT NULL,
+        affected_start      DATE NOT NULL,
+        affected_end        DATE NOT NULL,
+        production_blocking BOOLEAN NOT NULL,
+        affected_securities JSONB NOT NULL DEFAULT '{}'::jsonb,
+        evidence_kinds      JSONB NOT NULL DEFAULT '[]'::jsonb,
+        reasons             JSONB NOT NULL DEFAULT '[]'::jsonb,
+        row_counts          JSONB NOT NULL DEFAULT '{}'::jsonb)""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_quarantine_run_assessed
+        ON sentinel_corpus_quarantine (run_id, assessed_at DESC,
+                                       assessment_id DESC)""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_quarantine_blocking
+        ON sentinel_corpus_quarantine (production_blocking, assessed_at DESC)""",
+
+    # ------------------------------------------------------------------
     # PUBLISHED STRATEGY EVIDENCE IS IMMUTABLE UNDER ITS PUBLISHED IDENTITY.
     #
     # A legitimate restatement must move the row to a distinct durable ingest
@@ -853,6 +879,10 @@ DDL = [
     """DROP TRIGGER IF EXISTS sentinel_refuse_append_only_mutation ON sentinel_anomaly_observation_events""",
     """CREATE TRIGGER sentinel_refuse_append_only_mutation
         BEFORE UPDATE OR DELETE ON sentinel_anomaly_observation_events
+        FOR EACH ROW EXECUTE FUNCTION sentinel_refuse_append_only_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_refuse_append_only_mutation ON sentinel_corpus_quarantine""",
+    """CREATE TRIGGER sentinel_refuse_append_only_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_corpus_quarantine
         FOR EACH ROW EXECUTE FUNCTION sentinel_refuse_append_only_mutation()""",
 
     # ------------------------------------------------------------------

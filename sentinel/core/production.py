@@ -37,7 +37,7 @@ from sentinel.core.session import (
     _return as _session_return,
     holdings_from_shadow,
 )
-from sentinel.feed.readiness_impl import REQUIRED_SPY_SESSIONS as MIN_CLOSES
+from sentinel.feed.requirements import REQUIRED_SPY_SESSIONS as MIN_CLOSES
 
 # Compatibility for the certified lag-return unit test and any external
 # diagnostic import. The implementation is owned by the lower session module.
@@ -137,7 +137,7 @@ def warm_session_state(state: SessionState | Mapping, window, *,
     return warmed
 
 
-def load_published_session(conn, session: str, *, spy_sessions: int = 41,
+def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES,
                            known_feed_security_ids: Sequence[str] = ()
                            ) -> PublishedSession:
     """Load one causal production input snapshot from the published corpus.
@@ -151,11 +151,14 @@ def load_published_session(conn, session: str, *, spy_sessions: int = 41,
     from sentinel.core.loader import load_meta, load_sectors, load_terminal_events
     from sentinel.feed.calendar import previous_sessions
     from sentinel.feed.publication import (
-        assert_coherent, current, effective_split_ratio, visible_predicate,
+        assert_operationally_coherent, current, effective_split_ratio,
+        visible_predicate,
     )
     from sentinel.feed.universe import load_resolver
 
-    assert_coherent(conn)
+    assert_operationally_coherent(
+        conn, frontier=session,
+        extra_security_ids=tuple(known_feed_security_ids))
     publication = current(conn)
     if publication is None:
         raise RuntimeError("the corpus has never been published")

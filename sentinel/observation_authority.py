@@ -174,7 +174,7 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
             f"sessions, found {len(sessions)}")
     book = bootstrap(
         conn, start=sessions[0], end=sessions[-1],
-        starting_cash=float(starting_cash))
+        starting_cash=float(starting_cash), coherence_scope="operational")
     record = {
         "schema": "sentinel.paper-observation-warmup/1",
         "historical_causality": HISTORICAL_CAUSALITY_UNVERIFIED,
