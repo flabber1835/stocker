@@ -7,10 +7,13 @@ from types import SimpleNamespace
 import pytest
 
 from sentinel import backup_guard, backup_runtime_authority
+from sentinel.automation import store as automation_store
 from sentinel.automation.model import (
     AutomationConfig,
     CallbackDeadlineExceeded,
+    CycleState,
     NonRetryableCallbackRefused,
+    TickAction,
     TransientInfrastructureFailure,
 )
 from sentinel.automation_resilience import RecoveryAutomationService
@@ -76,18 +79,30 @@ def test_long_data_callback_restarts_after_deadline_without_blocking():
     assert diagnostic["bounded_checkpoint_restart"] is True
 
 
-def test_execution_callback_deadline_remains_terminal():
+def test_execution_callback_deadline_routes_to_read_only_recovery(monkeypatch):
     service = _service(execute_max_attempts=100)
     now = datetime(2026, 9, 1, 12, 0, tzinfo=timezone.utc)
-    cycle = SimpleNamespace(diagnostic={})
-    terminal, diagnostic = service._failure_diagnostic(
-        cycle=cycle,
+    cycle = SimpleNamespace(cycle_id="cycle-1")
+    permit = SimpleNamespace()
+    captured = {}
+    reconciled = SimpleNamespace(state=CycleState.RECONCILING)
+
+    def transition(_conn, **kwargs):
+        captured.update(kwargs)
+        return reconciled
+
+    monkeypatch.setattr(automation_store, "transition_cycle", transition)
+    result = service._handle_callback_failure(
+        object(), now=now, cycle=cycle, permit=permit,
         phase="EXECUTE",
         exc=CallbackDeadlineExceeded("execution transport boundary timed out"),
-        now=now,
     )
-    assert terminal is True
-    assert diagnostic["callback_failure"] == "SOFTWARE_DEFECT"
+    assert result.action is TickAction.RETRY_SCHEDULED
+    assert result.cycle is reconciled
+    assert captured["to_state"] is CycleState.RECONCILING
+    assert captured["next_wake_at"] == now
+    assert captured["diagnostic"]["retry_phase"] == "RECOVER"
+    assert captured["diagnostic"]["direct_execution_retry_permitted"] is False
 
 
 def test_unbounded_retry_backoff_saturates_without_huge_integer_growth():
