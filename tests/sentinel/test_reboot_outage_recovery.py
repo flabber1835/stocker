@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import os
+import subprocess
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from types import SimpleNamespace
@@ -196,6 +197,8 @@ def test_cold_boot_backup_mount_marker_is_enforced_in_archive_and_health():
         encoding="utf-8")
     helper = (ROOT / "scripts" / "sentinel-backup-lib.sh").read_text(
         encoding="utf-8")
+    resolver = (ROOT / "scripts" / "sentinel-compose.sh").read_text(
+        encoding="utf-8")
     marker = ".sentinel-independent-durable-target-v1"
     assert marker in archive
     assert "independent durable-target marker is missing" in archive
@@ -203,7 +206,53 @@ def test_cold_boot_backup_mount_marker_is_enforced_in_archive_and_health():
     assert "/sentinel-backup/wal" in overlay
     assert "/sentinel-backup/base" in overlay
     assert marker in helper
-    assert "only AFTER the host/device" in helper
+    assert "Routine validation" in helper
+    assert "--initialize-backup" in resolver
+
+
+def test_attested_cold_boot_fallback_cannot_recreate_marker(tmp_path):
+    if os.name == "nt":
+        return
+    target = tmp_path / "backup-target"
+    (target / "wal").mkdir(parents=True)
+    (target / "base").mkdir()
+    fake_bin = tmp_path / "bin"
+    fake_bin.mkdir()
+    docker = fake_bin / "docker"
+    docker.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = info ]; then echo /unreadable-docker-root; exit 0; fi\n"
+        "case \" $* \" in *' --entrypoint id '*) echo 999;; esac\n"
+        "exit 0\n")
+    docker.chmod(0o755)
+    env = {
+        **os.environ,
+        "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
+        "SENTINEL_BACKUP_DIR": str(target),
+        "SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED": "1",
+    }
+    initialize = subprocess.run(
+        ["bash", "-c",
+         ". scripts/sentinel-backup-lib.sh; "
+         "sentinel_backup_root --initialize-markers"],
+        cwd=ROOT, env=env, capture_output=True, text=True)
+    assert initialize.returncode == 0, initialize.stderr
+    marker = ".sentinel-independent-durable-target-v1"
+    assert (target / "wal" / marker).is_file()
+    assert (target / "base" / marker).is_file()
+
+    mounted_target = tmp_path / "mounted-backup-target"
+    target.rename(mounted_target)
+    (target / "wal").mkdir(parents=True)
+    (target / "base").mkdir()
+
+    runtime = subprocess.run(
+        ["bash", "-c", ". scripts/sentinel-backup-lib.sh; sentinel_backup_root"],
+        cwd=ROOT, env=env, capture_output=True, text=True)
+    assert runtime.returncode != 0
+    assert "durable-target marker is missing" in runtime.stderr
+    assert not (target / "wal" / marker).exists()
+    assert not (target / "base" / marker).exists()
 
 
 def test_unattended_services_enable_runtime_restore_horizon():
