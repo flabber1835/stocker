@@ -26,3 +26,14 @@ commands.py   commands, remaining-delta arithmetic, dust, authorisation
 
 Nothing here imports a Stocker service, and nothing here decides WHAT to hold.
 """
+
+# Package-level policy is intentional: every supported execution entry point
+# imports ``sentinel.execution`` before it can reach reconciliation.  Install the
+# fail-closed stale-restore ownership rule once at the common membrane so CLI,
+# automation and recovery tools cannot diverge on whether a bare ``sntl-``
+# prefix constitutes ownership authority.
+from sentinel.execution import recovered_order_policy as _recovered_order_policy
+
+_recovered_order_policy.install()
+
+del _recovered_order_policy
