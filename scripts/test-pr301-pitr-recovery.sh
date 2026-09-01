@@ -21,14 +21,24 @@ cleanup() {
 }
 trap cleanup EXIT
 
+fail() {
+  echo "PR301_PITR_REFUSED: $*" >&2
+  exit 1
+}
+
+require_equal() {
+  label="$1" got="$2" expected="$3"
+  [ "$got" = "$expected" ] || \
+    fail "$label: got=$got expected=$expected"
+}
+
 wait_for_archive() {
   file="$1"
   for _ in $(seq 1 60); do
     [ -f "$archive/$file" ] && return 0
     sleep 1
   done
-  echo "archive did not receive $file" >&2
-  return 1
+  fail "archive did not receive $file"
 }
 
 timeline_hex() {
@@ -38,10 +48,18 @@ timeline_hex() {
 
 xid_epoch() {
   case "$1" in
-    ''|*[!0-9]*) echo "invalid xid8" >&2; return 2 ;;
+    ''|*[!0-9]*) fail "invalid xid8: $1" ;;
   esac
   psql -h "$work" -Atq -v ON_ERROR_STOP=1 -c \
     "SELECT trunc($1::numeric / 4294967296)::bigint"
+}
+
+xid32() {
+  case "$1" in
+    ''|*[!0-9]*) fail "invalid xid8: $1" ;;
+  esac
+  psql -h "$work" -Atq -v ON_ERROR_STOP=1 -c \
+    "SELECT mod($1::numeric, 4294967296)::bigint"
 }
 
 initdb -D "$primary" -A trust --no-locale >/dev/null
@@ -88,9 +106,11 @@ p_row="$(printf '%s\n' "$p_row" | awk -F'|' 'NF==3 {v=$0} END {print v}')"
 IFS='|' read -r p_xid8 p_xid p_timeline_hex <<EOF
 $p_row
 EOF
-test -n "$p_xid8" -a -n "$p_xid" -a -n "$p_timeline_hex"
+[ -n "$p_xid8" ] && [ -n "$p_xid" ] && [ -n "$p_timeline_hex" ] || \
+  fail "publication P did not report complete PITR identity"
 p_epoch="$(xid_epoch "$p_xid8")"
-test "$base_epoch" = "$p_epoch"
+require_equal "base/publication xid epoch" "$base_epoch" "$p_epoch"
+require_equal "xid8/low-xid projection" "$(xid32 "$p_xid8")" "$p_xid"
 
 psql -h "$work" -v ON_ERROR_STOP=1 -q \
   -c "INSERT INTO pitr_probe(id, publication_fingerprint) VALUES ('Q', repeat('f',64));"
@@ -100,8 +120,11 @@ psql -h "$work" -Atq -v ON_ERROR_STOP=1 -c "SELECT pg_switch_wal();" >/dev/null
 wait_for_archive "$p_wal"
 pg_ctl -D "$primary" -m fast -w stop >/dev/null
 
-# Fork history immediately after the base backup. The first write on timeline 2
-# deliberately receives the same 32-bit XID as publication P did on timeline 1.
+# Fork history immediately after the base backup. Recovery/promotion itself may
+# advance nextXid on some PostgreSQL builds. Observe nextXid without allocating
+# one and consume harmless transactions until the branch's NEXT xid is exactly
+# P's xid. R is then committed under the same 32-bit xid on a different WAL
+# timeline, making the ambiguity deterministic rather than scheduler-sensitive.
 cp -a "$base" "$branch"
 cat >> "$branch/postgresql.auto.conf" <<EOF
 restore_command = 'cp $archive/%f %p'
@@ -110,9 +133,33 @@ recovery_target_action = 'promote'
 EOF
 touch "$branch/recovery.signal"
 pg_ctl -D "$branch" -o "-k $work" -w start >/dev/null
-test "$(psql -h "$work" -Atq -c 'SELECT pg_is_in_recovery()')" = f
+require_equal "branch promoted" \
+  "$(psql -h "$work" -Atq -c 'SELECT pg_is_in_recovery()')" "f"
 branch_timeline_hex="$(timeline_hex)"
-test "$branch_timeline_hex" != "$p_timeline_hex"
+[ "$branch_timeline_hex" != "$p_timeline_hex" ] || \
+  fail "promotion did not create a new WAL timeline"
+
+aligned=0
+for _ in $(seq 1 64); do
+  next_xid8="$(psql -h "$work" -Atq -v ON_ERROR_STOP=1 \
+    -c 'SELECT pg_snapshot_xmax(pg_current_snapshot())::text')"
+  next_xid="$(xid32 "$next_xid8")"
+  next_epoch="$(xid_epoch "$next_xid8")"
+  require_equal "branch/publication xid epoch" "$next_epoch" "$p_epoch"
+  if [ "$next_xid" = "$p_xid" ]; then
+    aligned=1
+    break
+  fi
+  if [ "$next_xid" -gt "$p_xid" ]; then
+    fail "fork next xid $next_xid already passed publication xid $p_xid"
+  fi
+  # pg_current_xact_id() allocates exactly one XID to this otherwise harmless
+  # transaction; the next snapshot therefore advances by one.
+  psql -h "$work" -Atq -v ON_ERROR_STOP=1 \
+    -c 'SELECT pg_current_xact_id()::text' >/dev/null
+done
+[ "$aligned" -eq 1 ] || \
+  fail "could not align fork next xid to publication xid $p_xid"
 
 r_row="$(psql -h "$work" -Atq -F '|' -v ON_ERROR_STOP=1 <<'SQL'
 BEGIN;
@@ -126,8 +173,9 @@ r_row="$(printf '%s\n' "$r_row" | awk -F'|' 'NF==2 {v=$0} END {print v}')"
 IFS='|' read -r r_xid8 r_xid <<EOF
 $r_row
 EOF
-test "$r_xid" = "$p_xid"
-test "$(xid_epoch "$r_xid8")" = "$p_epoch"
+require_equal "fork reused publication xid" "$r_xid" "$p_xid"
+require_equal "fork reused publication xid epoch" \
+  "$(xid_epoch "$r_xid8")" "$p_epoch"
 r_wal="$(psql -h "$work" -Atq -v ON_ERROR_STOP=1 \
   -c 'SELECT pg_walfile_name(pg_current_wal_lsn())')"
 psql -h "$work" -Atq -v ON_ERROR_STOP=1 -c "SELECT pg_switch_wal();" >/dev/null
@@ -146,8 +194,10 @@ recovery_target_action = 'promote'
 EOF
 touch "$ambiguous/recovery.signal"
 pg_ctl -D "$ambiguous" -o "-k $work" -w start >/dev/null
-test "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='P'")" = 0
-test "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='R'")" = 1
+require_equal "latest timeline excludes original P" \
+  "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='P'")" "0"
+require_equal "latest timeline selected fork R" \
+  "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='R'")" "1"
 pg_ctl -D "$ambiguous" -m fast -w stop >/dev/null
 
 # The persisted PR301/2 target names the original timeline explicitly. Recovery
@@ -163,11 +213,17 @@ EOF
 touch "$restore/recovery.signal"
 pg_ctl -D "$restore" -o "-k $work" -w start >/dev/null
 
-test "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='P'")" = 1
-test "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='Q'")" = 0
-test "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='R'")" = 0
-test "$(psql -h "$work" -Atq -c "SELECT publication_fingerprint FROM pitr_probe WHERE id='P'")" = "$fingerprint"
-test "$(psql -h "$work" -Atq -c 'SELECT pg_is_in_recovery()')" = f
+require_equal "explicit timeline includes P" \
+  "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='P'")" "1"
+require_equal "explicit timeline excludes later Q" \
+  "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='Q'")" "0"
+require_equal "explicit timeline excludes fork R" \
+  "$(psql -h "$work" -Atq -c "SELECT count(*) FROM pitr_probe WHERE id='R'")" "0"
+require_equal "publication fingerprint" \
+  "$(psql -h "$work" -Atq -c "SELECT publication_fingerprint FROM pitr_probe WHERE id='P'")" \
+  "$fingerprint"
+require_equal "target recovery promoted" \
+  "$(psql -h "$work" -Atq -c 'SELECT pg_is_in_recovery()')" "f"
 
 printf 'PR301_PITR_PASS xid8=%s xid=%s epoch=%s timeline=0x%s branch=0x%s fingerprint=%s\n' \
   "$p_xid8" "$p_xid" "$p_epoch" "$p_timeline_hex" "$branch_timeline_hex" "$fingerprint"
