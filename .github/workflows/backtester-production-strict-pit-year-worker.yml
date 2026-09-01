@@ -39,9 +39,9 @@ on:
       artifact_name:
         value: ${{ jobs.replay.outputs.artifact_name }}
       run_id:
-        value: ${{ jobs.replay.outputs.run_id }}
+        value: ${{ github.run_id }}
       run_attempt:
-        value: ${{ jobs.replay.outputs.run_attempt }}
+        value: ${{ github.run_attempt }}
       certificate_hash:
         value: ${{ jobs.replay.outputs.certificate_hash }}
       chain_hash:
@@ -115,6 +115,7 @@ jobs:
             /backtester/canonical_pit_dataset.py
             /backtester/canonical_pit_package.py
             /backtester/causal_split_overrides.py
+            /backtester/production_public_reporting.py
             /backtester/run_ldrc_corrected_warmup_cash.py
             /backtester/run_ldrc_nonpit_vs_pit_certified.py
             /backtester/run_sector_ad_causal_terminal_terms_v2.py
@@ -161,6 +162,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${SOURCE_SHA}"
           test "${WORKFLOW_SHA}" = "${SOURCE_SHA}"
           test -z "$(git status --porcelain)"
+          test -f backtester/production_public_reporting.py
           case "${CHAIN_YEAR}" in
             20[0-2][0-9]) ;;
             *) echo "invalid chain year ${CHAIN_YEAR}" >&2; exit 1 ;;
@@ -279,6 +281,7 @@ jobs:
           set -euo pipefail
           python -m py_compile \
             backtester/production_year_checkpoint_overlay.py \
+            backtester/production_public_reporting.py \
             backtester/run_production_strict_pit_20y_checkpointed.py \
             backtester/run_production_current_main_strict_pit_20y.py \
             backtester/run_production_strict_pit_20y.py \
