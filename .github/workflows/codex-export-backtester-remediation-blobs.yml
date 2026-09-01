@@ -59,6 +59,9 @@ jobs:
           path: output
           fetch-depth: 1
           persist-credentials: true
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /.gitignore
       - name: Publish validated blobs as ordinary repository files
         shell: bash
         run: |
@@ -77,6 +80,6 @@ jobs:
           cd output
           git config user.name "github-actions[bot]"
           git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
-          git add remediation-output
+          git add --sparse remediation-output
           git commit -m "Export validated backtester remediation blobs"
           git push origin HEAD:refs/heads/codex/fix-backtester-financial-audit-20260831
