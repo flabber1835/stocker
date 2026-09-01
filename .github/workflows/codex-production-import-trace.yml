@@ -1,0 +1,163 @@
+name: Codex production replay import trace
+
+on:
+  push:
+    branches:
+      - codex/backtester-financial-audit-20260831
+    paths:
+      - .github/workflows/codex-production-import-trace.yml
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  trace:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out pinned backtester source
+        uses: actions/checkout@v4
+        with:
+          ref: c6a1e253fb3b6b12fa8572d039b8c4894a1b917d
+          path: source
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/
+            /tests/backtester/test_canonical_pit_dataset.py
+            /tests/__init__.py
+            /tests/backtester/__init__.py
+            /shared/
+            /sentinel/
+            /services/backtester/app/
+            !/backtester/evidence/
+
+      - name: Check out exact production source
+        uses: actions/checkout@v4
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+
+      - name: Install and patch exact production closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python source/backtester/apply_production_cooldown_age_zero.py --root main-src
+          mkdir -p audit-results
+
+      - name: Build synthetic certified dataset
+        shell: bash
+        working-directory: source
+        env:
+          PYTHONPATH: ${{ github.workspace }}/source:${{ github.workspace }}/main-src:${{ github.workspace }}/main-src/shared
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          from tests.backtester.test_canonical_pit_dataset import _artifact
+          _artifact(Path('../audit-results/test-canonical'))
+          PY
+
+      - name: Trace modules loaded by the actual wrapper import
+        shell: bash
+        working-directory: source
+        env:
+          CANONICAL_PIT_DATASET: ${{ github.workspace }}/audit-results/test-canonical
+          CERTIFICATION_WARMUP_START: '2006-01-03'
+          CERTIFICATION_END_SESSION: '2006-01-03'
+          CANONICAL_PIT_EXPECTED_END: '2006-01-03'
+          BACKTESTER_MAIN_SHA: 887f479b15ad861313da666ad698034d3847121c
+          PYTHONPATH: ${{ github.workspace }}/main-src
+        run: |
+          set -euo pipefail
+          python - <<'PY' > ../audit-results/actual-wrapper-module-origins.json
+          import hashlib
+          import json
+          import sys
+          from pathlib import Path
+
+          sys.argv = [
+              'backtester/run_production_strict_pit_20y.py',
+              '--main-root', '../main-src',
+              '--lab-root', '.',
+              '--self-test-imports',
+          ]
+          import backtester.run_production_strict_pit_20y as wrapper
+
+          names = [
+              'backtester.canonical_pit_dataset',
+              'sentinel.core.production',
+              'stock_strategy_shared',
+              'stock_strategy_shared.split_reconciliation',
+              'stock_strategy_shared.wealth_core.adapter',
+              'stock_strategy_shared.wealth_core.engine',
+              'stock_strategy_shared.wealth_core.feed',
+              'stock_strategy_shared.wealth_core.ledger',
+              'stock_strategy_shared.wealth_core.state',
+              'stock_strategy_shared.wealth_core.settlement',
+          ]
+          out = {'sys_path': list(sys.path), 'modules': {}}
+          for name in names:
+              module = sys.modules.get(name)
+              if module is None:
+                  out['modules'][name] = None
+                  continue
+              path = getattr(module, '__file__', None)
+              row = {'path': path}
+              if path and Path(path).is_file():
+                  row['sha256'] = hashlib.sha256(Path(path).read_bytes()).hexdigest()
+              package_path = getattr(module, '__path__', None)
+              if package_path is not None:
+                  row['package_path'] = list(package_path)
+              out['modules'][name] = row
+          print(json.dumps(out, indent=2, sort_keys=True))
+          PY
+          cat ../audit-results/actual-wrapper-module-origins.json
+
+      - name: Assert exact patched production modules
+        shell: bash
+        run: |
+          set +e
+          python - <<'PY' > audit-results/import-identity-verdict.txt
+          import json
+          from pathlib import Path
+          payload = json.loads(Path('audit-results/actual-wrapper-module-origins.json').read_text())
+          errors = []
+          for name, row in payload['modules'].items():
+              if name.startswith('stock_strategy_shared') and row is not None:
+                  path = str(row.get('path') or '')
+                  package_paths = [str(x) for x in row.get('package_path') or []]
+                  paths = [path, *package_paths]
+                  if not any('/main-src/shared/' in x for x in paths):
+                      errors.append(f'{name} loaded outside main-src/shared: {paths}')
+          if errors:
+              print('FAIL')
+              print('\n'.join(errors))
+              raise SystemExit(1)
+          print('PASS')
+          PY
+          echo "$?" > audit-results/import-identity-verdict.exit
+          exit 0
+
+      - name: Upload trace
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: production-wrapper-import-trace-c6a1e253
+          path: audit-results/
+          if-no-files-found: error
+          retention-days: 7
