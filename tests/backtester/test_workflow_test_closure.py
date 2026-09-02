@@ -14,16 +14,21 @@ FINANCIAL_GATE = WORKFLOW_DIR / "backtester-financial-causality-gate.yml"
 PYTEST_PIN = "pytest==8.4.2"
 
 # Any sparse checkout that executes the complete tests/backtester suite must
-# materialize this closure.  Broad patterns are accepted when they cover the
+# materialize this closure. Broad patterns are accepted when they cover the
 # required path (for example /services/** covers /services/backtester/**).
 REQUIRED_FULL_SUITE_CLOSURE = (
     "/.github/workflows/**",
     "/backtester/**",
     "/services/backtester/**",
+    "/services/bt-engine/Dockerfile",
     "/tools/**",
     "/tests/conftest.py",
     "/tests/backtester/**",
     "/tests/support/**",
+    "/research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py",
+    "/research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz",
+    "/PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz",
+    "/PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv",
     "/pytest.ini",
 )
 
