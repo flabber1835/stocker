@@ -137,6 +137,19 @@ the overlay's exact intent flag are present, before configuration, database, or
 broker construction. The ordinary Compose service carries neither Alpaca
 credentials nor artifact-identity environment values.
 
+That refusal is enforced twice: dispatch requires the image-exclusive route
+registry, and every broker/admin/authority-enabling handler repeats the
+executable-capability check at its own entry point. Importing or directly
+calling a handler therefore cannot bypass the image membrane. The marker,
+intent flag, executable capability, and authorized route must all agree before
+configuration or transport construction.
+
+The ordinary image also omits both concrete Sentinel Alpaca adapters and the
+carried-forward shared Alpaca transport. It retains only inert broker contracts
+needed by status and reconciliation. The authorized overlay restores those
+exact reviewed source files along with the route registry; marker-shaped files
+cannot manufacture transport code that is absent from the ordinary filesystem.
+
 The certification test image is a tooling lens layered on that exact authorized
 runtime, not a sibling built from the ordinary runtime. It receives no broker
 credentials and does not set the authorized intent flag, so the marker alone
@@ -1057,7 +1070,18 @@ the engine PINS a version at session start and treats the corpus as frozen
 ingest MUST NOT publish while a session is being processed
 every new run-backed publication requires the same non-blank producer binding
 on its feed_ingest_runs row; publication copies it into immutable evidence
+evidence is a JSON object at both the Python and PostgreSQL boundaries
+every post-migration publication has a same-transaction validation receipt in
+an independent append-only relation; a deferred database trigger rejects a
+publication row whose receipt is absent or does not match its immutable fields
 ```
+
+The receipt relation binds the publication version, predecessor, run,
+timestamp, window, evidence, successful origin status, and prior receipt hash.
+The migration records the exact legacy prefix that predates receipts; no later
+row can enter that prefix. Routine readers perform catalog-free chain
+verification against the independent relation. An embedded copy is diagnostic
+only and cannot substitute for the durable receipt required at commit.
 
 Producer identity is authorization as well as attribution. The supported host
 wrapper admits a feed mutation only when the selected image's OCI revision

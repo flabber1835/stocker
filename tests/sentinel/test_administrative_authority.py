@@ -46,6 +46,12 @@ def _authorized_runtime_surface(monkeypatch, tmp_path):
     marker = tmp_path / "authorized-runtime-v1"
     marker.write_bytes(cli_shared.AUTHORIZED_RUNTIME_MARKER_BYTES)
     monkeypatch.setattr(cli_shared, "AUTHORIZED_RUNTIME_MARKER", marker)
+    capability = tmp_path / "authorized-runtime-capability-v1"
+    capability.write_text(
+        "#!/bin/sh\nprintf 'sentinel-authorized-capability/1\\n'\n")
+    capability.chmod(0o755)
+    monkeypatch.setattr(
+        cli_shared, "AUTHORIZED_RUNTIME_CAPABILITY", capability)
     monkeypatch.setenv(
         cli_shared.AUTHORIZED_RUNTIME_ENV, cli_shared.AUTHORIZED_RUNTIME_VALUE)
 
@@ -592,14 +598,20 @@ def test_cli_parser_keeps_admin_lifecycle_explicit_and_exact(monkeypatch):
     seen = {}
     monkeypatch.setattr(
         cli.SentinelConfig, "from_env", classmethod(lambda cls: config))
+    from sentinel.cli import authorized_routes
     for command in (
             "install-administrative-certificate",
-            "activate-administrative-certificate",
-            "revoke-administrative-certificate"):
+            "activate-administrative-certificate"):
         monkeypatch.setitem(
-            cli.ROUTES, command,
+            authorized_routes.ROUTES, command,
             lambda _config, args, name=command: (
                 seen.__setitem__(name, vars(args)), cli.EXIT_OK)[1])
+    monkeypatch.setitem(
+        cli.ROUTES, "revoke-administrative-certificate",
+        lambda _config, args: (
+            seen.__setitem__(
+                "revoke-administrative-certificate", vars(args)),
+            cli.EXIT_OK)[1])
     assert cli.main([
         "install-administrative-certificate", "--certificate", "admin.json",
         "--confirm-certificate-sha256", "a" * 64,

@@ -97,6 +97,8 @@ def publication_policy_implementation_identity() -> Mapping:
         "chain": {
             "row_digest": "canonical-json-sha256/v1",
             "predecessor": "previous_version",
+            "validation_receipt": "append-only-deferred-ledger/v1",
+            "evidence_shape": "json-object/v1",
             "current_plan_pin": "data_version+publication_fingerprint",
         },
         "sources": dict(sorted(sources.items())),
@@ -118,6 +120,9 @@ def _timestamp(value: datetime) -> str:
 def publication_row_identity(row) -> Mapping:
     """Canonical identity of one durable publication row."""
     version, previous, run_id, published_at, start, end, evidence = row
+    if not isinstance(evidence, Mapping):
+        raise AuthorityRefused(
+            "publication chain contains non-object evidence")
     return {
         "schema": "sentinel.corpus-publication-row/1",
         "version": int(version),
@@ -126,7 +131,7 @@ def publication_row_identity(row) -> Mapping:
         "published_at": _timestamp(published_at),
         "window_start": start.isoformat() if start is not None else None,
         "window_end": end.isoformat() if end is not None else None,
-        "evidence": evidence if isinstance(evidence, dict) else {},
+        "evidence": dict(evidence),
     }
 
 
@@ -169,11 +174,19 @@ def require_publication_chain(
         version = int(row[0])
         claimed_previous = int(row[1]) if row[1] is not None else None
         if index:
-            if version != previous + 1 or claimed_previous != previous:
+            if version <= previous or claimed_previous != previous:
                 raise AuthorityRefused(
                     "the operational publication chain has a gap after its "
                     "signed certification root")
         previous = version
+    try:
+        publication._verify_receipt_chain(
+            conn, through_version=int(current_version),
+            required_after_version=int(rooted[0][0]))
+    except publication.CorpusIncoherent as exc:
+        raise AuthorityRefused(
+            "the operational publication validation chain is invalid: "
+            f"{exc}") from exc
     return expected_root_sha256
 
 

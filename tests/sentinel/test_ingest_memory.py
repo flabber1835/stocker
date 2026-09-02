@@ -178,6 +178,8 @@ def conn(pg):
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bar_split_repairs", "sentinel_bars",
                   "sentinel_actions", "sentinel_universe",
+                  "sentinel_publication_validation_receipts",
+                  "sentinel_publication_validation_policy",
                   "sentinel_corpus_publications", "feed_ingest_runs",
                   "sentinel_sep_staging", "sentinel_corpus_anomalies",
                   "sentinel_ingest_rejections"):

@@ -1,9 +1,9 @@
 # Broker-capable Sentinel membrane.
 #
 # This image is deliberately distinct from the ordinary read-only/development
-# runtime.  The application requires the baked marker below, plus the explicit
-# overlay intent flag, before it will dispatch any command that can construct a
-# broker or enable signed authority.  The base image never receives this file.
+# runtime. The application requires the baked marker, explicit overlay intent,
+# and an executable capability that exists only in this image before it will
+# dispatch any command that can construct a broker or enable signed authority.
 ARG SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest
 FROM ${SENTINEL_RUNTIME_BASE_IMAGE}
 
@@ -12,3 +12,24 @@ LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
 
 COPY deploy/sentinel-authorized-runtime-v1 \
     /opt/sentinel/authorized-runtime-v1
+COPY sentinel/cli/authorized_routes.py \
+    /app/sentinel/cli/authorized_routes.py
+COPY sentinel/execution/alpaca.py \
+     sentinel/execution/alpaca_asset_id.py \
+     /app/sentinel/execution/
+COPY shared/stock_strategy_shared/broker/alpaca.py \
+     /tmp/sentinel-authorized/alpaca.py
+COPY shared/stock_strategy_shared/broker/alpaca.py \
+     /shared/stock_strategy_shared/broker/alpaca.py
+
+USER root
+RUN install -d -m 0755 /opt/sentinel/bin \
+    && install -m 0444 /tmp/sentinel-authorized/alpaca.py \
+       "$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"/stock_strategy_shared/broker/alpaca.py \
+    && rm -r /tmp/sentinel-authorized \
+    && printf '%s\n' \
+       '#!/bin/sh' \
+       'printf "sentinel-authorized-capability/1\\n"' \
+       > /opt/sentinel/bin/authorized-runtime-capability-v1 \
+    && chmod 0555 /opt/sentinel/bin/authorized-runtime-capability-v1
+USER 10001:10001

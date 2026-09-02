@@ -80,7 +80,9 @@ def load_control(conn, *, for_update: bool = False) -> AutomationControl:
         raise MissingAutomationState(
             "durable automation control is missing; schema startup does not "
             "repair operational intent")
-    return _control(row)
+    control = _control(row)
+    from sentinel.automation.control_integrity import validate_control_lineage
+    return validate_control_lineage(conn, control)
 
 
 def control_generation_action(conn, *, generation: int) -> str | None:
@@ -367,6 +369,7 @@ def heartbeat_lease(
     if lease_seconds < 1:
         raise ValueError("lease_seconds must be positive")
     try:
+        load_control(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sentinel_automation_lease AS l SET"
@@ -402,6 +405,7 @@ def require_leader(conn, permit: LeaderPermit) -> LeaderPermit:
     holding AccessShare locks across scheduler sleeps or broker work.
     """
     try:
+        load_control(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT l.acquired_at,l.expires_at"

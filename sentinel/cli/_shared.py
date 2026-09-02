@@ -5,6 +5,10 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from functools import wraps
+import inspect
+import stat
+import subprocess
 import sys
 
 
@@ -16,6 +20,9 @@ AUTHORIZED_RUNTIME_ENV = "SENTINEL_AUTHORIZED_RUNTIME"
 AUTHORIZED_RUNTIME_VALUE = "SIGNED_DIGEST_SERVICE_V1"
 AUTHORIZED_RUNTIME_MARKER = Path("/opt/sentinel/authorized-runtime-v1")
 AUTHORIZED_RUNTIME_MARKER_BYTES = b"sentinel-authorized-runtime/1\n"
+AUTHORIZED_RUNTIME_CAPABILITY = Path(
+    "/opt/sentinel/bin/authorized-runtime-capability-v1")
+AUTHORIZED_RUNTIME_CAPABILITY_BYTES = b"sentinel-authorized-capability/1\n"
 
 # Commands which construct a broker, establish broker authority, or enable
 # unattended operation. Emergency fencing remains available in the ordinary
@@ -53,23 +60,90 @@ def setup_logging(verbose: bool) -> None:
     )
 
 
+def _authorized_capability_executes() -> bool:
+    """Prove the reviewed image contains its executable capability seam."""
+    try:
+        mode = AUTHORIZED_RUNTIME_CAPABILITY.lstat().st_mode
+        if (not stat.S_ISREG(mode) or stat.S_ISLNK(mode)
+                or mode & 0o111 == 0):
+            return False
+        result = subprocess.run(
+            [str(AUTHORIZED_RUNTIME_CAPABILITY)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return (result.returncode == 0
+            and result.stdout == AUTHORIZED_RUNTIME_CAPABILITY_BYTES
+            and result.stderr == b"")
+
+
+def _authorized_marker_bytes() -> bytes | None:
+    """Read the fixed marker without following a substituted symlink."""
+    try:
+        mode = AUTHORIZED_RUNTIME_MARKER.lstat().st_mode
+        if not stat.S_ISREG(mode) or stat.S_ISLNK(mode):
+            return None
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(str(AUTHORIZED_RUNTIME_MARKER), flags)
+        try:
+            return os.read(fd, len(AUTHORIZED_RUNTIME_MARKER_BYTES) + 1)
+        finally:
+            os.close(fd)
+    except OSError:
+        return None
+
+
 def require_authorized_runtime(command: str) -> int | None:
     """Refuse broker/authority commands outside the reviewed image surface."""
     if command not in AUTHORIZED_RUNTIME_COMMANDS:
         return None
-    try:
-        marker = AUTHORIZED_RUNTIME_MARKER.read_bytes()
-    except OSError:
-        marker = None
+    # Formerly AUTHORIZED_RUNTIME_MARKER.read_bytes(); the no-follow read keeps
+    # the same fixed-byte proof without accepting a substituted symlink.
+    marker = _authorized_marker_bytes()
     if (os.environ.get(AUTHORIZED_RUNTIME_ENV) == AUTHORIZED_RUNTIME_VALUE
-            and marker == AUTHORIZED_RUNTIME_MARKER_BYTES):
+            and marker == AUTHORIZED_RUNTIME_MARKER_BYTES
+            and _authorized_capability_executes()):
         return None
     print(
-        "REFUSED: this command requires the marker-bearing, digest-qualified "
-        "authorized Sentinel runtime; use scripts/sentinel-authorized-cli.sh",
+        "REFUSED: this command requires the executable-capability, marker-bearing, "
+        "digest-qualified authorized Sentinel runtime; use "
+        "scripts/sentinel-authorized-cli.sh",
         file=sys.stderr,
     )
     return EXIT_CONFIG
+
+
+def authorized_handler(command: str):
+    """Gate an image-exclusive handler even when invoked outside CLI dispatch."""
+    if command not in AUTHORIZED_RUNTIME_COMMANDS:
+        raise ValueError(f"{command!r} is not an authorized runtime command")
+
+    def decorate(handler):
+        if inspect.iscoroutinefunction(handler):
+            @wraps(handler)
+            async def async_guarded(*args, **kwargs):
+                refusal = require_authorized_runtime(command)
+                if refusal is not None:
+                    return refusal
+                return await handler(*args, **kwargs)
+            return async_guarded
+
+        @wraps(handler)
+        def guarded(*args, **kwargs):
+            refusal = require_authorized_runtime(command)
+            if refusal is not None:
+                return refusal
+            return handler(*args, **kwargs)
+        return guarded
+
+    return decorate
 
 
 def paper_refusal_types() -> tuple[type[BaseException], ...]:
@@ -128,11 +202,14 @@ def paper_refused(exc: BaseException) -> int:
 
 
 __all__ = [
+    "AUTHORIZED_RUNTIME_CAPABILITY",
+    "AUTHORIZED_RUNTIME_CAPABILITY_BYTES",
     "AUTHORIZED_RUNTIME_COMMANDS",
     "AUTHORIZED_RUNTIME_ENV",
     "AUTHORIZED_RUNTIME_MARKER",
     "AUTHORIZED_RUNTIME_MARKER_BYTES",
     "AUTHORIZED_RUNTIME_VALUE",
+    "authorized_handler",
     "EXIT_CONFIG",
     "EXIT_NOT_ESTABLISHED",
     "EXIT_OK",

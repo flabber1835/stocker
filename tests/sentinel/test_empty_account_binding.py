@@ -20,7 +20,7 @@ from sentinel import (
 from sentinel.empty_account_authority import build_candidate
 from sentinel.execution.contract import BrokerAccountIdentity, BrokerInstrument, Side
 from sentinel.execution.simulator import FaultKind, SimulatedBroker
-from sentinel.feed import store as feed_store
+from sentinel.feed import publication, store as feed_store
 from sentinel.guarded_administration import (
     AdministrativeAccessGrant,
     AdministrativeBrokerGuard,
@@ -71,11 +71,9 @@ def conn(pg):
             " first_price_date,last_price_date,is_delisted,snapshot_date)"
             " VALUES ('1001','AAA','Domestic Common Stock','Technology',"
             " NULL,'2020-01-01',NULL,FALSE,'2026-08-15')")
-        cur.execute(
-            "INSERT INTO sentinel_corpus_publications"
-            " (version,previous_version,window_start,window_end,evidence)"
-            " VALUES (81,NULL,'2026-08-15','2026-08-15','{}'::jsonb)")
     connection.commit()
+    publication.publish(
+        connection, window_start="2026-08-15", window_end="2026-08-15")
     yield connection
     connection.close()
 

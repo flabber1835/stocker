@@ -36,6 +36,10 @@ _FEED_RUNTIME_SCHEMA_VALIDATION_MODULES = {
     "test_issue_162_predecessor_closes",
 }
 _ISSUE_178_SOURCE_AUTHORITY_PREFIX = "test_issue_178_"
+_LEGACY_UNFINISHED_PUBLICATION_MODULES = {
+    "test_corpus_snapshot_stability",
+    "test_corpus_visibility",
+}
 
 
 def _legacy_feed_fixture_install(conn) -> None:
@@ -66,6 +70,33 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
     from sentinel.feed import store as feed_store
 
     module_name = request.module.__name__.rsplit(".", 1)[-1]
+    monkeypatch.setenv(
+        "SENTINEL_PUBLICATION_RECEIPT_KEY", "test-only-receipt-key-" * 4)
+
+    # These first-generation publication tests predate the ingest lifecycle:
+    # they create a run solely as a visibility label, then publish it without
+    # marking the synthetic run successful. Production publication now binds
+    # its receipt to a successful ingest. Complete only a run that the legacy
+    # test explicitly asks to publish; deliberately unpublished runs remain
+    # running and continue to exercise the original visibility property.
+    if module_name in _LEGACY_UNFINISHED_PUBLICATION_MODULES:
+        from sentinel.feed import publication as feed_publication
+
+        original_publish = feed_publication.publish
+
+        def publish_completed_legacy_run(conn, *, run_id=None, **kwargs):
+            if run_id is not None:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE feed_ingest_runs SET status='success',"
+                        " completed_at=COALESCE(completed_at,clock_timestamp()),"
+                        " updated_at=clock_timestamp() WHERE run_id=%s"
+                        " AND status='running'", (run_id,))
+                conn.commit()
+            return original_publish(conn, run_id=run_id, **kwargs)
+
+        monkeypatch.setattr(
+            feed_publication, "publish", publish_completed_legacy_run)
 
     # This module deliberately drives a fixed August 2026 scheduling tape. Its
     # run-loop tests also open fresh PostgreSQL connections, so bind the database

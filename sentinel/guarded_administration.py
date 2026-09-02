@@ -63,6 +63,17 @@ class AdministrativeAccessGrant:
             raise ValueError("takeover_epoch must be a positive integer")
 
 
+@dataclass(frozen=True)
+class AdministrativeBrokerIdentity:
+    """Inert broker metadata. It carries no transport or credential methods."""
+
+    name: str
+
+    def __post_init__(self) -> None:
+        if not isinstance(self.name, str) or not self.name.strip():
+            raise ValueError("administrative broker identity name must be non-empty")
+
+
 Check = Callable[
     [AdministrativeAccessGrant, AdministrativeBrokerOperation, object | None],
     None]
@@ -110,7 +121,20 @@ class GuardedAdministrativeBroker(SentinelBroker):
             raise TypeError("an administrative broker may be guarded once")
         if grant.operation not in admin_authority.ADMINISTRATIVE_OPERATIONS:
             raise TypeError("unknown administrative broker grant")
+        raw_adapter = getattr(inner, "adapter", None)
+        if isinstance(raw_adapter, str):
+            adapter_name = raw_adapter.strip()
+        else:
+            adapter_name = str(
+                getattr(raw_adapter, "name", "") or "").strip()
+        # Adapter metadata is descriptive, not authority.  Some narrow broker
+        # implementations deliberately expose no adapter object at all.  Keep
+        # the wrapper inert in that case by retaining only its concrete type
+        # name; never retain or re-expose the functional broker adapter.
+        if not adapter_name:
+            adapter_name = type(inner).__name__
         self._inner = inner
+        self._broker_identity = AdministrativeBrokerIdentity(adapter_name)
         self._grant = grant
         self._guard = guard
         self._account_verified = False
@@ -119,9 +143,13 @@ class GuardedAdministrativeBroker(SentinelBroker):
         self._transported_client_keys: set[str] = set()
 
     @property
-    def adapter(self):
-        # Handover uses this only to derive the durable broker name.
-        return getattr(self._inner, "adapter", None)
+    def adapter(self) -> AdministrativeBrokerIdentity:
+        """Compatibility identity only; never expose the functional adapter."""
+        return self._broker_identity
+
+    @property
+    def broker_identity(self) -> AdministrativeBrokerIdentity:
+        return self._broker_identity
 
     def has_credentials(self) -> bool:
         check = getattr(self._inner, "has_credentials", None)
@@ -182,8 +210,6 @@ class GuardedAdministrativeBroker(SentinelBroker):
                 "administrative cancellation must name unique exact order ids "
                 "from the latest complete account observation")
         cancelled = 0
-        # One inner call per exact id is deliberate: each HTTP DELETE is
-        # adjacent to its own fresh authority verification.
         for order_id in exact_ids:
             operation = AdministrativeBrokerOperation.CANCEL_ORDER
             self._before(operation)
@@ -266,8 +292,6 @@ class GuardedAdministrativeBroker(SentinelBroker):
                 "differs from the latest complete account observation")
         operation = AdministrativeBrokerOperation.SUBMIT_LIQUIDATION
         self._before(operation)
-        # Mark before transport: an exception has UNKNOWN broker outcome and
-        # cannot license a second attempt through this wrapper instance.
         self._transported_client_keys.add(command.client_key)
         return await self._inner.submit_liquidation(command)
 
@@ -513,7 +537,7 @@ def fresh_connection_factory(conn):
 
 __all__ = [
     "AdministrativeAccessGrant", "AdministrativeBrokerGuard",
-    "AdministrativeBrokerOperation", "GuardedAdministrativeBroker",
-    "GuardedAdministrativeExecutionBroker",
+    "AdministrativeBrokerIdentity", "AdministrativeBrokerOperation",
+    "GuardedAdministrativeBroker", "GuardedAdministrativeExecutionBroker",
     "build_fresh_administrative_guard", "fresh_connection_factory",
 ]

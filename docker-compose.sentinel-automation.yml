@@ -6,6 +6,7 @@ x-sentinel-authorized-environment: &sentinel-authorized-environment
   ALPACA_API_KEY: ${ALPACA_API_KEY:-}
   ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}
   SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
+  SENTINEL_PUBLICATION_RECEIPT_KEY: ${SENTINEL_PUBLICATION_RECEIPT_KEY:?set SENTINEL_PUBLICATION_RECEIPT_KEY}
   SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
   SENTINEL_GIT_COMMIT: ${SENTINEL_GIT_COMMIT:?set exact built Git commit}
   SENTINEL_RUNTIME_IMAGE_DIGEST: ${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable runtime image digest}
@@ -168,6 +169,7 @@ services:
     entrypoint: ["python", "-m", "sentinel.shadow_supervisor"]
     environment:
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
+      SENTINEL_PUBLICATION_RECEIPT_KEY: ${SENTINEL_PUBLICATION_RECEIPT_KEY:?set SENTINEL_PUBLICATION_RECEIPT_KEY}
       SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
       SENTINEL_GIT_COMMIT: ${SENTINEL_GIT_COMMIT:?set exact built Git commit}
       SENTINEL_RUNTIME_IMAGE_DIGEST: ${SENTINEL_RUNTIME_IMAGE_DIGEST:?set immutable runtime image digest}

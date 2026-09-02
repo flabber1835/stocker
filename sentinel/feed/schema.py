@@ -359,7 +359,22 @@ DDL = [
         published_at     TIMESTAMPTZ NOT NULL DEFAULT NOW(),
         window_start     DATE,
         window_end       DATE,
-        evidence         JSONB NOT NULL DEFAULT '{}'::jsonb)""",
+        evidence         JSONB NOT NULL DEFAULT '{}'::jsonb
+                         CONSTRAINT sentinel_publication_evidence_object
+                         CHECK (jsonb_typeof(evidence) = 'object'))""",
+    # CREATE TABLE IF NOT EXISTS does not strengthen an installed appliance.
+    # Add the JSON-object witness explicitly for pre-existing schemas too.
+    """DO $$
+        BEGIN
+          IF NOT EXISTS (
+              SELECT 1 FROM pg_constraint
+               WHERE conrelid = 'sentinel_corpus_publications'::regclass
+                 AND conname = 'sentinel_publication_evidence_object') THEN
+            ALTER TABLE sentinel_corpus_publications
+              ADD CONSTRAINT sentinel_publication_evidence_object
+              CHECK (jsonb_typeof(evidence) = 'object');
+          END IF;
+        END $$""",
     # A GAP IN THE CHAIN IS THE CORRUPTION SIGNAL: rows written by a run that
     # never published. Cheap to detect precisely because the link is explicit.
     """CREATE INDEX IF NOT EXISTS idx_sentinel_publications_prev
@@ -369,6 +384,81 @@ DDL = [
     # table the planner would otherwise seq-scan once per query plan.
     """CREATE INDEX IF NOT EXISTS idx_sentinel_publications_run
         ON sentinel_corpus_publications (run_id)""",
+    # Publication authority is a separate append-only relation. The singleton
+    # records the legacy prefix present when this migration is installed; every
+    # later publication must acquire a same-transaction receipt.
+    """CREATE TABLE IF NOT EXISTS sentinel_publication_validation_policy (
+        id                     BOOLEAN PRIMARY KEY DEFAULT TRUE CHECK (id),
+        required_after_version BIGINT NOT NULL CHECK (required_after_version >= 0))""",
+    """INSERT INTO sentinel_publication_validation_policy
+          (id, required_after_version)
+        SELECT TRUE, COALESCE(MAX(version), 0)
+          FROM sentinel_corpus_publications
+        ON CONFLICT (id) DO NOTHING""",
+    """CREATE TABLE IF NOT EXISTS sentinel_publication_validation_receipts (
+        publication_version       BIGINT PRIMARY KEY,
+        previous_version          BIGINT,
+        run_id                    UUID,
+        published_at              TIMESTAMPTZ NOT NULL,
+        window_start              DATE,
+        window_end                DATE,
+        evidence                  JSONB NOT NULL
+                                  CHECK (jsonb_typeof(evidence) = 'object'),
+        origin_run_status         TEXT CHECK (origin_run_status IS NULL OR
+                                               origin_run_status = 'success'),
+        previous_receipt_sha256   TEXT CHECK (
+                                     previous_receipt_sha256 IS NULL OR
+                                     previous_receipt_sha256 ~ '^[0-9a-f]{64}$'),
+        receipt_sha256            TEXT NOT NULL CHECK (
+                                     receipt_sha256 ~ '^[0-9a-f]{64}$'),
+        receipt_hmac_sha256       TEXT NOT NULL CHECK (
+                                     receipt_hmac_sha256 ~ '^[0-9a-f]{64}$'),
+        FOREIGN KEY (publication_version)
+          REFERENCES sentinel_corpus_publications(version)
+          DEFERRABLE INITIALLY DEFERRED)""",
+    """ALTER TABLE sentinel_publication_validation_receipts
+        ADD COLUMN IF NOT EXISTS receipt_hmac_sha256 TEXT NOT NULL
+        CHECK (receipt_hmac_sha256 ~ '^[0-9a-f]{64}$')""",
+    """CREATE OR REPLACE FUNCTION sentinel_require_publication_receipt()
+        RETURNS TRIGGER LANGUAGE plpgsql AS $$
+        DECLARE policy_count BIGINT;
+        DECLARE required_after BIGINT;
+        BEGIN
+          SELECT COUNT(*), MIN(required_after_version)
+            INTO policy_count, required_after
+            FROM sentinel_publication_validation_policy;
+          IF policy_count <> 1 THEN
+            RAISE EXCEPTION 'publication validation policy is missing or ambiguous';
+          END IF;
+          IF NEW.version > required_after AND NOT EXISTS (
+              SELECT 1
+                FROM sentinel_publication_validation_receipts r
+               WHERE r.publication_version = NEW.version
+                 AND r.previous_version IS NOT DISTINCT FROM NEW.previous_version
+                 AND r.run_id IS NOT DISTINCT FROM NEW.run_id
+                 AND r.published_at = NEW.published_at
+                 AND r.window_start IS NOT DISTINCT FROM NEW.window_start
+                 AND r.window_end IS NOT DISTINCT FROM NEW.window_end
+                 AND r.evidence = NEW.evidence - 'publication_validation'
+                 AND r.receipt_hmac_sha256 =
+                     NEW.evidence->'publication_validation'->>'receipt_hmac_sha256'
+                 AND r.origin_run_status IS NOT DISTINCT FROM
+                     CASE WHEN NEW.run_id IS NULL THEN NULL ELSE 'success' END
+                 AND (NEW.run_id IS NULL OR EXISTS (
+                     SELECT 1 FROM feed_ingest_runs ir
+                      WHERE ir.run_id = NEW.run_id
+                        AND ir.status = 'success'))) THEN
+            RAISE EXCEPTION 'publication version % lacks its durable validation receipt',
+                            NEW.version;
+          END IF;
+          RETURN NEW;
+        END $$""",
+    """DROP TRIGGER IF EXISTS sentinel_require_publication_receipt
+        ON sentinel_corpus_publications""",
+    """CREATE CONSTRAINT TRIGGER sentinel_require_publication_receipt
+        AFTER INSERT ON sentinel_corpus_publications
+        DEFERRABLE INITIALLY DEFERRED
+        FOR EACH ROW EXECUTE FUNCTION sentinel_require_publication_receipt()""",
 
     # WHICH INGEST LAST TOUCHED THIS ROW. Nearly free — `write_bars` already
     # runs inside an `IngestRun` — and it answers "which ingest produced this
@@ -871,6 +961,14 @@ DDL = [
     """DROP TRIGGER IF EXISTS sentinel_refuse_append_only_mutation ON sentinel_corpus_publications""",
     """CREATE TRIGGER sentinel_refuse_append_only_mutation
         BEFORE UPDATE OR DELETE ON sentinel_corpus_publications
+        FOR EACH ROW EXECUTE FUNCTION sentinel_refuse_append_only_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_refuse_append_only_mutation ON sentinel_publication_validation_receipts""",
+    """CREATE TRIGGER sentinel_refuse_append_only_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_publication_validation_receipts
+        FOR EACH ROW EXECUTE FUNCTION sentinel_refuse_append_only_mutation()""",
+    """DROP TRIGGER IF EXISTS sentinel_refuse_append_only_mutation ON sentinel_publication_validation_policy""",
+    """CREATE TRIGGER sentinel_refuse_append_only_mutation
+        BEFORE UPDATE OR DELETE ON sentinel_publication_validation_policy
         FOR EACH ROW EXECUTE FUNCTION sentinel_refuse_append_only_mutation()""",
     """DROP TRIGGER IF EXISTS sentinel_refuse_append_only_mutation ON sentinel_action_generation_events""",
     """CREATE TRIGGER sentinel_refuse_append_only_mutation

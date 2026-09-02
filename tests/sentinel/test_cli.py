@@ -51,7 +51,13 @@ from stock_strategy_shared.broker.alpaca import (  # noqa: E402
 def _authorized_runtime_surface(monkeypatch, tmp_path):
     marker = tmp_path / "authorized-runtime-v1"
     marker.write_bytes(cli_shared.AUTHORIZED_RUNTIME_MARKER_BYTES)
+    capability = tmp_path / "authorized-runtime-capability-v1"
+    capability.write_text(
+        "#!/bin/sh\nprintf 'sentinel-authorized-capability/1\\n'\n")
+    capability.chmod(0o755)
     monkeypatch.setattr(cli_shared, "AUTHORIZED_RUNTIME_MARKER", marker)
+    monkeypatch.setattr(
+        cli_shared, "AUTHORIZED_RUNTIME_CAPABILITY", capability)
     monkeypatch.setenv(
         cli_shared.AUTHORIZED_RUNTIME_ENV, cli_shared.AUTHORIZED_RUNTIME_VALUE)
 

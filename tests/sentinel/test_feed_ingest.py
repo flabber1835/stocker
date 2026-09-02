@@ -53,6 +53,9 @@ def conn(pg):
                   "sentinel_bars", "sentinel_spy_total_return",
                   "sentinel_defensive_bars",
                   "sentinel_actions", "sentinel_universe",
+                  "sentinel_publication_validation_receipts",
+                  "sentinel_publication_validation_policy",
+                  "sentinel_corpus_publications",
                   "feed_ingest_runs"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
     c.commit()

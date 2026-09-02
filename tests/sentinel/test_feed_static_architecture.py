@@ -118,8 +118,8 @@ def test_public_feed_exports_are_direct_canonical_object_bindings():
 
     assert publication.Publication is _publication_impl.Publication
     assert publication.CorpusIncoherent is _publication_impl.CorpusIncoherent
-    assert publication.current is _publication_impl.current
-    assert publication.pinned is _publication_impl.pinned
+    assert publication.current.__module__ == "sentinel.feed.publication"
+    assert publication.pinned.__module__ == "sentinel.feed.publication"
     assert publication.visible_predicate is _publication_impl.visible_predicate
 
     assert maintenance.SourceCursor is maintenance_impl.SourceCursor

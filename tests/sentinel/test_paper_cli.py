@@ -39,6 +39,12 @@ def _authorized_runtime_surface(monkeypatch, tmp_path):
     marker = tmp_path / "authorized-runtime-v1"
     marker.write_bytes(cli_shared.AUTHORIZED_RUNTIME_MARKER_BYTES)
     monkeypatch.setattr(cli_shared, "AUTHORIZED_RUNTIME_MARKER", marker)
+    capability = tmp_path / "authorized-runtime-capability-v1"
+    capability.write_text(
+        "#!/bin/sh\nprintf 'sentinel-authorized-capability/1\\n'\n")
+    capability.chmod(0o755)
+    monkeypatch.setattr(
+        cli_shared, "AUTHORIZED_RUNTIME_CAPABILITY", capability)
     monkeypatch.setenv(
         cli_shared.AUTHORIZED_RUNTIME_ENV, cli_shared.AUTHORIZED_RUNTIME_VALUE)
 
@@ -808,6 +814,7 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         seen["rollout"] = (actual_config, vars(args))
         return cli.EXIT_OK
 
+    from sentinel.cli import authorized_routes
     for command, handler in {
         "prepare-paper-plan": prepare,
         "inspect-paper-account": inspect,
@@ -821,7 +828,10 @@ def test_command_parser_preserves_required_confirmations_and_warmup_default(
         "rotate-system-certificate": activate_certificate,
         "set-paper-rollout-mode": set_rollout,
     }.items():
-        monkeypatch.setitem(cli.ROUTES, command, handler)
+        routes = (authorized_routes.ROUTES
+                  if command in cli._shared.AUTHORIZED_RUNTIME_COMMANDS
+                  else cli.ROUTES)
+        monkeypatch.setitem(routes, command, handler)
 
     assert cli.main([
         "inspect-paper-account", "--deployment-id", "nas-01",

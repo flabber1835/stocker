@@ -97,6 +97,16 @@ COPY docs/sentinel-handoff/00_README/ ./docs/sentinel-handoff/00_README/
 COPY config/paper-observation-boundary.json \
      /app/config/paper-observation-boundary.json
 COPY sentinel/ /app/sentinel/
+# Broker-capable handlers are copied back only by Dockerfile.sentinel-authorized.
+# Keeping their source out of this filesystem makes the dispatch distinction
+# structural instead of another environment/marker convention.
+RUN rm /app/sentinel/cli/authorized_routes.py \
+       /app/sentinel/execution/alpaca.py \
+       /app/sentinel/execution/alpaca_asset_id.py \
+       /shared/stock_strategy_shared/broker/alpaca.py \
+    && rm "$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"/stock_strategy_shared/broker/alpaca.py \
+    && find "$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"/stock_strategy_shared/broker \
+         -type f -path '*/__pycache__/alpaca*.pyc' -delete
 
 # `ownership.jsonl` lives HERE as retained audit evidence — see
 # docker-compose.sentinel.yml. The canonical ownership authority is the account

@@ -1,6 +1,6 @@
 """Exact PostgreSQL persistence for signed authority and rollout state.
 
-This module never commits or rolls back.  Lifecycle owners define transaction
+This module never commits or rolls back. Lifecycle owners define transaction
 boundaries and call these operations in the established lock order.
 """
 from __future__ import annotations
@@ -21,14 +21,7 @@ AUTHORITY_TRANSITION_LOCK_KEY = 0x5E27_A071
 
 
 def lock_authority_transition(conn) -> None:
-    """Serialize every durable authority mutation for this transaction.
-
-    This transaction-scoped lock is deliberately separate from the execution
-    writer lock.  It is the common first lock for execution-certificate and
-    administrative-certificate transitions, global key revocation, and
-    one-shot administrative-authority consumption; the existing row-lock
-    order inside each repository operation remains unchanged.
-    """
+    """Serialize every durable authority mutation for this transaction."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT pg_advisory_xact_lock(%s)",
@@ -50,10 +43,6 @@ def authority_state_for_install(
         if int(cur.fetchone()[0]) != 0:
             raise AuthorityRefused(
                 "durable signed-authority singleton is missing; refusing repair")
-        # Do not create durable state until all certificate/supersession checks
-        # have passed.  That keeps a refused install side-effect free even for
-        # direct callers that catch the refusal and later commit their outer
-        # transaction.
         return 0, 0, None, False
 
 
@@ -354,7 +343,7 @@ def load_active_certificate(conn) -> SystemCertificate | None:
         rows = cur.fetchall()
     if not rows:
         return None
-    if len(rows) != 1:  # The partial unique index should make this impossible.
+    if len(rows) != 1:
         raise AuthorityRefused("more than one system certificate is active")
     return _row_to_certificate(rows[0])
 
@@ -384,6 +373,48 @@ def revoke_legacy_certificate_rows(
             (certificate_sha256, reason))
 
 
+def _validate_rollout_lineage(conn, state: RolloutState) -> None:
+    """Replay immutable rollout events and require exact singleton agreement."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT version,from_mode,to_mode,certificate_sha256"
+            " FROM sentinel_rollout_events ORDER BY version")
+        rows = cur.fetchall()
+
+    mode = RolloutMode.PINNED_1_00
+    version = 1
+    certificate_sha = None
+    for row in rows:
+        event_version = int(row[0])
+        if event_version != version + 1:
+            raise AuthorityRefused(
+                "rollout event history is not contiguous from genesis")
+        try:
+            from_mode = RolloutMode(str(row[1]))
+            to_mode = RolloutMode(str(row[2]))
+        except ValueError as exc:
+            raise AuthorityRefused(
+                "rollout event history contains an unknown mode") from exc
+        if from_mode is not mode:
+            raise AuthorityRefused(
+                "rollout event predecessor disagrees with immutable history")
+        event_certificate = str(row[3]) if row[3] else None
+        if to_mode is RolloutMode.PINNED_1_00 and event_certificate is not None:
+            raise AuthorityRefused(
+                "pinned rollout event carries controller authority")
+        if to_mode is RolloutMode.CONTROLLER and event_certificate is None:
+            raise AuthorityRefused(
+                "controller rollout event omits its authorizing certificate")
+        mode = to_mode
+        version = event_version
+        certificate_sha = event_certificate
+
+    if (state.mode is not mode or state.version != version
+            or state.certificate_sha256 != certificate_sha):
+        raise AuthorityRefused(
+            "durable rollout singleton disagrees with immutable rollout history")
+
+
 def load_rollout_state(conn) -> RolloutState:
     with conn.cursor() as cur:
         cur.execute(
@@ -407,7 +438,9 @@ def load_rollout_state(conn) -> RolloutState:
     if mode is RolloutMode.CONTROLLER and certificate_sha is None:
         raise AuthorityRefused(
             "controller rollout state has no authorizing certificate")
-    return RolloutState(mode, version, certificate_sha)
+    state = RolloutState(mode, version, certificate_sha)
+    _validate_rollout_lineage(conn, state)
+    return state
 
 
 def set_rollout_rows(

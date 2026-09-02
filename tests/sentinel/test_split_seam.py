@@ -213,7 +213,10 @@ def conn(pg):
     with c.cursor() as cur:
         for t in ("sentinel_processed_sessions",
                   "sentinel_anomaly_observation_events",
-                  "sentinel_bar_split_repairs", "sentinel_corpus_publications",
+                  "sentinel_bar_split_repairs",
+                  "sentinel_publication_validation_receipts",
+                  "sentinel_publication_validation_policy",
+                  "sentinel_corpus_publications",
                   "sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bars", "sentinel_actions", "sentinel_universe",

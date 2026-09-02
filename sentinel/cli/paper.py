@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 
 from sentinel.cli._shared import (
     EXIT_CONFIG, EXIT_NOT_ESTABLISHED, EXIT_OK,
+    authorized_handler,
+    require_authorized_runtime,
     paper_refusal_types as _paper_refusal_types,
     paper_refused as _paper_refused,
 )
@@ -55,8 +57,12 @@ def cmd_compare_paper_warmup(_config: SentinelConfig | None, args) -> int:
     sys.stdout.buffer.write(canonical_json_bytes(record) + b"\n")
     return EXIT_OK if identical else EXIT_NOT_ESTABLISHED
 
+@authorized_handler("inspect-paper-account")
 async def _inspect_paper_account(config: SentinelConfig, args) -> int:
     """Print the exact inherited paper book; expose no mutation operation."""
+    refusal = require_authorized_runtime("inspect-paper-account")
+    if refusal is not None:
+        return refusal
     from sentinel import paper
     from sentinel.feed import calendar, store as feed_store
 
@@ -97,8 +103,12 @@ async def _inspect_paper_account(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+@authorized_handler("inspect-empty-paper-account")
 async def _inspect_empty_paper_account(config: SentinelConfig, args) -> int:
     """Read the exact pre-binding account through the empty-only facade."""
+    refusal = require_authorized_runtime("inspect-empty-paper-account")
+    if refusal is not None:
+        return refusal
     from sentinel import binding as binding_mod, empty_account, paper, schema
     from sentinel.feed import calendar, store as feed_store
 
@@ -133,8 +143,12 @@ async def _inspect_empty_paper_account(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+@authorized_handler("bind-empty-paper-account")
 async def _bind_empty_paper_account(config: SentinelConfig, args) -> int:
     """One-time stable-flat binding; the broker facade cannot mutate."""
+    refusal = require_authorized_runtime("bind-empty-paper-account")
+    if refusal is not None:
+        return refusal
     from sentinel import (
         administrative_authority, binding as binding_mod, empty_account,
         paper, schema,
@@ -190,8 +204,12 @@ async def _bind_empty_paper_account(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+@authorized_handler("prepare-paper-plan")
 async def _prepare_paper_plan(config: SentinelConfig, args) -> int:
     """Prepare and adopt the current durable plan; never mutate the broker."""
+    refusal = require_authorized_runtime("prepare-paper-plan")
+    if refusal is not None:
+        return refusal
     from sentinel import paper, schema
     from sentinel.automation_runtime import shadow_config_from_env
     from sentinel.feed import store as feed_store
@@ -274,8 +292,12 @@ async def _current_paper_plan(config: SentinelConfig, _args=None) -> int:
             else EXIT_NOT_ESTABLISHED)
 
 
+@authorized_handler("execute-paper-plan")
 async def _execute_paper_plan(config: SentinelConfig, args) -> int:
     """Execute only the durable current plan after explicit paper confirmation."""
+    refusal = require_authorized_runtime("execute-paper-plan")
+    if refusal is not None:
+        return refusal
     from sentinel import paper, schema
     from sentinel.feed import store as feed_store
 

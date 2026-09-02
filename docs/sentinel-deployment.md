@@ -717,6 +717,16 @@ corpus digests are produced by reading rows back out of that server, so a minor
 upgrade can move `corpus_hash` without a single row changing. A warning would
 have been the wrong shape: it prints, and then the run proceeds.
 
+**Bulk SEP file promotion is a recoverable generation transition.** The
+splitter stages and fsyncs every year and the fingerprint, then durably records
+`PREPARED`, backs up and fsyncs the complete prior generation before recording
+`BACKED_UP`, and promotes the new files. A crash before `COMMITTED` restores the
+old generation; a crash after it finishes cleanup. The marker names one token
+and exact staging/backup paths, and recovery refuses any disagreement. Every
+repository consumer of the per-year files must refuse while the promotion
+marker exists, so the per-file rename interval cannot be observed as a valid
+mixed generation.
+
 **The whole dependency closure is fingerprinted and artifact-hash LOCKED.**
 `requirements.txt` pins the direct dependencies; pip resolves everything
 underneath them, so two builds can declare identical versions and install
@@ -1468,10 +1478,14 @@ that has echoed a Sharadar key has put it in scrollback and in the session
 transcript.
 
 It refuses if `SHARADAR_API_KEY` is absent or still a placeholder, generates
-`SENTINEL_POSTGRES_PASSWORD` (the Stocker file has no equivalent, and compose
-declares it `:?` so it will not start without one), and warns when a carried
-password contains a character compose splices into a DSN or a literal `$` it
-would interpolate.
+`SENTINEL_POSTGRES_PASSWORD` and the independent
+`SENTINEL_PUBLICATION_RECEIPT_KEY` (the Stocker file has no equivalent for
+either, and compose declares both `:?` so it will not start without them), and
+warns when a carried password contains a character compose splices into a DSN
+or a literal `$` it would interpolate. The receipt key authenticates every new
+publication-validation receipt; preserve it with the deployment secrets and
+restore the same value after recovery. Rotating or losing it deliberately makes
+existing certified ancestry unverifiable.
 
 The Sharadar client also treats an authenticated request as a redaction
 boundary. `httpx`/`httpcore` URL diagnostics are suppressed while the request,

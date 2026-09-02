@@ -11,6 +11,8 @@ from zoneinfo import ZoneInfo
 from sentinel.cli._shared import (
     EXIT_CONFIG, EXIT_OK,
     PINNED_ROLLOUT_RISK_WARNING,
+    authorized_handler,
+    require_authorized_runtime,
     paper_refusal_types as _paper_refusal_types,
     paper_refused as _paper_refused,
 )
@@ -203,9 +205,13 @@ def _authorized_administrative_access(
     return grant, guard
 
 
+@authorized_handler("install-administrative-certificate")
 def _install_administrative_certificate(
         config: SentinelConfig, args) -> int:
     """Verify and stage a pre-binding/admin certificate; no broker."""
+    refusal = require_authorized_runtime("install-administrative-certificate")
+    if refusal is not None:
+        return refusal
     from sentinel import administrative_authority, authority, schema
     from sentinel.automation_runtime import config_from_env
     from sentinel.execution import journal
@@ -262,9 +268,13 @@ def _install_administrative_certificate(
     return EXIT_OK
 
 
+@authorized_handler("activate-administrative-certificate")
 def _activate_administrative_certificate(
         config: SentinelConfig, args) -> int:
     """Activate/rotate exact administrative authority; no broker."""
+    refusal = require_authorized_runtime("activate-administrative-certificate")
+    if refusal is not None:
+        return refusal
     from sentinel import administrative_authority, authority, schema
     from sentinel.automation_runtime import config_from_env
     from sentinel.execution import journal
@@ -355,8 +365,12 @@ def _revoke_administrative_certificate(
     return EXIT_OK
 
 
+@authorized_handler("install-system-certificate")
 def _install_system_certificate(config: SentinelConfig, args) -> int:
     """Verify and stage an exact offline-issued certificate; no broker."""
+    refusal = require_authorized_runtime("install-system-certificate")
+    if refusal is not None:
+        return refusal
     from sentinel import authority, binding as binding_mod, schema
     from sentinel.automation_runtime import config_from_env
     from sentinel.execution import journal
@@ -425,8 +439,12 @@ def _install_system_certificate(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+@authorized_handler("activate-system-certificate")
 def _activate_system_certificate(config: SentinelConfig, args) -> int:
     """Activate/rotate one staged certificate and rollout atomically."""
+    refusal = require_authorized_runtime("activate-system-certificate")
+    if refusal is not None:
+        return refusal
     from sentinel import authority, binding as binding_mod, schema
     from sentinel.automation_runtime import config_from_env
     from sentinel.execution import journal
@@ -585,8 +603,12 @@ def _revoke_system_certificate(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+@authorized_handler("set-paper-rollout-mode")
 def _set_paper_rollout_mode(config: SentinelConfig, args) -> int:
     """Perform one explicit, audited exposure-rollout transition."""
+    refusal = require_authorized_runtime("set-paper-rollout-mode")
+    if refusal is not None:
+        return refusal
     from sentinel import authority, schema
     from sentinel.execution import journal
     from sentinel.feed import store as feed_store

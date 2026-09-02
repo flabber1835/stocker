@@ -39,7 +39,6 @@ from sentinel.automation.model import (
     TransientInfrastructureFailure,
 )
 
-
 __all__ = [
     "AckState", "AlertRecord", "AlertState", "AutomationConfig",
     "AutomationControl", "AutomationRefused", "CallbackDeadlineExceeded",
