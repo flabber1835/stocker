@@ -34,6 +34,7 @@ def conn(pg):
             cur.execute(f'DROP TABLE IF EXISTS "{table}" CASCADE')
     connection.commit()
     schema.ensure_schema(connection)
+    feed_store.require_feed_schema(connection)
     yield connection
     connection.close()
 
