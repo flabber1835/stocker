@@ -15,6 +15,7 @@ if str(SCRIPT_DIR) not in sys.path:
 import sentinel_go_actual_deadline_guard as guard
 import sentinel_go_phase_controller as controller
 import sentinel_go_phase_entry as phase
+import sentinel_go_probe_contract as probe_contract
 
 
 class Runner:
@@ -25,6 +26,13 @@ class Runner:
 class BoundedRunner(Runner):
     def run_with_timeout(self, argv, *, env=None, timeout_seconds, cwd=None):
         raise AssertionError("guard-only unit must not create subprocess work")
+
+
+class ProductionShapedRunner(Runner):
+    def __init__(self):
+        # DiagnosticRunner/CommandRunner expose this seam; the probe contract
+        # converts it to a deadline-enforced host runner.
+        self._run = object()
 
 
 def _install_with_value(monkeypatch, value):
@@ -76,6 +84,25 @@ def test_deadline_guard_preserves_bounded_runner_capability_for_inner_probe_cont
     assert controller._actual_remaining_ms(
         bounded, env={}, runtime_ref="sha256:" + "a" * 64) == 12_345
     assert observed["runner"] is bounded
+
+
+def test_deadline_guard_preserves_production_command_runner_deadline_seam(monkeypatch):
+    runner = ProductionShapedRunner()
+    observed = {}
+
+    def actual(candidate, *, env, runtime_ref):
+        observed["runner"] = candidate
+        assert probe_contract._runner_deadline_method(candidate) is not None
+        return 23_456
+
+    monkeypatch.setattr(controller, "_actual_remaining_ms", actual)
+    monkeypatch.delattr(controller, guard._INSTALLED_MARKER, raising=False)
+    monkeypatch.setitem(phase._PHASE, "prepared", True)
+    guard.install()
+
+    assert controller._actual_remaining_ms(
+        runner, env={}, runtime_ref="sha256:" + "a" * 64) == 23_456
+    assert observed["runner"] is runner
 
 
 def test_unprepared_none_remains_guarded_by_existing_phase_contract(monkeypatch):
