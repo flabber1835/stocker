@@ -150,4 +150,10 @@ else:
 print("PR301_STRICT_RECOVERED_ORDER_PASS")
   '
 
+# Exercise the actual ordinary production image and Compose database contract
+# from a cold/stopped PostgreSQL state. This covers the preflight seam that the
+# unit suite cannot reproduce: UID 10001, Compose DNS, authentication, health,
+# import failure, and the typed child marker protocol all run in real containers.
+python3 scripts/test_go_probe_runtime_integration.py sentinel:latest
+
 printf '%s\n' 'PR301_RUNTIME_BOUNDARY_PASS'

@@ -72,6 +72,15 @@ def _run_report(monkeypatch, *, status: str, reason_code: str) -> int:
         "_resolve_compose_args",
         lambda runner, env: ["-f", "docker-compose.sentinel.yml"],
     )
+    # This unit isolates the returned read-only preflight state. The real
+    # stopped/unhealthy PostgreSQL behavior is exercised by
+    # scripts/test_go_probe_runtime_integration.py in the production-image
+    # runtime boundary, so mark the infrastructure prerequisite healthy here.
+    monkeypatch.setattr(
+        preflight.probe_contract,
+        "ensure_postgres_ready",
+        lambda runner, env, compose_args: None,
+    )
     return preflight.main([])
 
 

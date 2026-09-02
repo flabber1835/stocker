@@ -31,43 +31,110 @@ entry = controller.entry
 
 
 _PREPARATION_CODE = r'''
+import hashlib
 import json, os
-from datetime import datetime, timezone
-from sentinel import backup_guard, schema
-from sentinel.feed import calendar, outage_recovery, publication, store
-from sentinel.shadow_runtime import publication_not_before
 
 SUCCESS_MARKER = 'SENTINEL_GO_PREPARATION='
 RECOVERY_MARKER = 'SENTINEL_GO_PREPARATION_RECOVERY='
 FAILURE_MARKER = 'SENTINEL_GO_PREPARATION_FAILURE='
+IDENTITY_REASON_CODES = {
+    'NO_PERMANENT_ID': 'SOURCE_IDENTITY_NO_PERMANENT_ID',
+    'IDENTITY_INTERVAL_GAP': 'SOURCE_IDENTITY_INTERVAL_GAP',
+    'TICKER_REUSE_UNRESOLVED': 'SOURCE_IDENTITY_TICKER_REUSE_UNRESOLVED',
+    'AMBIGUOUS_IDENTITY': 'SOURCE_IDENTITY_AMBIGUOUS',
+}
+
+
+def failure_detail(exc):
+    raw = str(exc).strip()
+    if not raw:
+        return {}
+    digest = hashlib.sha256(raw.encode('utf-8', errors='replace')).hexdigest()
+    lowered = raw.lower()
+    prohibited = ('http://', 'https://', 'api_key', 'api-key', 'password',
+                  'authorization', 'postgres://', 'postgresql://', 'apca-api-')
+    value = {'detail_sha256': digest}
+    if any(item in lowered for item in prohibited) or '\n' in raw or '\r' in raw:
+        return value
+    if len(raw) > 420:
+        raw = raw[:365] + ' ... [sha256:%s]' % digest[:16]
+    value['detail'] = raw
+    return value
+
+
+def reason_code(phase, exc):
+    name = type(exc).__name__
+    lowered = str(exc).lower()
+    if name == 'VendorPublicationUnstable':
+        return 'SOURCE_PUBLICATION_UNSTABLE'
+    if name == 'MutationCursorUnavailable':
+        return 'LOCAL_CURSOR_MISSING'
+    if name == 'HistoricalIdentityMutation':
+        return 'SOURCE_IDENTITY_HISTORY_MUTATION'
+    if name == 'SepMutationIdentityRefused':
+        identity_reason = str(getattr(exc, 'reason_code', '') or '')
+        return IDENTITY_REASON_CODES.get(
+            identity_reason, 'SOURCE_IDENTITY_UNRESOLVED')
+    if name in {'SharadarMutationRefused', 'SourceAuthorityRefused'}:
+        if 'source cursor' in lowered:
+            return 'LOCAL_CURSOR_CORRUPT'
+        if 'no positive raw close' in lowered:
+            return 'SOURCE_RAW_CLOSE_INVALID'
+        if 'lastupdated' in lowered or 'invalid date' in lowered:
+            return 'SOURCE_CDC_INVALID'
+        return 'SOURCE_AUTHORITY_REFUSED'
+    return {
+        'RUNTIME_IMPORT': 'PREPARATION_RUNTIME_IMPORT_FAILURE',
+        'DATABASE_CONNECT': 'PREPARATION_DATABASE_CONNECT_FAILURE',
+        'BACKUP_DURABILITY': 'PREPARATION_BACKUP_DURABILITY_REFUSED',
+        'SCHEMA_MIGRATION': 'PREPARATION_SCHEMA_MIGRATION_FAILED',
+        'SOURCE_FINAL_FRONTIER': 'PREPARATION_SOURCE_FINAL_FRONTIER_FAILED',
+        'DAILY_CATCHUP': 'PREPARATION_DAILY_CATCHUP_FAILED',
+        'PUBLICATION_CHECK': 'PREPARATION_PUBLICATION_CHECK_FAILED',
+    }.get(str(phase), 'PREPARATION_RUNTIME_FAILURE')
 
 
 def emit_failure(phase, exc):
-    print(FAILURE_MARKER + json.dumps({
+    value = {
         'phase': str(phase),
         'error_type': type(exc).__name__,
-    }, sort_keys=True), flush=True)
+        'reason_code': reason_code(phase, exc),
+    }
+    if type(exc).__name__ == 'SepMutationIdentityRefused':
+        identity_reason = str(getattr(exc, 'reason_code', '') or '')
+        if identity_reason:
+            value['identity_reason'] = identity_reason
+    value.update(failure_detail(exc))
+    print(FAILURE_MARKER + json.dumps(value, sort_keys=True), flush=True)
 
 
-def latest_source_final(now):
-    target = calendar.latest_closed_session(now)
-    while now < publication_not_before(target):
-        previous = calendar.previous_sessions(target, 2)
-        if len(previous) != 2 or previous[-1] != target:
-            raise RuntimeError('source-final predecessor session is unavailable')
-        target = previous[0]
-    return target
-
-
-c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
-phase = 'BACKUP_DURABILITY'
+c = None
+phase = 'RUNTIME_IMPORT'
 try:
+    from datetime import datetime, timezone
+    from sentinel import backup_guard, schema
+    from sentinel.feed import calendar, outage_recovery, publication, store
+    from sentinel.shadow_runtime import publication_not_before
+
+    def latest_source_final(now):
+        target = calendar.latest_closed_session(now)
+        while now < publication_not_before(target):
+            previous = calendar.previous_sessions(target, 2)
+            if len(previous) != 2 or previous[-1] != target:
+                raise RuntimeError('source-final predecessor session is unavailable')
+            target = previous[0]
+        return target
+
+    phase = 'DATABASE_CONNECT'
+    c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+    phase = 'BACKUP_DURABILITY'
     backup_guard.require_writes_permitted(
         c, operation='NAS validation schema migration')
     phase = 'SCHEMA_MIGRATION'
     schema.ensure_schema(c)
     store.migrate_schema(c)
 
+    phase = 'SOURCE_FINAL_FRONTIER'
     now = datetime.now(timezone.utc)
     target = latest_source_final(now)
     execution_session = calendar.next_session(target)
@@ -101,14 +168,16 @@ try:
         'publication_current': current,
     }, sort_keys=True), flush=True)
 except BaseException as exc:
-    try:
-        c.rollback()
-    except BaseException:
-        pass
+    if c is not None:
+        try:
+            c.rollback()
+        except BaseException:
+            pass
     emit_failure(phase, exc)
     raise
 finally:
-    c.close()
+    if c is not None:
+        c.close()
 '''.strip()
 
 

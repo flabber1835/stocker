@@ -9,6 +9,7 @@ clean HEAD/image binding alone is not sufficient.
 """
 from __future__ import annotations
 
+import json
 from pathlib import Path
 import subprocess
 import sys
@@ -24,30 +25,96 @@ import sentinel_go_validate as go  # noqa: E402
 
 
 _RECOVERY_PREPARATION_CODE = r'''
+import hashlib
 import json, os
-from datetime import datetime, timezone
-from sentinel import backup_guard, schema
-from sentinel.feed import calendar, outage_recovery, publication, store
-from sentinel.shadow_runtime import publication_not_before
 
 SUCCESS_MARKER = 'SENTINEL_GO_PREPARATION='
 RECOVERY_MARKER = 'SENTINEL_GO_PREPARATION_RECOVERY='
 FAILURE_MARKER = 'SENTINEL_GO_PREPARATION_FAILURE='
+IDENTITY_REASON_CODES = {
+    'NO_PERMANENT_ID': 'SOURCE_IDENTITY_NO_PERMANENT_ID',
+    'IDENTITY_INTERVAL_GAP': 'SOURCE_IDENTITY_INTERVAL_GAP',
+    'TICKER_REUSE_UNRESOLVED': 'SOURCE_IDENTITY_TICKER_REUSE_UNRESOLVED',
+    'AMBIGUOUS_IDENTITY': 'SOURCE_IDENTITY_AMBIGUOUS',
+}
+
+
+def failure_detail(exc):
+    raw = str(exc).strip()
+    if not raw:
+        return {}
+    digest = hashlib.sha256(raw.encode('utf-8', errors='replace')).hexdigest()
+    lowered = raw.lower()
+    prohibited = ('http://', 'https://', 'api_key', 'api-key', 'password',
+                  'authorization', 'postgres://', 'postgresql://', 'apca-api-')
+    value = {'detail_sha256': digest}
+    if any(item in lowered for item in prohibited) or '\n' in raw or '\r' in raw:
+        return value
+    if len(raw) > 420:
+        raw = raw[:365] + ' ... [sha256:%s]' % digest[:16]
+    value['detail'] = raw
+    return value
+
+
+def reason_code(phase, exc):
+    name = type(exc).__name__
+    lowered = str(exc).lower()
+    if name == 'VendorPublicationUnstable':
+        return 'SOURCE_PUBLICATION_UNSTABLE'
+    if name == 'MutationCursorUnavailable':
+        return 'LOCAL_CURSOR_MISSING'
+    if name == 'HistoricalIdentityMutation':
+        return 'SOURCE_IDENTITY_HISTORY_MUTATION'
+    if name == 'SepMutationIdentityRefused':
+        identity_reason = str(getattr(exc, 'reason_code', '') or '')
+        return IDENTITY_REASON_CODES.get(
+            identity_reason, 'SOURCE_IDENTITY_UNRESOLVED')
+    if name in {'SharadarMutationRefused', 'SourceAuthorityRefused'}:
+        if 'source cursor' in lowered:
+            return 'LOCAL_CURSOR_CORRUPT'
+        if 'no positive raw close' in lowered:
+            return 'SOURCE_RAW_CLOSE_INVALID'
+        if 'lastupdated' in lowered or 'invalid date' in lowered:
+            return 'SOURCE_CDC_INVALID'
+        return 'SOURCE_AUTHORITY_REFUSED'
+    return {
+        'RUNTIME_IMPORT': 'PREPARATION_RUNTIME_IMPORT_FAILURE',
+        'DATABASE_CONNECT': 'PREPARATION_DATABASE_CONNECT_FAILURE',
+        'BACKUP_DURABILITY': 'PREPARATION_BACKUP_DURABILITY_REFUSED',
+        'SCHEMA_MIGRATION': 'PREPARATION_SCHEMA_MIGRATION_FAILED',
+        'DAILY_CATCHUP': 'PREPARATION_DAILY_CATCHUP_FAILED',
+        'PUBLICATION_CHECK': 'PREPARATION_PUBLICATION_CHECK_FAILED',
+    }.get(str(phase), 'PREPARATION_RUNTIME_FAILURE')
 
 
 def emit_failure(phase, exc):
-    print(FAILURE_MARKER + json.dumps({
+    value = {
         'phase': str(phase),
         'error_type': type(exc).__name__,
-    }, sort_keys=True), flush=True)
+        'reason_code': reason_code(phase, exc),
+    }
+    if type(exc).__name__ == 'SepMutationIdentityRefused':
+        identity_reason = str(getattr(exc, 'reason_code', '') or '')
+        if identity_reason:
+            value['identity_reason'] = identity_reason
+    value.update(failure_detail(exc))
+    print(FAILURE_MARKER + json.dumps(value, sort_keys=True), flush=True)
 
 
-c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
-phase = 'BACKUP_DURABILITY'
+c = None
+phase = 'RUNTIME_IMPORT'
 try:
+    from datetime import datetime, timezone
+    from sentinel import backup_guard, schema
+    from sentinel.feed import calendar, outage_recovery, publication, store
+    from sentinel.shadow_runtime import publication_not_before
+
+    phase = 'DATABASE_CONNECT'
+    c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
     # Schema bootstrap/migration is PostgreSQL WAL mutation just like market-data
     # publication. Prove the external archive target *before* the validator may
     # change even one financial-database row.
+    phase = 'BACKUP_DURABILITY'
     backup_guard.require_writes_permitted(
         c, operation='NAS validation schema migration')
     phase = 'SCHEMA_MIGRATION'
@@ -89,14 +156,16 @@ try:
         'publication_current': current,
     }, sort_keys=True), flush=True)
 except BaseException as exc:
-    try:
-        c.rollback()
-    except BaseException:
-        pass
+    if c is not None:
+        try:
+            c.rollback()
+        except BaseException:
+            pass
     emit_failure(phase, exc)
     raise
 finally:
-    c.close()
+    if c is not None:
+        c.close()
 '''.strip()
 
 # Install before saving the original probe reference so the core probe uses the
@@ -114,6 +183,7 @@ _DIAGNOSTIC_PREFIXES = (
     "SENTINEL_GO_PREPARATION_RECOVERY=",
     "SENTINEL_GO_PREPARATION_FAILURE=",
 )
+_PREPARATION_FAILURE_PREFIX = "SENTINEL_GO_PREPARATION_FAILURE="
 # Process-local capability. It is deliberately not an environment variable and
 # is set only by sentinel_go_verified_entry after that entry proves the inherited
 # kernel flock. Importing this module or manually acquiring the lock is therefore
@@ -163,12 +233,33 @@ def _binding_or_none(
     return bound_commit, bound_digest
 
 
+def _preparation_refusal_completed(
+        command: Sequence[str], *, phase: str, reason_code: str,
+        error_type: str) -> subprocess.CompletedProcess:
+    payload = {
+        "phase": str(phase),
+        "reason_code": str(reason_code),
+        "error_type": str(error_type),
+    }
+    marker = _PREPARATION_FAILURE_PREFIX + json.dumps(payload, sort_keys=True)
+    return subprocess.CompletedProcess(
+        [str(item) for item in command], 2, stdout="", stderr=marker + "\n")
+
+
 def _emit_sanitized_preparation_diagnostics(completed) -> None:
     for stream in (completed.stdout or "", completed.stderr or ""):
         for line in stream.splitlines():
             text = line.strip()
             if any(text.startswith(prefix) for prefix in _DIAGNOSTIC_PREFIXES):
                 print(text, file=sys.stderr, flush=True)
+
+
+def _retain_preparation_diagnostics(runner, completed) -> None:
+    if not hasattr(runner, "last_preparation_output"):
+        return
+    text = (completed.stdout or "") + "\n" + (completed.stderr or "")
+    current = str(getattr(runner, "last_preparation_output") or "")
+    setattr(runner, "last_preparation_output", current + "\n" + text)
 
 
 def _lifecycle_refusal(runtime_ref: Optional[str], *, reason: str = "GO_LIFECYCLE_LOCK_NOT_PROVEN_NO_MUTATION"):
@@ -209,8 +300,13 @@ class FeedBoundPreparationRunner:
             self._runner, env=run_env, cwd=cwd,
             runtime_ref=self._runtime_ref, commit=self._commit)
         if binding is None:
-            return subprocess.CompletedProcess(
-                command, 2, stdout="", stderr="")
+            completed = _preparation_refusal_completed(
+                command, phase="FEED_BINDING",
+                reason_code="FEED_BINDING_UNAVAILABLE",
+                error_type="FeedBindingUnavailable")
+            _retain_preparation_diagnostics(self._runner, completed)
+            _emit_sanitized_preparation_diagnostics(completed)
+            return completed
 
         bound_commit, bound_digest = binding
         run_env.pop("SENTINEL_FEED_SERVICE_MODE", None)
@@ -225,8 +321,13 @@ class FeedBoundPreparationRunner:
         try:
             insertion = command.index("--entrypoint")
         except ValueError:
-            return subprocess.CompletedProcess(
-                command, 2, stdout="", stderr="")
+            completed = _preparation_refusal_completed(
+                command, phase="COMMAND_CONTRACT",
+                reason_code="PREPARATION_COMMAND_CONTRACT_INVALID",
+                error_type="PreparationCommandContractInvalid")
+            _retain_preparation_diagnostics(self._runner, completed)
+            _emit_sanitized_preparation_diagnostics(completed)
+            return completed
         forwarded = [
             item for key in _FEED_ENV_KEYS for item in ("--env", key)
         ]
