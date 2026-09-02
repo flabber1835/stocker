@@ -12,6 +12,8 @@ LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
 
 COPY deploy/sentinel-authorized-runtime-v1 \
     /opt/sentinel/authorized-runtime-v1
+COPY sentinel/cli/authorized_routes.py \
+    /app/sentinel/cli/authorized_routes.py
 
 USER root
 RUN install -d -m 0755 /opt/sentinel/bin \

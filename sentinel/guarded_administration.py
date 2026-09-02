@@ -122,10 +122,17 @@ class GuardedAdministrativeBroker(SentinelBroker):
         if grant.operation not in admin_authority.ADMINISTRATIVE_OPERATIONS:
             raise TypeError("unknown administrative broker grant")
         raw_adapter = getattr(inner, "adapter", None)
-        adapter_name = str(getattr(raw_adapter, "name", "") or "").strip()
+        if isinstance(raw_adapter, str):
+            adapter_name = raw_adapter.strip()
+        else:
+            adapter_name = str(
+                getattr(raw_adapter, "name", "") or "").strip()
+        # Adapter metadata is descriptive, not authority.  Some narrow broker
+        # implementations deliberately expose no adapter object at all.  Keep
+        # the wrapper inert in that case by retaining only its concrete type
+        # name; never retain or re-expose the functional broker adapter.
         if not adapter_name:
-            raise TypeError(
-                "administrative broker must expose inertly capturable broker identity")
+            adapter_name = type(inner).__name__
         self._inner = inner
         self._broker_identity = AdministrativeBrokerIdentity(adapter_name)
         self._grant = grant

@@ -60,7 +60,6 @@ ROUTES = {
     "feed-status": feed.cmd_feed_status,
     "feed-seed": feed.cmd_feed_seed,
     "feed-daily": feed.cmd_feed_daily,
-    "migration-plan": account._migration_plan,
     "target-book": account.cmd_target_book,
     "compare-paper-warmup": paper.cmd_compare_paper_warmup,
     "create-paper-observation-candidate": (
@@ -72,38 +71,28 @@ ROUTES = {
     "feed-repair": feed.cmd_feed_repair,
     "identity": feed.cmd_identity,
     "plan": account._plan,
-    "inspect-paper-account": paper._inspect_paper_account,
-    "inspect-empty-paper-account": paper._inspect_empty_paper_account,
-    "bind-empty-paper-account": paper._bind_empty_paper_account,
-    "prepare-paper-plan": paper._prepare_paper_plan,
     "current-paper-plan": paper._current_paper_plan,
-    "execute-paper-plan": paper._execute_paper_plan,
-    "install-administrative-certificate": (
-        authority._install_administrative_certificate),
-    "activate-administrative-certificate": (
-        authority._activate_administrative_certificate),
     "revoke-administrative-certificate": (
         authority._revoke_administrative_certificate),
-    "install-system-certificate": authority._install_system_certificate,
-    "activate-system-certificate": authority._activate_system_certificate,
-    "rotate-system-certificate": authority._activate_system_certificate,
     "revoke-system-certificate": authority._revoke_system_certificate,
     "revoke-system-key": authority._revoke_system_key,
-    "set-paper-rollout-mode": authority._set_paper_rollout_mode,
     "automation-status": automation._automation_status,
     "automation-health": automation._automation_status,
-    "activate-paper-automation": automation._activate_paper_automation,
-    "release-paper-automation-kill-switch": (
-        automation._release_paper_automation_kill),
     "engage-paper-automation-kill-switch": (
         automation._remove_automation_authority),
     "deactivate-paper-automation": automation._remove_automation_authority,
     "acknowledge-paper-alert": automation._acknowledge_paper_alert,
-    "automation-run": automation._automation_run,
-    "migrate-account": account._migrate_account,
-    "adopt-restored-account": account._adopt_restored,
     "establish-ownership": account._establish,
 }
+
+
+def _authorized_handler(command: str):
+    """Load the image-exclusive executable route only after membrane checks."""
+    try:
+        from sentinel.cli.authorized_routes import ROUTES as authorized_routes
+    except ImportError:
+        return None
+    return authorized_routes.get(command)
 
 
 def build_parser() -> argparse.ArgumentParser:
@@ -468,6 +457,17 @@ def main(argv: list[str] | None = None) -> int:
     if surface_refusal is not None:
         return surface_refusal
 
+    handler = (ROUTES.get(args.command)
+               if args.command not in _shared.AUTHORIZED_RUNTIME_COMMANDS
+               else _authorized_handler(args.command))
+    if handler is None:
+        print(
+            "REFUSED: the installed runtime lacks the authorized command "
+            "dispatcher; use the reviewed authorized image",
+            file=sys.stderr,
+        )
+        return EXIT_CONFIG
+
     try:
         config = SentinelConfig.from_env()
     except (LiveEndpointRefused, ValueError) as exc:
@@ -481,7 +481,7 @@ def main(argv: list[str] | None = None) -> int:
             config = replace(config, poll_seconds=args.poll_seconds)
 
     try:
-        return _run_handler(ROUTES[args.command], config, args)
+        return _run_handler(handler, config, args)
     except (LiveEndpointRefused, MissingCredentials) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr)
         return EXIT_CONFIG

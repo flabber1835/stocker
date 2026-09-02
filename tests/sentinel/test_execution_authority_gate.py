@@ -7,6 +7,7 @@ import pytest
 
 from sentinel.authority import AuthorityRefused
 from sentinel.execution import authority_gate
+from sentinel.feed import publication
 
 
 def _row(version, previous, *, evidence=None):
@@ -14,6 +15,31 @@ def _row(version, previous, *, evidence=None):
         version, previous, f"00000000-0000-0000-0000-{version:012d}",
         datetime(2026, 8, version, 20, 0, tzinfo=timezone.utc),
         None, None, evidence or {"version": version})
+
+
+def _receipted_rows(count):
+    rows = []
+    previous_digest = None
+    for version in range(1, count + 1):
+        previous = version - 1 if version > 1 else None
+        bare = _row(version, previous)
+        body = publication._receipt_body(
+            version=version, previous_version=previous, run_id=bare[2],
+            published_at=bare[3], window_start=None, window_end=None,
+            evidence=bare[6], origin_run_status="success",
+            previous_receipt_sha256=previous_digest)
+        digest = publication._receipt_digest(body)
+        evidence = {
+            **bare[6],
+            publication.RECEIPT_EVIDENCE_KEY: {
+                "schema": publication.RECEIPT_SCHEMA,
+                "previous_receipt_sha256": previous_digest,
+                "receipt_sha256": digest,
+            },
+        }
+        rows.append((*bare[:6], evidence))
+        previous_digest = digest
+    return rows
 
 
 class _Cursor:
@@ -28,8 +54,11 @@ class _Cursor:
 
     def execute(self, sql, _params=None):
         assert "sentinel_corpus_publications" in sql
+        self.with_run_status = "feed_ingest_runs" in sql
 
     def fetchall(self):
+        if getattr(self, "with_run_status", False):
+            return [(*row, "success") for row in self.rows]
         return list(self.rows)
 
 
@@ -42,7 +71,7 @@ class _Conn:
 
 
 def test_signed_root_must_reach_current_publication_without_a_gap():
-    rows = [_row(1, None), _row(2, 1), _row(3, 2)]
+    rows = _receipted_rows(3)
     root = authority_gate.publication_row_sha256(rows[0])
 
     assert authority_gate.require_publication_chain(

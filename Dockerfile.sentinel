@@ -97,6 +97,10 @@ COPY docs/sentinel-handoff/00_README/ ./docs/sentinel-handoff/00_README/
 COPY config/paper-observation-boundary.json \
      /app/config/paper-observation-boundary.json
 COPY sentinel/ /app/sentinel/
+# Broker-capable handlers are copied back only by Dockerfile.sentinel-authorized.
+# Keeping their source out of this filesystem makes the dispatch distinction
+# structural instead of another environment/marker convention.
+RUN rm /app/sentinel/cli/authorized_routes.py
 
 # `ownership.jsonl` lives HERE as retained audit evidence — see
 # docker-compose.sentinel.yml. The canonical ownership authority is the account

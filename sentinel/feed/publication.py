@@ -38,6 +38,7 @@ _run_producer_identity = _core._run_producer_identity
 
 PITR_EVIDENCE_SCHEMA = "sentinel.corpus-publication-pitr/2"
 RECEIPT_SCHEMA = "sentinel.corpus-publication-validation/1"
+RECEIPT_EVIDENCE_KEY = "publication_validation"
 _XID_MODULUS = 1 << 32
 _TIMELINE_RE = re.compile(r"^[0-9A-F]{8}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -57,133 +58,6 @@ def _receipt_digest(payload: Mapping[str, object]) -> str:
         dict(payload), sort_keys=True, separators=(",", ":"), default=str
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
-
-
-def _integrity_schema_ready(conn) -> bool:
-    """Fast read-only catalog check for the additive enforcement surface."""
-    with conn.cursor() as cur:
-        cur.execute("""
-            SELECT
-              to_regclass('sentinel_publication_validation_receipts')
-                IS NOT NULL,
-              EXISTS (
-                SELECT 1 FROM pg_constraint
-                 WHERE conname='sentinel_corpus_publication_evidence_object_ck'
-                   AND conrelid='sentinel_corpus_publications'::regclass
-                   AND convalidated
-              ),
-              EXISTS (
-                SELECT 1 FROM pg_trigger
-                 WHERE tgname='sentinel_publication_receipt_required'
-                   AND NOT tgisinternal
-              ),
-              EXISTS (
-                SELECT 1 FROM pg_trigger
-                 WHERE tgname='sentinel_publication_receipts_append_only'
-                   AND NOT tgisinternal
-              )
-        """)
-        row = cur.fetchone()
-    return bool(row and all(bool(value) for value in row))
-
-
-def _ensure_integrity_schema(conn) -> None:
-    """Install additive DB enforcement only when the catalog lacks it."""
-    if _integrity_schema_ready(conn):
-        return
-    with conn.cursor() as cur:
-        cur.execute("""
-            DO $$ BEGIN
-              IF NOT EXISTS (
-                SELECT 1 FROM pg_constraint
-                 WHERE conname='sentinel_corpus_publication_evidence_object_ck'
-                   AND conrelid='sentinel_corpus_publications'::regclass
-              ) THEN
-                ALTER TABLE sentinel_corpus_publications
-                  ADD CONSTRAINT sentinel_corpus_publication_evidence_object_ck
-                  CHECK (jsonb_typeof(evidence) = 'object') NOT VALID;
-              END IF;
-            END $$
-        """)
-        cur.execute(
-            "ALTER TABLE sentinel_corpus_publications VALIDATE CONSTRAINT "
-            "sentinel_corpus_publication_evidence_object_ck")
-        cur.execute("""
-            CREATE TABLE IF NOT EXISTS sentinel_publication_validation_receipts (
-                publication_version BIGINT PRIMARY KEY REFERENCES
-                    sentinel_corpus_publications(version) ON DELETE RESTRICT,
-                previous_version BIGINT,
-                run_id UUID,
-                published_at TIMESTAMPTZ NOT NULL,
-                window_start DATE,
-                window_end DATE,
-                evidence JSONB NOT NULL CHECK (jsonb_typeof(evidence)='object'),
-                origin_run_status TEXT,
-                previous_receipt_sha256 TEXT,
-                receipt_sha256 TEXT NOT NULL UNIQUE,
-                validated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
-                CHECK (previous_receipt_sha256 IS NULL OR
-                       previous_receipt_sha256 ~ '^[0-9a-f]{64}$'),
-                CHECK (receipt_sha256 ~ '^[0-9a-f]{64}$'),
-                CHECK ((run_id IS NULL AND origin_run_status IS NULL) OR
-                       (run_id IS NOT NULL AND origin_run_status='success'))
-            )
-        """)
-        cur.execute("""
-            CREATE OR REPLACE FUNCTION sentinel_refuse_publication_receipt_mutation()
-            RETURNS trigger LANGUAGE plpgsql AS $$
-            BEGIN
-              RAISE EXCEPTION 'publication validation receipts are append-only';
-            END $$
-        """)
-        cur.execute("DROP TRIGGER IF EXISTS sentinel_publication_receipts_append_only "
-                    "ON sentinel_publication_validation_receipts")
-        cur.execute("""
-            CREATE TRIGGER sentinel_publication_receipts_append_only
-            BEFORE UPDATE OR DELETE ON sentinel_publication_validation_receipts
-            FOR EACH ROW EXECUTE FUNCTION
-                sentinel_refuse_publication_receipt_mutation()
-        """)
-        cur.execute("""
-            CREATE OR REPLACE FUNCTION sentinel_require_publication_receipt()
-            RETURNS trigger LANGUAGE plpgsql AS $$
-            DECLARE r RECORD; ingest_status TEXT;
-            BEGIN
-              SELECT * INTO r FROM sentinel_publication_validation_receipts
-               WHERE publication_version=NEW.version;
-              IF NOT FOUND THEN
-                RAISE EXCEPTION 'publication % lacks validation receipt', NEW.version;
-              END IF;
-              IF r.previous_version IS DISTINCT FROM NEW.previous_version OR
-                 r.run_id IS DISTINCT FROM NEW.run_id OR
-                 r.published_at IS DISTINCT FROM NEW.published_at OR
-                 r.window_start IS DISTINCT FROM NEW.window_start OR
-                 r.window_end IS DISTINCT FROM NEW.window_end OR
-                 r.evidence IS DISTINCT FROM NEW.evidence THEN
-                RAISE EXCEPTION 'publication % receipt disagrees with row', NEW.version;
-              END IF;
-              IF NEW.run_id IS NOT NULL THEN
-                SELECT status INTO ingest_status FROM feed_ingest_runs
-                 WHERE run_id=NEW.run_id;
-                IF ingest_status IS DISTINCT FROM 'success' OR
-                   r.origin_run_status IS DISTINCT FROM 'success' THEN
-                  RAISE EXCEPTION 'publication % origin ingest is not successful',
-                                  NEW.version;
-                END IF;
-              ELSIF r.origin_run_status IS NOT NULL THEN
-                RAISE EXCEPTION 'publication % has spurious run authority', NEW.version;
-              END IF;
-              RETURN NULL;
-            END $$
-        """)
-        cur.execute("DROP TRIGGER IF EXISTS sentinel_publication_receipt_required "
-                    "ON sentinel_corpus_publications")
-        cur.execute("""
-            CREATE CONSTRAINT TRIGGER sentinel_publication_receipt_required
-            AFTER INSERT OR UPDATE ON sentinel_corpus_publications
-            DEFERRABLE INITIALLY DEFERRED FOR EACH ROW
-            EXECUTE FUNCTION sentinel_require_publication_receipt()
-        """)
 
 
 def _publication_recovery_target(conn) -> dict[str, object]:
@@ -239,9 +113,7 @@ def _receipt_body(*, version: int, previous_version, run_id, published_at,
     }
 
 
-def _insert_validation_receipt(conn, *, version: int, previous_version, run_id,
-                               published_at, window_start, window_end,
-                               evidence: Mapping) -> None:
+def _origin_run_status(conn, run_id) -> str | None:
     origin_status = None
     if run_id is not None:
         with conn.cursor() as cur:
@@ -252,81 +124,93 @@ def _insert_validation_receipt(conn, *, version: int, previous_version, run_id,
             raise _core.CorpusIncoherent(
                 "publication origin ingest run is absent or not successful")
         origin_status = "success"
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT receipt_sha256 FROM sentinel_publication_validation_receipts"
-            " ORDER BY publication_version DESC LIMIT 1")
-        row = cur.fetchone()
-    previous_receipt = str(row[0]) if row else None
+    return origin_status
+
+
+def _receipt_from_evidence(evidence: Mapping) -> Mapping | None:
+    receipt = evidence.get(RECEIPT_EVIDENCE_KEY)
+    if receipt is None:
+        return None
+    if not isinstance(receipt, Mapping):
+        raise _core.CorpusIncoherent(
+            "publication validation receipt must be a JSON object")
+    return receipt
+
+
+def _add_validation_receipt(
+        conn, *, version: int, previous_version, run_id, published_at,
+        window_start, window_end, evidence: Mapping,
+        previous_receipt_sha256: str | None) -> dict:
+    clean_evidence = dict(evidence)
+    if RECEIPT_EVIDENCE_KEY in clean_evidence:
+        raise _core.CorpusIncoherent(
+            "caller may not supply publication validation authority")
+    origin_status = _origin_run_status(conn, run_id)
     body = _receipt_body(
         version=version, previous_version=previous_version, run_id=run_id,
         published_at=published_at, window_start=window_start,
         window_end=window_end, evidence=evidence,
         origin_run_status=origin_status,
-        previous_receipt_sha256=previous_receipt)
+        previous_receipt_sha256=previous_receipt_sha256)
     digest = _receipt_digest(body)
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO sentinel_publication_validation_receipts"
-            " (publication_version,previous_version,run_id,published_at,"
-            " window_start,window_end,evidence,origin_run_status,"
-            " previous_receipt_sha256,receipt_sha256)"
-            " VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)",
-            (version, previous_version, run_id, published_at,
-             window_start, window_end,
-             json.dumps(dict(evidence), sort_keys=True, default=str),
-             origin_status, previous_receipt, digest))
+    clean_evidence[RECEIPT_EVIDENCE_KEY] = {
+        "schema": RECEIPT_SCHEMA,
+        "previous_receipt_sha256": previous_receipt_sha256,
+        "receipt_sha256": digest,
+    }
+    return clean_evidence
 
 
-def _verify_receipt_chain(conn, *, through_version: int) -> None:
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT MIN(publication_version)"
-            " FROM sentinel_publication_validation_receipts")
-        row = cur.fetchone()
-        first = int(row[0]) if row and row[0] is not None else None
-    if first is None:
-        return
+def _verify_receipt_chain(
+        conn, *, through_version: int,
+        required_after_version: int | None = None) -> None:
     with conn.cursor() as cur:
         cur.execute(
             "SELECT p.version,p.previous_version,p.run_id,p.published_at,"
-            " p.window_start,p.window_end,p.evidence,r.origin_run_status,"
-            " r.previous_receipt_sha256,r.receipt_sha256,ir.status"
+            " p.window_start,p.window_end,p.evidence,ir.status"
             " FROM sentinel_corpus_publications p"
-            " LEFT JOIN sentinel_publication_validation_receipts r"
-            "   ON r.publication_version=p.version"
             " LEFT JOIN feed_ingest_runs ir ON ir.run_id=p.run_id"
-            " WHERE p.version BETWEEN %s AND %s ORDER BY p.version",
-            (first, through_version))
+            " WHERE p.version <= %s ORDER BY p.version",
+            (through_version,))
         rows = cur.fetchall()
     previous_receipt = None
+    receipt_chain_started = False
     for row in rows:
         (version, previous_version, run_id, published_at, window_start,
-         window_end, raw_evidence, origin_status, stored_previous,
-         stored_digest, live_run_status) = row
+         window_end, raw_evidence, live_run_status) = row
         evidence = _require_object_evidence(
             raw_evidence, where=f"version {version}")
-        if stored_digest is None:
+        receipt = _receipt_from_evidence(evidence)
+        receipt_required = (
+            required_after_version is not None
+            and int(version) > int(required_after_version))
+        if receipt is None:
+            if receipt_chain_started or receipt_required:
+                raise _core.CorpusIncoherent(
+                    f"publication version {version} lacks its validation receipt")
+            continue
+        receipt_chain_started = True
+        if receipt.get("schema") != RECEIPT_SCHEMA:
             raise _core.CorpusIncoherent(
-                f"publication version {version} lacks its validation receipt")
+                f"publication version {version} has an unknown validation receipt")
+        stored_previous = receipt.get("previous_receipt_sha256")
+        stored_digest = receipt.get("receipt_sha256")
         stored_previous_value = (
             str(stored_previous) if stored_previous is not None else None)
         if stored_previous_value != previous_receipt:
             raise _core.CorpusIncoherent(
                 "publication validation receipt chain is discontinuous")
-        if run_id is not None and (
-                str(origin_status) != "success"
-                or str(live_run_status) != "success"):
+        origin_status = "success" if run_id is not None else None
+        if run_id is not None and str(live_run_status) != "success":
             raise _core.CorpusIncoherent(
                 f"publication version {version} lacks successful ingest origin")
-        if run_id is None and origin_status is not None:
-            raise _core.CorpusIncoherent(
-                f"publication version {version} has spurious ingest authority")
+        unsigned_evidence = dict(evidence)
+        unsigned_evidence.pop(RECEIPT_EVIDENCE_KEY, None)
         body = _receipt_body(
             version=int(version), previous_version=previous_version,
             run_id=run_id, published_at=published_at,
             window_start=window_start, window_end=window_end,
-            evidence=evidence, origin_run_status=origin_status,
+            evidence=unsigned_evidence, origin_run_status=origin_status,
             previous_receipt_sha256=previous_receipt)
         expected = _receipt_digest(body)
         if not _SHA_RE.fullmatch(str(stored_digest)) or str(stored_digest) != expected:
@@ -345,7 +229,6 @@ def _validate_publication(conn, publication: Publication | None):
 
 
 def current(conn):
-    _ensure_integrity_schema(conn)
     return _validate_publication(conn, _core.current(conn))
 
 
@@ -358,7 +241,6 @@ def require_current(conn):
 
 @contextmanager
 def pinned(conn):
-    _ensure_integrity_schema(conn)
     with _core.pinned(conn) as publication:
         yield _validate_publication(conn, publication)
 
@@ -366,7 +248,6 @@ def pinned(conn):
 def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
                     evidence=None):
     """Commit one publication transaction through canonical public dependencies."""
-    _ensure_integrity_schema(conn)
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_lock(%s)", (_core.CORPUS_LOCK_KEY,))
         if not bool(cur.fetchone()[0]):
@@ -424,22 +305,40 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
             publication_evidence["retired_failed_bars_outside_market"] = (
                 retired_action_bars["outside_market"])
         with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO sentinel_corpus_publications (previous_version,"
-                " run_id, window_start, window_end, evidence)"
-                " VALUES (%s,%s,%s,%s,%s::jsonb)"
-                " RETURNING version,published_at",
-                (previous.version if previous else None, run_id,
-                 window_start, window_end,
-                 json.dumps(publication_evidence,
-                            sort_keys=True, default=str)))
-            version, published_at = cur.fetchone()
-        _insert_validation_receipt(
-            conn, version=int(version),
+            cur.execute("SELECT clock_timestamp()")
+            published_at = cur.fetchone()[0]
+        next_version = previous.version + 1 if previous else 1
+        previous_receipt = None
+        if previous is not None:
+            prior = _receipt_from_evidence(
+                _require_object_evidence(
+                    previous.evidence, where=f"version {previous.version}"))
+            if prior is not None:
+                previous_receipt = str(prior.get("receipt_sha256") or "")
+                if not _SHA_RE.fullmatch(previous_receipt):
+                    raise _core.CorpusIncoherent(
+                        "previous publication validation receipt is malformed")
+        publication_evidence = _add_validation_receipt(
+            conn, version=next_version,
             previous_version=previous.version if previous else None,
             run_id=run_id, published_at=published_at,
             window_start=window_start, window_end=window_end,
-            evidence=publication_evidence)
+            evidence=publication_evidence,
+            previous_receipt_sha256=previous_receipt)
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_corpus_publications (previous_version,"
+                " run_id, published_at, window_start, window_end, evidence)"
+                " VALUES (%s,%s,%s,%s,%s,%s::jsonb)"
+                " RETURNING version,published_at",
+                (previous.version if previous else None, run_id, published_at,
+                 window_start, window_end,
+                 json.dumps(publication_evidence,
+                            sort_keys=True, default=str)))
+            version, _stored_published_at = cur.fetchone()
+        if int(version) != next_version:
+            raise _core.CorpusIncoherent(
+                "publication sequence is not contiguous with its predecessor")
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -474,7 +373,8 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
 
 
 __all__ = [
-    "PITR_EVIDENCE_SCHEMA", "RECEIPT_SCHEMA", "publish", "current",
+    "PITR_EVIDENCE_SCHEMA", "RECEIPT_SCHEMA", "RECEIPT_EVIDENCE_KEY",
+    "publish", "current",
     "require_current", "pinned", "coherence", "assert_coherent",
     "full_historical_coherence", "assert_full_historical_coherent",
     "operational_boundary", "operational_coherence",

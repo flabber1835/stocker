@@ -8,6 +8,7 @@ import pytest
 
 from sentinel.cli import feed as feed_cli
 from sentinel.cli import main as cli_main
+from sentinel.cli.authorized_routes import ROUTES as AUTHORIZED_ROUTES
 from sentinel.feed import store as feed_store
 
 
@@ -78,10 +79,12 @@ def test_cli_has_one_parser_construction_and_one_parse_call():
 
 
 def test_every_command_has_one_static_direct_owner():
-    assert set(cli_main.ROUTES) == set(EXPECTED_OWNERS)
-    assert len(cli_main.ROUTES) == 42
+    combined = {**cli_main.ROUTES, **AUTHORIZED_ROUTES}
+    assert set(combined) == set(EXPECTED_OWNERS)
+    assert len(combined) == 42
+    assert not (set(cli_main.ROUTES) & set(AUTHORIZED_ROUTES))
     for command, owner in EXPECTED_OWNERS.items():
-        assert cli_main.ROUTES[command].__module__ == owner, command
+        assert combined[command].__module__ == owner, command
 
 
 def test_parser_and_router_have_exactly_the_same_commands():
@@ -90,7 +93,8 @@ def test_parser_and_router_have_exactly_the_same_commands():
         action for action in parser._actions  # noqa: SLF001
         if hasattr(action, "choices") and isinstance(action.choices, dict)
     )
-    assert set(subparsers.choices) == set(cli_main.ROUTES)
+    assert set(subparsers.choices) == (
+        set(cli_main.ROUTES) | set(AUTHORIZED_ROUTES))
 
 
 def test_cli_router_invokes_selected_owner_once(monkeypatch):

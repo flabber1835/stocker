@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 from types import SimpleNamespace
+from datetime import datetime, timezone
 
 import pytest
 
@@ -43,6 +44,51 @@ def test_authorized_runtime_requires_executable_capability(
     capability.unlink()
     assert _shared.require_authorized_runtime("automation-run") == \
         _shared.EXIT_CONFIG
+
+
+def test_authorized_dispatch_is_absent_from_ordinary_image_layer() -> None:
+    ordinary = (ROOT / "Dockerfile.sentinel").read_text()
+    authorized = (ROOT / "Dockerfile.sentinel-authorized").read_text()
+
+    assert "RUN rm /app/sentinel/cli/authorized_routes.py" in ordinary
+    assert ("COPY sentinel/cli/authorized_routes.py" in authorized
+            and "/app/sentinel/cli/authorized_routes.py" in authorized)
+
+
+def test_marker_and_executable_cannot_replace_authorized_dispatch(
+        tmp_path, monkeypatch) -> None:
+    from sentinel.cli import _shared
+    from sentinel.cli import main as cli
+
+    marker = tmp_path / "authorized-runtime-v1"
+    marker.write_bytes(_shared.AUTHORIZED_RUNTIME_MARKER_BYTES)
+    capability = tmp_path / "authorized-runtime-capability-v1"
+    capability.write_text(
+        "#!/bin/sh\nprintf 'sentinel-authorized-capability/1\\n'\n")
+    capability.chmod(0o755)
+    monkeypatch.setattr(_shared, "AUTHORIZED_RUNTIME_MARKER", marker)
+    monkeypatch.setattr(_shared, "AUTHORIZED_RUNTIME_CAPABILITY", capability)
+    monkeypatch.setenv(
+        _shared.AUTHORIZED_RUNTIME_ENV, _shared.AUTHORIZED_RUNTIME_VALUE)
+    monkeypatch.setattr(cli, "_authorized_handler", lambda _command: None)
+    monkeypatch.setattr(
+        cli.SentinelConfig, "from_env",
+        classmethod(lambda cls: pytest.fail(
+            "configuration loaded without an authorized dispatcher")))
+
+    assert cli.main(["automation-run"]) == cli.EXIT_CONFIG
+
+
+@pytest.mark.parametrize("evidence", [None, [], "text", 7, True])
+def test_publication_authority_refuses_every_non_object_evidence(evidence) -> None:
+    from sentinel import authority
+    from sentinel.execution.authority_gate import publication_row_identity
+
+    row = (
+        1, None, None, datetime(2026, 9, 2, tzinfo=timezone.utc),
+        None, None, evidence)
+    with pytest.raises(authority.AuthorityRefused, match="non-object evidence"):
+        publication_row_identity(row)
 
 
 def test_env_writer_refuses_symlink_destination_even_with_force(
@@ -87,6 +133,7 @@ def test_sep_interrupted_backed_up_promotion_restores_prior_generation(
     final = out / "SHARADAR_SEP_2007.csv.gz"
     backup = backup_dir / final.name
     staged = staging / final.name
+    fingerprint_final = tmp_path / "sep-fingerprint.json"
     final.write_bytes(b"PARTIAL-NEW")
     backup.write_bytes(b"PRIOR-GENERATION")
     staged.write_bytes(b"NEW-STAGED")
@@ -106,11 +153,39 @@ def test_sep_interrupted_backed_up_promotion_restores_prior_generation(
         }],
     }))
 
-    module._recover_promotion(out)
+    module._recover_promotion(out, fingerprint_final=fingerprint_final)
 
     assert final.read_bytes() == b"PRIOR-GENERATION"
     assert not marker.exists()
     assert not staging.exists()
+
+
+def test_sep_recovery_refuses_marker_paths_outside_generation(tmp_path) -> None:
+    module = _load_script("sentinel-split-sep-bulk.py")
+    out = tmp_path / "sep"
+    out.mkdir()
+    fingerprint = tmp_path / "sep-fingerprint.json"
+    victim = tmp_path / "victim"
+    victim.write_text("must survive")
+    token = "deadbeef"
+    marker = out / module.PROMOTION_MARKER
+    marker.write_text(json.dumps({
+        "schema": module.PROMOTION_SCHEMA,
+        "phase": "BACKED_UP",
+        "token": token,
+        "staging": str(out / (".sentinel-sep-staging." + token)),
+        "entries": [{
+            "final": str(victim),
+            "staged": str(out / "staged"),
+            "backup": str(out / "backup"),
+            "had_original": False,
+            "sha256": "a" * 64,
+        }],
+    }))
+
+    with pytest.raises(SystemExit, match="escaped output"):
+        module._recover_promotion(out, fingerprint_final=fingerprint)
+    assert victim.read_text() == "must survive"
 
 
 def test_administrative_wrapper_exposes_only_inert_broker_identity() -> None:

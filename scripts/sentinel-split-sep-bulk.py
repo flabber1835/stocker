@@ -14,6 +14,7 @@ import hashlib
 import io
 import json
 import os
+import re
 import secrets
 import shutil
 import sys
@@ -147,7 +148,8 @@ def _marker_payload(*, phase: str, token: str, staging: Path,
     }
 
 
-def _load_marker(path: Path) -> dict:
+def _load_marker(path: Path, *, out: Path,
+                 fingerprint_final: Path) -> dict:
     try:
         value = json.loads(path.read_text())
     except Exception as exc:
@@ -156,19 +158,56 @@ def _load_marker(path: Path) -> dict:
             or value.get("schema") != PROMOTION_SCHEMA
             or value.get("phase") not in {"PREPARED", "BACKED_UP", "COMMITTED"}
             or not isinstance(value.get("entries"), list)
-            or not isinstance(value.get("staging"), str)):
+            or not isinstance(value.get("staging"), str)
+            or not isinstance(value.get("token"), str)
+            or not re.fullmatch(r"[0-9a-f]{8,64}", value["token"])):
         raise SystemExit(f"REFUSED: malformed SEP promotion marker {path}")
+    token = value["token"]
+    out = out.resolve()
+    fingerprint_final = fingerprint_final.resolve()
+    staging = out / (".sentinel-sep-staging." + token)
+    backup_dir = out / (".sentinel-sep-backup." + token)
+    if Path(value["staging"]).resolve() != staging:
+        raise SystemExit(f"REFUSED: SEP promotion marker escaped staging {path}")
     required = {"final", "staged", "backup", "had_original", "sha256"}
+    seen: set[Path] = set()
     for entry in value["entries"]:
         if not isinstance(entry, dict) or set(entry) != required:
             raise SystemExit(f"REFUSED: malformed SEP promotion entry in {path}")
         if not isinstance(entry["had_original"], bool):
             raise SystemExit(f"REFUSED: malformed SEP promotion entry in {path}")
+        if (not isinstance(entry["sha256"], str)
+                or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])):
+            raise SystemExit(f"REFUSED: malformed SEP promotion entry in {path}")
+        final = Path(entry["final"]).resolve()
+        staged = Path(entry["staged"]).resolve()
+        backup = Path(entry["backup"]).resolve()
+        if final in seen:
+            raise SystemExit(f"REFUSED: duplicate SEP promotion entry in {path}")
+        seen.add(final)
+        if final == fingerprint_final:
+            expected_staged = fingerprint_final.parent / (
+                "." + fingerprint_final.name + ".sep-staging." + token)
+            expected_backup = fingerprint_final.parent / (
+                "." + fingerprint_final.name + ".sep-backup." + token)
+        else:
+            if (final.parent != out
+                    or not re.fullmatch(
+                        r"SHARADAR_SEP_[0-9]{4}\.csv\.gz", final.name)):
+                raise SystemExit(
+                    f"REFUSED: SEP promotion final escaped output {path}")
+            expected_staged = staging / final.name
+            expected_backup = backup_dir / final.name
+        if staged != expected_staged or backup != expected_backup:
+            raise SystemExit(
+                f"REFUSED: SEP promotion paths disagree with token {path}")
     return value
 
 
 def _cleanup_path(path: Path) -> None:
-    if path.is_dir():
+    if path.is_symlink():
+        path.unlink()
+    elif path.is_dir():
         shutil.rmtree(path)
     else:
         try:
@@ -177,11 +216,12 @@ def _cleanup_path(path: Path) -> None:
             pass
 
 
-def _recover_promotion(out: Path) -> None:
+def _recover_promotion(out: Path, *, fingerprint_final: Path) -> None:
     marker = out / PROMOTION_MARKER
     if not marker.exists():
         return
-    value = _load_marker(marker)
+    value = _load_marker(
+        marker, out=out, fingerprint_final=fingerprint_final)
     phase = value["phase"]
     entries = value["entries"]
     touched_dirs = {out}
@@ -314,7 +354,7 @@ def main() -> int:
     out: Path = args.out
     out.mkdir(parents=True, exist_ok=True)
     args.fingerprint.parent.mkdir(parents=True, exist_ok=True)
-    _recover_promotion(out)
+    _recover_promotion(out, fingerprint_final=args.fingerprint)
 
     years = list(range(FIRST_YEAR, args.last_year + 1))
     existing = [y for y in years if (out / f"SHARADAR_SEP_{y}.csv.gz").exists()]

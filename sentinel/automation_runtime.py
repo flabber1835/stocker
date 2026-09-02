@@ -1153,6 +1153,18 @@ class ProductionAutomation:
                        "detail": str(result)[:4000]}
         else:
             cycle_id = result.cycle.cycle_id if result.cycle else "none"
+            if (result.cycle is not None
+                    and result.cycle.state.value
+                    in outbox._RECOVERABLE_CYCLE_STATES):
+                return outbox.enqueue_cycle_transition_alert(
+                    conn, cycle_id=cycle_id,
+                    state=result.cycle.state.value)
+            if (result.cycle is None
+                    and (result.action.value == "BLOCKED"
+                         or (result.reason is not None
+                             and result.reason.startswith(
+                                 "automation emergency kill was ")))):
+                return outbox.enqueue_latest_kill_alert(conn)
             event_type = f"AUTOMATION_{result.action.value}"
             severity = "CRITICAL" if result.action.value == "BLOCKED" else "WARN"
             key = f"cycle:{cycle_id}:{result.action.value}:{result.reason}"

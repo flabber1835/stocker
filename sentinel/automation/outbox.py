@@ -1,7 +1,6 @@
 """Durable, retryable alert delivery independent of trading authority."""
 from __future__ import annotations
 
-from collections import defaultdict
 import hashlib
 import inspect
 import json
@@ -28,6 +27,13 @@ _ALERT_COLUMNS = (
 _RECOVERABLE_CYCLE_STATES = frozenset({
     "RECONCILING", "RETRY_WAIT", "MISSED_STATE_ONLY", "SUPERSEDED", "BLOCKED",
 })
+_CYCLE_STATE_ACTION = {
+    "RECONCILING": "EXECUTED",
+    "RETRY_WAIT": "RETRY_SCHEDULED",
+    "MISSED_STATE_ONLY": "SUPERSEDED",
+    "SUPERSEDED": "SUPERSEDED",
+    "BLOCKED": "BLOCKED",
+}
 
 
 class AlertAdapter(Protocol):
@@ -144,6 +150,98 @@ def enqueue(
         raise
 
 
+def _event_detail(raw_detail) -> dict[str, Any]:
+    if isinstance(raw_detail, Mapping):
+        return dict(raw_detail)
+    value = json.loads(str(raw_detail or "{}"))
+    if not isinstance(value, Mapping):
+        raise AutomationRefused(
+            "immutable automation event detail is not a JSON object")
+    return dict(value)
+
+
+def _cycle_event_alert(row) -> dict[str, Any]:
+    seq, cycle_id, to_state, control_generation, fence_token, raw_detail = row
+    state = str(to_state)
+    try:
+        action = _CYCLE_STATE_ACTION[state]
+    except KeyError as exc:
+        raise AutomationRefused(
+            f"cycle state {state!r} is not notifier eligible") from exc
+    detail = _event_detail(raw_detail)
+    reason = (detail.get("failure_detail") or detail.get("failure_code")
+              or f"cycle entered {state}")
+    key = f"cycle-event:{int(seq)}"
+    return {
+        "idempotency_key": key,
+        "event_type": f"AUTOMATION_{action}",
+        "severity": "CRITICAL" if state == "BLOCKED" else "WARN",
+        "payload": {
+            "cycle_event_seq": int(seq),
+            "cycle_id": str(cycle_id),
+            "action": action,
+            "reason": str(reason),
+            "state": state,
+            "control_generation": int(control_generation),
+            "fence_token": int(fence_token),
+            "detail": detail,
+            "reconstructed_from_durable_event": True,
+        },
+    }
+
+
+def _control_event_alert(row) -> dict[str, Any]:
+    seq, generation, action, actor, reason, raw_detail = row
+    detail = _event_detail(raw_detail)
+    key = f"control-event:{int(seq)}"
+    return {
+        "idempotency_key": key,
+        "event_type": f"AUTOMATION_{action}",
+        "severity": "CRITICAL",
+        "payload": {
+            "control_event_seq": int(seq),
+            "generation": int(generation),
+            "action": str(action),
+            "actor": str(actor),
+            "reason": str(reason),
+            "detail": detail,
+            "reconstructed_from_durable_event": True,
+        },
+    }
+
+
+def enqueue_cycle_transition_alert(
+        conn, *, cycle_id: str, state: str) -> AlertRecord:
+    """Materialize the exact immutable event that produced a cycle result."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT seq,cycle_id,to_state,control_generation,fence_token,detail"
+            " FROM sentinel_automation_cycle_events"
+            " WHERE cycle_id=%s AND to_state=%s ORDER BY seq DESC LIMIT 1",
+            (cycle_id, state))
+        row = cur.fetchone()
+    if row is None:
+        raise AutomationRefused(
+            "notifier-eligible cycle result lacks its immutable transition")
+    alert = _cycle_event_alert(row)
+    return enqueue(conn, **alert, max_attempts=8)
+
+
+def enqueue_latest_kill_alert(conn) -> AlertRecord:
+    """Materialize the latest immutable emergency/configuration kill event."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT seq,generation,action,actor,reason,detail"
+            " FROM sentinel_automation_events WHERE action='KILL_ENGAGED'"
+            " ORDER BY seq DESC LIMIT 1")
+        row = cur.fetchone()
+    if row is None:
+        raise AutomationRefused(
+            "kill notification lacks its immutable control event")
+    alert = _control_event_alert(row)
+    return enqueue(conn, **alert, max_attempts=8)
+
+
 def _append_event(
         cur, *, alert_id: str, attempt: int, action: str,
         holder_id: str, error: str | None = None) -> None:
@@ -158,8 +256,9 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
 
     The state transition is the durable fact. A crash can occur after that
     commit and before the ordinary notifier enqueues its alert. For alert-worthy
-    states we compare immutable transition cardinality with already-materialized
-    outbox cardinality and fill only the deficit, keyed by event sequence.
+    states we use the event sequence as the sole notification identity.  The
+    ordinary notifier uses the same identity, so every interleaving converges
+    on exactly one immutable outbox row.
     """
     with conn.cursor() as cur:
         cur.execute(
@@ -169,46 +268,33 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
             (list(sorted(_RECOVERABLE_CYCLE_STATES)),))
         events = list(cur.fetchall())
         cur.execute(
-            "SELECT payload->>'cycle_id',payload->>'state',COUNT(*)"
-            " FROM sentinel_alert_outbox"
-            " WHERE payload ? 'cycle_id' AND payload ? 'state'"
-            " GROUP BY payload->>'cycle_id',payload->>'state'")
-        materialized = {
-            (str(cycle_id), str(state)): int(count)
-            for cycle_id, state, count in cur.fetchall()
-        }
+            "SELECT seq,generation,action,actor,reason,detail"
+            " FROM sentinel_automation_events WHERE action='KILL_ENGAGED'"
+            " ORDER BY seq")
+        control_events = list(cur.fetchall())
 
-        ordinal = defaultdict(int)
-        for (seq, cycle_id, to_state, control_generation,
-             fence_token, raw_detail) in events:
-            key = (str(cycle_id), str(to_state))
-            ordinal[key] += 1
-            if ordinal[key] <= materialized.get(key, 0):
-                continue
-            detail = (dict(raw_detail) if isinstance(raw_detail, Mapping)
-                      else json.loads(str(raw_detail or "{}")))
-            idempotency_key = f"recovered-cycle-event:{int(seq)}"
-            payload = {
-                "cycle_event_seq": int(seq),
-                "cycle_id": str(cycle_id),
-                "state": str(to_state),
-                "control_generation": int(control_generation),
-                "fence_token": int(fence_token),
-                "detail": detail,
-                "recovered_after_restart": True,
-            }
+        for event in events:
+            alert = _cycle_event_alert(event)
             cur.execute(
                 "INSERT INTO sentinel_alert_outbox"
                 " (alert_id,idempotency_key,schema_version,event_type,severity,"
                 " payload,state,max_attempts,next_attempt_at)"
                 " VALUES (%s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp())"
                 " ON CONFLICT (idempotency_key) DO NOTHING",
-                (_alert_id(idempotency_key), idempotency_key,
-                 f"AUTOMATION_RECOVERED_{to_state}",
-                 "CRITICAL" if str(to_state) == "BLOCKED" else "WARN",
-                 _json(payload)))
-            if cur.rowcount == 1:
-                materialized[key] = materialized.get(key, 0) + 1
+                (_alert_id(alert["idempotency_key"]),
+                 alert["idempotency_key"], alert["event_type"],
+                 alert["severity"], _json(alert["payload"])))
+        for event in control_events:
+            alert = _control_event_alert(event)
+            cur.execute(
+                "INSERT INTO sentinel_alert_outbox"
+                " (alert_id,idempotency_key,schema_version,event_type,severity,"
+                " payload,state,max_attempts,next_attempt_at)"
+                " VALUES (%s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp())"
+                " ON CONFLICT (idempotency_key) DO NOTHING",
+                (_alert_id(alert["idempotency_key"]),
+                 alert["idempotency_key"], alert["event_type"],
+                 alert["severity"], _json(alert["payload"])))
 
 
 def claim_next(
