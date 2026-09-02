@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
 """Causal metadata authorities for strict historical certification.
 
-This module deliberately does not read SHARADAR_TICKERS.  Historical security
-identity is derived from the observed SEP tape, issuer changes are derived from
-strict-prior SEC evidence, security type is positive-only SEC/EDGAR evidence,
+Historical security identity is derived from the observed SEP tape and causal
+terminal evidence. SEC CIK is issuer evidence only: a CIK change can corroborate
+an already-visible terminal/relisting boundary, but cannot create a security
+identity episode by itself. Security type is positive-only SEC/EDGAR evidence,
 and exchange is non-authoritative.
 """
 from __future__ import annotations
@@ -12,12 +13,23 @@ import bisect
 import csv
 import gzip
 import hashlib
+import json
 from collections import defaultdict
 from dataclasses import dataclass
 from pathlib import Path
 from typing import Mapping, Sequence
 
 import pandas as pd
+
+
+_TARGET_TERMINAL_ACTIONS = frozenset({
+    "delisted",
+    "acquisitionby",
+    "mergerto",
+    "bankruptcyliquidation",
+    "regulatorydelisting",
+    "voluntarydelisting",
+})
 
 
 def _norm_int(value) -> str | None:
@@ -33,10 +45,13 @@ def _norm_int(value) -> str | None:
 
 
 def _sid(ticker: str, first_observed_session: str, episode: int) -> str:
-    payload = f"PIT_SECURITY_V1|{ticker}|{first_observed_session}|{episode}".encode()
-    # Numeric text preserves the production code's deterministic lexical/numeric
-    # identity behavior while depending only on facts known when the episode begins.
-    return str(int(hashlib.sha256(payload).hexdigest()[:15], 16))
+    """Stable numeric identity with chronological ordering within one ticker."""
+    payload = f"PIT_SECURITY_V1|{ticker}|{first_observed_session}|0".encode()
+    base = str(int(hashlib.sha256(payload).hexdigest()[:15], 16))
+    # Episode zero keeps the original v1 identity. Later corroborated episodes
+    # extend that id so the existing canonical resolver's lexical ordering is
+    # chronological for multiple episodes of the same ticker.
+    return base if episode == 0 else f"{base}{episode:04d}"
 
 
 @dataclass(frozen=True)
@@ -48,25 +63,30 @@ class IdentityEpisode:
     prior_cik: str | None
 
 
+@dataclass(frozen=True)
+class CIKChange:
+    filing_date: str
+    prior_cik: str
+    new_cik: str
+
+
 class CausalIdentityResolver:
     """Resolve ticker/session to a causal price-tape security episode."""
 
-    def __init__(self, episodes: Mapping[str, Sequence[IdentityEpisode]], change_dates: Mapping[str, Sequence[str]]):
+    def __init__(self, episodes: Mapping[str, Sequence[IdentityEpisode]], _change_dates=None):
         self.episodes = {k: tuple(v) for k, v in episodes.items()}
-        self.change_dates = {k: tuple(v) for k, v in change_dates.items()}
+        self.starts = {
+            ticker: tuple(row.first_session for row in rows)
+            for ticker, rows in self.episodes.items()
+        }
 
     def resolve(self, ticker: str, session: str) -> str | None:
         ticker = str(ticker)
         rows = self.episodes.get(ticker, ())
         if not rows:
             return None
-        if session < rows[0].first_session:
-            return None
-        # A CIK change becomes usable strictly after its filing date.
-        idx = bisect.bisect_left(self.change_dates.get(ticker, ()), str(session))
-        idx = min(idx, len(rows) - 1)
-        row = rows[idx]
-        return row.sid if str(session) >= row.first_session else rows[max(0, idx - 1)].sid
+        index = bisect.bisect_right(self.starts[ticker], str(session)) - 1
+        return None if index < 0 else rows[index].sid
 
 
 class CausalIssuerAuthority:
@@ -124,31 +144,234 @@ def _price_dates(sharadar_root: Path, start_year: int, end_year: int) -> dict[st
     return dates
 
 
-def _cik_changes(cik_path: Path) -> tuple[dict[str, list[tuple[str, str]]], dict[str, list[str]]]:
+def _cik_changes(
+    cik_path: Path,
+) -> tuple[dict[str, list[tuple[str, str]]], dict[str, list[CIKChange]]]:
     frame = pd.read_csv(cik_path, compression="gzip", low_memory=False)
     required = {"filing_date", "ticker", "issuer_cik"}
     missing = required - set(frame.columns)
     if missing:
         raise RuntimeError(f"SEC CIK evidence missing columns: {sorted(missing)}")
     events: dict[str, list[tuple[str, str]]] = defaultdict(list)
-    changes: dict[str, list[str]] = defaultdict(list)
+    changes: dict[str, list[CIKChange]] = defaultdict(list)
     frame = frame.sort_values(["ticker", "filing_date"], kind="mergesort")
     for ticker, group in frame.groupby("ticker", sort=False):
         prior = None
-        seen = []
+        by_date: dict[str, list[str]] = {}
+        ticker_text = str(ticker)
         for row in group.itertuples(index=False):
             filed = str(row.filing_date)[:10]
             cik = _norm_int(row.issuer_cik)
             if not filed or cik is None:
                 continue
-            events[str(ticker)].append((filed, cik))
-            if prior is None:
-                prior = cik
-            elif cik != prior:
-                seen.append(filed)
-                prior = cik
-        changes[str(ticker)] = sorted(set(seen))
+            events[ticker_text].append((filed, cik))
+            if prior is not None and cik != prior:
+                if filed not in by_date:
+                    by_date[filed] = [prior, cik]
+                else:
+                    by_date[filed][1] = cik
+            prior = cik
+        changes[ticker_text] = [
+            CIKChange(filed, values[0], values[1])
+            for filed, values in sorted(by_date.items())
+            if values[0] != values[1]
+        ]
     return events, changes
+
+
+def _terminal_identity_evidence(
+    sharadar_root: Path,
+) -> tuple[dict[str, tuple[str, ...]], dict[str, tuple[str, ...]]]:
+    """Load causal target-terminal dates used only to corroborate identity breaks."""
+    root = sharadar_root.parent
+    vendor: dict[str, set[str]] = defaultdict(set)
+    actions_path = root / "PIT input data" / "ACTIONS_PIT_ONLY.csv.gz"
+    if actions_path.is_file():
+        frame = pd.read_csv(
+            actions_path,
+            compression="gzip",
+            usecols=["date", "action", "ticker"],
+            low_memory=False,
+        )
+        for row in frame.itertuples(index=False):
+            action = str(row.action or "").strip().lower()
+            ticker = str(row.ticker or "").strip()
+            session = str(row.date)[:10]
+            if ticker and session and action in _TARGET_TERMINAL_ACTIONS:
+                vendor[ticker].add(session)
+
+    exact: dict[str, set[str]] = defaultdict(set)
+    exact_path = root / "backtester" / "data" / "causal-terminal-terms-v1.json"
+    if exact_path.is_file():
+        payload = json.loads(exact_path.read_text(encoding="utf-8"))
+        for row in payload.get("records") or []:
+            ticker = str(row.get("ticker") or "").strip()
+            session = str(row.get("effective_session") or "")[:10]
+            if ticker and session:
+                exact[ticker].add(session)
+    return (
+        {ticker: tuple(sorted(rows)) for ticker, rows in vendor.items()},
+        {ticker: tuple(sorted(rows)) for ticker, rows in exact.items()},
+    )
+
+
+def _between(dates: Sequence[str], left: str, right: str) -> tuple[str, ...]:
+    start = bisect.bisect_left(dates, left)
+    end = bisect.bisect_left(dates, right)
+    return tuple(dates[start:end])
+
+
+def _identity_boundary_classification(
+    *,
+    price_dates: Mapping[str, Sequence[str]],
+    changes: Mapping[str, Sequence[CIKChange]],
+    vendor_terminals: Mapping[str, Sequence[str]],
+    exact_terminals: Mapping[str, Sequence[str]],
+) -> tuple[dict[str, set[str]], list[dict], list[dict], dict]:
+    market_sessions = sorted({session for rows in price_dates.values() for session in rows})
+    market_index = {session: index for index, session in enumerate(market_sessions)}
+    episode_starts: dict[str, set[str]] = {
+        ticker: {str(rows[0])}
+        for ticker, rows in price_dates.items()
+        if rows
+    }
+
+    # Frozen exact terminal terms are independently authoritative episode
+    # boundaries when the same ticker later reappears on the tape.
+    frozen_terminal_starts: set[tuple[str, str]] = set()
+    for ticker, terminals in exact_terminals.items():
+        observed = tuple(price_dates.get(ticker, ()))
+        if not observed:
+            continue
+        for terminal in terminals:
+            after = bisect.bisect_right(observed, str(terminal))
+            if 0 < after < len(observed):
+                first_after = str(observed[after])
+                episode_starts[ticker].add(first_after)
+                frozen_terminal_starts.add((ticker, first_after))
+
+    records: list[dict] = []
+    blocking: list[dict] = []
+    dispositions: dict[str, int] = defaultdict(int)
+
+    for ticker in sorted(changes):
+        observed = tuple(price_dates.get(ticker, ()))
+        for change in changes[ticker]:
+            record = {
+                "ticker": str(ticker),
+                "filing_date": str(change.filing_date),
+                "prior_cik": str(change.prior_cik),
+                "new_cik": str(change.new_cik),
+                "prior_price_session": "",
+                "next_price_session": "",
+                "skipped_market_sessions": "",
+                "terminal_evidence": "",
+                "disposition": "",
+            }
+            if not observed:
+                record["disposition"] = "NO_PRICE_TAPE_FOR_TICKER"
+                dispositions[record["disposition"]] += 1
+                records.append(record)
+                continue
+            next_index = bisect.bisect_right(observed, change.filing_date)
+            prior_index = next_index - 1
+            if prior_index < 0 or next_index >= len(observed):
+                record["disposition"] = "OUTSIDE_OBSERVED_TAPE"
+                dispositions[record["disposition"]] += 1
+                records.append(record)
+                continue
+
+            prior_session = str(observed[prior_index])
+            next_session = str(observed[next_index])
+            record["prior_price_session"] = prior_session
+            record["next_price_session"] = next_session
+            if prior_session not in market_index or next_session not in market_index:
+                raise RuntimeError("identity audit market-session index is incomplete")
+            skipped = market_index[next_session] - market_index[prior_session] - 1
+            if skipped < 0:
+                raise RuntimeError("identity audit observed non-monotonic market sessions")
+            record["skipped_market_sessions"] = int(skipped)
+
+            exact = _between(exact_terminals.get(ticker, ()), prior_session, next_session)
+            vendor = _between(vendor_terminals.get(ticker, ()), prior_session, next_session)
+            evidence = [*(f"FROZEN:{x}" for x in exact), *(f"PIT_ACTION:{x}" for x in vendor)]
+            record["terminal_evidence"] = ";".join(evidence)
+
+            # Continuous adjacent-session price observations are stronger
+            # security-continuity evidence than an isolated contradictory CIK
+            # association. The CIK assertion is rejected as an identity boundary.
+            if skipped == 0 and not exact:
+                disposition = "CONTINUOUS_TAPE_CIK_REJECTED"
+            elif exact or (skipped > 0 and vendor):
+                disposition = "CORROBORATED_TERMINAL_BOUNDARY"
+                episode_starts[ticker].add(next_session)
+            elif skipped > 0:
+                disposition = "UNRESOLVED_CIK_GAP_CONFLICT"
+            else:
+                disposition = "CONTINUOUS_TAPE_CIK_REJECTED"
+            record["disposition"] = disposition
+            dispositions[disposition] += 1
+            records.append(record)
+            if disposition == "UNRESOLVED_CIK_GAP_CONFLICT":
+                blocking.append(dict(record))
+
+    raw_changes = sum(len(rows) for rows in changes.values())
+    summary = {
+        "identity_authority": (
+            "historical SEP tape continuity; new security episodes require causal "
+            "terminal/relisting corroboration; SEC CIK is issuer evidence and cannot "
+            "create a security episode by itself"
+        ),
+        "raw_cik_change_evidence_events": int(raw_changes),
+        "cik_change_episode_boundaries": int(
+            dispositions.get("CORROBORATED_TERMINAL_BOUNDARY", 0)
+        ),
+        "cik_changes_continuous_tape_rejected": int(
+            dispositions.get("CONTINUOUS_TAPE_CIK_REJECTED", 0)
+        ),
+        "cik_changes_unresolved_gap_conflicts": int(
+            dispositions.get("UNRESOLVED_CIK_GAP_CONFLICT", 0)
+        ),
+        "cik_changes_outside_observed_tape": int(
+            dispositions.get("OUTSIDE_OBSERVED_TAPE", 0)
+        ),
+        "cik_changes_without_price_tape": int(
+            dispositions.get("NO_PRICE_TAPE_FOR_TICKER", 0)
+        ),
+        "frozen_terminal_episode_boundaries": int(len(frozen_terminal_starts)),
+        "blocking_identity_conflicts": int(len(blocking)),
+        "blocking_identity_conflict_examples": blocking[:10],
+        "first_listing_authority": "first observed historical SEP price session",
+        "last_listing_authority": "causal terminal evidence only; no future last-price date is admitted",
+        "permaticker_authority": "none",
+        "related_tickers_authority": "none",
+        "exchange_authority": "none/non-authoritative",
+    }
+    return episode_starts, records, blocking, summary
+
+
+def audit_cik_identity_boundaries(
+    *,
+    sharadar_root: Path,
+    cik_path: Path,
+    start_year: int = 1997,
+    end_year: int = 2026,
+) -> tuple[list[dict], dict]:
+    """Classify every CIK change against price continuity and terminal evidence."""
+    price_dates = _price_dates(sharadar_root, start_year, end_year)
+    _events, changes = _cik_changes(cik_path)
+    vendor, exact = _terminal_identity_evidence(sharadar_root)
+    starts, records, _blocking, summary = _identity_boundary_classification(
+        price_dates=price_dates,
+        changes=changes,
+        vendor_terminals=vendor,
+        exact_terminals=exact,
+    )
+    summary = dict(summary)
+    summary["tickers_with_price_tape"] = len(price_dates)
+    summary["resulting_security_episodes"] = sum(len(rows) for rows in starts.values())
+    summary["cik_change_records"] = len(records)
+    return records, summary
 
 
 def build_causal_metadata(
@@ -158,10 +381,26 @@ def build_causal_metadata(
     SecurityMeta,
     start_year: int = 1997,
     end_year: int = 2026,
+    fail_on_identity_conflict: bool = True,
 ):
     """Build SecurityMeta and resolver without current TICKERS authority."""
     price_dates = _price_dates(sharadar_root, start_year, end_year)
-    cik_events, change_dates = _cik_changes(cik_path)
+    cik_events, changes = _cik_changes(cik_path)
+    vendor_terminals, exact_terminals = _terminal_identity_evidence(sharadar_root)
+    starts_by_ticker, _records, blocking, audit = _identity_boundary_classification(
+        price_dates=price_dates,
+        changes=changes,
+        vendor_terminals=vendor_terminals,
+        exact_terminals=exact_terminals,
+    )
+    if blocking and fail_on_identity_conflict:
+        raise RuntimeError(
+            "strict PIT identity authority found "
+            f"{len(blocking)} uncorroborated CIK change(s) across price-tape gaps; "
+            "identity cannot be certified; examples="
+            + json.dumps(blocking[:5], sort_keys=True)
+        )
+
     episodes: dict[str, list[IdentityEpisode]] = defaultdict(list)
     meta = {}
     canonical = {}
@@ -169,17 +408,13 @@ def build_causal_metadata(
     for ticker, observed in sorted(price_dates.items()):
         if not observed:
             continue
-        cutoffs = change_dates.get(ticker, [])
-        starts = [observed[0]]
-        for cutoff in cutoffs:
-            i = bisect.bisect_right(observed, cutoff)
-            if i < len(observed):
-                starts.append(observed[i])
-        starts = sorted(set(starts))
+        starts = sorted(starts_by_ticker.get(ticker, {observed[0]}))
         for episode, first in enumerate(starts):
             prior_rows = [(d, c) for d, c in cik_events.get(ticker, ()) if d < first]
             prior_cik = prior_rows[-1][1] if prior_rows else None
-            sid = _sid(ticker, first, episode)
+            sid = _sid(ticker, observed[0], episode)
+            if sid in meta:
+                raise RuntimeError(f"strict PIT synthetic security-id collision: {sid}")
             item = IdentityEpisode(ticker, first, sid, episode, prior_cik)
             episodes[ticker].append(item)
             meta[sid] = SecurityMeta(
@@ -197,18 +432,12 @@ def build_causal_metadata(
 
     if not meta:
         raise RuntimeError("strict PIT identity construction found no historical price-tape securities")
-    resolver = CausalIdentityResolver(episodes, change_dates)
+    resolver = CausalIdentityResolver(episodes)
     sectors = {sid: None for sid in meta}
     audit = {
-        "identity_authority": "historical SEP ticker observations plus strict-prior SEC CIK-change episode boundaries",
+        **audit,
         "security_ids": len(meta),
         "tickers": len(episodes),
-        "cik_change_episode_boundaries": sum(len(v) for v in change_dates.values()),
-        "first_listing_authority": "first observed historical SEP price session",
-        "last_listing_authority": "none; no future last-price date is admitted",
-        "permaticker_authority": "none",
-        "related_tickers_authority": "none",
-        "exchange_authority": "none/non-authoritative",
     }
     return meta, sectors, resolver, canonical, audit
 

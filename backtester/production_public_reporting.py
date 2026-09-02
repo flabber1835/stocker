@@ -1,10 +1,10 @@
 #!/usr/bin/env python3
 """Public Production/SPY reporting for retained backtester harnesses.
 
-Economic replay may use internal A/B/D labels while it is running.  Those labels
-are implementation details.  This module converts a completed raw bundle into a
+Economic replay may use internal A/B/D labels while it is running. Those labels
+are implementation details. This module converts a completed raw bundle into a
 single public Production path plus SPY, recomputes metrics from that path, and
-rehashes the resulting evidence.  The transform is idempotent so a corrected
+rehashes the resulting evidence. The transform is idempotent so a corrected
 warm-up wrapper may finalize before and after measurement trimming.
 """
 from __future__ import annotations
@@ -17,6 +17,9 @@ from typing import Mapping
 
 import numpy as np
 import pandas as pd
+
+
+_NOMINAL_WINDOW_TOLERANCE_DAYS = 10.0
 
 
 def _source_variant_from_columns(columns) -> str:
@@ -36,6 +39,42 @@ def _source_variant_from_values(values) -> str:
         if candidate in labels:
             return candidate
     raise RuntimeError("metrics output has no Production economic variant")
+
+
+def _block_elapsed_years(block: Mapping) -> float | None:
+    raw = block.get("elapsed_years")
+    try:
+        value = float(raw)
+    except (TypeError, ValueError):
+        value = float("nan")
+    if math.isfinite(value) and value >= 0.0:
+        return value
+    start = block.get("start")
+    end = block.get("end")
+    if start is None or end is None:
+        return None
+    try:
+        elapsed_days = (date.fromisoformat(str(end)) - date.fromisoformat(str(start))).days
+    except ValueError:
+        return None
+    return elapsed_days / 365.2425 if elapsed_days >= 0 else None
+
+
+def _nominal_window_is_complete(window, block: Mapping) -> bool:
+    """Admit a nominal N-year label only when the evidence is actually N years."""
+    try:
+        nominal = float(window)
+    except (TypeError, ValueError):
+        return False
+    if not math.isfinite(nominal) or nominal <= 0.0:
+        return False
+    elapsed = _block_elapsed_years(block)
+    # Legacy synthetic unit tests and old external callers can omit dates. Real
+    # replay rows always carry start/end, where this gate is authoritative.
+    if elapsed is None:
+        return True
+    tolerance = _NOMINAL_WINDOW_TOLERANCE_DAYS / 365.2425
+    return abs(elapsed - nominal) <= tolerance
 
 
 def public_production_daily(raw: pd.DataFrame) -> pd.DataFrame:
@@ -73,12 +112,20 @@ def public_production_daily(raw: pd.DataFrame) -> pd.DataFrame:
 
 
 def public_production_metrics(raw: pd.DataFrame, max_blocks: Mapping[str, Mapping]) -> pd.DataFrame:
-    """Filter legacy variants and issue authoritative max-window rows."""
+    """Filter legacy variants and issue truthful public measurement-window rows."""
     if "variant" not in raw.columns or "window_years" not in raw.columns:
         raise RuntimeError("metrics output lacks variant/window columns")
     source = _source_variant_from_values(raw["variant"].astype(str))
     current = raw[raw["variant"].astype(str).isin({source, "SPY"})].copy()
     current = current[~current["window_years"].astype(str).eq("max")]
+    if not current.empty:
+        keep = current.apply(
+            lambda row: _nominal_window_is_complete(
+                row["window_years"], row.to_dict()
+            ),
+            axis=1,
+        )
+        current = current[keep].copy()
     current.loc[current["variant"].astype(str).eq(source), "variant"] = "Production"
     rows = []
     for label in ("Production", "SPY"):
@@ -89,7 +136,7 @@ def public_production_metrics(raw: pd.DataFrame, max_blocks: Mapping[str, Mappin
 
 
 def public_metric_summary(raw: Mapping, max_blocks: Mapping[str, Mapping]) -> dict:
-    """Translate nested legacy metrics to Production/SPY naming."""
+    """Translate nested legacy metrics to truthful Production/SPY naming."""
     result: dict[str, dict] = {}
     for window, values in raw.items():
         if str(window) == "max" or not isinstance(values, Mapping):
@@ -97,9 +144,16 @@ def public_metric_summary(raw: Mapping, max_blocks: Mapping[str, Mapping]) -> di
         source = next((key for key in ("Production", "D", "B") if key in values), None)
         if source is None or "SPY" not in values:
             raise RuntimeError(f"metric summary {window} lacks Production/SPY evidence")
+        production = dict(values[source])
+        spy = dict(values["SPY"])
+        if not (
+            _nominal_window_is_complete(window, production)
+            and _nominal_window_is_complete(window, spy)
+        ):
+            continue
         result[str(window)] = {
-            "Production": dict(values[source]),
-            "SPY": dict(values["SPY"]),
+            "Production": production,
+            "SPY": spy,
         }
     result["max"] = {
         "Production": dict(max_blocks["Production"]),
@@ -118,9 +172,9 @@ def metric_block(frame: pd.DataFrame, column: str, measurement_start: str, end_s
     normalized = values / values[0]
     returns = normalized[1:] / normalized[:-1] - 1.0
     std = float(np.std(returns, ddof=1)) if len(returns) > 1 else 0.0
-    # Public evidence is strict JSON.  A constant-return or single-return window
+    # Public evidence is strict JSON. A constant-return or single-return window
     # has no observed return dispersion, so the finite backtester convention is
-    # Sharpe 0.0.  This matches app.metrics and avoids NaN/Infinity certificates.
+    # Sharpe 0.0. This matches app.metrics and avoids NaN/Infinity certificates.
     sharpe = (
         float(np.mean(returns) / std * math.sqrt(252.0))
         if math.isfinite(std) and std > 0.0
