@@ -65,10 +65,19 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/workflows
-            /backtester
-            /tests/backtester
+            /.github/workflows/**
+            /backtester/**
+            /services/backtester/**
+            /services/bt-engine/Dockerfile
+            /tools/**
+            /tests/conftest.py
+            /tests/backtester/**
+            /tests/support/**
             /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
+            /pytest.ini
 
       - name: Check out exact runtime / Production source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -90,6 +99,9 @@ jobs:
           test "$(git -C main-src rev-parse HEAD)" = "${PIT_RUNTIME_MAIN_SHA}"
           test -z "$(git status --porcelain --untracked-files=no)"
           test -z "$(git -C main-src status --porcelain)"
+          test -f tests/conftest.py
+          test -f tests/support/postgres.py
+          test -f services/backtester/requirements.txt
           if test "${PIT_MODE}" = production; then
             test "${PIT_STRATEGY_SHA}" = "${PIT_RUNTIME_MAIN_SHA}"
           else
@@ -102,12 +114,14 @@ jobs:
           python-version: '3.12'
           check-latest: false
 
-      - name: Install exact runtime closure
+      - name: Install exact runtime and test closure
         shell: bash
         run: |
           set -euo pipefail
           python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install -r services/backtester/requirements.txt
+          python -m pip install pytest==8.4.2
           echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
 
       - name: Pull immutable canonical PIT package
@@ -153,7 +167,8 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          python -m unittest discover -s tests/backtester -p 'test_*.py' -v 2>&1 | tee backtester-results/pit-certification-suite/tests-backtester.log
+          python -m compileall -q backtester tests/backtester tests/support
+          python -m pytest -q tests/backtester 2>&1 | tee backtester-results/pit-certification-suite/tests-backtester.log
           exit "${PIPESTATUS[0]}"
 
       - name: Audit exact canonical dataset and historical universe
