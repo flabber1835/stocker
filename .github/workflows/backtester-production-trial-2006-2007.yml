@@ -80,7 +80,7 @@ jobs:
       - name: Check out exact current Production source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: bb7747fe329a1a89de555e2a44cb2f04a7eaa285
+          ref: ea0e100b43da989bfb39ab69cdfb2b9745f3b850
           path: main-src
           fetch-depth: 1
           persist-credentials: false
@@ -94,7 +94,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          EXPECTED=bb7747fe329a1a89de555e2a44cb2f04a7eaa285
+          EXPECTED=ea0e100b43da989bfb39ab69cdfb2b9745f3b850
           git -C main-src fetch --quiet --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
           test "$(git -C main-src rev-parse HEAD)" = "${EXPECTED}"
           test "$(git -C main-src rev-parse refs/remotes/origin/main)" = "${EXPECTED}"

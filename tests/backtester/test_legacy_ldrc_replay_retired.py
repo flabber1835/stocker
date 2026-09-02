@@ -30,4 +30,4 @@ def test_supported_production_chain_uses_certified_2006_boundary() -> None:
     assert "CERTIFICATION_WARMUP_START: '2006-01-03'" in worker
     assert "CERTIFICATION_MEASUREMENT_START: '2006-07-31'" in worker
     assert "CANONICAL_DATASET_HASH: f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b" in worker
-    assert "PRODUCTION_MAIN_SHA: bb7747fe329a1a89de555e2a44cb2f04a7eaa285" in worker
+    assert "PRODUCTION_MAIN_SHA: ea0e100b43da989bfb39ab69cdfb2b9745f3b850" in worker
