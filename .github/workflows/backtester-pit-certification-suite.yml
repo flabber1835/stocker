@@ -55,6 +55,7 @@ jobs:
           ARTIFACT_NAME="pit-certification-tests-${PIT_MODE}-${GITHUB_RUN_ID}-${GITHUB_RUN_ATTEMPT}"
           echo "artifact_name=${ARTIFACT_NAME}" >> "${GITHUB_OUTPUT}"
           echo "PIT_ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_ENV}"
+
       - name: Check out exact backtester source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -68,6 +69,7 @@ jobs:
             /backtester
             /tests/backtester
             /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+
       - name: Check out exact runtime / Production source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -79,24 +81,27 @@ jobs:
           sparse-checkout: |
             sentinel
             shared
+
       - name: Prove source identity before tests
         shell: bash
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = "${PIT_SOURCE_SHA}"
           test "$(git -C main-src rev-parse HEAD)" = "${PIT_RUNTIME_MAIN_SHA}"
-          test -z "$(git status --porcelain)"
+          test -z "$(git status --porcelain --untracked-files=no)"
           test -z "$(git -C main-src status --porcelain)"
           if test "${PIT_MODE}" = production; then
             test "${PIT_STRATEGY_SHA}" = "${PIT_RUNTIME_MAIN_SHA}"
           else
             test "${PIT_STRATEGY_SHA}" = "${PIT_SOURCE_SHA}"
           fi
+
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
           check-latest: false
+
       - name: Install exact runtime closure
         shell: bash
         run: |
@@ -104,6 +109,7 @@ jobs:
           python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
           echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+
       - name: Pull immutable canonical PIT package
         id: package
         continue-on-error: true
@@ -121,6 +127,7 @@ jobs:
           trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
           docker cp "${cid}:/canonical-pit/." "${PIT_DATASET}/"
           python backtester/canonical_pit_package.py verify --pointer "${PIT_POINTER}" --dataset "${PIT_DATASET}"
+
       - name: Freeze exact suite experiment identity
         id: freeze
         continue-on-error: true
@@ -128,7 +135,16 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p backtester-results/pit-certification-suite
-          python backtester/certify_backtest_result.py identity --mode "${PIT_MODE}" --source-sha "${PIT_SOURCE_SHA}" --strategy-sha "${PIT_STRATEGY_SHA}" --workflow-sha "${PIT_SOURCE_SHA}" --pointer "${PIT_POINTER}" --parameters-json "${PIT_PARAMETERS_JSON}" --source-root . --output backtester-results/pit-certification-suite/experiment-identity.json
+          python backtester/certify_backtest_result.py identity \
+            --mode "${PIT_MODE}" \
+            --source-sha "${PIT_SOURCE_SHA}" \
+            --strategy-sha "${PIT_STRATEGY_SHA}" \
+            --workflow-sha "${PIT_SOURCE_SHA}" \
+            --pointer "${PIT_POINTER}" \
+            --parameters-json "${PIT_PARAMETERS_JSON}" \
+            --source-root . \
+            --output backtester-results/pit-certification-suite/experiment-identity.json
+
       - name: Run complete backtester financial / causality tests
         id: financial
         continue-on-error: true
@@ -137,22 +153,32 @@ jobs:
           set -uo pipefail
           python -m pytest -q tests/backtester 2>&1 | tee backtester-results/pit-certification-suite/pytest.log
           exit "${PIPESTATUS[0]}"
+
       - name: Audit exact canonical dataset and historical universe
         id: dataset
         continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
-          python backtester/certify_backtest_result.py audit-dataset --dataset "${PIT_DATASET}" --pointer "${PIT_POINTER}" --output backtester-results/pit-certification-suite/dataset-audit.json 2>&1 | tee backtester-results/pit-certification-suite/dataset-audit.log
+          python backtester/certify_backtest_result.py audit-dataset \
+            --dataset "${PIT_DATASET}" \
+            --pointer "${PIT_POINTER}" \
+            --output backtester-results/pit-certification-suite/dataset-audit.json \
+            2>&1 | tee backtester-results/pit-certification-suite/dataset-audit.log
           exit "${PIPESTATUS[0]}"
+
       - name: Run bounded real-corpus future poison / truncation certification
         id: dynamic
         continue-on-error: true
         shell: bash
         run: |
           set -uo pipefail
-          python backtester/future_leak_certification.py --dataset "${PIT_DATASET}" --output backtester-results/pit-certification-suite/dynamic-future-leak.json 2>&1 | tee backtester-results/pit-certification-suite/dynamic-future-leak.log
+          python backtester/future_leak_certification.py \
+            --dataset "${PIT_DATASET}" \
+            --output backtester-results/pit-certification-suite/dynamic-future-leak.json \
+            2>&1 | tee backtester-results/pit-certification-suite/dynamic-future-leak.log
           exit "${PIPESTATUS[0]}"
+
       - name: Join mandatory suite evidence
         id: collect
         if: always()
@@ -163,10 +189,21 @@ jobs:
           DYNAMIC_OUTCOME: ${{ steps.dynamic.outcome }}
         run: |
           set -euo pipefail
-          financial=FAIL; dynamic=FAIL
+          financial=FAIL
+          dynamic=FAIL
           if test "${FINANCIAL_OUTCOME}" = success; then financial=PASS; fi
           if test "${DYNAMIC_OUTCOME}" = success; then dynamic=PASS; fi
-          python backtester/certify_backtest_result.py collect-tests --identity backtester-results/pit-certification-suite/experiment-identity.json --dataset-audit backtester-results/pit-certification-suite/dataset-audit.json --static-forward-bias "${financial}" --dynamic-future-leak "${dynamic}" --runtime-causal-read-boundary "${dynamic}" --financial-semantics "${financial}" --checkpoint-resume "${financial}" --diagnostics backtester-results/pit-certification-suite/dynamic-future-leak.json --output backtester-results/pit-certification-suite/pit-test-evidence.json
+          python backtester/certify_backtest_result.py collect-tests \
+            --identity backtester-results/pit-certification-suite/experiment-identity.json \
+            --dataset-audit backtester-results/pit-certification-suite/dataset-audit.json \
+            --static-forward-bias "${financial}" \
+            --dynamic-future-leak "${dynamic}" \
+            --runtime-causal-read-boundary "${dynamic}" \
+            --financial-semantics "${financial}" \
+            --checkpoint-resume "${financial}" \
+            --diagnostics backtester-results/pit-certification-suite/dynamic-future-leak.json \
+            --output backtester-results/pit-certification-suite/pit-test-evidence.json
+
       - name: Read evidence status
         id: status
         if: always()
@@ -174,9 +211,18 @@ jobs:
         run: |
           set -euo pipefail
           status=FAIL
-          if test -f backtester-results/pit-certification-suite/pit-test-evidence.json; then status="$(python -c "import json; print(json.load(open('backtester-results/pit-certification-suite/pit-test-evidence.json')).get('status','FAIL'))")"; fi
+          if test -f backtester-results/pit-certification-suite/pit-test-evidence.json; then
+            status="$(python -c "import json; print(json.load(open('backtester-results/pit-certification-suite/pit-test-evidence.json')).get('status','FAIL'))")"
+          fi
           echo "evidence_status=${status}" >> "${GITHUB_OUTPUT}"
-          { echo "## Mandatory PIT / financial / causality suite"; echo; echo "Evidence status: **${status}**"; echo "Source SHA: \`${PIT_SOURCE_SHA}\`"; echo "Strategy SHA: \`${PIT_STRATEGY_SHA}\`"; } >> "${GITHUB_STEP_SUMMARY}"
+          {
+            echo "## Mandatory PIT / financial / causality suite"
+            echo
+            echo "Evidence status: **${status}**"
+            echo "Source SHA: \`${PIT_SOURCE_SHA}\`"
+            echo "Strategy SHA: \`${PIT_STRATEGY_SHA}\`"
+          } >> "${GITHUB_STEP_SUMMARY}"
+
       - name: Upload immutable mandatory-suite evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -188,6 +234,7 @@ jobs:
           if-no-files-found: warn
           retention-days: 90
           compression-level: 6
+
       - name: Enforce fail-closed mandatory suite
         if: always()
         shell: bash
