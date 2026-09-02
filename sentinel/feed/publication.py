@@ -46,11 +46,18 @@ _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
 
 def _require_object_evidence(value, *, where: str) -> dict:
     if value is None:
-        return {}
+        raise _core.CorpusIncoherent(
+            f"{where} publication evidence must be a JSON object")
     if not isinstance(value, Mapping):
         raise _core.CorpusIncoherent(
             f"{where} publication evidence must be a JSON object")
     return dict(value)
+
+
+def _candidate_evidence(value) -> dict:
+    if value is None:
+        return {}
+    return _require_object_evidence(value, where="candidate")
 
 
 def _receipt_digest(payload: Mapping[str, object]) -> str:
@@ -166,57 +173,104 @@ def _verify_receipt_chain(
         required_after_version: int | None = None) -> None:
     with conn.cursor() as cur:
         cur.execute(
+            "SELECT required_after_version"
+            " FROM sentinel_publication_validation_policy")
+        policy_rows = cur.fetchall()
+        if len(policy_rows) != 1:
+            raise _core.CorpusIncoherent(
+                "publication validation policy is missing or ambiguous")
+        policy_boundary = int(policy_rows[0][0])
+        # The durable policy boundary is the exact pre-receipt legacy prefix.
+        # A signed root may lie inside that prefix but cannot retroactively make
+        # independently authenticated receipts exist for historical rows.
+        if (required_after_version is not None
+                and int(required_after_version) > int(through_version)):
+            raise _core.CorpusIncoherent(
+                "publication receipt requirement starts after the pinned version")
+        cur.execute(
             "SELECT p.version,p.previous_version,p.run_id,p.published_at,"
-            " p.window_start,p.window_end,p.evidence,ir.status"
+            " p.window_start,p.window_end,p.evidence,ir.status,"
+            " r.previous_version,r.run_id,r.published_at,r.window_start,"
+            " r.window_end,r.evidence,r.origin_run_status,"
+            " r.previous_receipt_sha256,r.receipt_sha256"
             " FROM sentinel_corpus_publications p"
             " LEFT JOIN feed_ingest_runs ir ON ir.run_id=p.run_id"
-            " WHERE p.version <= %s ORDER BY p.version",
-            (through_version,))
+            " LEFT JOIN sentinel_publication_validation_receipts r"
+            "   ON r.publication_version=p.version"
+            " WHERE p.version > %s AND p.version <= %s ORDER BY p.version",
+            (policy_boundary, through_version))
         rows = cur.fetchall()
     previous_receipt = None
-    receipt_chain_started = False
     for row in rows:
         (version, previous_version, run_id, published_at, window_start,
-         window_end, raw_evidence, live_run_status) = row
+         window_end, raw_evidence, live_run_status, receipt_previous_version,
+         receipt_run_id, receipt_published_at, receipt_window_start,
+         receipt_window_end, receipt_evidence, origin_run_status,
+         stored_previous, stored_digest) = row
         evidence = _require_object_evidence(
             raw_evidence, where=f"version {version}")
-        receipt = _receipt_from_evidence(evidence)
-        receipt_required = (
-            required_after_version is not None
-            and int(version) > int(required_after_version))
-        if receipt is None:
-            if receipt_chain_started or receipt_required:
-                raise _core.CorpusIncoherent(
-                    f"publication version {version} lacks its validation receipt")
-            continue
-        receipt_chain_started = True
-        if receipt.get("schema") != RECEIPT_SCHEMA:
+        embedded = _receipt_from_evidence(evidence)
+        if receipt_evidence is None or embedded is None:
+            raise _core.CorpusIncoherent(
+                f"publication version {version} lacks its validation receipt")
+        if embedded.get("schema") != RECEIPT_SCHEMA:
             raise _core.CorpusIncoherent(
                 f"publication version {version} has an unknown validation receipt")
-        stored_previous = receipt.get("previous_receipt_sha256")
-        stored_digest = receipt.get("receipt_sha256")
         stored_previous_value = (
             str(stored_previous) if stored_previous is not None else None)
         if stored_previous_value != previous_receipt:
             raise _core.CorpusIncoherent(
                 "publication validation receipt chain is discontinuous")
-        origin_status = "success" if run_id is not None else None
         if run_id is not None and str(live_run_status) != "success":
             raise _core.CorpusIncoherent(
                 f"publication version {version} lacks successful ingest origin")
-        unsigned_evidence = dict(evidence)
-        unsigned_evidence.pop(RECEIPT_EVIDENCE_KEY, None)
+        unsigned_evidence = _require_object_evidence(
+            receipt_evidence, where=f"version {version} receipt")
+        if (receipt_previous_version != previous_version
+                or receipt_run_id != run_id
+                or receipt_published_at != published_at
+                or receipt_window_start != window_start
+                or receipt_window_end != window_end
+                or unsigned_evidence != {
+                    key: value for key, value in evidence.items()
+                    if key != RECEIPT_EVIDENCE_KEY}):
+            raise _core.CorpusIncoherent(
+                f"publication version {version} receipt does not match its row")
+        expected_origin = "success" if run_id is not None else None
+        if origin_run_status != expected_origin:
+            raise _core.CorpusIncoherent(
+                f"publication version {version} receipt has invalid origin")
         body = _receipt_body(
             version=int(version), previous_version=previous_version,
             run_id=run_id, published_at=published_at,
             window_start=window_start, window_end=window_end,
-            evidence=unsigned_evidence, origin_run_status=origin_status,
+            evidence=unsigned_evidence, origin_run_status=expected_origin,
             previous_receipt_sha256=previous_receipt)
         expected = _receipt_digest(body)
-        if not _SHA_RE.fullmatch(str(stored_digest)) or str(stored_digest) != expected:
+        if (not _SHA_RE.fullmatch(str(stored_digest))
+                or str(stored_digest) != expected
+                or embedded.get("receipt_sha256") != expected
+                or embedded.get("previous_receipt_sha256") != previous_receipt):
             raise _core.CorpusIncoherent(
                 f"publication version {version} validation receipt changed")
         previous_receipt = str(stored_digest)
+
+
+def _latest_receipt_sha256(conn, *, through_version: int) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT receipt_sha256"
+            " FROM sentinel_publication_validation_receipts"
+            " WHERE publication_version <= %s"
+            " ORDER BY publication_version DESC LIMIT 1", (through_version,))
+        row = cur.fetchone()
+    if row is None:
+        return None
+    digest = str(row[0])
+    if not _SHA_RE.fullmatch(digest):
+        raise _core.CorpusIncoherent(
+            "previous publication validation receipt is malformed")
+    return digest
 
 
 def _validate_publication(conn, publication: Publication | None):
@@ -282,8 +336,7 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
             retired_universe = {}
             retired_action_bars = None
         previous = current(conn)
-        publication_evidence = _require_object_evidence(
-            evidence, where="candidate")
+        publication_evidence = _candidate_evidence(evidence)
         if "pitr" in publication_evidence:
             raise _core.CorpusIncoherent(
                 "caller may not supply publication PITR authority")
@@ -317,16 +370,10 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
                 "SELECT nextval(pg_get_serial_sequence("
                 "'sentinel_corpus_publications','version'))")
             next_version = int(cur.fetchone()[0])
-        previous_receipt = None
-        if previous is not None:
-            prior = _receipt_from_evidence(
-                _require_object_evidence(
-                    previous.evidence, where=f"version {previous.version}"))
-            if prior is not None:
-                previous_receipt = str(prior.get("receipt_sha256") or "")
-                if not _SHA_RE.fullmatch(previous_receipt):
-                    raise _core.CorpusIncoherent(
-                        "previous publication validation receipt is malformed")
+        previous_receipt = (
+            _latest_receipt_sha256(conn, through_version=previous.version)
+            if previous is not None else None)
+        unsigned_publication_evidence = dict(publication_evidence)
         publication_evidence = _add_validation_receipt(
             conn, version=next_version,
             previous_version=previous.version if previous else None,
@@ -346,9 +393,22 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
                  json.dumps(publication_evidence,
                             sort_keys=True, default=str)))
             version, _stored_published_at = cur.fetchone()
-        if int(version) != next_version:  # pragma: no cover - DB contract
-            raise _core.CorpusIncoherent(
-                "database stored a different publication version than allocated")
+            if int(version) != next_version:  # pragma: no cover - DB contract
+                raise _core.CorpusIncoherent(
+                    "database stored a different publication version than allocated")
+            receipt = publication_evidence[RECEIPT_EVIDENCE_KEY]
+            cur.execute(
+                "INSERT INTO sentinel_publication_validation_receipts ("
+                " publication_version,previous_version,run_id,published_at,"
+                " window_start,window_end,evidence,origin_run_status,"
+                " previous_receipt_sha256,receipt_sha256)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)",
+                (next_version, previous.version if previous else None, run_id,
+                 published_at, window_start, window_end,
+                 json.dumps(unsigned_publication_evidence,
+                            sort_keys=True, default=str),
+                 "success" if run_id is not None else None,
+                 previous_receipt, receipt["receipt_sha256"]))
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -363,7 +423,7 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
 def publish(conn, *, run_id=None, window_start=None, window_end=None,
             evidence=None):
     """Publish one coherent corpus generation with all durable seed evidence."""
-    merged = _require_object_evidence(evidence, where="candidate")
+    merged = _candidate_evidence(evidence)
     if run_id is not None:
         from sentinel.feed import seed_coherence
 

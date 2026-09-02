@@ -53,6 +53,10 @@ def test_authorized_dispatch_is_absent_from_ordinary_image_layer() -> None:
     assert "RUN rm /app/sentinel/cli/authorized_routes.py" in ordinary
     assert ("COPY sentinel/cli/authorized_routes.py" in authorized
             and "/app/sentinel/cli/authorized_routes.py" in authorized)
+    assert "/app/sentinel/execution/alpaca.py" in ordinary
+    assert "stock_strategy_shared/broker/alpaca.py" in ordinary
+    assert "sentinel/execution/alpaca.py" in authorized
+    assert "shared/stock_strategy_shared/broker/alpaca.py" in authorized
 
 
 def test_marker_and_executable_cannot_replace_authorized_dispatch(
@@ -77,6 +81,20 @@ def test_marker_and_executable_cannot_replace_authorized_dispatch(
             "configuration loaded without an authorized dispatcher")))
 
     assert cli.main(["automation-run"]) == cli.EXIT_CONFIG
+
+
+@pytest.mark.asyncio
+async def test_direct_sensitive_handler_refuses_without_runtime_surface(
+        tmp_path, monkeypatch) -> None:
+    from sentinel.cli import _shared, paper
+
+    monkeypatch.delenv(_shared.AUTHORIZED_RUNTIME_ENV, raising=False)
+    monkeypatch.setattr(
+        _shared, "AUTHORIZED_RUNTIME_MARKER", tmp_path / "missing-marker")
+    config = SimpleNamespace(database_url="must-not-be-opened")
+
+    assert await paper._execute_paper_plan(config, SimpleNamespace()) == \
+        _shared.EXIT_CONFIG
 
 
 @pytest.mark.parametrize("evidence", [None, [], "text", 7, True])
@@ -158,6 +176,12 @@ def test_sep_interrupted_backed_up_promotion_restores_prior_generation(
     assert final.read_bytes() == b"PRIOR-GENERATION"
     assert not marker.exists()
     assert not staging.exists()
+
+
+def test_sep_fingerprint_staging_name_matches_recovery_contract() -> None:
+    source = (ROOT / "scripts" / "sentinel-split-sep-bulk.py").read_text()
+    assert ".sep-stage." not in source
+    assert source.count(".sep-staging.") >= 2
 
 
 def test_sep_recovery_refuses_marker_paths_outside_generation(tmp_path) -> None:

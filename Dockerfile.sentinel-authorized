@@ -14,9 +14,19 @@ COPY deploy/sentinel-authorized-runtime-v1 \
     /opt/sentinel/authorized-runtime-v1
 COPY sentinel/cli/authorized_routes.py \
     /app/sentinel/cli/authorized_routes.py
+COPY sentinel/execution/alpaca.py \
+     sentinel/execution/alpaca_asset_id.py \
+     /app/sentinel/execution/
+COPY shared/stock_strategy_shared/broker/alpaca.py \
+     /tmp/sentinel-authorized/alpaca.py
+COPY shared/stock_strategy_shared/broker/alpaca.py \
+     /shared/stock_strategy_shared/broker/alpaca.py
 
 USER root
 RUN install -d -m 0755 /opt/sentinel/bin \
+    && install -m 0444 /tmp/sentinel-authorized/alpaca.py \
+       "$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"/stock_strategy_shared/broker/alpaca.py \
+    && rm -r /tmp/sentinel-authorized \
     && printf '%s\n' \
        '#!/bin/sh' \
        'printf "sentinel-authorized-capability/1\\n"' \

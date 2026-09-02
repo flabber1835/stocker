@@ -589,7 +589,9 @@ def current(conn) -> Optional[Publication]:
         row = cur.fetchone()
     if row is None:
         return None
-    evidence = row[5] if isinstance(row[5], dict) else json.loads(row[5] or "{}")
+    evidence = (row[5] if isinstance(row[5], dict)
+                else json.loads(row[5]) if isinstance(row[5], (str, bytes))
+                else row[5])
     return Publication(version=int(row[0]),
                        previous_version=int(row[1]) if row[1] is not None else None,
                        run_id=str(row[2]) if row[2] else None,

@@ -9,7 +9,6 @@ from sentinel.automation import outbox, store
 from sentinel.automation.model import AutomationRefused
 from sentinel.feed import publication
 from sentinel.feed import store as feed_store
-from sentinel.execution import authority_gate
 from tests.support.postgres import _EphemeralPostgres
 
 
@@ -231,12 +230,18 @@ def test_publication_evidence_and_receipt_are_durably_enforced(conn) -> None:
     with pytest.raises(publication.CorpusIncoherent, match="JSON object"):
         publication.publish(conn, evidence=[])
 
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO sentinel_corpus_publications (evidence)"
-            " VALUES ('[]'::jsonb)")
-    with pytest.raises(publication.CorpusIncoherent, match="JSON object"):
-        publication.current(conn)
+    with pytest.raises(Exception, match="sentinel_publication_evidence_object"):
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_corpus_publications (evidence)"
+                " VALUES ('[]'::jsonb)")
+    conn.rollback()
+
+    with pytest.raises(Exception, match="sentinel_publication_evidence_object"):
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_corpus_publications (evidence)"
+                " VALUES ('null'::jsonb)")
     conn.rollback()
 
     published = publication.publish(conn, evidence={"falsifier": "receipt"})
@@ -245,34 +250,29 @@ def test_publication_evidence_and_receipt_are_durably_enforced(conn) -> None:
             "INSERT INTO sentinel_corpus_publications"
             " (previous_version,evidence) VALUES (%s,'{}'::jsonb)",
             (published.version,))
-    with pytest.raises(publication.CorpusIncoherent,
-                       match="lacks its validation receipt"):
-        publication.current(conn)
+    with pytest.raises(Exception, match="lacks its durable validation receipt"):
+        conn.commit()
     conn.rollback()
 
     receipt = published.evidence[publication.RECEIPT_EVIDENCE_KEY]
     assert receipt["schema"] == publication.RECEIPT_SCHEMA
     assert len(str(receipt["receipt_sha256"])) == 64
-
-
-def test_execution_authority_rejects_sql_publication_without_receipt(conn) -> None:
-    root = publication.publish(conn, evidence={"certified": "root"})
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT version,previous_version,run_id,published_at,window_start,"
-            " window_end,evidence FROM sentinel_corpus_publications"
-            " WHERE version=%s", (root.version,))
-        root_row = cur.fetchone()
+            "SELECT receipt_sha256 FROM sentinel_publication_validation_receipts"
+            " WHERE publication_version=%s", (published.version,))
+        assert cur.fetchone() == (receipt["receipt_sha256"],)
+
+
+def test_database_rejects_sql_publication_without_receipt(conn) -> None:
+    root = publication.publish(conn, evidence={"certified": "root"})
+    with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_corpus_publications"
             " (previous_version,evidence) VALUES (%s,'{}'::jsonb)"
             " RETURNING version", (root.version,))
         forged_version = int(cur.fetchone()[0])
-    conn.commit()
-
-    with pytest.raises(authority.AuthorityRefused,
-                       match="validation chain is invalid"):
-        authority_gate.require_publication_chain(
-            conn,
-            expected_root_sha256=authority_gate.publication_row_sha256(root_row),
-            current_version=forged_version)
+    with pytest.raises(Exception, match="lacks its durable validation receipt"):
+        conn.commit()
+    conn.rollback()
+    assert forged_version > root.version

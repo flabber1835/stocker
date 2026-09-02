@@ -8,6 +8,7 @@ import sys
 
 from sentinel.cli._shared import (
     EXIT_CONFIG, EXIT_NOT_ESTABLISHED, EXIT_OK,
+    authorized_handler,
     paper_refusal_types as _paper_refusal_types,
     paper_refused as _paper_refused,
 )
@@ -64,6 +65,7 @@ def _automation_status(config: SentinelConfig, _args=None) -> int:
     return EXIT_OK if result.healthy else EXIT_NOT_ESTABLISHED
 
 
+@authorized_handler("activate-paper-automation")
 def _activate_paper_automation(config: SentinelConfig, args) -> int:
     from sentinel import schema
     from sentinel.automation import store
@@ -116,6 +118,7 @@ def _activate_paper_automation(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+@authorized_handler("release-paper-automation-kill-switch")
 def _release_paper_automation_kill(config: SentinelConfig, args) -> int:
     from sentinel import schema
     from sentinel.automation import store
@@ -220,6 +223,7 @@ def _acknowledge_paper_alert(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+@authorized_handler("automation-run")
 async def _automation_run(config: SentinelConfig, _args=None) -> int:
     """Run the persistent service; disabled/killed startup is broker-inert."""
     import signal

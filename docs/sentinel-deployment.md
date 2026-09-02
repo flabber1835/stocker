@@ -717,6 +717,16 @@ corpus digests are produced by reading rows back out of that server, so a minor
 upgrade can move `corpus_hash` without a single row changing. A warning would
 have been the wrong shape: it prints, and then the run proceeds.
 
+**Bulk SEP file promotion is a recoverable generation transition.** The
+splitter stages and fsyncs every year and the fingerprint, then durably records
+`PREPARED`, backs up and fsyncs the complete prior generation before recording
+`BACKED_UP`, and promotes the new files. A crash before `COMMITTED` restores the
+old generation; a crash after it finishes cleanup. The marker names one token
+and exact staging/backup paths, and recovery refuses any disagreement. Every
+repository consumer of the per-year files must refuse while the promotion
+marker exists, so the per-file rename interval cannot be observed as a valid
+mixed generation.
+
 **The whole dependency closure is fingerprinted and artifact-hash LOCKED.**
 `requirements.txt` pins the direct dependencies; pip resolves everything
 underneath them, so two builds can declare identical versions and install

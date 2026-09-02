@@ -147,6 +147,10 @@ def main() -> int:
     root: Path = args.sharadar
     if not root.is_dir():
         raise SystemExit(f"not a directory: {root}")
+    if (root / ".sentinel-sep-promotion.json").exists():
+        raise SystemExit(
+            "REFUSED: SEP generation promotion is incomplete; recover it with "
+            "sentinel-split-sep-bulk.py before inventory reads")
 
     want = pinned_hashes()
     report = {"corpus_dir": str(root.resolve()),

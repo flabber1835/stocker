@@ -53,12 +53,28 @@ class _Cursor:
         return False
 
     def execute(self, sql, _params=None):
-        assert "sentinel_corpus_publications" in sql
-        self.with_run_status = "feed_ingest_runs" in sql
+        if "sentinel_publication_validation_policy" in sql:
+            self.query = "policy"
+        elif "sentinel_publication_validation_receipts" in sql:
+            self.query = "receipts"
+        else:
+            assert "sentinel_corpus_publications" in sql
+            self.query = "publications"
 
     def fetchall(self):
-        if getattr(self, "with_run_status", False):
-            return [(*row, "success") for row in self.rows]
+        if self.query == "policy":
+            return [(0,)]
+        if self.query == "receipts":
+            result = []
+            for row in self.rows:
+                embedded = row[6][publication.RECEIPT_EVIDENCE_KEY]
+                unsigned = dict(row[6])
+                unsigned.pop(publication.RECEIPT_EVIDENCE_KEY)
+                result.append((
+                    *row, "success", row[1], row[2], row[3], row[4], row[5],
+                    unsigned, "success", embedded["previous_receipt_sha256"],
+                    embedded["receipt_sha256"]))
+            return result
         return list(self.rows)
 
 

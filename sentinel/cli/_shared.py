@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+from functools import wraps
+import inspect
 import stat
 import subprocess
 import sys
@@ -80,14 +82,31 @@ def _authorized_capability_executes() -> bool:
             and result.stderr == b"")
 
 
+def _authorized_marker_bytes() -> bytes | None:
+    """Read the fixed marker without following a substituted symlink."""
+    try:
+        mode = AUTHORIZED_RUNTIME_MARKER.lstat().st_mode
+        if not stat.S_ISREG(mode) or stat.S_ISLNK(mode):
+            return None
+        flags = os.O_RDONLY
+        if hasattr(os, "O_NOFOLLOW"):
+            flags |= os.O_NOFOLLOW
+        fd = os.open(str(AUTHORIZED_RUNTIME_MARKER), flags)
+        try:
+            return os.read(fd, len(AUTHORIZED_RUNTIME_MARKER_BYTES) + 1)
+        finally:
+            os.close(fd)
+    except OSError:
+        return None
+
+
 def require_authorized_runtime(command: str) -> int | None:
     """Refuse broker/authority commands outside the reviewed image surface."""
     if command not in AUTHORIZED_RUNTIME_COMMANDS:
         return None
-    try:
-        marker = AUTHORIZED_RUNTIME_MARKER.read_bytes()
-    except OSError:
-        marker = None
+    # Formerly AUTHORIZED_RUNTIME_MARKER.read_bytes(); the no-follow read keeps
+    # the same fixed-byte proof without accepting a substituted symlink.
+    marker = _authorized_marker_bytes()
     if (os.environ.get(AUTHORIZED_RUNTIME_ENV) == AUTHORIZED_RUNTIME_VALUE
             and marker == AUTHORIZED_RUNTIME_MARKER_BYTES
             and _authorized_capability_executes()):
@@ -99,6 +118,32 @@ def require_authorized_runtime(command: str) -> int | None:
         file=sys.stderr,
     )
     return EXIT_CONFIG
+
+
+def authorized_handler(command: str):
+    """Gate an image-exclusive handler even when invoked outside CLI dispatch."""
+    if command not in AUTHORIZED_RUNTIME_COMMANDS:
+        raise ValueError(f"{command!r} is not an authorized runtime command")
+
+    def decorate(handler):
+        if inspect.iscoroutinefunction(handler):
+            @wraps(handler)
+            async def async_guarded(*args, **kwargs):
+                refusal = require_authorized_runtime(command)
+                if refusal is not None:
+                    return refusal
+                return await handler(*args, **kwargs)
+            return async_guarded
+
+        @wraps(handler)
+        def guarded(*args, **kwargs):
+            refusal = require_authorized_runtime(command)
+            if refusal is not None:
+                return refusal
+            return handler(*args, **kwargs)
+        return guarded
+
+    return decorate
 
 
 def paper_refusal_types() -> tuple[type[BaseException], ...]:
@@ -164,6 +209,7 @@ __all__ = [
     "AUTHORIZED_RUNTIME_MARKER",
     "AUTHORIZED_RUNTIME_MARKER_BYTES",
     "AUTHORIZED_RUNTIME_VALUE",
+    "authorized_handler",
     "EXIT_CONFIG",
     "EXIT_NOT_ESTABLISHED",
     "EXIT_OK",

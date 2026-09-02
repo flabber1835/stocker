@@ -35,13 +35,21 @@ Both are recoverable from the `stocker-legacy-2026-08` branch.
 """
 from __future__ import annotations
 
-from .alpaca import AlpacaBrokerAdapter
 from .base import (
     AccountSnapshot,
     BrokerAdapter,
     BrokerOrder,
     BrokerPosition,
 )
+
+try:
+    from .alpaca import AlpacaBrokerAdapter
+except ModuleNotFoundError as exc:
+    # The ordinary Sentinel image intentionally omits every concrete broker
+    # transport while retaining inert contracts used by status/reconciliation.
+    if exc.name != __name__ + ".alpaca":
+        raise
+    AlpacaBrokerAdapter = None  # type: ignore[assignment,misc]
 
 #: Compatibility token returned by the retired broker-native close method.
 #: Production Sentinel migration uses named journal commands instead.
@@ -52,6 +60,7 @@ __all__ = [
     "BrokerAdapter",
     "BrokerOrder",
     "BrokerPosition",
-    "AlpacaBrokerAdapter",
     "ALREADY_CLOSED_STATUS",
 ]
+if AlpacaBrokerAdapter is not None:
+    __all__.append("AlpacaBrokerAdapter")

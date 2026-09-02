@@ -8,6 +8,7 @@ import sys
 
 from sentinel.cli._shared import (
     EXIT_CONFIG, EXIT_NOT_ESTABLISHED, EXIT_OK,
+    authorized_handler,
     paper_refusal_types as _paper_refusal_types,
     paper_refused as _paper_refused,
 )
@@ -16,6 +17,7 @@ from sentinel.cli import feed as feed_cli
 from sentinel.config import SentinelConfig, build_broker
 from sentinel.startup import OwnershipNotEstablished
 
+@authorized_handler("migration-plan")
 async def _migration_plan(config: SentinelConfig, args) -> int:
     """What changes between the account as it stands and the target. READ-ONLY.
 
@@ -153,6 +155,7 @@ async def _plan(config: SentinelConfig, _args=None) -> int:
     return EXIT_CONFIG
 
 
+@authorized_handler("migrate-account")
 async def _migrate_account(config: SentinelConfig, args) -> int:
     """The one-time handover. ADMINISTRATIVE, and it cannot re-arm.
 
@@ -237,6 +240,7 @@ def _migration_refusal_types() -> tuple[type[BaseException], ...]:
     )
 
 
+@authorized_handler("adopt-restored-account")
 async def _adopt_restored(config: SentinelConfig, args) -> int:
     """Increment the takeover epoch for a REPLACEMENT host.
 

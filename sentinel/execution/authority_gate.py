@@ -97,6 +97,8 @@ def publication_policy_implementation_identity() -> Mapping:
         "chain": {
             "row_digest": "canonical-json-sha256/v1",
             "predecessor": "previous_version",
+            "validation_receipt": "append-only-deferred-ledger/v1",
+            "evidence_shape": "json-object/v1",
             "current_plan_pin": "data_version+publication_fingerprint",
         },
         "sources": dict(sorted(sources.items())),

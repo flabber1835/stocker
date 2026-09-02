@@ -310,6 +310,11 @@ def _promote_generation(*, out: Path, staging: Path, fingerprint_staged: Path,
     for entry in entries:
         if entry["had_original"]:
             os.replace(entry["final"], entry["backup"])
+    # The BACKED_UP marker may become durable only after every backup-directory
+    # entry is durable. Otherwise recovery can trust a marker whose names were
+    # still only present in the page cache at power loss.
+    _fsync_dir(backup_dir)
+    _fsync_dir(staging)
     for directory in touched_dirs:
         _fsync_dir(directory)
 
@@ -319,6 +324,7 @@ def _promote_generation(*, out: Path, staging: Path, fingerprint_staged: Path,
 
     for entry in entries:
         os.replace(entry["staged"], entry["final"])
+    _fsync_dir(staging)
     for directory in touched_dirs:
         _fsync_dir(directory)
 
@@ -368,7 +374,7 @@ def main() -> int:
     staging = out / (".sentinel-sep-staging." + token)
     staging.mkdir()
     fingerprint_staged = args.fingerprint.parent / (
-        "." + args.fingerprint.name + ".sep-stage." + token)
+        "." + args.fingerprint.name + ".sep-staging." + token)
     writers: dict[int, YearWriter] = {}
     try:
         with zipfile.ZipFile(args.zip_path) as z:

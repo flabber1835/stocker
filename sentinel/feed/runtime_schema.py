@@ -49,6 +49,8 @@ _RELATIONS = {
     "sentinel_universe": ("r", "p", False, False, False),
     "feed_universe_current": ("r", "p", False, False, False),
     "sentinel_corpus_publications": ("r", "p", False, False, False),
+    "sentinel_publication_validation_policy": ("r", "p", False, False, False),
+    "sentinel_publication_validation_receipts": ("r", "p", False, False, False),
     "sentinel_bar_split_repairs": ("r", "p", False, False, False),
     "feed_ingest_runs": ("r", "p", False, False, False),
     "sentinel_action_generations": ("r", "p", False, False, False),
@@ -137,6 +139,21 @@ _COLUMNS = {
         "published_at": ("timestamp with time zone", True),
         "window_start": ("date", False), "window_end": ("date", False),
         "evidence": ("jsonb", True),
+    },
+    "sentinel_publication_validation_policy": {
+        "id": ("boolean", True),
+        "required_after_version": ("bigint", True),
+    },
+    "sentinel_publication_validation_receipts": {
+        "publication_version": ("bigint", True),
+        "previous_version": ("bigint", False),
+        "run_id": ("uuid", False),
+        "published_at": ("timestamp with time zone", True),
+        "window_start": ("date", False), "window_end": ("date", False),
+        "evidence": ("jsonb", True),
+        "origin_run_status": ("text", False),
+        "previous_receipt_sha256": ("text", False),
+        "receipt_sha256": ("text", True),
     },
     "sentinel_bar_split_repairs": {
         "security_id": ("text", True), "session": ("date", True),
@@ -242,6 +259,8 @@ _PRIMARY_KEYS = {
     "sentinel_universe": "primary key (permaticker, ticker, snapshot_date)",
     "feed_universe_current": "primary key (permaticker, ticker)",
     "sentinel_corpus_publications": "primary key (version)",
+    "sentinel_publication_validation_policy": "primary key (id)",
+    "sentinel_publication_validation_receipts": "primary key (publication_version)",
     "sentinel_bar_split_repairs": "primary key (security_id, session, last_written_run_id)",
     "feed_ingest_runs": "primary key (run_id)",
     "sentinel_action_generations": "primary key (last_written_run_id)",
@@ -253,6 +272,20 @@ _PRIMARY_KEYS = {
 }
 
 _CONSTRAINT_WITNESSES = {
+    "sentinel_corpus_publications": (
+        ("c", ("jsonb_typeof(evidence)", "object")),
+    ),
+    "sentinel_publication_validation_policy": (
+        ("c", ("id",)),
+        ("c", ("required_after_version", ">=", "0")),
+    ),
+    "sentinel_publication_validation_receipts": (
+        ("f", ("foreign key (publication_version)",
+               "sentinel_corpus_publications", "version",
+               "deferrable initially deferred")),
+        ("c", ("jsonb_typeof(evidence)", "object")),
+        ("c", ("receipt_sha256", "[0-9a-f]{64}")),
+    ),
     "sentinel_defensive_bars": (
         ("c", ("security_id", "sentinel:bil")),
         ("c", ("ticker", "bil")),
@@ -403,11 +436,21 @@ _TRIGGER_WITNESSES = {
                 "execute function sentinel_refuse_append_only_mutation()"),
         }
         for table in (
-            "sentinel_corpus_publications",
+            "sentinel_publication_validation_receipts",
+            "sentinel_publication_validation_policy",
             "sentinel_action_generation_events",
             "sentinel_anomaly_observation_events",
             "sentinel_corpus_quarantine",
         )
+    },
+    "sentinel_corpus_publications": {
+        "sentinel_refuse_append_only_mutation": (
+            "before delete or update", "for each row",
+            "execute function sentinel_refuse_append_only_mutation()"),
+        "sentinel_require_publication_receipt": (
+            "create constraint trigger", "after insert", "for each row",
+            "deferrable initially deferred",
+            "execute function sentinel_require_publication_receipt()"),
     },
 }
 

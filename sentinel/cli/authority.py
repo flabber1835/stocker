@@ -11,6 +11,7 @@ from zoneinfo import ZoneInfo
 from sentinel.cli._shared import (
     EXIT_CONFIG, EXIT_OK,
     PINNED_ROLLOUT_RISK_WARNING,
+    authorized_handler,
     paper_refusal_types as _paper_refusal_types,
     paper_refused as _paper_refused,
 )
@@ -203,6 +204,7 @@ def _authorized_administrative_access(
     return grant, guard
 
 
+@authorized_handler("install-administrative-certificate")
 def _install_administrative_certificate(
         config: SentinelConfig, args) -> int:
     """Verify and stage a pre-binding/admin certificate; no broker."""
@@ -262,6 +264,7 @@ def _install_administrative_certificate(
     return EXIT_OK
 
 
+@authorized_handler("activate-administrative-certificate")
 def _activate_administrative_certificate(
         config: SentinelConfig, args) -> int:
     """Activate/rotate exact administrative authority; no broker."""
@@ -355,6 +358,7 @@ def _revoke_administrative_certificate(
     return EXIT_OK
 
 
+@authorized_handler("install-system-certificate")
 def _install_system_certificate(config: SentinelConfig, args) -> int:
     """Verify and stage an exact offline-issued certificate; no broker."""
     from sentinel import authority, binding as binding_mod, schema
@@ -425,6 +429,7 @@ def _install_system_certificate(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+@authorized_handler("activate-system-certificate")
 def _activate_system_certificate(config: SentinelConfig, args) -> int:
     """Activate/rotate one staged certificate and rollout atomically."""
     from sentinel import authority, binding as binding_mod, schema
@@ -585,6 +590,7 @@ def _revoke_system_certificate(config: SentinelConfig, args) -> int:
     return EXIT_OK
 
 
+@authorized_handler("set-paper-rollout-mode")
 def _set_paper_rollout_mode(config: SentinelConfig, args) -> int:
     """Perform one explicit, audited exposure-rollout transition."""
     from sentinel import authority, schema
