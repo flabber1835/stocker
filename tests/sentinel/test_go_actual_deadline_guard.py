@@ -22,6 +22,11 @@ class Runner:
         raise AssertionError("guard-only unit must not create subprocess work")
 
 
+class BoundedRunner(Runner):
+    def run_with_timeout(self, argv, *, env=None, timeout_seconds, cwd=None):
+        raise AssertionError("guard-only unit must not create subprocess work")
+
+
 def _install_with_value(monkeypatch, value):
     state = {"value": value}
 
@@ -51,6 +56,26 @@ def test_prepared_missing_actual_deadline_refuses_instead_of_becoming_timing_fai
     state["value"] = 0
     assert controller._actual_remaining_ms(
         Runner(), env={}, runtime_ref="sha256:" + "a" * 64) == 0
+
+
+def test_deadline_guard_preserves_bounded_runner_capability_for_inner_probe_contract(
+        monkeypatch):
+    bounded = BoundedRunner()
+    observed = {}
+
+    def actual(runner, *, env, runtime_ref):
+        observed["runner"] = runner
+        assert callable(getattr(runner, "run_with_timeout", None))
+        return 12_345
+
+    monkeypatch.setattr(controller, "_actual_remaining_ms", actual)
+    monkeypatch.delattr(controller, guard._INSTALLED_MARKER, raising=False)
+    monkeypatch.setitem(phase._PHASE, "prepared", True)
+    guard.install()
+
+    assert controller._actual_remaining_ms(
+        bounded, env={}, runtime_ref="sha256:" + "a" * 64) == 12_345
+    assert observed["runner"] is bounded
 
 
 def test_unprepared_none_remains_guarded_by_existing_phase_contract(monkeypatch):
