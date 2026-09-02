@@ -1,0 +1,209 @@
+name: Backtester - current Production 2006-2007 stability trial
+run-name: Production stability trial 2006-2007 — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester]
+    paths:
+      - backtester/data/canonical-pit-2006-2007.json
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: backtester-production-trial-2006-2007
+  cancel-in-progress: false
+
+jobs:
+  trial:
+    name: Current Production through 2007
+    if: github.ref_name == 'research/backtester'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2007-12-31'
+      CANONICAL_PIT_EXPECTED_START: '2006-01-03'
+      CANONICAL_PIT_EXPECTED_END: '2007-12-31'
+      PYTHONUNBUFFERED: '1'
+
+    steps:
+      - name: Check out frozen trial source and inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-production-trial-2006-2007.yml
+            /backtester/**
+            /tests/backtester/test_canonical_pit_dataset.py
+            /tests/backtester/test_identity_reporting_regressions.py
+            /research/sentinel-fastgate/pit-evidence/**
+            /PIT input data/**
+            /sharadar/SFP/**
+
+      - name: Prove immutable trial source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/backtester"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Reconstruct frozen SFP archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          parts=(sharadar/SFP/SHARADAR_SFP.zip.*)
+          test "${#parts[@]}" -ge 1
+          cat "${parts[@]}" > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+
+      - name: Check out exact current Production source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: bb7747fe329a1a89de555e2a44cb2f04a7eaa285
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Verify current Production identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          EXPECTED=bb7747fe329a1a89de555e2a44cb2f04a7eaa285
+          git -C main-src fetch --quiet --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          test "$(git -C main-src rev-parse HEAD)" = "${EXPECTED}"
+          test "$(git -C main-src rev-parse refs/remotes/origin/main)" = "${EXPECTED}"
+          test -z "$(git -C main-src status --porcelain)"
+          test "$(git -C main-src hash-object sentinel/core/kernel.py)" = "12617af8eb954d4ae18fef2ae16977048e2e40cd"
+          test "$(git -C main-src hash-object sentinel/core/production.py)" = "e4ebfebae2fa1a737c52063af63003a82b6e19cf"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "466a8f8202692e65e08596a7a47d45bd15bb3fd3"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "1921399aca503ae5e2cbfd6125792c09464ba22b"
+          echo "BACKTESTER_MAIN_SHA=${EXPECTED}" >> "${GITHUB_ENV}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact Production runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install pytest==8.4.2
+
+      - name: Compile and test bounded trial contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/run_production_current_main_strict_pit_20y.py \
+            backtester/run_production_strict_pit_20y.py \
+            backtester/run_production_strict_pit_certification.py \
+            backtester/canonical_pit_dataset.py \
+            backtester/canonical_pit_package.py \
+            backtester/strict_pit_metadata.py \
+            backtester/production_public_reporting.py
+          python -m pytest -q \
+            tests/backtester/test_canonical_pit_dataset.py \
+            tests/backtester/test_identity_reporting_regressions.py
+          python backtester/run_production_current_main_strict_pit_20y.py \
+            --main-root main-src --self-test-source-identity
+
+      - name: Pull corrected bounded canonical dataset
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CANONICAL_PATH=backtester-results/canonical-pit-2006-2007
+          POINTER=backtester/data/canonical-pit-2006-2007.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p "${CANONICAL_PATH}"
+          docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL_PATH}"
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python backtester/canonical_pit_package.py verify \
+            --pointer "${POINTER}" --dataset "${CANONICAL_PATH}"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from backtester.strict_pit_metadata import IDENTITY_AUTHORITY
+
+          manifest = json.loads(
+              Path('backtester-results/canonical-pit-2006-2007/manifest.json').read_text()
+          )
+          assert manifest['status'] == 'PASS'
+          assert manifest['window'] == {
+              'warmup_start': '2006-01-03',
+              'measurement_start': '2006-07-31',
+              'end': '2007-12-31',
+          }
+          assert manifest['field_authorities']['identity'] == IDENTITY_AUTHORITY
+          assert manifest['identity_audit']['blocking_identity_conflicts'] == 0
+          assert manifest['identity_audit']['cik_change_episode_boundaries'] == 0
+          PY
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/${CANONICAL_PATH}" >> "${GITHUB_ENV}"
+
+      - name: Run current Production from 2006 through 2007
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/run_production_current_main_strict_pit_20y.py \
+            --main-root main-src \
+            --lab-root . \
+            --output backtester-results/production-trial-2006-2007 \
+            2>&1 | tee backtester-production-trial-2006-2007.log
+
+      - name: Verify completed trial output
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+
+          root = Path('backtester-results/production-trial-2006-2007')
+          summary = json.loads((root / 'summary.json').read_text())
+          daily = pd.read_csv(root / 'daily.csv.gz', compression='gzip', low_memory=False)
+          assert summary['status'] == 'PASS'
+          assert summary['warmup']['start'] == '2006-01-03'
+          assert summary['warmup']['measurement_start'] == '2006-07-31'
+          assert str(daily.iloc[0]['date']) == '2006-07-31'
+          assert str(daily.iloc[-1]['date']) == '2007-12-31'
+          assert 'Production_nav' in daily.columns
+          assert daily['Production_nav'].notna().all()
+          print('BOUNDED PRODUCTION STABILITY TRIAL PASS')
+          PY
+
+      - name: Upload trial evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-production-trial-2006-2007-${{ github.run_id }}
+          path: |
+            backtester-results/production-trial-2006-2007/**
+            backtester-production-trial-2006-2007.log
+          if-no-files-found: warn
+          retention-days: 30
+          compression-level: 6
