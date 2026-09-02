@@ -59,8 +59,38 @@ def _receipt_digest(payload: Mapping[str, object]) -> str:
     return hashlib.sha256(encoded).hexdigest()
 
 
+def _integrity_schema_ready(conn) -> bool:
+    """Fast read-only catalog check for the additive enforcement surface."""
+    with conn.cursor() as cur:
+        cur.execute("""
+            SELECT
+              to_regclass('sentinel_publication_validation_receipts')
+                IS NOT NULL,
+              EXISTS (
+                SELECT 1 FROM pg_constraint
+                 WHERE conname='sentinel_corpus_publication_evidence_object_ck'
+                   AND conrelid='sentinel_corpus_publications'::regclass
+                   AND convalidated
+              ),
+              EXISTS (
+                SELECT 1 FROM pg_trigger
+                 WHERE tgname='sentinel_publication_receipt_required'
+                   AND NOT tgisinternal
+              ),
+              EXISTS (
+                SELECT 1 FROM pg_trigger
+                 WHERE tgname='sentinel_publication_receipts_append_only'
+                   AND NOT tgisinternal
+              )
+        """)
+        row = cur.fetchone()
+    return bool(row and all(bool(value) for value in row))
+
+
 def _ensure_integrity_schema(conn) -> None:
-    """Install additive DB enforcement in the caller's transaction."""
+    """Install additive DB enforcement only when the catalog lacks it."""
+    if _integrity_schema_ready(conn):
+        return
     with conn.cursor() as cur:
         cur.execute("""
             DO $$ BEGIN
@@ -279,8 +309,9 @@ def _verify_receipt_chain(conn, *, through_version: int) -> None:
         if stored_digest is None:
             raise _core.CorpusIncoherent(
                 f"publication version {version} lacks its validation receipt")
-        if str(stored_previous) if stored_previous is not None else None \
-                != previous_receipt:
+        stored_previous_value = (
+            str(stored_previous) if stored_previous is not None else None)
+        if stored_previous_value != previous_receipt:
             raise _core.CorpusIncoherent(
                 "publication validation receipt chain is discontinuous")
         if run_id is not None and (
