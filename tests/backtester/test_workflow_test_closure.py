@@ -11,6 +11,7 @@ ROOT = Path(__file__).resolve().parents[2]
 WORKFLOW_DIR = ROOT / ".github" / "workflows"
 TRIAL = WORKFLOW_DIR / "backtester-production-trial-2006-2007.yml"
 FINANCIAL_GATE = WORKFLOW_DIR / "backtester-financial-causality-gate.yml"
+CERTIFICATION_SUITE = WORKFLOW_DIR / "backtester-pit-certification-suite.yml"
 PYTEST_PIN = "pytest==8.4.2"
 
 # Any sparse checkout that executes the complete tests/backtester suite must
@@ -107,19 +108,31 @@ class BacktesterWorkflowTestClosureTests(unittest.TestCase):
     def test_production_trial_materializes_complete_pytest_harness(self) -> None:
         self._assert_complete_suite_checkout(TRIAL)
 
-    def test_financial_gate_materializes_complete_pytest_harness(self) -> None:
-        self._assert_complete_suite_checkout(FINANCIAL_GATE)
+    def test_reusable_certification_suite_materializes_complete_pytest_harness(self) -> None:
+        self._assert_complete_suite_checkout(CERTIFICATION_SUITE)
+
+    def test_financial_gate_delegates_to_reusable_complete_suite(self) -> None:
+        document = _load(FINANCIAL_GATE)
+        jobs = document.get("jobs") or {}
+        delegated = [
+            job
+            for job in jobs.values()
+            if str(job.get("uses") or "")
+            == "./.github/workflows/backtester-pit-certification-suite.yml"
+        ]
+        self.assertEqual(len(delegated), 1)
 
     def test_financial_gate_watches_production_trial_workflow(self) -> None:
         document = _load(FINANCIAL_GATE)
-        watched = set(document["on"]["push"]["paths"])
-        self.assertIn(
-            ".github/workflows/backtester-production-trial-2006-2007.yml",
-            watched,
+        watched = tuple(document["on"]["push"]["paths"])
+        target = ".github/workflows/backtester-production-trial-2006-2007.yml"
+        self.assertTrue(
+            any(fnmatch.fnmatchcase(target, pattern) for pattern in watched),
+            f"financial gate does not watch {target}: {watched}",
         )
 
     def test_complete_suite_workflows_use_same_pinned_pytest(self) -> None:
-        for path in (TRIAL, FINANCIAL_GATE):
+        for path in (TRIAL, CERTIFICATION_SUITE):
             text = path.read_text(encoding="utf-8")
             self.assertIn(
                 f"python -m pip install {PYTEST_PIN}",
