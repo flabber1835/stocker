@@ -11,10 +11,9 @@ import pytest
 from cryptography.hazmat.primitives import serialization
 from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
-from sentinel import authority, binding, schema
+from sentinel import authority, binding, identity, schema
 from sentinel.automation.health import read_health
 from sentinel.feed import publication, store as feed_store
-from sentinel.identity import require_feed_producer_identity
 from sentinel.panel.sources import _authority_lifecycle
 from sentinel.observation_authority import (
     accepted_boundary_sha256,
@@ -87,7 +86,7 @@ def publish_metadata_snapshot(conn, *, snapshot_date: str, sector: str) -> int:
     """Publish one later TICKERS observation without rewriting prior history."""
     suffix = snapshot_date.replace("-", "")[-8:]
     run_id = f"00000000-0000-0000-0000-{suffix.zfill(12)}"
-    producer = require_feed_producer_identity()
+    producer = identity.require_feed_producer_identity()
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO feed_ingest_runs"

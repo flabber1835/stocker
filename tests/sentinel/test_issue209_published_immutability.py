@@ -2,8 +2,8 @@ from uuid import uuid4
 
 import pytest
 
+from sentinel import identity
 from sentinel.feed import publication, store as feed_store
-from sentinel.identity import require_feed_producer_identity
 from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 
 
@@ -27,7 +27,7 @@ def conn(pg):
 
 
 def _run(conn, run_id, status="success"):
-    producer = require_feed_producer_identity()
+    producer = identity.require_feed_producer_identity()
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO feed_ingest_runs"
