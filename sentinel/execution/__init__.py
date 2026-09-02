@@ -28,12 +28,23 @@ Nothing here imports a Stocker service, and nothing here decides WHAT to hold.
 """
 
 # Package-level policy is intentional: every supported execution entry point
-# imports ``sentinel.execution`` before it can reach reconciliation.  Install the
+# imports ``sentinel.execution`` before it can reach reconciliation. Install the
 # fail-closed stale-restore ownership rule once at the common membrane so CLI,
 # automation and recovery tools cannot diverge on whether a bare ``sntl-``
 # prefix constitutes ownership authority.
 from sentinel.execution import recovered_order_policy as _recovered_order_policy
 
 _recovered_order_policy.install()
+
+# Alpaca's strict terminal-recovery witness is the point at which a COMPLETE
+# observation can become durable negative-space authority. Bind that point to
+# the takeover fence too. This import is deliberate: broker-capable execution
+# already depends on the concrete Alpaca certification boundary, and the guard
+# must be installed before any caller can obtain its strict_advance function.
+if _recovered_order_policy.strict_enabled():
+    from sentinel.execution import alpaca as _alpaca
+
+    _recovered_order_policy.install_alpaca_restore_guard(_alpaca)
+    del _alpaca
 
 del _recovered_order_policy
