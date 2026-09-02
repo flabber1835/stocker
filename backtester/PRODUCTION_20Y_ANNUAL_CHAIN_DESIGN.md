@@ -91,13 +91,13 @@ starting after failure. Missing or corrupt sidecars, checkpoint hashes,
 predecessor links, canonical identities, or exact source identities stop the
 chain before any resumed economic session executes.
 
-The prior failure was reproduced exactly at 2008-03-24 for PHRM security
-`705177744622024105`. The canonical package carried an incomplete cash-merger
-row even though the effective 2008-03-07 terms were $25 cash plus 0.8367 CELG
-shares. The replay now replaces only that incomplete canonical row with the
-checksum-authenticated exact terms (including fractional-share settlement).
-The fail-closed accounting guard itself is unchanged. An exact resumed replay
-passed the former boundary and checkpointed through 2008-03-31.
+Terminal and split reconstruction happens before publication. Runtime replay
+uses the authenticated canonical package as its only corporate-action authority;
+it never reopens raw adjudication or terminal sidecars. A resumed annual worker
+may see terminal terms from prior canonical sessions, but never a future term.
+Recent Leadership values a constituent that terminates between closes at its
+exact per-predecessor-share canonical consideration. Missing consideration still
+fails closed.
 
 ## User-facing reporting
 

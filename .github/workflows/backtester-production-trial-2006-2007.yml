@@ -3,6 +3,12 @@ run-name: Production stability trial 2006-2007 — ${{ github.sha }}
 
 on:
   workflow_dispatch:
+    inputs:
+      terminal_discovery:
+        description: Report every unresolved Recent Leadership next-close gap
+        required: false
+        type: boolean
+        default: false
   push:
     branches: [research/backtester]
     paths:
@@ -29,6 +35,7 @@ jobs:
       CERTIFICATION_END_SESSION: '2007-12-31'
       CANONICAL_PIT_EXPECTED_START: '2006-01-03'
       CANONICAL_PIT_EXPECTED_END: '2007-12-31'
+      BACKTESTER_DISCOVER_TERMINAL_GAPS: ${{ inputs.terminal_discovery && '1' || '0' }}
       PYTHONUNBUFFERED: '1'
 
     steps:
@@ -43,9 +50,12 @@ jobs:
           sparse-checkout: |
             /.github/workflows/**
             /backtester/**
-            /tests/backtester/test_canonical_pit_dataset.py
-            /tests/backtester/test_identity_reporting_regressions.py
+            /tests/backtester/**
+            /services/**
+            /tools/**
+            /pytest.ini
             /research/sentinel-fastgate/pit-evidence/**
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/**
             /PIT input data/**
             /sharadar/SFP/**
 
@@ -78,6 +88,7 @@ jobs:
           sparse-checkout: |
             sentinel
             shared
+            docs/sentinel-handoff
 
       - name: Verify current Production identity
         shell: bash
@@ -107,23 +118,15 @@ jobs:
           set -euo pipefail
           python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install -r services/backtester/requirements.txt
           python -m pip install pytest==8.4.2
 
-      - name: Compile and test bounded trial contract
+      - name: Compile and test complete backtester contract
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile \
-            backtester/run_production_current_main_strict_pit_20y.py \
-            backtester/run_production_strict_pit_20y.py \
-            backtester/run_production_strict_pit_certification.py \
-            backtester/canonical_pit_dataset.py \
-            backtester/canonical_pit_package.py \
-            backtester/strict_pit_metadata.py \
-            backtester/production_public_reporting.py
-          python -m pytest -q \
-            tests/backtester/test_canonical_pit_dataset.py \
-            tests/backtester/test_identity_reporting_regressions.py
+          python -m compileall -q backtester tests/backtester
+          python -m pytest -q tests/backtester
           python backtester/run_production_current_main_strict_pit_20y.py \
             --main-root main-src --self-test-source-identity
 
@@ -197,6 +200,17 @@ jobs:
           assert daily['Production_nav'].notna().all()
           print('BOUNDED PRODUCTION STABILITY TRIAL PASS')
           PY
+
+      - name: Report terminal discovery population
+        if: ${{ inputs.terminal_discovery }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          if grep -F '[TERMINAL DISCOVERY]' backtester-production-trial-2006-2007.log; then
+            echo 'TERMINAL DISCOVERY FOUND UNRESOLVED CONSTITUENTS'
+          else
+            echo 'TERMINAL DISCOVERY POPULATION IS EMPTY'
+          fi
 
       - name: Upload trial evidence
         if: always()

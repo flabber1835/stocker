@@ -10,10 +10,14 @@ import pandas as pd
 import yaml
 
 from backtester.canonical_pit_dataset import (
+    ACTION_COLUMNS,
+    BENCHMARK_COLUMNS,
+    CASH_COLUMNS,
     METADATA_COLUMNS,
     OBSERVATION_COLUMNS,
     SCHEMA,
     SESSION_HASH_COLUMNS,
+    TERMINAL_COLUMNS,
     CanonicalPITDataset,
     _DeterministicGzipCsv,
     _canonical_csv_line,
@@ -34,6 +38,12 @@ from backtester.strict_pit_metadata import IDENTITY_AUTHORITY
 
 def _artifact(root: Path, *, status: str = "PASS") -> Path:
     root.mkdir()
+    observations = root / "observations-2006.csv.gz"
+    with _DeterministicGzipCsv(observations, OBSERVATION_COLUMNS) as writer:
+        writer.write({
+            "session": "2006-01-03", "security_id": "1", "ticker": "ABC",
+            "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
+        })
     timeline = root / "metadata-timeline.csv.gz"
     with _DeterministicGzipCsv(timeline, METADATA_COLUMNS) as writer:
         writer.write({
@@ -51,6 +61,18 @@ def _artifact(root: Path, *, status: str = "PASS") -> Path:
             "listing_first_session": "2005-01-03",
             "metadata_admitted": "1",
         })
+    actions = root / "actions.csv.gz"
+    with _DeterministicGzipCsv(actions, ACTION_COLUMNS):
+        pass
+    terminals = root / "terminal-events.csv.gz"
+    with _DeterministicGzipCsv(terminals, TERMINAL_COLUMNS):
+        pass
+    cash = root / "cash.csv.gz"
+    with _DeterministicGzipCsv(cash, CASH_COLUMNS) as writer:
+        writer.write({"session": "2006-01-03"})
+    benchmark = root / "benchmark.csv.gz"
+    with _DeterministicGzipCsv(benchmark, BENCHMARK_COLUMNS) as writer:
+        writer.write({"session": "2006-01-03", "ticker": "SPY"})
     hashes = root / "session-hashes.csv"
     with hashes.open("w", encoding="utf-8", newline="") as handle:
         writer = csv.DictWriter(handle, fieldnames=SESSION_HASH_COLUMNS)
@@ -60,7 +82,12 @@ def _artifact(root: Path, *, status: str = "PASS") -> Path:
             "action_rows": "0", "terminal_rows": "0", "input_sha256": "a" * 64,
         })
     members = {
+        observations.name: _member(observations, root, 1),
         timeline.name: _member(timeline, root, 1),
+        actions.name: _member(actions, root, 0),
+        terminals.name: _member(terminals, root, 0),
+        cash.name: _member(cash, root, 1),
+        benchmark.name: _member(benchmark, root, 1),
         hashes.name: _member(hashes, root, 1),
     }
     manifest = {
@@ -74,7 +101,14 @@ def _artifact(root: Path, *, status: str = "PASS") -> Path:
             "measurement_start": "2006-01-03",
             "end": "2006-01-03",
         },
-        "counts": {"unresolved_corporate_actions": 0},
+        "counts": {
+            "observation_rows": 1,
+            "metadata_timeline_rows": 1,
+            "action_rows": 0,
+            "terminal_rows": 0,
+            "session_count": 1,
+            "unresolved_corporate_actions": 0,
+        },
         "blockers": {},
         "members": members,
     }
@@ -94,6 +128,17 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertIn('"identity": IDENTITY_AUTHORITY', builder)
         self.assertNotIn(
             '"identity": "historical SEP plus strict-prior SEC CIK-change episode boundary"',
+            builder,
+        )
+
+    def test_terminal_admission_uses_bounded_sep_membership_not_same_day_print(self) -> None:
+        builder = Path("backtester/canonical_pit_dataset.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("retained_priced_tickers", builder)
+        self.assertIn("ticker.upper() not in retained_priced_tickers", builder)
+        self.assertNotIn(
+            "ticker.upper() not in priced_tickers_by_session.get(session, set())",
             builder,
         )
 
@@ -303,6 +348,9 @@ class CanonicalPITDatasetTests(unittest.TestCase):
         self.assertIn("canonical-pit-2006-2007.json", diagnostic_publish)
         self.assertIn("docker push", diagnostic_publish)
         self.assertIn("git rebase origin/research/backtester", diagnostic_publish)
+        self.assertIn("docs/sentinel-handoff", Path(
+            ".github/workflows/backtester-production-trial-2006-2007.yml"
+        ).read_text(encoding="utf-8"))
         self.assertEqual(orchestrator.count("uses: ./.github/workflows/backtester-build-canonical-pit-attempt.yml"), 3)
         for fixture in (
             "/.github/workflows/backtester-build-canonical-pit-attempt.yml",

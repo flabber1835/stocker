@@ -102,8 +102,8 @@ One row is one historically observed listed-instrument tape row.
 | `sector_source` | Strict-prior SEC CIK/SIC rule or explicit singleton policy |
 | `listing_active` | `1`; row existence is the listing witness |
 | `listing_first_session` | First observed historical SEP session for the causal security episode |
-| `exchange` | Blank in schema 1 because no causal authority is admitted |
-| `exchange_authoritative` | `0` in schema 1 |
+| `exchange` | Blank in schema 2 because no causal authority is admitted |
+| `exchange_authoritative` | `0` in schema 2 |
 | `raw_open` | Historical as-traded open |
 | `raw_close` | Historical as-traded close (`SEP.closeunadj`) |
 | `signal_close` | Split-adjusted, dividend-unadjusted close (`SEP.close`) |
@@ -113,7 +113,7 @@ One row is one historically observed listed-instrument tape row.
 | `dividend_per_share` | Canonical dividend on the as-traded share basis |
 | `tradeable` | Causal tape-level tradeability fact |
 | `metadata_admitted` | Fail-closed conjunction of required reconstructed metadata facts |
-| `identity_source` | Historical SEP plus strict-prior CIK-change episode rule |
+| `identity_source` | Historical SEP tape continuity plus causal terminal/relisting evidence |
 
 `metadata_admitted` does not encode momentum, price, liquidity, ranking, slot,
 or portfolio rules. Each strategy computes those mechanics from the same
@@ -174,7 +174,7 @@ proves identical input population and values at the strategy boundary.
 | Fact | Authority and exact rule |
 |---|---|
 | Session axis | Frozen SPY factor observations in the requested range |
-| Security identity | Historical SEP ticker observations; a new episode starts on the first observed session strictly after a filed SEC CIK change |
+| Security identity | Historical SEP tape continuity; a new episode requires causal terminal/relisting evidence. SEC CIK is issuer evidence and cannot mint a security episode by itself |
 | Ticker | Historical SEP row on the simulated session |
 | Issuer | Latest SEC CIK whose filing date is strictly earlier than the session; unknown becomes a security singleton |
 | Security type | Exact-session evidence-backed manual admission first, then SEC/EDGAR positive common-equity evidence filed strictly earlier than the session and matching the strict-prior CIK; otherwise explicit unknown/ineligible |
@@ -186,7 +186,7 @@ proves identical input population and values at the strategy boundary.
 | Volume | Reported SEP volume and the shared dollar-liquidity-preserving raw-domain conversion |
 | Splits | PIT ACTIONS `split` rows plus SEP price-domain witness plus frozen primary-source adjudications; `adrratiosplit` is provenance only |
 | Dividends | PIT ACTIONS dividend rows converted to the historical raw-share domain using the same-session price-domain factor |
-| Terminal events | PIT ACTIONS terminal rows coalesced with frozen evidence-backed terminal terms |
+| Terminal events | PIT ACTIONS target-terminal rows, including tape-ending events without a same-session print, coalesced with frozen evidence-backed terminal terms |
 | Defensive cash | Actual BIL factors when causally available; previous completed calendar month's frozen GS3M with calendar-day accrual otherwise |
 | Eligibility metadata | Evidence-supported common equity, active observed listing, and resolved required metadata; unknown type is ineligible |
 
@@ -203,9 +203,10 @@ The builder:
 5. certifies row/session/security counts and unresolved counts;
 6. marks the artifact `FAIL` when any economically relevant action remains unresolved.
 
-The loader rejects a missing member, member hash mismatch, dataset-hash mismatch,
-schema mismatch, range mismatch, non-PASS status, unresolved action count, or
-unexpected row order.
+The loader rejects a missing or unexpected member, member hash/byte/row mismatch,
+dataset-hash mismatch, schema or column mismatch, range/measurement mismatch,
+non-PASS status, unresolved action count, stale identity provenance, invalid
+session hashes, or unexpected row order.
 
 Research and production receive the same validated dataset path. Their wrappers
 must not import reconstruction helpers or open raw authority paths. Static tests

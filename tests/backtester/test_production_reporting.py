@@ -410,66 +410,83 @@ def test_strict_finalizer_removes_stale_calendar_cagr_fields():
     assert "legacy CAGR reporting fields survived Production finalization" in source
 
 
-def test_authenticated_phrm_terms_replace_only_the_incomplete_canonical_event(
-    monkeypatch,
-):
+def test_production_uses_canonical_terminal_authority_only():
+    source = (
+        Path(__file__).resolve().parents[2]
+        / "backtester"
+        / "run_production_strict_pit_certification.py"
+    ).read_text(encoding="utf-8")
+    assert "_terminal_terms_with_authenticated_corrections" not in source
+    assert "load_frozen_terminal_terms" not in source
+    assert '"authority": "canonical PIT package only"' in source
+
+
+def test_recent_leadership_uses_exact_terminal_value_and_fails_closed():
     import backtester.run_production_strict_pit_20y as production_replay
 
-    strict_reporting = production_replay.strict
-    incomplete = strict_reporting.TerminalTerms(
-        session="2008-03-07",
-        security_id="705177744622024105",
-        kind=strict_reporting.TerminalKind.CASH_MERGER,
-        reference="incomplete canonical vendor event",
+    cash_merger = SimpleNamespace(
+        kind=SimpleNamespace(value="CASH_MERGER"),
+        cash_per_share=14.5,
+        exchange_ratio=None,
+        delivered_security_id=None,
+        cash_in_lieu_price_per_delivered_share=None,
     )
-    replacement = strict_reporting.TerminalTerms(
-        session="2008-03-07",
-        security_id="705177744622024105",
-        kind=strict_reporting.TerminalKind.CASH_PLUS_STOCK,
-        cash_per_share=25.0,
-        delivered_security_id="11651249425833422",
-        delivered_ticker="CELG",
-        delivered_issuer_id="SEC_CIK:816284",
-        exchange_ratio=0.8367,
-        cash_in_lieu_price_per_delivered_share=56.17,
-        reference="authenticated PHRM/CELG terms",
+    production_replay._active_terminal_terms = {"185929": cash_merger}
+    assert production_replay._strict_leadership_return(
+        ["185929"], {"185929": 14.0}, {}
+    ) == pytest.approx(14.5 / 14.0 - 1.0)
+
+    write_off = SimpleNamespace(
+        kind=SimpleNamespace(value="WRITE_OFF"),
+        cash_per_share=None,
+        exchange_ratio=None,
+        delivered_security_id=None,
+        cash_in_lieu_price_per_delivered_share=None,
     )
-    monkeypatch.setattr(
-        strict_reporting,
-        "_canonical_terminal_terms",
-        lambda _dataset: {"2008-03-07": (incomplete,)},
-    )
-    monkeypatch.setattr(
-        strict_reporting,
-        "load_frozen_terminal_terms",
-        lambda *_args, **_kwargs: (
-            {"2008-03-07": (replacement,)}, "a" * 64
-        ),
+    production_replay._active_terminal_terms = {"failed": write_off}
+    assert production_replay._strict_leadership_return(
+        ["failed"], {"failed": 10.0}, {}
+    ) == -1.0
+
+    production_replay._active_terminal_terms = {}
+    with pytest.raises(
+        production_replay.FinancialGradeGuardError,
+        match="recent-leadership next-close return is unresolved",
+    ):
+        production_replay._strict_leadership_return(
+            ["unknown"], {"unknown": 10.0}, {}
+        )
+
+
+def test_recent_leadership_terminal_discovery_reports_all_gaps(monkeypatch, capsys):
+    import backtester.run_production_strict_pit_20y as production_replay
+
+    monkeypatch.setenv("BACKTESTER_DISCOVER_TERMINAL_GAPS", "1")
+    production_replay._active_terminal_terms = {}
+    production_replay._active_terminal_session = "2007-12-20"
+    assert production_replay._strict_leadership_return(
+        ["priced", "missing"],
+        {"priced": 10.0, "missing": 20.0},
+        {"priced": 11.0},
+    ) == pytest.approx(0.05)
+    assert (
+        "[TERMINAL DISCOVERY] session=2007-12-20 security_ids=missing"
+        in capsys.readouterr().out
     )
 
-    class Dataset:
-        sessions = ("2008-03-07",)
 
-        def base_metadata(self, _meta_type):
-            return (
-                {"11651249425833422": object()},
-                {},
-                SimpleNamespace(resolve=lambda _ticker, _session: "unused"),
-                {},
-            )
+def test_terminal_authority_is_causal_across_checkpoint_resume(monkeypatch):
+    import backtester.run_production_strict_pit_20y as production_replay
 
-        def metadata_for(self, _security_id, _session):
-            return {
-                "issuer_id": "SEC_CIK:816284",
-                "issuer_source": "SEC_CIK_STRICT_PRIOR",
-            }
-
-    terms = strict_reporting._terminal_terms_with_authenticated_corrections(Dataset())
-    corrected = terms["2008-03-07"][0]
-    assert corrected == replacement
-    assert corrected.completeness(1) == (True, "")
-    audit = strict_reporting._terminal_correction_audit
-    assert audit["source_sha256"] == "a" * 64
-    assert audit["applied"][0]["original_incomplete_reason"] == (
-        "MISSING_CASH_PER_SHARE"
+    prior = SimpleNamespace(security_id="prior")
+    future = SimpleNamespace(security_id="future")
+    dataset = SimpleNamespace(
+        terminal_terms=lambda: {
+            "2007-08-15": (prior,),
+            "2008-03-07": (future,),
+        }
     )
+    monkeypatch.setattr(production_replay.strict, "_canonical", dataset)
+    assert set(production_replay._causal_terminal_terms_for_session("2007-12-31")) == {
+        "prior"
+    }

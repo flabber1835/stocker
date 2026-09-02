@@ -353,7 +353,7 @@ class ProductionAnnualWorkflowTests(unittest.TestCase):
         )
         self.assertEqual(
             generation["terminal_correction_sha256"],
-            "cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc",
+            "ba679ba200941ebec19520436753b2782b91ba3a4ab2605039c30e8457b67dd4",
         )
         self.assertEqual(generation["execution"]["job_timeout_minutes"], 350)
         self.assertEqual(generation["execution"]["replay_step_timeout_minutes"], 300)

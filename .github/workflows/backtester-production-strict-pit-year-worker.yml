@@ -76,7 +76,7 @@ jobs:
       PREVIOUS_CERTIFICATE_HASH: ${{ inputs.previous_certificate_hash }}
       PREVIOUS_CHAIN_HASH: ${{ inputs.previous_chain_hash }}
       CANONICAL_DATASET_HASH: f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b
-      TERMINAL_CORRECTION_SHA256: cfd65c78317abd1671632b2a730507634cf036e798b0ade89be68194fda430dc
+      TERMINAL_CORRECTION_SHA256: ba679ba200941ebec19520436753b2782b91ba3a4ab2605039c30e8457b67dd4
       CANONICAL_PIT_EXPECTED_END: '2026-07-31'
       CERTIFICATION_WARMUP_START: '2006-01-03'
       CERTIFICATION_MEASUREMENT_START: '2006-07-31'
@@ -128,30 +128,9 @@ jobs:
             /backtester/data/production-chain-generation-2.json
             /backtester/data/production-chain-generation-1.json
             /backtester/data/production-strict-pit-20y-request.json
-            /backtester/data/causal-split-overrides-v1.json
-            /backtester/data/causal-split-overrides-v1.SHA256
-            /backtester/data/causal-split-overrides-v1.d/**
-            /backtester/data/causal-terminal-terms-v1.json
-            /backtester/data/causal-terminal-terms-v1.SHA256
-            /backtester/data/GS3M_1996-12_2007-05.csv
             /tests/backtester/test_production_annual_chain.py
             /tests/backtester/test_production_cooldown_age_zero.py
             /tests/backtester/test_production_year_checkpoint.py
-            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
-            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
-            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
-            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
-            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
-            /PIT input data/MANIFEST.csv
-            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
-            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
-            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
-            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
-            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
-            /PIT input data/SEC_SECURITY_TYPE_COVERAGE.md
-            /sharadar/SHARADAR_TICKERS.zip
-            /sharadar/SHARADAR_SEP_*.csv.gz
-            /sharadar/SFP/**
 
       - name: Enforce immutable source, chain, and predecessor shape
         shell: bash

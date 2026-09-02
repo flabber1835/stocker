@@ -57,10 +57,10 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 120
     steps:
-      - name: Check out research branch publication target
+      - name: Check out exact reconstruction source for publication
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: research/backtester
+          ref: ${{ github.sha }}
           fetch-depth: 0
           persist-credentials: true
           filter: blob:none
@@ -80,7 +80,7 @@ jobs:
         run: |
           set -euo pipefail
           test "${GITHUB_REF_NAME}" = "research/backtester"
-          git merge-base --is-ancestor "${GITHUB_SHA}" HEAD
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           test -z "$(git status --porcelain)"
 
       - name: Download certified dataset from successful attempt

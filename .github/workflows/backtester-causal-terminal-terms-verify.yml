@@ -70,10 +70,11 @@ jobs:
           from stock_strategy_shared.wealth_core.feed import SecurityMeta
           from stock_strategy_shared.wealth_core.terminal import TerminalKind, TerminalTerms
 
-          expected_digest = '793b70aee5f074f8fb0640371242c6e35952956ce040f187b14a81d355f13da6'
+          expected_digest = 'ba679ba200941ebec19520436753b2782b91ba3a4ab2605039c30e8457b67dd4'
           identity = {
               'LIT1':'120448', 'CIT.A':'122131', 'TYC':'573113',
-              'GPU':'121383', 'EFD1':'182962',
+              'GPU':'121383', 'ARXX':'185929', 'EFD1':'182962',
+              'CYTC':'173247', 'HOLX':'198055', 'TRB':'165469',
           }
           meta = {
               sid: SecurityMeta(security_id=sid, ticker=ticker, permaticker=sid, related_tickers=())
@@ -82,7 +83,7 @@ jobs:
           terms, digest = load_frozen_terminal_terms(
               Path('backtester/data/causal-terminal-terms-v1.json'),
               Path('backtester/data/causal-terminal-terms-v1.SHA256'),
-              sessions=['2001-05-30','2001-06-01','2001-11-07','2007-09-12'],
+              sessions=['2001-05-30','2001-06-01','2001-11-07','2007-08-15','2007-09-12','2007-10-22','2007-12-20'],
               resolve_identity=lambda ticker, session: identity.get(ticker),
               meta=meta, TerminalTerms=TerminalTerms, TerminalKind=TerminalKind)
           if digest != expected_digest:
@@ -91,7 +92,10 @@ jobs:
           lit = terms['2001-05-30'][0]
           cit = terms['2001-06-01'][0]
           gpu = terms['2001-11-07'][0]
+          arxx = terms['2007-08-15'][0]
           efd = terms['2007-09-12'][0]
+          cytc = terms['2007-10-22'][0]
+          trb = terms['2007-12-20'][0]
           if lit.security_id != '120448' or lit.kind is not TerminalKind.CASH_MERGER or lit.cash_per_share != 80.0:
               raise SystemExit(f'wrong LIT terms: {lit}')
           if (cit.security_id != '122131' or cit.kind is not TerminalKind.CONVERSION
@@ -101,16 +105,34 @@ jobs:
               raise SystemExit(f'wrong CIT terms: {cit}')
           if gpu.security_id != '121383' or gpu.kind is not TerminalKind.CASH_MERGER or gpu.cash_per_share != 36.5:
               raise SystemExit(f'wrong GPU terms: {gpu}')
+          if arxx.security_id != '185929' or arxx.kind is not TerminalKind.CASH_MERGER or arxx.cash_per_share != 14.5:
+              raise SystemExit(f'wrong ARXX terms: {arxx}')
           if efd.security_id != '182962' or efd.kind is not TerminalKind.CASH_MERGER or efd.cash_per_share != 36.5:
               raise SystemExit(f'wrong EFD terms: {efd}')
+          if (cytc.security_id != '173247' or cytc.kind is not TerminalKind.CASH_PLUS_STOCK
+                  or cytc.cash_per_share != 16.5 or cytc.exchange_ratio != 0.52
+                  or cytc.delivered_security_id != '198055'
+                  or cytc.cash_in_lieu_price_per_delivered_share != 65.63):
+              raise SystemExit(f'wrong CYTC terms: {cytc}')
+          if trb.security_id != '165469' or trb.kind is not TerminalKind.CASH_MERGER or trb.cash_per_share != 34.0:
+              raise SystemExit(f'wrong TRB terms: {trb}')
 
           raw = json.loads(Path('backtester/data/causal-terminal-terms-v1.json').read_text())
           gpu_raw = next(r for r in raw['records'] if r['security_id'] == '121383')
+          arxx_raw = next(r for r in raw['records'] if r['security_id'] == '185929')
           efd_raw = next(r for r in raw['records'] if r['security_id'] == '182962')
+          cytc_raw = next(r for r in raw['records'] if r['security_id'] == '173247')
+          trb_raw = next(r for r in raw['records'] if r['security_id'] == '165469')
           if gpu_raw['effective_session'] != '2001-11-07' or gpu_raw['known_by'] != '2001-11-06':
               raise SystemExit(f'wrong GPU causal dates: {gpu_raw}')
+          if arxx_raw['effective_session'] != '2007-08-15' or arxx_raw['known_by'] != '2007-08-15':
+              raise SystemExit(f'wrong ARXX causal dates: {arxx_raw}')
           if efd_raw['effective_session'] != '2007-09-12' or efd_raw['known_by'] != '2007-06-27':
               raise SystemExit(f'wrong EFD causal dates: {efd_raw}')
+          if cytc_raw['effective_session'] != '2007-10-22' or cytc_raw['known_by'] != '2007-10-22':
+              raise SystemExit(f'wrong CYTC causal dates: {cytc_raw}')
+          if trb_raw['effective_session'] != '2007-12-20' or trb_raw['known_by'] != '2007-12-20':
+              raise SystemExit(f'wrong TRB causal dates: {trb_raw}')
 
           print(json.dumps({
               'status':'PASS',
@@ -119,7 +141,10 @@ jobs:
                   {'security_id':'120448','ticker':'LIT1','kind':'CASH_MERGER','cash_per_share':80.0},
                   {'security_id':'122131','ticker':'CIT.A','kind':'CONVERSION','exchange_ratio':0.6907},
                   {'security_id':'121383','ticker':'GPU','kind':'CASH_MERGER','cash_per_share':36.5,'known_by':'2001-11-06'},
+                  {'security_id':'185929','ticker':'ARXX','kind':'CASH_MERGER','cash_per_share':14.5,'effective_session':'2007-08-15'},
                   {'security_id':'182962','ticker':'EFD1','kind':'CASH_MERGER','cash_per_share':36.5,'effective_session':'2007-09-12','known_by':'2007-06-27'},
+                  {'security_id':'173247','ticker':'CYTC','kind':'CASH_PLUS_STOCK','cash_per_share':16.5,'exchange_ratio':0.52,'effective_session':'2007-10-22'},
+                  {'security_id':'165469','ticker':'TRB','kind':'CASH_MERGER','cash_per_share':34.0,'effective_session':'2007-12-20'},
               ],
           }, indent=2, sort_keys=True))
           PY

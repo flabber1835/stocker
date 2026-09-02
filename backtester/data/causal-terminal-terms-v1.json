@@ -39,6 +39,58 @@
       "ticker": "CIT.A"
     },
     {
+      "cash_per_share": 14.5,
+      "effective_session": "2007-08-15",
+      "kind": "CASH_MERGER",
+      "known_by": "2007-08-15",
+      "reference": "Veritas/Golden Gate/Goldman acquisition of Aeroflex: each ARXX common share converted into $14.50 cash; merger effective 2007-08-15",
+      "security_id": "185929",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/2601/000134100407002404/ny18561s8.htm",
+        "https://www.nasdaqtrader.com/Micro.aspx?id=PHLXMemberMemos2007",
+        "https://goldengatecap.com/acquisition-of-aeroflex-incorporated-completed/"
+      ],
+      "ticker": "ARXX"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": 65.63,
+      "cash_per_share": 16.5,
+      "delivered_security_id": "198055",
+      "delivered_ticker": "HOLX",
+      "effective_session": "2007-10-22",
+      "exchange_ratio": 0.52,
+      "kind": "CASH_PLUS_STOCK",
+      "known_by": "2007-10-22",
+      "price_witness": {
+        "closeunadj": 65.63,
+        "security_id": "198055",
+        "session": "2007-10-22",
+        "source_sep_sha256": "0a69d838ffa7f4759f58a59fdb920058ca2528ffa03cb409feb4cae3c9085cf8",
+        "ticker": "HOLX"
+      },
+      "reference": "Hologic/Cytyc merger: each CYTC common share converted into $16.50 cash plus 0.52 HOLX common shares; fractional HOLX entitlement valued with the effective-session unadjusted HOLX close",
+      "security_id": "173247",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/849778/000119312507222835/d8k.htm",
+        "https://www.sec.gov/Archives/edgar/data/859737/000119312507199925/d424b3.htm",
+        "https://www.sec.gov/Archives/edgar/data/859737/000119312508023131/d10q.htm"
+      ],
+      "ticker": "CYTC"
+    },
+    {
+      "cash_per_share": 34.0,
+      "effective_session": "2007-12-20",
+      "kind": "CASH_MERGER",
+      "known_by": "2007-12-20",
+      "reference": "Tribune leveraged ESOP merger: each outstanding TRB common share outside the ESOP converted into $34.00 cash; transaction completed 2007-12-20",
+      "security_id": "165469",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/726513/000110465908018845/a08-2334_110k.htm",
+        "https://www.sec.gov/Archives/edgar/data/726513/000104746907004738/a2178230zprem14a.htm"
+      ],
+      "ticker": "TRB"
+    },
+    {
       "cash_per_share": 36.5,
       "effective_session": "2001-11-07",
       "kind": "CASH_MERGER",

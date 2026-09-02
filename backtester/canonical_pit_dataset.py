@@ -69,7 +69,7 @@ from sentinel.feed.domains import NormalisationReport, normalise_sep_rows  # noq
 from stock_strategy_shared.split_reconciliation import SPLIT_UNRESOLVED  # noqa: E402
 
 
-SCHEMA = "backtester.canonical-pit-dataset/1"
+SCHEMA = "backtester.canonical-pit-dataset/2"
 OBSERVATION_COLUMNS = (
     "session", "security_id", "ticker", "issuer_id", "issuer_source",
     "security_type", "security_type_source", "security_type_eligible",
@@ -567,12 +567,21 @@ def _canonical_terminal_rows(
     )
     result: list[dict] = []
     incomplete = 0
+    retained_priced_tickers = {
+        ticker
+        for tickers in priced_tickers_by_session.values()
+        for ticker in tickers
+    }
     for session in sessions:
         candidates = []
         ticker_by_sid: dict[str, str] = {}
         for raw in by_session.get(session, ()):
             ticker = str(raw.get("ticker") or "")
-            if ticker.upper() not in priced_tickers_by_session.get(session, set()):
+            # PIT ACTIONS also contains symbols from the SFP fund-price table.
+            # Admit terminal economics only for the retained SEP equity tape.
+            # The membership check spans the bounded tape so a terminal event
+            # remains available when its effective session has no final print.
+            if ticker.upper() not in retained_priced_tickers:
                 continue
             sid = resolver.resolve(ticker, session)
             if sid is None:
@@ -791,7 +800,7 @@ def build_dataset(
                 "split_ratio": _float_text(bar.split_ratio),
                 "dividend_per_share": _float_text(bar.dividend_per_share),
                 "tradeable": "1" if bar.tradeable else "0",
-                "identity_source": "SEP_STRICT_PRIOR_CIK_EPISODE_V1",
+                "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1",
             }
             year = int(session[:4])
             if year != progress_year:
@@ -1039,6 +1048,7 @@ class CanonicalPITDataset:
         root: Path,
         *,
         expected_start: str | None = None,
+        expected_measurement_start: str | None = None,
         expected_end: str | None = None,
         require_pass: bool = True,
     ):
@@ -1053,12 +1063,42 @@ class CanonicalPITDataset:
                 + json.dumps(self.manifest.get("blockers") or {}, sort_keys=True)
             )
         window = self.manifest.get("window") or {}
+        if set(window) != {"warmup_start", "measurement_start", "end"}:
+            raise RuntimeError("canonical PIT window fields are incomplete or unexpected")
+        if not (
+            str(window["warmup_start"])
+            <= str(window["measurement_start"])
+            <= str(window["end"])
+        ):
+            raise RuntimeError("canonical PIT window is not chronological")
         if expected_start is not None and window.get("warmup_start") != expected_start:
             raise RuntimeError("canonical PIT warmup start mismatch")
+        if (expected_measurement_start is not None
+                and window.get("measurement_start") != expected_measurement_start):
+            raise RuntimeError("canonical PIT measurement start mismatch")
         if expected_end is not None and window.get("end") != expected_end:
             raise RuntimeError("canonical PIT end mismatch")
+        first_year = int(str(window["warmup_start"])[:4])
+        last_year = int(str(window["end"])[:4])
+        expected_names = {
+            *(f"observations-{year}.csv.gz" for year in range(first_year, last_year + 1)),
+            "metadata-timeline.csv.gz", "actions.csv.gz", "terminal-events.csv.gz",
+            "cash.csv.gz", "benchmark.csv.gz", "session-hashes.csv",
+        }
+        members = self.manifest.get("members") or {}
+        if set(members) != expected_names:
+            raise RuntimeError(
+                "canonical PIT member set differs: "
+                + json.dumps(sorted(set(members) ^ expected_names))
+            )
         observed_members = {}
-        for name, expected in (self.manifest.get("members") or {}).items():
+        for name, expected in members.items():
+            if Path(name).name != name or not isinstance(expected, Mapping):
+                raise RuntimeError(f"invalid canonical PIT member descriptor: {name!r}")
+            if not isinstance(expected.get("bytes"), int) or expected["bytes"] < 0:
+                raise RuntimeError(f"invalid canonical PIT member byte count: {name}")
+            if not isinstance(expected.get("rows"), int) or expected["rows"] < 0:
+                raise RuntimeError(f"invalid canonical PIT member row count: {name}")
             path = self.root / name
             if not path.is_file():
                 raise RuntimeError(f"canonical PIT member missing: {name}")
@@ -1068,6 +1108,40 @@ class CanonicalPITDataset:
                 raise RuntimeError(f"canonical PIT member changed: {name}")
             if path.suffix == ".gz":
                 _verify_gzip_member(path)
+            opener = gzip.open if path.suffix == ".gz" else open
+            with opener(path, "rt", encoding="utf-8", newline="") as handle:
+                reader = csv.DictReader(handle)
+                expected_columns = (
+                    OBSERVATION_COLUMNS if name.startswith("observations-") else
+                    METADATA_COLUMNS if name == "metadata-timeline.csv.gz" else
+                    ACTION_COLUMNS if name == "actions.csv.gz" else
+                    TERMINAL_COLUMNS if name == "terminal-events.csv.gz" else
+                    CASH_COLUMNS if name == "cash.csv.gz" else
+                    BENCHMARK_COLUMNS if name == "benchmark.csv.gz" else
+                    SESSION_HASH_COLUMNS
+                )
+                if tuple(reader.fieldnames or ()) != expected_columns:
+                    raise RuntimeError(f"canonical PIT columns changed: {name}")
+                actual_rows = 0
+                for row in reader:
+                    actual_rows += 1
+                    if name.startswith("observations-"):
+                        expected_year = name[len("observations-"):len("observations-") + 4]
+                        if not str(row["session"]).startswith(expected_year + "-"):
+                            raise RuntimeError(
+                                f"canonical PIT observation is in the wrong partition: {name}"
+                            )
+                        if row["identity_source"] != (
+                            "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1"
+                        ):
+                            raise RuntimeError(
+                                "canonical PIT observation uses stale identity authority"
+                            )
+                if actual_rows != expected["rows"]:
+                    raise RuntimeError(
+                        f"canonical PIT member row count changed: {name}: "
+                        f"{actual_rows} != {expected['rows']}"
+                    )
             observed_members[name] = expected
         observed_hash = _dataset_hash(observed_members)
         if observed_hash != self.manifest.get("dataset_hash"):
@@ -1081,22 +1155,69 @@ class CanonicalPITDataset:
         self.dataset_hash = observed_hash
         self.window = window
         hashes = pd.read_csv(self.root / "session-hashes.csv", dtype=str)
+        if tuple(hashes.columns) != SESSION_HASH_COLUMNS:
+            raise RuntimeError("canonical PIT session-hash columns changed")
+        if hashes.empty or hashes["session"].duplicated().any():
+            raise RuntimeError("canonical PIT session axis is empty or duplicated")
+        sessions = tuple(hashes.session.astype(str))
+        if sessions != tuple(sorted(sessions)):
+            raise RuntimeError("canonical PIT session axis is not strictly ordered")
+        if sessions[0] != window["warmup_start"] or sessions[-1] != window["end"]:
+            raise RuntimeError("canonical PIT session axis differs from manifest window")
+        for column in ("observation_rows", "action_rows", "terminal_rows"):
+            try:
+                values = hashes[column].astype(int)
+            except (TypeError, ValueError) as exc:
+                raise RuntimeError(f"canonical PIT {column} is not integral") from exc
+            if (values < 0).any():
+                raise RuntimeError(f"canonical PIT {column} is negative")
+        if not hashes["input_sha256"].map(
+            lambda value: isinstance(value, str) and len(value) == 64
+            and all(ch in "0123456789abcdef" for ch in value)
+        ).all():
+            raise RuntimeError("canonical PIT session input hash is invalid")
         self.session_hashes = dict(zip(hashes.session, hashes.input_sha256))
-        self.sessions = tuple(hashes.session.astype(str))
+        self.sessions = sessions
         timeline = pd.read_csv(
             self.root / "metadata-timeline.csv.gz", compression="gzip", dtype=str,
             keep_default_na=False,
         )
+        if tuple(timeline.columns) != METADATA_COLUMNS:
+            raise RuntimeError("canonical PIT metadata timeline columns changed")
         self._timeline_rows: dict[str, list[dict[str, str]]] = defaultdict(list)
         self._timeline_dates: dict[str, list[str]] = defaultdict(list)
         for row in timeline.to_dict("records"):
             sid = str(row["security_id"])
+            effective = str(row["effective_session"])
+            if effective < window["warmup_start"] or effective > window["end"]:
+                raise RuntimeError("canonical PIT metadata lies outside the dataset window")
+            if (self._timeline_dates[sid]
+                    and effective <= self._timeline_dates[sid][-1]):
+                raise RuntimeError("canonical PIT metadata timeline is not strictly ordered")
             self._timeline_rows[sid].append(row)
-            self._timeline_dates[sid].append(str(row["effective_session"]))
+            self._timeline_dates[sid].append(effective)
         self._first_session = {
             sid: rows[0]["effective_session"]
             for sid, rows in self._timeline_rows.items()
         }
+        counts = self.manifest.get("counts") or {}
+        expected_count_members = {
+            "metadata_timeline_rows": "metadata-timeline.csv.gz",
+            "action_rows": "actions.csv.gz",
+            "terminal_rows": "terminal-events.csv.gz",
+            "session_count": "session-hashes.csv",
+        }
+        for count_name, member_name in expected_count_members.items():
+            if counts.get(count_name) != members[member_name]["rows"]:
+                raise RuntimeError(f"canonical PIT {count_name} differs from member rows")
+        observation_rows = sum(
+            members[f"observations-{year}.csv.gz"]["rows"]
+            for year in range(first_year, last_year + 1)
+        )
+        if counts.get("observation_rows") != observation_rows:
+            raise RuntimeError("canonical PIT observation count differs from member rows")
+        if counts.get("session_count") != len(self.sessions):
+            raise RuntimeError("canonical PIT session count differs from session axis")
 
     def metadata_for(self, security_id: str, session: str) -> dict[str, str] | None:
         sid = str(security_id)

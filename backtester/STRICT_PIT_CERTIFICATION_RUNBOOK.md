@@ -42,7 +42,10 @@ stale prior mark on the event session. Split and dividend entitlement ordering
 is part of this same canonical path.
 
 Production uses the pinned shared Wealth Core terminal-settlement implementation
-and authenticated terminal corrections.
+and the authenticated canonical package. Raw terminal-correction and split-
+adjudication files are reconstruction inputs only and are never runtime authority.
+Recent Leadership uses exact canonical terminal consideration when a selected
+security has no next close; unresolved consideration still terminates the run.
 
 ### Valuation
 

@@ -36,16 +36,9 @@ from backtester.strict_pit_metadata import (  # noqa: E402
     build_causal_metadata,
 )
 from backtester.canonical_pit_dataset import CanonicalPITDataset  # noqa: E402
-from backtester.causal_terminal_terms import (  # noqa: E402
-    load_frozen_terminal_terms,
-)
 import backtester.run_ldrc_corrected_warmup_cash as corrected  # noqa: E402
 import sentinel.core.production as strategy_production  # noqa: E402
 from stock_strategy_shared.wealth_core.feed import SecurityMeta  # noqa: E402
-from stock_strategy_shared.wealth_core.terminal import (  # noqa: E402
-    TerminalKind,
-    TerminalTerms,
-)
 
 runner = corrected.runner
 prod = corrected.prod
@@ -56,8 +49,6 @@ MEASUREMENT_START = corrected.MEASUREMENT_START
 CIK_PATH = LAB_ROOT / "research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz"
 POSITIVE_TYPE = LAB_ROOT / "PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz"
 MANUAL_AUDIT = LAB_ROOT / "PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv"
-TERMINAL_CORRECTIONS = LAB_ROOT / "backtester/data/causal-terminal-terms-v1.json"
-TERMINAL_CORRECTIONS_SHA256 = LAB_ROOT / "backtester/data/causal-terminal-terms-v1.SHA256"
 CANONICAL_PATH = os.environ.get("CANONICAL_PIT_DATASET")
 _canonical = (
     CanonicalPITDataset(
@@ -85,106 +76,6 @@ _anchor_issuer_stats = {
     "sec_cik": 0,
     "unknown_singleton": 0,
 }
-_terminal_correction_audit: dict = {}
-
-
-_canonical_terminal_terms = CanonicalPITDataset.terminal_terms
-
-
-def _terminal_terms_with_authenticated_corrections(self):
-    """Replace only incomplete canonical terminal rows with frozen exact terms."""
-    canonical = {
-        str(session): list(rows)
-        for session, rows in _canonical_terminal_terms(self).items()
-    }
-    meta, _sectors, resolver, _tickers = self.base_metadata(SecurityMeta)
-
-    def delivered_issuer(security_id: str, _ticker: str, session: str):
-        row = self.metadata_for(str(security_id), str(session))
-        if row is None:
-            return None, None
-        return row.get("issuer_id") or None, row.get("issuer_source") or None
-
-    corrections, correction_hash = load_frozen_terminal_terms(
-        TERMINAL_CORRECTIONS,
-        TERMINAL_CORRECTIONS_SHA256,
-        sessions=self.sessions,
-        resolve_identity=resolver.resolve,
-        meta=meta,
-        TerminalTerms=TerminalTerms,
-        TerminalKind=TerminalKind,
-        identity_binding="resolved",
-        delivered_issuer_resolver=delivered_issuer,
-    )
-    applied = []
-    for session, candidates in sorted(corrections.items()):
-        rows = canonical.get(str(session), [])
-        by_security = {
-            str(term.security_id): index for index, term in enumerate(rows)
-        }
-        for replacement in candidates:
-            sid = str(replacement.security_id)
-            index = by_security.get(sid)
-            if index is None:
-                continue
-            complete, reason = rows[index].completeness(1)
-            if complete:
-                continue
-            replacement_complete, replacement_reason = replacement.completeness(1)
-            if not replacement_complete:
-                raise RuntimeError(
-                    f"terminal correction remains incomplete for {sid} {session}: "
-                    f"{replacement_reason}"
-                )
-            original = rows[index]
-            rows[index] = replacement
-            applied.append({
-                "session": str(session),
-                "security_id": sid,
-                "ticker": "PHRM",
-                "original_kind": str(original.kind.value),
-                "original_incomplete_reason": str(reason),
-                "corrected_kind": str(replacement.kind.value),
-                "reference": str(replacement.reference),
-            })
-        canonical[str(session)] = rows
-    expected = [{
-        "session": "2008-03-07",
-        "security_id": "705177744622024105",
-        "original_kind": "CASH_MERGER",
-        "original_incomplete_reason": "MISSING_CASH_PER_SHARE",
-        "corrected_kind": "CASH_PLUS_STOCK",
-    }]
-    observed = [
-        {key: row[key] for key in expected[0]}
-        for row in applied
-    ]
-    if observed != expected:
-        raise RuntimeError(
-            "authenticated terminal correction set changed: "
-            + json.dumps(observed, sort_keys=True)
-        )
-    _terminal_correction_audit.clear()
-    _terminal_correction_audit.update({
-        "schema": "backtester.production-terminal-corrections/1",
-        "source_sha256": correction_hash,
-        "applied": applied,
-    })
-    print(
-        "[TERMINAL CORRECTION] role=Production applied="
-        f"{len(applied)} source_sha256={correction_hash}",
-        flush=True,
-    )
-    return {
-        session: tuple(sorted(rows, key=lambda term: str(term.security_id)))
-        for session, rows in sorted(canonical.items())
-    }
-
-
-if _canonical is not None:
-    CanonicalPITDataset.terminal_terms = _terminal_terms_with_authenticated_corrections
-
-
 def _norm_int(value) -> str | None:
     if value is None or pd.isna(value):
         return None
@@ -456,19 +347,22 @@ def _strict_pit_meta_map(pub):
     if _canonical is not None:
         result = {}
         for sid, meta in pub.meta.items():
+            if (meta.first_session is not None
+                    and str(pub.session) < str(meta.first_session)):
+                continue
             row = _canonical.metadata_for(str(sid), str(pub.session))
-            classification = None if row is None else row["security_type"]
+            if row is None:
+                raise RuntimeError(
+                    f"canonical PIT metadata missing for listed security {sid} "
+                    f"on {pub.session}"
+                )
+            classification = row["security_type"]
             category = (
                 "SEC Common Stock" if classification == "common" else
                 "SEC Non-Common" if classification == "non_common" else None
             )
-            issuer_id = (
-                f"SEC_UNKNOWN:{sid}" if row is None else str(row["issuer_id"])
-            )
-            issuer_source = (
-                "SEC_STRICT_PRIOR_UNKNOWN_SINGLETON"
-                if row is None else str(row["issuer_source"])
-            )
+            issuer_id = str(row["issuer_id"])
+            issuer_source = str(row["issuer_source"])
             result[str(sid)] = prod._PitSecurityMeta(
                 security_id=str(sid), ticker=str(meta.ticker), category=category,
                 permaticker=None, related_tickers=(),
@@ -631,9 +525,11 @@ def _rewrite_bundle_with_audit() -> None:
     )
     audit["role"] = "Production"
     if _canonical is not None:
-        if not _terminal_correction_audit:
-            raise RuntimeError("Production terminal correction was not exercised")
-        audit["terminal_term_corrections"] = dict(_terminal_correction_audit)
+        audit["terminal_terms"] = {
+            "authority": "canonical PIT package only",
+            "source_sha256": _canonical.manifest["terminal_terms_hash"],
+            "rows": _canonical.manifest["counts"]["terminal_rows"],
+        }
     audit["feed_anchor_issuer_authority"] = {
         "authority": "strict-prior SEC CIK; unknown issuer is causal security singleton",
         **{key: int(value) for key, value in _anchor_issuer_stats.items()},

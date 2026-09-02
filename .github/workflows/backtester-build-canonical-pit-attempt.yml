@@ -144,6 +144,7 @@ jobs:
             python backtester/canonical_pit_dataset.py validate \
               --dataset "${CANONICAL_PATH}" --allow-failed
             echo "Canonical certification gate reported blockers; publication will fail closed."
+            exit 2
           else
             exit "${BUILD_RC}"
           fi

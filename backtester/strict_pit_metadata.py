@@ -186,6 +186,16 @@ def _cik_changes(
     return events, changes
 
 
+def _changes_as_of(
+    changes: Mapping[str, Sequence[CIKChange]], as_of: str,
+) -> dict[str, tuple[CIKChange, ...]]:
+    """Exclude issuer evidence that did not exist by the audit horizon."""
+    return {
+        ticker: tuple(row for row in rows if row.filing_date <= as_of)
+        for ticker, rows in changes.items()
+    }
+
+
 def _terminal_identity_evidence(
     sharadar_root: Path,
 ) -> tuple[dict[str, tuple[str, ...]], dict[str, tuple[str, ...]]]:
@@ -371,7 +381,8 @@ def audit_cik_identity_boundaries(
 ) -> tuple[list[dict], dict]:
     """Classify every CIK change against price continuity and terminal evidence."""
     price_dates = _price_dates(sharadar_root, start_year, end_year)
-    _events, changes = _cik_changes(cik_path)
+    _events, all_changes = _cik_changes(cik_path)
+    changes = _changes_as_of(all_changes, f"{end_year:04d}-12-31")
     vendor, exact = _terminal_identity_evidence(sharadar_root)
     starts, records, _blocking, summary = _identity_boundary_classification(
         price_dates=price_dates,
@@ -397,7 +408,8 @@ def build_causal_metadata(
 ):
     """Build SecurityMeta and resolver without current TICKERS authority."""
     price_dates = _price_dates(sharadar_root, start_year, end_year)
-    cik_events, changes = _cik_changes(cik_path)
+    cik_events, all_changes = _cik_changes(cik_path)
+    changes = _changes_as_of(all_changes, f"{end_year:04d}-12-31")
     vendor_terminals, exact_terminals = _terminal_identity_evidence(sharadar_root)
     starts_by_ticker, _records, blocking, audit = _identity_boundary_classification(
         price_dates=price_dates,

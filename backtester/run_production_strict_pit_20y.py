@@ -46,7 +46,6 @@ def _current_plan_session_proxy(*args, **kwargs):
 _strategy_kernel.plan_session = _current_plan_session_proxy
 
 import backtester.run_production_strict_pit_certification as strict
-from backtester import causal_split_overrides as split_overrides
 
 if _strategy_kernel.plan_session is not _current_plan_session_proxy:
     raise RuntimeError("strict-PIT kernel plan-session compatibility proxy was displaced")
@@ -185,15 +184,6 @@ def _measurement_anchored_factor_builder(path):
 
 
 strict.corrected._original_sfp_builder = _measurement_anchored_factor_builder
-_original_terminal_loader = strict.base.load_frozen_terminal_terms
-
-
-def _causal_identity_terminal_loader(*args, **kwargs):
-    kwargs["identity_binding"] = "resolved"
-    return _original_terminal_loader(*args, **kwargs)
-
-
-strict.base.load_frozen_terminal_terms = _causal_identity_terminal_loader
 if strict.base.BOUNDARY_SESSION < WARMUP_START:
     strict.base.BOUNDARY_SESSION = "9999-12-31"
 if END_SESSION != FULL_END_SESSION:
@@ -236,72 +226,6 @@ def _bind_verified_main_identity() -> tuple[Path, str]:
         )
     os.environ["BACKTESTER_MAIN_SHA"] = actual
     return main_root, actual
-
-
-def _active_split_adjudications() -> dict[tuple[str, str], dict]:
-    data_path = ROOT / "backtester" / "data" / "causal-split-overrides-v1.json"
-    checksum_path = ROOT / "backtester" / "data" / "causal-split-overrides-v1.SHA256"
-    expected = split_overrides._expected_digest(checksum_path, data_path)
-    observed = split_overrides.sha256_file(data_path)
-    if observed != expected:
-        raise split_overrides.FrozenSplitOverrideError(
-            f"split override checksum mismatch: {observed} != {expected}"
-        )
-    payload = json.loads(data_path.read_text(encoding="utf-8"))
-    if payload.get("schema") != split_overrides.SCHEMA:
-        raise split_overrides.FrozenSplitOverrideError("unexpected split override schema")
-    records = list(payload.get("records") or [])
-    sidecars, _witnesses = split_overrides._load_sidecar_records(data_path)
-    records.extend(sidecars)
-    active: dict[tuple[str, str], dict] = {}
-    for raw in records:
-        ticker = str(raw.get("ticker") or "").strip()
-        session = str(raw.get("effective_session") or "").strip()
-        if not ticker or not session or session < WARMUP_START or session > END_SESSION:
-            continue
-        known_by = str(raw.get("known_by") or "").strip()
-        sources = raw.get("sources")
-        if not known_by or known_by > session:
-            raise split_overrides.FrozenSplitOverrideError(
-                f"split override {ticker} uses future-known evidence"
-            )
-        if (not isinstance(sources, list) or not sources
-                or any(not isinstance(x, str) or not x.startswith("https://") for x in sources)):
-            raise split_overrides.FrozenSplitOverrideError(
-                f"split override {ticker} lacks auditable HTTPS sources"
-            )
-        try:
-            multiplier = float(raw["multiplier"])
-            expected_vendor = float(raw["expected_vendor_stated"])
-            expected_derived = float(raw["expected_sep_derived"])
-        except (KeyError, TypeError, ValueError) as exc:
-            raise split_overrides.FrozenSplitOverrideError(
-                f"split override {ticker} has invalid numeric fields"
-            ) from exc
-        if any(not math.isfinite(x) or x <= 0 for x in (multiplier, expected_vendor, expected_derived)):
-            raise split_overrides.FrozenSplitOverrideError(
-                f"split override {ticker} has non-positive/non-finite economics"
-            )
-        key = (ticker, session)
-        if key in active:
-            raise split_overrides.FrozenSplitOverrideError(
-                f"duplicate split override for {ticker} {session}"
-            )
-        active[key] = dict(raw)
-    return active
-
-
-def _install_split_adjudications() -> None:
-    active = _active_split_adjudications()
-    if not active:
-        print("[SPLIT ADJUDICATION] active=0", flush=True)
-        return
-    import stock_strategy_shared.split_reconciliation as canonical_split
-    split_overrides.install_primary_split_adjudication(canonical_split, active)
-    print(
-        "[SPLIT ADJUDICATION] active=" + str(len(active)) + " keys="
-        + ",".join(f"{t}:{s}" for t, s in sorted(active)), flush=True,
-    )
 
 
 def _pending(prior):
@@ -427,6 +351,80 @@ def _resolved_nav_guard(result, session: str) -> None:
         )
 
 
+_active_terminal_terms: dict[str, object] = {}
+_active_terminal_session = ""
+
+
+def _causal_terminal_terms_for_session(session: str) -> dict[str, object]:
+    """Expose canonical terminal facts only once their session is reached."""
+    dataset = getattr(strict, "_canonical", None)
+    if dataset is None:
+        return {}
+    active: dict[str, object] = {}
+    for effective, terms in dataset.terminal_terms().items():
+        if str(effective) > str(session):
+            break
+        for term in terms:
+            active[str(term.security_id)] = term
+    return active
+
+
+def _terminal_shadow_value(term, current_close: Mapping) -> float | None:
+    """Value one predecessor share at exact terminal consideration."""
+    if term is None:
+        return None
+    kind = str(getattr(getattr(term, "kind", None), "value", ""))
+    cash = float(term.cash_per_share) if _positive(term.cash_per_share) else 0.0
+    if kind == "WRITE_OFF":
+        return 0.0
+    if kind == "CASH_MERGER":
+        return cash if _positive(cash) else None
+    if kind not in {"CONVERSION", "CASH_PLUS_STOCK"}:
+        return None
+    ratio = getattr(term, "exchange_ratio", None)
+    if not _positive(ratio):
+        return None
+    delivered = current_close.get(str(getattr(term, "delivered_security_id", "")))
+    if not _positive(delivered):
+        delivered = getattr(term, "cash_in_lieu_price_per_delivered_share", None)
+    if not _positive(delivered):
+        return None
+    value = cash + float(ratio) * float(delivered)
+    return value if math.isfinite(value) and value >= 0.0 else None
+
+
+def _strict_leadership_return(selected_security_ids, previous_close, current_close):
+    selected = tuple(selected_security_ids)
+    returns = []
+    missing = []
+    for security_id in selected:
+        sid = str(security_id)
+        previous = previous_close.get(security_id, previous_close.get(sid))
+        current = current_close.get(security_id, current_close.get(sid))
+        if not _positive(previous):
+            missing.append(sid)
+            continue
+        if not _positive(current):
+            current = _terminal_shadow_value(_active_terminal_terms.get(sid), current_close)
+        if current is None or not math.isfinite(float(current)) or float(current) < 0.0:
+            missing.append(sid)
+            continue
+        returns.append(float(current) / float(previous) - 1.0)
+    if missing:
+        if os.environ.get("BACKTESTER_DISCOVER_TERMINAL_GAPS") == "1":
+            print(
+                f"[TERMINAL DISCOVERY] session={_active_terminal_session} "
+                f"security_ids={','.join(sorted(missing))}",
+                flush=True,
+            )
+            return sum(returns) / len(selected) if selected else 0.0
+        raise FinancialGradeGuardError(
+            "recent-leadership next-close return is unresolved for: "
+            + ", ".join(sorted(missing))
+        )
+    return sum(returns) / len(returns) if returns else 0.0
+
+
 def _install_financial_guards() -> None:
     import sentinel.controller.concordance as concordance
     import sentinel.core.production as strategy_production
@@ -434,28 +432,18 @@ def _install_financial_guards() -> None:
 
     if getattr(strategy_production, "_financial_grade_guards_installed", False):
         return
-    original_equal_weight = concordance.equal_weight_next_close_return
-
-    def strict_equal_weight(selected_security_ids, previous_close, current_close):
-        missing = [
-            str(security_id) for security_id in tuple(selected_security_ids)
-            if not (_positive(previous_close.get(security_id))
-                    and _positive(current_close.get(security_id)))
-        ]
-        if missing:
-            raise FinancialGradeGuardError(
-                "recent-leadership next-close return is unresolved for: "
-                + ", ".join(sorted(missing))
-            )
-        return original_equal_weight(selected_security_ids, previous_close, current_close)
-
-    concordance.equal_weight_next_close_return = strict_equal_weight
+    concordance.equal_weight_next_close_return = _strict_leadership_return
     original_advance_state = strategy_production.advance_state
     financial_config = WealthCoreConfig(
         dividend_settlement_lag_sessions=DIVIDEND_SETTLEMENT_LAG_SESSIONS
     )
 
     def guarded_advance_state(prior, published, *args, **kwargs):
+        global _active_terminal_terms, _active_terminal_session
+        _active_terminal_session = str(getattr(published, "session", ""))
+        _active_terminal_terms = _causal_terminal_terms_for_session(
+            _active_terminal_session
+        )
         _capacity_guard(prior, published)
         configured = kwargs.get("wealth_config")
         if configured is None:
@@ -528,7 +516,6 @@ def main() -> int:
             f"limit={MAX_TRAILING_VOLUME_PARTICIPATION:.2%}",
             flush=True,
         )
-    _install_split_adjudications()
     _install_financial_guards()
     result = int(strict.main())
     _print_capacity_summary()

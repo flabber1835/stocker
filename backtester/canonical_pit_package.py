@@ -62,6 +62,7 @@ def verify_pointer_dataset(pointer_path: Path, dataset_path: Path) -> dict:
     dataset = CanonicalPITDataset(
         dataset_path,
         expected_start=window["warmup_start"],
+        expected_measurement_start=window["measurement_start"],
         expected_end=window["end"],
     )
     if dataset.dataset_hash != pointer["dataset_hash"]:

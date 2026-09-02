@@ -79,7 +79,8 @@ jobs:
 
           identity = {
               'LIT1':'120448', 'CIT.A':'122131', 'TYC':'573113',
-              'GPU':'121383', 'EFD1':'182962',
+              'GPU':'121383', 'ARXX':'185929', 'EFD1':'182962',
+              'CYTC':'173247', 'HOLX':'198055', 'TRB':'165469',
           }
           meta = {
               sid: SecurityMeta(security_id=sid, ticker=ticker, permaticker=sid, related_tickers=())
@@ -88,13 +89,22 @@ jobs:
           terms, digest = load_frozen_terminal_terms(
               Path('backtester/data/causal-terminal-terms-v1.json'),
               Path('backtester/data/causal-terminal-terms-v1.SHA256'),
-              sessions=['2001-05-30','2001-06-01','2001-11-07','2007-09-12'],
+              sessions=['2001-05-30','2001-06-01','2001-11-07','2007-08-15','2007-09-12','2007-10-22','2007-12-20'],
               resolve_identity=lambda ticker, session: identity.get(ticker),
               meta=meta, TerminalTerms=TerminalTerms, TerminalKind=TerminalKind)
           lit = terms['2001-05-30'][0]
           cit = terms['2001-06-01'][0]
           gpu = terms['2001-11-07'][0]
+          arxx = terms['2007-08-15'][0]
           efd = terms['2007-09-12'][0]
+          cytc = terms['2007-10-22'][0]
+          trb = terms['2007-12-20'][0]
+          if (cytc.kind is not TerminalKind.CASH_PLUS_STOCK
+                  or cytc.cash_per_share != 16.5 or cytc.exchange_ratio != 0.52
+                  or cytc.delivered_security_id != '198055'):
+              raise SystemExit(f'CYTC settlement terms failed: {cytc}')
+          if trb.kind is not TerminalKind.CASH_MERGER or trb.cash_per_share != 34.0:
+              raise SystemExit(f'TRB settlement terms failed: {trb}')
 
           def holding(sid, ticker, shares, price, cash=1000.0):
               state = PortfolioState.fresh(cash, n_slots=1)
@@ -165,6 +175,17 @@ jobs:
           if gpu_ledger.events[-1].event_type is not EventType.CASH_MERGER:
               raise SystemExit('GPU ledger event wrong')
 
+          arxx_state, arxx_ledger = holding('185929','ARXX',100,14.45,cash=0.0), Ledger()
+          arxx_result = apply_terminal(arxx_state, arxx, ledger=arxx_ledger,
+              session='2007-08-15', cfg=cfg, last_valid_mark=14.45,
+              sessions_since_last_valid_print=0)
+          if not arxx_result.get('applied') or arxx_state.episodes:
+              raise SystemExit(f'ARXX settlement failed: {arxx_result}')
+          if not math.isclose(arxx_state.cash, 1450.0, rel_tol=0, abs_tol=1e-9):
+              raise SystemExit(f'ARXX economics wrong: {arxx_state.cash}')
+          if arxx_ledger.events[-1].event_type is not EventType.CASH_MERGER:
+              raise SystemExit('ARXX ledger event wrong')
+
           efd_shares = 100
           efd_state, efd_ledger = holding('182962','EFD1',efd_shares,35.5,cash=0.0), Ledger()
           efd_result = apply_terminal(efd_state, efd, ledger=efd_ledger,
@@ -186,6 +207,8 @@ jobs:
               'TYC_2001_06_04_raw_open':june4.vendor.raw_open,
               'GPU_shares':gpu_shares, 'GPU_cash_per_share':gpu.cash_per_share,
               'GPU_exact_proceeds':gpu_state.cash,
+              'ARXX_shares':100, 'ARXX_cash_per_share':arxx.cash_per_share,
+              'ARXX_exact_proceeds':arxx_state.cash,
               'EFD1_shares':efd_shares, 'EFD1_cash_per_share':efd.cash_per_share,
               'EFD1_exact_proceeds':efd_state.cash,
           }, indent=2, sort_keys=True))
