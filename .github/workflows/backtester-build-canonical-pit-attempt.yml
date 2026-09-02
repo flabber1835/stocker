@@ -51,7 +51,7 @@ jobs:
             /backtester/data/causal-terminal-terms-v1.json
             /backtester/data/causal-terminal-terms-v1.SHA256
             /backtester/data/GS3M_1996-12_2007-05.csv
-            /backtester/data/production-chain-generation.json
+            /backtester/data/production-chain-generation*.json
             /tests/backtester/test_canonical_pit_dataset.py
             /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
             /research/sentinel-fastgate/pit-evidence/generated/**
