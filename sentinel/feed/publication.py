@@ -240,8 +240,8 @@ def require_current(conn):
 
 
 @contextmanager
-def pinned(conn):
-    with _core.pinned(conn) as publication:
+def pinned(conn, *, commit: bool = True):
+    with _core.pinned(conn, commit=commit) as publication:
         yield _validate_publication(conn, publication)
 
 
@@ -307,7 +307,16 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
         with conn.cursor() as cur:
             cur.execute("SELECT clock_timestamp()")
             published_at = cur.fetchone()[0]
-        next_version = previous.version + 1 if previous else 1
+        # PostgreSQL sequences are intentionally non-transactional: a rejected
+        # insert consumes a value even though no publication row commits.  Name
+        # the exact candidate version before hashing its receipt, then insert
+        # that allocated value explicitly.  Chain continuity is carried by the
+        # predecessor link, not by gapless sequence arithmetic.
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT nextval(pg_get_serial_sequence("
+                "'sentinel_corpus_publications','version'))")
+            next_version = int(cur.fetchone()[0])
         previous_receipt = None
         if previous is not None:
             prior = _receipt_from_evidence(
@@ -327,18 +336,19 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
             previous_receipt_sha256=previous_receipt)
         with conn.cursor() as cur:
             cur.execute(
-                "INSERT INTO sentinel_corpus_publications (previous_version,"
-                " run_id, published_at, window_start, window_end, evidence)"
-                " VALUES (%s,%s,%s,%s,%s,%s::jsonb)"
+                "INSERT INTO sentinel_corpus_publications (version,"
+                " previous_version,run_id,published_at,window_start,window_end,"
+                " evidence) VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb)"
                 " RETURNING version,published_at",
-                (previous.version if previous else None, run_id, published_at,
+                (next_version, previous.version if previous else None,
+                 run_id, published_at,
                  window_start, window_end,
                  json.dumps(publication_evidence,
                             sort_keys=True, default=str)))
             version, _stored_published_at = cur.fetchone()
-        if int(version) != next_version:
+        if int(version) != next_version:  # pragma: no cover - DB contract
             raise _core.CorpusIncoherent(
-                "publication sequence is not contiguous with its predecessor")
+                "database stored a different publication version than allocated")
         conn.commit()
     except BaseException:
         conn.rollback()

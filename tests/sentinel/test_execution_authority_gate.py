@@ -78,17 +78,37 @@ def test_signed_root_must_reach_current_publication_without_a_gap():
         _Conn(rows), expected_root_sha256=root, current_version=3) == root
 
 
-@pytest.mark.parametrize("rows", [
-    [_row(1, None), _row(3, 1)],
-    [_row(1, None), _row(2, 99)],
-])
-def test_gap_or_false_predecessor_after_signed_root_refuses(rows):
+def test_false_predecessor_after_signed_root_refuses():
+    rows = [_row(1, None), _row(2, 99)]
     root = authority_gate.publication_row_sha256(rows[0])
 
     with pytest.raises(AuthorityRefused, match="chain has a gap"):
         authority_gate.require_publication_chain(
             _Conn(rows), expected_root_sha256=root,
             current_version=int(rows[-1][0]))
+
+
+def test_sequence_value_gap_with_exact_predecessor_is_valid():
+    rows = _receipted_rows(2)
+    second = (3, 1, *rows[1][2:])
+    unsigned = dict(second[6])
+    unsigned.pop(publication.RECEIPT_EVIDENCE_KEY)
+    prior = rows[0][6][publication.RECEIPT_EVIDENCE_KEY]["receipt_sha256"]
+    body = publication._receipt_body(
+        version=3, previous_version=1, run_id=second[2],
+        published_at=second[3], window_start=None, window_end=None,
+        evidence=unsigned, origin_run_status="success",
+        previous_receipt_sha256=prior)
+    second[6][publication.RECEIPT_EVIDENCE_KEY] = {
+        "schema": publication.RECEIPT_SCHEMA,
+        "previous_receipt_sha256": prior,
+        "receipt_sha256": publication._receipt_digest(body),
+    }
+    rows = [rows[0], second]
+    root = authority_gate.publication_row_sha256(rows[0])
+
+    assert authority_gate.require_publication_chain(
+        _Conn(rows), expected_root_sha256=root, current_version=3) == root
 
 
 def test_missing_or_tampered_signed_publication_root_refuses():

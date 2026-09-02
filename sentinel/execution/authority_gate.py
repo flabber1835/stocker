@@ -172,7 +172,7 @@ def require_publication_chain(
         version = int(row[0])
         claimed_previous = int(row[1]) if row[1] is not None else None
         if index:
-            if version != previous + 1 or claimed_previous != previous:
+            if version <= previous or claimed_previous != previous:
                 raise AuthorityRefused(
                     "the operational publication chain has a gap after its "
                     "signed certification root")
