@@ -51,6 +51,19 @@ def _legacy_feed_fixture_install(conn) -> None:
 
     try:
         with conn.cursor() as cur:
+            # Legacy fixtures destructively drop sentinel_corpus_publications
+            # between tests. PostgreSQL DROP ... CASCADE removes the receipt
+            # table's FK but deliberately leaves the append-only receipt table
+            # and its rows behind. Detect only that impossible/orphaned test
+            # state and rebuild the receipt surface with the publication schema.
+            cur.execute("""
+                SELECT to_regclass('sentinel_publication_validation_receipts'),
+                       to_regclass('sentinel_corpus_publications')
+            """)
+            receipt_table, publication_table = cur.fetchone()
+            if receipt_table is not None and publication_table is None:
+                cur.execute(
+                    "DROP TABLE sentinel_publication_validation_receipts CASCADE")
             for statement in (*BASE_DDL, *UNIVERSE_PROJECTION_DDL):
                 cur.execute(statement)
         conn.commit()
