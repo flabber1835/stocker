@@ -1,7 +1,7 @@
 {
   "counts": {
     "action_rows": 22674,
-    "incomplete_terminal_terms": 951,
+    "incomplete_terminal_terms": 948,
     "metadata_timeline_rows": 10803,
     "observation_rows": 3151110,
     "security_count": 7116,
@@ -11,14 +11,14 @@
     "unknown_security_type_observations": 1046200,
     "unresolved_corporate_actions": 0
   },
-  "dataset_hash": "702f99220f6a7e3755c982c5abbed28c8f3252731114597d25db5bc28f13f243",
-  "dataset_id": "strict-pit-2006-01-03-2007-12-31-702f99220f6a7e37",
-  "manifest_sha256": "2ea6ba54a4e4d2965e23d296c2d585ffac24baa5110a2d2e677a21650786f4bb",
-  "package": "ghcr.io/flabber1835/stocker-canonical-pit@sha256:5910836a0b01e38a72e208099bb5ba45acb9a2dbea841f66ae9a4f1afb9921ae",
-  "reconstruction_code_sha": "5aba2ffff0ec418467900a4526a15b31d014dbcb",
+  "dataset_hash": "85c29d56aed8948e8ef5a0f3fccdb412e3f4169b84790960220c7b791b340952",
+  "dataset_id": "strict-pit-2006-01-03-2007-12-31-85c29d56aed8948e",
+  "manifest_sha256": "299ad642f711872e49c0215b943c8c0b472cbc5771e0baf5e85f4cc45601865e",
+  "package": "ghcr.io/flabber1835/stocker-canonical-pit@sha256:2646697e0f2936ad555d6b81de771ce6df8cfe51d9562290e4ca6f1feaf3b970",
+  "reconstruction_code_sha": "f8b099fdc0b31a272194c445887c8cd0fa889b22",
   "schema": "backtester.canonical-pit-package-pointer/1",
-  "source_run_id": "33589103199",
-  "source_run_url": "https://github.com/flabber1835/stocker/actions/runs/33589103199",
+  "source_run_id": "33658724010",
+  "source_run_url": "https://github.com/flabber1835/stocker/actions/runs/33658724010",
   "status": "PASS",
   "window": {
     "end": "2007-12-31",
