@@ -208,6 +208,7 @@ jobs:
       - name: Validate shell and Compose surfaces
         env:
           SENTINEL_POSTGRES_PASSWORD: ci-not-a-production-secret
+          SENTINEL_PUBLICATION_RECEIPT_KEY: ci-publication-receipt-key-not-production
           SENTINEL_BACKUP_DIR: /tmp/sentinel-ci-backup
           SENTINEL_GIT_COMMIT: 0000000000000000000000000000000000000000
           SENTINEL_RUNTIME_IMAGE_DIGEST: sha256:0000000000000000000000000000000000000000000000000000000000000000
