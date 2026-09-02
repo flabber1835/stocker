@@ -12,6 +12,7 @@ from typing import Optional, Sequence
 import sentinel_go_lock as go_lock
 import sentinel_go_observability as observability
 import sentinel_go_phase_entry as phase
+import sentinel_go_probe_contract as probe_contract
 
 controller = phase.controller
 go = controller.go
@@ -180,6 +181,11 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
             # artifact-certification guard around mutable preparation.
             import sentinel_go_backup_refresh as backup_refresh  # noqa: PLC0415
             backup_refresh.install()
+            # Every DB-dependent one-shot phase now shares one cold-start and
+            # typed-child-failure contract. This wrapper sits outside the backup
+            # refresh so a rebooted/stopped PostgreSQL is recovered before any
+            # durability or financial readiness command attempts a connection.
+            probe_contract.install(controller=controller, phase=phase)
         # Production GO is intentionally verbose: safe build/test output streams
         # live, sensitive probes emit colored progress/heartbeat lines, suites run
         # shortest-first, and sanitized failing pytest nodes enter the review bundle.
