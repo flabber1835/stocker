@@ -2,10 +2,12 @@ name: Backtester - current Production 2006-2007 stability trial
 run-name: Production stability trial 2006-2007 — ${{ github.sha }}
 
 on:
+  workflow_dispatch:
   push:
     branches: [research/backtester]
     paths:
       - backtester/data/canonical-pit-2006-2007.json
+      - backtester/data/production-trial-2006-2007-request.json
 
 permissions:
   contents: read
