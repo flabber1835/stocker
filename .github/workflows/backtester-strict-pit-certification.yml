@@ -1,4 +1,4 @@
-name: Backtester - strict PIT production/research certification
+name: RETIRED - legacy combined strict PIT certification
 
 on:
   workflow_dispatch:
@@ -6,213 +6,18 @@ on:
 permissions:
   contents: read
 
-concurrency:
-  group: backtester-strict-pit-certification-${{ github.ref }}
-  cancel-in-progress: true
-
 jobs:
-  certify:
-    name: Strict PIT production + retained research replay
-    if: github.ref_name == 'research/backtester'
+  retired:
+    name: HISTORICAL_EVIDENCE_ONLY
     runs-on: ubuntu-24.04
-    timeout-minutes: 360
-
     steps:
-      - name: Check out frozen certification laboratory
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: research/backtester
-          fetch-depth: 1
-          persist-credentials: false
-          filter: blob:none
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /.github/workflows/backtester-strict-pit-certification.yml
-            /backtester/run_certification_parallel.py
-            /backtester/run_production_strict_pit_certification.py
-            /backtester/run_research_strict_pit_certification.py
-            /backtester/strict_pit_metadata.py
-            /backtester/run_ldrc_corrected_warmup_cash.py
-            /backtester/run_ldrc_nonpit_vs_pit_certified.py
-            /backtester/run_sector_ad_causal_terminal_terms_v2.py
-            /backtester/run_research_ldrc_corrected_warmup_cash.py
-            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
-            /backtester/historical_cash.py
-            /backtester/causal_terminal_terms.py
-            /backtester/experiments/2026-08-27-sector-abc/run.py
-            /backtester/data/causal-terminal-terms-v1.json
-            /backtester/data/causal-terminal-terms-v1.SHA256
-            /backtester/data/GS3M_1996-12_2007-05.csv
-            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
-            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
-            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
-            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
-            /research/sentinel-fastgate/pit-evidence/generated/SHA256SUMS.txt
-            /research/sentinel-fastgate/pit-evidence/generated/SEC_SIC_SHA256SUMS.txt
-            /PIT input data/MANIFEST.csv
-            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
-            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
-            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
-            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
-            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
-            /sharadar/SHARADAR_TICKERS.zip
-            /sharadar/SHARADAR_SEP_*.csv.gz
-            /sharadar/SFP/**
-
-      - name: Enforce frozen branch identity
+      - name: Refuse legacy certification authority
         shell: bash
         run: |
-          set -euo pipefail
-          test "${GITHUB_REF_NAME}" = "research/backtester"
-          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
-          test -z "$(git status --porcelain)"
-          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
-
-      - name: Reconstruct frozen SFP archive for 1997 warm-up
-        shell: bash
-        run: |
-          set -euo pipefail
-          parts=(sharadar/SFP/SHARADAR_SFP.zip.*)
-          test "${#parts[@]}" -ge 1
-          cat "${parts[@]}" > sharadar/SHARADAR_SFP.zip
-          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
-
-      - name: Check out exact production strategy source read-only
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: 887f479b15ad861313da666ad698034d3847121c
-          path: main-src
-          fetch-depth: 1
-          persist-credentials: false
-          filter: blob:none
-          sparse-checkout: |
-            sentinel
-            shared
-            docs/sentinel-handoff/00_README
-
-      - name: Verify exact production source identity
-        shell: bash
-        run: |
-          set -euo pipefail
-          EXPECTED=887f479b15ad861313da666ad698034d3847121c
-          ACTUAL="$(git -C main-src rev-parse HEAD)"
-          test "${ACTUAL}" = "${EXPECTED}"
-          test -z "$(git -C main-src status --porcelain)"
-          echo "BACKTESTER_MAIN_SHA=${ACTUAL}" >> "${GITHUB_ENV}"
-          echo "BACKTESTER_MAIN_ROOT=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: '3.12'
-          check-latest: false
-
-      - name: Install exact production runtime closure
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
-          python -m pip install --no-build-isolation --no-deps -e main-src/shared
-
-      - name: Compile certification code and frozen strategy
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m py_compile \
-            backtester/run_certification_parallel.py \
-            backtester/run_production_strict_pit_certification.py \
-            backtester/run_research_strict_pit_certification.py \
-            backtester/strict_pit_metadata.py \
-            backtester/run_ldrc_corrected_warmup_cash.py \
-            backtester/run_ldrc_nonpit_vs_pit_certified.py \
-            backtester/run_research_ldrc_corrected_warmup_cash.py \
-            backtester/run_research_ldrc_nonpit_vs_fullpit.py \
-            backtester/run_sector_ad_causal_terminal_terms_v2.py \
-            backtester/experiments/2026-08-27-sector-abc/run.py
-          python -m compileall -q -f main-src/sentinel main-src/shared/stock_strategy_shared
-
-      - name: Verify strict PIT authority inputs
-        shell: bash
-        run: |
-          set -euo pipefail
-          test -f 'PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz'
-          test -f 'PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv'
-          test -f 'PIT input data/ACTIONS_PIT_ONLY.csv.gz'
-          test -f 'PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz'
-          test -f research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
-          test -f research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
-          test -f backtester/data/GS3M_1996-12_2007-05.csv
-          test "$(sha256sum backtester/data/GS3M_1996-12_2007-05.csv | awk '{print $1}')" = "1c1dbdcddd50c2445f8c65d1378d3d2bc87626fe2dc9b9956bc0cd97682a72d3"
-          test -f backtester/data/causal-terminal-terms-v1.json
-          (cd backtester/data && sha256sum -c causal-terminal-terms-v1.SHA256)
-          count="$(find sharadar -maxdepth 1 -type f -name 'SHARADAR_SEP_*.csv.gz' | wc -l)"
-          test "${count}" -ge 30
-
-      - name: Prove strict metadata code has no current-TICKERS read path
-        shell: bash
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('backtester/strict_pit_metadata.py').read_text()
-          for forbidden_read in ('SHARADAR_TICKERS.zip', 'zipfile.ZipFile(', 'read_zip_csv('):
-              if forbidden_read in p:
-                  raise SystemExit(f'forbidden current-TICKERS read path: {forbidden_read}')
-          if 'current_SHARADAR_TICKERS_economically_active_fields' not in p:
-              raise SystemExit('missing current-TICKERS authority audit')
-          if '"security_type_unknown": "ineligible"' not in p:
-              raise SystemExit('missing fail-closed security-type policy')
-          PY
-
-      - name: Run strict PIT parallel certification
-        shell: bash
-        env:
-          PYTHONUNBUFFERED: '1'
-        run: |
-          set -euo pipefail
-          rm -rf backtester-results/strict-pit-certification
-          python backtester/run_certification_parallel.py \
-            --output-root backtester-results/strict-pit-certification \
-            --spy-factors 'PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz' \
-            --lab-root . \
-            --main-root main-src \
-            2>&1 | tee backtester-strict-pit-certification.log
-
-      - name: Verify strict certification evidence
-        if: always()
-        shell: bash
-        run: |
-          set -euo pipefail
-          root=backtester-results/strict-pit-certification
-          test -f "${root}/production/metadata_authority_audit.json"
-          test -f "${root}/research/metadata_authority_audit.json"
-          test -f "${root}/certification_progress_audit.json"
-          python - <<'PY'
-          import json
-          from pathlib import Path
-          root=Path('backtester-results/strict-pit-certification')
-          for role in ('production','research'):
-              a=json.loads((root/role/'metadata_authority_audit.json').read_text())
-              if a.get('current_SHARADAR_TICKERS_economically_active_fields') != []:
-                  raise SystemExit(f'{role}: current TICKERS remains economically active')
-              if a.get('fallbacks',{}).get('security_type_unknown') != 'ineligible':
-                  raise SystemExit(f'{role}: security type is not fail-closed')
-          p=json.loads((root/'certification_progress_audit.json').read_text())
-          if p.get('first_divergence') is not None:
-              raise SystemExit(f"production/research divergence: {p['first_divergence']}")
-          if not p.get('quarterly_blocks_emitted'):
-              raise SystemExit('no quarterly CAGR blocks emitted')
-          print('strict PIT authority and equivalence evidence PASS')
-          PY
-
-      - name: Upload immutable strict certification bundle
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: backtester-strict-pit-certification-${{ github.run_id }}
-          path: |
-            backtester-results/strict-pit-certification/**
-            backtester-strict-pit-certification.log
-          if-no-files-found: warn
-          retention-days: 30
-          compression-level: 6
+          {
+            echo '## HISTORICAL_EVIDENCE_ONLY'
+            echo
+            echo 'This legacy combined replay is retired as a certification authority.'
+            echo 'Use the official Production or Research backtest workflows; both terminate at the common PIT finalizer.'
+          } >> "${GITHUB_STEP_SUMMARY}"
+          exit 1

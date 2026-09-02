@@ -12,11 +12,25 @@ permissions:
   contents: read
   packages: read
 
+env:
+  PIT_OFFICIAL_BACKTEST: '1'
+
 concurrency:
   group: backtester-production-strict-pit-annual-${{ github.sha }}
   cancel-in-progress: false
 
 jobs:
+  causality:
+    name: Mandatory PIT / financial / causality evidence
+    uses: ./.github/workflows/backtester-pit-certification-suite.yml
+    with:
+      mode: production
+      source_sha: ${{ github.sha }}
+      strategy_sha: ea0e100b43da989bfb39ab69cdfb2b9745f3b850
+      runtime_main_sha: ea0e100b43da989bfb39ab69cdfb2b9745f3b850
+      parameters_json: '{"entrypoint":"production-annual-chain-2006-2026","mode":"production","production_main_sha":"ea0e100b43da989bfb39ab69cdfb2b9745f3b850","runtime_main_sha":"ea0e100b43da989bfb39ab69cdfb2b9745f3b850","production_overlay":"pristine","certification_contract":"backtester.pit-certification/1"}'
+    secrets: inherit
+
   year_2006:
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
@@ -325,3 +339,129 @@ jobs:
       previous_certificate_hash: ${{ needs.year_2025.outputs.certificate_hash }}
       previous_chain_hash: ${{ needs.year_2025.outputs.chain_hash }}
     secrets: inherit
+
+  finalize:
+    name: Authoritative PIT certification result
+    if: ${{ always() }}
+    needs: [year_2026, causality]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      PIT_SOURCE_SHA: ${{ github.sha }}
+      PIT_STRATEGY_SHA: ea0e100b43da989bfb39ab69cdfb2b9745f3b850
+      PIT_PARAMETERS_JSON: '{"entrypoint":"production-annual-chain-2006-2026","mode":"production","production_main_sha":"ea0e100b43da989bfb39ab69cdfb2b9745f3b850","runtime_main_sha":"ea0e100b43da989bfb39ab69cdfb2b9745f3b850","production_overlay":"pristine","certification_contract":"backtester.pit-certification/1"}'
+      PIT_POINTER: backtester/data/canonical-pit-20y.json
+      PIT_DATASET: backtester-results/canonical-pit-20y
+      PIT_FINAL_ROOT: backtester-results/pit-certification-final
+    steps:
+      - name: Check out exact finalizer source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows
+            /backtester
+      - name: Check out exact pristine Production source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ea0e100b43da989bfb39ab69cdfb2b9745f3b850
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Download final annual replay chain
+        if: ${{ needs.year_2026.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.year_2026.outputs.artifact_name }}
+          path: production-final
+      - name: Download mandatory causality evidence
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: pit-certification-tests-production-${{ github.run_id }}-${{ github.run_attempt }}
+          path: causality-final
+      - name: Re-acquire exact immutable canonical dataset for final verification
+        id: dataset
+        continue-on-error: true
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PACKAGE="$(python -c "import json; print(json.load(open('backtester/data/canonical-pit-20y.json'))['package'])")"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          rm -rf "${PIT_DATASET}" && mkdir -p "${PIT_DATASET}"
+          cid="$(docker create "${PACKAGE}")"
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${cid}:/canonical-pit/." "${PIT_DATASET}/"
+      - name: Freeze final experiment identity
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${PIT_FINAL_ROOT}"
+          python backtester/certify_backtest_result.py identity --mode production --source-sha "${PIT_SOURCE_SHA}" --strategy-sha "${PIT_STRATEGY_SHA}" --workflow-sha "${PIT_SOURCE_SHA}" --pointer "${PIT_POINTER}" --parameters-json "${PIT_PARAMETERS_JSON}" --source-root . --output "${PIT_FINAL_ROOT}/experiment-identity.json"
+      - name: Authenticate completed replay evidence
+        if: ${{ needs.year_2026.result == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/certify_backtest_result.py collect-replay --identity "${PIT_FINAL_ROOT}/experiment-identity.json" --output-root production-final/backtester-results/production-year-2026/production --annual-chain production-final/handoff/production-certificate-chain.json --checkpoint-resume PASS --output "${PIT_FINAL_ROOT}/pit-replay-evidence.json"
+      - name: Issue single authoritative final certification result
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          REPLAY_JOB_RESULT: ${{ needs.year_2026.result }}
+          TESTS_JOB_RESULT: ${{ needs.causality.result }}
+        run: |
+          set -euo pipefail
+          TEST_EVIDENCE="causality-final/backtester-results/pit-certification-suite/pit-test-evidence.json"
+          REPLAY_EVIDENCE="${PIT_FINAL_ROOT}/pit-replay-evidence.json"
+          args=()
+          if test -d "${PIT_DATASET}"; then args+=(--dataset "${PIT_DATASET}" --pointer "${PIT_POINTER}"); fi
+          if test -f "${REPLAY_EVIDENCE}"; then args+=(--replay-evidence "${REPLAY_EVIDENCE}"); fi
+          if test -f "${TEST_EVIDENCE}"; then args+=(--test-evidence "${TEST_EVIDENCE}"); fi
+          python backtester/certify_backtest_result.py finalize --identity "${PIT_FINAL_ROOT}/experiment-identity.json" "${args[@]}" --replay-job-result "${REPLAY_JOB_RESULT}" --tests-job-result "${TESTS_JOB_RESULT}" --output "${PIT_FINAL_ROOT}/pit-certification.json" --summary-output "${PIT_FINAL_ROOT}/pit-certification-summary.txt"
+      - name: Upload final certification and diagnostics
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: backtester-pit-certification-production-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backtester-results/pit-certification-final/**
+            production-final/handoff/**
+            causality-final/backtester-results/pit-certification-suite/**
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
+      - name: Enforce authoritative certification conclusion
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test -f "${PIT_FINAL_ROOT}/pit-certification.json"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          value=json.loads(Path('backtester-results/pit-certification-final/pit-certification.json').read_text())
+          if value.get('status') != 'PIT_CERTIFIED':
+              raise SystemExit('PIT NOT CERTIFIED — see final certification artifact and job summary')
+          print('PIT CERTIFIED — point-in-time, causality, universe, and forward-bias checks passed')
+          PY
