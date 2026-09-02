@@ -53,8 +53,9 @@ jobs:
         env:
           BACKTESTER_LAB_ROOT: ${{ github.workspace }}
         run: |
+          set -o pipefail
           mkdir -p backtester-results
-          python backtester/diagnostics/audit_cik_identity_boundaries.py | tee cik-identity-boundary-audit.log
+          python -m backtester.diagnostics.audit_cik_identity_boundaries | tee cik-identity-boundary-audit.log
 
       - if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
