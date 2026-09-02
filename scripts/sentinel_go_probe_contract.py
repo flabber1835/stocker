@@ -271,6 +271,21 @@ def _timeout_seconds(env: Mapping[str, str]) -> Optional[int]:
     return value if value >= 1 else None
 
 
+def _runner_deadline_method(runner: Any):
+    bounded = getattr(runner, "run_with_timeout", None)
+    if callable(bounded):
+        return bounded
+    # Existing GO CommandRunner/DiagnosticRunner instances expose their
+    # subprocess callable as ``_run``. Preserve their reviewed default cwd while
+    # adding a real timeout at this infrastructure-only boundary.
+    if not hasattr(runner, "_run"):
+        return None
+    method = getattr(getattr(runner, "run", None), "__func__", None)
+    defaults = getattr(method, "__kwdefaults__", None) or {}
+    deadline_runner = DeadlineCommandRunner(cwd=defaults.get("cwd"))
+    return deadline_runner.run_with_timeout
+
+
 def ensure_postgres_ready(
         runner: Any, *, env: Mapping[str, str], compose_args: Sequence[str],
         sleep: Callable[[float], None] = time.sleep,
@@ -287,8 +302,8 @@ def ensure_postgres_ready(
             "diagnostic_tail": [],
         }
 
-    bounded_run = getattr(runner, "run_with_timeout", None)
-    if not callable(bounded_run):
+    bounded_run = _runner_deadline_method(runner)
+    if bounded_run is None:
         evidence = {
             "reason": "POSTGRES_BOUNDED_RUNNER_UNAVAILABLE",
             "failure_class": "BOUNDED_RUNNER_UNAVAILABLE",
@@ -445,9 +460,8 @@ def install(*, controller: Any, phase: Any) -> None:
             }
             emit_probe_failure(evidence)
             return evidence
-        startup_runner = DeadlineCommandRunner(cwd=go.ROOT)
         return ensure_postgres_ready(
-            startup_runner, env=run_env, compose_args=compose_args)
+            runner, env=run_env, compose_args=compose_args)
 
     def preparation(runner, *, env, runtime_ref, commit, **kwargs):
         if phase._PHASE.get("certified"):
