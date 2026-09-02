@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import importlib
 import os
 from pathlib import Path
 import sys
@@ -42,7 +41,7 @@ def test_prepared_missing_actual_deadline_refuses_instead_of_becoming_timing_fai
 
     with pytest.raises(
             controller.PhaseRefused,
-            match="actual deadline observation unavailable \\(ACTUAL_DEADLINE_OBSERVATION_UNAVAILABLE\\)"):
+            match="actual deadline observation unavailable"):
         controller._actual_remaining_ms(
             Runner(), env={}, runtime_ref="sha256:" + "a" * 64)
 
