@@ -251,6 +251,73 @@ def render(carried: dict[str, str], generated: dict[str, str]) -> str:
     return "\n".join(lines)
 
 
+def _destination_entry(path: Path):
+    try:
+        return path.lstat()
+    except FileNotFoundError:
+        return None
+
+
+def _fsync_directory(path: Path) -> None:
+    flags = os.O_RDONLY
+    if hasattr(os, "O_DIRECTORY"):
+        flags |= os.O_DIRECTORY
+    fd = os.open(str(path), flags)
+    try:
+        os.fsync(fd)
+    finally:
+        os.close(fd)
+
+
+def _publish_secret(path: Path, body: str, *, force: bool) -> None:
+    """Create 0600 from byte one, fsync, then atomically publish it."""
+    parent = path.parent
+    entry = _destination_entry(path)
+    if entry is not None:
+        if stat.S_ISLNK(entry.st_mode):
+            raise OSError("destination is a symlink")
+        if not stat.S_ISREG(entry.st_mode):
+            raise OSError("destination is not a regular file")
+        if not force:
+            raise FileExistsError(str(path))
+
+    temp = parent / ("." + path.name + ".tmp." + secrets.token_hex(12))
+    fd = None
+    try:
+        fd = os.open(str(temp), os.O_WRONLY | os.O_CREAT | os.O_EXCL, 0o600)
+        os.fchmod(fd, 0o600)
+        with os.fdopen(fd, "w", encoding="utf-8") as fh:
+            fd = None
+            fh.write(body)
+            fh.flush()
+            os.fsync(fh.fileno())
+        if force:
+            # Re-check the entry immediately before replacement. os.replace()
+            # replaces a symlink entry itself, but refusing it is deliberate:
+            # a secret destination that changed type is operator-visible state.
+            current = _destination_entry(path)
+            if current is not None and (
+                    stat.S_ISLNK(current.st_mode)
+                    or not stat.S_ISREG(current.st_mode)):
+                raise OSError("destination changed to an unsafe file type")
+            os.replace(str(temp), str(path))
+        else:
+            # link(2) supplies atomic create-if-absent semantics. The fully
+            # fsynced temporary inode is never exposed under the final name
+            # until this operation succeeds.
+            os.link(str(temp), str(path))
+            os.unlink(str(temp))
+        _fsync_directory(parent)
+    except Exception:
+        if fd is not None:
+            os.close(fd)
+        try:
+            temp.unlink()
+        except FileNotFoundError:
+            pass
+        raise
+
+
 def main(argv: list[str] | None = None) -> int:
     ap = argparse.ArgumentParser(description=__doc__.splitlines()[0])
     ap.add_argument("--from", dest="src", required=True,
@@ -266,7 +333,13 @@ def main(argv: list[str] | None = None) -> int:
     if not src.is_file():
         print(f"REFUSED: {src} is not a file", file=sys.stderr)
         return 2
-    if dst.exists() and not (a.force or a.dry_run):
+    dst_entry = _destination_entry(dst)
+    if dst_entry is not None and (stat.S_ISLNK(dst_entry.st_mode)
+                                  or not stat.S_ISREG(dst_entry.st_mode)):
+        print(f"REFUSED: {dst} is an unsafe destination file type",
+              file=sys.stderr)
+        return 2
+    if dst_entry is not None and not (a.force or a.dry_run):
         print(f"REFUSED: {dst} already exists. Re-run with --force to replace "
               f"it, after checking it is not the one in use.", file=sys.stderr)
         return 2
@@ -341,8 +414,12 @@ def main(argv: list[str] | None = None) -> int:
         print(f"\n--dry-run: {dst} not written")
         return 0
 
-    dst.write_text(render(carried, generated))
-    os.chmod(dst, stat.S_IRUSR | stat.S_IWUSR)          # 0600
+    try:
+        _publish_secret(dst, render(carried, generated), force=a.force)
+    except OSError as exc:
+        print(f"REFUSED: could not safely publish {dst}: {exc}",
+              file=sys.stderr)
+        return 2
     print(f"\nwrote {dst}  (mode 0600, {len(carried) + len(generated)} "
           f"variables)")
     print("  it is gitignored; do not commit it, and do not echo it over SSH")
