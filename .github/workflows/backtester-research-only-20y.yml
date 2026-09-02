@@ -106,13 +106,16 @@ jobs:
           set -euo pipefail
           POINTER=backtester/data/canonical-pit-20y.json
           PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
           echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           docker pull "${PACKAGE}"
-          CONTAINER=$(docker create "${PACKAGE}")
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
           trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
           rm -rf backtester-results/canonical-pit-20y && mkdir -p backtester-results/canonical-pit-20y
           docker cp "${CONTAINER}:/canonical-pit/." backtester-results/canonical-pit-20y
           docker rm "${CONTAINER}"; trap - EXIT
+          test -s backtester-results/canonical-pit-20y/manifest.json
+          test -s backtester-results/canonical-pit-20y/session-hashes.csv
           python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset backtester-results/canonical-pit-20y
           echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
       - name: Freeze exact research experiment identity
@@ -222,6 +225,7 @@ jobs:
           name: pit-certification-tests-research-${{ github.run_id }}-${{ github.run_attempt }}
           path: causality-final
       - name: Re-acquire exact immutable canonical dataset for final verification
+        id: dataset
         continue-on-error: true
         shell: bash
         env:
@@ -229,12 +233,16 @@ jobs:
         run: |
           set -euo pipefail
           PACKAGE=$(python -c "import json; print(json.load(open('${PIT_POINTER}'))['package'])")
+          test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
           echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           docker pull "${PACKAGE}"
           rm -rf "${PIT_DATASET}" && mkdir -p "${PIT_DATASET}"
-          cid=$(docker create "${PACKAGE}")
+          cid=$(docker create "${PACKAGE}" /bin/true)
           trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
           docker cp "${cid}:/canonical-pit/." "${PIT_DATASET}/"
+          test -s "${PIT_DATASET}/manifest.json"
+          test -s "${PIT_DATASET}/session-hashes.csv"
+          python backtester/canonical_pit_package.py verify --pointer "${PIT_POINTER}" --dataset "${PIT_DATASET}"
       - name: Freeze final experiment identity
         continue-on-error: true
         shell: bash
@@ -249,12 +257,13 @@ jobs:
         env:
           REPLAY_JOB_RESULT: ${{ needs.research.result }}
           TESTS_JOB_RESULT: ${{ needs.causality.result }}
+          DATASET_JOB_RESULT: ${{ steps.dataset.outcome }}
         run: |
           set -euo pipefail
           REPLAY_EVIDENCE="research-final/backtester-results/research-only-20y/pit-replay-evidence.json"
           TEST_EVIDENCE="causality-final/backtester-results/pit-certification-suite/pit-test-evidence.json"
           args=()
-          if test -d "${PIT_DATASET}"; then args+=(--dataset "${PIT_DATASET}" --pointer "${PIT_POINTER}"); fi
+          if test "${DATASET_JOB_RESULT}" = success && test -d "${PIT_DATASET}"; then args+=(--dataset "${PIT_DATASET}" --pointer "${PIT_POINTER}"); fi
           if test -f "${REPLAY_EVIDENCE}"; then args+=(--replay-evidence "${REPLAY_EVIDENCE}"); fi
           if test -f "${TEST_EVIDENCE}"; then args+=(--test-evidence "${TEST_EVIDENCE}"); fi
           python backtester/certify_backtest_result.py finalize --identity "${PIT_FINAL_ROOT}/experiment-identity.json" "${args[@]}" --replay-job-result "${REPLAY_JOB_RESULT}" --tests-job-result "${TESTS_JOB_RESULT}" --output "${PIT_FINAL_ROOT}/pit-certification.json" --summary-output "${PIT_FINAL_ROOT}/pit-certification-summary.txt"
