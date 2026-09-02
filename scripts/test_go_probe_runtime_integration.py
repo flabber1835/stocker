@@ -6,6 +6,7 @@ the production ``sentinel`` project or its volumes.
 """
 from __future__ import annotations
 
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -17,6 +18,7 @@ SCRIPT_DIR = ROOT / "scripts"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import sentinel_go_24x7_entry as source_final  # noqa: E402
 import sentinel_go_probe_contract as contract  # noqa: E402
 import sentinel_go_readonly_data_preflight as preflight  # noqa: E402
 import sentinel_go_validate as go  # noqa: E402
@@ -37,6 +39,23 @@ def _run_probe(runner, compose_args, env: Mapping[str, str], code: str,
         command.extend(["--env", "SENTINEL_DATABASE_URL=" + database_url])
     command.extend(["--entrypoint", "python", "sentinel", "-c", code])
     return runner.run(command, env=env)
+
+
+def _preparation_failure(completed):
+    matches = []
+    for stream in (completed.stdout or "", completed.stderr or ""):
+        for line in stream.splitlines():
+            if not line.startswith(contract.PREPARATION_FAILURE_MARKER):
+                continue
+            try:
+                value = json.loads(
+                    line[len(contract.PREPARATION_FAILURE_MARKER):])
+            except ValueError:
+                return None
+            if not isinstance(value, dict):
+                return None
+            matches.append(value)
+    return matches[0] if len(matches) == 1 else None
 
 
 def main(argv=None) -> int:
@@ -135,7 +154,7 @@ def main(argv=None) -> int:
                 "sentinel-postgres:5432/sentinel"))
         bad_report = preflight._payload(bad)
         _require(bad.returncode == 0,
-                 "bad-auth child escaped the structured envelope")
+                 "bad-auth child escaped the structured failure envelope")
         _require(bad_report is not None,
                  "bad-auth child emitted no marker")
         _require(bad_report.get("reason_code") == "DATABASE_CONNECT_UNAVAILABLE",
@@ -145,6 +164,44 @@ def main(argv=None) -> int:
                  "bad-auth marker leaked the synthetic password")
         _require("postgresql://" not in marker_text,
                  "bad-auth marker leaked a database URL")
+
+        # The installed 24x7 Production preparation code must preserve the same
+        # typed envelope. These failures occur before backup/schema mutation, so
+        # they are safe to exercise against the isolated empty CI database.
+        mutable_import_code = source_final._PREPARATION_CODE.replace(
+            "from sentinel import backup_guard, schema",
+            "from sentinel_missing_for_go_probe import backup_guard, schema", 1)
+        mutable_import = _run_probe(
+            runner, compose_args, env, mutable_import_code)
+        mutable_import_report = _preparation_failure(mutable_import)
+        _require(mutable_import.returncode != 0,
+                 "24x7 import failure did not fail the child")
+        _require(mutable_import_report is not None,
+                 "24x7 import failure emitted no preparation marker")
+        _require(
+            mutable_import_report.get("reason_code")
+            == "PREPARATION_RUNTIME_IMPORT_FAILURE",
+            "24x7 import failure lost its causal reason")
+
+        mutable_bad = _run_probe(
+            runner, compose_args, env, source_final._PREPARATION_CODE,
+            database_url=(
+                "postgresql://sentinel:ci-24x7-intentionally-wrong@"
+                "sentinel-postgres:5432/sentinel"))
+        mutable_bad_report = _preparation_failure(mutable_bad)
+        _require(mutable_bad.returncode != 0,
+                 "24x7 bad-auth failure did not fail the child")
+        _require(mutable_bad_report is not None,
+                 "24x7 bad-auth failure emitted no preparation marker")
+        _require(
+            mutable_bad_report.get("reason_code")
+            == "PREPARATION_DATABASE_CONNECT_FAILURE",
+            "24x7 bad-auth failure lost its causal reason")
+        mutable_marker_text = mutable_bad.stdout or ""
+        _require("ci-24x7-intentionally-wrong" not in mutable_marker_text,
+                 "24x7 bad-auth marker leaked the synthetic password")
+        _require("postgresql://" not in mutable_marker_text,
+                 "24x7 bad-auth marker leaked a database URL")
 
         print("GO_PROBE_RUNTIME_INTEGRATION_PASS")
         return 0
