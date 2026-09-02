@@ -68,6 +68,7 @@ class CIKChange:
     filing_date: str
     prior_cik: str
     new_cik: str
+    transition_count: int = 1
 
 
 class CausalIdentityResolver:
@@ -157,7 +158,7 @@ def _cik_changes(
     frame = frame.sort_values(["ticker", "filing_date"], kind="mergesort")
     for ticker, group in frame.groupby("ticker", sort=False):
         prior = None
-        by_date: dict[str, list[str]] = {}
+        by_date: dict[str, list] = {}
         ticker_text = str(ticker)
         for row in group.itertuples(index=False):
             filed = str(row.filing_date)[:10]
@@ -167,14 +168,14 @@ def _cik_changes(
             events[ticker_text].append((filed, cik))
             if prior is not None and cik != prior:
                 if filed not in by_date:
-                    by_date[filed] = [prior, cik]
+                    by_date[filed] = [prior, cik, 1]
                 else:
                     by_date[filed][1] = cik
+                    by_date[filed][2] = int(by_date[filed][2]) + 1
             prior = cik
         changes[ticker_text] = [
-            CIKChange(filed, values[0], values[1])
+            CIKChange(filed, values[0], values[1], int(values[2]))
             for filed, values in sorted(by_date.items())
-            if values[0] != values[1]
         ]
     return events, changes
 
@@ -262,12 +263,18 @@ def _identity_boundary_classification(
                 "filing_date": str(change.filing_date),
                 "prior_cik": str(change.prior_cik),
                 "new_cik": str(change.new_cik),
+                "same_day_transition_count": int(change.transition_count),
                 "prior_price_session": "",
                 "next_price_session": "",
                 "skipped_market_sessions": "",
                 "terminal_evidence": "",
                 "disposition": "",
             }
+            if change.prior_cik == change.new_cik:
+                record["disposition"] = "SAME_DAY_CIK_OSCILLATION_REJECTED"
+                dispositions[record["disposition"]] += 1
+                records.append(record)
+                continue
             if not observed:
                 record["disposition"] = "NO_PRICE_TAPE_FOR_TICKER"
                 dispositions[record["disposition"]] += 1
@@ -328,6 +335,9 @@ def _identity_boundary_classification(
         ),
         "cik_changes_continuous_tape_rejected": int(
             dispositions.get("CONTINUOUS_TAPE_CIK_REJECTED", 0)
+        ),
+        "cik_changes_same_day_oscillation_rejected": int(
+            dispositions.get("SAME_DAY_CIK_OSCILLATION_REJECTED", 0)
         ),
         "cik_changes_unresolved_gap_conflicts": int(
             dispositions.get("UNRESOLVED_CIK_GAP_CONFLICT", 0)

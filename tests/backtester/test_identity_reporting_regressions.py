@@ -200,3 +200,30 @@ def test_complete_nominal_one_year_window_is_retained():
     }
     public = public_production_metrics(raw, max_blocks)
     assert set(public["window_years"].astype(str)) == {"1", "max"}
+
+
+def test_same_day_cik_oscillation_is_audited_and_never_splits_identity(tmp_path: Path):
+    sharadar = _write_sep(tmp_path, [
+        {"ticker": "SPY", "date": "2007-02-07"},
+        {"ticker": "OSC", "date": "2007-02-07"},
+        {"ticker": "SPY", "date": "2007-02-08"},
+        {"ticker": "OSC", "date": "2007-02-08"},
+    ])
+    cik = _write_cik(tmp_path, [
+        {"filing_date": "2007-01-02", "ticker": "OSC", "issuer_cik": 100},
+        {"filing_date": "2007-02-07", "ticker": "OSC", "issuer_cik": 200},
+        {"filing_date": "2007-02-07", "ticker": "OSC", "issuer_cik": 100},
+    ])
+
+    meta, _sectors, resolver, _canonical, audit = build_causal_metadata(
+        sharadar_root=sharadar,
+        cik_path=cik,
+        SecurityMeta=SecurityMeta,
+        start_year=2007,
+        end_year=2007,
+    )
+    ids = [sid for sid, row in meta.items() if row.ticker == "OSC"]
+    assert len(ids) == 1
+    assert resolver.resolve("OSC", "2007-02-08") == ids[0]
+    assert audit["raw_cik_change_evidence_events"] == 1
+    assert audit["cik_changes_same_day_oscillation_rejected"] == 1
