@@ -47,6 +47,7 @@ from backtester.causal_terminal_terms import (  # noqa: E402
 )
 from backtester.strict_pit_metadata import (  # noqa: E402
     CausalIssuerAuthority,
+    IDENTITY_AUTHORITY,
     SecurityTypeAuthority,
     build_causal_metadata,
 )
@@ -1008,7 +1009,7 @@ def build_dataset(
         "source_files": dict(sorted(source_inputs.items())),
         "members": dict(sorted(members.items())),
         "field_authorities": {
-            "identity": "historical SEP plus strict-prior SEC CIK-change episode boundary",
+            "identity": IDENTITY_AUTHORITY,
             "issuer": "strict-prior SEC CIK; unknown security singleton",
             "security_type": "strict-prior positive SEC/EDGAR evidence; unknown ineligible",
             "sector": "strict-prior SEC CIK -> strict-prior SIC -> frozen FF12",

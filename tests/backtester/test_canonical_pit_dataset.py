@@ -29,6 +29,7 @@ from backtester.canonical_pit_package import (
 )
 from backtester.causal_split_overrides import _load_sidecar_records
 from backtester.strict_pit_metadata import SecurityTypeAuthority
+from backtester.strict_pit_metadata import IDENTITY_AUTHORITY
 
 
 def _artifact(root: Path, *, status: str = "PASS") -> Path:
@@ -84,6 +85,18 @@ def _artifact(root: Path, *, status: str = "PASS") -> Path:
 
 
 class CanonicalPITDatasetTests(unittest.TestCase):
+    def test_manifest_identity_authority_matches_corrected_builder(self) -> None:
+        self.assertIn("terminal/relisting corroboration", IDENTITY_AUTHORITY)
+        self.assertIn("cannot create a security episode", IDENTITY_AUTHORITY)
+        builder = Path("backtester/canonical_pit_dataset.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn('"identity": IDENTITY_AUTHORITY', builder)
+        self.assertNotIn(
+            '"identity": "historical SEP plus strict-prior SEC CIK-change episode boundary"',
+            builder,
+        )
+
     def test_streaming_session_hashes_match_v1_sorted_parts_contract(self) -> None:
         with tempfile.TemporaryDirectory() as raw:
             root = Path(raw)

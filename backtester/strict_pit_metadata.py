@@ -31,6 +31,12 @@ _TARGET_TERMINAL_ACTIONS = frozenset({
     "voluntarydelisting",
 })
 
+IDENTITY_AUTHORITY = (
+    "historical SEP tape continuity; new security episodes require causal "
+    "terminal/relisting corroboration; SEC CIK is issuer evidence and cannot "
+    "create a security episode by itself"
+)
+
 
 def _norm_int(value) -> str | None:
     if value is None or pd.isna(value):
@@ -324,11 +330,7 @@ def _identity_boundary_classification(
 
     raw_changes = sum(len(rows) for rows in changes.values())
     summary = {
-        "identity_authority": (
-            "historical SEP tape continuity; new security episodes require causal "
-            "terminal/relisting corroboration; SEC CIK is issuer evidence and cannot "
-            "create a security episode by itself"
-        ),
+        "identity_authority": IDENTITY_AUTHORITY,
         "raw_cik_change_evidence_events": int(raw_changes),
         "cik_change_episode_boundaries": int(
             dispositions.get("CORROBORATED_TERMINAL_BOUNDARY", 0)
