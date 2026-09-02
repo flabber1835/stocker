@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import io
 import os
 from pathlib import Path
 import signal
@@ -98,6 +99,28 @@ def test_stale_lock_environment_refuses_before_child_start(monkeypatch, capsys):
         sys.executable, "-c", "raise SystemExit('child must not start')"])
     assert rc == 2
     assert "lifecycle lock authority unavailable" in capsys.readouterr().err
+
+
+def test_signal_arriving_during_child_start_is_forwarded_after_spawn(monkeypatch):
+    sent = []
+
+    class FakePopen:
+        def __init__(self, *_args, **_kwargs):
+            self.pid = 12345
+            self.stdout = io.StringIO("")
+            self.stderr = io.StringIO("")
+            signal.raise_signal(signal.SIGTERM)
+
+        def wait(self):
+            return 143
+
+    monkeypatch.setattr(guard.go, "merged_environment", lambda: {})
+    monkeypatch.setattr(guard.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(
+        guard, "_send_process_group", lambda _proc, signum: sent.append(signum))
+    monkeypatch.setattr(guard, "_escalate_process_group", lambda _proc: None)
+    assert guard.run_guarded(["synthetic-child"]) == 143
+    assert sent == [signal.SIGTERM]
 
 
 def test_output_guard_forwards_termination_to_child_process_group(tmp_path):
