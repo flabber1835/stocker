@@ -1,5 +1,5 @@
 {
-  "reason": "publish reusable bounded equivalence dataset after bounded-memory reconstruction fix",
-  "requested_at": "2026-08-30T18:17:00Z",
+  "reason": "build corrected-identity bounded dataset for 2006-2007 Production stability trial",
+  "requested_at": "2026-09-02T04:05:00Z",
   "schema": "backtester.canonical-pit-build-request/1"
 }
