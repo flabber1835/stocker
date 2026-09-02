@@ -1,12 +1,12 @@
 {
   "schema_version": 1,
-  "requested_at": "2026-09-02T17:26:10Z",
+  "requested_at": "2026-09-02T18:00:40Z",
   "dataset_pointer": "backtester/data/canonical-pit-2006-2007.json",
   "dataset_sha256": "85c29d56aed8948e8ef5a0f3fccdb412e3f4169b84790960220c7b791b340952",
   "production_main_sha": "ea0e100b43da989bfb39ab69cdfb2b9745f3b850",
   "warmup_start": "2006-01-03",
   "measurement_start": "2006-07-31",
   "end_session": "2007-12-31",
-  "attempt": 13,
-  "previous_run_id": 33590101801
+  "attempt": 14,
+  "previous_run_id": 33661058649
 }
