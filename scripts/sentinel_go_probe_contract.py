@@ -18,6 +18,7 @@ from dataclasses import dataclass
 import hashlib
 import json
 import re
+import subprocess
 import sys
 import time
 from typing import Any, Callable, Mapping, Optional, Sequence
@@ -78,6 +79,54 @@ class RecordingRunner:
             if command[:2] == ["docker", "compose"] and "run" in command:
                 return record.completed
         return None
+
+
+class DeadlineCommandRunner:
+    """Small host runner whose explicit timeout bounds the actual subprocess."""
+
+    def __init__(self, *, cwd=None):
+        self.cwd = cwd
+
+    @staticmethod
+    def _text(value: object) -> str:
+        if isinstance(value, bytes):
+            return value.decode("utf-8", errors="replace")
+        return str(value or "")
+
+    def _execute(self, argv: Sequence[str], *, env=None, cwd=None,
+                 timeout_seconds: Optional[float] = None):
+        command = [str(item) for item in argv]
+        resolved_cwd = self.cwd if cwd is None else cwd
+        try:
+            return subprocess.run(
+                command,
+                cwd=(str(resolved_cwd) if resolved_cwd is not None else None),
+                env=(dict(env) if env is not None else None),
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                check=False,
+                timeout=timeout_seconds,
+            )
+        except subprocess.TimeoutExpired as exc:
+            return subprocess.CompletedProcess(
+                command,
+                124,
+                stdout=self._text(exc.stdout),
+                stderr=self._text(exc.stderr),
+            )
+        except OSError:
+            return subprocess.CompletedProcess(
+                command, 127, stdout="", stderr="")
+
+    def run(self, argv: Sequence[str], *, env=None, cwd=None):
+        return self._execute(argv, env=env, cwd=cwd)
+
+    def run_with_timeout(self, argv: Sequence[str], *, env=None,
+                         timeout_seconds: float, cwd=None):
+        return self._execute(
+            argv, env=env, cwd=cwd,
+            timeout_seconds=max(0.001, float(timeout_seconds)))
 
 
 def _sha(value: str) -> str:
@@ -226,7 +275,7 @@ def ensure_postgres_ready(
         runner: Any, *, env: Mapping[str, str], compose_args: Sequence[str],
         sleep: Callable[[float], None] = time.sleep,
         monotonic: Callable[[], float] = time.monotonic) -> Optional[dict[str, Any]]:
-    """Start only PostgreSQL and wait for its reviewed Docker healthcheck."""
+    """Start PostgreSQL and bound every Docker call by one startup deadline."""
     timeout = _timeout_seconds(env)
     if timeout is None:
         return {
@@ -238,15 +287,38 @@ def ensure_postgres_ready(
             "diagnostic_tail": [],
         }
 
+    bounded_run = getattr(runner, "run_with_timeout", None)
+    if not callable(bounded_run):
+        evidence = {
+            "reason": "POSTGRES_BOUNDED_RUNNER_UNAVAILABLE",
+            "failure_class": "BOUNDED_RUNNER_UNAVAILABLE",
+            "exit_code": 2,
+            "stdout_sha256": _sha(""),
+            "stderr_sha256": _sha(""),
+            "diagnostic_tail": [],
+        }
+        emit_probe_failure(evidence)
+        return evidence
+
+    deadline = monotonic() + float(timeout)
+
+    def run_bounded(argv: Sequence[str]):
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            return subprocess.CompletedProcess(
+                [str(item) for item in argv], 124, stdout="", stderr="")
+        return bounded_run(
+            argv, env=env, timeout_seconds=max(0.001, remaining))
+
     prefix = ["docker", "compose", *[str(item) for item in compose_args]]
-    started = runner.run(prefix + ["up", "-d", POSTGRES_SERVICE], env=env)
+    started = run_bounded(prefix + ["up", "-d", POSTGRES_SERVICE])
     if int(started.returncode) != 0:
         evidence = subprocess_evidence(
             started, context="POSTGRES_START", reason="POSTGRES_START_FAILED")
         emit_probe_failure(evidence)
         return evidence
 
-    selected = runner.run(prefix + ["ps", "-q", POSTGRES_SERVICE], env=env)
+    selected = run_bounded(prefix + ["ps", "-q", POSTGRES_SERVICE])
     container_ids = [
         line.strip() for line in (selected.stdout or "").splitlines()
         if line.strip()
@@ -259,14 +331,13 @@ def ensure_postgres_ready(
         return evidence
 
     container_id = container_ids[0]
-    deadline = monotonic() + float(timeout)
     last_status = "unknown"
     while monotonic() < deadline:
-        inspected = runner.run([
+        inspected = run_bounded([
             "docker", "inspect", "--format",
             "{{if .State.Health}}{{.State.Health.Status}}{{else}}{{.State.Status}}{{end}}",
             container_id,
-        ], env=env)
+        ])
         if int(inspected.returncode) != 0:
             evidence = subprocess_evidence(
                 inspected, context="POSTGRES_HEALTH",
@@ -290,7 +361,10 @@ def ensure_postgres_ready(
             }
             emit_probe_failure(evidence)
             return evidence
-        sleep(1.0)
+        remaining = deadline - monotonic()
+        if remaining <= 0:
+            break
+        sleep(min(1.0, remaining))
 
     evidence = {
         "reason": "POSTGRES_HEALTH_TIMEOUT",
@@ -371,8 +445,9 @@ def install(*, controller: Any, phase: Any) -> None:
             }
             emit_probe_failure(evidence)
             return evidence
+        startup_runner = DeadlineCommandRunner(cwd=go.ROOT)
         return ensure_postgres_ready(
-            runner, env=run_env, compose_args=compose_args)
+            startup_runner, env=run_env, compose_args=compose_args)
 
     def preparation(runner, *, env, runtime_ref, commit, **kwargs):
         if phase._PHASE.get("certified"):
