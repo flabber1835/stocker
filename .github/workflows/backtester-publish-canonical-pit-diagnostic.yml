@@ -32,6 +32,7 @@ jobs:
             /.github/workflows/backtester-build-canonical-pit-attempt.yml
             /.github/workflows/backtester-build-canonical-pit-20y.yml
             /.github/workflows/backtester-publish-canonical-pit-diagnostic.yml
+            /.github/workflows/backtester-production-trial-2006-2007.yml
             /.github/workflows/backtester-research-only-20y.yml
             /.github/workflows/backtester-strict-pit-20y.yml
             /backtester/**
