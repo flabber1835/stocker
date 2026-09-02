@@ -13,6 +13,7 @@ on:
       - 'tests/backtester/**'
       - 'tests/support/**'
       - 'tests/conftest.py'
+      - '.github/workflows/backtester-production-trial-2006-2007.yml'
       - '.github/workflows/backtester-production-strict-pit-20y.yml'
       - '.github/workflows/backtester-production-strict-pit-year-worker.yml'
       - '.github/workflows/backtester-research-only-20y.yml'
@@ -44,7 +45,6 @@ jobs:
             /services/backtester/**
             /services/bt-engine/Dockerfile
             /tools/**
-            /tests/__init__.py
             /tests/conftest.py
             /tests/backtester/**
             /tests/support/**
@@ -92,7 +92,7 @@ jobs:
           python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
           python -m pip install -r services/backtester/requirements.txt
-          python -m pip install pytest
+          python -m pip install pytest==8.4.2
 
       - name: Compile audited financial paths
         shell: bash
