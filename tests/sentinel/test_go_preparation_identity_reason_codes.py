@@ -41,9 +41,10 @@ def test_preparation_codes_preserve_structured_identity_reason_codes():
         for source_reason, machine_reason in expected.items():
             exc = SepMutationIdentityRefused(source_reason)
             assert reason_code("DAILY_CATCHUP", exc) == machine_reason
-        assert reason_code(
-            "DAILY_CATCHUP", SepMutationIdentityRefused("NEW_REASON"))
+        assert (
+            reason_code("DAILY_CATCHUP", SepMutationIdentityRefused("NEW_REASON"))
             == "SOURCE_IDENTITY_UNRESOLVED"
+        )
 
 
 def test_preparation_failure_markers_retain_raw_identity_reason_field():
