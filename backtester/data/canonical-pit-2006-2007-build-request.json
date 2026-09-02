@@ -1,5 +1,5 @@
 {
-  "reason": "Attempt 13 bounded PIT reconstruction after identity and terminal-authority remediation",
-  "requested_at": "2026-09-02T16:58:25Z",
+  "reason": "Attempt 13 bounded PIT reconstruction after sparse-closure repair",
+  "requested_at": "2026-09-02T17:03:27Z",
   "schema": "backtester.canonical-pit-build-request/1"
 }
