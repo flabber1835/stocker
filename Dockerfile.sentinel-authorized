@@ -13,9 +13,11 @@ LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
 COPY deploy/sentinel-authorized-runtime-v1 \
     /opt/sentinel/authorized-runtime-v1
 
+USER root
 RUN install -d -m 0755 /opt/sentinel/bin \
     && printf '%s\n' \
        '#!/bin/sh' \
        'printf "sentinel-authorized-capability/1\\n"' \
        > /opt/sentinel/bin/authorized-runtime-capability-v1 \
     && chmod 0555 /opt/sentinel/bin/authorized-runtime-capability-v1
+USER 10001:10001
