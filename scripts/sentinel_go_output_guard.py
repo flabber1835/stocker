@@ -127,49 +127,18 @@ def run_guarded(command: Sequence[str]) -> int:
             and "SENTINEL_GO_COLOR" not in child_env):
         child_env["SENTINEL_GO_COLOR"] = "1"
 
-    try:
-        proc = subprocess.Popen(
-            [str(item) for item in command],
-            cwd=str(go.ROOT),
-            env=child_env,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.PIPE,
-            text=True,
-            bufsize=1,
-            pass_fds=pass_fds,
-            start_new_session=True,
-        )
-    except OSError:
-        print("REFUSED: guarded GO subprocess could not start", file=sys.stderr)
-        return 127
-
-    write_lock = threading.Lock()
-
-    def pump(stream, target) -> None:
-        try:
-            for line in iter(stream.readline, ""):
-                safe = redact(line, secrets=secrets)
-                with write_lock:
-                    target.write(safe)
-                    target.flush()
-        finally:
-            try:
-                stream.close()
-            except OSError:
-                pass
-
-    threads = [
-        threading.Thread(target=pump, args=(proc.stdout, sys.stdout), daemon=True),
-        threading.Thread(target=pump, args=(proc.stderr, sys.stderr), daemon=True),
-    ]
-    for thread in threads:
-        thread.start()
-
     previous = {}
     termination_started = threading.Event()
     escalation_threads = []
+    pending_signals = []
+    proc_holder = [None]
+    threads = []
 
     def forward(signum, _frame) -> None:
+        proc = proc_holder[0]
+        if proc is None:
+            pending_signals.append(signum)
+            return
         if termination_started.is_set():
             _send_process_group(proc, signal.SIGKILL)
             return
@@ -185,7 +154,48 @@ def run_guarded(command: Sequence[str]) -> int:
         signal.signal(signum, forward)
 
     try:
-        rc = proc.wait()
+        try:
+            proc = subprocess.Popen(
+                [str(item) for item in command],
+                cwd=str(go.ROOT),
+                env=child_env,
+                stdout=subprocess.PIPE,
+                stderr=subprocess.PIPE,
+                text=True,
+                bufsize=1,
+                pass_fds=pass_fds,
+                start_new_session=True,
+            )
+        except OSError:
+            print("REFUSED: guarded GO subprocess could not start", file=sys.stderr)
+            return 127
+        proc_holder[0] = proc
+        for signum in tuple(pending_signals):
+            forward(signum, None)
+
+        write_lock = threading.Lock()
+
+        def pump(stream, target) -> None:
+            try:
+                for line in iter(stream.readline, ""):
+                    safe = redact(line, secrets=secrets)
+                    with write_lock:
+                        target.write(safe)
+                        target.flush()
+            finally:
+                try:
+                    stream.close()
+                except OSError:
+                    pass
+
+        threads.extend([
+            threading.Thread(target=pump, args=(proc.stdout, sys.stdout), daemon=True),
+            threading.Thread(target=pump, args=(proc.stderr, sys.stderr), daemon=True),
+        ])
+        for thread in threads:
+            thread.start()
+
+        return int(proc.wait())
     finally:
         for signum, handler in previous.items():
             signal.signal(signum, handler)
@@ -193,7 +203,6 @@ def run_guarded(command: Sequence[str]) -> int:
             escalator.join(timeout=_TERMINATION_GRACE_SECONDS + 1.0)
         for thread in threads:
             thread.join(timeout=2)
-    return int(rc)
 
 
 def main(argv=None) -> int:
