@@ -5,6 +5,8 @@ from __future__ import annotations
 import logging
 import os
 from pathlib import Path
+import stat
+import subprocess
 import sys
 
 
@@ -16,6 +18,9 @@ AUTHORIZED_RUNTIME_ENV = "SENTINEL_AUTHORIZED_RUNTIME"
 AUTHORIZED_RUNTIME_VALUE = "SIGNED_DIGEST_SERVICE_V1"
 AUTHORIZED_RUNTIME_MARKER = Path("/opt/sentinel/authorized-runtime-v1")
 AUTHORIZED_RUNTIME_MARKER_BYTES = b"sentinel-authorized-runtime/1\n"
+AUTHORIZED_RUNTIME_CAPABILITY = Path(
+    "/opt/sentinel/bin/authorized-runtime-capability-v1")
+AUTHORIZED_RUNTIME_CAPABILITY_BYTES = b"sentinel-authorized-capability/1\n"
 
 # Commands which construct a broker, establish broker authority, or enable
 # unattended operation. Emergency fencing remains available in the ordinary
@@ -53,6 +58,28 @@ def setup_logging(verbose: bool) -> None:
     )
 
 
+def _authorized_capability_executes() -> bool:
+    """Prove the reviewed image contains its executable capability seam."""
+    try:
+        mode = AUTHORIZED_RUNTIME_CAPABILITY.lstat().st_mode
+        if (not stat.S_ISREG(mode) or stat.S_ISLNK(mode)
+                or mode & 0o111 == 0):
+            return False
+        result = subprocess.run(
+            [str(AUTHORIZED_RUNTIME_CAPABILITY)],
+            stdin=subprocess.DEVNULL,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE,
+            check=False,
+            timeout=2,
+        )
+    except (OSError, subprocess.SubprocessError):
+        return False
+    return (result.returncode == 0
+            and result.stdout == AUTHORIZED_RUNTIME_CAPABILITY_BYTES
+            and result.stderr == b"")
+
+
 def require_authorized_runtime(command: str) -> int | None:
     """Refuse broker/authority commands outside the reviewed image surface."""
     if command not in AUTHORIZED_RUNTIME_COMMANDS:
@@ -62,11 +89,13 @@ def require_authorized_runtime(command: str) -> int | None:
     except OSError:
         marker = None
     if (os.environ.get(AUTHORIZED_RUNTIME_ENV) == AUTHORIZED_RUNTIME_VALUE
-            and marker == AUTHORIZED_RUNTIME_MARKER_BYTES):
+            and marker == AUTHORIZED_RUNTIME_MARKER_BYTES
+            and _authorized_capability_executes()):
         return None
     print(
-        "REFUSED: this command requires the marker-bearing, digest-qualified "
-        "authorized Sentinel runtime; use scripts/sentinel-authorized-cli.sh",
+        "REFUSED: this command requires the executable-capability, marker-bearing, "
+        "digest-qualified authorized Sentinel runtime; use "
+        "scripts/sentinel-authorized-cli.sh",
         file=sys.stderr,
     )
     return EXIT_CONFIG
@@ -128,6 +157,8 @@ def paper_refused(exc: BaseException) -> int:
 
 
 __all__ = [
+    "AUTHORIZED_RUNTIME_CAPABILITY",
+    "AUTHORIZED_RUNTIME_CAPABILITY_BYTES",
     "AUTHORIZED_RUNTIME_COMMANDS",
     "AUTHORIZED_RUNTIME_ENV",
     "AUTHORIZED_RUNTIME_MARKER",
