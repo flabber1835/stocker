@@ -31,6 +31,12 @@ import json, os
 SUCCESS_MARKER = 'SENTINEL_GO_PREPARATION='
 RECOVERY_MARKER = 'SENTINEL_GO_PREPARATION_RECOVERY='
 FAILURE_MARKER = 'SENTINEL_GO_PREPARATION_FAILURE='
+IDENTITY_REASON_CODES = {
+    'NO_PERMANENT_ID': 'SOURCE_IDENTITY_NO_PERMANENT_ID',
+    'IDENTITY_INTERVAL_GAP': 'SOURCE_IDENTITY_INTERVAL_GAP',
+    'TICKER_REUSE_UNRESOLVED': 'SOURCE_IDENTITY_TICKER_REUSE_UNRESOLVED',
+    'AMBIGUOUS_IDENTITY': 'SOURCE_IDENTITY_AMBIGUOUS',
+}
 
 
 def failure_detail(exc):
@@ -59,8 +65,11 @@ def reason_code(phase, exc):
         return 'LOCAL_CURSOR_MISSING'
     if name == 'HistoricalIdentityMutation':
         return 'SOURCE_IDENTITY_HISTORY_MUTATION'
-    if name in {'SharadarMutationRefused', 'SepMutationIdentityRefused',
-                'SourceAuthorityRefused'}:
+    if name == 'SepMutationIdentityRefused':
+        identity_reason = str(getattr(exc, 'reason_code', '') or '')
+        return IDENTITY_REASON_CODES.get(
+            identity_reason, 'SOURCE_IDENTITY_UNRESOLVED')
+    if name in {'SharadarMutationRefused', 'SourceAuthorityRefused'}:
         if 'source cursor' in lowered:
             return 'LOCAL_CURSOR_CORRUPT'
         if 'no positive raw close' in lowered:
@@ -84,6 +93,10 @@ def emit_failure(phase, exc):
         'error_type': type(exc).__name__,
         'reason_code': reason_code(phase, exc),
     }
+    if type(exc).__name__ == 'SepMutationIdentityRefused':
+        identity_reason = str(getattr(exc, 'reason_code', '') or '')
+        if identity_reason:
+            value['identity_reason'] = identity_reason
     value.update(failure_detail(exc))
     print(FAILURE_MARKER + json.dumps(value, sort_keys=True), flush=True)
 
