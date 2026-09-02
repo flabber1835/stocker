@@ -94,15 +94,19 @@ fi
 # This catches deterministic cursor/source authority refusals early without
 # allowing uncertified code to create schema, advance cursors, renormalize bars,
 # or publish a corpus generation. The certified preparation still repeats the
-# source observation later at the real write boundary.
+# source observation later at the real write boundary. The output guard compares
+# every emitted line against the actual configured authority values before it can
+# reach the terminal or CI log.
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   go_phase "READ-ONLY SHARADAR PREFLIGHT"
-  "$PYTHON" scripts/sentinel_go_readonly_data_preflight.py
+  "$PYTHON" scripts/sentinel_go_output_guard.py \
+    "$PYTHON" scripts/sentinel_go_readonly_data_preflight.py
 fi
 
 go_phase "CERTIFICATION + FINANCIAL READINESS"
 set +e
-"$PYTHON" scripts/sentinel_go_verified_entry.py "$@"
+"$PYTHON" scripts/sentinel_go_output_guard.py \
+  "$PYTHON" scripts/sentinel_go_verified_entry.py "$@"
 VALIDATION_RC=$?
 set -e
 
