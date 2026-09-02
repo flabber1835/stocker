@@ -1,6 +1,7 @@
 """Durable, retryable alert delivery independent of trading authority."""
 from __future__ import annotations
 
+from collections import defaultdict
 import hashlib
 import inspect
 import json
@@ -24,6 +25,9 @@ _ALERT_COLUMNS = (
     "delivery_expires_at,last_error,ack_state,acknowledged_by,acknowledged_at,"
     "acknowledgement,created_at,updated_at,delivered_at"
 )
+_RECOVERABLE_CYCLE_STATES = frozenset({
+    "RECONCILING", "RETRY_WAIT", "MISSED_STATE_ONLY", "SUPERSEDED", "BLOCKED",
+})
 
 
 class AlertAdapter(Protocol):
@@ -149,14 +153,73 @@ def _append_event(
         (alert_id, attempt, action, holder_id, error))
 
 
+def _reconstruct_missing_transition_alerts(conn) -> None:
+    """Materialize alert deficits from committed immutable cycle events.
+
+    The state transition is the durable fact. A crash can occur after that
+    commit and before the ordinary notifier enqueues its alert. For alert-worthy
+    states we compare immutable transition cardinality with already-materialized
+    outbox cardinality and fill only the deficit, keyed by event sequence.
+    """
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT seq,cycle_id,to_state,control_generation,fence_token,detail"
+            " FROM sentinel_automation_cycle_events"
+            " WHERE to_state = ANY(%s) ORDER BY seq",
+            (list(sorted(_RECOVERABLE_CYCLE_STATES)),))
+        events = list(cur.fetchall())
+        cur.execute(
+            "SELECT payload->>'cycle_id',payload->>'state',COUNT(*)"
+            " FROM sentinel_alert_outbox"
+            " WHERE payload ? 'cycle_id' AND payload ? 'state'"
+            " GROUP BY payload->>'cycle_id',payload->>'state'")
+        materialized = {
+            (str(cycle_id), str(state)): int(count)
+            for cycle_id, state, count in cur.fetchall()
+        }
+
+        ordinal = defaultdict(int)
+        for (seq, cycle_id, to_state, control_generation,
+             fence_token, raw_detail) in events:
+            key = (str(cycle_id), str(to_state))
+            ordinal[key] += 1
+            if ordinal[key] <= materialized.get(key, 0):
+                continue
+            detail = (dict(raw_detail) if isinstance(raw_detail, Mapping)
+                      else json.loads(str(raw_detail or "{}")))
+            idempotency_key = f"recovered-cycle-event:{int(seq)}"
+            payload = {
+                "cycle_event_seq": int(seq),
+                "cycle_id": str(cycle_id),
+                "state": str(to_state),
+                "control_generation": int(control_generation),
+                "fence_token": int(fence_token),
+                "detail": detail,
+                "recovered_after_restart": True,
+            }
+            cur.execute(
+                "INSERT INTO sentinel_alert_outbox"
+                " (alert_id,idempotency_key,schema_version,event_type,severity,"
+                " payload,state,max_attempts,next_attempt_at)"
+                " VALUES (%s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp())"
+                " ON CONFLICT (idempotency_key) DO NOTHING",
+                (_alert_id(idempotency_key), idempotency_key,
+                 f"AUTOMATION_RECOVERED_{to_state}",
+                 "CRITICAL" if str(to_state) == "BLOCKED" else "WARN",
+                 _json(payload)))
+            if cur.rowcount == 1:
+                materialized[key] = materialized.get(key, 0) + 1
+
+
 def claim_next(
         conn, *, holder_id: str, claim_seconds: int = 60) -> AlertRecord | None:
-    """Recover expired claims and claim one due alert without blocking peers."""
+    """Recover transition alerts/expired claims, then claim one due alert."""
     if not holder_id:
         raise ValueError("holder_id must be non-empty")
     if claim_seconds < 1:
         raise ValueError("claim_seconds must be positive")
     try:
+        _reconstruct_missing_transition_alerts(conn)
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sentinel_alert_outbox SET state='DEAD_LETTER',"
@@ -183,8 +246,6 @@ def claim_next(
                 " WHERE state='DELIVERING'"
                 " AND delivery_expires_at <= clock_timestamp()"
                 " RETURNING alert_id,attempt_count,delivery_holder")
-            # The UPDATE necessarily returns NULL for delivery_holder; use a
-            # stable recovery actor because the old owner may be gone forever.
             for alert_id, attempt, _cleared_holder in cur.fetchall():
                 _append_event(
                     cur, alert_id=alert_id, attempt=attempt,
@@ -281,8 +342,6 @@ def mark_failed(
                 state = AlertState.PENDING
                 action = "RETRY_SCHEDULED"
                 delay = retry_base_seconds
-                # Saturate instead of constructing an enormous integer if a
-                # restored/corrupt attempt counter is unexpectedly huge.
                 for _ in range(min(max(0, attempt - 1), 63)):
                     delay = min(retry_max_seconds, delay * 2)
                     if delay == retry_max_seconds:
