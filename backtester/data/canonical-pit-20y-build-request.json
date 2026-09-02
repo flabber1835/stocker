@@ -1,5 +1,5 @@
 {
-  "reason": "rebuild after global CIK identity remediation; reconstruction sparse-checkout descriptor repaired",
-  "requested_at": "2026-09-02T02:50:00Z",
+  "reason": "rebuild after global CIK identity remediation; complete production-generation descriptor chain included",
+  "requested_at": "2026-09-02T02:55:00Z",
   "schema": "backtester.canonical-pit-build-request/1"
 }
