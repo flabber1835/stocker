@@ -2,7 +2,8 @@ from uuid import uuid4
 
 import pytest
 
-from sentinel.feed import store as feed_store
+from sentinel.feed import publication, store as feed_store
+from sentinel.identity import require_feed_producer_identity
 from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 
 
@@ -26,19 +27,19 @@ def conn(pg):
 
 
 def _run(conn, run_id, status="success"):
+    producer = require_feed_producer_identity()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO feed_ingest_runs (run_id,kind,status) VALUES (%s,'test',%s)",
-            (run_id, status))
+            "INSERT INTO feed_ingest_runs"
+            " (run_id,kind,status,source_git_commit,runtime_image_digest)"
+            " VALUES (%s,'test',%s,%s,%s)",
+            (run_id, status, producer["git_commit"],
+             producer["runtime_image_digest"]))
     conn.commit()
 
 
 def _publish(conn, run_id):
-    with conn.cursor() as cur:
-        cur.execute(
-            "INSERT INTO sentinel_corpus_publications (run_id,evidence) "
-            "VALUES (%s,'{}'::jsonb)", (run_id,))
-    conn.commit()
+    publication.publish(conn, run_id=run_id)
 
 
 def _refused(conn, sql, params=()):

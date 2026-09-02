@@ -13,7 +13,8 @@ from cryptography.hazmat.primitives.asymmetric.ed25519 import Ed25519PrivateKey
 
 from sentinel import authority, binding, schema
 from sentinel.automation.health import read_health
-from sentinel.feed import store as feed_store
+from sentinel.feed import publication, store as feed_store
+from sentinel.identity import require_feed_producer_identity
 from sentinel.panel.sources import _authority_lifecycle
 from sentinel.observation_authority import (
     accepted_boundary_sha256,
@@ -71,11 +72,13 @@ def conn(pg):
             " first_price_date,last_price_date,is_delisted,snapshot_date)"
             " VALUES ('1001','AAA','Domestic Common Stock','Technology',"
             " NULL,'2020-01-01',NULL,FALSE,'2026-08-15')")
-        cur.execute(
-            "INSERT INTO sentinel_corpus_publications"
-            " (version,previous_version,window_start,window_end,evidence)"
-            " VALUES (81,NULL,'2026-08-15','2026-08-15','{}'::jsonb)")
     connection.commit()
+    with connection.cursor() as cur:
+        cur.execute(
+            "SELECT setval(pg_get_serial_sequence("
+            "'sentinel_corpus_publications','version'),80,true)")
+    publication.publish(
+        connection, window_start="2026-08-15", window_end="2026-08-15")
     yield connection
     connection.close()
 
@@ -84,12 +87,15 @@ def publish_metadata_snapshot(conn, *, snapshot_date: str, sector: str) -> int:
     """Publish one later TICKERS observation without rewriting prior history."""
     suffix = snapshot_date.replace("-", "")[-8:]
     run_id = f"00000000-0000-0000-0000-{suffix.zfill(12)}"
+    producer = require_feed_producer_identity()
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO feed_ingest_runs"
-            " (run_id,kind,status,date_from,date_to,completed_at)"
-            " VALUES (%s,'daily','success',%s,%s,clock_timestamp())",
-            (run_id, snapshot_date, snapshot_date))
+            " (run_id,kind,status,date_from,date_to,completed_at,"
+            " source_git_commit,runtime_image_digest)"
+            " VALUES (%s,'daily','success',%s,%s,clock_timestamp(),%s,%s)",
+            (run_id, snapshot_date, snapshot_date, producer["git_commit"],
+             producer["runtime_image_digest"]))
         cur.execute(
             "INSERT INTO sentinel_universe"
             " (permaticker,ticker,category,sector,related_tickers,"
@@ -98,16 +104,10 @@ def publish_metadata_snapshot(conn, *, snapshot_date: str, sector: str) -> int:
             " VALUES ('1001','AAA','Domestic Common Stock',%s,NULL,"
             " '2020-01-01',NULL,FALSE,%s,%s)",
             (sector, snapshot_date, run_id))
-        cur.execute("SELECT MAX(version) FROM sentinel_corpus_publications")
-        previous = int(cur.fetchone()[0])
-        version = previous + 1
-        cur.execute(
-            "INSERT INTO sentinel_corpus_publications"
-            " (version,previous_version,run_id,window_start,window_end,evidence)"
-            " VALUES (%s,%s,%s,%s,%s,'{}'::jsonb)",
-            (version, previous, run_id, snapshot_date, snapshot_date))
     conn.commit()
-    return version
+    return publication.publish(
+        conn, run_id=run_id, window_start=snapshot_date,
+        window_end=snapshot_date).version
 
 
 def runtime_identity(*, runtime_digest: str | None = None) -> dict:

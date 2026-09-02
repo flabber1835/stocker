@@ -29,6 +29,7 @@ from tests.support.postgres import _EphemeralPostgres  # noqa: E402
 from sentinel.feed import domains as D  # noqa: E402
 from sentinel.feed import ingest, publication, rejection_audit as RA, sharadar  # noqa: E402
 from sentinel.feed import store as S  # noqa: E402
+from sentinel.identity import require_feed_producer_identity  # noqa: E402
 
 
 @pytest.fixture(scope="module")
@@ -67,6 +68,8 @@ def conn(pg):
             "sentinel_bars",
             "sentinel_actions",
             "sentinel_universe",
+            "sentinel_publication_validation_receipts",
+            "sentinel_publication_validation_policy",
             "sentinel_corpus_publications",
             "feed_ingest_runs",
         ):
@@ -112,15 +115,18 @@ def fetcher(sep_rows):
 
 
 def publish_run(conn, run_id: str, start="2024-01-01", end="2024-12-31") -> int:
+    producer = require_feed_producer_identity()
     with conn.cursor() as cur:
         cur.execute(
-            "INSERT INTO sentinel_corpus_publications"
-            " (run_id,window_start,window_end,evidence)"
-            " VALUES (%s,%s,%s,'{}'::jsonb) RETURNING version",
-            (run_id, start, end))
-        version = int(cur.fetchone()[0])
+            "INSERT INTO feed_ingest_runs"
+            " (run_id,kind,status,completed_at,source_git_commit,"
+            " runtime_image_digest)"
+            " VALUES (%s,'test','success',clock_timestamp(),%s,%s)"
+            " ON CONFLICT (run_id) DO NOTHING",
+            (run_id, producer["git_commit"], producer["runtime_image_digest"]))
     conn.commit()
-    return version
+    return publication.publish(
+        conn, run_id=run_id, window_start=start, window_end=end).version
 
 
 def latest_daily(conn):

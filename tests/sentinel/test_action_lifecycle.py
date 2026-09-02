@@ -58,6 +58,8 @@ def conn(pg):
                 "sentinel_spy_total_return",
                 "sentinel_defensive_bars",
                 "sentinel_actions", "sentinel_universe",
+                "sentinel_publication_validation_receipts",
+                "sentinel_publication_validation_policy",
                 "sentinel_corpus_publications", "feed_ingest_runs",
                 "sentinel_corpus_anomalies"):
             cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")

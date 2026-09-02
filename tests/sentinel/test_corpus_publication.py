@@ -51,6 +51,8 @@ def conn(pg):
                   "sentinel_action_generation_events",
                   "sentinel_action_observations", "sentinel_action_generations",
                   "sentinel_bars", "sentinel_actions", "sentinel_universe",
+                  "sentinel_publication_validation_receipts",
+                  "sentinel_publication_validation_policy",
                   "sentinel_corpus_publications", "feed_ingest_runs",
                   "sentinel_corpus_anomalies", "sentinel_ingest_rejections"):
             cur.execute(f"DROP TABLE IF EXISTS {t} CASCADE")
@@ -149,16 +151,16 @@ class TestARunIsNotAVersion:
         assert P.require_current(conn).previous_version == 1
         assert P.chain_gaps(conn) == []
 
-    def test_a_broken_chain_is_REPORTED(self, conn):
-        """Rows written by a run that never published leave a gap. Cheap to
-        detect precisely because the link is explicit rather than implied by
-        ordering."""
+    def test_a_broken_chain_is_REJECTED_at_the_database_boundary(self, conn):
+        """New SQL-only publications cannot create a receiptless chain gap."""
         P.publish(conn)
         with conn.cursor() as cur:
             cur.execute("INSERT INTO sentinel_corpus_publications"
                         " (previous_version) VALUES (NULL)")
-        conn.commit()
-        assert P.chain_gaps(conn), "a second row claiming no predecessor"
+        with pytest.raises(Exception, match="lacks its durable validation receipt"):
+            conn.commit()
+        conn.rollback()
+        assert P.chain_gaps(conn) == []
 
 
 class TestPinning:
