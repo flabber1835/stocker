@@ -7,6 +7,8 @@ from pathlib import Path
 import subprocess
 import sys
 
+import pytest
+
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 SCRIPT_DIR = ROOT / "scripts"
@@ -21,9 +23,9 @@ class Runner:
         self.responses = list(responses)
         self.calls = []
 
-    def run(self, argv, *, env=None, cwd=None):
+    def _complete(self, argv, *, env=None, timeout_seconds=None):
         command = [str(item) for item in argv]
-        self.calls.append((command, dict(env or {})))
+        self.calls.append((command, dict(env or {}), timeout_seconds))
         if not self.responses:
             raise AssertionError("unexpected command: %r" % command)
         response = self.responses.pop(0)
@@ -33,6 +35,15 @@ class Runner:
             stdout=response.get("stdout", ""),
             stderr=response.get("stderr", ""),
         )
+
+    def run(self, argv, *, env=None, cwd=None):
+        _ = cwd
+        return self._complete(argv, env=env)
+
+    def run_with_timeout(self, argv, *, env=None, timeout_seconds, cwd=None):
+        _ = cwd
+        return self._complete(
+            argv, env=env, timeout_seconds=float(timeout_seconds))
 
 
 class Clock:
@@ -62,6 +73,9 @@ def test_postgres_cold_start_explicitly_starts_service_and_waits_healthy():
     assert runner.calls[0][0][-3:] == ["up", "-d", "sentinel-postgres"]
     assert runner.calls[1][0][-3:] == ["ps", "-q", "sentinel-postgres"]
     assert runner.calls[2][0][:3] == ["docker", "inspect", "--format"]
+    timeouts = [call[2] for call in runner.calls]
+    assert all(value is not None and 0 < value <= 5 for value in timeouts)
+    assert timeouts == sorted(timeouts, reverse=True)
     assert runner.responses == []
 
 
@@ -100,6 +114,29 @@ def test_postgres_exited_before_health_is_distinct_from_timeout():
     assert failure["reason"] == "POSTGRES_EXITED_BEFORE_HEALTHY"
     assert failure["failure_class"] == "SERVICE_EXITED"
     assert failure["service_status"] == "exited"
+
+
+def test_deadline_runner_kills_a_hung_host_subprocess():
+    runner = contract.DeadlineCommandRunner(cwd=ROOT)
+    completed = runner.run_with_timeout(
+        [sys.executable, "-c", "import time; time.sleep(2)"],
+        env=os.environ,
+        timeout_seconds=0.05,
+    )
+    assert completed.returncode == 124
+
+
+def test_unbounded_test_double_is_rejected_before_startup(capsys):
+    class Unbounded:
+        def run(self, argv, *, env=None, cwd=None):
+            raise AssertionError("unbounded runner must not execute")
+
+    failure = contract.ensure_postgres_ready(
+        Unbounded(), env={}, compose_args=[])
+    assert failure is not None
+    assert failure["reason"] == "POSTGRES_BOUNDED_RUNNER_UNAVAILABLE"
+    assert failure["failure_class"] == "BOUNDED_RUNNER_UNAVAILABLE"
+    assert contract.PROBE_FAILURE_MARKER in capsys.readouterr().err
 
 
 def test_subprocess_classifier_distinguishes_import_auth_permission_and_timeout():
@@ -148,6 +185,60 @@ def test_verified_entry_installs_probe_contract_outside_backup_refresh_before_ob
     probe = source.index("probe_contract.install(controller=controller, phase=phase)")
     observability = source.index("observability.install(go=go, controller=controller)")
     assert backup < probe < observability
+
+
+def _failure_payload(text: str):
+    matches = []
+    for line in text.splitlines():
+        if line.startswith(contract.PREPARATION_FAILURE_MARKER):
+            matches.append(json.loads(
+                line[len(contract.PREPARATION_FAILURE_MARKER):]))
+    assert len(matches) == 1
+    return matches[0]
+
+
+def test_installed_24x7_preparation_preserves_import_and_connect_failure_envelope(capsys):
+    import sentinel_go_24x7_entry as source_final
+    import sentinel_go_validate_entry as validate_entry
+
+    old_entry_code = validate_entry._RECOVERY_PREPARATION_CODE
+    old_core = validate_entry._CORE_PREPARATION_PROBE
+    old_go_code = source_final.go._PREPARATION_CODE
+    try:
+        source_final.install()
+        code = validate_entry._RECOVERY_PREPARATION_CODE
+        assert code == source_final._PREPARATION_CODE
+        assert code == source_final.go._PREPARATION_CODE
+        assert "c = None" in code
+        assert "phase = 'RUNTIME_IMPORT'" in code
+        assert code.index("try:") < code.index("from sentinel import backup_guard, schema")
+        assert code.index("phase = 'DATABASE_CONNECT'") < code.index("store.connect(")
+        assert "reason_code" in code
+        assert "detail_sha256" in code
+
+        broken_import = code.replace(
+            "from sentinel import backup_guard, schema",
+            "from sentinel_missing_for_go_probe import backup_guard, schema", 1)
+        with pytest.raises(ModuleNotFoundError):
+            exec(broken_import, {})
+        payload = _failure_payload(capsys.readouterr().out)
+        assert payload["phase"] == "RUNTIME_IMPORT"
+        assert payload["reason_code"] == "PREPARATION_RUNTIME_IMPORT_FAILURE"
+
+        broken_connect = code.replace(
+            "c = store.connect(os.environ['SENTINEL_DATABASE_URL'])",
+            "raise RuntimeError('database socket refused')", 1)
+        with pytest.raises(RuntimeError, match="database socket refused"):
+            exec(broken_connect, {})
+        payload = _failure_payload(capsys.readouterr().out)
+        assert payload["phase"] == "DATABASE_CONNECT"
+        assert payload["reason_code"] == "PREPARATION_DATABASE_CONNECT_FAILURE"
+        assert payload["detail"] == "database socket refused"
+        assert len(payload["detail_sha256"]) == 64
+    finally:
+        validate_entry._RECOVERY_PREPARATION_CODE = old_entry_code
+        validate_entry._CORE_PREPARATION_PROBE = old_core
+        source_final.go._PREPARATION_CODE = old_go_code
 
 
 def test_preparation_runtime_connect_and_import_are_inside_failure_envelope():
