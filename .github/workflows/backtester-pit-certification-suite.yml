@@ -123,9 +123,11 @@ jobs:
           echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           docker pull "${PACKAGE}"
           rm -rf "${PIT_DATASET}" && mkdir -p "${PIT_DATASET}"
-          cid="$(docker create "${PACKAGE}")"
+          cid="$(docker create "${PACKAGE}" /bin/true)"
           trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
           docker cp "${cid}:/canonical-pit/." "${PIT_DATASET}/"
+          test -s "${PIT_DATASET}/manifest.json"
+          test -s "${PIT_DATASET}/session-hashes.csv"
           python backtester/canonical_pit_package.py verify --pointer "${PIT_POINTER}" --dataset "${PIT_DATASET}"
 
       - name: Freeze exact suite experiment identity
@@ -151,7 +153,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          python -m pytest -q tests/backtester 2>&1 | tee backtester-results/pit-certification-suite/pytest.log
+          python -m unittest discover -s tests/backtester -p 'test_*.py' -v 2>&1 | tee backtester-results/pit-certification-suite/tests-backtester.log
           exit "${PIPESTATUS[0]}"
 
       - name: Audit exact canonical dataset and historical universe
