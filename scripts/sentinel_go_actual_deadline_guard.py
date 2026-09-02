@@ -9,29 +9,13 @@ result and is returned unchanged to the phase controller.
 """
 from __future__ import annotations
 
-from typing import Any, Mapping, Optional
+from typing import Optional
 
 import sentinel_go_phase_controller as controller
 import sentinel_go_phase_entry as phase
-import sentinel_go_probe_contract as probe_contract
 
 
 _INSTALLED_MARKER = "_sentinel_go_actual_deadline_guard_installed"
-
-
-def _failure_evidence(recording: probe_contract.RecordingRunner) -> Mapping[str, Any]:
-    child = recording.last_compose_run()
-    if child is None:
-        return {
-            "reason": "ACTUAL_DEADLINE_OBSERVATION_UNAVAILABLE",
-            "failure_class": "OBSERVATION_UNAVAILABLE",
-            "exit_code": 2,
-        }
-    if int(child.returncode) != 0:
-        return probe_contract.subprocess_evidence(
-            child, context="ACTUAL_DEADLINE")
-    return probe_contract.malformed_report_evidence(
-        child, context="ACTUAL_DEADLINE")
 
 
 def install() -> None:
@@ -41,13 +25,15 @@ def install() -> None:
     original = controller._actual_remaining_ms
 
     def guarded(runner, *, env, runtime_ref) -> Optional[int]:
-        recording = probe_contract.RecordingRunner(runner)
-        result = original(recording, env=env, runtime_ref=runtime_ref)
+        # Preserve the exact production runner. The inner probe-contract wrapper
+        # already records the compose child and emits typed causal diagnostics.
+        # Wrapping here would hide run_with_timeout/_run from that inner wrapper
+        # and make a healthy prepared run look like an unbounded runner.
+        result = original(runner, env=env, runtime_ref=runtime_ref)
         if phase._PHASE.get("prepared") and result is None:
-            evidence = _failure_evidence(recording)
-            reason = str(evidence.get("reason") or "ACTUAL_DEADLINE_OBSERVATION_UNAVAILABLE")
             raise controller.PhaseRefused(
-                "actual deadline observation unavailable (%s)" % reason)
+                "actual deadline observation unavailable "
+                "(ACTUAL_DEADLINE_OBSERVATION_UNAVAILABLE)")
         return result
 
     controller._actual_remaining_ms = guarded
