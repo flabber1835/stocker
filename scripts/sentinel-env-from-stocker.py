@@ -93,6 +93,8 @@ REQUIRED = ("SHARADAR_API_KEY",)
 GENERATE = {
     "SENTINEL_POSTGRES_PASSWORD":
         "not in the Stocker file; compose refuses to start without it",
+    "SENTINEL_PUBLICATION_RECEIPT_KEY":
+        "authenticates publication receipts against direct database forgery",
 }
 
 #: Live in a compose file and DELIBERATELY not carried, each for a stated

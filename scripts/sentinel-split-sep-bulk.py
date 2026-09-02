@@ -169,7 +169,10 @@ def _load_marker(path: Path, *, out: Path,
     backup_dir = out / (".sentinel-sep-backup." + token)
     if Path(value["staging"]).resolve() != staging:
         raise SystemExit(f"REFUSED: SEP promotion marker escaped staging {path}")
-    required = {"final", "staged", "backup", "had_original", "sha256"}
+    required = {
+        "final", "staged", "backup", "had_original", "sha256",
+        "backup_sha256",
+    }
     seen: set[Path] = set()
     for entry in value["entries"]:
         if not isinstance(entry, dict) or set(entry) != required:
@@ -178,6 +181,13 @@ def _load_marker(path: Path, *, out: Path,
             raise SystemExit(f"REFUSED: malformed SEP promotion entry in {path}")
         if (not isinstance(entry["sha256"], str)
                 or not re.fullmatch(r"[0-9a-f]{64}", entry["sha256"])):
+            raise SystemExit(f"REFUSED: malformed SEP promotion entry in {path}")
+        backup_sha256 = entry["backup_sha256"]
+        if (entry["had_original"]
+                and (not isinstance(backup_sha256, str)
+                     or not re.fullmatch(r"[0-9a-f]{64}", backup_sha256))):
+            raise SystemExit(f"REFUSED: malformed SEP promotion entry in {path}")
+        if not entry["had_original"] and backup_sha256 is not None:
             raise SystemExit(f"REFUSED: malformed SEP promotion entry in {path}")
         final = Path(entry["final"]).resolve()
         staged = Path(entry["staged"]).resolve()
@@ -252,7 +262,18 @@ def _recover_promotion(out: Path, *, fingerprint_final: Path) -> None:
         touched_dirs.add(final.parent)
         if entry["had_original"]:
             if backup.exists():
+                if _sha256(backup) != entry["backup_sha256"]:
+                    raise SystemExit(
+                        "REFUSED: interrupted SEP promotion backup changed "
+                        f"for {final}")
                 os.replace(str(backup), str(final))
+                _fsync_dir(final.parent)
+            elif (final.exists()
+                  and _sha256(final) == entry["backup_sha256"]):
+                # A prior rollback attempt already restored this member and
+                # consumed its backup. The per-member directory fsync above
+                # makes that state a durable recovery checkpoint.
+                pass
             elif phase == "BACKED_UP":
                 raise SystemExit(
                     "REFUSED: interrupted SEP promotion lost required backup "
@@ -263,6 +284,7 @@ def _recover_promotion(out: Path, *, fingerprint_final: Path) -> None:
                     f"backup for {final}")
         elif phase == "BACKED_UP" and final.exists():
             final.unlink()
+            _fsync_dir(final.parent)
         _cleanup_path(Path(entry["staged"]))
     _cleanup_path(Path(value["staging"]))
     marker.unlink()
@@ -290,6 +312,7 @@ def _promote_generation(*, out: Path, staging: Path, fingerprint_staged: Path,
             "staged": str(staged),
             "backup": str(backup_dir / name),
             "had_original": final.exists(),
+            "backup_sha256": _sha256(final) if final.exists() else None,
             "sha256": report["years"][str(year)]["sha256_of_gzip"],
         })
     fingerprint_backup = fingerprint_final.parent / (
@@ -299,6 +322,8 @@ def _promote_generation(*, out: Path, staging: Path, fingerprint_staged: Path,
         "staged": str(fingerprint_staged),
         "backup": str(fingerprint_backup),
         "had_original": fingerprint_final.exists(),
+        "backup_sha256": (
+            _sha256(fingerprint_final) if fingerprint_final.exists() else None),
         "sha256": _sha256(fingerprint_staged),
     })
 

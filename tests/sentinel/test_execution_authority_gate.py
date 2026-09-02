@@ -29,12 +29,14 @@ def _receipted_rows(count):
             evidence=bare[6], origin_run_status="success",
             previous_receipt_sha256=previous_digest)
         digest = publication._receipt_digest(body)
+        authentication = publication._receipt_hmac(body)
         evidence = {
             **bare[6],
             publication.RECEIPT_EVIDENCE_KEY: {
                 "schema": publication.RECEIPT_SCHEMA,
                 "previous_receipt_sha256": previous_digest,
                 "receipt_sha256": digest,
+                "receipt_hmac_sha256": authentication,
             },
         }
         rows.append((*bare[:6], evidence))
@@ -73,7 +75,8 @@ class _Cursor:
                 result.append((
                     *row, "success", row[1], row[2], row[3], row[4], row[5],
                     unsigned, "success", embedded["previous_receipt_sha256"],
-                    embedded["receipt_sha256"]))
+                    embedded["receipt_sha256"],
+                    embedded["receipt_hmac_sha256"]))
             return result
         return list(self.rows)
 
@@ -119,6 +122,7 @@ def test_sequence_value_gap_with_exact_predecessor_is_valid():
         "schema": publication.RECEIPT_SCHEMA,
         "previous_receipt_sha256": prior,
         "receipt_sha256": publication._receipt_digest(body),
+        "receipt_hmac_sha256": publication._receipt_hmac(body),
     }
     rows = [rows[0], second]
     root = authority_gate.publication_row_sha256(rows[0])

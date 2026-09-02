@@ -154,6 +154,7 @@ _COLUMNS = {
         "origin_run_status": ("text", False),
         "previous_receipt_sha256": ("text", False),
         "receipt_sha256": ("text", True),
+        "receipt_hmac_sha256": ("text", True),
     },
     "sentinel_bar_split_repairs": {
         "security_id": ("text", True), "session": ("date", True),
@@ -285,6 +286,7 @@ _CONSTRAINT_WITNESSES = {
                "deferrable initially deferred")),
         ("c", ("jsonb_typeof(evidence)", "object")),
         ("c", ("receipt_sha256", "[0-9a-f]{64}")),
+        ("c", ("receipt_hmac_sha256", "[0-9a-f]{64}")),
     ),
     "sentinel_defensive_bars": (
         ("c", ("security_id", "sentinel:bil")),

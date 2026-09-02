@@ -169,6 +169,10 @@ def _cycle_event_alert(row) -> dict[str, Any]:
         raise AutomationRefused(
             f"cycle state {state!r} is not notifier eligible") from exc
     detail = _event_detail(raw_detail)
+    if (state == "RETRY_WAIT"
+            and detail.get("notifier_action") != "RETRY_SCHEDULED"):
+        raise AutomationRefused(
+            "RETRY_WAIT transition was not classified as notifier eligible")
     reason = (detail.get("failure_detail") or detail.get("failure_code")
               or f"cycle entered {state}")
     key = f"cycle-event:{int(seq)}"
@@ -264,7 +268,10 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
         cur.execute(
             "SELECT seq,cycle_id,to_state,control_generation,fence_token,detail"
             " FROM sentinel_automation_cycle_events"
-            " WHERE to_state = ANY(%s) ORDER BY seq",
+            " WHERE to_state = ANY(%s)"
+            " AND (to_state <> 'RETRY_WAIT' OR"
+            "      detail->>'notifier_action' = 'RETRY_SCHEDULED')"
+            " ORDER BY seq",
             (list(sorted(_RECOVERABLE_CYCLE_STATES)),))
         events = list(cur.fetchall())
         cur.execute(

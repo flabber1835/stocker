@@ -1478,10 +1478,14 @@ that has echoed a Sharadar key has put it in scrollback and in the session
 transcript.
 
 It refuses if `SHARADAR_API_KEY` is absent or still a placeholder, generates
-`SENTINEL_POSTGRES_PASSWORD` (the Stocker file has no equivalent, and compose
-declares it `:?` so it will not start without one), and warns when a carried
-password contains a character compose splices into a DSN or a literal `$` it
-would interpolate.
+`SENTINEL_POSTGRES_PASSWORD` and the independent
+`SENTINEL_PUBLICATION_RECEIPT_KEY` (the Stocker file has no equivalent for
+either, and compose declares both `:?` so it will not start without them), and
+warns when a carried password contains a character compose splices into a DSN
+or a literal `$` it would interpolate. The receipt key authenticates every new
+publication-validation receipt; preserve it with the deployment secrets and
+restore the same value after recovery. Rotating or losing it deliberately makes
+existing certified ancestry unverifiable.
 
 The Sharadar client also treats an authenticated request as a redaction
 boundary. `httpx`/`httpcore` URL diagnostics are suppressed while the request,

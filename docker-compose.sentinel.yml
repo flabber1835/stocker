@@ -130,6 +130,7 @@ services:
       SENTINEL_MAX_CYCLES: ${SENTINEL_MAX_CYCLES:-40}
       SENTINEL_POLL_SECONDS: ${SENTINEL_POLL_SECONDS:-5}
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
+      SENTINEL_PUBLICATION_RECEIPT_KEY: ${SENTINEL_PUBLICATION_RECEIPT_KEY:?set SENTINEL_PUBLICATION_RECEIPT_KEY}
       SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
     volumes:
       # AUDIT EVIDENCE ONLY. `ownership.jsonl` used to be the authority, and its
@@ -185,6 +186,7 @@ services:
     environment:
       SENTINEL_STATE_DIR: /var/lib/sentinel
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
+      SENTINEL_PUBLICATION_RECEIPT_KEY: ${SENTINEL_PUBLICATION_RECEIPT_KEY:?set SENTINEL_PUBLICATION_RECEIPT_KEY}
       # Non-secret reviewed facts let the DB-only panel select the correct
       # performance authority.  No Alpaca credential enters this service.
       SENTINEL_REVIEWED_DEPLOYMENT_MODE: ${SENTINEL_REVIEWED_DEPLOYMENT_MODE:-}

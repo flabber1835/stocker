@@ -464,6 +464,8 @@ class AutomationService:
             "terminal_reason": (
                 str(diagnostic["callback_failure"]) if terminal else None),
         }
+        if not terminal:
+            diagnostic["notifier_action"] = TickAction.RETRY_SCHEDULED.value
         changes = {
             "next_wake_at": retry_at,
             "failure_code": type(exc).__name__,
@@ -504,6 +506,8 @@ class AutomationService:
             "terminal_reason": (
                 "TRANSIENT_RETRY_EXHAUSTED" if terminal else None),
         }
+        if not terminal:
+            diagnostic["notifier_action"] = TickAction.RETRY_SCHEDULED.value
         if (recovery_transition and not terminal
                 and cycle.state is CycleState.RETRY_WAIT
                 and cycle.control_generation == permit.control_generation):

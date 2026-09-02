@@ -70,6 +70,8 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
     from sentinel.feed import store as feed_store
 
     module_name = request.module.__name__.rsplit(".", 1)[-1]
+    monkeypatch.setenv(
+        "SENTINEL_PUBLICATION_RECEIPT_KEY", "test-only-receipt-key-" * 4)
 
     # These first-generation publication tests predate the ingest lifecycle:
     # they create a run solely as a visibility label, then publish it without

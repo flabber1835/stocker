@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import uuid
 
 import pytest
 
@@ -133,6 +134,52 @@ def test_each_same_state_transition_has_one_event_identity(conn) -> None:
     }
 
 
+def test_restart_reconstructs_only_notifier_eligible_retry_transition(conn) -> None:
+    with conn.cursor() as cur:
+        cur.execute("""
+            INSERT INTO sentinel_automation_cycles (
+                cycle_id,state,decision_session,effective_session,
+                deployment_id,broker,broker_account_id,takeover_epoch,
+                control_generation,certificate_sha256,rollout_mode,
+                rollout_version,config_sha256,decision_close_at,prepare_at,
+                execution_open_at,execute_at,execution_close_at,
+                last_fence_token)
+            VALUES (
+                'retry-reconstruction','RETRY_WAIT',CURRENT_DATE-1,CURRENT_DATE,
+                'deployment','alpaca','account',1,1,%s,'PINNED_1_00',1,%s,
+                clock_timestamp()-INTERVAL '4 hours',
+                clock_timestamp()-INTERVAL '3 hours',
+                clock_timestamp()-INTERVAL '2 hours',
+                clock_timestamp()-INTERVAL '1 hour',
+                clock_timestamp()+INTERVAL '1 hour',1)
+        """, ("a" * 64, "b" * 64))
+        cur.execute("""
+            INSERT INTO sentinel_automation_cycle_events
+                (cycle_id,from_state,to_state,control_generation,fence_token,detail)
+            VALUES
+                ('retry-reconstruction','READY_TO_EXECUTE','RETRY_WAIT',1,1,
+                 '{"retry_phase":"EXECUTE"}'::jsonb),
+                ('retry-reconstruction','EXECUTING','RETRY_WAIT',1,1,
+                 '{"notifier_action":"RETRY_SCHEDULED","failure_code":"TRANSIENT"}'::jsonb)
+        """)
+    conn.commit()
+
+    alert = outbox.claim_next(
+        conn, holder_id="retry-dispatcher", claim_seconds=30)
+    assert alert is not None
+    assert alert.event_type == "AUTOMATION_RETRY_SCHEDULED"
+    assert alert.payload["detail"]["failure_code"] == "TRANSIENT"
+    outbox.mark_delivered(
+        conn, alert_id=alert.alert_id, holder_id="retry-dispatcher")
+    assert outbox.claim_next(
+        conn, holder_id="retry-dispatcher", claim_seconds=30) is None
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_alert_outbox"
+            " WHERE payload->>'cycle_id'='retry-reconstruction'")
+        assert cur.fetchone()[0] == 1
+
+
 def test_kill_event_reconstructs_after_notifier_crash(conn) -> None:
     with conn.cursor() as cur:
         cur.execute("""
@@ -257,11 +304,14 @@ def test_publication_evidence_and_receipt_are_durably_enforced(conn) -> None:
     receipt = published.evidence[publication.RECEIPT_EVIDENCE_KEY]
     assert receipt["schema"] == publication.RECEIPT_SCHEMA
     assert len(str(receipt["receipt_sha256"])) == 64
+    assert len(str(receipt["receipt_hmac_sha256"])) == 64
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT receipt_sha256 FROM sentinel_publication_validation_receipts"
+            "SELECT receipt_sha256,receipt_hmac_sha256"
+            " FROM sentinel_publication_validation_receipts"
             " WHERE publication_version=%s", (published.version,))
-        assert cur.fetchone() == (receipt["receipt_sha256"],)
+        assert cur.fetchone() == (
+            receipt["receipt_sha256"], receipt["receipt_hmac_sha256"])
 
 
 def test_database_rejects_sql_publication_without_receipt(conn) -> None:
@@ -276,3 +326,55 @@ def test_database_rejects_sql_publication_without_receipt(conn) -> None:
         conn.commit()
     conn.rollback()
     assert forged_version > root.version
+
+
+def test_public_digest_cannot_certify_unpublished_successful_run(conn) -> None:
+    root = publication.publish(conn, evidence={"certified": "root"})
+    run_id = uuid.uuid4()
+    unsigned = {"constructed_by": "direct-sql"}
+    forged_hmac = "0" * 64
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO feed_ingest_runs (run_id,kind,status,completed_at)"
+            " VALUES (%s,'direct-sql','success',clock_timestamp())", (run_id,))
+        cur.execute(
+            "SELECT nextval(pg_get_serial_sequence("
+            "'sentinel_corpus_publications','version')),clock_timestamp()")
+        version, published_at = cur.fetchone()
+    prior_digest = root.evidence[publication.RECEIPT_EVIDENCE_KEY][
+        "receipt_sha256"]
+    body = publication._receipt_body(
+        version=int(version), previous_version=root.version, run_id=run_id,
+        published_at=published_at, window_start=None, window_end=None,
+        evidence=unsigned, origin_run_status="success",
+        previous_receipt_sha256=prior_digest)
+    public_digest = publication._receipt_digest(body)
+    evidence = {
+        **unsigned,
+        publication.RECEIPT_EVIDENCE_KEY: {
+            "schema": publication.RECEIPT_SCHEMA,
+            "previous_receipt_sha256": prior_digest,
+            "receipt_sha256": public_digest,
+            "receipt_hmac_sha256": forged_hmac,
+        },
+    }
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_corpus_publications"
+            " (version,previous_version,run_id,published_at,evidence)"
+            " VALUES (%s,%s,%s,%s,%s::jsonb)",
+            (version, root.version, run_id, published_at,
+             json.dumps(evidence)))
+        cur.execute(
+            "INSERT INTO sentinel_publication_validation_receipts"
+            " (publication_version,previous_version,run_id,published_at,"
+            " evidence,origin_run_status,previous_receipt_sha256,"
+            " receipt_sha256,receipt_hmac_sha256)"
+            " VALUES (%s,%s,%s,%s,%s::jsonb,'success',%s,%s,%s)",
+            (version, root.version, run_id, published_at,
+             json.dumps(unsigned), prior_digest, public_digest, forged_hmac))
+    conn.commit()
+
+    with pytest.raises(
+            publication.CorpusIncoherent, match="validation receipt changed"):
+        publication.current(conn)

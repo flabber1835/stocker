@@ -3,7 +3,9 @@ from __future__ import annotations
 
 from contextlib import contextmanager
 import hashlib
+import hmac
 import json
+import os
 import re
 from typing import Mapping
 
@@ -39,6 +41,7 @@ _run_producer_identity = _core._run_producer_identity
 PITR_EVIDENCE_SCHEMA = "sentinel.corpus-publication-pitr/2"
 RECEIPT_SCHEMA = "sentinel.corpus-publication-validation/1"
 RECEIPT_EVIDENCE_KEY = "publication_validation"
+RECEIPT_KEY_ENV = "SENTINEL_PUBLICATION_RECEIPT_KEY"
 _XID_MODULUS = 1 << 32
 _TIMELINE_RE = re.compile(r"^[0-9A-F]{8}$")
 _SHA_RE = re.compile(r"^[0-9a-f]{64}$")
@@ -65,6 +68,17 @@ def _receipt_digest(payload: Mapping[str, object]) -> str:
         dict(payload), sort_keys=True, separators=(",", ":"), default=str
     ).encode("utf-8")
     return hashlib.sha256(encoded).hexdigest()
+
+
+def _receipt_hmac(payload: Mapping[str, object]) -> str:
+    secret = os.environ.get(RECEIPT_KEY_ENV, "").strip().encode("utf-8")
+    if len(secret) < 32:
+        raise _core.CorpusIncoherent(
+            f"{RECEIPT_KEY_ENV} must contain at least 32 bytes")
+    encoded = json.dumps(
+        dict(payload), sort_keys=True, separators=(",", ":"), default=str
+    ).encode("utf-8")
+    return hmac.new(secret, encoded, hashlib.sha256).hexdigest()
 
 
 def _publication_recovery_target(conn) -> dict[str, object]:
@@ -160,10 +174,12 @@ def _add_validation_receipt(
         origin_run_status=origin_status,
         previous_receipt_sha256=previous_receipt_sha256)
     digest = _receipt_digest(body)
+    authentication = _receipt_hmac(body)
     clean_evidence[RECEIPT_EVIDENCE_KEY] = {
         "schema": RECEIPT_SCHEMA,
         "previous_receipt_sha256": previous_receipt_sha256,
         "receipt_sha256": digest,
+        "receipt_hmac_sha256": authentication,
     }
     return clean_evidence
 
@@ -193,6 +209,7 @@ def _verify_receipt_chain(
             " r.previous_version,r.run_id,r.published_at,r.window_start,"
             " r.window_end,r.evidence,r.origin_run_status,"
             " r.previous_receipt_sha256,r.receipt_sha256"
+            ",r.receipt_hmac_sha256"
             " FROM sentinel_corpus_publications p"
             " LEFT JOIN feed_ingest_runs ir ON ir.run_id=p.run_id"
             " LEFT JOIN sentinel_publication_validation_receipts r"
@@ -206,7 +223,7 @@ def _verify_receipt_chain(
          window_end, raw_evidence, live_run_status, receipt_previous_version,
          receipt_run_id, receipt_published_at, receipt_window_start,
          receipt_window_end, receipt_evidence, origin_run_status,
-         stored_previous, stored_digest) = row
+         stored_previous, stored_digest, stored_hmac) = row
         evidence = _require_object_evidence(
             raw_evidence, where=f"version {version}")
         embedded = _receipt_from_evidence(evidence)
@@ -247,9 +264,13 @@ def _verify_receipt_chain(
             evidence=unsigned_evidence, origin_run_status=expected_origin,
             previous_receipt_sha256=previous_receipt)
         expected = _receipt_digest(body)
+        expected_hmac = _receipt_hmac(body)
         if (not _SHA_RE.fullmatch(str(stored_digest))
                 or str(stored_digest) != expected
+                or not hmac.compare_digest(str(stored_hmac), expected_hmac)
                 or embedded.get("receipt_sha256") != expected
+                or not hmac.compare_digest(
+                    str(embedded.get("receipt_hmac_sha256")), expected_hmac)
                 or embedded.get("previous_receipt_sha256") != previous_receipt):
             raise _core.CorpusIncoherent(
                 f"publication version {version} validation receipt changed")
@@ -401,14 +422,15 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
                 "INSERT INTO sentinel_publication_validation_receipts ("
                 " publication_version,previous_version,run_id,published_at,"
                 " window_start,window_end,evidence,origin_run_status,"
-                " previous_receipt_sha256,receipt_sha256)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s)",
+                " previous_receipt_sha256,receipt_sha256,receipt_hmac_sha256)"
+                " VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s)",
                 (next_version, previous.version if previous else None, run_id,
                  published_at, window_start, window_end,
                  json.dumps(unsigned_publication_evidence,
                             sort_keys=True, default=str),
                  "success" if run_id is not None else None,
-                 previous_receipt, receipt["receipt_sha256"]))
+                 previous_receipt, receipt["receipt_sha256"],
+                 receipt["receipt_hmac_sha256"]))
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -444,7 +466,7 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
 
 __all__ = [
     "PITR_EVIDENCE_SCHEMA", "RECEIPT_SCHEMA", "RECEIPT_EVIDENCE_KEY",
-    "publish", "current",
+    "publish", "current", "RECEIPT_KEY_ENV",
     "require_current", "pinned", "coherence", "assert_coherent",
     "full_historical_coherence", "assert_full_historical_coherent",
     "operational_boundary", "operational_coherence",

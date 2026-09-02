@@ -9,6 +9,7 @@ import sys
 from sentinel.cli._shared import (
     EXIT_CONFIG, EXIT_NOT_ESTABLISHED, EXIT_OK,
     authorized_handler,
+    require_authorized_runtime,
     paper_refusal_types as _paper_refusal_types,
     paper_refused as _paper_refused,
 )
@@ -25,6 +26,9 @@ async def _migration_plan(config: SentinelConfig, args) -> int:
     account is the only authority on what is held, and a migration computed
     against a cached snapshot is the one that sells something twice.
     """
+    refusal = require_authorized_runtime("migration-plan")
+    if refusal is not None:
+        return refusal
     import json as _json
 
     from sentinel.core.bootstrap import bootstrap
@@ -166,6 +170,9 @@ async def _migrate_account(config: SentinelConfig, args) -> int:
     one refuses outright against a bound account, and the binding lives in
     PostgreSQL beside the state it protects.
     """
+    refusal = require_authorized_runtime("migrate-account")
+    if refusal is not None:
+        return refusal
     from sentinel import handover, schema
     from sentinel.feed import store as feed_store
 
@@ -250,6 +257,9 @@ async def _adopt_restored(config: SentinelConfig, args) -> int:
     its predecessor's, which bounds and attributes the damage if the step was
     skipped — it does not prevent it.
     """
+    refusal = require_authorized_runtime("adopt-restored-account")
+    if refusal is not None:
+        return refusal
     from sentinel import binding as binding_mod, schema
     from sentinel.feed import store as feed_store
 

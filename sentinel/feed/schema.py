@@ -411,9 +411,14 @@ DDL = [
                                      previous_receipt_sha256 ~ '^[0-9a-f]{64}$'),
         receipt_sha256            TEXT NOT NULL CHECK (
                                      receipt_sha256 ~ '^[0-9a-f]{64}$'),
+        receipt_hmac_sha256       TEXT NOT NULL CHECK (
+                                     receipt_hmac_sha256 ~ '^[0-9a-f]{64}$'),
         FOREIGN KEY (publication_version)
           REFERENCES sentinel_corpus_publications(version)
           DEFERRABLE INITIALLY DEFERRED)""",
+    """ALTER TABLE sentinel_publication_validation_receipts
+        ADD COLUMN IF NOT EXISTS receipt_hmac_sha256 TEXT NOT NULL
+        CHECK (receipt_hmac_sha256 ~ '^[0-9a-f]{64}$')""",
     """CREATE OR REPLACE FUNCTION sentinel_require_publication_receipt()
         RETURNS TRIGGER LANGUAGE plpgsql AS $$
         DECLARE policy_count BIGINT;
@@ -435,6 +440,8 @@ DDL = [
                  AND r.window_start IS NOT DISTINCT FROM NEW.window_start
                  AND r.window_end IS NOT DISTINCT FROM NEW.window_end
                  AND r.evidence = NEW.evidence - 'publication_validation'
+                 AND r.receipt_hmac_sha256 =
+                     NEW.evidence->'publication_validation'->>'receipt_hmac_sha256'
                  AND r.origin_run_status IS NOT DISTINCT FROM
                      CASE WHEN NEW.run_id IS NULL THEN NULL ELSE 'success' END
                  AND (NEW.run_id IS NULL OR EXISTS (

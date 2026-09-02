@@ -95,6 +95,8 @@ async def test_direct_sensitive_handler_refuses_without_runtime_surface(
 
     assert await paper._execute_paper_plan(config, SimpleNamespace()) == \
         _shared.EXIT_CONFIG
+    assert await paper._execute_paper_plan.__wrapped__(
+        config, SimpleNamespace()) == _shared.EXIT_CONFIG
 
 
 @pytest.mark.parametrize("evidence", [None, [], "text", 7, True])
@@ -167,6 +169,7 @@ def test_sep_interrupted_backed_up_promotion_restores_prior_generation(
             "staged": str(staged),
             "backup": str(backup),
             "had_original": True,
+            "backup_sha256": module._sha256(backup),
             "sha256": "0" * 64,
         }],
     }))
@@ -176,6 +179,64 @@ def test_sep_interrupted_backed_up_promotion_restores_prior_generation(
     assert final.read_bytes() == b"PRIOR-GENERATION"
     assert not marker.exists()
     assert not staging.exists()
+
+
+def test_sep_rollback_can_restart_after_consuming_one_backup(
+        tmp_path, monkeypatch) -> None:
+    module = _load_script("sentinel-split-sep-bulk.py")
+    out = tmp_path / "sep"
+    out.mkdir()
+    staging = out / ".sentinel-sep-staging.deadbeef"
+    staging.mkdir()
+    backup_dir = out / ".sentinel-sep-backup.deadbeef"
+    backup_dir.mkdir()
+    fingerprint_final = tmp_path / "sep-fingerprint.json"
+
+    entries = []
+    for year in (2007, 2008):
+        final = out / f"SHARADAR_SEP_{year}.csv.gz"
+        staged = staging / final.name
+        backup = backup_dir / final.name
+        final.write_bytes(f"new-{year}".encode())
+        staged.write_bytes(f"staged-{year}".encode())
+        backup.write_bytes(f"old-{year}".encode())
+        entries.append({
+            "final": str(final),
+            "staged": str(staged),
+            "backup": str(backup),
+            "had_original": True,
+            "backup_sha256": module._sha256(backup),
+            "sha256": module._sha256(staged),
+        })
+    marker = out / module.PROMOTION_MARKER
+    marker.write_text(json.dumps({
+        "schema": module.PROMOTION_SCHEMA,
+        "phase": "BACKED_UP",
+        "token": "deadbeef",
+        "staging": str(staging),
+        "entries": entries,
+    }))
+
+    real_replace = module.os.replace
+    interrupted = False
+
+    def replace_then_die(source, destination):
+        nonlocal interrupted
+        real_replace(source, destination)
+        if not interrupted:
+            interrupted = True
+            raise RuntimeError("simulated power loss during rollback")
+
+    monkeypatch.setattr(module.os, "replace", replace_then_die)
+    with pytest.raises(RuntimeError, match="power loss"):
+        module._recover_promotion(out, fingerprint_final=fingerprint_final)
+    monkeypatch.setattr(module.os, "replace", real_replace)
+
+    module._recover_promotion(out, fingerprint_final=fingerprint_final)
+
+    assert (out / "SHARADAR_SEP_2007.csv.gz").read_bytes() == b"old-2007"
+    assert (out / "SHARADAR_SEP_2008.csv.gz").read_bytes() == b"old-2008"
+    assert not marker.exists()
 
 
 def test_sep_fingerprint_staging_name_matches_recovery_contract() -> None:
@@ -203,6 +264,7 @@ def test_sep_recovery_refuses_marker_paths_outside_generation(tmp_path) -> None:
             "staged": str(out / "staged"),
             "backup": str(out / "backup"),
             "had_original": False,
+            "backup_sha256": None,
             "sha256": "a" * 64,
         }],
     }))
