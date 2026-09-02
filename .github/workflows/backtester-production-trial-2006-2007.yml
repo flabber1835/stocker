@@ -41,7 +41,7 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/workflows/backtester-production-trial-2006-2007.yml
+            /.github/workflows/**
             /backtester/**
             /tests/backtester/test_canonical_pit_dataset.py
             /tests/backtester/test_identity_reporting_regressions.py
