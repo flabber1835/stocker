@@ -5,13 +5,13 @@ on:
     branches:
       - research/pit-russell-archive-reconstruction
     paths:
+      - 'research/pit_russell_archive/**'
       - 'tools/pit_russell_archive_probe.py'
       - 'tools/pit_russell_wayback_nav_probe.py'
-      - 'tools/pit_iwv_holdings_probe.py'
-      - 'tools/pit_iwv_legacy_holdings_probe.py'
+      - 'tools/pit_russell_legacy_content_probe.py'
       - 'tests/scripts/test_pit_russell_archive_probe.py'
       - 'tests/scripts/test_pit_russell_wayback_nav_probe.py'
-      - 'tests/scripts/test_pit_iwv_holdings_probe.py'
+      - 'tests/scripts/test_pit_russell_legacy_content_probe.py'
       - '.github/workflows/pit-russell-archive-experiment.yml'
   workflow_dispatch:
 
@@ -32,20 +32,20 @@ jobs:
         with:
           python-version: '3.12'
           check-latest: false
-      - name: Verify isolation and deterministic parsers
+      - name: Verify isolated deterministic parsers
         run: |
           set -euo pipefail
           test "${GITHUB_REF_NAME}" = "research/pit-russell-archive-reconstruction"
           python -m unittest \
             tests.scripts.test_pit_russell_archive_probe \
             tests.scripts.test_pit_russell_wayback_nav_probe \
-            tests.scripts.test_pit_iwv_holdings_probe \
+            tests.scripts.test_pit_russell_legacy_content_probe \
             -v
 
-  old-navigation-probe:
+  legacy-content-probe:
     needs: deterministic-tests
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 15
     steps:
       - name: Check out exact experiment revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -56,90 +56,37 @@ jobs:
         with:
           python-version: '3.12'
           check-latest: false
-      - name: Recover pre-2009 Russell reconstitution navigation
+      - name: Recover archived membership and reconstitution delta content
         run: |
           set -euo pipefail
-          rm -rf /tmp/russell-nav
-          python tools/pit_russell_wayback_nav_probe.py \
+          rm -rf /tmp/russell-legacy-content
+          python tools/pit_russell_legacy_content_probe.py \
             --from-year 2005 \
-            --to-year 2008 \
-            --max-pages-per-year 3 \
+            --to-year 2009 \
+            --max-pages-per-year 8 \
             --timeout 20 \
             --attempts 3 \
             --delay 0.4 \
-            --seed 'http://www.russell.com/us/indexes/us/reconstitution/schedule.asp' \
-            --seed 'http://www.russell.com/US/Indexes/US/reconstitution/schedule.asp' \
-            --seed 'http://www.russell.com/us/indexes/us/reconstitution/' \
-            --output-dir /tmp/russell-nav
-      - name: Publish navigation evidence
+            --url 'http://www.russell.com/US/Indexes/US/membership.asp' \
+            --url 'http://www.russell.com/us/indexes/us/membership.asp' \
+            --url 'http://www.russell.com/US/Indexes/US/Reconstitution/recon_additions.asp' \
+            --url 'http://www.russell.com/us/indexes/us/reconstitution/recon_additions.asp' \
+            --url 'http://www.russell.com/US/Indexes/US/Reconstitution/recon_deletions.asp' \
+            --url 'http://www.russell.com/us/indexes/us/reconstitution/recon_deletions.asp' \
+            --output-dir /tmp/russell-legacy-content
+      - name: Publish legacy evidence summary
         if: always()
         run: |
-          if [ -f /tmp/russell-nav/report.md ]; then
-            cat /tmp/russell-nav/report.md >> "$GITHUB_STEP_SUMMARY"
+          if [ -f /tmp/russell-legacy-content/report.md ]; then
+            cat /tmp/russell-legacy-content/report.md >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Upload navigation provenance only
+      - name: Upload derived legacy evidence only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: pit-russell-navigation-${{ github.sha }}
+          name: pit-russell-legacy-content-${{ github.sha }}
           path: |
-            /tmp/russell-nav/manifest.json
-            /tmp/russell-nav/report.md
-          if-no-files-found: warn
-          retention-days: 30
-
-  iwv-holdings-probe:
-    needs: deterministic-tests
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: current
-            script: tools/pit_iwv_holdings_probe.py
-          - label: legacy-2016
-            script: tools/pit_iwv_legacy_holdings_probe.py
-    runs-on: ubuntu-24.04
-    timeout-minutes: 10
-    steps:
-      - name: Check out exact experiment revision
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          fetch-depth: 1
-      - name: Set up Python 3.12
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: '3.12'
-          check-latest: false
-      - name: Probe historical IWV holdings around annual reconstitution
-        run: |
-          set -euo pipefail
-          out="/tmp/iwv-holdings-${{ matrix.label }}"
-          rm -rf "$out"
-          python '${{ matrix.script }}' \
-            --as-of 20050701 \
-            --as-of 20060703 \
-            --as-of 20070625 \
-            --as-of 20080630 \
-            --as-of 20090629 \
-            --as-of 20100628 \
-            --timeout 20 \
-            --attempts 3 \
-            --delay 0.5 \
-            --output-dir "$out"
-      - name: Publish IWV evidence
-        if: always()
-        run: |
-          report="/tmp/iwv-holdings-${{ matrix.label }}/report.md"
-          if [ -f "$report" ]; then
-            cat "$report" >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Upload IWV provenance only
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: pit-iwv-${{ matrix.label }}-${{ github.sha }}
-          path: |
-            /tmp/iwv-holdings-${{ matrix.label }}/manifest.json
-            /tmp/iwv-holdings-${{ matrix.label }}/report.md
+            /tmp/russell-legacy-content/manifest.json
+            /tmp/russell-legacy-content/report.md
           if-no-files-found: warn
           retention-days: 30
