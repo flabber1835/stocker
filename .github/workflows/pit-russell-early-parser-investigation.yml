@@ -47,28 +47,38 @@ jobs:
             sudo apt-get install -y --no-install-recommends poppler-utils
           fi
           pdftotext -v
-      - name: Run structural diagnostic
+      - name: Fetch once and run structural diagnostic
         run: |
           set -euo pipefail
           out="/tmp/${{ matrix.label }}-parser-diagnostic"
-          rm -rf "$out"
+          pdf="/tmp/${{ matrix.label }}-source.pdf"
+          rm -rf "$out" "$pdf"
           python tools/pit_russell_early_pdf_diagnostic.py \
             --url '${{ matrix.url }}' \
             --timestamp '${{ matrix.timestamp }}' \
             --timeout 25 \
             --attempts 5 \
+            --pdf-output "$pdf" \
             --output-dir "$out"
-      - name: Run bbox geometry diagnostic
+          test -s "$pdf"
+          case "$(head -c 5 "$pdf")" in
+            '%PDF-') ;;
+            *) echo 'ephemeral reuse file is not PDF' >&2; exit 1 ;;
+          esac
+      - name: Run bbox geometry from same local PDF
         run: |
           set -euo pipefail
           out="/tmp/${{ matrix.label }}-bbox-geometry"
+          pdf="/tmp/${{ matrix.label }}-source.pdf"
           rm -rf "$out"
           python tools/pit_russell_early_bbox_geometry.py \
+            --pdf-file "$pdf" \
             --url '${{ matrix.url }}' \
             --timestamp '${{ matrix.timestamp }}' \
-            --timeout 25 \
-            --attempts 5 \
             --output-dir "$out"
+      - name: Destroy ephemeral PDF
+        if: always()
+        run: rm -f "/tmp/${{ matrix.label }}-source.pdf"
       - name: Publish summary
         if: always()
         run: |
