@@ -27,7 +27,8 @@ BASE_URL = (
     "1467271812596.ajax"
 )
 USER_AGENT = "stocker-pit-russell-research/1.0 (+https://github.com/flabber1835/stocker)"
-REQUIRED_COLUMNS = ("Ticker", "Name", "Asset Class")
+TICKER_COLUMN_ALIASES = ("Ticker", "Issuer Ticker")
+REQUIRED_COLUMNS = ("Name", "Asset Class")
 
 
 @dataclass
@@ -41,7 +42,10 @@ class HoldingsEvidence:
     byte_length: int | None
     sha256: str | None
     csv_detected: bool | None
+    source_encoding: str | None
     metadata_as_of: str | None
+    metadata_date_matches_request: bool | None
+    ticker_column: str | None
     column_count: int | None
     required_columns_present: bool | None
     data_rows: int | None
@@ -89,61 +93,85 @@ def request_bytes(url: str, timeout: int, attempts: int) -> tuple[bytes, int, st
     raise last_error
 
 
-def decode_text(payload: bytes) -> str:
-    for encoding in ("utf-8-sig", "utf-8", "latin-1"):
+def decode_text(payload: bytes) -> tuple[str, str]:
+    # iShares exports have changed encoding/schema over time. Prefer explicit Unicode
+    # encodings before permissive single-byte fallbacks so embedded NULs cannot hide headers.
+    for encoding in ("utf-8-sig", "utf-16", "utf-16-le", "utf-16-be", "cp1252", "latin-1"):
         try:
-            return payload.decode(encoding)
-        except UnicodeDecodeError:
+            text = payload.decode(encoding)
+        except (UnicodeDecodeError, UnicodeError):
             continue
-    raise UnicodeDecodeError("utf-8", payload, 0, 1, "unable to decode holdings payload")
+        # Reject implausible UTF-16 guesses on ordinary byte streams.
+        if encoding.startswith("utf-16") and "\x00" in text[:2000]:
+            continue
+        return text, encoding
+    raise ValueError("unable to decode holdings payload")
 
 
 def _normal(value: str) -> str:
     return re.sub(r"\s+", " ", value.strip()).casefold()
 
 
-def parse_holdings_csv(payload: bytes) -> dict:
-    text = decode_text(payload)
-    rows = list(csv.reader(io.StringIO(text)))
-
-    header_index = None
+def _find_header(rows: list[list[str]]) -> tuple[int, list[str], str]:
+    ticker_aliases = {_normal(value) for value in TICKER_COLUMN_ALIASES}
+    required = {_normal(value) for value in REQUIRED_COLUMNS}
     for idx, row in enumerate(rows):
-        values = {_normal(cell) for cell in row}
-        if all(_normal(required) in values for required in REQUIRED_COLUMNS):
-            header_index = idx
-            break
-    if header_index is None:
-        raise ValueError("IWV holdings CSV header not found")
+        normalized = {_normal(cell) for cell in row}
+        ticker_matches = ticker_aliases & normalized
+        if ticker_matches and required.issubset(normalized):
+            header = [cell.strip() for cell in row]
+            ticker_column = next(
+                cell.strip() for cell in row if _normal(cell) in ticker_matches
+            )
+            return idx, header, ticker_column
+    raise ValueError("IWV holdings CSV header not found")
 
-    header = [cell.strip() for cell in rows[header_index]]
-    index = {_normal(name): pos for pos, name in enumerate(header)}
 
-    metadata_as_of = None
+def _extract_metadata_date(rows: list[list[str]], header_index: int) -> str | None:
     for row in rows[:header_index]:
         joined = " | ".join(cell.strip() for cell in row if cell.strip())
-        if "holdings as of" in joined.casefold():
-            # Preserve only the date-like portion, not arbitrary metadata text.
-            match = re.search(
-                r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
-                r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|"
-                r"Dec(?:ember)?)\s+\d{1,2},\s+\d{4}",
-                joined,
-                flags=re.IGNORECASE,
-            )
-            if match:
-                metadata_as_of = match.group(0)
-            else:
-                iso = re.search(r"\b20\d{2}-\d{2}-\d{2}\b", joined)
-                if iso:
-                    metadata_as_of = iso.group(0)
-            break
+        if "holdings as of" not in joined.casefold():
+            continue
+        match = re.search(
+            r"(?:Jan(?:uary)?|Feb(?:ruary)?|Mar(?:ch)?|Apr(?:il)?|May|Jun(?:e)?|"
+            r"Jul(?:y)?|Aug(?:ust)?|Sep(?:tember)?|Oct(?:ober)?|Nov(?:ember)?|"
+            r"Dec(?:ember)?)\s+\d{1,2},\s+\d{4}",
+            joined,
+            flags=re.IGNORECASE,
+        )
+        if match:
+            return match.group(0)
+        iso = re.search(r"\b20\d{2}-\d{2}-\d{2}\b", joined)
+        if iso:
+            return iso.group(0)
+    return None
+
+
+def _metadata_matches_requested(metadata_as_of: str | None, requested: str) -> bool | None:
+    if metadata_as_of is None:
+        return None
+    for fmt in ("%b %d, %Y", "%B %d, %Y", "%Y-%m-%d"):
+        try:
+            parsed = datetime.strptime(metadata_as_of, fmt).strftime("%Y%m%d")
+            return parsed == requested
+        except ValueError:
+            continue
+    return None
+
+
+def parse_holdings_csv(payload: bytes) -> dict:
+    text, source_encoding = decode_text(payload)
+    rows = list(csv.reader(io.StringIO(text)))
+    header_index, header, ticker_column = _find_header(rows)
+    index = {_normal(name): pos for pos, name in enumerate(header)}
+    metadata_as_of = _extract_metadata_date(rows, header_index)
 
     data_rows = 0
     equity_rows = 0
     ticker_count = 0
     cusip_count = 0
     asset_pos = index[_normal("Asset Class")]
-    ticker_pos = index[_normal("Ticker")]
+    ticker_pos = index[_normal(ticker_column)]
     cusip_pos = index.get(_normal("CUSIP"))
 
     for row in rows[header_index + 1 :]:
@@ -155,7 +183,6 @@ def parse_holdings_csv(payload: bytes) -> dict:
             continue
         asset_class = row[asset_pos].strip()
         ticker = row[ticker_pos].strip()
-        # Disclaimer/footer rows do not have a normal asset class/ticker structure.
         if not asset_class and not ticker:
             if data_rows:
                 break
@@ -169,14 +196,36 @@ def parse_holdings_csv(payload: bytes) -> dict:
             cusip_count += 1
 
     return {
+        "source_encoding": source_encoding,
         "metadata_as_of": metadata_as_of,
+        "ticker_column": ticker_column,
         "columns": header,
         "column_count": len(header),
-        "required_columns_present": all(_normal(col) in index for col in REQUIRED_COLUMNS),
+        "required_columns_present": True,
         "data_rows": data_rows,
         "equity_rows": equity_rows,
         "nonempty_tickers": ticker_count,
         "nonempty_cusips": cusip_count,
+    }
+
+
+def payload_diagnostics(payload: bytes) -> dict:
+    try:
+        text, encoding = decode_text(payload)
+    except Exception as exc:
+        return {
+            "source_encoding": None,
+            "diagnostic": f"decode_failed:{type(exc).__name__}",
+        }
+    lowered = text.casefold()
+    return {
+        "source_encoding": encoding,
+        "diagnostic": (
+            f"lines={text.count(chr(10)) + 1};"
+            f"ticker_token={'ticker' in lowered};"
+            f"asset_class_token={'asset class' in lowered};"
+            f"holdings_as_of_token={'holdings as of' in lowered}"
+        ),
     }
 
 
@@ -197,7 +246,10 @@ def probe_date(as_of: str, timeout: int, attempts: int) -> HoldingsEvidence:
                 byte_length=len(payload),
                 sha256=digest,
                 csv_detected=True,
+                source_encoding=parsed["source_encoding"],
                 metadata_as_of=parsed["metadata_as_of"],
+                metadata_date_matches_request=_metadata_matches_requested(parsed["metadata_as_of"], as_of),
+                ticker_column=parsed["ticker_column"],
                 column_count=parsed["column_count"],
                 required_columns_present=parsed["required_columns_present"],
                 data_rows=parsed["data_rows"],
@@ -207,6 +259,7 @@ def probe_date(as_of: str, timeout: int, attempts: int) -> HoldingsEvidence:
                 error=None,
             )
         except Exception as exc:
+            diagnostics = payload_diagnostics(payload)
             return HoldingsEvidence(
                 requested_as_of=as_of,
                 request_url=url,
@@ -217,14 +270,17 @@ def probe_date(as_of: str, timeout: int, attempts: int) -> HoldingsEvidence:
                 byte_length=len(payload),
                 sha256=digest,
                 csv_detected=False,
+                source_encoding=diagnostics["source_encoding"],
                 metadata_as_of=None,
+                metadata_date_matches_request=None,
+                ticker_column=None,
                 column_count=None,
                 required_columns_present=False,
                 data_rows=None,
                 equity_rows=None,
                 nonempty_tickers=None,
                 nonempty_cusips=None,
-                error=f"parse: {type(exc).__name__}: {exc}",
+                error=f"parse: {type(exc).__name__}: {exc}; {diagnostics['diagnostic']}",
             )
     except Exception as exc:
         return HoldingsEvidence(
@@ -237,7 +293,10 @@ def probe_date(as_of: str, timeout: int, attempts: int) -> HoldingsEvidence:
             byte_length=None,
             sha256=None,
             csv_detected=None,
+            source_encoding=None,
             metadata_as_of=None,
+            metadata_date_matches_request=None,
+            ticker_column=None,
             column_count=None,
             required_columns_present=None,
             data_rows=None,
@@ -252,7 +311,7 @@ def write_outputs(output_dir: Path, evidence: list[HoldingsEvidence]) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     generated = datetime.utcnow().replace(microsecond=0).isoformat() + "Z"
     manifest = {
-        "schema": 1,
+        "schema": 2,
         "generated_utc": generated,
         "source_role": "independent corroboration candidate; not Russell membership authority",
         "raw_holdings_persisted": False,
@@ -267,21 +326,26 @@ def write_outputs(output_dir: Path, evidence: list[HoldingsEvidence]) -> None:
         "",
         "Research corroboration only. Raw holdings files are not persisted.",
         "",
-        "| Requested date | Fetch | CSV | Metadata date | Equity rows | Tickers | CUSIPs |",
-        "|---|---|---|---|---:|---:|---:|",
+        "| Requested date | Fetch | CSV | Metadata date | Date match | Equity rows | Tickers | CUSIPs |",
+        "|---|---|---|---|---|---:|---:|---:|",
     ]
     for row in evidence:
+        date_match = (
+            "YES" if row.metadata_date_matches_request is True else
+            "NO" if row.metadata_date_matches_request is False else "-"
+        )
         lines.append(
             f"| {row.requested_as_of} | {'OK' if row.fetch_ok else 'FAIL'} | "
             f"{'YES' if row.csv_detected else 'NO' if row.csv_detected is False else '-'} | "
-            f"{row.metadata_as_of or '-'} | {row.equity_rows if row.equity_rows is not None else '-'} | "
+            f"{row.metadata_as_of or '-'} | {date_match} | "
+            f"{row.equity_rows if row.equity_rows is not None else '-'} | "
             f"{row.nonempty_tickers if row.nonempty_tickers is not None else '-'} | "
             f"{row.nonempty_cusips if row.nonempty_cusips is not None else '-'} |"
         )
     lines.extend(
         [
             "",
-            "Interpretation: a successful historical holdings response can corroborate an annual Russell universe and provide identifier evidence, but an ETF holding is not automatically identical to official index membership. Tracking differences, cash, derivatives, sampling, lending, and operational positions must be measured before using it as reconstruction evidence.",
+            "Interpretation: a historical response is useful only when its embedded metadata date agrees with the requested date. ETF holdings can corroborate an annual Russell universe and identifiers, but are not automatically identical to official index membership.",
             "",
         ]
     )
@@ -313,7 +377,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         evidence.append(row)
         print(
             f"  fetch={row.fetch_ok} csv={row.csv_detected} metadata_as_of={row.metadata_as_of} "
-            f"equity_rows={row.equity_rows} error={row.error}",
+            f"date_match={row.metadata_date_matches_request} equity_rows={row.equity_rows} error={row.error}",
             flush=True,
         )
     write_outputs(args.output_dir, evidence)
