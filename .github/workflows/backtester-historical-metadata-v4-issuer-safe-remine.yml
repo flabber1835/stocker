@@ -1,0 +1,274 @@
+name: Backtester - historical metadata V4 issuer-safe retained SEC remine
+run-name: Historical metadata V4 issuer-safe retained SEC remine — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-pit-corpus-recovery-v4]
+    paths:
+      - '.github/workflows/backtester-historical-metadata-v4-issuer-safe-remine.yml'
+      - 'backtester/mine_historical_metadata_candidates_v4_issuer_safe.py'
+      - 'tests/backtester/test_historical_metadata_v4_issuer_safe.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PLAN_RUN_ID: '33718451128'
+  PLAN_ARTIFACT: metadata-v4-residual-plan-8324ba3301ad34e3748dcebe31a947bfb81e7521
+  V2_RUN_ID: '33701529865'
+  V2_ARTIFACT: historical-metadata-v2-resilient-indexed-evidence-431686edffef158ff61c122c977ff2c7c18b7036-3556a6c9e01410bed6af02c0bd0d42eb718d2068
+  RAW_RUN_ID: '33468938050'
+
+jobs:
+  gate:
+    name: Verify issuer-CIK contract and build raw shard matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Check out exact issuer-safe source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/mine_historical_metadata_candidates_v3.py
+            /backtester/mine_historical_metadata_candidates_v4_issuer_safe.py
+            /tests/backtester/test_historical_metadata_v4_issuer_safe.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Run issuer-CIK fail-closed regressions
+        run: |
+          set -euo pipefail
+          python -m compileall -q \
+            backtester/mine_historical_metadata_candidates_v3.py \
+            backtester/mine_historical_metadata_candidates_v4_issuer_safe.py \
+            tests/backtester/test_historical_metadata_v4_issuer_safe.py
+          python - <<'PY'
+          import runpy
+          ns=runpy.run_path('tests/backtester/test_historical_metadata_v4_issuer_safe.py')
+          for name in sorted(ns):
+              if name.startswith('test_'):
+                  ns[name]()
+          print({'status':'PASS','contract':'Forms 3/4/5 issuer identity is bound to filing issuerCik; URL CIK is provenance only'})
+          PY
+
+      - name: Download immutable V4 residual plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PLAN_ARTIFACT }}
+          path: inputs/plan
+          repository: ${{ github.repository }}
+          run-id: ${{ env.PLAN_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate residual-plan contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          s=json.load(open('inputs/plan/summary.json'))
+          assert s['status']=='PASS' and s['candidate_only'] is True and s['admission_effect']=='NONE'
+          assert s['definitive_unresolved_episodes']==10795
+          assert s['retained_sec_remine_episodes']==5127
+          assert s['external_recovery_episodes']==5668
+          assert s['policy']['no_new_web_requests'] is True
+          print({'status':'PASS','retained_sec_remine_episodes':5127})
+          PY
+
+      - name: Download authenticated V2 evidence index
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.V2_ARTIFACT }}
+          path: inputs/v2
+          repository: ${{ github.repository }}
+          run-id: ${{ env.V2_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build authenticated raw-shard matrix
+        id: matrix
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          index=json.load(open('inputs/v2/web/web_shard_artifact_index.json'))
+          assert index['status']=='PASS' and index['expected_shards']==32
+          rows=[]
+          for item in sorted(index['artifacts'], key=lambda x:x['shard']):
+              rows.append({
+                  'shard':item['shard'],
+                  'artifact_name':item['name'],
+                  'checksum_sha256':item['shard_checksum_manifest_sha256'],
+                  'source_manifest_sha256':item['source_manifest_sha256'],
+                  'runner_coverage_sha256':item['runner_coverage_sha256'],
+                  'web_coverage_sha256':item['web_coverage_sha256'],
+              })
+          assert [r['shard'] for r in rows]==[f'{i:02d}' for i in range(32)]
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as fh:
+              fh.write('matrix='+json.dumps({'include':rows},separators=(',',':'))+'\n')
+          print({'status':'PASS','shards':32})
+          PY
+
+  remine:
+    name: Issuer-safe re-mine SEC shard ${{ matrix.shard }}
+    needs: gate
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJson(needs.gate.outputs.matrix) }}
+    steps:
+      - name: Check out exact issuer-safe miner
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/mine_historical_metadata_candidates_v3.py
+            /backtester/mine_historical_metadata_candidates_v4_issuer_safe.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Download immutable V4 residual plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PLAN_ARTIFACT }}
+          path: inputs/plan
+          repository: ${{ github.repository }}
+          run-id: ${{ env.PLAN_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download exact retained SEC raw shard
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: inputs/raw
+          repository: ${{ github.repository }}
+          run-id: ${{ env.RAW_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate raw shard lineage
+        env:
+          EXPECTED_CHECKSUM: ${{ matrix.checksum_sha256 }}
+          EXPECTED_SOURCE_MANIFEST: ${{ matrix.source_manifest_sha256 }}
+          EXPECTED_RUNNER: ${{ matrix.runner_coverage_sha256 }}
+          EXPECTED_WEB: ${{ matrix.web_coverage_sha256 }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          root=Path('inputs/raw')
+          checks={
+              'SHA256SUMS.txt':os.environ['EXPECTED_CHECKSUM'],
+              'web_source_manifest.csv.gz':os.environ['EXPECTED_SOURCE_MANIFEST'],
+              'shard_runner_coverage.json':os.environ['EXPECTED_RUNNER'],
+              'web_coverage.json':os.environ['EXPECTED_WEB'],
+          }
+          for rel, expected in checks.items():
+              actual=hashlib.sha256((root/rel).read_bytes()).hexdigest()
+              assert actual==expected,(rel,actual,expected)
+          print({'status':'PASS','files':4})
+          PY
+
+      - name: Re-mine with filing issuer-CIK authority
+        run: |
+          set -euo pipefail
+          rm -rf results/shard
+          python -m backtester.mine_historical_metadata_candidates_v4_issuer_safe mine \
+            --shard-root inputs/raw \
+            --inventory inputs/plan/retained_sec_remine_inventory.csv.gz \
+            --output results/shard \
+            --shard '${{ matrix.shard }}'
+          python - <<'PY'
+          import json
+          s=json.load(open('results/shard/summary.json'))
+          assert s['status']=='PASS' and s['candidate_only'] is True and s['admission_effect']=='NONE'
+          assert 'issuerCik' in s['issuer_cik_contract']
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload issuer-safe candidate shard
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: metadata-v4-issuer-safe-${{ matrix.shard }}-${{ github.sha }}
+          path: results/shard
+          if-no-files-found: error
+          retention-days: 90
+
+  merge:
+    name: Merge issuer-safe V4 retained SEC candidates
+    needs: remine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact issuer-safe merger
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/mine_historical_metadata_candidates_v3.py
+            /backtester/mine_historical_metadata_candidates_v4_issuer_safe.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Download all issuer-safe candidate shards
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: metadata-v4-issuer-safe-*-${{ github.sha }}
+          path: inputs/shards
+          merge-multiple: false
+
+      - name: Merge issuer-safe candidate corpus
+        run: |
+          set -euo pipefail
+          rm -rf results/merged
+          python -m backtester.mine_historical_metadata_candidates_v4_issuer_safe merge \
+            --inputs inputs/shards \
+            --output results/merged \
+            --expected-shards 32
+          python - <<'PY'
+          import json, os
+          s=json.load(open('results/merged/summary.json'))
+          assert s['status']=='PASS' and s['candidate_only'] is True and s['merged_shards']==32
+          print(json.dumps(s,indent=2,sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write('## V4 issuer-safe retained SEC re-mine\n\n')
+              fh.write(f"Candidate rows: **{s['candidate_rows']:,}**\n\n")
+              fh.write(f"Identity candidate episodes: **{s['episodes_with_identity_candidates']:,}**\n\n")
+              fh.write(f"Type candidate episodes: **{s['episodes_with_security_type_candidates']:,}**\n\n")
+              fh.write(f"SIC candidate episodes: **{s['episodes_with_sic_candidates']:,}**\n\n")
+              fh.write(f"Ownership identity rows corrected away from source URL CIK: **{s['ownership_identity_source_cik_mismatches']:,}**\n")
+          PY
+
+      - name: Upload merged issuer-safe candidate corpus
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-v4-issuer-safe-retained-sec-candidates-${{ github.sha }}
+          path: results/merged
+          if-no-files-found: error
+          retention-days: 90
