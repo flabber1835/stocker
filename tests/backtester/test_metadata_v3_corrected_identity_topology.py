@@ -43,3 +43,18 @@ def test_corrected_topology_never_uses_cik_to_create_episode():
     # The same ticker remains the same security episode regardless of what CIK a filing carries.
     assert m.allocate_date("MLS", "2007-02-08", by_ticker) == "N1"
     assert m.allocate_date("MLS", "2007-03-30", by_ticker) == "N1"
+
+    # One SEC filing may legitimately prove several separately traded tickers/classes.
+    # Filing identity must therefore be scoped by the exact historical ticker.
+    common = {
+        "candidate_cik": "0002098242",
+        "filed": "2026-02-25",
+        "accession": "0001104659-26-019717",
+        "source_sha256": "4e30cc349a5791e373b07ad03863a09740d35e86db4a2aa1ccf1b243653564d3",
+        "ticker": "SVIV",
+    }
+    units = dict(common, ticker="SVIVU")
+    assert m.exact_ticker_source_key(common) != m.exact_ticker_source_key(units)
+    assert m.exact_ticker_source_key(common)[:-1] == m.exact_ticker_source_key(units)[:-1]
+    assert m.exact_ticker_source_key(common)[-1] == "SVIV"
+    assert m.exact_ticker_source_key(units)[-1] == "SVIVU"
