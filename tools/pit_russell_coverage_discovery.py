@@ -21,14 +21,24 @@ import urllib.parse
 
 import pit_russell_archive_probe as archive
 
+# The naming convention changed over time. Keep exact legacy URLs plus explicit
+# date-stamped filename families observed in preserved Russell/FTSE Russell material.
 DEFAULT_QUERIES = (
     "http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf",
     "http://www.russell.com/US/Indexes/US/reconstitution/R3000.pdf",
     "http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf",
     "https://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf",
     "http://www.russell.com/indexes/*Russell3000*Membership*",
+    "http://www.russell.com/indexes/*RU3000*Membership*",
+    "https://content.ftserussell.com/sites/default/files/ru3000_membershiplist_*.pdf",
+    "http://content.ftserussell.com/sites/default/files/ru3000_membershiplist_*.pdf",
+    "https://content.ftserussell.com/sites/default/files/ru3000-membershiplist-*.pdf",
+    "http://content.ftserussell.com/sites/default/files/ru3000-membershiplist-*.pdf",
     "https://content.ftserussell.com/sites/default/files/*ru3000*membership*.pdf",
     "http://content.ftserussell.com/sites/default/files/*ru3000*membership*.pdf",
+    "https://www.lseg.com/content/dam/ftse-russell/**/ru3000_membershiplist_*.pdf",
+    "https://www.lseg.com/content/dam/ftse-russell/**/ru3000-membershiplist-*.pdf",
+    "https://www.lseg.com/content/dam/ftse-russell/**/*r3000*membership*.pdf",
 )
 
 DATE_IN_NAME_RE = re.compile(r"(?<!\d)(20\d{2})(0[1-9]|1[0-2])([0-3]\d)(?!\d)")
@@ -70,12 +80,14 @@ class FetchEvidence:
 
 def source_family(url: str) -> tuple[str, int]:
     folded = url.casefold()
+    if "lseg.com/content/dam/ftse-russell" in folded and "membership" in folded:
+        return "lseg-ftse-russell-dated-content", 0
     if "content.ftserussell.com" in folded and "membership" in folded:
         return "ftse-russell-dated-content", 0
     if "/reconstitution/r3000.pdf" in folded:
         return "russell-legacy-r3000", 1
-    if "russell3000_membership" in folded:
-        return "russell-stable-membership", 1
+    if "russell3000_membership" in folded or "ru3000_membership" in folded or "ru3000-membership" in folded:
+        return "russell-stable-or-dated-membership", 1
     return "russell-other-official", 2
 
 
@@ -98,7 +110,6 @@ def infer_document_year(capture: archive.Capture) -> tuple[int, str | None, str]
         return int(embedded[:4]), embedded, "dated-filename"
 
     capture_dt = datetime.strptime(capture.timestamp[:8], "%Y%m%d")
-    # Stable annual URLs normally switch to the new universe around late June.
     if (capture_dt.month, capture_dt.day) >= (6, 20):
         return capture_dt.year, None, "stable-url-post-reconstitution-capture"
     return capture_dt.year - 1, None, "stable-url-pre-reconstitution-carry"
@@ -125,13 +136,11 @@ def _candidate_score(candidate: Candidate) -> tuple[int, int, int, str]:
     capture_dt = datetime.strptime(candidate.timestamp[:8], "%Y%m%d")
     if candidate.inferred_document_date:
         target = datetime.strptime(candidate.inferred_document_date, "%Y%m%d")
-        # Prefer captures on/after the dated artifact, then earliest such capture.
         before = 1 if capture_dt < target else 0
         distance = abs((capture_dt - target).days)
         return (candidate.source_rank, before, distance, candidate.timestamp)
 
     target = datetime(candidate.document_year, 6, 30)
-    # For stable URLs, post-June-20 captures are the strong annual snapshot evidence.
     pre_reconstitution = 1 if capture_dt < datetime(candidate.document_year, 6, 20) else 0
     distance = abs((capture_dt - target).days)
     return (candidate.source_rank, pre_reconstitution, distance, candidate.timestamp)
@@ -147,9 +156,7 @@ def choose_year_candidate(candidates: Sequence[Candidate], year: int) -> Candida
 def fetch_candidate(candidate: Candidate, timeout: int, attempts: int) -> FetchEvidence:
     raw_url = f"{archive.WAYBACK_PREFIX}/{candidate.timestamp}id_/{candidate.original}"
     try:
-        payload, status, ctype, final_url = archive._request(
-            raw_url, timeout=timeout, attempts=attempts
-        )
+        payload, status, ctype, final_url = archive._request(raw_url, timeout=timeout, attempts=attempts)
         return FetchEvidence(
             document_year=candidate.document_year,
             timestamp=candidate.timestamp,
@@ -196,14 +203,9 @@ def run(args: argparse.Namespace) -> dict:
                 raise RuntimeError(f"CDX HTTP {status}")
             rows = archive.parse_cdx_payload(query, payload)
             captures.extend(rows)
-            print(
-                f"CDX {query}: {len(rows)} rows via {final_url} ({ctype})",
-                flush=True,
-            )
+            print(f"CDX {query}: {len(rows)} rows via {final_url} ({ctype})", flush=True)
         except Exception as exc:
-            query_errors.append(
-                {"query": query, "error": f"{type(exc).__name__}: {exc}"}
-            )
+            query_errors.append({"query": query, "error": f"{type(exc).__name__}: {exc}"})
 
     deduped = archive.dedupe_captures(captures)
     candidates = [
@@ -241,18 +243,16 @@ def run(args: argparse.Namespace) -> dict:
             status = "FETCHED_NON_PDF"
         else:
             status = "CAPTURE_FOUND_FETCH_FAILED"
-        years.append(
-            {
-                "year": year,
-                "candidate_count": candidate_counts[year],
-                "status": status,
-                "selected": asdict(chosen) if chosen else None,
-                "fetch": asdict(fetched) if fetched else None,
-            }
-        )
+        years.append({
+            "year": year,
+            "candidate_count": candidate_counts[year],
+            "status": status,
+            "selected": asdict(chosen) if chosen else None,
+            "fetch": asdict(fetched) if fetched else None,
+        })
 
     return {
-        "schema": 1,
+        "schema": 2,
         "generated_utc": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "from_year": args.from_year,
         "to_year": args.to_year,
@@ -261,29 +261,19 @@ def run(args: argparse.Namespace) -> dict:
         "query_errors": query_errors,
         "capture_count": len(deduped),
         "candidate_count": len(candidates),
-        "candidates": [asdict(row) for row in sorted(
-            candidates, key=lambda x: (x.document_year, x.timestamp, x.original)
-        )],
+        "candidates": [asdict(row) for row in sorted(candidates, key=lambda x: (x.document_year, x.timestamp, x.original))],
         "years": years,
         "totals": {
-            "recoverable_official_pdf_years": sum(
-                1 for row in years if row["status"] == "RECOVERABLE_OFFICIAL_PDF"
-            ),
-            "missing_years": [
-                row["year"] for row in years if row["status"] == "NO_OFFICIAL_CAPTURE_FOUND"
-            ],
-            "fetch_failed_years": [
-                row["year"] for row in years if row["status"] == "CAPTURE_FOUND_FETCH_FAILED"
-            ],
+            "recoverable_official_pdf_years": sum(1 for row in years if row["status"] == "RECOVERABLE_OFFICIAL_PDF"),
+            "missing_years": [row["year"] for row in years if row["status"] == "NO_OFFICIAL_CAPTURE_FOUND"],
+            "fetch_failed_years": [row["year"] for row in years if row["status"] == "CAPTURE_FOUND_FETCH_FAILED"],
         },
     }
 
 
 def write_outputs(output_dir: Path, result: dict) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
-    (output_dir / "coverage.json").write_text(
-        json.dumps(result, indent=2, sort_keys=True) + "\n"
-    )
+    (output_dir / "coverage.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     lines = [
         "# Russell 3000 annual archive coverage",
         "",
@@ -296,19 +286,14 @@ def write_outputs(output_dir: Path, result: dict) -> None:
         selected = row["selected"]
         source = selected["source_family"] if selected else "-"
         timestamp = selected["timestamp"] if selected else "-"
-        lines.append(
-            f"| {row['year']} | {row['candidate_count']} | {row['status']} | "
-            f"{source} | {timestamp} |"
-        )
-    lines.extend(
-        [
-            "",
-            f"- Recoverable official PDF years: **{result['totals']['recoverable_official_pdf_years']}**",
-            f"- Missing years: **{result['totals']['missing_years']}**",
-            f"- Fetch-failed years: **{result['totals']['fetch_failed_years']}**",
-            "",
-        ]
-    )
+        lines.append(f"| {row['year']} | {row['candidate_count']} | {row['status']} | {source} | {timestamp} |")
+    lines.extend([
+        "",
+        f"- Recoverable official PDF years: **{result['totals']['recoverable_official_pdf_years']}**",
+        f"- Missing years: **{result['totals']['missing_years']}**",
+        f"- Fetch-failed years: **{result['totals']['fetch_failed_years']}**",
+        "",
+    ])
     if result["query_errors"]:
         lines.extend(["## Query errors", ""])
         for row in result["query_errors"]:
@@ -338,8 +323,6 @@ def main(argv: Sequence[str] | None = None) -> int:
     result = run(args)
     write_outputs(args.output_dir, result)
     print(json.dumps(result["totals"], sort_keys=True))
-    # Discovery is informational: gaps are surfaced explicitly and do not masquerade
-    # as a successful complete corpus.
     return 0
 
 
