@@ -1,0 +1,311 @@
+name: Backtester - historical metadata V2 indexed finalize recovery
+run-name: Historical metadata V2 indexed finalize recovery — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/enrich-pit-2007-2026-metadata]
+    paths:
+      - '.github/workflows/backtester-historical-metadata-v2-finalize-recovery.yml'
+      - 'backtester/merge_historical_metadata_web_artifacts_v2_indexed.py'
+      - 'tests/backtester/test_historical_metadata_web_artifact_index_merge_v2.py'
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+
+concurrency:
+  group: historical-metadata-v2-indexed-finalize-recovery
+  cancel-in-progress: true
+
+env:
+  SOURCE_RUN: '33468938050'
+  SOURCE_RUN_SHA: 431686edffef158ff61c122c977ff2c7c18b7036
+  SOURCE_SHA: 4c11413f8dbb8b263367022c658a303035d9156b
+  PREP_SOURCE_RUN: '33462967877'
+  PREP_SOURCE_SHA: 18ece625441d5081015db3d4dfe5b189176f7c4d
+  PREP: backtester-results/metadata-v2-prep
+  WEB_INDEX: backtester-results/metadata-v2-web-indexed
+  POINTER: backtester/data/canonical-pit-20y.json
+  SOURCE_LOCK: backtester/data/historical-metadata-source-lock-v2.json
+  EXISTING: research/sentinel-fastgate/pit-evidence/generated
+  CANONICAL: backtester-results/canonical-pit-20y
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  indexed_merge:
+    name: Verify 32 shards and build disk-bounded web evidence index
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out recovery source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Download authenticated preparation corpus
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: metadata-v2-prep-recovered-${{ env.PREP_SOURCE_SHA }}
+          path: backtester-results/metadata-v2-prep
+          repository: ${{ github.repository }}
+          run-id: ${{ env.PREP_SOURCE_RUN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify economic source binding remains exact
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('backtester-results/metadata-v2-prep')
+          from backtester import historical_metadata_reconstruction_v2 as b
+          print(b.verify_checksums(root))
+          paths = [Path(x) for x in '''
+          backtester/historical_metadata_reconstruction_v2.py
+          backtester/historical_metadata_reconstruction_v2_policy.py
+          backtester/parse_historical_metadata_bulk_v2.py
+          backtester/verify_historical_metadata_archives_v2.py
+          backtester/enforce_historical_metadata_type_authority_v2.py
+          backtester/sanitize_historical_metadata_candidates_v2.py
+          backtester/build_historical_metadata_episode_guard_v2.py
+          backtester/derive_historical_metadata_timeline_guarded_v2.py
+          backtester/bound_historical_metadata_web_plan_v2.py
+          backtester/shard_historical_metadata_web_plan_v2.py
+          backtester/run_historical_metadata_web_shard_v2.py
+          backtester/merge_historical_metadata_web_shards_v2.py
+          '''.split()]
+          h = hashlib.sha256()
+          for path in sorted(paths):
+              h.update(path.as_posix().encode() + b'\0')
+              h.update(path.read_bytes())
+          manifest = json.load(open(root / 'prepare_manifest.json'))
+          assert manifest['source_sha'] == '4c11413f8dbb8b263367022c658a303035d9156b'
+          assert h.hexdigest() == manifest['parser_source_bundle_sha256']
+          print({'status':'PASS','economic_source_sha':manifest['source_sha'],'parser_source_bundle_sha256':h.hexdigest()})
+          PY
+
+      - name: Validate indexed merger source and selection fail-closed behavior
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/merge_historical_metadata_web_artifacts_v2_indexed.py
+          python - <<'PY'
+          from backtester import merge_historical_metadata_web_artifacts_v2_indexed as m
+          sha = 'a' * 40
+          def a(shard, attempt, ident):
+              return {'id':ident,'name':f'metadata-v2-resilient-shard-{shard}-attempt-{attempt}-{sha}','expired':False}
+          selected = m.select_latest_artifacts([a('00',1,1),a('00',2,2),a('01',1,3)], sha, 2)
+          assert selected['00']['id'] == 2 and selected['01']['id'] == 3
+          try:
+              m.select_latest_artifacts([a('00',2,1),a('00',2,2)], sha, 1)
+          except m.ArtifactSelectionError:
+              pass
+          else:
+              raise AssertionError('duplicate latest artifact was not rejected')
+          print({'status':'PASS','artifact_selection':'highest unique attempt; fail closed on duplicate'})
+          PY
+
+      - name: Stream, authenticate and logically merge the 32 completed shard artifacts
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          rm -rf "${WEB_INDEX}"
+          python -m backtester.merge_historical_metadata_web_artifacts_v2_indexed \
+            --repository "${GITHUB_REPOSITORY}" \
+            --run-id "${SOURCE_RUN}" \
+            --source-run-sha "${SOURCE_RUN_SHA}" \
+            --output "${WEB_INDEX}" \
+            --expected-shards 32
+          python -m backtester.historical_metadata_reconstruction_v2 verify --root "${WEB_INDEX}"
+          python - <<'PY'
+          import json
+          p=json.load(open('backtester-results/metadata-v2-web-indexed/web_coverage.json'))
+          assert p['status']=='PASS' and p['complete'] is True and p['merged_shards']==32
+          assert p['raw_source_objects_embedded'] is False
+          assert p['verified_raw_source_objects'] > 0
+          print(p)
+          PY
+
+      - name: Upload authenticated merged web evidence index
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: metadata-v2-resilient-web-indexed-${{ env.SOURCE_RUN_SHA }}-${{ github.sha }}
+          path: backtester-results/metadata-v2-web-indexed
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+
+  finalize:
+    name: Build final guarded 2006-2026 metadata evidence from indexed web corpus
+    needs: indexed_merge
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Check out recovery source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install pinned canonical verifier runtime
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e shared
+
+      - name: Download authenticated preparation corpus
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: metadata-v2-prep-recovered-${{ env.PREP_SOURCE_SHA }}
+          path: backtester-results/metadata-v2-prep
+          repository: ${{ github.repository }}
+          run-id: ${{ env.PREP_SOURCE_RUN }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download authenticated indexed web evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: metadata-v2-resilient-web-indexed-${{ env.SOURCE_RUN_SHA }}-${{ github.sha }}
+          path: backtester-results/metadata-v2-web-indexed
+
+      - name: Verify preparation and indexed web evidence before finalization
+        run: |
+          set -euo pipefail
+          python -m backtester.historical_metadata_reconstruction_v2 verify --root "${PREP}"
+          python -m backtester.historical_metadata_reconstruction_v2 verify --root "${WEB_INDEX}"
+          python - <<'PY'
+          import json
+          web=json.load(open('backtester-results/metadata-v2-web-indexed/web_coverage.json'))
+          idx=json.load(open('backtester-results/metadata-v2-web-indexed/web_shard_artifact_index.json'))
+          assert web['status']=='PASS' and web['complete'] is True and web['merged_shards']==32
+          assert idx['status']=='PASS' and idx['expected_shards']==32 and len(idx['artifacts'])==32
+          assert idx['source_run_id']==33468938050
+          assert idx['source_run_sha']=='431686edffef158ff61c122c977ff2c7c18b7036'
+          print({'status':'PASS','shards':32,'source_run_id':idx['source_run_id']})
+          PY
+
+      - name: Reclaim unused hosted-runner tool space
+        run: |
+          set -euo pipefail
+          df -h /
+          sudo rm -rf /usr/local/lib/android || true
+          sudo rm -rf /usr/share/dotnet || true
+          sudo rm -rf /opt/ghc || true
+          sudo rm -rf /usr/local/share/boost || true
+          docker system prune -af >/dev/null 2>&1 || true
+          df -h /
+
+      - name: Re-pull and authenticate frozen canonical PIT package
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          rm -rf "${CANONICAL}" && mkdir -p "${CANONICAL}"
+          docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL}"
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python -m backtester.canonical_pit_package verify --pointer "${POINTER}" --dataset "${CANONICAL}"
+
+      - name: Derive final guarded timeline and audit canonical observations
+        run: |
+          set -euo pipefail
+          python -m backtester.derive_historical_metadata_timeline_guarded_v2 \
+            --candidates "${PREP}/candidates/candidate_episodes.csv.gz" \
+            --episode-guard "${PREP}/guard/canonical_ticker_episode_guard.csv.gz" \
+            --bulk "${PREP}/bulk" \
+            --existing-sic "${EXISTING}/sec_sic_submissions.csv.gz" \
+            --web "${WEB_INDEX}" \
+            --output backtester-results/metadata-v2-final-timeline
+          python -m backtester.historical_metadata_reconstruction_v2 audit-coverage \
+            --canonical-dataset "${CANONICAL}" \
+            --timeline backtester-results/metadata-v2-final-timeline \
+            --output backtester-results/metadata-v2-canonical-coverage.json
+          python -m backtester.historical_metadata_reconstruction_v2 final-manifest \
+            --lock "${SOURCE_LOCK}" \
+            --candidates-dir "${PREP}/candidates" \
+            --bulk-dir "${PREP}/bulk" \
+            --web-dir "${WEB_INDEX}" \
+            --timeline-dir backtester-results/metadata-v2-final-timeline \
+            --coverage backtester-results/metadata-v2-canonical-coverage.json \
+            --source-sha "${SOURCE_SHA}" \
+            --output backtester-results/metadata-v2-evidence-manifest.json
+
+      - name: Assemble authenticated indexed evidence package
+        run: |
+          set -euo pipefail
+          ROOT=backtester-results/historical-metadata-v2-indexed-package
+          rm -rf "${ROOT}" && mkdir -p "${ROOT}"
+          cp -a "${PREP}/candidates" "${ROOT}/candidates"
+          cp -a "${PREP}/guard" "${ROOT}/guard"
+          cp -a "${PREP}/bulk" "${ROOT}/bulk"
+          cp -a "${PREP}/web-plan" "${ROOT}/web-plan"
+          cp -a "${PREP}/web-shards" "${ROOT}/web-shards"
+          cp -a "${WEB_INDEX}" "${ROOT}/web"
+          cp -a backtester-results/metadata-v2-final-timeline "${ROOT}/timeline"
+          cp backtester-results/metadata-v2-canonical-coverage.json "${ROOT}/canonical_coverage.json"
+          cp backtester-results/metadata-v2-evidence-manifest.json "${ROOT}/evidence_manifest.json"
+          cp "${SOURCE_LOCK}" "${ROOT}/source_lock.json"
+          cp "${PREP}/prepare_manifest.json" "${ROOT}/prepare_manifest.json"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          from backtester import historical_metadata_reconstruction_v2 as b
+          root=Path('backtester-results/historical-metadata-v2-indexed-package')
+          binding={
+              'schema':'backtester.historical-metadata-v2.indexed-recovery-binding/1',
+              'status':'PASS',
+              'source_run_id':33468938050,
+              'source_run_sha':'431686edffef158ff61c122c977ff2c7c18b7036',
+              'economic_source_sha':'4c11413f8dbb8b263367022c658a303035d9156b',
+              'raw_source_payload_mode':'verified_sharded_github_actions_artifacts',
+              'raw_source_bytes_embedded':False,
+          }
+          (root/'recovery_binding.json').write_text(json.dumps(binding,indent=2,sort_keys=True)+'\n')
+          b.write_checksums(root)
+          print(b.verify_checksums(root))
+          PY
+
+      - name: Publish final coverage summary
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_STEP_SUMMARY"
+          import json
+          cov=json.load(open('backtester-results/metadata-v2-canonical-coverage.json'))
+          manifest=json.load(open('backtester-results/metadata-v2-evidence-manifest.json'))
+          print('## Historical metadata V2 indexed recovery')
+          print('')
+          print(f"- Evidence status: **{manifest['status']}**")
+          print(f"- Security-type causal resolution rate: **{cov['resolution_rates']['security_type']:.6%}**")
+          print(f"- Sector causal resolution rate: **{cov['resolution_rates']['sector']:.6%}**")
+          print('- SEC raw source objects: verified shard-by-shard before discard; exact artifact IDs/digests retained in `web/web_shard_artifact_index.json`.')
+          PY
+
+      - name: Upload final V2 indexed evidence package
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-v2-resilient-indexed-evidence-${{ env.SOURCE_RUN_SHA }}-${{ github.sha }}
+          path: backtester-results/historical-metadata-v2-indexed-package
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
