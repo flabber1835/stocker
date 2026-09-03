@@ -60,6 +60,25 @@ def validate_cik(value: object) -> str:
     return str(int(text)).zfill(10)
 
 
+def exact_ticker_source_key(
+    row: Mapping[str, object], filed: str | None = None
+) -> tuple[str, str, str, str, str]:
+    """Identify one exact historical ticker assertion within an SEC source.
+
+    One filing can legitimately describe several separately traded classes or
+    units.  The filing-level tuple therefore is not a security-identity key by
+    itself; the exact historical ticker proved by the filing is part of the
+    authoritative identity datum.
+    """
+    return (
+        validate_cik(row.get("candidate_cik")),
+        filed if filed is not None else normalize_date(row.get("filed")),
+        str(row.get("accession") or ""),
+        str(row.get("source_sha256") or ""),
+        norm_ticker(row.get("ticker")),
+    )
+
+
 def read_gzip_csv(path: Path) -> list[dict[str, str]]:
     with gzip.open(path, "rt", encoding="utf-8", newline="") as fh:
         return list(csv.DictReader(fh))
@@ -353,7 +372,7 @@ def main_rebuild(
 
     # Reallocate all evidence-only V3 candidates against corrected topology.
     v3_rows = read_gzip_csv(v3_candidate_root / "candidate_evidence.csv.gz")
-    identity_key_to_sid: dict[tuple[str, str, str, str], str] = {}
+    identity_key_to_sid: dict[tuple[str, str, str, str, str], str] = {}
     v3_identity_events = 0
     v3_identity_sids: set[str] = set()
     for row in v3_rows:
@@ -364,10 +383,10 @@ def main_rebuild(
         filed = normalize_date(row.get("filed"))
         if not new_sid or not cik or not filed:
             continue
-        key = (cik, filed, str(row.get("accession") or ""), str(row.get("source_sha256") or ""))
+        key = exact_ticker_source_key(row, filed)
         prior = identity_key_to_sid.get(key)
         if prior is not None and prior != new_sid:
-            raise RuntimeError(f"same exact SEC identity source maps to multiple corrected episodes: {key}")
+            raise RuntimeError(f"same exact SEC identity source+ticker maps to multiple corrected episodes: {key}")
         identity_key_to_sid[key] = new_sid
         issuer_pairs.add((new_sid, cik))
         first_issuer[(new_sid, cik)] = min(first_issuer.get((new_sid, cik), filed), filed)
@@ -384,10 +403,7 @@ def main_rebuild(
         if classification not in {"common", "non_common"}:
             continue
         filed = normalize_date(row.get("filed"))
-        key = (
-            validate_cik(row.get("candidate_cik")), filed,
-            str(row.get("accession") or ""), str(row.get("source_sha256") or ""),
-        )
+        key = exact_ticker_source_key(row, filed)
         new_sid = identity_key_to_sid.get(key)
         if not new_sid:
             continue
@@ -412,7 +428,7 @@ def main_rebuild(
         if not new_sid or (new_sid, cik) not in issuer_pairs:
             continue
         if row.get("cik_authority") == "DISCOVERY_ONLY_HINT":
-            key = (cik, filed, str(row.get("accession") or ""), str(row.get("source_sha256") or ""))
+            key = exact_ticker_source_key(row, filed)
             if identity_key_to_sid.get(key) != new_sid:
                 continue
         sic_digits = "".join(ch for ch in str(row.get("sic") or "") if ch.isdigit())
