@@ -124,6 +124,7 @@ jobs:
           sparse-checkout: |
             sentinel
             shared
+            docs/sentinel-handoff/00_README
 
       - name: Prove source identity before tests
         shell: bash
