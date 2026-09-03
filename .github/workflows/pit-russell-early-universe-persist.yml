@@ -1,0 +1,106 @@
+name: Persist validated early Russell universes
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - 'tools/pit_russell_pdf_legacy_membership_extract.py'
+      - 'tests/scripts/test_pit_russell_pdf_legacy_membership_extract.py'
+      - '.github/workflows/pit-russell-early-universe-persist.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  persist-validated-universes:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact research revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Install Poppler
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pdftotext -v
+      - name: Rebuild and validate early annual universes
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/r3000-2005 /tmp/r3000-2006
+          python tools/pit_russell_pdf_legacy_membership_extract.py \
+            --url 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf' \
+            --timestamp '20051030075845' \
+            --timeout 25 --attempts 5 --min-rows 2900 --max-rows 3100 \
+            --output-dir /tmp/r3000-2005
+          python tools/pit_russell_pdf_legacy_membership_extract.py \
+            --url 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf' \
+            --timestamp '20060710045437' \
+            --timeout 25 --attempts 5 --min-rows 2900 --max-rows 3100 \
+            --output-dir /tmp/r3000-2006
+      - name: Materialize deterministic annual corpus
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv
+          import hashlib
+          import json
+          from pathlib import Path
+
+          target = Path('research/pit_russell_archive/annual_universes')
+          target.mkdir(parents=True, exist_ok=True)
+          manifest = {
+              'schema': 1,
+              'index': 'Russell 3000',
+              'source_policy': 'official Russell membership PDF recovered from exact Internet Archive capture',
+              'annual_universes': [],
+          }
+          for year in (2005, 2006):
+              result = json.loads(Path(f'/tmp/r3000-{year}/membership.json').read_text())
+              csv_path = target / f'russell3000_{year}.csv'
+              with csv_path.open('w', newline='') as handle:
+                  writer = csv.writer(handle, lineterminator='\n')
+                  writer.writerow(['ticker', 'company'])
+                  writer.writerows((row['ticker'], row['company']) for row in result['rows'])
+              csv_sha = hashlib.sha256(csv_path.read_bytes()).hexdigest()
+              manifest['annual_universes'].append({
+                  'year': year,
+                  'capture_timestamp': result['capture']['timestamp'],
+                  'original_url': result['capture']['original'],
+                  'pdf_sha256': result['pdf_sha256'],
+                  'parser_contract': result['parser_contract'],
+                  'row_count': result['row_count'],
+                  'unique_tickers': result['unique_tickers'],
+                  'rows_sha256': result['rows_sha256'],
+                  'csv_sha256': csv_sha,
+                  'pdf_hash_gate': result['pdf_hash_gate'],
+                  'determinism_gate': result['determinism_gate'],
+                  'ambiguity_gate': result['ambiguity_gate'],
+                  'unexplained_rows': len(result['unexplained_rows']),
+                  'evidence_grade': 'A',
+              })
+          (target / 'manifest_2005_2006.json').write_text(
+              json.dumps(manifest, indent=2, sort_keys=True) + '\n'
+          )
+          PY
+      - name: Commit accepted corpus
+        run: |
+          set -euo pipefail
+          git add research/pit_russell_archive/annual_universes
+          if git diff --cached --quiet; then
+            echo 'Annual corpus already matches validated parser output.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Persist validated 2005-2006 Russell universes'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
