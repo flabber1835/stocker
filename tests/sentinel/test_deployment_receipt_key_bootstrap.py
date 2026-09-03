@@ -202,6 +202,21 @@ def test_operator_attestation_does_not_bypass_partial_receipt_schema(
             {}, [], allow_verified_pre_receipt=True)
 
 
+def test_verified_pre_receipt_state_requires_attestation_at_persistence(
+        tmp_path, monkeypatch):
+    path = tmp_path / ".env"
+    _write_env(path)
+    monkeypatch.delenv(bootstrap.RECEIPT_KEY, raising=False)
+    before = path.read_bytes()
+    with pytest.raises(
+            bootstrap.BootstrapRefused,
+            match="requires explicit operator attestation"):
+        bootstrap.ensure_publication_receipt_key(
+            path,
+            receipt_state_probe=lambda _env: bootstrap.SAFE_VERIFIED_PRE_RECEIPT_DATABASE)
+    assert path.read_bytes() == before
+
+
 def test_verified_pre_receipt_state_can_be_persisted(tmp_path, monkeypatch):
     path = tmp_path / ".env"
     _write_env(path)
