@@ -1,0 +1,72 @@
+name: Inspect exact 2007 Russell reconstitution pages
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - '.github/workflows/pit-russell-2007-reconstitution-page-links.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  archived-page:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        source:
+          - 'http://www.russell.com/Indexes/membership/Reconstitution/default.asp'
+          - 'http://www.russell.com/indexes/membership/Reconstitution/default.asp'
+          - 'http://www.russell.com/us/indexes/us/reconstitution/default.asp'
+          - 'http://www.russell.com/us/Indexes/US/Reconstitution/default.asp'
+    steps:
+      - name: Locate late-June 2007 capture and print membership links
+        env:
+          SOURCE_URL: ${{ matrix.source }}
+        run: |
+          python - <<'PY'
+          import html.parser, json, os, urllib.parse, urllib.request
+          source=os.environ['SOURCE_URL']
+          params=[('url',source),('output','json'),('fl','timestamp,original,statuscode,mimetype,digest,length'),('filter','statuscode:200'),('from','2007'),('to','2007')]
+          cdx='https://web.archive.org/cdx/search/cdx?'+urllib.parse.urlencode(params)
+          req=urllib.request.Request(cdx,headers={'User-Agent':'stocker-pit-russell-research/1.0'})
+          print('QUERY',source,flush=True)
+          try:
+              with urllib.request.urlopen(req,timeout=20) as r:
+                  rows=json.loads(r.read().decode('utf-8','replace'))
+          except Exception as exc:
+              print('CDX_ERROR',type(exc).__name__,str(exc),flush=True); raise SystemExit(0)
+          print('CAPTURE_ROWS',max(0,len(rows)-1),flush=True)
+          if len(rows)<=1: raise SystemExit(0)
+          data=rows[1:]
+          # Prefer June 22-July 15; otherwise closest capture after June 1.
+          candidates=[x for x in data if '20070622' <= x[0][:8] <= '20070715'] or [x for x in data if x[0][:8] >= '20070601']
+          if not candidates:
+              candidates=data
+          target=min(candidates,key=lambda x:abs(int(x[0][:8])-20070625))
+          ts,orig=target[0],target[1]
+          print('SELECT',target,flush=True)
+          replay=f'https://web.archive.org/web/{ts}id_/{orig}'
+          try:
+              with urllib.request.urlopen(urllib.request.Request(replay,headers={'User-Agent':'stocker-pit-russell-research/1.0'}),timeout=25) as r:
+                  body=r.read().decode('utf-8','replace')
+          except Exception as exc:
+              print('FETCH_ERROR',type(exc).__name__,str(exc),flush=True); raise SystemExit(0)
+          class P(html.parser.HTMLParser):
+              def handle_starttag(self,tag,attrs):
+                  if tag.lower()!='a': return
+                  d=dict(attrs); href=d.get('href','')
+                  low=href.lower()
+                  if any(k in low for k in ('r3000','russell3000','membership','addition','deletion','.pdf')):
+                      print('HREF',href,flush=True)
+          P().feed(body)
+          print('BODY_MARKERS')
+          for line in body.splitlines():
+              low=line.lower()
+              if ('russell 3000' in low or 'russell3000' in low or 'membership list' in low or 'addition' in low or 'deletion' in low) and len(line)<2000:
+                  print(line.strip()[:1800])
+          PY
