@@ -6,6 +6,7 @@ on:
       - research/pit-russell-archive-reconstruction
     paths:
       - 'tools/pit_russell_preserved_full_membership_validate.py'
+      - 'tests/scripts/test_pit_russell_preserved_full_membership_validate.py'
       - '.github/workflows/pit-russell-full-membership-persist.yml'
   workflow_dispatch:
 
@@ -27,6 +28,11 @@ jobs:
         with:
           python-version: '3.12'
           check-latest: false
+
+      - name: Run preserved-source ticker regression tests
+        run: |
+          set -euo pipefail
+          python -m unittest tests.scripts.test_pit_russell_preserved_full_membership_validate
 
       - name: Install Poppler
         run: |
