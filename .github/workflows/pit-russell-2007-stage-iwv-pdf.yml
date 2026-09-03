@@ -1,0 +1,31 @@
+name: Stage verified 2007 IWV filing
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - '.github/workflows/pit-russell-2007-stage-iwv-pdf.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  stage:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Download and verify June 30 2007 IWV filing
+        run: |
+          set -euo pipefail
+          url='https://announcements.asx.com.au/asxpdf/20071010/pdf/3151dyspjmvx7w.pdf'
+          curl -fL --retry 4 --retry-all-errors "$url" -o iwv_2007_06_30.pdf
+          echo '0804b25a28968f7f82fdc2f8ebd10c80ab453d25716f74811743d5e8616daf2d  iwv_2007_06_30.pdf' | sha256sum -c -
+          test "$(head -c 5 iwv_2007_06_30.pdf)" = '%PDF-'
+      - name: Upload verified filing artifact
+        uses: actions/upload-artifact@65462800fd760344b1a7b4382951275a0abb4808
+        with:
+          name: iwv-2007-06-30-filing
+          path: iwv_2007_06_30.pdf
+          if-no-files-found: error
+          retention-days: 1
