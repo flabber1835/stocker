@@ -16,10 +16,10 @@ SPEC.loader.exec_module(legacy)
 
 
 class RussellLegacyContentProbeTests(unittest.TestCase):
-    def capture(self, original="http://www.russell.com/US/Indexes/US/Reconstitution/recon_additions.asp"):
+    def capture(self, original="http://www.russell.com/indexes/membership/Reconstitution/Recon_3000_Additions.asp"):
         return legacy.archive.Capture(
             query_url=original,
-            timestamp="20060630120000",
+            timestamp="20080628165955",
             original=original,
             statuscode="200",
             mimetype="text/html",
@@ -34,7 +34,7 @@ class RussellLegacyContentProbeTests(unittest.TestCase):
 
     def test_extracts_artifact_links_and_ticker_rows(self):
         payload = b'''<html><body>
-        <a href="files/Russell3000_final_2006.xls">Final Russell 3000 membership</a>
+        <a href="files/Russell3000_final_2008.xls">Final Russell 3000 membership</a>
         <a href="about.asp">About</a>
         <table>
           <tr><th>Company</th><th>Ticker</th></tr>
@@ -44,27 +44,36 @@ class RussellLegacyContentProbeTests(unittest.TestCase):
         </body></html>'''
         links, rows = legacy.extract_evidence(self.capture(), payload)
         self.assertEqual(1, len(links))
-        self.assertTrue(links[0].resolved_url.endswith("/Reconstitution/files/Russell3000_final_2006.xls"))
+        self.assertTrue(links[0].resolved_url.endswith("/Reconstitution/files/Russell3000_final_2008.xls"))
         self.assertEqual(["ACM.A", "EXM"], sorted(row.ticker for row in rows))
         self.assertTrue(all(row.endpoint_kind == "additions" for row in rows))
 
-    def test_rejects_navigation_header_as_candidate(self):
-        row = legacy.candidate_from_cells(
-            ["Company", "Ticker"], "20060630120000", "http://x/membership.asp", "membership"
+    def test_extracts_both_company_ticker_pairs_from_one_russell_row(self):
+        payload = b'''<table>
+          <tr><td>ABRAXAS PETE CORP</td><td>ABP</td><td>IDERA PHARMACEUTICALS</td><td>IDRA</td></tr>
+        </table>'''
+        _, rows = legacy.extract_evidence(self.capture(), payload)
+        self.assertEqual(
+            [("ABP", "ABRAXAS PETE CORP"), ("IDRA", "IDERA PHARMACEUTICALS")],
+            [(row.ticker, row.label) for row in rows],
         )
-        self.assertIsNone(row)
 
-    def test_candidate_keeps_company_label(self):
-        row = legacy.candidate_from_cells(
+    def test_rejects_navigation_header_as_candidate(self):
+        rows = legacy.candidates_from_cells(
+            ["Company", "Ticker"], "20080628165955", "http://x/membership.asp", "membership"
+        )
+        self.assertEqual([], rows)
+
+    def test_candidate_keeps_company_label_and_ignores_exchange_cell(self):
+        rows = legacy.candidates_from_cells(
             ["Example Corporation", "XYZ", "NYSE"],
-            "20060630120000",
+            "20080628165955",
             "http://x/recon_deletions.asp",
             "deletions",
         )
-        self.assertIsNotNone(row)
-        assert row is not None
-        self.assertEqual("XYZ", row.ticker)
-        self.assertEqual("Example Corporation", row.label)
+        self.assertEqual(1, len(rows))
+        self.assertEqual("XYZ", rows[0].ticker)
+        self.assertEqual("Example Corporation", rows[0].label)
 
 
 if __name__ == "__main__":
