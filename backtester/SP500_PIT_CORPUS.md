@@ -43,4 +43,17 @@ sp500-pit-1996-2026/
 
 The artifact is deterministic and content-addressed. It records source lineage, confidence tiers, checkpoint constituent counts, the sealed OOS boundary, and hashes for every emitted member.
 
-This is a best-effort PIT universe corpus. Historical membership prior to the official 2026 overlay is supported by the pinned secondary historical series. Security-identity mapping into the canonical Sharadar/SEP corpus is a separate subsequent stage.
+## Stage-1 acceptance gate
+
+The membership corpus is accepted only when the exact-head GitHub Actions build proves all of the following:
+
+- pinned source Git blob matches `4aeb5f6046dea43063f9c7be72dfdf16e96d2821`;
+- source contains exactly 1,259 membership episodes and 1,206 unique historical tickers;
+- rebuilt corpus contains 1,261 episodes and 1,208 unique tickers after the two official 2026 additions;
+- constituent count is 487 on 1996-01-02;
+- constituent count is 494 on 2001-01-16;
+- constituent count is 503 after the 2026-08-05 and 2026-08-18 replacements and on 2026-09-03;
+- all emitted files pass deterministic SHA-256 verification;
+- the sealed LD-RC OOS boundary remains 1996-01-02 through 2005-12-30.
+
+This is a best-effort PIT universe corpus. Historical membership prior to the official 2026 overlay is supported by the pinned secondary historical series. Security-identity mapping into the canonical Sharadar/SEP corpus is the next construction stage.
