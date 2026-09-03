@@ -37,6 +37,12 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/sp500_pit_corpus.py
+            /backtester/data/sp500_official_overlay_2026.csv
+            /tests/backtester/test_sp500_pit_corpus.py
 
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
