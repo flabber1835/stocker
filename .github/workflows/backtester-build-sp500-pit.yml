@@ -1,0 +1,133 @@
+name: Backtester - build S&P 500 PIT corpus
+run-name: S&P 500 PIT 1996-2026 — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-build-sp500-pit.yml'
+      - 'backtester/SP500_PIT_CORPUS.md'
+      - 'backtester/sp500_pit_corpus.py'
+      - 'backtester/data/sp500_official_overlay_2026.csv'
+      - 'tests/backtester/test_sp500_pit_corpus.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: backtester-sp500-pit-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  SOURCE_DIR: backtester-results/sp500-pit-source
+  OUTPUT_DIR: backtester-results/sp500-pit-1996-2026
+  SOURCE_URL: https://raw.githubusercontent.com/fja05680/sp500/c31ac3cc56f28cf9a02b4e694eff7ceab596a0ff/sp500_ticker_start_end.csv
+  SOURCE_GIT_BLOB_SHA1: 4aeb5f6046dea43063f9c7be72dfdf16e96d2821
+
+jobs:
+  build:
+    name: Build deterministic 1996-2026 membership corpus
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact S&P PIT source code
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Run S&P PIT regression tests
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check pytest
+          python -m pytest -q tests/backtester/test_sp500_pit_corpus.py
+
+      - name: Download exact pinned historical membership source
+        run: |
+          set -euo pipefail
+          mkdir -p "$SOURCE_DIR"
+          curl --fail --location --retry 4 --retry-all-errors \
+            "$SOURCE_URL" \
+            --output "$SOURCE_DIR/sp500_ticker_start_end.csv"
+
+      - name: Authenticate pinned source and structural baseline
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv,hashlib,os
+          from pathlib import Path
+          path=Path(os.environ['SOURCE_DIR'])/'sp500_ticker_start_end.csv'
+          data=path.read_bytes()
+          blob=hashlib.sha1(b'blob '+str(len(data)).encode()+b'\0'+data).hexdigest()
+          assert blob==os.environ['SOURCE_GIT_BLOB_SHA1'], (blob,os.environ['SOURCE_GIT_BLOB_SHA1'])
+          with path.open(newline='',encoding='utf-8') as fh:
+              rows=list(csv.DictReader(fh))
+          assert len(rows)==1259, len(rows)
+          assert len({r['ticker'] for r in rows})==1206
+          print({'source_bytes':len(data),'git_blob_sha1':blob,'interval_rows':len(rows),'unique_tickers':1206})
+          PY
+
+      - name: Build deterministic S&P 500 PIT artifact
+        run: |
+          set -euo pipefail
+          rm -rf "$OUTPUT_DIR"
+          python -m backtester.sp500_pit_corpus \
+            --source "$SOURCE_DIR/sp500_ticker_start_end.csv" \
+            --overlay backtester/data/sp500_official_overlay_2026.csv \
+            --output "$OUTPUT_DIR" \
+            --start 1996-01-02 \
+            --end 2026-09-03
+          (cd "$OUTPUT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Enforce corpus gates
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          root=Path(os.environ['OUTPUT_DIR'])
+          m=json.loads((root/'manifest.json').read_text())
+          assert m['schema']=='backtester.sp500-pit-corpus/1'
+          assert m['status']=='BEST_EFFORT_PIT'
+          assert m['start']=='1996-01-02' and m['end']=='2026-09-03'
+          assert m['source']['git_blob_sha1']==os.environ['SOURCE_GIT_BLOB_SHA1']
+          assert m['source']['as_of']=='2026-07-13'
+          assert m['overlay']['events']==4 and m['overlay']['official_events']==4
+          assert m['interval_rows']==1261, m['interval_rows']
+          assert m['unique_tickers']==1208, m['unique_tickers']
+          assert m['checkpoints']['1996-01-02']['count']==487
+          assert m['checkpoints']['2001-01-16']['count']==494
+          assert m['checkpoints']['2026-08-05']['count']==503
+          assert m['checkpoints']['2026-08-18']['count']==503
+          assert m['checkpoints']['2026-09-03']['count']==503
+          q=json.loads((root/'quality.json').read_text())
+          assert q['sealed_ldrc_oos']=={'start':'1996-01-02','end':'2005-12-30'}
+          print(json.dumps(m,indent=2,sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write('### S&P 500 PIT corpus 1996-2026\n')
+              fh.write(f"- Status: **{m['status']}**\n")
+              fh.write(f"- Membership intervals: {m['interval_rows']:,}\n")
+              fh.write(f"- Historical tickers represented: {m['unique_tickers']:,}\n")
+              fh.write(f"- 1996-01-02 constituents: {m['checkpoints']['1996-01-02']['count']}\n")
+              fh.write(f"- 2001-01-16 constituents: {m['checkpoints']['2001-01-16']['count']}\n")
+              fh.write(f"- 2026-09-03 constituents: {m['checkpoints']['2026-09-03']['count']}\n")
+              fh.write(f"- Dataset hash: `{m['dataset_hash']}`\n")
+              fh.write('- LD-RC sealed OOS: **1996-01-02 through 2005-12-30**\n')
+          PY
+
+      - name: Upload immutable S&P 500 PIT corpus
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sp500-pit-1996-2026-${{ github.sha }}
+          path: ${{ env.OUTPUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6

@@ -1,0 +1,5 @@
+effective_date,action,ticker,announced_date,authority_url,authority
+2026-08-05,delete,EA,2026-07-31,https://press.spglobal.com/2026-07-31-Ferguson-Enterprises-Set-to-Join-S-P-500-and-ADI-Global-Distribution-to-Join-S-P-SmallCap-600,S&P Dow Jones Indices
+2026-08-05,add,FERG,2026-07-31,https://press.spglobal.com/2026-07-31-Ferguson-Enterprises-Set-to-Join-S-P-500-and-ADI-Global-Distribution-to-Join-S-P-SmallCap-600,S&P Dow Jones Indices
+2026-08-18,delete,AVB,2026-08-13,https://press.spglobal.com/2026-08-13-Reddit-Set-to-Join-S-P-500-and-Sun-Communities-to-Join-S-P-MidCap-400,S&P Dow Jones Indices
+2026-08-18,add,RDDT,2026-08-13,https://press.spglobal.com/2026-08-13-Reddit-Set-to-Join-S-P-500-and-Sun-Communities-to-Join-S-P-MidCap-400,S&P Dow Jones Indices
