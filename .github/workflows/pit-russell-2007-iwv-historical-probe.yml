@@ -1,0 +1,39 @@
+name: Probe 2007 IWV historical holdings
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - '.github/workflows/pit-russell-2007-iwv-historical-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Check out probe only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            tools/pit_iwv_holdings_probe.py
+            .github/workflows/pit-russell-2007-iwv-historical-probe.yml
+          sparse-checkout-cone-mode: false
+      - name: Probe exact post-reconstitution dates
+        run: |
+          set -euo pipefail
+          python tools/pit_iwv_holdings_probe.py \
+            --as-of 20070622 \
+            --as-of 20070625 \
+            --as-of 20070629 \
+            --as-of 20070630 \
+            --as-of 20070702 \
+            --timeout 15 --attempts 2 --delay 0.5 \
+            --output-dir /tmp/iwv-2007
+          cat /tmp/iwv-2007/report.md
+          cat /tmp/iwv-2007/manifest.json
