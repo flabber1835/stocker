@@ -1,0 +1,64 @@
+name: Diagnose 2010 Russell PDF ticker misses
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - '.github/workflows/pit-russell-2010-missing-tickers-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install Poppler
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Inspect missing 2010 tickers in PDF text and bbox XML
+        run: |
+          set -euo pipefail
+          url='https://raw.githubusercontent.com/kact998/Russell3000Components/main/pdfs/ru3000_membershiplist_20100628.pdf'
+          curl -fsSL "$url" -o /tmp/2010.pdf
+          pdftotext -layout /tmp/2010.pdf /tmp/2010.txt
+          pdftotext -bbox-layout /tmp/2010.pdf /tmp/2010.xml
+          python - <<'PY'
+          import re
+          import xml.etree.ElementTree as ET
+          from pathlib import Path
+
+          targets = {'BID','GLT','INTU','KEY','LTD','NST','PLD','TKLC','UHAL','XXIA'}
+          text = Path('/tmp/2010.txt').read_text(errors='replace').splitlines()
+          print('=== LAYOUT MATCHES ===')
+          for i, line in enumerate(text, 1):
+              toks = set(re.findall(r'[A-Z][A-Z0-9.\-]{0,9}', line))
+              hit = sorted(targets & toks)
+              if hit:
+                  print(f'{i}: {hit}: {line}')
+
+          print('=== BBOX WORD ROWS ===')
+          root = ET.parse('/tmp/2010.xml').getroot()
+          def tag(e): return e.tag.rsplit('}',1)[-1]
+          for pageno, page in enumerate((e for e in root.iter() if tag(e)=='page'), 1):
+              rows=[]
+              for line in (e for e in page.iter() if tag(e)=='line'):
+                  words=[]
+                  for w in (e for e in line.iter() if tag(e)=='word'):
+                      txt=' '.join(''.join(w.itertext()).split())
+                      if txt:
+                          words.append((float(w.attrib.get('xMin',0)), float(w.attrib.get('yMin',0)), txt))
+                  if words:
+                      rows.append(words)
+              for words in rows:
+                  vals={w[2] for w in words}
+                  hit=sorted(targets & vals)
+                  if hit:
+                      print('page',pageno,'targets',hit,'row',[(round(x,2),round(y,2),t) for x,y,t in words])
+          PY
