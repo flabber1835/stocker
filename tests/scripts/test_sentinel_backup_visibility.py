@@ -38,6 +38,8 @@ def test_durable_target_marker_bootstrap_uses_container_authority():
     assert "_sentinel_backup_marker_container" in source
     assert '"$parent" "$marker_uid" "$marker_mode"' in source
     assert 'marker_uid="$uid"' in source
+    assert 'tmp="$(mktemp "${marker}.tmp.XXXXXX")"' in source
+    assert 'tmp="${marker}.tmp.$$"' not in source
     assert 'chmod 0444 "$tmp"' in source
     assert 'sync "$tmp"' in source
     assert 'sync /probe' in source
