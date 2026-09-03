@@ -155,6 +155,7 @@ pdf_tickers = pdf_rows_1.keys.sort
 source_tickers = source_rows.keys.sort
 missing_from_pdf = source_tickers - pdf_tickers
 missing_from_csv = pdf_tickers - source_tickers
+extra_pdf_rows = missing_from_csv.map { |ticker| { 'ticker' => ticker, 'pdf_company' => pdf_rows_1[ticker] } }
 layout_sha_1 = rows_sha(pdf_rows_1)
 layout_sha_2 = rows_sha(pdf_rows_2)
 deterministic = pdf_rows_1 == pdf_rows_2 && layout_sha_1 == layout_sha_2 && table_pages_1 == table_pages_2
@@ -196,6 +197,7 @@ result = {
   'pdf_csv_membership_gate' => membership_ok ? 'PASS' : 'FAIL',
   'missing_from_pdf' => missing_from_pdf,
   'missing_from_csv' => missing_from_csv,
+  'extra_pdf_rows' => extra_pdf_rows,
   'company_label_mismatch_count' => company_mismatches.length,
   'company_label_mismatches' => company_mismatches,
   'evidence_grade' => count_ok && deterministic && membership_ok ? 'A_SOURCE_MEMBERSHIP' : 'UNACCEPTED'
