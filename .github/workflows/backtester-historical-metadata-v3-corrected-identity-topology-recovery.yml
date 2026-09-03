@@ -6,7 +6,9 @@ on:
     branches: [research/enrich-pit-2007-2026-metadata]
     paths:
       - '.github/workflows/backtester-historical-metadata-v3-corrected-identity-topology-recovery.yml'
+      - 'backtester/rebuild_historical_metadata_identity_topology_v3.py'
       - 'backtester/run_historical_metadata_corrected_topology_v3.py'
+      - 'tests/backtester/test_metadata_v3_corrected_identity_topology.py'
   workflow_dispatch:
 
 permissions:
@@ -103,7 +105,7 @@ jobs:
           ns=runpy.run_path('tests/backtester/test_metadata_v3_corrected_identity_topology.py')
           ns['test_corrected_topology_merges_false_fragments_and_preserves_real_boundaries']()
           ns['test_corrected_topology_never_uses_cik_to_create_episode']()
-          print({'status':'PASS','contract':'CIK cannot create a security episode'})
+          print({'status':'PASS','contract':'CIK cannot create a security episode; one filing may prove multiple exact tickers'})
           PY
 
       - name: Download authenticated V2 metadata package
