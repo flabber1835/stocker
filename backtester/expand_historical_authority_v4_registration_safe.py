@@ -50,6 +50,28 @@ def registration_symbol_match(visible: str, ticker: str):
     return None
 
 
+def registration_class_candidate(visible: str) -> tuple[str, str]:
+    """Classify the actual Form 8-A registered-class table, failing closed on mixtures.
+
+    The table may be separated from the later prose containing the trading symbol, so a
+    ticker-local window alone is insufficient. Exact ticker proof is still required by
+    ``analyze_filing`` before this result can be emitted.
+    """
+    heading = re.compile(r"title\s+of\s+each\s+class.{0,120}?to\s+be\s+registered", re.I | re.S)
+    classified: list[tuple[str, str]] = []
+    for match in heading.finditer(visible):
+        window = visible[match.start(): min(len(visible), match.end() + 1200)]
+        classification, evidence = classify_window(window)
+        if classification != "unknown":
+            classified.append((classification, f"FORM_8A_REGISTERED_CLASS: {evidence} | {window[:900]}"))
+    kinds = {classification for classification, _ in classified}
+    if len(kinds) != 1:
+        return "unknown", ""
+    classification = next(iter(kinds))
+    excerpt = next(excerpt for kind, excerpt in classified if kind == classification)
+    return classification, excerpt
+
+
 def analyze_filing(
     row, cik: str, accession: str, data: bytes, source_url: str,
     discovery_url: str, discovery_sha256: str, source_member: str,
@@ -84,6 +106,8 @@ def analyze_filing(
         classification, evidence = classify_window(window)
         if classification != "unknown":
             class_excerpt = f"{evidence} | {window[:800]}"
+    if classification == "unknown":
+        classification, class_excerpt = registration_class_candidate(visible)
 
     return {
         "security_id": row["security_id"],
