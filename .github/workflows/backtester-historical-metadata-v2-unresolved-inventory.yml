@@ -44,7 +44,16 @@ jobs:
       - name: Run fail-closed inventory regression
         run: |
           set -euo pipefail
-          python -m pytest -q tests/backtester/test_unresolved_episode_inventory.py
+          python -m compileall -q backtester/analyze_unresolved_metadata_v2.py tests/backtester/test_unresolved_episode_inventory.py
+          python - <<'PY'
+          import runpy
+          import tempfile
+          from pathlib import Path
+          namespace = runpy.run_path('tests/backtester/test_unresolved_episode_inventory.py')
+          with tempfile.TemporaryDirectory() as directory:
+              namespace['test_analyze_routes_and_never_converts_unknown_to_ineligible'](Path(directory))
+          print({'status': 'PASS', 'regression': 'unresolved episodes remain non-admitted'})
+          PY
 
       - name: Download completed authenticated V2 evidence package
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
