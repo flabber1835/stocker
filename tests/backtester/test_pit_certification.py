@@ -98,7 +98,7 @@ def replay_evidence(root: Path, idv, *, current_tickers=False, meta_after=0, spl
     return cert.collect_replay_evidence(mode=idv["mode"],identity=idv,output_root=root,checkpoint_resume=checkpoint)
 
 
-def test_evidence(dataset_root: Path, pointer: Path, idv, **overrides):
+def build_test_evidence(dataset_root: Path, pointer: Path, idv, **overrides):
     audit=cert.audit_dataset_contract(dataset_root,pointer)
     args=dict(static_forward_bias=cert.PASS,dynamic_future_leak=cert.PASS,runtime_causal_read_boundary=cert.PASS,
               financial_semantics=cert.PASS,checkpoint_resume=cert.PASS); args.update(overrides)
@@ -113,7 +113,7 @@ class CertificationTests(unittest.TestCase):
     def tearDown(self): self.tmp.cleanup()
     def complete(self, *, unknown=False, terminal=0, actions=0, metadata_after=0, replay_kw=None, test_kw=None, idv=None):
         ds=self.root/"dataset"; pointer=create_dataset(ds,unknown=unknown,incomplete_terminal=terminal,unresolved_actions=actions,metadata_after=metadata_after)
-        idv=idv or identity(pointer); r=replay_evidence(self.root/"replay",idv,**(replay_kw or {})); t=test_evidence(ds,pointer,idv,**(test_kw or {}))
+        idv=idv or identity(pointer); r=replay_evidence(self.root/"replay",idv,**(replay_kw or {})); t=build_test_evidence(ds,pointer,idv,**(test_kw or {}))
         rp=self.root/"replay.json"; tp=self.root/"tests.json"; write_evidence(rp,r); write_evidence(tp,t)
         return cert.finalise(identity=idv,dataset_root=ds,pointer_path=pointer,replay_evidence_path=rp,test_evidence_path=tp), ds,pointer,rp,tp,idv
     def test_01_certified_dataset_replay_and_suite_certifies(self): c,*_=self.complete(); self.assertEqual(c["status"],cert.CERTIFIED)
@@ -121,11 +121,12 @@ class CertificationTests(unittest.TestCase):
     def test_03_current_tickers_economic_use_is_not_certified(self):
         ds=self.root/"d"; p=create_dataset(ds); i=identity(p)
         with self.assertRaisesRegex(RuntimeError,"current SHARADAR_TICKERS"): replay_evidence(self.root/"r",i,current_tickers=True)
-        t=test_evidence(ds,p,i); tp=self.root/"t.json"; write_evidence(tp,t)
+        t=build_test_evidence(ds,p,i); tp=self.root/"t.json"; write_evidence(tp,t)
         c=cert.finalise(identity=i,dataset_root=ds,pointer_path=p,replay_evidence_path=None,test_evidence_path=tp); self.assertEqual(c["status"],cert.NOT_CERTIFIED)
     def test_04_future_dated_metadata_consumption_fails(self): c,*_=self.complete(metadata_after=1); self.assertEqual(c["status"],cert.NOT_CERTIFIED); self.assertEqual(c["checks"]["pit_metadata"],cert.FAIL)
     def test_05_dynamic_future_read_negative_control_is_detected(self): ds=self.root/"d"; create_dataset(ds,many_sessions=True); out=leak.run(ds); self.assertEqual(out["status"],cert.PASS); self.assertTrue(all(r["negative_control_detected"] for r in out["cutoffs"]))
     def test_06_poisoned_future_preserves_correct_prefix_hashes(self): ds=self.root/"d"; create_dataset(ds,many_sessions=True); out=leak.run(ds); self.assertTrue(all(not r["pre_cutoff_mismatches"] for r in out["cutoffs"]))
+    def test_truncated_future_preserves_correct_prefix_hashes(self): ds=self.root/"d"; create_dataset(ds,many_sessions=True); out=leak.run(ds); self.assertTrue(all(not r["truncation_mismatches"] for r in out["cutoffs"]))
     def test_07_deliberate_future_dependency_changes_prefix(self): ds=self.root/"d"; create_dataset(ds,many_sessions=True); out=leak.run(ds); self.assertTrue(any(r["negative_control_differences"] for r in out["cutoffs"]))
     def test_08_missing_held_terminal_disposition_fails(self): c,*_=self.complete(replay_kw={"held":1}); self.assertEqual(c["status"],cert.NOT_CERTIFIED); self.assertEqual(c["checks"]["terminal_events"],cert.FAIL)
     def test_09_unresolved_split_fails(self): c,*_=self.complete(replay_kw={"splits":1}); self.assertEqual(c["status"],cert.NOT_CERTIFIED); self.assertEqual(c["checks"]["corporate_actions"],cert.FAIL)
@@ -140,7 +141,7 @@ class CertificationTests(unittest.TestCase):
     def test_13_research_parameter_change_after_suite_fails(self):
         c,ds,p,rp,tp,i=self.complete(); changed=identity(p,params={"mode":"fullpit","alpha":2}); c2=cert.finalise(identity=changed,dataset_root=ds,pointer_path=p,replay_evidence_path=rp,test_evidence_path=tp); self.assertEqual(c2["status"],cert.NOT_CERTIFIED)
     def test_14_production_strategy_sha_mismatch_fails(self):
-        ds=self.root/"d"; p=create_dataset(ds); i=identity(p,mode="production",strategy=SHA_B); r=replay_evidence(self.root/"r",i); t=test_evidence(ds,p,i); rp=self.root/"r.json";tp=self.root/"t.json";write_evidence(rp,r);write_evidence(tp,t); changed=identity(p,mode="production",strategy=SHA_C); c=cert.finalise(identity=changed,dataset_root=ds,pointer_path=p,replay_evidence_path=rp,test_evidence_path=tp); self.assertEqual(c["status"],cert.NOT_CERTIFIED)
+        ds=self.root/"d"; p=create_dataset(ds); i=identity(p,mode="production",strategy=SHA_B); r=replay_evidence(self.root/"r",i); t=build_test_evidence(ds,p,i); rp=self.root/"r.json";tp=self.root/"t.json";write_evidence(rp,r);write_evidence(tp,t); changed=identity(p,mode="production",strategy=SHA_C); c=cert.finalise(identity=changed,dataset_root=ds,pointer_path=p,replay_evidence_path=rp,test_evidence_path=tp); self.assertEqual(c["status"],cert.NOT_CERTIFIED)
     def test_15_successful_replay_failed_suite_fails(self): c,ds,p,rp,tp,i=self.complete(); c2=cert.finalise(identity=i,dataset_root=ds,pointer_path=p,replay_evidence_path=rp,test_evidence_path=tp,tests_job_result="failure"); self.assertEqual(c2["status"],cert.NOT_CERTIFIED)
     def test_16_failed_replay_successful_suite_fails(self): c,ds,p,rp,tp,i=self.complete(); c2=cert.finalise(identity=i,dataset_root=ds,pointer_path=p,replay_evidence_path=rp,test_evidence_path=tp,replay_job_result="failure"); self.assertEqual(c2["status"],cert.NOT_CERTIFIED)
     def test_17_different_source_shas_do_not_join(self):
@@ -149,7 +150,7 @@ class CertificationTests(unittest.TestCase):
         c,ds,p,rp,tp,i=self.complete(); t=cert.load_json(tp); t["identity"]["dataset_hash"]="f"*64; body=dict(t["identity"]);body.pop("identity_sha256",None);t["identity"]["identity_sha256"]=cert.json_hash(body);t["evidence_hash"]=cert.json_hash({k:v for k,v in t.items() if k!="evidence_hash"});write_evidence(tp,t); c2=cert.finalise(identity=i,dataset_root=ds,pointer_path=p,replay_evidence_path=rp,test_evidence_path=tp); self.assertEqual(c2["status"],cert.NOT_CERTIFIED)
     def test_19_checkpoint_resume_mismatch_fails(self): c,*_=self.complete(test_kw={"checkpoint_resume":cert.FAIL}); self.assertEqual(c["checks"]["checkpoint_resume"],cert.FAIL)
     def test_20_certificate_hash_changes_with_economic_evidence(self):
-        c1,*_=self.complete(); h1=c1["certificate_hash"]; self.tmp.cleanup(); self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name); ds=self.root/"d";p=create_dataset(ds);i=identity(p,params={"mode":"fullpit","alpha":3});r=replay_evidence(self.root/"r",i);t=test_evidence(ds,p,i);rp=self.root/"r.json";tp=self.root/"t.json";write_evidence(rp,r);write_evidence(tp,t); c2=cert.finalise(identity=i,dataset_root=ds,pointer_path=p,replay_evidence_path=rp,test_evidence_path=tp); self.assertNotEqual(h1,c2["certificate_hash"])
+        c1,*_=self.complete(); h1=c1["certificate_hash"]; self.tmp.cleanup(); self.tmp=tempfile.TemporaryDirectory(); self.root=Path(self.tmp.name); ds=self.root/"d";p=create_dataset(ds);i=identity(p,params={"mode":"fullpit","alpha":3});r=replay_evidence(self.root/"r",i);t=build_test_evidence(ds,p,i);rp=self.root/"r.json";tp=self.root/"t.json";write_evidence(rp,r);write_evidence(tp,t); c2=cert.finalise(identity=i,dataset_root=ds,pointer_path=p,replay_evidence_path=rp,test_evidence_path=tp); self.assertNotEqual(h1,c2["certificate_hash"])
     def test_human_summary_uses_precise_claim(self): c,*_=self.complete(); text=cert.render_summary(c); self.assertIn("PIT CERTIFIED",text); self.assertNotIn("free of bias",text.lower()); self.assertNotIn("bias free",text.lower())
 
 
