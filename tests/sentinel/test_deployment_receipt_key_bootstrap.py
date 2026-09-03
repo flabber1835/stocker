@@ -81,7 +81,7 @@ def test_generation_guard_remains_held_through_durable_key_write(
     events = []
 
     @contextmanager
-    def guarded(_env):
+    def guarded(_env, **_kwargs):
         events.append("authority-locked")
         yield bootstrap.SAFE_FRESH_DATABASE
         events.append("authority-unlocked")
@@ -129,7 +129,7 @@ def test_generated_secret_is_never_printed(tmp_path, monkeypatch, capsys):
     original = bootstrap.ensure_publication_receipt_key
     monkeypatch.setattr(
         bootstrap, "ensure_publication_receipt_key",
-        lambda selected: original(
+        lambda selected, **_kwargs: original(
             selected,
             receipt_state_probe=lambda _env: bootstrap.SAFE_FRESH_DATABASE))
     assert bootstrap.main(["--env-file", str(path)]) == 0
@@ -178,6 +178,60 @@ def test_publication_history_without_receipt_authority_is_ambiguous(monkeypatch)
             bootstrap.BootstrapRefused,
             match="cannot distinguish a verified pre-receipt database"):
         bootstrap._receipt_ancestry_ready({}, [])
+
+
+def test_operator_attestation_accepts_exact_pre_receipt_shape(monkeypatch):
+    monkeypatch.setattr(
+        bootstrap, "_psql",
+        lambda _env, _args, _sql: "1:0:0")
+    assert bootstrap._receipt_ancestry_ready(
+        {}, [], allow_verified_pre_receipt=True
+    ) == bootstrap.SAFE_VERIFIED_PRE_RECEIPT_DATABASE
+
+
+@pytest.mark.parametrize("shape", ["0:1:0", "0:0:1", "1:1:0", "1:0:1", "0:1:1"])
+def test_operator_attestation_does_not_bypass_partial_receipt_schema(
+        monkeypatch, shape):
+    monkeypatch.setattr(
+        bootstrap, "_psql",
+        lambda _env, _args, _sql: shape)
+    with pytest.raises(
+            bootstrap.BootstrapRefused,
+            match="partially installed"):
+        bootstrap._receipt_ancestry_ready(
+            {}, [], allow_verified_pre_receipt=True)
+
+
+def test_verified_pre_receipt_state_can_be_persisted(tmp_path, monkeypatch):
+    path = tmp_path / ".env"
+    _write_env(path)
+    monkeypatch.delenv(bootstrap.RECEIPT_KEY, raising=False)
+    result = bootstrap.ensure_publication_receipt_key(
+        path,
+        receipt_state_probe=lambda _env: bootstrap.SAFE_VERIFIED_PRE_RECEIPT_DATABASE,
+        allow_verified_pre_receipt=True)
+    assert result == "GENERATED_" + bootstrap.SAFE_VERIFIED_PRE_RECEIPT_DATABASE
+    assert re.fullmatch(r"[0-9a-f]{64}", _receipt_value(path))
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
+
+
+def test_verified_pre_receipt_cli_passes_explicit_attestation(monkeypatch, tmp_path, capsys):
+    path = tmp_path / ".env"
+    _write_env(path)
+    observed = {}
+
+    def provision(selected, *, allow_verified_pre_receipt=False, **_kwargs):
+        observed["path"] = selected
+        observed["allow"] = allow_verified_pre_receipt
+        return "GENERATED_" + bootstrap.SAFE_VERIFIED_PRE_RECEIPT_DATABASE
+
+    monkeypatch.setattr(bootstrap, "ensure_publication_receipt_key", provision)
+    assert bootstrap.main([
+        "--env-file", str(path), "--provision-verified-pre-receipt"
+    ]) == 0
+    assert observed == {"path": path, "allow": True}
+    output = capsys.readouterr()
+    assert "operator-verified pre-receipt database" in output.out
 
 
 def test_short_existing_key_refuses_automatic_replacement(tmp_path, monkeypatch):
