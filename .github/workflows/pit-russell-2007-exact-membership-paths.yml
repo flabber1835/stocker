@@ -1,0 +1,51 @@
+name: Probe exact 2007 Russell membership paths
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - '.github/workflows/pit-russell-2007-exact-membership-paths.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-path:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    strategy:
+      fail-fast: false
+      matrix:
+        source:
+          - 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
+          - 'http://www.russell.com/indexes/data/membership/Russell3000_Membership_List.pdf'
+          - 'http://www.russell.com/indexes/membership/USIndexes/Russell3000_Membership_List.pdf'
+          - 'http://www.russell.com/Indexes/membership/Reconstitution/Russell3000_Membership_List.pdf'
+          - 'http://www.russell.com/indexes/membership/reconstitution/Russell3000_Membership_List.pdf'
+          - 'http://www.russell.com/indexes/documents/Membership/Russell3000_MembershipList.pdf'
+    steps:
+      - name: Query exact path for 2007 captures
+        env:
+          SOURCE_URL: ${{ matrix.source }}
+        run: |
+          python - <<'PY'
+          import os, urllib.parse, urllib.request
+          source=os.environ['SOURCE_URL']
+          params=[
+            ('url',source),('output','json'),
+            ('fl','timestamp,original,statuscode,mimetype,digest,length'),
+            ('filter','statuscode:200'),('from','2007'),('to','2007'),('collapse','digest'),
+          ]
+          url='https://web.archive.org/cdx/search/cdx?'+urllib.parse.urlencode(params)
+          print('QUERY',source,flush=True)
+          req=urllib.request.Request(url,headers={'User-Agent':'stocker-pit-russell-research/1.0'})
+          try:
+              with urllib.request.urlopen(req,timeout=25) as response:
+                  payload=response.read().decode('utf-8','replace')
+                  print('HTTP',response.status,'BYTES',len(payload),flush=True)
+                  print(payload,flush=True)
+          except Exception as exc:
+              print('ERROR',type(exc).__name__,str(exc),flush=True)
+          PY
