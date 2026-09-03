@@ -1,0 +1,76 @@
+name: PIT Russell early parser investigation
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - 'tools/pit_russell_early_pdf_diagnostic.py'
+      - '.github/workflows/pit-russell-early-parser-investigation.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: r3000-2005
+            url: 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf'
+            timestamp: '20051030075845'
+          - label: r3000-2006
+            url: 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf'
+            timestamp: '20060710045437'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact research revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            tools
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Install Poppler
+        run: |
+          set -euo pipefail
+          if ! command -v pdftotext >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends poppler-utils
+          fi
+          pdftotext -v
+      - name: Run structural diagnostic
+        run: |
+          set -euo pipefail
+          out="/tmp/${{ matrix.label }}-parser-diagnostic"
+          rm -rf "$out"
+          python tools/pit_russell_early_pdf_diagnostic.py \
+            --url '${{ matrix.url }}' \
+            --timestamp '${{ matrix.timestamp }}' \
+            --timeout 25 \
+            --attempts 5 \
+            --output-dir "$out"
+      - name: Publish summary
+        if: always()
+        run: |
+          report="/tmp/${{ matrix.label }}-parser-diagnostic/report.md"
+          if [ -f "$report" ]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pit-early-parser-${{ matrix.label }}-${{ github.sha }}
+          path: |
+            /tmp/${{ matrix.label }}-parser-diagnostic/diagnostic.json
+            /tmp/${{ matrix.label }}-parser-diagnostic/report.md
+          if-no-files-found: error
+          retention-days: 30
