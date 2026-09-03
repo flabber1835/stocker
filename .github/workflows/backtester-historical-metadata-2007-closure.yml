@@ -118,8 +118,10 @@ jobs:
           assert manifest['schema']=='backtester.historical-metadata-2007-closure-input/1'
           assert int(manifest['target_year'])==2007
           assert int(manifest['expected_rows'])==2976
+          assert int(manifest['baseline_mapped_discovery'])==2584
           assert int(manifest['baseline_ambiguous'])==52
-          assert int(manifest['baseline_unclassified'])==340
+          assert int(manifest['baseline_name_unmatched'])==340
+          assert int(manifest['baseline_unclassified'])==0
           source=root/'source_holdings_2007.csv.gz'
           adjudications=root/'adjudications_2007.csv.gz'
           assert source.is_file() and adjudications.is_file() and (root/'evidence').is_dir()
