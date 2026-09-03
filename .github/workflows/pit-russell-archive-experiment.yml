@@ -10,12 +10,14 @@ on:
       - 'tools/pit_russell_wayback_nav_probe.py'
       - 'tools/pit_russell_legacy_content_probe.py'
       - 'tools/pit_russell_pdf_membership_extract.py'
+      - 'tools/pit_russell_pdf_legacy_membership_extract.py'
       - 'tools/pit_russell_pdf_raw_probe.py'
       - 'tools/pit_russell_coverage_discovery.py'
       - 'tests/scripts/test_pit_russell_archive_probe.py'
       - 'tests/scripts/test_pit_russell_wayback_nav_probe.py'
       - 'tests/scripts/test_pit_russell_legacy_content_probe.py'
       - 'tests/scripts/test_pit_russell_pdf_membership_extract.py'
+      - 'tests/scripts/test_pit_russell_pdf_legacy_membership_extract.py'
       - 'tests/scripts/test_pit_russell_pdf_raw_probe.py'
       - 'tests/scripts/test_pit_russell_coverage_discovery.py'
       - '.github/workflows/pit-russell-archive-experiment.yml'
@@ -47,6 +49,7 @@ jobs:
             tests.scripts.test_pit_russell_wayback_nav_probe \
             tests.scripts.test_pit_russell_legacy_content_probe \
             tests.scripts.test_pit_russell_pdf_membership_extract \
+            tests.scripts.test_pit_russell_pdf_legacy_membership_extract \
             tests.scripts.test_pit_russell_pdf_raw_probe \
             tests.scripts.test_pit_russell_coverage_discovery \
             -v
@@ -100,24 +103,31 @@ jobs:
       matrix:
         include:
           - label: r3000-2005
+            script: tools/pit_russell_pdf_legacy_membership_extract.py
             url: 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf'
             timestamp: '20051030075845'
           - label: r3000-2006
+            script: tools/pit_russell_pdf_legacy_membership_extract.py
             url: 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf'
             timestamp: '20060710045437'
           - label: r3000-2009
+            script: tools/pit_russell_pdf_membership_extract.py
             url: 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
             timestamp: '20091014135725'
           - label: r3000-2010
+            script: tools/pit_russell_pdf_membership_extract.py
             url: 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
             timestamp: '20100704211111'
           - label: r3000-2011
+            script: tools/pit_russell_pdf_membership_extract.py
             url: 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
             timestamp: '20110719002200'
           - label: r3000-2012
+            script: tools/pit_russell_pdf_membership_extract.py
             url: 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
             timestamp: '20120903224533'
           - label: r3000-2013
+            script: tools/pit_russell_pdf_membership_extract.py
             url: 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
             timestamp: '20131019065015'
     runs-on: ubuntu-24.04
@@ -145,7 +155,7 @@ jobs:
           set -euo pipefail
           out="/tmp/${{ matrix.label }}"
           rm -rf "$out"
-          python tools/pit_russell_pdf_membership_extract.py \
+          python '${{ matrix.script }}' \
             --url '${{ matrix.url }}' \
             --timestamp '${{ matrix.timestamp }}' \
             --timeout 25 \
