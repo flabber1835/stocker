@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+from contextlib import contextmanager
 import importlib.util
 import os
 from pathlib import Path
@@ -40,6 +41,12 @@ def _receipt_value(path: Path) -> str:
     return matches[0]
 
 
+def test_bootstrap_uses_canonical_corpus_lock_key():
+    from sentinel.feed import _publication_impl
+
+    assert bootstrap.CORPUS_LOCK_KEY == _publication_impl.CORPUS_LOCK_KEY
+
+
 def test_missing_key_is_generated_only_after_no_receipt_ancestry_is_proven(
         tmp_path, monkeypatch):
     path = tmp_path / ".env"
@@ -52,11 +59,11 @@ def test_missing_key_is_generated_only_after_no_receipt_ancestry_is_proven(
         observed["candidate"] = candidate
         assert len(candidate.encode("utf-8")) >= bootstrap.MIN_KEY_BYTES
         assert env["SENTINEL_POSTGRES_PASSWORD"] == "database-secret"
-        return bootstrap.SAFE_LEGACY_DATABASE
+        return bootstrap.SAFE_FRESH_DATABASE
 
     result = bootstrap.ensure_publication_receipt_key(
         path, receipt_state_probe=probe)
-    assert result == "GENERATED_" + bootstrap.SAFE_LEGACY_DATABASE
+    assert result == "GENERATED_" + bootstrap.SAFE_FRESH_DATABASE
     value = _receipt_value(path)
     assert value == observed["candidate"]
     assert re.fullmatch(r"[0-9a-f]{64}", value)
@@ -64,6 +71,54 @@ def test_missing_key_is_generated_only_after_no_receipt_ancestry_is_proven(
     text = path.read_text(encoding="utf-8")
     assert "SENTINEL_POSTGRES_PASSWORD=database-secret" in text
     assert "SHARADAR_API_KEY=sharadar-secret" in text
+
+
+def test_generation_guard_remains_held_through_durable_key_write(
+        tmp_path, monkeypatch):
+    path = tmp_path / ".env"
+    _write_env(path)
+    monkeypatch.delenv(bootstrap.RECEIPT_KEY, raising=False)
+    events = []
+
+    @contextmanager
+    def guarded(_env):
+        events.append("authority-locked")
+        yield bootstrap.SAFE_FRESH_DATABASE
+        events.append("authority-unlocked")
+
+    original = bootstrap._atomic_set_key
+
+    def observed_write(selected, generated):
+        events.append("key-write")
+        assert events == ["authority-locked", "key-write"]
+        return original(selected, generated)
+
+    monkeypatch.setattr(bootstrap, "_receipt_ancestry_guard", guarded)
+    monkeypatch.setattr(bootstrap, "_atomic_set_key", observed_write)
+
+    result = bootstrap.ensure_publication_receipt_key(path)
+    assert result == "GENERATED_" + bootstrap.SAFE_FRESH_DATABASE
+    assert events == [
+        "authority-locked", "key-write", "authority-unlocked"]
+
+
+def test_valid_key_established_after_probe_is_adopted_not_overwritten(
+        tmp_path, monkeypatch):
+    path = tmp_path / ".env"
+    _write_env(path)
+    monkeypatch.delenv(bootstrap.RECEIPT_KEY, raising=False)
+    concurrent = "b" * 64
+
+    def probe(_env):
+        with path.open("a", encoding="utf-8") as handle:
+            handle.write(bootstrap.RECEIPT_KEY + "=" + concurrent + "\n")
+        return bootstrap.SAFE_FRESH_DATABASE
+
+    result = bootstrap.ensure_publication_receipt_key(
+        path, receipt_state_probe=probe)
+    assert result == "PRESENT_FILE_CONCURRENT"
+    assert _receipt_value(path) == concurrent
+    assert stat.S_IMODE(path.stat().st_mode) == 0o600
 
 
 def test_generated_secret_is_never_printed(tmp_path, monkeypatch, capsys):
@@ -113,6 +168,16 @@ def test_authenticated_receipt_ancestry_refuses_rotation(tmp_path, monkeypatch):
             path,
             receipt_state_probe=lambda _env: bootstrap.AUTHENTICATED_RECEIPTS_EXIST)
     assert path.read_bytes() == before
+
+
+def test_publication_history_without_receipt_authority_is_ambiguous(monkeypatch):
+    monkeypatch.setattr(
+        bootstrap, "_psql",
+        lambda _env, _args, _sql: "1:0:0")
+    with pytest.raises(
+            bootstrap.BootstrapRefused,
+            match="cannot distinguish a verified pre-receipt database"):
+        bootstrap._receipt_ancestry_ready({}, [])
 
 
 def test_short_existing_key_refuses_automatic_replacement(tmp_path, monkeypatch):
@@ -185,11 +250,19 @@ def test_backup_durability_is_proven_before_postgres_start(monkeypatch):
     monkeypatch.setattr(
         bootstrap, "_ensure_postgres_ready",
         lambda _env, _args: events.append("postgres"))
+
+    @contextmanager
+    def lock(_env, _args):
+        events.append("lock")
+        yield
+
+    monkeypatch.setattr(bootstrap, "_publication_authority_lock", lock)
     monkeypatch.setattr(
         bootstrap, "_psql",
         lambda _env, _args, _sql: events.append("query") or "0:0:0")
     assert bootstrap._receipt_ancestry({}) == bootstrap.SAFE_FRESH_DATABASE
-    assert events[:4] == ["prerequisites", "backup", "compose", "postgres"]
+    assert events[:5] == [
+        "prerequisites", "backup", "compose", "postgres", "lock"]
 
 
 def test_supported_launchers_bootstrap_before_compose_dependent_work():

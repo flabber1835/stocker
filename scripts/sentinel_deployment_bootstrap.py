@@ -1,25 +1,25 @@
 #!/usr/bin/env python3
-"""Provision first-install Sentinel secrets before Compose is allowed to resolve.
+"""Provision first-install Sentinel publication-receipt authority.
 
 The supported GO and autonomous-deployment launchers call this helper before any
-Compose-dependent phase. Its only managed value is the independent publication
-receipt HMAC authority introduced by the receipt-chain hardening.
+Compose-dependent phase. Automatic generation is allowed only while the
+canonical PostgreSQL publication authority is locked and the database proves
+that no authenticated receipt ancestry exists.
 
-A missing key may be generated automatically only after PostgreSQL proves that
-no authenticated receipt row already exists. A legacy/pre-receipt corpus is
-safe: the schema migration records its current publication frontier as the
-legacy prefix and only later publications require authenticated receipts. If
-any authenticated receipt exists, losing the key is recovery of an existing
-secret, never permission to rotate it.
+A database containing publications but no receipt-policy relations is ambiguous:
+it may be a genuine pre-receipt deployment, or a receipt-era deployment that
+lost authority tables. Automatic generation therefore refuses that shape. A
+verified pre-receipt upgrade can provision an explicit 32+ byte key before its
+schema migration.
 
-The key is generated with ``secrets``, written atomically to the existing .env
-at mode 0600, never printed, and never passed on a command line. PostgreSQL is
-never started for this proof until the existing durable-backup-target guard has
-passed.
+The generated key is written atomically to the existing .env at mode 0600,
+never printed, and never passed on a command line. PostgreSQL is never started
+for this proof until the durable-backup-target guard has passed.
 """
 from __future__ import annotations
 
 import argparse
+from contextlib import contextmanager
 import os
 from pathlib import Path
 import re
@@ -29,7 +29,7 @@ import stat
 import subprocess
 import sys
 import time
-from typing import Callable, Dict, Mapping, Optional, Sequence
+from typing import Callable, Dict, Iterator, Mapping, Optional, Sequence
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -38,8 +38,13 @@ RECEIPT_KEY = "SENTINEL_PUBLICATION_RECEIPT_KEY"
 MIN_KEY_BYTES = 32
 DEFAULT_POSTGRES_TIMEOUT_SECONDS = 120
 
+# Must stay identical to sentinel.feed._publication_impl.CORPUS_LOCK_KEY.
+# The bootstrap holds this exact exclusive advisory lock across the complete
+# ancestry-check -> fsync(.env) transition, so canonical publication cannot
+# create the first authenticated receipt under a different in-memory key.
+CORPUS_LOCK_KEY = 0x5E27_C0B5
+
 SAFE_FRESH_DATABASE = "SAFE_FRESH_DATABASE"
-SAFE_LEGACY_DATABASE = "SAFE_LEGACY_DATABASE"
 SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS = "SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS"
 AUTHENTICATED_RECEIPTS_EXIST = "AUTHENTICATED_RECEIPTS_EXIST"
 
@@ -152,9 +157,6 @@ def _require_probe_prerequisites(env: Mapping[str, str]) -> None:
 
 
 def _require_backup_target(env: Mapping[str, str]) -> None:
-    # Reuse the exact production durability authority before starting PostgreSQL.
-    # This prevents a failed external mount from turning the fallback directory
-    # underneath the mount point into the WAL archive during bootstrap.
     completed = _run([
         "bash", "-c",
         ". scripts/sentinel-backup-lib.sh; sentinel_backup_root >/dev/null",
@@ -181,7 +183,8 @@ def _compose_args(env: Mapping[str, str]) -> Sequence[str]:
 
 
 def _postgres_timeout(env: Mapping[str, str]) -> int:
-    raw = str(env.get("SENTINEL_DEPLOY_BOOTSTRAP_POSTGRES_TIMEOUT_SECONDS") or "").strip()
+    raw = str(
+        env.get("SENTINEL_DEPLOY_BOOTSTRAP_POSTGRES_TIMEOUT_SECONDS") or "").strip()
     if not raw:
         return DEFAULT_POSTGRES_TIMEOUT_SECONDS
     try:
@@ -241,11 +244,81 @@ def _psql(env: Mapping[str, str], compose_args: Sequence[str], sql: str) -> str:
     return (completed.stdout or "").strip()
 
 
-def _receipt_ancestry(env: Mapping[str, str]) -> str:
-    _require_probe_prerequisites(env)
-    _require_backup_target(env)
-    compose_args = _compose_args(env)
-    _ensure_postgres_ready(env, compose_args)
+def _close_lock_process(process: subprocess.Popen, acquired: bool) -> None:
+    if process.stdin is not None:
+        if acquired and process.poll() is None:
+            try:
+                process.stdin.write(
+                    "SELECT pg_advisory_unlock(%d);\n\\q\n" % CORPUS_LOCK_KEY)
+                process.stdin.flush()
+            except (BrokenPipeError, OSError):
+                pass
+        try:
+            process.stdin.close()
+        except OSError:
+            pass
+    try:
+        process.wait(timeout=5)
+    except subprocess.TimeoutExpired:
+        process.terminate()
+        try:
+            process.wait(timeout=5)
+        except subprocess.TimeoutExpired:
+            process.kill()
+            process.wait()
+
+
+@contextmanager
+def _publication_authority_lock(
+        env: Mapping[str, str],
+        compose_args: Sequence[str]) -> Iterator[None]:
+    """Hold the canonical corpus exclusive lock until the host key is durable.
+
+    psql remains alive with stdin connected to this parent. If the parent dies,
+    EOF closes the psql session and PostgreSQL releases the advisory lock.
+    """
+    token = secrets.token_hex(16)
+    argv = [
+        "docker", "compose", *[str(item) for item in compose_args],
+        "exec", "-T", "sentinel-postgres",
+        "psql", "-qAtX", "-U", "sentinel", "-d", "sentinel",
+        "-v", "ON_ERROR_STOP=1",
+    ]
+    try:
+        process = subprocess.Popen(
+            argv, cwd=str(ROOT), env=dict(env),
+            stdin=subprocess.PIPE, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, bufsize=1)
+    except OSError as exc:
+        raise BootstrapRefused(
+            "Sentinel PostgreSQL publication-authority lock session could not start") from exc
+
+    acquired = False
+    try:
+        if process.stdin is None or process.stdout is None:
+            raise BootstrapRefused(
+                "Sentinel PostgreSQL publication-authority lock pipes are unavailable")
+        process.stdin.write(
+            "SELECT CASE WHEN pg_try_advisory_lock(%d) "
+            "THEN 'LOCKED:%s' ELSE 'BUSY:%s' END;\n"
+            % (CORPUS_LOCK_KEY, token, token))
+        process.stdin.flush()
+        marker = process.stdout.readline().strip()
+        if marker == "BUSY:" + token:
+            raise BootstrapRefused(
+                "corpus publication authority is busy; retry secret bootstrap "
+                "after the active reader/publisher releases the corpus lock")
+        if marker != "LOCKED:" + token:
+            raise BootstrapRefused(
+                "Sentinel PostgreSQL publication-authority lock was not proven")
+        acquired = True
+        yield
+    finally:
+        _close_lock_process(process, acquired)
+
+
+def _receipt_ancestry_ready(
+        env: Mapping[str, str], compose_args: Sequence[str]) -> str:
     shape = _psql(
         env, compose_args,
         "SELECT "
@@ -257,7 +330,12 @@ def _receipt_ancestry(env: Mapping[str, str]) -> str:
     if shape == "0:0:0":
         return SAFE_FRESH_DATABASE
     if shape == "1:0:0":
-        return SAFE_LEGACY_DATABASE
+        raise BootstrapRefused(
+            "publication history exists without receipt-policy authority; "
+            "PostgreSQL alone cannot distinguish a verified pre-receipt database "
+            "from receipt-era authority loss. Restore the missing receipt authority, "
+            "or explicitly provision a 32+ byte key only after independently "
+            "verifying a pre-receipt migration")
     if shape != "1:1:1":
         raise BootstrapRefused(
             "publication receipt schema is partially installed; refusing key generation")
@@ -295,7 +373,35 @@ def _receipt_ancestry(env: Mapping[str, str]) -> str:
     return SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS
 
 
-def _atomic_set_key(path: Path, generated: str) -> None:
+@contextmanager
+def _receipt_ancestry_guard(env: Mapping[str, str]) -> Iterator[str]:
+    _require_probe_prerequisites(env)
+    _require_backup_target(env)
+    compose_args = _compose_args(env)
+    _ensure_postgres_ready(env, compose_args)
+    with _publication_authority_lock(env, compose_args):
+        yield _receipt_ancestry_ready(env, compose_args)
+
+
+def _receipt_ancestry(env: Mapping[str, str]) -> str:
+    """Diagnostic wrapper; generation uses _receipt_ancestry_guard directly."""
+    with _receipt_ancestry_guard(env) as state:
+        return state
+
+
+def _current_file_key(path: Path) -> Optional[str]:
+    values = _parse_env(path)
+    value = str(values.get(RECEIPT_KEY) or "").strip()
+    if not value or _PLACEHOLDER.fullmatch(value):
+        return None
+    if not _usable_key(value):
+        raise BootstrapRefused(
+            "%s changed during bootstrap to an invalid value" % RECEIPT_KEY)
+    return value
+
+
+def _atomic_set_key(path: Path, generated: str) -> str:
+    """Persist generated, or adopt a valid key established after the first read."""
     try:
         entry = path.lstat()
     except FileNotFoundError as exc:
@@ -303,10 +409,20 @@ def _atomic_set_key(path: Path, generated: str) -> None:
     if stat.S_ISLNK(entry.st_mode) or not stat.S_ISREG(entry.st_mode):
         raise BootstrapRefused(".env changed to an unsafe file type")
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
+        original_text = path.read_text(encoding="utf-8")
     except (OSError, UnicodeError) as exc:
         raise BootstrapRefused(".env became unreadable during deployment bootstrap") from exc
 
+    concurrent = _current_file_key(path)
+    if concurrent is not None:
+        try:
+            os.chmod(str(path), 0o600)
+        except OSError as exc:
+            raise BootstrapRefused(
+                ".env permissions could not be tightened during key adoption") from exc
+        return concurrent
+
+    lines = original_text.splitlines()
     out = []
     replaced = False
     for raw in lines:
@@ -324,7 +440,8 @@ def _atomic_set_key(path: Path, generated: str) -> None:
     if not replaced:
         if out and out[-1] != "":
             out.append("")
-        out.append("# Generated by the supported Sentinel deployment bootstrap; preserve after first use.")
+        out.append(
+            "# Generated by the supported Sentinel deployment bootstrap; preserve after first use.")
         out.append("%s=%s" % (RECEIPT_KEY, generated))
 
     temporary = path.with_name(".%s.bootstrap.%d" % (path.name, os.getpid()))
@@ -337,9 +454,28 @@ def _atomic_set_key(path: Path, generated: str) -> None:
             handle.write("\n".join(out) + "\n")
             handle.flush()
             os.fsync(handle.fileno())
-        current = path.lstat()
-        if stat.S_ISLNK(current.st_mode) or not stat.S_ISREG(current.st_mode):
+
+        current_entry = path.lstat()
+        if stat.S_ISLNK(current_entry.st_mode) or not stat.S_ISREG(current_entry.st_mode):
             raise BootstrapRefused(".env changed to an unsafe file type")
+        try:
+            current_text = path.read_text(encoding="utf-8")
+        except (OSError, UnicodeError) as exc:
+            raise BootstrapRefused(
+                ".env became unreadable immediately before key commit") from exc
+        if current_text != original_text:
+            concurrent = _current_file_key(path)
+            if concurrent is not None:
+                try:
+                    os.chmod(str(path), 0o600)
+                except OSError as exc:
+                    raise BootstrapRefused(
+                        ".env permissions could not be tightened during key adoption") from exc
+                return concurrent
+            raise BootstrapRefused(
+                ".env changed during publication-authority bootstrap; retry from "
+                "the new host configuration")
+
         os.replace(str(temporary), str(path))
         directory_fd = os.open(
             str(path.parent), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
@@ -347,6 +483,12 @@ def _atomic_set_key(path: Path, generated: str) -> None:
             os.fsync(directory_fd)
         finally:
             os.close(directory_fd)
+
+        persisted = _current_file_key(path)
+        if persisted != generated:
+            raise BootstrapRefused(
+                "publication receipt authority was not durably persisted as generated")
+        return generated
     finally:
         if fd is not None:
             os.close(fd)
@@ -356,9 +498,26 @@ def _atomic_set_key(path: Path, generated: str) -> None:
             pass
 
 
+def _persist_for_state(path: Path, generated: str, state: str) -> str:
+    if state == AUTHENTICATED_RECEIPTS_EXIST:
+        raise BootstrapRefused(
+            "%s is missing but authenticated publication receipts already exist; "
+            "restore the original key from deployment secrets/backups"
+            % RECEIPT_KEY)
+    if state not in {
+            SAFE_FRESH_DATABASE,
+            SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS}:
+        raise BootstrapRefused("publication receipt ancestry returned an unknown state")
+    persisted = _atomic_set_key(path, generated)
+    if persisted != generated:
+        return "PRESENT_FILE_CONCURRENT"
+    return "GENERATED_" + state
+
+
 def ensure_publication_receipt_key(
         path: Path = ENV_PATH,
-        *, receipt_state_probe: Callable[[Mapping[str, str]], str] = _receipt_ancestry) -> str:
+        *, receipt_state_probe: Optional[
+            Callable[[Mapping[str, str]], str]] = None) -> str:
     values = _parse_env(path)
     configured = _configured_key(values)
     if configured is not None:
@@ -367,22 +526,19 @@ def ensure_publication_receipt_key(
     generated = secrets.token_hex(32)
     probe_env = dict(values)
     probe_env.update(os.environ)
-    # This temporary in-memory value exists only so Compose can resolve the
-    # graph needed to inspect PostgreSQL. The postgres service itself does not
-    # receive or consume publication-receipt authority.
+    # Candidate exists only so Compose can resolve the graph. sentinel-postgres
+    # does not consume publication-receipt authority.
     probe_env[RECEIPT_KEY] = generated
-    state = receipt_state_probe(probe_env)
-    if state == AUTHENTICATED_RECEIPTS_EXIST:
-        raise BootstrapRefused(
-            "%s is missing but authenticated publication receipts already exist; "
-            "restore the original key from deployment secrets/backups"
-            % RECEIPT_KEY)
-    if state not in {
-            SAFE_FRESH_DATABASE, SAFE_LEGACY_DATABASE,
-            SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS}:
-        raise BootstrapRefused("publication receipt ancestry returned an unknown state")
-    _atomic_set_key(path, generated)
-    return "GENERATED_" + state
+
+    # Injection is retained for hermetic unit tests. The production path always
+    # uses the guarded context so the canonical corpus lock remains held through
+    # _atomic_set_key() and its directory fsync.
+    if receipt_state_probe is not None:
+        state = receipt_state_probe(probe_env)
+        return _persist_for_state(path, generated, state)
+
+    with _receipt_ancestry_guard(probe_env) as state:
+        return _persist_for_state(path, generated, state)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:

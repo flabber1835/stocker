@@ -199,14 +199,41 @@ def main(argv=None) -> int:
                 state == deploy_bootstrap.SAFE_FRESH_DATABASE,
                 "fresh database was not safe for first-install receipt authority")
 
+            # The generation guard must own the same advisory lock canonical
+            # publication uses. A second publisher-shaped lock attempt must fail
+            # for the whole yielded ancestry interval.
+            with deploy_bootstrap._receipt_ancestry_guard(env) as locked_state:
+                _require(
+                    locked_state == deploy_bootstrap.SAFE_FRESH_DATABASE,
+                    "locked fresh ancestry changed classification")
+                competing = deploy_bootstrap._psql(
+                    env, compose_args,
+                    "SELECT pg_try_advisory_lock(%d)::int"
+                    % deploy_bootstrap.CORPUS_LOCK_KEY)
+                _require(
+                    competing == "0",
+                    "receipt bootstrap did not exclude canonical publication")
+            released = deploy_bootstrap._psql(
+                env, compose_args,
+                "SELECT pg_try_advisory_lock(%d)::int"
+                % deploy_bootstrap.CORPUS_LOCK_KEY)
+            _require(
+                released == "1",
+                "receipt bootstrap did not release publication authority")
+
             deploy_bootstrap._psql(
                 env, compose_args,
                 "CREATE TABLE sentinel_corpus_publications (version BIGINT PRIMARY KEY);"
                 " INSERT INTO sentinel_corpus_publications(version) VALUES (7)")
-            state = deploy_bootstrap._receipt_ancestry(env)
-            _require(
-                state == deploy_bootstrap.SAFE_LEGACY_DATABASE,
-                "legacy pre-receipt corpus was not recognized")
+            try:
+                deploy_bootstrap._receipt_ancestry(env)
+            except deploy_bootstrap.BootstrapRefused as exc:
+                _require(
+                    "cannot distinguish a verified pre-receipt database" in str(exc),
+                    "ambiguous 1:0:0 ancestry refused for the wrong reason")
+            else:
+                raise RuntimeError(
+                    "publication history without receipt authority was grandfathered")
 
             deploy_bootstrap._psql(
                 env, compose_args,
