@@ -10,10 +10,12 @@ on:
       - 'tools/pit_russell_wayback_nav_probe.py'
       - 'tools/pit_russell_legacy_content_probe.py'
       - 'tools/pit_russell_pdf_membership_extract.py'
+      - 'tools/pit_russell_pdf_raw_probe.py'
       - 'tests/scripts/test_pit_russell_archive_probe.py'
       - 'tests/scripts/test_pit_russell_wayback_nav_probe.py'
       - 'tests/scripts/test_pit_russell_legacy_content_probe.py'
       - 'tests/scripts/test_pit_russell_pdf_membership_extract.py'
+      - 'tests/scripts/test_pit_russell_pdf_raw_probe.py'
       - '.github/workflows/pit-russell-archive-experiment.yml'
   workflow_dispatch:
 
@@ -43,24 +45,21 @@ jobs:
             tests.scripts.test_pit_russell_wayback_nav_probe \
             tests.scripts.test_pit_russell_legacy_content_probe \
             tests.scripts.test_pit_russell_pdf_membership_extract \
+            tests.scripts.test_pit_russell_pdf_raw_probe \
             -v
 
-  legacy-pdf-extract:
+  raw-pdf-ordering-probe:
     needs: deterministic-tests
     strategy:
       fail-fast: false
       matrix:
         include:
-          - label: r3000-2005-pre
-            timestamp: '20050529112635'
           - label: r3000-2005-post
             timestamp: '20051030075845'
           - label: r3000-2006-jul
             timestamp: '20060710045437'
-          - label: r3000-2006-sep
-            timestamp: '20060927140930'
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - name: Check out exact experiment revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -71,86 +70,39 @@ jobs:
         with:
           python-version: '3.12'
           check-latest: false
-      - name: Install and identify PDF text extractor
+      - name: Install and identify Poppler
         run: |
           set -euo pipefail
           if ! command -v pdftotext >/dev/null 2>&1; then
             sudo apt-get update
             sudo apt-get install -y --no-install-recommends poppler-utils
           fi
-          command -v pdftotext
           pdftotext -v
-      - name: Extract factual Russell 3000 membership rows
+      - name: Diagnose raw membership text ordering
         run: |
           set -euo pipefail
-          out="/tmp/${{ matrix.label }}"
+          out="/tmp/raw-${{ matrix.label }}"
           rm -rf "$out"
-          python tools/pit_russell_pdf_membership_extract.py \
+          python tools/pit_russell_pdf_raw_probe.py \
             --url 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf' \
             --timestamp '${{ matrix.timestamp }}' \
             --timeout 25 \
             --attempts 5 \
-            --min-rows 2500 \
-            --max-rows 3500 \
             --output-dir "$out"
-      - name: Publish extraction evidence
+      - name: Publish raw-order evidence
         if: always()
         run: |
-          report="/tmp/${{ matrix.label }}/report.md"
+          report="/tmp/raw-${{ matrix.label }}/report.md"
           if [ -f "$report" ]; then
             cat "$report" >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Upload derived membership evidence only
+      - name: Upload derived diagnostics only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: pit-${{ matrix.label }}-${{ github.sha }}
+          name: pit-raw-${{ matrix.label }}-${{ github.sha }}
           path: |
-            /tmp/${{ matrix.label }}/membership.json
-            /tmp/${{ matrix.label }}/report.md
-          if-no-files-found: warn
-          retention-days: 30
-
-  transition-2007-probe:
-    needs: deterministic-tests
-    runs-on: ubuntu-24.04
-    timeout-minutes: 8
-    steps:
-      - name: Check out exact experiment revision
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          fetch-depth: 1
-      - name: Set up Python 3.12
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: '3.12'
-          check-latest: false
-      - name: Inspect archived 2007 legacy R3000 transition payload
-        run: |
-          set -euo pipefail
-          rm -rf /tmp/r3000-2007-transition
-          python tools/pit_russell_legacy_content_probe.py \
-            --from-year 2007 \
-            --to-year 2007 \
-            --max-pages-per-year 2 \
-            --timeout 20 \
-            --attempts 4 \
-            --delay 0.25 \
-            --url 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf' \
-            --output-dir /tmp/r3000-2007-transition
-      - name: Publish transition evidence
-        if: always()
-        run: |
-          if [ -f /tmp/r3000-2007-transition/report.md ]; then
-            cat /tmp/r3000-2007-transition/report.md >> "$GITHUB_STEP_SUMMARY"
-          fi
-      - name: Upload derived transition evidence only
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: pit-r3000-2007-transition-${{ github.sha }}
-          path: |
-            /tmp/r3000-2007-transition/manifest.json
-            /tmp/r3000-2007-transition/report.md
+            /tmp/raw-${{ matrix.label }}/raw_structure.json
+            /tmp/raw-${{ matrix.label }}/report.md
           if-no-files-found: warn
           retention-days: 30
