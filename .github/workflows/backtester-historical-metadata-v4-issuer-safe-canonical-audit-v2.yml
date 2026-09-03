@@ -1,0 +1,244 @@
+name: Backtester - historical metadata V4 issuer-safe canonical audit V2
+run-name: Historical metadata V4 issuer-safe canonical audit V2 — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-pit-corpus-recovery-v4]
+    paths:
+      - '.github/workflows/backtester-historical-metadata-v4-issuer-safe-canonical-audit-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+
+concurrency:
+  group: backtester-historical-metadata-v4-issuer-safe-canonical-audit-v2
+  cancel-in-progress: true
+
+env:
+  V2_RUN_ID: '33701529865'
+  V2_ARTIFACT: historical-metadata-v2-resilient-indexed-evidence-431686edffef158ff61c122c977ff2c7c18b7036-3556a6c9e01410bed6af02c0bd0d42eb718d2068
+  V3_RUN_ID: '33704396721'
+  V3_ARTIFACT: historical-metadata-v3-candidates-5d4d826c1c295cdc0a9dde5b80208a7cdf3e14f2
+  CORRECTED_RUN_ID: '33710114749'
+  CORRECTED_ARTIFACT: historical-metadata-v3-corrected-topology-recovery-4834767c842adb1155b6a2244ec3c4cc33aca886
+  BASELINE_RUN_ID: '33711744625'
+  BASELINE_ARTIFACT: historical-metadata-v3-corrected-canonical-observation-audit-9536ee216f0d8ef2299530a02e0fa1f41154fce1
+  V4_RUN_ID: '33719386772'
+  V4_SOURCE_SHA: cafe57af4a54759aa56e9fee0dec742ae0e96842
+  V4_ARTIFACT: historical-metadata-v4-issuer-safe-retained-sec-candidates-cafe57af4a54759aa56e9fee0dec742ae0e96842
+  V4_ARTIFACT_DIGEST: sha256:7aa7de9949ab8c488e17aabfc36850939b0becefab9cda926a5df77fab2282d1
+  V2_ROOT: backtester-results/v2
+  V3_ROOT: backtester-results/v3
+  CORRECTED_ROOT: backtester-results/corrected
+  BASELINE_ROOT: backtester-results/baseline-audit
+  V4_ROOT: backtester-results/v4-safe
+  CANONICAL: backtester-results/canonical-pit-20y
+  POINTER: backtester/data/canonical-pit-20y.json
+  OUTPUT: backtester-results/v4-issuer-safe-canonical-audit
+
+jobs:
+  audit:
+    name: Allocate issuer-safe V4 evidence and audit all canonical observations
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out exact audit source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/
+            /tests/backtester/test_rebuild_corrected_canonical_metadata_v4.py
+            /.github/workflows/backtester-historical-metadata-v4-issuer-safe-canonical-audit-v2.yml
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Run strict-prior and identity-continuity regressions
+        run: |
+          set -euo pipefail
+          python -m compileall -q \
+            backtester/rebuild_corrected_canonical_metadata_v4.py \
+            backtester/run_rebuild_corrected_canonical_metadata_v4.py \
+            backtester/mine_historical_metadata_candidates_v4_issuer_safe.py \
+            tests/backtester/test_rebuild_corrected_canonical_metadata_v4.py
+          python - <<'PY'
+          import runpy
+          ns=runpy.run_path('tests/backtester/test_rebuild_corrected_canonical_metadata_v4.py')
+          for name in sorted(ns):
+              if name.startswith('test_'):
+                  ns[name]()
+          print({'status':'PASS','contract':'same-day evidence excluded; ownership CIK filing-bound; SEC CIK cannot create a security episode boundary'})
+          PY
+
+      - name: Verify exact completed issuer-safe source run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${V4_RUN_ID}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${V4_RUN_ID}" --jq '.head_sha')" = "${V4_SOURCE_SHA}"
+
+      - name: Download authenticated V2 evidence package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.V2_ARTIFACT }}
+          path: ${{ env.V2_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.V2_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download authenticated original V3 candidate package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.V3_ARTIFACT }}
+          path: ${{ env.V3_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.V3_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download corrected identity topology
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.CORRECTED_ARTIFACT }}
+          path: ${{ env.CORRECTED_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.CORRECTED_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download definitive baseline corrected audit
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BASELINE_ARTIFACT }}
+          path: ${{ env.BASELINE_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.BASELINE_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download issuer-safe V4 candidate corpus
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.V4_ARTIFACT }}
+          path: ${{ env.V4_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.V4_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate immutable metadata inputs
+        run: |
+          set -euo pipefail
+          python -m backtester.historical_metadata_reconstruction_v2 verify --root "${V2_ROOT}"
+          python -m backtester.historical_metadata_reconstruction_v2 verify --root "${CORRECTED_ROOT}"
+          (cd "${BASELINE_ROOT}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          v3=Path(os.environ['V3_ROOT'])
+          v4=Path(os.environ['V4_ROOT'])
+          baseline=Path(os.environ['BASELINE_ROOT'])
+          assert hashlib.sha256((v3/'candidate_evidence.csv.gz').read_bytes()).hexdigest()=='989b58576dd684301cac88bebeb2d7107e1cfbb3fbc28e1b1e2a1a5df2372247'
+          bs=json.load(open(baseline/'summary.json'))
+          assert bs['status']=='PASS' and bs['admission_status']=='REVIEW_REQUIRED'
+          assert bs['unresolved_after_corrected_overlay']['episodes']==10795
+          assert bs['unresolved_after_corrected_overlay']['unknown_type_observations']==8986844
+          assert bs['unresolved_after_corrected_overlay']['missing_sector_observations']==12285603
+          vs=json.load(open(v4/'summary.json'))
+          assert vs['schema']=='backtester.historical-metadata-reconstruction-v4.issuer-safe-candidate-merge/1'
+          assert vs['status']=='PASS' and vs['candidate_only'] is True and vs['merged_shards']==32
+          assert vs['candidate_rows']==26857
+          assert vs['ownership_identity_source_cik_mismatches']==6
+          digest=hashlib.sha256((v4/'candidate_evidence.csv.gz').read_bytes()).hexdigest()
+          print({'status':'PASS','candidate_rows':vs['candidate_rows'],'candidate_sha256':digest,'ownership_cik_corrections':6})
+          PY
+
+      - name: Reclaim hosted-runner space
+        run: |
+          set -euo pipefail
+          sudo rm -rf /usr/local/lib/android /usr/share/dotnet /opt/ghc /usr/local/share/boost || true
+          docker system prune -af >/dev/null 2>&1 || true
+          df -h /
+
+      - name: Pull and authenticate frozen canonical PIT package
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          CONTAINER=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${CONTAINER}" >/dev/null 2>&1 || true' EXIT
+          rm -rf "${CANONICAL}" && mkdir -p "${CANONICAL}"
+          docker cp "${CONTAINER}:/canonical-pit/." "${CANONICAL}"
+          docker rm "${CONTAINER}"
+          trap - EXIT
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          pointer=json.load(open(os.environ['POINTER']))
+          root=Path(os.environ['CANONICAL'])
+          manifest_path=root/'manifest.json'
+          manifest=json.load(open(manifest_path))
+          assert hashlib.sha256(manifest_path.read_bytes()).hexdigest()==pointer['manifest_sha256']
+          assert manifest['status']=='PASS'
+          assert manifest['dataset_hash']==pointer['dataset_hash']=='f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b'
+          assert manifest['counts']['observation_rows']==31820893
+          assert manifest['window']['warmup_start']=='2006-01-03' and manifest['window']['end']=='2026-07-31'
+          print({'status':'PASS','dataset_hash':manifest['dataset_hash'],'observations':31820893})
+          PY
+
+      - name: Run full issuer-safe strict-prior V4 observation audit
+        run: |
+          set -euo pipefail
+          rm -rf "${OUTPUT}"
+          python -m backtester.run_rebuild_corrected_canonical_metadata_v4 \
+            --canonical-dataset "${CANONICAL}" \
+            --v2-root "${V2_ROOT}" \
+            --v3-root "${V3_ROOT}" \
+            --corrected-topology-root "${CORRECTED_ROOT}" \
+            --baseline-audit-root "${BASELINE_ROOT}" \
+            --v4-root "${V4_ROOT}" \
+            --output "${OUTPUT}"
+
+      - name: Enforce monotonic fail-closed V4 result
+        run: |
+          set -euo pipefail
+          (cd "${OUTPUT}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.load(open(Path(os.environ['OUTPUT'])/'summary.json'))
+          u=s['unresolved_after_v4']
+          assert s['status']=='PASS'
+          assert s['canonical_price_dataset_rewritten'] is False
+          assert s['causal_rule']=='usable_after < decision_session'
+          assert s['unknown_never_means_ineligible'] is True
+          assert s['baseline_unresolved_episodes']==10795
+          assert u['episodes'] <= 10795
+          assert u['unknown_type_observations'] <= 8986844
+          assert u['missing_sector_observations'] <= 12285603
+          assert s['resolved_by_v4_increment']['episodes'] >= 0
+          print(json.dumps(s,indent=2,sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write((Path(os.environ['OUTPUT'])/'SUMMARY.md').read_text())
+          PY
+
+      - name: Upload issuer-safe V4 canonical audit
+        if: ${{ always() && hashFiles('backtester-results/v4-issuer-safe-canonical-audit/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-v4-issuer-safe-canonical-audit-v2-${{ github.sha }}
+          path: ${{ env.OUTPUT }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
