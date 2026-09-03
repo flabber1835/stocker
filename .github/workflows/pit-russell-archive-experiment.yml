@@ -11,11 +11,13 @@ on:
       - 'tools/pit_russell_legacy_content_probe.py'
       - 'tools/pit_russell_pdf_membership_extract.py'
       - 'tools/pit_russell_pdf_raw_probe.py'
+      - 'tools/pit_russell_coverage_discovery.py'
       - 'tests/scripts/test_pit_russell_archive_probe.py'
       - 'tests/scripts/test_pit_russell_wayback_nav_probe.py'
       - 'tests/scripts/test_pit_russell_legacy_content_probe.py'
       - 'tests/scripts/test_pit_russell_pdf_membership_extract.py'
       - 'tests/scripts/test_pit_russell_pdf_raw_probe.py'
+      - 'tests/scripts/test_pit_russell_coverage_discovery.py'
       - '.github/workflows/pit-russell-archive-experiment.yml'
   workflow_dispatch:
 
@@ -46,20 +48,80 @@ jobs:
             tests.scripts.test_pit_russell_legacy_content_probe \
             tests.scripts.test_pit_russell_pdf_membership_extract \
             tests.scripts.test_pit_russell_pdf_raw_probe \
+            tests.scripts.test_pit_russell_coverage_discovery \
             -v
 
-  raw-pdf-ordering-probe:
+  annual-coverage-discovery:
+    needs: deterministic-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact experiment revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Discover official Russell 3000 annual artifacts
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/russell-coverage
+          python tools/pit_russell_coverage_discovery.py \
+            --from-year 2005 \
+            --to-year 2026 \
+            --timeout 20 \
+            --attempts 3 \
+            --delay 0.3 \
+            --output-dir /tmp/russell-coverage
+      - name: Publish coverage summary
+        if: always()
+        run: |
+          if [ -f /tmp/russell-coverage/report.md ]; then
+            cat /tmp/russell-coverage/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload derived coverage evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pit-russell-annual-coverage-${{ github.sha }}
+          path: |
+            /tmp/russell-coverage/coverage.json
+            /tmp/russell-coverage/report.md
+          if-no-files-found: warn
+          retention-days: 30
+
+  known-membership-extraction:
     needs: deterministic-tests
     strategy:
       fail-fast: false
       matrix:
         include:
-          - label: r3000-2005-post
+          - label: r3000-2005
+            url: 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf'
             timestamp: '20051030075845'
-          - label: r3000-2006-jul
+          - label: r3000-2006
+            url: 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf'
             timestamp: '20060710045437'
+          - label: r3000-2009
+            url: 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
+            timestamp: '20091014135725'
+          - label: r3000-2010
+            url: 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
+            timestamp: '20100704211111'
+          - label: r3000-2011
+            url: 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
+            timestamp: '20110719002200'
+          - label: r3000-2012
+            url: 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
+            timestamp: '20120903224533'
+          - label: r3000-2013
+            url: 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
+            timestamp: '20131019065015'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Check out exact experiment revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -78,31 +140,33 @@ jobs:
             sudo apt-get install -y --no-install-recommends poppler-utils
           fi
           pdftotext -v
-      - name: Diagnose raw membership text ordering
+      - name: Extract archived annual membership
         run: |
           set -euo pipefail
-          out="/tmp/raw-${{ matrix.label }}"
+          out="/tmp/${{ matrix.label }}"
           rm -rf "$out"
-          python tools/pit_russell_pdf_raw_probe.py \
-            --url 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf' \
+          python tools/pit_russell_pdf_membership_extract.py \
+            --url '${{ matrix.url }}' \
             --timestamp '${{ matrix.timestamp }}' \
             --timeout 25 \
             --attempts 5 \
+            --min-rows 2500 \
+            --max-rows 3500 \
             --output-dir "$out"
-      - name: Publish raw-order evidence
+      - name: Publish extraction evidence
         if: always()
         run: |
-          report="/tmp/raw-${{ matrix.label }}/report.md"
+          report="/tmp/${{ matrix.label }}/report.md"
           if [ -f "$report" ]; then
             cat "$report" >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Upload derived diagnostics only
+      - name: Upload derived membership evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: pit-raw-${{ matrix.label }}-${{ github.sha }}
+          name: pit-membership-${{ matrix.label }}-${{ github.sha }}
           path: |
-            /tmp/raw-${{ matrix.label }}/raw_structure.json
-            /tmp/raw-${{ matrix.label }}/report.md
+            /tmp/${{ matrix.label }}/membership.json
+            /tmp/${{ matrix.label }}/report.md
           if-no-files-found: warn
           retention-days: 30
