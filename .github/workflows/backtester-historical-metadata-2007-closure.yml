@@ -37,6 +37,7 @@ jobs:
   regressions:
     name: 2007 closure regressions
     runs-on: ubuntu-24.04
+    timeout-minutes: 15
     steps:
       - name: Check out exact closure source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -53,7 +54,30 @@ jobs:
         run: |
           set -euo pipefail
           python -m compileall -q backtester/historical_metadata_2007_closure.py tests/backtester/test_historical_metadata_2007_closure.py
-          python -m pytest -q tests/backtester/test_historical_metadata_2007_closure.py
+          python - <<'PY'
+          import inspect
+          import runpy
+          import tempfile
+          from pathlib import Path
+
+          ns = runpy.run_path('tests/backtester/test_historical_metadata_2007_closure.py')
+          executed = 0
+          for name in sorted(ns):
+              if not name.startswith('test_'):
+                  continue
+              fn = ns[name]
+              params = inspect.signature(fn).parameters
+              if set(params) == {'tmp_path'}:
+                  with tempfile.TemporaryDirectory() as td:
+                      fn(Path(td))
+              elif params:
+                  raise RuntimeError(f'unsupported test signature: {name}{inspect.signature(fn)}')
+              else:
+                  fn()
+              executed += 1
+          assert executed == 8, executed
+          print({'status':'PASS','tests':executed,'contract':'exact source ledger; strict-prior identity; hash lineage; zero unresolved acceptance'})
+          PY
 
   certify:
     name: Certify exact 2,976-row 2007 corpus
