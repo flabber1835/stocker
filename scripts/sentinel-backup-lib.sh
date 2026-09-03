@@ -43,6 +43,14 @@ status() {
     echo INVALID_CONTENT
     return 3
   fi
+  permissions="$(stat -c %a "$marker")" || {
+    echo INVALID_MODE
+    return 3
+  }
+  if [ "$permissions" != 444 ]; then
+    echo INVALID_MODE
+    return 3
+  fi
   echo VALID
   return 0
 }
@@ -201,8 +209,8 @@ sentinel_backup_root() {
 
   # Marker reads and writes use the same authorities as the data they protect.
   # The NAS host user is not required to write—or even traverse—the marker
-  # contents. This keeps a correctly permissioned backup target usable while
-  # preserving the missing-marker reboot fence.
+  # contents. Routine validation verifies existing markers only and never
+  # recreates a missing marker, preserving the cold-boot mount fence.
   for parent in "$root/wal" "$root/base"; do
     if [ "$parent" = "$root/wal" ]; then
       marker_uid="$uid"
