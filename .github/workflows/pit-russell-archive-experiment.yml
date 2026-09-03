@@ -8,6 +8,7 @@ on:
       - 'tools/pit_russell_archive_probe.py'
       - 'tools/pit_russell_wayback_nav_probe.py'
       - 'tools/pit_iwv_holdings_probe.py'
+      - 'tools/pit_iwv_legacy_holdings_probe.py'
       - 'tests/scripts/test_pit_russell_archive_probe.py'
       - 'tests/scripts/test_pit_russell_wayback_nav_probe.py'
       - 'tests/scripts/test_pit_iwv_holdings_probe.py'
@@ -89,6 +90,14 @@ jobs:
 
   iwv-holdings-probe:
     needs: deterministic-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: current
+            script: tools/pit_iwv_holdings_probe.py
+          - label: legacy-2016
+            script: tools/pit_iwv_legacy_holdings_probe.py
     runs-on: ubuntu-24.04
     timeout-minutes: 10
     steps:
@@ -104,8 +113,9 @@ jobs:
       - name: Probe historical IWV holdings around annual reconstitution
         run: |
           set -euo pipefail
-          rm -rf /tmp/iwv-holdings
-          python tools/pit_iwv_holdings_probe.py \
+          out="/tmp/iwv-holdings-${{ matrix.label }}"
+          rm -rf "$out"
+          python '${{ matrix.script }}' \
             --as-of 20050701 \
             --as-of 20060703 \
             --as-of 20070625 \
@@ -115,20 +125,21 @@ jobs:
             --timeout 20 \
             --attempts 3 \
             --delay 0.5 \
-            --output-dir /tmp/iwv-holdings
+            --output-dir "$out"
       - name: Publish IWV evidence
         if: always()
         run: |
-          if [ -f /tmp/iwv-holdings/report.md ]; then
-            cat /tmp/iwv-holdings/report.md >> "$GITHUB_STEP_SUMMARY"
+          report="/tmp/iwv-holdings-${{ matrix.label }}/report.md"
+          if [ -f "$report" ]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Upload IWV provenance only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: pit-iwv-holdings-${{ github.sha }}
+          name: pit-iwv-${{ matrix.label }}-${{ github.sha }}
           path: |
-            /tmp/iwv-holdings/manifest.json
-            /tmp/iwv-holdings/report.md
+            /tmp/iwv-holdings-${{ matrix.label }}/manifest.json
+            /tmp/iwv-holdings-${{ matrix.label }}/report.md
           if-no-files-found: warn
           retention-days: 30
