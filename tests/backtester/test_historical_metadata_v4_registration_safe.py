@@ -3,6 +3,7 @@ from __future__ import annotations
 from backtester.expand_historical_authority_v4_registration_safe import (
     analyze_filing,
     build_discovery_url,
+    registration_class_candidate,
     registration_symbol_match,
 )
 
@@ -44,6 +45,28 @@ def test_registration_discovery_is_form_scoped():
 def test_registration_symbol_phrase_is_exact():
     assert registration_symbol_match("trading will commence under the symbol AX.", "AX") is not None
     assert registration_symbol_match("trading will commence under the symbol AXX.", "AX") is None
+
+
+def test_registered_class_table_can_classify_far_from_symbol():
+    visible = (
+        "Title of each class to be registered Common Shares "
+        "Name of each exchange on which each class is to be registered NYSE "
+        + ("other disclosure " * 300)
+        + "trading under the symbol AX"
+    )
+    classification, excerpt = registration_class_candidate(visible)
+    assert classification == "common"
+    assert "FORM_8A_REGISTERED_CLASS" in excerpt
+
+
+def test_registered_class_table_fails_closed_on_mixed_classes():
+    visible = (
+        "Title of each class to be registered Common Stock and Series A Preferred Stock "
+        "Name of each exchange on which each class is to be registered NYSE"
+    )
+    classification, excerpt = registration_class_candidate(visible)
+    assert classification == "unknown"
+    assert excerpt == ""
 
 
 def test_form_8a_candidate_proves_identity_type_and_sic():
