@@ -8,8 +8,6 @@ import subprocess
 import sys
 from types import SimpleNamespace
 
-import pytest
-
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 SCRIPT = ROOT / "scripts" / "sentinel_verified_pre_receipt_migrate.py"
@@ -107,9 +105,8 @@ def test_successful_host_path_uses_exact_runtime_and_reports_boundary(
     assert len(runner.calls) == 1
     command, kwargs = runner.calls[0]
     assert command[:2] == ["docker", "compose"]
-    assert command[-4:-2] == ["--entrypoint", "python"]
-    assert command[-2] == "sentinel"
-    assert command[-1] == migrate._MIGRATION_CODE
+    assert command[-5:-3] == ["--entrypoint", "python"]
+    assert command[-3:] == ["sentinel", "-c", migrate._MIGRATION_CODE]
     assert kwargs["env"]["SENTINEL_RUNTIME_IMAGE_REF"] == "sha256:" + "b" * 64
     output = capsys.readouterr()
     assert "legacy publication v7" in output.out
