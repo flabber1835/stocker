@@ -1,0 +1,120 @@
+name: Validate and persist full Russell membership years v2
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - 'tools/pit_russell_preserved_full_membership_validate_v2.py'
+      - 'tests/scripts/test_pit_russell_preserved_full_membership_validate_v2.py'
+      - '.github/workflows/pit-russell-full-membership-persist-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact research revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Run structural parser regression tests
+        run: |
+          set -euo pipefail
+          python -m unittest tests.scripts.test_pit_russell_preserved_full_membership_validate_v2
+      - name: Install Poppler
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pdftotext -v
+      - name: Validate preserved full membership sources
+        run: |
+          set -euo pipefail
+          base='https://raw.githubusercontent.com/kact998/Russell3000Components/main'
+          rm -rf /tmp/russell-full
+          mkdir -p /tmp/russell-full
+          validate() {
+            year="$1"; date="$2"; pdf="$3"; csv="$4"
+            echo "=== Russell 3000 ${year} (${date}) ==="
+            python tools/pit_russell_preserved_full_membership_validate_v2.py \
+              --year "$year" \
+              --membership-date "$date" \
+              --pdf-url "$base/pdfs/$pdf" \
+              --csv-url "$base/$csv" \
+              --min-rows 2800 \
+              --max-rows 3200 \
+              --output-dir "/tmp/russell-full/$year"
+          }
+          validate 2010 2010-06-28 ru3000_membershiplist_20100628.pdf 20100628.csv
+          validate 2011 2011-06-27 ru3000_membershiplist_20110627.pdf 20110627.csv
+          validate 2012 2012-06-25 ru3000_membershiplist_20120625.pdf 20120625.csv
+          validate 2014 2014-06-27 ru3000_membershiplist_20140627.pdf 20140627.csv
+          validate 2015 2015-06-26 ru3000_membershiplist_20150626.pdf 20150626.csv
+          validate 2016 2016-06-27 ru3000_membershiplist_20160627.pdf 20160627.csv
+          validate 2017 2017-06-26 ru3000_membershiplist_20170626.pdf 20170626.csv
+          validate 2018 2018-06-25 ru3000_membershiplist_20180625_0.pdf 20180625.csv
+          validate 2019 2019-07-01 RU3000_MembershipList_20190701.pdf 20190701.csv
+          validate 2020 2020-06-29 ru3000_membershiplist_20200629.pdf 20200629.csv
+          validate 2021 2021-06-28 ru3000_membershiplist_20210628.pdf 20210628.csv
+          validate 2022 2022-06-24 ru3000_membershiplist_20220624_0.pdf 20220624.csv
+      - name: Materialize accepted annual universes and manifest
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import shutil
+          from pathlib import Path
+          years = (2010, 2011, 2012, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022)
+          target = Path('research/pit_russell_archive/annual_universes')
+          target.mkdir(parents=True, exist_ok=True)
+          annual = []
+          for year in years:
+              source = Path(f'/tmp/russell-full/{year}')
+              manifest = json.loads((source / 'manifest.json').read_text())
+              for key in ('count_gate', 'determinism_gate', 'pdf_csv_membership_gate'):
+                  if manifest[key] != 'PASS':
+                      raise SystemExit(f'{year}: {key}={manifest[key]}')
+              shutil.copyfile(source / f'russell3000_{year}.csv', target / f'russell3000_{year}.csv')
+              annual.append(manifest)
+          combined = {
+              'schema': 2,
+              'index': 'Russell 3000',
+              'scope': 'preserved full-membership annual sources',
+              'source_repository': 'kact998/Russell3000Components',
+              'pit_effective_boundary_status': 'NOT_YET_CERTIFIED',
+              'annual_universes': annual,
+          }
+          (target / 'manifest_2010_2012_2014_2022.json').write_text(json.dumps(combined, indent=2, sort_keys=True) + '\n')
+          PY
+      - name: Show accepted corpus summary
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          data = json.loads(Path('research/pit_russell_archive/annual_universes/manifest_2010_2012_2014_2022.json').read_text())
+          print('year rows pdf_sha256 rows_sha256')
+          for item in data['annual_universes']:
+              print(item['year'], item['row_count'], item['source_pdf_sha256'], item['rows_sha256'])
+          PY
+      - name: Commit accepted corpus
+        run: |
+          set -euo pipefail
+          git add research/pit_russell_archive/annual_universes
+          if git diff --cached --quiet; then
+            echo 'Full-membership annual corpus already matches validated sources.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Persist validated 2010-2012 and 2014-2022 Russell universes'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
