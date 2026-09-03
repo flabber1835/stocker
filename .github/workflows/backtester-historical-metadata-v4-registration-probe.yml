@@ -1,0 +1,153 @@
+name: Backtester - historical metadata V4 Form 8-A probe
+run-name: Historical metadata V4 Form 8-A no-identity probe — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-pit-corpus-recovery-v4]
+    paths:
+      - '.github/workflows/backtester-historical-metadata-v4-registration-probe.yml'
+      - 'backtester/expand_historical_authority_v4_registration_safe.py'
+      - 'tests/backtester/test_historical_metadata_v4_registration_safe.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: backtester-historical-metadata-v4-registration-probe
+  cancel-in-progress: true
+
+env:
+  AUDIT_RUN_ID: '33720489684'
+  AUDIT_ARTIFACT: historical-metadata-v4-ownership-strict-canonical-audit-126e276c67d7ce577744edccc8ee2ae22ead18f6
+  AUDIT_ROOT: backtester-results/v4-ownership-strict-canonical-audit
+  PLAN_ROOT: backtester-results/v4-registration-no-identity-plan
+  OUTPUT_ROOT: backtester-results/v4-registration-no-identity-evidence
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  probe:
+    name: Compare Form 8-A recovery on top 50 no-identity episodes
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact registration probe source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/__init__.py
+            /backtester/expand_historical_authority_v4.py
+            /backtester/expand_historical_authority_v4_registration_safe.py
+            /backtester/historical_metadata_reconstruction_v2.py
+            /backtester/mine_historical_metadata_candidates_v3.py
+            /backtester/plan_historical_metadata_external_v4.py
+            /backtester/sec_http_transport_resilient_v4.py
+            /tests/backtester/test_historical_metadata_external_plan_v4.py
+            /tests/backtester/test_historical_metadata_v4_registration_safe.py
+            /tests/backtester/test_sec_http_transport_resilient_v4.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Run registration authority regressions
+        run: |
+          set -euo pipefail
+          python -m compileall -q backtester tests/backtester
+          python - <<'PY'
+          import runpy,tempfile
+          from pathlib import Path
+          for path in (
+              'tests/backtester/test_historical_metadata_external_plan_v4.py',
+              'tests/backtester/test_historical_metadata_v4_registration_safe.py',
+              'tests/backtester/test_sec_http_transport_resilient_v4.py',
+          ):
+              ns=runpy.run_path(path)
+              for name in sorted(ns):
+                  if not name.startswith('test_'):
+                      continue
+                  fn=ns[name]
+                  if 'tmp_path' in fn.__code__.co_varnames[:fn.__code__.co_argcount]:
+                      with tempfile.TemporaryDirectory() as td:
+                          fn(Path(td))
+                  else:
+                      fn()
+          print({'status':'PASS','contract':'Form 8-A only; exact archived ticker proof; strict-prior; candidate-only; source CIK issuer-bound'})
+          PY
+
+      - name: Download authoritative 10,600-episode residual
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.AUDIT_ARTIFACT }}
+          path: ${{ env.AUDIT_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.AUDIT_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate residual and reproduce top-50 no-identity plan
+        run: |
+          set -euo pipefail
+          (cd "${AUDIT_ROOT}" && sha256sum -c SHA256SUMS.txt)
+          python -m backtester.plan_historical_metadata_external_v4 \
+            --inventory "${AUDIT_ROOT}/definitive_unresolved_episodes_v4.csv.gz" \
+            --output "${PLAN_ROOT}" \
+            --identity-scope none \
+            --limit 50
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          s=json.load(open(Path(os.environ['PLAN_ROOT'])/'plan_summary.json'))
+          assert s['status']=='PASS' and s['inventory_rows']==10600
+          assert s['identity_scope']=='none' and s['cohort_rows']==6563 and s['planned_rows']==50
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Harvest frozen Form 8-A candidates
+        run: |
+          set -euo pipefail
+          python -m backtester.expand_historical_authority_v4_registration_safe harvest \
+            --plan "${PLAN_ROOT}/plan.csv.gz" \
+            --output "${OUTPUT_ROOT}" \
+            --min-interval 1.0 \
+            --max-pages 2 \
+            --max-filings-per-episode 12
+
+      - name: Enforce candidate-only result and compare baseline
+        run: |
+          set -euo pipefail
+          (cd "${PLAN_ROOT}" && sha256sum -c SHA256SUMS.txt)
+          (cd "${OUTPUT_ROOT}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import csv,gzip,json,os
+          from pathlib import Path
+          root=Path(os.environ['OUTPUT_ROOT']); s=json.load(open(root/'summary.json'))
+          assert s['status']=='PASS' and s['candidate_only'] is True and s['episodes']==50
+          assert s['canonical_price_dataset_rewritten'] is False
+          assert s['discovery_is_authority'] is False and s['unknown_never_means_ineligible'] is True
+          rows=list(csv.DictReader(gzip.open(root/'candidate_evidence.csv.gz','rt')))
+          assert all(r.get('form') in {'8-A12B','8-A12B/A','8-A12G','8-A12G/A'} for r in rows)
+          assert all(r.get('filed','') < r.get('authority_before','') for r in rows)
+          print(json.dumps(s,indent=2,sort_keys=True))
+          print({'general_sec_baseline_candidate_found':7,'registration_candidate_found':s.get('candidate_found',0),'delta':int(s.get('candidate_found',0))-7})
+          PY
+
+      - name: Upload frozen Form 8-A probe
+        if: ${{ always() && hashFiles('backtester-results/v4-registration-no-identity-plan/*') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-v4-registration-no-identity-probe-${{ github.sha }}
+          path: |
+            ${{ env.PLAN_ROOT }}
+            ${{ env.OUTPUT_ROOT }}
+            !${{ env.OUTPUT_ROOT }}/.http-cache/**
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
