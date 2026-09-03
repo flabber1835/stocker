@@ -1,0 +1,78 @@
+name: PIT Russell exact filename probe
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - 'tools/pit_russell_exact_filename_probe.py'
+      - '.github/workflows/pit-russell-exact-filename-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  exact-filename-probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - year: 2014
+            filename: ru3000_membershiplist_20140627.pdf
+          - year: 2015
+            filename: ru3000_membershiplist_20150626.pdf
+          - year: 2016
+            filename: ru3000_membershiplist_20160627.pdf
+          - year: 2017
+            filename: ru3000_membershiplist_20170626.pdf
+          - year: 2018
+            filename: ru3000_membershiplist_20180625_0.pdf
+          - year: 2019
+            filename: RU3000_MembershipList_20190701.pdf
+          - year: 2020
+            filename: ru3000_membershiplist_20200629.pdf
+          - year: 2021
+            filename: ru3000_membershiplist_20210628.pdf
+          - year: 2022
+            filename: ru3000_membershiplist_20220624_0.pdf
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Check out exact research revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            tools
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Probe exact official filename
+        run: |
+          set -euo pipefail
+          out="/tmp/russell-exact-${{ matrix.year }}"
+          python tools/pit_russell_exact_filename_probe.py \
+            --year '${{ matrix.year }}' \
+            --filename '${{ matrix.filename }}' \
+            --timeout 12 \
+            --attempts 2 \
+            --max-captures 3 \
+            --output-dir "$out"
+      - name: Publish summary
+        if: always()
+        run: |
+          report="/tmp/russell-exact-${{ matrix.year }}/report.md"
+          if [ -f "$report" ]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload exact-filename evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pit-russell-exact-${{ matrix.year }}-${{ github.sha }}
+          path: |
+            /tmp/russell-exact-${{ matrix.year }}/exact_filename_probe.json
+            /tmp/russell-exact-${{ matrix.year }}/report.md
+          if-no-files-found: warn
+          retention-days: 30
