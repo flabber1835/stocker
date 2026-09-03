@@ -36,6 +36,16 @@ ALIASES = {
     "INVESTMENTS": "INVT",
     "INVESTMENT": "INVT",
     "RESOURCES": "RES",
+    "CHEMICALS": "CHEMS",
+    "STANDARD": "STD",
+    "MORTGAGE": "MTG",
+    "MANAGEMENT": "MGMT",
+    "COMMUNITY": "CMNTY",
+    "REALTY": "RLTY",
+    "POWER": "PWR",
+    "RESEARCH": "RESRCH",
+    "INDUSTRIES": "INDS",
+    "LABORATORIES": "LABS",
 }
 
 
@@ -110,7 +120,7 @@ def main():
     for row in mapped: counts[row['ticker']]=counts.get(row['ticker'],0)+1
     dup={k:v for k,v in sorted(counts.items()) if v>1}
     result={
-        'schema':1,
+        'schema':2,
         'source_role':'independent IWV June 30 2007 filed holdings identity diagnostic; not Russell membership authority',
         'iwv_holding_count':len(holdings),
         'method_counts':methods,
