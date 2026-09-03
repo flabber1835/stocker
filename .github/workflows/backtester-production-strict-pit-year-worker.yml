@@ -176,6 +176,7 @@ jobs:
           sparse-checkout: |
             sentinel
             shared
+            docs/sentinel-handoff/00_README
 
       - name: Verify pristine current-main production source
         shell: bash
