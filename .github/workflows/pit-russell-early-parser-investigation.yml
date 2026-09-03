@@ -6,6 +6,7 @@ on:
       - research/pit-russell-archive-reconstruction
     paths:
       - 'tools/pit_russell_early_pdf_diagnostic.py'
+      - 'tools/pit_russell_early_bbox_geometry.py'
       - '.github/workflows/pit-russell-early-parser-investigation.yml'
   workflow_dispatch:
 
@@ -25,7 +26,7 @@ jobs:
             url: 'http://www.russell.com/us/indexes/us/reconstitution/R3000.pdf'
             timestamp: '20060710045437'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Check out exact research revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -57,13 +58,28 @@ jobs:
             --timeout 25 \
             --attempts 5 \
             --output-dir "$out"
+      - name: Run bbox geometry diagnostic
+        run: |
+          set -euo pipefail
+          out="/tmp/${{ matrix.label }}-bbox-geometry"
+          rm -rf "$out"
+          python tools/pit_russell_early_bbox_geometry.py \
+            --url '${{ matrix.url }}' \
+            --timestamp '${{ matrix.timestamp }}' \
+            --timeout 25 \
+            --attempts 5 \
+            --output-dir "$out"
       - name: Publish summary
         if: always()
         run: |
-          report="/tmp/${{ matrix.label }}-parser-diagnostic/report.md"
-          if [ -f "$report" ]; then
-            cat "$report" >> "$GITHUB_STEP_SUMMARY"
-          fi
+          for report in \
+            "/tmp/${{ matrix.label }}-parser-diagnostic/report.md" \
+            "/tmp/${{ matrix.label }}-bbox-geometry/report.md"; do
+            if [ -f "$report" ]; then
+              cat "$report" >> "$GITHUB_STEP_SUMMARY"
+              printf '\n' >> "$GITHUB_STEP_SUMMARY"
+            fi
+          done
       - name: Upload diagnostic evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -72,5 +88,7 @@ jobs:
           path: |
             /tmp/${{ matrix.label }}-parser-diagnostic/diagnostic.json
             /tmp/${{ matrix.label }}-parser-diagnostic/report.md
+            /tmp/${{ matrix.label }}-bbox-geometry/geometry.json
+            /tmp/${{ matrix.label }}-bbox-geometry/report.md
           if-no-files-found: error
           retention-days: 30
