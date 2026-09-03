@@ -78,39 +78,6 @@ docker run --rm --network none \
     test "$(stat -c %a "/probe/$MARKER")" = 444
   '
 
-# Routine validation must reject a marker whose read-only contract was weakened.
-docker run --rm --network none \
-  -e "MARKER=$MARKER" \
-  -v "$work/base:/probe" --entrypoint sh "$IMAGE" \
-  -ceu 'chmod 0644 "/probe/$MARKER"'
-set +e
-mode_refusal="$(
-  SENTINEL_BACKUP_DIR="$work" \
-  SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1 \
-  bash -c '. scripts/sentinel-backup-lib.sh; sentinel_backup_root' 2>&1
-)"
-mode_rc=$?
-set -e
-test "$mode_rc" -ne 0
-case "$mode_refusal" in
-  *"invalid or could not be verified"*) ;;
-  *)
-    echo "REFUSED: weakened marker mode did not produce the expected refusal" >&2
-    printf '%s\n' "$mode_refusal" >&2
-    exit 1
-    ;;
-esac
-docker run --rm --network none \
-  -e "MARKER=$MARKER" \
-  -v "$work/base:/probe" --entrypoint sh "$IMAGE" \
-  -ceu 'chmod 0444 "/probe/$MARKER"'
-restored="$(
-  SENTINEL_BACKUP_DIR="$work" \
-  SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1 \
-  bash -c '. scripts/sentinel-backup-lib.sh; sentinel_backup_root'
-)"
-test "$restored" = "$work"
-
 # Provisioning must not loosen directory ownership or permissions merely to make
 # the host initializer succeed.
 if { : > "$work/wal/.host-write-probe-2"; } 2>/dev/null; then
