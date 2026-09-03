@@ -512,12 +512,19 @@ def _atomic_set_key(path: Path, generated: str) -> str:
             pass
 
 
-def _persist_for_state(path: Path, generated: str, state: str) -> str:
+def _persist_for_state(
+        path: Path, generated: str, state: str, *,
+        allow_verified_pre_receipt: bool = False) -> str:
     if state == AUTHENTICATED_RECEIPTS_EXIST:
         raise BootstrapRefused(
             "%s is missing but authenticated publication receipts already exist; "
             "restore the original key from deployment secrets/backups"
             % RECEIPT_KEY)
+    if (
+            state == SAFE_VERIFIED_PRE_RECEIPT_DATABASE
+            and not allow_verified_pre_receipt):
+        raise BootstrapRefused(
+            "verified pre-receipt state requires explicit operator attestation")
     if state not in {
             SAFE_FRESH_DATABASE,
             SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS,
@@ -551,12 +558,16 @@ def ensure_publication_receipt_key(
     # _atomic_set_key() and its directory fsync.
     if receipt_state_probe is not None:
         state = receipt_state_probe(probe_env)
-        return _persist_for_state(path, generated, state)
+        return _persist_for_state(
+            path, generated, state,
+            allow_verified_pre_receipt=allow_verified_pre_receipt)
 
     with _receipt_ancestry_guard(
             probe_env,
             allow_verified_pre_receipt=allow_verified_pre_receipt) as state:
-        return _persist_for_state(path, generated, state)
+        return _persist_for_state(
+            path, generated, state,
+            allow_verified_pre_receipt=allow_verified_pre_receipt)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
