@@ -156,4 +156,9 @@ print("PR301_STRICT_RECOVERED_ORDER_PASS")
 # import failure, and the typed child marker protocol all run in real containers.
 python3 scripts/test_go_probe_runtime_integration.py sentinel:latest
 
+# Reproduce the NAS backup permissions where the PostgreSQL uid owns WAL and
+# container root owns the physical-base directory. The host invoking the
+# initializer has no write authority inside either directory.
+bash scripts/test-backup-marker-container-authority.sh
+
 printf '%s\n' 'PR301_RUNTIME_BOUNDARY_PASS'
