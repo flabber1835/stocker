@@ -1,0 +1,179 @@
+name: Backtester - 2007 corpus closure
+run-name: Historical metadata 2007 closure — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-pit-corpus-recovery-v4]
+    paths:
+      - '.github/workflows/backtester-historical-metadata-2007-closure.yml'
+      - 'backtester/historical_metadata_2007_closure.py'
+      - 'tests/backtester/test_historical_metadata_2007_closure.py'
+  workflow_dispatch:
+    inputs:
+      closure_input_run_id:
+        description: 'Run containing authenticated 2007 closure input artifact'
+        required: true
+        type: string
+      closure_input_artifact:
+        description: 'Artifact containing manifest.json, source_holdings_2007.csv.gz, adjudications_2007.csv.gz, evidence/, SHA256SUMS.txt'
+        required: true
+        type: string
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: backtester-historical-metadata-2007-closure
+  cancel-in-progress: true
+
+env:
+  INPUT: backtester-results/2007-closure-input
+  BUILD: backtester-results/2007-closure-build
+  OUTPUT: backtester-results/2007-closure-certification
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  regressions:
+    name: 2007 closure regressions
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Check out exact closure source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Run closure tests
+        run: |
+          set -euo pipefail
+          python -m compileall -q backtester/historical_metadata_2007_closure.py tests/backtester/test_historical_metadata_2007_closure.py
+          python -m pytest -q tests/backtester/test_historical_metadata_2007_closure.py
+
+  certify:
+    name: Certify exact 2,976-row 2007 corpus
+    if: ${{ github.event_name == 'workflow_dispatch' }}
+    needs: regressions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact closure source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Download authenticated 2007 closure input
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.closure_input_artifact }}
+          path: ${{ env.INPUT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ inputs.closure_input_run_id }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Authenticate source lineage and exact baseline
+        run: |
+          set -euo pipefail
+          test -f "${INPUT}/SHA256SUMS.txt"
+          (cd "${INPUT}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import csv,gzip,json,os
+          from pathlib import Path
+          root=Path(os.environ['INPUT'])
+          manifest=json.load(open(root/'manifest.json'))
+          assert manifest['schema']=='backtester.historical-metadata-2007-closure-input/1'
+          assert int(manifest['target_year'])==2007
+          assert int(manifest['expected_rows'])==2976
+          assert int(manifest['baseline_ambiguous'])==52
+          assert int(manifest['baseline_unclassified'])==340
+          source=root/'source_holdings_2007.csv.gz'
+          adjudications=root/'adjudications_2007.csv.gz'
+          assert source.is_file() and adjudications.is_file() and (root/'evidence').is_dir()
+          with gzip.open(source,'rt',encoding='utf-8',newline='') as fh:
+              assert sum(1 for _ in csv.DictReader(fh))==2976
+          print(json.dumps(manifest,indent=2,sort_keys=True))
+          PY
+      - name: Build deterministic 2007 resolution ledger
+        run: |
+          set -euo pipefail
+          rm -rf "${BUILD}"
+          python -m backtester.historical_metadata_2007_closure build \
+            --source-holdings "${INPUT}/source_holdings_2007.csv.gz" \
+            --adjudications "${INPUT}/adjudications_2007.csv.gz" \
+            --output "${BUILD}" \
+            --target-year 2007
+          (cd "${BUILD}" && sha256sum -c SHA256SUMS.txt)
+      - name: Run fail-closed 2,976-row acceptance gate
+        id: gate
+        run: |
+          set -uo pipefail
+          rm -rf "${OUTPUT}"
+          set +e
+          python -m backtester.historical_metadata_2007_closure certify \
+            --ledger "${BUILD}/2007_resolution_ledger.csv.gz" \
+            --evidence-root "${INPUT}/evidence" \
+            --output "${OUTPUT}" \
+            --expected-rows 2976 \
+            --target-year 2007
+          rc=$?
+          set -e
+          echo "exit_code=${rc}" >> "$GITHUB_OUTPUT"
+          (cd "${OUTPUT}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          s=json.load(open(Path(os.environ['OUTPUT'])/'2007_acceptance_summary.json'))
+          lines=[
+            '### 2007 corpus closure',
+            f"- Status: **{s['status']}**",
+            f"- Ledger rows: {s['ledger_rows']:,} / {s['expected_rows']:,}",
+            f"- Resolved: {s['resolved_rows']:,}",
+            f"- Ambiguous: {s['ambiguous_rows']:,}",
+            f"- Unclassified: {s['unclassified_rows']:,}",
+            f"- No authority: {s['no_authority_rows']:,}",
+            f"- Conflicts: {s['conflict_rows']:,}",
+          ]
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write('\n'.join(lines)+'\n')
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+      - name: Upload closure diagnostics
+        if: ${{ always() && hashFiles('backtester-results/2007-closure-certification/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-2007-closure-${{ github.sha }}
+          path: |
+            ${{ env.BUILD }}
+            ${{ env.OUTPUT }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+      - name: Enforce terminal acceptance
+        if: ${{ always() }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          p=Path(os.environ['OUTPUT'])/'2007_acceptance_summary.json'
+          if not p.is_file():
+              raise SystemExit('2007 acceptance summary missing')
+          s=json.load(open(p))
+          assert s['status']=='ACCEPTED'
+          assert s['expected_rows']==2976 and s['ledger_rows']==2976 and s['resolved_rows']==2976
+          assert s['ambiguous_rows']==0 and s['unclassified_rows']==0
+          assert s['no_authority_rows']==0 and s['conflict_rows']==0
+          assert not s['duplicate_source_ids'] and not s['duplicate_security_assignments']
+          assert (Path(os.environ['OUTPUT'])/'2007_constituents.csv.gz').is_file()
+          print('2007 CORPUS ACCEPTED — 2,976/2,976 source holdings uniquely resolved')
+          PY
