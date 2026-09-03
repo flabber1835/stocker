@@ -34,24 +34,20 @@ jobs:
           test "${GITHUB_REF_NAME}" = "research/pit-russell-archive-reconstruction"
           python -m unittest tests.scripts.test_pit_russell_archive_probe -v
 
-  component-probe:
+  old-site-discovery:
     needs: deterministic-tests
     strategy:
       fail-fast: false
       matrix:
         include:
-          - label: r1000-exact
-            index: '1000'
-            query: 'https://www.russell.com/indexes/documents/Membership/Russell1000_Membership_List.pdf'
-          - label: r1000-wildcard
-            index: '1000'
-            query: 'http://www.russell.com/indexes/*Russell1000*Membership*'
-          - label: r2000-exact
-            index: '2000'
-            query: 'https://www.russell.com/indexes/documents/Membership/Russell2000_Membership_List.pdf'
-          - label: r2000-wildcard
-            index: '2000'
-            query: 'http://www.russell.com/indexes/*Russell2000*Membership*'
+          - label: old-us-indexes-us-upper
+            query: 'http://www.russell.com/US/Indexes/US/*3000*'
+          - label: old-us-indexes-us-lower
+            query: 'http://www.russell.com/us/indexes/us/*3000*'
+          - label: old-us-indexes-upper
+            query: 'http://www.russell.com/US/Indexes/*3000*'
+          - label: old-us-indexes-lower
+            query: 'http://www.russell.com/us/indexes/*3000*'
     runs-on: ubuntu-24.04
     timeout-minutes: 8
     steps:
@@ -64,21 +60,21 @@ jobs:
         with:
           python-version: '3.12'
           check-latest: false
-      - name: Probe archived Russell component list
+      - name: Discover archived pre-2009 Russell URLs
         run: |
           set -euo pipefail
           out="/tmp/${{ matrix.label }}"
           rm -rf "$out"
           python tools/pit_russell_archive_probe.py \
             --from-year 2005 \
-            --to-year 2010 \
-            --max-downloads-per-year 2 \
+            --to-year 2008 \
+            --max-downloads-per-year 3 \
             --timeout 20 \
             --attempts 3 \
             --delay 0.4 \
             --url '${{ matrix.query }}' \
             --output-dir "$out"
-      - name: Publish evidence summary
+      - name: Publish discovery summary
         if: always()
         run: |
           report="/tmp/${{ matrix.label }}/report.md"
