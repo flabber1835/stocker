@@ -1,0 +1,39 @@
+{
+  "annual_universes": [
+    {
+      "ambiguity_gate": "PASS",
+      "capture_timestamp": "20051030075845",
+      "csv_sha256": "99bff70215e02da0cf2aa4b1ed7dad17567f9ad6a9dd3b0c824372f14dbc9493",
+      "determinism_gate": "PASS",
+      "evidence_grade": "A",
+      "original_url": "http://www.russell.com:80/us/indexes/us/reconstitution/r3000.pdf",
+      "parser_contract": "poppler_bbox_measured_612pt_two_halfpage_stable_ticker_anchor_v3",
+      "pdf_hash_gate": "PASS",
+      "pdf_sha256": "d849ad9c3c6f08aaa4f8acc3351b046211ed27f54bb1599b3d3ca01ca99d595b",
+      "row_count": 3000,
+      "rows_sha256": "85820feed7958dfa8d281a3e15006aaef3381e805f8c5b5099d0bda353262983",
+      "unexplained_rows": 0,
+      "unique_tickers": 3000,
+      "year": 2005
+    },
+    {
+      "ambiguity_gate": "PASS",
+      "capture_timestamp": "20060710045437",
+      "csv_sha256": "bcfdae596cacb35ef984d5c4bb72cb4c04447ad8ef55a8f92f628091e237e6c7",
+      "determinism_gate": "PASS",
+      "evidence_grade": "A",
+      "original_url": "http://www.russell.com:80/us/Indexes/US/Reconstitution/R3000.pdf",
+      "parser_contract": "poppler_bbox_measured_612pt_two_halfpage_stable_ticker_anchor_v3",
+      "pdf_hash_gate": "PASS",
+      "pdf_sha256": "18080cd078342b05dba51f2fe75b1d1c0dd85de1a8e715fc0ce18090a44d7024",
+      "row_count": 2987,
+      "rows_sha256": "5a593651693d22beb015ec3cf73dfb5ac1b08526ee1182f47ed083c22c792b26",
+      "unexplained_rows": 0,
+      "unique_tickers": 2987,
+      "year": 2006
+    }
+  ],
+  "index": "Russell 3000",
+  "schema": 1,
+  "source_policy": "official Russell membership PDF recovered from exact Internet Archive capture"
+}
