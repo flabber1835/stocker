@@ -1,0 +1,203 @@
+name: Backtester - historical metadata V3 corrected identity topology
+run-name: Historical metadata V3 corrected identity topology — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/enrich-pit-2007-2026-metadata]
+    paths:
+      - '.github/workflows/backtester-historical-metadata-v3-corrected-identity-topology.yml'
+      - 'backtester/rebuild_historical_metadata_identity_topology_v3.py'
+      - 'tests/backtester/test_metadata_v3_corrected_identity_topology.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  IDENTITY_SOURCE_SHA: e088bfd26c695309e259cfc44ab1e8982d6f858d
+  IDENTITY_SOURCE_ROOT: identity-source
+  V2_RUN_ID: '33701529865'
+  V2_ARTIFACT: historical-metadata-v2-resilient-indexed-evidence-431686edffef158ff61c122c977ff2c7c18b7036-3556a6c9e01410bed6af02c0bd0d42eb718d2068
+  V3_CANDIDATE_RUN_ID: '33704396721'
+  V3_CANDIDATE_ARTIFACT: historical-metadata-v3-candidates-5d4d826c1c295cdc0a9dde5b80208a7cdf3e14f2
+  V3_AUTHORITY_RUN_ID: '33707820968'
+  V3_AUTHORITY_ARTIFACT: historical-metadata-v3-authority-allocation-9320559109a0ab5a7409250bac906fdd72f41fb4
+  V2_ROOT: backtester-results/historical-metadata-v2-package
+  V3_CANDIDATE_ROOT: backtester-results/historical-metadata-v3-candidates
+  V3_AUTHORITY_ROOT: backtester-results/historical-metadata-v3-authority
+  OUTPUT: backtester-results/historical-metadata-v3-corrected-topology
+
+jobs:
+  rebuild:
+    name: Rebuild episode guard from exact corrected tape/terminal identity semantics
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out topology bridge source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-historical-metadata-v3-corrected-identity-topology.yml
+            /backtester/rebuild_historical_metadata_identity_topology_v3.py
+            /backtester/historical_metadata_reconstruction_v2.py
+            /tests/backtester/test_metadata_v3_corrected_identity_topology.py
+
+      - name: Check out exact corrected backtester identity authority and required historical tape
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.IDENTITY_SOURCE_SHA }}
+          path: ${{ env.IDENTITY_SOURCE_ROOT }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/strict_pit_metadata.py
+            /backtester/data/causal-terminal-terms-v1.json
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_SEP_*.csv.gz
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact diagnostic runtime
+        run: python -m pip install pandas==3.0.5
+
+      - name: Verify exact corrected identity source binding
+        run: |
+          set -euo pipefail
+          test "$(git -C "${IDENTITY_SOURCE_ROOT}" rev-parse HEAD)" = "${IDENTITY_SOURCE_SHA}"
+          python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          root=Path(os.environ['IDENTITY_SOURCE_ROOT'])
+          source=root/'backtester'/'strict_pit_metadata.py'
+          text=source.read_text(encoding='utf-8')
+          required=[
+              'SEC CIK is issuer evidence only',
+              'cannot create a security identity episode by itself',
+              'CONTINUOUS_TAPE_CIK_REJECTED',
+              'CORROBORATED_TERMINAL_BOUNDARY',
+          ]
+          for needle in required:
+              assert needle in text, needle
+          print({
+              'status':'PASS',
+              'identity_source_sha':os.environ['IDENTITY_SOURCE_SHA'],
+              'strict_pit_metadata_sha256':hashlib.sha256(source.read_bytes()).hexdigest(),
+          })
+          PY
+
+      - name: Run corrected-topology unit regression
+        run: |
+          set -euo pipefail
+          python -m compileall -q \
+            backtester/rebuild_historical_metadata_identity_topology_v3.py \
+            tests/backtester/test_metadata_v3_corrected_identity_topology.py
+          python - <<'PY'
+          import runpy
+          ns=runpy.run_path('tests/backtester/test_metadata_v3_corrected_identity_topology.py')
+          ns['test_corrected_topology_merges_false_fragments_and_preserves_real_boundaries']()
+          ns['test_corrected_topology_never_uses_cik_to_create_episode']()
+          print({'status':'PASS','identity_contract':'ticker tape continuity; CIK cannot create boundary'})
+          PY
+
+      - name: Download authenticated V2 metadata package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.V2_ARTIFACT }}
+          path: ${{ env.V2_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.V2_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download merged evidence-only V3 candidate corpus
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.V3_CANDIDATE_ARTIFACT }}
+          path: ${{ env.V3_CANDIDATE_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.V3_CANDIDATE_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download old-guard V3 authority result and review queue
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.V3_AUTHORITY_ARTIFACT }}
+          path: ${{ env.V3_AUTHORITY_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.V3_AUTHORITY_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify authenticated input artifacts
+        run: |
+          set -euo pipefail
+          python -m backtester.historical_metadata_reconstruction_v2 verify --root "${V2_ROOT}"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          v2=Path(os.environ['V2_ROOT'])
+          c=Path(os.environ['V3_CANDIDATE_ROOT'])
+          a=Path(os.environ['V3_AUTHORITY_ROOT'])
+          binding=json.load(open(v2/'recovery_binding.json'))
+          timeline=json.load(open(v2/'timeline'/'timeline_coverage.json'))
+          candidates=json.load(open(c/'summary.json'))
+          authority=json.load(open(a/'summary.json'))
+          assert binding['status']=='PASS' and int(binding['source_run_id'])==33468938050
+          assert timeline['status']=='PASS' and timeline['unresolved_episode_records']==8353
+          assert candidates['status']=='PASS' and candidates['candidate_only'] is True and candidates['candidate_rows']==22140
+          assert authority['status']=='PASS' and authority['unresolved_episode_records_after_v3']==7926
+          assert authority['security_type_conflicts']==0
+          print({'status':'PASS','v2_unresolved':8353,'old_guard_v3_unresolved':7926,'v3_candidates':22140})
+          PY
+
+      - name: Rebuild corrected topology and reallocate authenticated evidence
+        run: |
+          set -euo pipefail
+          python -m backtester.rebuild_historical_metadata_identity_topology_v3 \
+            --identity-source-root "${IDENTITY_SOURCE_ROOT}" \
+            --identity-source-sha "${IDENTITY_SOURCE_SHA}" \
+            --v2-root "${V2_ROOT}" \
+            --v3-candidate-root "${V3_CANDIDATE_ROOT}" \
+            --v3-authority-root "${V3_AUTHORITY_ROOT}" \
+            --output "${OUTPUT}"
+
+      - name: Enforce fail-closed topology result
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['OUTPUT'])
+          s=json.load(open(root/'summary.json'))
+          assert s['identity_source_sha']==os.environ['IDENTITY_SOURCE_SHA']
+          assert s['policy']['security_identity_from_price_tape_and_causal_terminal_boundaries'] is True
+          assert s['policy']['sec_cik_cannot_create_security_episode'] is True
+          assert s['policy']['unknown_never_means_ineligible'] is True
+          assert s['policy']['no_canonical_dataset_was_rewritten'] is True
+          assert s['baseline_unresolved_old_topology_after_v3']==7926
+          assert s['status'] in {'PASS','REVIEW_REQUIRED'}
+          if s['exact_resolution_count_available']:
+              assert s['prospective_unresolved_corrected_topology'] is not None
+          print(json.dumps(s, indent=2, sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write((root/'SUMMARY.md').read_text(encoding='utf-8'))
+          PY
+
+      - name: Upload corrected topology, mappings, and prospective unresolved inventory
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-v3-corrected-topology-${{ github.sha }}
+          path: ${{ env.OUTPUT }}
+          if-no-files-found: error
+          retention-days: 90
