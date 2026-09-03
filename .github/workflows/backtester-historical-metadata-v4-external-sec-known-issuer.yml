@@ -1,0 +1,190 @@
+name: Backtester - historical metadata V4 external SEC known issuer
+run-name: Historical metadata V4 external SEC known/partial issuer — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-pit-corpus-recovery-v4]
+    paths:
+      - '.github/workflows/backtester-historical-metadata-v4-external-sec-known-issuer.yml'
+      - 'backtester/plan_historical_metadata_external_v4.py'
+      - 'tests/backtester/test_historical_metadata_external_plan_v4.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: backtester-historical-metadata-v4-external-sec-known-issuer
+  cancel-in-progress: false
+
+env:
+  AUDIT_RUN_ID: '33720489684'
+  AUDIT_SOURCE_SHA: '126e276c67d7ce577744edccc8ee2ae22ead18f6'
+  AUDIT_ARTIFACT: historical-metadata-v4-ownership-strict-canonical-audit-126e276c67d7ce577744edccc8ee2ae22ead18f6
+  AUDIT_ARTIFACT_SHA256: '61549a07b056faae5ee8062506a6ccdc25df9a0a59584325d3238b3a8ff47a2c'
+  AUDIT_ROOT: backtester-results/v4-ownership-strict-canonical-audit
+  SHARD_COUNT: '8'
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  harvest:
+    name: Freeze strict-prior SEC authority shard ${{ matrix.shard }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        shard: ['0','1','2','3','4','5','6','7']
+    steps:
+      - name: Check out exact external-recovery source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/__init__.py
+            /backtester/expand_historical_authority_v4.py
+            /backtester/expand_historical_authority_v4_issuer_safe.py
+            /backtester/historical_metadata_reconstruction_v2.py
+            /backtester/mine_historical_metadata_candidates_v3.py
+            /backtester/mine_historical_metadata_candidates_v4_issuer_safe.py
+            /backtester/plan_historical_metadata_external_v4.py
+            /tests/backtester/test_expand_historical_authority_v4.py
+            /tests/backtester/test_expand_historical_authority_v4_issuer_safe.py
+            /tests/backtester/test_historical_metadata_external_plan_v4.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Run strict-prior and shard regressions
+        run: |
+          set -euo pipefail
+          python -m compileall -q backtester tests/backtester
+          python - <<'PY'
+          import runpy, tempfile
+          from pathlib import Path
+          for test_path in (
+              'tests/backtester/test_expand_historical_authority_v4.py',
+              'tests/backtester/test_expand_historical_authority_v4_issuer_safe.py',
+              'tests/backtester/test_historical_metadata_external_plan_v4.py',
+          ):
+              ns=runpy.run_path(test_path)
+              for name in sorted(ns):
+                  if not name.startswith('test_'):
+                      continue
+                  fn=ns[name]
+                  if 'tmp_path' in fn.__code__.co_varnames[:fn.__code__.co_argcount]:
+                      with tempfile.TemporaryDirectory() as td:
+                          fn(Path(td))
+                  else:
+                      fn()
+          print({'status':'PASS','contract':'latest residual; deterministic disjoint shards; strict-prior; candidate-only; issuer-safe ownership CIK'})
+          PY
+
+      - name: Download authoritative ownership-strict residual
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.AUDIT_ARTIFACT }}
+          path: ${{ env.AUDIT_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.AUDIT_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate authoritative 10,600-episode input
+        run: |
+          set -euo pipefail
+          (cd "${AUDIT_ROOT}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['AUDIT_ROOT'])
+          summary=json.load(open(root/'summary.json'))
+          assert summary['status']=='PASS' and summary['admission_status']=='REVIEW_REQUIRED'
+          assert summary['baseline_unresolved_episodes']==10795
+          assert summary['unresolved_after_v4']['episodes']==10600
+          assert summary['canonical_price_dataset_rewritten'] is False
+          assert summary['causal_rule']=='usable_after < decision_session'
+          assert summary['unknown_never_means_ineligible'] is True
+          assert (root/'definitive_unresolved_episodes_v4.csv.gz').is_file()
+          print({'status':'PASS','authoritative_residual':10600,'audit_source_sha':os.environ['AUDIT_SOURCE_SHA']})
+          PY
+
+      - name: Build deterministic known/partial-issuer shard plan
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          PLAN_ROOT="backtester-results/v4-external-sec-plan-${SHARD_INDEX}"
+          echo "PLAN_ROOT=${PLAN_ROOT}" >> "${GITHUB_ENV}"
+          python -m backtester.plan_historical_metadata_external_v4 \
+            --inventory "${AUDIT_ROOT}/definitive_unresolved_episodes_v4.csv.gz" \
+            --output "${PLAN_ROOT}" \
+            --identity-scope known-or-partial \
+            --shard-index "${SHARD_INDEX}" \
+            --shard-count "${SHARD_COUNT}"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          summary=json.load(open(Path(os.environ['PLAN_ROOT'])/'plan_summary.json'))
+          assert summary['status']=='PASS' and summary['identity_scope']=='known-or-partial'
+          assert summary['inventory_rows']==10600 and summary['cohort_rows']==4037
+          assert summary['shard_count']==8 and summary['planned_rows']>0
+          assert summary['unique_security_ids']==summary['planned_rows']
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Harvest and freeze issuer-safe SEC authority candidates
+        env:
+          SHARD_INDEX: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          OUTPUT_ROOT="backtester-results/v4-external-sec-evidence-${SHARD_INDEX}"
+          echo "OUTPUT_ROOT=${OUTPUT_ROOT}" >> "${GITHUB_ENV}"
+          python -m backtester.expand_historical_authority_v4_issuer_safe harvest \
+            --plan "${PLAN_ROOT}/plan.csv.gz" \
+            --output "${OUTPUT_ROOT}" \
+            --min-interval 1.0 \
+            --max-pages 1 \
+            --max-filings-per-episode 6
+
+      - name: Enforce frozen candidate-only result
+        run: |
+          set -euo pipefail
+          (cd "${PLAN_ROOT}" && sha256sum -c SHA256SUMS.txt)
+          (cd "${OUTPUT_ROOT}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import csv,gzip,json,os
+          from pathlib import Path
+          plan=json.load(open(Path(os.environ['PLAN_ROOT'])/'plan_summary.json'))
+          root=Path(os.environ['OUTPUT_ROOT'])
+          summary=json.load(open(root/'summary.json'))
+          assert summary['status']=='PASS' and summary['candidate_only'] is True
+          assert summary['canonical_price_dataset_rewritten'] is False
+          assert summary['discovery_is_authority'] is False and summary['unknown_never_means_ineligible'] is True
+          assert summary['episodes']==plan['planned_rows']
+          rows=list(csv.DictReader(gzip.open(root/'candidate_evidence.csv.gz','rt')))
+          ownership=[row for row in rows if row.get('form') in {'3','3/A','4','4/A','5','5/A'}]
+          assert all(row.get('issuer_cik_source')=='OWNERSHIP_XML_ISSUER_CIK' for row in ownership)
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload frozen external SEC shard
+        if: ${{ always() && hashFiles('backtester-results/v4-external-sec-plan-*/*') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-v4-external-sec-known-issuer-shard-${{ matrix.shard }}-${{ github.sha }}
+          path: |
+            ${{ env.PLAN_ROOT }}
+            ${{ env.OUTPUT_ROOT }}
+            !${{ env.OUTPUT_ROOT }}/.http-cache/**
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
