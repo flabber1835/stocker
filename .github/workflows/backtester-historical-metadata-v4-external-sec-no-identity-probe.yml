@@ -66,9 +66,14 @@ jobs:
           for path in ('tests/backtester/test_historical_metadata_external_plan_v4.py','tests/backtester/test_sec_http_transport_resilient_v4.py'):
               ns=runpy.run_path(path)
               for name in sorted(ns):
-                  if name.startswith('test_'):
+                  if not name.startswith('test_'):
+                      continue
+                  fn=ns[name]
+                  if 'tmp_path' in fn.__code__.co_varnames[:fn.__code__.co_argcount]:
                       with tempfile.TemporaryDirectory() as td:
-                          ns[name](Path(td))
+                          fn(Path(td))
+                  else:
+                      fn()
           print({'status':'PASS','contract':'no-identity probe remains strict-prior, candidate-only, and retries truncated HTTP bodies'})
           PY
 
