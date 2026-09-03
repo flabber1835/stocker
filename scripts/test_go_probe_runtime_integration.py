@@ -18,6 +18,7 @@ SCRIPT_DIR = ROOT / "scripts"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import sentinel_deployment_bootstrap as deploy_bootstrap  # noqa: E402
 import sentinel_go_24x7_entry as source_final  # noqa: E402
 import sentinel_go_probe_contract as contract  # noqa: E402
 import sentinel_go_readonly_data_preflight as preflight  # noqa: E402
@@ -202,6 +203,50 @@ def main(argv=None) -> int:
                  "24x7 bad-auth marker leaked the synthetic password")
         _require("postgresql://" not in mutable_marker_text,
                  "24x7 bad-auth marker leaked a database URL")
+
+        # Exercise the first-install receipt-key ancestry proof against this same
+        # real isolated PostgreSQL. Only Compose resolution is injected so the
+        # helper cannot accidentally touch the canonical `sentinel` project.
+        original_compose_args = deploy_bootstrap._compose_args
+        deploy_bootstrap._compose_args = lambda _env: compose_args
+        try:
+            state = deploy_bootstrap._receipt_ancestry(env)
+            _require(
+                state == deploy_bootstrap.SAFE_FRESH_DATABASE,
+                "fresh database was not safe for first-install receipt authority")
+
+            deploy_bootstrap._psql(
+                env, compose_args,
+                "CREATE TABLE sentinel_corpus_publications (version BIGINT PRIMARY KEY);"
+                " INSERT INTO sentinel_corpus_publications(version) VALUES (7)")
+            state = deploy_bootstrap._receipt_ancestry(env)
+            _require(
+                state == deploy_bootstrap.SAFE_LEGACY_DATABASE,
+                "legacy pre-receipt corpus was not recognized")
+
+            deploy_bootstrap._psql(
+                env, compose_args,
+                "CREATE TABLE sentinel_publication_validation_policy ("
+                "id BOOLEAN PRIMARY KEY, required_after_version BIGINT NOT NULL);"
+                " INSERT INTO sentinel_publication_validation_policy"
+                "(id,required_after_version) VALUES (TRUE,7);"
+                " CREATE TABLE sentinel_publication_validation_receipts ("
+                "publication_version BIGINT PRIMARY KEY)")
+            state = deploy_bootstrap._receipt_ancestry(env)
+            _require(
+                state == deploy_bootstrap.SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS,
+                "empty receipt-policy era was not recognized")
+
+            deploy_bootstrap._psql(
+                env, compose_args,
+                "INSERT INTO sentinel_publication_validation_receipts"
+                "(publication_version) VALUES (8)")
+            state = deploy_bootstrap._receipt_ancestry(env)
+            _require(
+                state == deploy_bootstrap.AUTHENTICATED_RECEIPTS_EXIST,
+                "authenticated receipt ancestry did not fence key rotation")
+        finally:
+            deploy_bootstrap._compose_args = original_compose_args
 
         print("GO_PROBE_RUNTIME_INTEGRATION_PASS")
         return 0
