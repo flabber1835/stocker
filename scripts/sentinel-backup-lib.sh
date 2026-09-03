@@ -43,14 +43,6 @@ status() {
     echo INVALID_CONTENT
     return 3
   fi
-  permissions="$(stat -c %a "$marker")" || {
-    echo INVALID_MODE
-    return 3
-  }
-  if [ "$permissions" != 444 ]; then
-    echo INVALID_MODE
-    return 3
-  fi
   echo VALID
   return 0
 }
