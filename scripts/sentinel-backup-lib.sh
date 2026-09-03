@@ -15,12 +15,13 @@ _sentinel_backup_marker_container() {
   docker run --rm --network none \
     "${user_args[@]}" \
     -e "EXPECTED=$SENTINEL_BACKUP_TARGET_MARKER_CONTENT" \
+    -e "MARKER=$SENTINEL_BACKUP_TARGET_MARKER" \
     -e "MODE=$mode" \
     -v "$parent:/probe" \
     --entrypoint sh \
     "$SENTINEL_BACKUP_POSTGRES_IMAGE" \
     -ceu '
-marker=/probe/.sentinel-independent-durable-target-v1
+marker="/probe/$MARKER"
 
 status() {
   if [ -L "$marker" ]; then
@@ -72,10 +73,11 @@ chmod 0444 "$tmp"
 sync "$tmp"
 
 # link(2) is the atomic create-if-absent boundary. If another initializer won
-# the race, verify the winner instead of overwriting it.
+# the race, durably observe and verify the winner instead of overwriting it.
 if ! ln "$tmp" "$marker" 2>/dev/null; then
   rm -f "$tmp"
   trap - 0
+  sync /probe
   status
   exit $?
 fi
