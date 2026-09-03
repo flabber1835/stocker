@@ -1,53 +1,340 @@
-name: Backtester - production-only 20-year strict PIT
-run-name: Production strict PIT annual chain 2006-2026 — ${{ github.sha }}
+name: Backtester - production 20-year replay + PIT certification
+run-name: Production 20y + PIT certification — ${{ github.sha }}
 
 on:
   workflow_dispatch:
-  push:
-    branches: [research/backtester]
-    paths:
-      - backtester/data/production-strict-pit-20y-request.json
 
 permissions:
+  actions: read
   contents: read
-  packages: read
+  packages: write
 
 env:
   PIT_OFFICIAL_BACKTEST: '1'
+  PYTHONUNBUFFERED: '1'
 
 concurrency:
-  group: backtester-production-strict-pit-annual-${{ github.sha }}
+  group: backtester-production-20y-combined-${{ github.ref }}
   cancel-in-progress: false
 
 jobs:
+  prepare:
+    name: Freeze experiment and build SEC-V2 canonical PIT /2
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      artifact_name: ${{ steps.freeze.outputs.artifact_name }}
+      production_main_sha: ${{ steps.freeze.outputs.production_main_sha }}
+      parameters_json: ${{ steps.freeze.outputs.parameters_json }}
+    steps:
+      - name: Check out exact backtester source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-production-strict-pit-20y.yml
+            /.github/workflows/backtester-production-strict-pit-year-worker.yml
+            /.github/workflows/backtester-pit-certification-suite.yml
+            /backtester/**
+            /tests/conftest.py
+            /tests/backtester/test_canonical_pit_metadata_v2.py
+            /tests/backtester/test_production_run_summary.py
+            /tests/backtester/test_current_main_production_binding.py
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/**
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SFP/**
+
+      - name: Check out completed historical metadata V2 pointer
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/enrich-pit-2007-2026-metadata
+          path: metadata-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/data/historical-metadata-v2.json
+
+      - name: Check out current Production main at experiment start
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: main
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Freeze exact source and Production identity before reconstruction
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = "refs/heads/research/backtester"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test -f metadata-src/backtester/data/historical-metadata-v2.json
+          git -C main-src fetch --quiet --no-tags origin '+refs/heads/main:refs/remotes/origin/main'
+          PRODUCTION_MAIN_SHA="$(git -C main-src rev-parse HEAD)"
+          test "${PRODUCTION_MAIN_SHA}" = "$(git -C main-src rev-parse refs/remotes/origin/main)"
+          test -z "$(git -C main-src status --porcelain)"
+          case "${PRODUCTION_MAIN_SHA}" in
+            [0-9a-f][0-9a-f][0-9a-f][0-9a-f]*) ;;
+            *) echo "invalid Production main SHA" >&2; exit 1 ;;
+          esac
+          test "${#PRODUCTION_MAIN_SHA}" -eq 40
+          test "$(git -C main-src hash-object sentinel/core/kernel.py)" = "12617af8eb954d4ae18fef2ae16977048e2e40cd"
+          test "$(git -C main-src hash-object sentinel/core/production.py)" = "e4ebfebae2fa1a737c52063af63003a82b6e19cf"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/adapter.py)" = "466a8f8202692e65e08596a7a47d45bd15bb3fd3"
+          test "$(git -C main-src hash-object shared/stock_strategy_shared/wealth_core/state.py)" = "1921399aca503ae5e2cbfd6125792c09464ba22b"
+          echo "PRODUCTION_MAIN_SHA=${PRODUCTION_MAIN_SHA}" >> "${GITHUB_ENV}"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          echo "METADATA_BRANCH_SHA=$(git -C metadata-src rev-parse HEAD)" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install exact Production reconstruction runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install pytest==8.4.2
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+
+      - name: Reconstruct frozen SFP archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          parts=(sharadar/SFP/SHARADAR_SFP.zip.*)
+          test "${#parts[@]}" -ge 1
+          cat "${parts[@]}" > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+
+      - name: Authenticate completed historical metadata V2 package
+        id: metadata
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=metadata-src/backtester/data/historical-metadata-v2.json
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+          metadata = json.loads(Path('metadata-src/backtester/data/historical-metadata-v2.json').read_text())
+          base = json.loads(Path('backtester/data/canonical-pit-20y.json').read_text())
+          assert metadata['schema'] == 'backtester.historical-metadata-reconstruction-v2.pointer/1'
+          assert metadata['timeline_status'] == 'PASS'
+          assert metadata['admission_status'] in {'READY', 'REVIEW_REQUIRED'}
+          assert metadata['canonical_dataset_sha256'] == base['dataset_hash'], (
+              metadata['canonical_dataset_sha256'], base['dataset_hash'])
+          assert re.fullmatch(
+              r'ghcr\.io/flabber1835/stocker-historical-metadata-v2@sha256:[0-9a-f]{64}',
+              metadata['package'])
+          assert metadata.get('workflow_run_id')
+          PY
+          PACKAGE="$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          rm -rf backtester-results/historical-metadata-v2
+          mkdir -p backtester-results/historical-metadata-v2
+          cid="$(docker create "${PACKAGE}" /bin/true)"
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${cid}:/historical-metadata-v2/." backtester-results/historical-metadata-v2/
+          docker rm -f "${cid}" >/dev/null
+          trap - EXIT
+          (cd backtester-results/historical-metadata-v2 && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          p=json.loads(Path('metadata-src/backtester/data/historical-metadata-v2.json').read_text())
+          root=Path('backtester-results/historical-metadata-v2')
+          assert hashlib.sha256((root/'SHA256SUMS.txt').read_bytes()).hexdigest() == p['package_sha256_manifest_sha256']
+          assert hashlib.sha256((root/'evidence_manifest.json').read_bytes()).hexdigest() == p['evidence_manifest_sha256']
+          coverage=json.loads((root/'timeline/timeline_coverage.json').read_text())
+          assert coverage['status'] == p['timeline_status'] == 'PASS'
+          assert coverage['admission_status'] == p['admission_status']
+          PY
+          echo "METADATA_PACKAGE=${PACKAGE}" >> "${GITHUB_ENV}"
+
+      - name: Run focused combined-workflow regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile             backtester/canonical_pit_metadata_v2.py             backtester/build_canonical_pit_with_metadata_v2.py             backtester/production_run_summary.py             backtester/certify_backtest_result_v2.py             backtester/run_production_current_main_strict_pit_20y.py
+          python -m pytest -q             tests/backtester/test_canonical_pit_metadata_v2.py             tests/backtester/test_production_run_summary.py             tests/backtester/test_current_main_production_binding.py
+
+      - name: Build run-specific canonical PIT /2 from SEC-V2 metadata
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANONICAL=backtester-results/canonical-pit-20y
+          rm -rf "${CANONICAL}"
+          mkdir -p backtester-results
+          python backtester/build_canonical_pit_with_metadata_v2.py             --output "${CANONICAL}"             --metadata-v2 backtester-results/historical-metadata-v2             --metadata-pointer metadata-src/backtester/data/historical-metadata-v2.json             --warmup-start 2006-01-03             --measurement-start 2006-07-31             --end 2026-07-31             --root .
+          python backtester/canonical_pit_dataset.py validate --dataset "${CANONICAL}"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          base=json.loads(Path('backtester/data/canonical-pit-20y.json').read_text())
+          value=json.loads(Path('backtester-results/canonical-pit-20y/manifest.json').read_text())
+          assert value['schema'] == 'backtester.canonical-pit-dataset/2'
+          assert value['dataset_hash'] != base['dataset_hash'], 'SEC-V2 rebuild reproduced retired canonical hash'
+          assert value['historical_metadata_v2']['status'] == 'PASS'
+          print('CANONICAL V2 COUNTS', json.dumps(value['counts'], sort_keys=True), flush=True)
+          PY
+
+      - name: Publish immutable run-specific canonical package
+        id: package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CANONICAL=backtester-results/canonical-pit-20y
+          DATASET_HASH="$(python -c "import json; print(json.load(open('${CANONICAL}/manifest.json'))['dataset_hash'])")"
+          IMAGE="ghcr.io/flabber1835/stocker-canonical-pit:production-run-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}-${DATASET_HASH}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker build             --file backtester/canonical-pit.Dockerfile             --build-arg SOURCE_REPOSITORY="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}"             --build-arg DATASET_HASH="${DATASET_HASH}"             --tag "${IMAGE}"             "${CANONICAL}"
+          docker push "${IMAGE}"
+          docker pull "${IMAGE}"
+          PACKAGE="$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}")"
+          case "${PACKAGE}" in
+            ghcr.io/flabber1835/stocker-canonical-pit@sha256:*) ;;
+            *) echo "unexpected canonical package digest: ${PACKAGE}" >&2; exit 1 ;;
+          esac
+          mkdir -p backtester-results/production-20y-input
+          python backtester/canonical_pit_package.py write             --dataset "${CANONICAL}"             --output backtester-results/production-20y-input/canonical-pit-pointer.json             --package "${PACKAGE}"             --source-run-id "${GITHUB_RUN_ID}"             --source-run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          cp metadata-src/backtester/data/historical-metadata-v2.json             backtester-results/production-20y-input/historical-metadata-v2.json
+          echo "CANONICAL_PACKAGE=${PACKAGE}" >> "${GITHUB_ENV}"
+
+      - name: Freeze immutable combined experiment
+        id: freeze
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARTIFACT_NAME="production-20y-input-${GITHUB_RUN_ID}-attempt-${GITHUB_RUN_ATTEMPT}"
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          root=Path('backtester-results/production-20y-input')
+          canonical=json.loads((root/'canonical-pit-pointer.json').read_text())
+          metadata=json.loads((root/'historical-metadata-v2.json').read_text())
+          params={
+              'entrypoint':'production-annual-chain-2006-2026',
+              'mode':'production',
+              'production_main_sha':os.environ['PRODUCTION_MAIN_SHA'],
+              'runtime_main_sha':os.environ['PRODUCTION_MAIN_SHA'],
+              'production_overlay':'pristine',
+              'canonical_package':canonical['package'],
+              'metadata_v2_package':metadata['package'],
+              'metadata_v2_source_sha':metadata['source_sha'],
+              'certification_contract':'backtester.pit-certification/1',
+          }
+          value={
+              'schema':'backtester.production-20y-experiment/1',
+              'source_sha':os.environ['GITHUB_SHA'],
+              'production_main_sha':os.environ['PRODUCTION_MAIN_SHA'],
+              'metadata_branch_sha':os.environ['METADATA_BRANCH_SHA'],
+              'metadata_pointer_sha256':hashlib.sha256((root/'historical-metadata-v2.json').read_bytes()).hexdigest(),
+              'canonical_pointer_sha256':hashlib.sha256((root/'canonical-pit-pointer.json').read_bytes()).hexdigest(),
+              'canonical_dataset_hash':canonical['dataset_hash'],
+              'canonical_package':canonical['package'],
+              'parameters':params,
+          }
+          (root/'experiment.json').write_text(json.dumps(value,indent=2,sort_keys=True)+'\n')
+          Path('/tmp/parameters.json').write_text(json.dumps(params,sort_keys=True,separators=(',',':')))
+          PY
+          echo "artifact_name=${ARTIFACT_NAME}" >> "${GITHUB_OUTPUT}"
+          echo "production_main_sha=${PRODUCTION_MAIN_SHA}" >> "${GITHUB_OUTPUT}"
+          echo "parameters_json=$(cat /tmp/parameters.json)" >> "${GITHUB_OUTPUT}"
+          echo "EXPERIMENT_ARTIFACT_NAME=${ARTIFACT_NAME}" >> "${GITHUB_ENV}"
+
+      - name: Upload immutable experiment input
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: ${{ steps.freeze.outputs.artifact_name }}
+          path: backtester-results/production-20y-input/
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+
+      - name: Publish experiment-start summary
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "${GITHUB_STEP_SUMMARY}"
+          import json, os
+          from pathlib import Path
+          c=json.loads(Path('backtester-results/production-20y-input/canonical-pit-pointer.json').read_text())
+          m=json.loads(Path('backtester-results/production-20y-input/historical-metadata-v2.json').read_text())
+          print('## Frozen 20-year experiment')
+          print()
+          print(f"- Production main: `{os.environ['PRODUCTION_MAIN_SHA']}`")
+          print(f"- Canonical dataset: `{c['dataset_hash']}`")
+          print(f"- Canonical package: `{c['package']}`")
+          print(f"- Historical metadata V2: `{m['package']}`")
+          print(f"- Metadata admission: **{m['admission_status']}**")
+          print()
+          print('The 20-year replay and the causality suite will consume this exact immutable package.')
+          PY
+
   causality:
     name: Mandatory PIT / financial / causality evidence
+    needs: prepare
+    if: ${{ needs.prepare.result == 'success' }}
     uses: ./.github/workflows/backtester-pit-certification-suite.yml
     with:
       mode: production
       source_sha: ${{ github.sha }}
-      strategy_sha: ea0e100b43da989bfb39ab69cdfb2b9745f3b850
-      runtime_main_sha: ea0e100b43da989bfb39ab69cdfb2b9745f3b850
-      parameters_json: '{"entrypoint":"production-annual-chain-2006-2026","mode":"production","production_main_sha":"ea0e100b43da989bfb39ab69cdfb2b9745f3b850","runtime_main_sha":"ea0e100b43da989bfb39ab69cdfb2b9745f3b850","production_overlay":"pristine","certification_contract":"backtester.pit-certification/1"}'
+      strategy_sha: ${{ needs.prepare.outputs.production_main_sha }}
+      runtime_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
+      parameters_json: ${{ needs.prepare.outputs.parameters_json }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
     secrets: inherit
 
   year_2006:
+    needs: [prepare]
+    if: ${{ needs.prepare.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2006'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
     secrets: inherit
 
   year_2007:
-    needs: year_2006
+    needs: [prepare, year_2006]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2006.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2007'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2006.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2006.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2006.outputs.artifact_name }}
@@ -56,13 +343,16 @@ jobs:
     secrets: inherit
 
   year_2008:
-    needs: year_2007
+    needs: [prepare, year_2007]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2007.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2008'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2007.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2007.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2007.outputs.artifact_name }}
@@ -71,13 +361,16 @@ jobs:
     secrets: inherit
 
   year_2009:
-    needs: year_2008
+    needs: [prepare, year_2008]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2008.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2009'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2008.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2008.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2008.outputs.artifact_name }}
@@ -86,13 +379,16 @@ jobs:
     secrets: inherit
 
   year_2010:
-    needs: year_2009
+    needs: [prepare, year_2009]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2009.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2010'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2009.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2009.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2009.outputs.artifact_name }}
@@ -101,13 +397,16 @@ jobs:
     secrets: inherit
 
   year_2011:
-    needs: year_2010
+    needs: [prepare, year_2010]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2010.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2011'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2010.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2010.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2010.outputs.artifact_name }}
@@ -116,13 +415,16 @@ jobs:
     secrets: inherit
 
   year_2012:
-    needs: year_2011
+    needs: [prepare, year_2011]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2011.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2012'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2011.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2011.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2011.outputs.artifact_name }}
@@ -131,13 +433,16 @@ jobs:
     secrets: inherit
 
   year_2013:
-    needs: year_2012
+    needs: [prepare, year_2012]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2012.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2013'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2012.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2012.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2012.outputs.artifact_name }}
@@ -146,13 +451,16 @@ jobs:
     secrets: inherit
 
   year_2014:
-    needs: year_2013
+    needs: [prepare, year_2013]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2013.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2014'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2013.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2013.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2013.outputs.artifact_name }}
@@ -161,13 +469,16 @@ jobs:
     secrets: inherit
 
   year_2015:
-    needs: year_2014
+    needs: [prepare, year_2014]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2014.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2015'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2014.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2014.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2014.outputs.artifact_name }}
@@ -176,13 +487,16 @@ jobs:
     secrets: inherit
 
   year_2016:
-    needs: year_2015
+    needs: [prepare, year_2015]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2015.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2016'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2015.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2015.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2015.outputs.artifact_name }}
@@ -191,13 +505,16 @@ jobs:
     secrets: inherit
 
   year_2017:
-    needs: year_2016
+    needs: [prepare, year_2016]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2016.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2017'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2016.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2016.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2016.outputs.artifact_name }}
@@ -206,13 +523,16 @@ jobs:
     secrets: inherit
 
   year_2018:
-    needs: year_2017
+    needs: [prepare, year_2017]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2017.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2018'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2017.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2017.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2017.outputs.artifact_name }}
@@ -221,13 +541,16 @@ jobs:
     secrets: inherit
 
   year_2019:
-    needs: year_2018
+    needs: [prepare, year_2018]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2018.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2019'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2018.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2018.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2018.outputs.artifact_name }}
@@ -236,13 +559,16 @@ jobs:
     secrets: inherit
 
   year_2020:
-    needs: year_2019
+    needs: [prepare, year_2019]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2019.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2020'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2019.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2019.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2019.outputs.artifact_name }}
@@ -251,13 +577,16 @@ jobs:
     secrets: inherit
 
   year_2021:
-    needs: year_2020
+    needs: [prepare, year_2020]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2020.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2021'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2020.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2020.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2020.outputs.artifact_name }}
@@ -266,13 +595,16 @@ jobs:
     secrets: inherit
 
   year_2022:
-    needs: year_2021
+    needs: [prepare, year_2021]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2021.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2022'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2021.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2021.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2021.outputs.artifact_name }}
@@ -281,13 +613,16 @@ jobs:
     secrets: inherit
 
   year_2023:
-    needs: year_2022
+    needs: [prepare, year_2022]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2022.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2023'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2022.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2022.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2022.outputs.artifact_name }}
@@ -296,13 +631,16 @@ jobs:
     secrets: inherit
 
   year_2024:
-    needs: year_2023
+    needs: [prepare, year_2023]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2023.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2024'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2023.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2023.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2023.outputs.artifact_name }}
@@ -311,13 +649,16 @@ jobs:
     secrets: inherit
 
   year_2025:
-    needs: year_2024
+    needs: [prepare, year_2024]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2024.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2025'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2024.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2024.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2024.outputs.artifact_name }}
@@ -326,13 +667,16 @@ jobs:
     secrets: inherit
 
   year_2026:
-    needs: year_2025
+    needs: [prepare, year_2025]
+    if: ${{ needs.prepare.result == 'success' && needs.year_2025.result == 'success' }}
     uses: ./.github/workflows/backtester-production-strict-pit-year-worker.yml
     with:
       year: '2026'
       source_sha: ${{ github.sha }}
       workflow_sha: ${{ github.sha }}
       chain_ref: ${{ github.ref }}
+      experiment_artifact_name: ${{ needs.prepare.outputs.artifact_name }}
+      production_main_sha: ${{ needs.prepare.outputs.production_main_sha }}
       previous_run_id: ${{ needs.year_2025.outputs.run_id }}
       previous_run_attempt: ${{ needs.year_2025.outputs.run_attempt }}
       previous_artifact_name: ${{ needs.year_2025.outputs.artifact_name }}
@@ -341,16 +685,16 @@ jobs:
     secrets: inherit
 
   finalize:
-    name: Authoritative PIT certification result
+    name: Results table and authoritative PIT certification
     if: ${{ always() }}
-    needs: [year_2026, causality]
+    needs: [prepare, year_2026, causality]
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     env:
       PIT_SOURCE_SHA: ${{ github.sha }}
-      PIT_STRATEGY_SHA: ea0e100b43da989bfb39ab69cdfb2b9745f3b850
-      PIT_PARAMETERS_JSON: '{"entrypoint":"production-annual-chain-2006-2026","mode":"production","production_main_sha":"ea0e100b43da989bfb39ab69cdfb2b9745f3b850","runtime_main_sha":"ea0e100b43da989bfb39ab69cdfb2b9745f3b850","production_overlay":"pristine","certification_contract":"backtester.pit-certification/1"}'
-      PIT_POINTER: backtester/data/canonical-pit-20y.json
+      PIT_STRATEGY_SHA: ${{ needs.prepare.outputs.production_main_sha }}
+      PIT_PARAMETERS_JSON: ${{ needs.prepare.outputs.parameters_json }}
+      PIT_POINTER: experiment-input/canonical-pit-pointer.json
       PIT_DATASET: backtester-results/canonical-pit-20y
       PIT_FINAL_ROOT: backtester-results/pit-certification-final
     steps:
@@ -363,12 +707,13 @@ jobs:
           filter: blob:none
           sparse-checkout-cone-mode: false
           sparse-checkout: |
-            /.github/workflows
-            /backtester
-      - name: Check out exact pristine Production source
+            /backtester/**
+
+      - name: Check out exact frozen Production source
+        if: ${{ needs.prepare.result == 'success' }}
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
-          ref: ea0e100b43da989bfb39ab69cdfb2b9745f3b850
+          ref: ${{ needs.prepare.outputs.production_main_sha }}
           path: main-src
           fetch-depth: 1
           persist-credentials: false
@@ -376,33 +721,54 @@ jobs:
           sparse-checkout: |
             sentinel
             shared
+
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
           check-latest: false
+
+      - name: Install exact finalizer runtime
+        if: ${{ needs.prepare.result == 'success' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+
+      - name: Download frozen experiment input
+        if: ${{ needs.prepare.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ needs.prepare.outputs.artifact_name }}
+          path: experiment-input
+
       - name: Download final annual replay chain
         if: ${{ needs.year_2026.result == 'success' }}
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           name: ${{ needs.year_2026.outputs.artifact_name }}
           path: production-final
+
       - name: Download mandatory causality evidence
-        if: always()
+        if: ${{ needs.causality.result == 'success' || needs.causality.result == 'failure' }}
         continue-on-error: true
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
-          name: pit-certification-tests-production-${{ github.run_id }}-${{ github.run_attempt }}
+          name: ${{ needs.causality.outputs.artifact_name }}
           path: causality-final
+
       - name: Re-acquire exact immutable canonical dataset for final verification
         id: dataset
+        if: ${{ needs.prepare.result == 'success' }}
         continue-on-error: true
         shell: bash
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          PACKAGE="$(python -c "import json; print(json.load(open('backtester/data/canonical-pit-20y.json'))['package'])")"
+          PACKAGE="$(python -c "import json; print(json.load(open('${PIT_POINTER}'))['package'])")"
           test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
           echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           docker pull "${PACKAGE}"
@@ -410,25 +776,36 @@ jobs:
           cid="$(docker create "${PACKAGE}" /bin/true)"
           trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
           docker cp "${cid}:/canonical-pit/." "${PIT_DATASET}/"
-          test -s "${PIT_DATASET}/manifest.json"
-          test -s "${PIT_DATASET}/session-hashes.csv"
-          python backtester/canonical_pit_package.py verify --pointer "${PIT_POINTER}" --dataset "${PIT_DATASET}"
+          python backtester/canonical_pit_package.py verify             --pointer "${PIT_POINTER}" --dataset "${PIT_DATASET}"
+
       - name: Freeze final experiment identity
+        if: ${{ needs.prepare.result == 'success' }}
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p "${PIT_FINAL_ROOT}"
-          python backtester/certify_backtest_result.py identity --mode production --source-sha "${PIT_SOURCE_SHA}" --strategy-sha "${PIT_STRATEGY_SHA}" --workflow-sha "${PIT_SOURCE_SHA}" --pointer "${PIT_POINTER}" --parameters-json "${PIT_PARAMETERS_JSON}" --source-root . --output "${PIT_FINAL_ROOT}/experiment-identity.json"
+          python backtester/certify_backtest_result_v2.py identity             --mode production             --source-sha "${PIT_SOURCE_SHA}"             --strategy-sha "${PIT_STRATEGY_SHA}"             --workflow-sha "${PIT_SOURCE_SHA}"             --pointer "${PIT_POINTER}"             --parameters-json "${PIT_PARAMETERS_JSON}"             --source-root .             --output "${PIT_FINAL_ROOT}/experiment-identity.json"
+
       - name: Authenticate completed replay evidence
         if: ${{ needs.year_2026.result == 'success' }}
         continue-on-error: true
         shell: bash
         run: |
           set -euo pipefail
-          python backtester/certify_backtest_result.py collect-replay --identity "${PIT_FINAL_ROOT}/experiment-identity.json" --output-root production-final/backtester-results/production-year-2026/production --annual-chain production-final/handoff/production-certificate-chain.json --checkpoint-resume PASS --output "${PIT_FINAL_ROOT}/pit-replay-evidence.json"
+          python backtester/certify_backtest_result_v2.py collect-replay             --identity "${PIT_FINAL_ROOT}/experiment-identity.json"             --output-root production-final/backtester-results/production-year-2026/production             --annual-chain production-final/handoff/production-certificate-chain.json             --checkpoint-resume PASS             --output "${PIT_FINAL_ROOT}/pit-replay-evidence.json"
+
+      - name: Render 5/10/15/20-year Production vs SPY table
+        id: performance
+        if: ${{ needs.year_2026.result == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/production_run_summary.py             --metrics production-final/backtester-results/production-year-2026/production/metrics.csv             --checkpoint production-final/handoff/production-checkpoint.json             --certificate production-final/handoff/production-year-certificate.json             --output-root backtester-results/production-20y-public-summary             --github-summary "${GITHUB_STEP_SUMMARY}"
+
       - name: Issue single authoritative final certification result
-        if: always()
+        if: ${{ always() && needs.prepare.result == 'success' }}
         continue-on-error: true
         shell: bash
         env:
@@ -440,33 +817,45 @@ jobs:
           TEST_EVIDENCE="causality-final/backtester-results/pit-certification-suite/pit-test-evidence.json"
           REPLAY_EVIDENCE="${PIT_FINAL_ROOT}/pit-replay-evidence.json"
           args=()
-          if test "${DATASET_JOB_RESULT}" = success && test -d "${PIT_DATASET}"; then args+=(--dataset "${PIT_DATASET}" --pointer "${PIT_POINTER}"); fi
+          if test "${DATASET_JOB_RESULT}" = success && test -d "${PIT_DATASET}"; then
+            args+=(--dataset "${PIT_DATASET}" --pointer "${PIT_POINTER}")
+          fi
           if test -f "${REPLAY_EVIDENCE}"; then args+=(--replay-evidence "${REPLAY_EVIDENCE}"); fi
           if test -f "${TEST_EVIDENCE}"; then args+=(--test-evidence "${TEST_EVIDENCE}"); fi
-          python backtester/certify_backtest_result.py finalize --identity "${PIT_FINAL_ROOT}/experiment-identity.json" "${args[@]}" --replay-job-result "${REPLAY_JOB_RESULT}" --tests-job-result "${TESTS_JOB_RESULT}" --output "${PIT_FINAL_ROOT}/pit-certification.json" --summary-output "${PIT_FINAL_ROOT}/pit-certification-summary.txt"
-      - name: Upload final certification and diagnostics
+          python backtester/certify_backtest_result_v2.py finalize             --identity "${PIT_FINAL_ROOT}/experiment-identity.json"             "${args[@]}"             --replay-job-result "${REPLAY_JOB_RESULT}"             --tests-job-result "${TESTS_JOB_RESULT}"             --output "${PIT_FINAL_ROOT}/pit-certification.json"             --summary-output "${PIT_FINAL_ROOT}/pit-certification-summary.txt"             --github-step-summary "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload final performance, replay, and certification evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: backtester-pit-certification-production-${{ github.run_id }}-${{ github.run_attempt }}
+          name: backtester-production-20y-results-${{ github.run_id }}-${{ github.run_attempt }}
           path: |
+            backtester-results/production-20y-public-summary/**
             backtester-results/pit-certification-final/**
             production-final/handoff/**
             causality-final/backtester-results/pit-certification-suite/**
+            experiment-input/**
           if-no-files-found: warn
           retention-days: 90
           compression-level: 6
+
       - name: Enforce authoritative certification conclusion
         if: always()
         shell: bash
         run: |
           set -euo pipefail
+          test "${{ needs.prepare.result }}" = success
+          test "${{ needs.year_2026.result }}" = success
+          test "${{ steps.performance.outcome }}" = success
           test -f "${PIT_FINAL_ROOT}/pit-certification.json"
           python - <<'PY'
           import json
           from pathlib import Path
           value=json.loads(Path('backtester-results/pit-certification-final/pit-certification.json').read_text())
           if value.get('status') != 'PIT_CERTIFIED':
-              raise SystemExit('PIT NOT CERTIFIED — see final certification artifact and job summary')
+              blockers=value.get('blockers') or []
+              primary=blockers[0] if blockers else {}
+              reason=str(primary.get('reason') or 'mandatory certification evidence is incomplete')
+              raise SystemExit(f'PIT NOT CERTIFIED — {reason}')
           print('PIT CERTIFIED — point-in-time, causality, universe, and forward-bias checks passed')
           PY
