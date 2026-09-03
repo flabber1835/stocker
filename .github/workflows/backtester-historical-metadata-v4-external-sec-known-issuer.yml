@@ -6,8 +6,11 @@ on:
     branches: [research/backtester-pit-corpus-recovery-v4]
     paths:
       - '.github/workflows/backtester-historical-metadata-v4-external-sec-known-issuer.yml'
+      - 'backtester/expand_historical_authority_v4_issuer_safe.py'
       - 'backtester/plan_historical_metadata_external_v4.py'
+      - 'backtester/sec_http_transport_resilient_v4.py'
       - 'tests/backtester/test_historical_metadata_external_plan_v4.py'
+      - 'tests/backtester/test_sec_http_transport_resilient_v4.py'
   workflow_dispatch:
 
 permissions:
@@ -34,7 +37,7 @@ jobs:
     timeout-minutes: 120
     strategy:
       fail-fast: false
-      max-parallel: 8
+      max-parallel: 4
       matrix:
         shard: ['0','1','2','3','4','5','6','7']
     steps:
@@ -54,9 +57,11 @@ jobs:
             /backtester/mine_historical_metadata_candidates_v3.py
             /backtester/mine_historical_metadata_candidates_v4_issuer_safe.py
             /backtester/plan_historical_metadata_external_v4.py
+            /backtester/sec_http_transport_resilient_v4.py
             /tests/backtester/test_expand_historical_authority_v4.py
             /tests/backtester/test_expand_historical_authority_v4_issuer_safe.py
             /tests/backtester/test_historical_metadata_external_plan_v4.py
+            /tests/backtester/test_sec_http_transport_resilient_v4.py
 
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -64,7 +69,7 @@ jobs:
           python-version: '3.12'
           check-latest: false
 
-      - name: Run strict-prior and shard regressions
+      - name: Run strict-prior, shard, and transport regressions
         run: |
           set -euo pipefail
           python -m compileall -q backtester tests/backtester
@@ -75,6 +80,7 @@ jobs:
               'tests/backtester/test_expand_historical_authority_v4.py',
               'tests/backtester/test_expand_historical_authority_v4_issuer_safe.py',
               'tests/backtester/test_historical_metadata_external_plan_v4.py',
+              'tests/backtester/test_sec_http_transport_resilient_v4.py',
           ):
               ns=runpy.run_path(test_path)
               for name in sorted(ns):
@@ -86,7 +92,7 @@ jobs:
                           fn(Path(td))
                   else:
                       fn()
-          print({'status':'PASS','contract':'latest residual; deterministic disjoint shards; strict-prior; candidate-only; issuer-safe ownership CIK'})
+          print({'status':'PASS','contract':'latest residual; deterministic disjoint shards; strict-prior; candidate-only; issuer-safe ownership CIK; truncated SEC bodies retried from zero bytes'})
           PY
 
       - name: Download authoritative ownership-strict residual
