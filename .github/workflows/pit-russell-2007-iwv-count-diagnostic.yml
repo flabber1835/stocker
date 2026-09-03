@@ -1,0 +1,71 @@
+name: Count June 2007 IWV filed common stocks
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - '.github/workflows/pit-russell-2007-iwv-count-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  count:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Install Poppler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Extract IWV common-stock security names deterministically
+        run: |
+          set -euo pipefail
+          curl -fL --retry 4 --retry-all-errors 'https://announcements.asx.com.au/asxpdf/20071010/pdf/3151dyspjmvx7w.pdf' -o /tmp/source.pdf
+          pdftotext -layout -f 160 -l 265 /tmp/source.pdf /tmp/window.txt
+          python - <<'PY'
+          from pathlib import Path
+          import hashlib,re
+          text=Path('/tmp/window.txt').read_text(errors='replace')
+          up=text.upper()
+          start=up.index('ISHARES® RUSSELL 3000 INDEX FUND')
+          end=up.index('ISHARES® RUSSELL 3000 GROWTH INDEX FUND',start)
+          sec=text[start:end]
+          s_up=sec.upper()
+          common=s_up.index('COMMON STOCKS')
+          total=s_up.find('TOTAL COMMON STOCKS',common)
+          print('SECTION_CHARS',len(sec),'COMMON_AT',common,'TOTAL_AT',total)
+          if total < 0:
+              # Show all total/common markers before failing.
+              for m in re.finditer(r'TOTAL[^\n]{0,100}|COMMON STOCKS[^\n]{0,100}',sec,re.I): print('MARKER',repr(m.group(0)))
+              raise SystemExit('TOTAL COMMON STOCKS marker not found')
+          body=sec[common:total]
+          # A security row has a nonempty left security label plus Shares and Value numeric fields.
+          rx=re.compile(r'^\s{5,}(.+?)\s{2,}([\d,]+)\s+\$?\s*([\d,]+)\s*$',re.M)
+          rows=[]
+          for m in rx.finditer(body):
+              name=' '.join(m.group(1).split())
+              # reject page furniture and obvious headings/totals; real security labels use mixed case or all-caps acronyms with punctuation.
+              low=name.casefold()
+              if any(x in low for x in ('barclays global','ishares trust','schedule of investments','for personal use only','page ')):
+                  continue
+              rows.append((name,m.group(2).replace(',',''),m.group(3).replace(',','')))
+          names=[r[0] for r in rows]
+          print('ROW_COUNT',len(rows),'UNIQUE_NAMES',len(set(names)))
+          payload=''.join(f'{a}\t{b}\t{c}\n' for a,b,c in rows).encode()
+          print('ROWS_SHA256',hashlib.sha256(payload).hexdigest())
+          print('FIRST_20')
+          for r in rows[:20]: print(r)
+          print('LAST_20')
+          for r in rows[-20:]: print(r)
+          # Show duplicate names and suspicious names for independent review.
+          from collections import Counter
+          dup=[(n,c) for n,c in Counter(names).items() if c>1]
+          print('DUPLICATE_NAMES',len(dup),dup[:50])
+          suspicious=[r for r in rows if len(r[0])<3 or r[0].upper()==r[0]]
+          print('SUSPICIOUS_COUNT',len(suspicious))
+          for r in suspicious[:100]: print('SUSPICIOUS',r)
+          print('TOTAL_MARKER_CONTEXT',repr(sec[total:total+800]))
+          PY
