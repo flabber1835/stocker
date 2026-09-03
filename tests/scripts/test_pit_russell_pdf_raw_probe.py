@@ -27,7 +27,9 @@ class RussellPdfRawProbeTests(unittest.TestCase):
         result = probe.raw_structure(text)
         self.assertEqual(2, result["preceding_company_candidates"])
         self.assertEqual(2, result["preceding_unique_tickers"])
-        self.assertEqual(0, result["following_company_candidates"])
+        # The first ticker is followed by the next company's text, so the diagnostic
+        # correctly records one competing following-text candidate as well.
+        self.assertEqual(1, result["following_company_candidates"])
 
     def test_structure_counts_following_company_pattern(self):
         text = "ABP\nABRAXAS PETE CORP\nIDRA\nIDERA PHARMACEUTICALS\n"
