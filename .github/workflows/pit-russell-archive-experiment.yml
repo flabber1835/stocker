@@ -44,8 +44,18 @@ jobs:
 
   legacy-content-probe:
     needs: deterministic-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: r3000-additions
+            url: 'http://www.russell.com/indexes/membership/Reconstitution/Recon_3000_Additions.asp'
+          - label: r3000-deletions
+            url: 'http://www.russell.com/indexes/membership/Reconstitution/Recon_3000_Deletions.asp'
+          - label: membership-nav
+            url: 'http://www.russell.com/US/Indexes/US/membership.asp'
     runs-on: ubuntu-24.04
-    timeout-minutes: 15
+    timeout-minutes: 8
     steps:
       - name: Check out exact experiment revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -56,39 +66,34 @@ jobs:
         with:
           python-version: '3.12'
           check-latest: false
-      - name: Recover archived membership and reconstitution delta content
+      - name: Recover archived Russell content
         run: |
           set -euo pipefail
-          rm -rf /tmp/russell-legacy-content
+          out="/tmp/russell-legacy-${{ matrix.label }}"
+          rm -rf "$out"
           python tools/pit_russell_legacy_content_probe.py \
             --from-year 2005 \
             --to-year 2009 \
-            --max-pages-per-year 8 \
-            --timeout 20 \
-            --attempts 3 \
-            --delay 0.4 \
-            --url 'http://www.russell.com/indexes/membership/Reconstitution/Recon_3000_Additions.asp' \
-            --url 'http://www.russell.com/indexes/membership/Reconstitution/Recon_3000_Deletions.asp' \
-            --url 'http://www.russell.com/indexes/membership/reconstitution/recon_3000_additions.asp' \
-            --url 'http://www.russell.com/indexes/membership/reconstitution/recon_3000_deletions.asp' \
-            --url 'http://www.russell.com/US/Indexes/US/membership.asp' \
-            --url 'http://www.russell.com/us/indexes/us/membership.asp' \
-            --url 'http://www.russell.com/US/Indexes/US/Reconstitution/recon_additions.asp' \
-            --url 'http://www.russell.com/US/Indexes/US/Reconstitution/recon_deletions.asp' \
-            --output-dir /tmp/russell-legacy-content
-      - name: Publish legacy evidence summary
+            --max-pages-per-year 2 \
+            --timeout 12 \
+            --attempts 2 \
+            --delay 0.25 \
+            --url '${{ matrix.url }}' \
+            --output-dir "$out"
+      - name: Publish evidence summary
         if: always()
         run: |
-          if [ -f /tmp/russell-legacy-content/report.md ]; then
-            cat /tmp/russell-legacy-content/report.md >> "$GITHUB_STEP_SUMMARY"
+          report="/tmp/russell-legacy-${{ matrix.label }}/report.md"
+          if [ -f "$report" ]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Upload derived legacy evidence only
+      - name: Upload derived evidence only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: pit-russell-legacy-content-${{ github.sha }}
+          name: pit-russell-${{ matrix.label }}-${{ github.sha }}
           path: |
-            /tmp/russell-legacy-content/manifest.json
-            /tmp/russell-legacy-content/report.md
+            /tmp/russell-legacy-${{ matrix.label }}/manifest.json
+            /tmp/russell-legacy-${{ matrix.label }}/report.md
           if-no-files-found: warn
           retention-days: 30
