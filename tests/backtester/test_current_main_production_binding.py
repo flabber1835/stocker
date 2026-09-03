@@ -10,7 +10,7 @@ import pytest
 
 ROOT = Path(__file__).resolve().parents[2]
 LAUNCHER = ROOT / "backtester" / "run_production_current_main_strict_pit_20y.py"
-CURRENT_MAIN_SHA = "ea0e100b43da989bfb39ab69cdfb2b9745f3b850"
+DEFAULT_MAIN_SHA = "f1c4be214da458b425998f8616631a4fa6072aa0"
 
 
 def _load_launcher():
@@ -22,17 +22,50 @@ def _load_launcher():
     return module
 
 
-def test_launcher_pins_current_main_and_forbids_source_patch() -> None:
+def test_launcher_binds_explicit_experiment_main_and_forbids_source_patch() -> None:
     text = LAUNCHER.read_text(encoding="utf-8")
-    assert CURRENT_MAIN_SHA in text
+    assert DEFAULT_MAIN_SHA in text
+    assert 'os.environ.get("PRODUCTION_MAIN_SHA"' in text
     assert '"sentinel/core/production.py": "e4ebfebae2fa1a737c52063af63003a82b6e19cf"' in text
     assert '"shared/stock_strategy_shared/wealth_core/state.py": "1921399aca503ae5e2cbfd6125792c09464ba22b"' in text
-    assert "status\", \"--porcelain" in text
+    assert '"status", "--porcelain"' in text
     assert "patched=false" in text
     assert "apply_production_cooldown_age_zero" not in text
 
 
-def test_launcher_requires_experiment_start_origin_main_equality() -> None:
+def test_launcher_environment_override_is_exact_and_validated() -> None:
+    code = (
+        "import os; "
+        "os.environ['PRODUCTION_MAIN_SHA']='1'*40; "
+        "import backtester.run_production_current_main_strict_pit_20y as m; "
+        "assert m.CURRENT_MAIN_SHA == '1'*40"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", code],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    assert proc.returncode == 0, proc.stdout
+
+    bad = (
+        "import os; "
+        "os.environ['PRODUCTION_MAIN_SHA']='not-a-sha'; "
+        "import backtester.run_production_current_main_strict_pit_20y"
+    )
+    proc = subprocess.run(
+        [sys.executable, "-c", bad],
+        text=True,
+        stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT,
+        check=False,
+    )
+    assert proc.returncode != 0
+    assert "40-hex" in proc.stdout
+
+
+def test_launcher_can_require_experiment_start_origin_main_equality() -> None:
     text = LAUNCHER.read_text(encoding="utf-8")
     assert "verify_experiment_start_origin_main(root)" in text
     assert "+refs/heads/main:refs/remotes/origin/main" in text
@@ -97,13 +130,23 @@ def test_strict_pit_stack_bridges_plan_session_to_current_kernel_owner() -> None
     assert proc.returncode == 0, proc.stdout
 
 
-def test_launcher_rejects_nonmatching_or_dirty_production_checkout(tmp_path: Path) -> None:
+def test_launcher_rejects_nonmatching_or_dirty_production_checkout(
+    tmp_path: Path, monkeypatch
+) -> None:
+    monkeypatch.delenv("PRODUCTION_MAIN_SHA", raising=False)
     launcher = _load_launcher()
     subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "config", "user.email", "test@example.com"], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "config", "user.name", "test"], check=True)
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.email", "test@example.com"],
+        check=True,
+    )
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "config", "user.name", "test"], check=True
+    )
     (tmp_path / "README").write_text("x", encoding="utf-8")
     subprocess.run(["git", "-C", str(tmp_path), "add", "README"], check=True)
-    subprocess.run(["git", "-C", str(tmp_path), "commit", "-q", "-m", "fixture"], check=True)
-    with pytest.raises(RuntimeError, match="not the certified current-main revision"):
+    subprocess.run(
+        ["git", "-C", str(tmp_path), "commit", "-q", "-m", "fixture"], check=True
+    )
+    with pytest.raises(RuntimeError, match="not the frozen experiment revision"):
         launcher.verify_unmodified_current_main(tmp_path)
