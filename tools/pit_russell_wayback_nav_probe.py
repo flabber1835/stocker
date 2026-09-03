@@ -14,7 +14,6 @@ from html.parser import HTMLParser
 import json
 from pathlib import Path
 import re
-import sys
 import time
 import urllib.parse
 from typing import Sequence
@@ -71,7 +70,9 @@ class LinkEvidence:
     matched_keywords: tuple[str, ...]
 
 
-def relevant_link(base_original: str, href: str, text: str) -> LinkEvidence | None:
+def relevant_link(
+    base_original: str, href: str, text: str
+) -> tuple[str, tuple[str, ...]] | None:
     resolved = urllib.parse.urljoin(base_original, href)
     haystack = f"{href} {text}".casefold()
     matches = tuple(word for word in KEYWORDS if word in haystack)
@@ -80,24 +81,22 @@ def relevant_link(base_original: str, href: str, text: str) -> LinkEvidence | No
     return resolved, matches
 
 
+def _decode_html(payload: bytes) -> str:
+    for encoding in ("utf-8", "cp1252", "latin-1"):
+        try:
+            return payload.decode(encoding)
+        except UnicodeDecodeError:
+            continue
+    raise ValueError("unable to decode archived HTML")
+
+
 def extract_relevant_links(
     seed_url: str,
     capture: archive.Capture,
     payload: bytes,
 ) -> list[LinkEvidence]:
-    text = archive.decode_text(payload) if hasattr(archive, "decode_text") else None
-    if text is None:
-        for encoding in ("utf-8", "latin-1"):
-            try:
-                text = payload.decode(encoding)
-                break
-            except UnicodeDecodeError:
-                continue
-    if text is None:
-        raise ValueError("unable to decode archived HTML")
-
     parser = LinkParser()
-    parser.feed(text)
+    parser.feed(_decode_html(payload))
     out: list[LinkEvidence] = []
     seen: set[tuple[str, str]] = set()
     for href, link_text in parser.links:
@@ -124,9 +123,11 @@ def extract_relevant_links(
     return out
 
 
-def fetch_seed_captures(seed: str, from_year: int, to_year: int, timeout: int, attempts: int):
+def fetch_seed_captures(
+    seed: str, from_year: int, to_year: int, timeout: int, attempts: int
+) -> list[archive.Capture]:
     cdx_url = archive.build_cdx_url(seed, from_year, to_year)
-    payload, _, _, _ = archive.request_bytes(cdx_url, timeout, attempts)
+    payload, _, _, _ = archive._request(cdx_url, timeout, attempts)
     return archive.parse_cdx_payload(seed, payload)
 
 
@@ -148,7 +149,7 @@ def run(args: argparse.Namespace) -> dict:
         for capture in selected:
             time.sleep(args.delay)
             try:
-                payload, status, content_type, final_url = archive.request_bytes(
+                payload, status, content_type, final_url = archive._request(
                     capture.raw_archive_url, args.timeout, args.attempts
                 )
                 page_fetches.append(
@@ -188,7 +189,12 @@ def run(args: argparse.Namespace) -> dict:
         "raw_html_persisted": False,
         "capture_count": len(captures),
         "page_fetches": page_fetches,
-        "links": [asdict(row) for row in sorted(deduped_links.values(), key=lambda x: (x.capture_timestamp, x.resolved_url))],
+        "links": [
+            asdict(row)
+            for row in sorted(
+                deduped_links.values(), key=lambda x: (x.capture_timestamp, x.resolved_url)
+            )
+        ],
         "errors": errors,
     }
 
@@ -213,6 +219,12 @@ def write_outputs(output_dir: Path, result: dict) -> None:
             lines.append(f"| {row['capture_timestamp']} | {text} | `{url}` |")
     else:
         lines.append("No keyword-relevant links were recovered from the selected archived pages.")
+    if result["errors"]:
+        lines.extend(["", "## Errors", ""])
+        for row in result["errors"]:
+            lines.append(
+                f"- `{row.get('seed_url', '-')}` / `{row.get('stage', '-')}`: {row.get('error', '-')}`"
+            )
     lines.append("")
     (output_dir / "report.md").write_text("\n".join(lines))
 
@@ -237,12 +249,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     result = run(args)
     write_outputs(args.output_dir, result)
-    print(json.dumps({
-        "captures": result["capture_count"],
-        "pages": len(result["page_fetches"]),
-        "links": len(result["links"]),
-        "errors": len(result["errors"]),
-    }, sort_keys=True))
+    print(
+        json.dumps(
+            {
+                "captures": result["capture_count"],
+                "pages": len(result["page_fetches"]),
+                "links": len(result["links"]),
+                "errors": len(result["errors"]),
+            },
+            sort_keys=True,
+        )
+    )
     return 0
 
 
