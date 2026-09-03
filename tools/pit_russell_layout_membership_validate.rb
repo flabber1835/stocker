@@ -66,7 +66,13 @@ def parse_layout_text(text)
 
         company = normalize(line[company_start...ticker_start])
         ticker = normalize(line[ticker_start...next_company_start]).upcase
-        next if company.empty? || !TICKER_RE.match?(ticker)
+
+        # Russell membership-table company labels in this preserved source family are
+        # uppercase. Legal prose can share the same page below the table and can cross
+        # the fixed ticker columns; rejecting lowercase company slices prevents prose
+        # fragments from becoming synthetic symbols without consulting the companion CSV.
+        next if company.empty? || company.match?(/[a-z]/) || !company.match?(/[A-Z]/)
+        next unless TICKER_RE.match?(ticker)
 
         previous = by_ticker[ticker]
         if previous && previous != company
@@ -186,7 +192,7 @@ result = {
   'source_pdf_sha256' => Digest::SHA256.file(options[:pdf]).hexdigest,
   'source_pdf_bytes' => File.size(options[:pdf]),
   'source_csv_sha256' => Digest::SHA256.file(options[:csv]).hexdigest,
-  'extractor_contract' => 'poppler_layout_header_sliced_ruby_v1',
+  'extractor_contract' => 'poppler_layout_header_sliced_uppercase_company_ruby_v2',
   'table_pages' => table_pages_1,
   'row_count' => pdf_tickers.length,
   'unique_tickers' => pdf_tickers.length,
