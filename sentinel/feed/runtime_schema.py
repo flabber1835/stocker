@@ -23,7 +23,12 @@ DDL = [*_BASE_DDL, *_UNIVERSE_PROJECTION_DDL]
 
 _SCHEMA_LOCK = (1_397_050_964, 1_179_796_516)  # SENT / FEED.
 _SCHEMA_LOCK_TIMEOUT_MS = 2_000
+_CORPUS_LOCK_KEY = 0x5E27_C0B5
 _TOTAL_RETURN_COLUMN = SEP_FORBIDDEN_COLUMNS[0]
+
+_RECEIPT_FRESH = "RECEIPT_FRESH"
+_RECEIPT_VERIFIED_PRE_RECEIPT = "RECEIPT_VERIFIED_PRE_RECEIPT"
+_RECEIPT_INSTALLED = "RECEIPT_INSTALLED"
 
 
 class FeedSchemaRefused(behavioral_schema.SchemaMigrationRefused):
@@ -550,6 +555,40 @@ def _validate_views(cur) -> None:
             raise _refuse(f"view {view!r} has changed semantics")
 
 
+def _receipt_authority_state(cur) -> tuple[str, int | None]:
+    """Classify receipt authority without creating or repairing any relation."""
+    cur.execute(
+        "SELECT "
+        "(to_regclass('public.sentinel_corpus_publications') IS NOT NULL)::int"
+        " || ':' || "
+        "(to_regclass('public.sentinel_publication_validation_policy') IS NOT NULL)::int"
+        " || ':' || "
+        "(to_regclass('public.sentinel_publication_validation_receipts') IS NOT NULL)::int")
+    row = cur.fetchone()
+    shape = str(row[0]) if row and row[0] is not None else ""
+    if shape == "0:0:0":
+        return _RECEIPT_FRESH, None
+    if shape == "1:0:0":
+        cur.execute("SELECT COALESCE(MAX(version),0) FROM sentinel_corpus_publications")
+        legacy = cur.fetchone()
+        return _RECEIPT_VERIFIED_PRE_RECEIPT, int(legacy[0]) if legacy else 0
+    if shape != "1:1:1":
+        raise _refuse(
+            "publication receipt schema is partially installed; receipt authority "
+            "cannot be inferred or recreated")
+    cur.execute(
+        "SELECT COUNT(*)::bigint, COALESCE(MIN(required_after_version),-1)::bigint,"
+        " COALESCE(MAX(required_after_version),-1)::bigint"
+        " FROM sentinel_publication_validation_policy")
+    policy = cur.fetchone()
+    if (not policy or int(policy[0]) != 1 or int(policy[1]) < 0
+            or int(policy[1]) != int(policy[2])):
+        raise _refuse(
+            "publication receipt policy singleton is missing or ambiguous; refusing "
+            "to synthesize a new receipt boundary from current publication history")
+    return _RECEIPT_INSTALLED, int(policy[1])
+
+
 def require_feed_schema(conn) -> None:
     """Validate installed feed structure with catalog SELECTs only."""
     try:
@@ -570,8 +609,16 @@ def require_feed_schema(conn) -> None:
         raise
 
 
-def migrate_feed_schema(conn) -> None:
-    """Explicit atomic feed installation/upgrade; never called by runtime."""
+def migrate_feed_schema(conn, *, allow_verified_pre_receipt: bool = False) -> None:
+    """Explicit atomic feed installation/upgrade; never called by runtime.
+
+    Receipt authority is special.  A publication-only legacy schema may be
+    migrated only with an explicit operator attestation that those publications
+    predate authenticated receipts.  The corpus publication lock is held in the
+    same transaction while the legacy maximum version is measured and the
+    receipt policy/constraint trigger are installed, so no publication can slip
+    into the grandfathered prefix.
+    """
     try:
         with conn.cursor() as cur:
             cur.execute(f"SET LOCAL lock_timeout TO '{_SCHEMA_LOCK_TIMEOUT_MS}ms'")
@@ -581,8 +628,36 @@ def migrate_feed_schema(conn) -> None:
                 raise _refuse(
                     "another feed migration or runtime catalog proof holds the "
                     "feed schema lock")
+            cur.execute("SELECT pg_try_advisory_xact_lock(%s)", (_CORPUS_LOCK_KEY,))
+            row = cur.fetchone()
+            if not row or not bool(row[0]):
+                raise _refuse(
+                    "corpus publication authority is busy; receipt migration will "
+                    "not race a reader, writer, or publisher")
+
+            receipt_state, receipt_boundary = _receipt_authority_state(cur)
+            if (receipt_state == _RECEIPT_VERIFIED_PRE_RECEIPT
+                    and not allow_verified_pre_receipt):
+                raise _refuse(
+                    "publication history exists without receipt-policy authority; "
+                    "explicit verified pre-receipt migration attestation is required")
+
             for statement in DDL:
                 cur.execute(statement)
+
+            if receipt_state == _RECEIPT_VERIFIED_PRE_RECEIPT:
+                cur.execute(
+                    "SELECT COUNT(*)::bigint, MIN(required_after_version)::bigint,"
+                    " MAX(required_after_version)::bigint"
+                    " FROM sentinel_publication_validation_policy")
+                policy = cur.fetchone()
+                if (not policy or int(policy[0]) != 1
+                        or int(policy[1]) != int(receipt_boundary)
+                        or int(policy[2]) != int(receipt_boundary)):
+                    raise _refuse(
+                        "verified pre-receipt migration did not bind the receipt "
+                        "policy to the locked legacy publication frontier")
+
             catalog = behavioral_schema._read_catalog(cur)
             _validate_catalog(catalog)
             _validate_views(cur)
