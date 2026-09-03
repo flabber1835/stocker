@@ -2,12 +2,13 @@
 """Reconstruct the authenticated 2007 IWV/Russell discovery baseline.
 
 The June-2007 IWV filing establishes an exact, hash-pinned 2,976-row observation
-set. The archived mapper relates those names to the validated 2006/2010 Russell
-snapshots for discovery only. Because the 2010 snapshot is future information,
-that mapping is never promoted to point-in-time identity authority here.
+set. The archived two-pass mapper relates those names to validated 2006/2010
+Russell snapshots for discovery only. Because the 2010 snapshot is future
+information, that mapping is never promoted to point-in-time identity authority.
 
-This module packages the historical diagnostic into the V4 closure-input shape
-without changing its semantics:
+This module reproduces the archived abbreviation-normalized diagnostic exactly:
+2,584 mapped names, 52 ambiguous names, and 340 unmatched names. It packages
+those categories into the V4 closure-input shape without changing their meaning:
   * mapped names -> NO_AUTHORITY until strict-prior identity evidence exists;
   * ambiguous names -> AMBIGUOUS;
   * unmatched names -> NO_AUTHORITY with an explicit NAME_UNMATCHED reason.
@@ -64,8 +65,8 @@ def write_gzip_csv(path: Path, fields: list[str], rows: list[dict[str, str]]) ->
                 w.writerows(rows)
 
 
-def load_module(path: Path):
-    spec = importlib.util.spec_from_file_location("pit_russell_2007_iwv_name_map", path)
+def load_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot import archived mapper: {path}")
     module = importlib.util.module_from_spec(spec)
@@ -77,17 +78,22 @@ def load_module(path: Path):
 def build(args: argparse.Namespace) -> dict:
     archive = args.archive.resolve()
     mapper_path = archive / "tools/pit_russell_2007_iwv_name_map.py"
+    abbrev_path = archive / "tools/pit_russell_2007_iwv_abbrev_map.py"
     russell_2006 = archive / "research/pit_russell_archive/annual_universes/russell3000_2006.csv"
     russell_2010 = archive / "research/pit_russell_archive/annual_universes/russell3000_2010.csv"
-    for path in (mapper_path, russell_2006, russell_2010):
+    for path in (mapper_path, abbrev_path, russell_2006, russell_2010):
         if not path.is_file():
             raise SystemExit(f"required archived input missing: {path}")
 
-    mapper = load_module(mapper_path)
+    mapper = load_module(mapper_path, "pit_russell_2007_iwv_name_map")
+    abbrev = load_module(abbrev_path, "pit_russell_2007_iwv_abbrev_map")
     pdf = mapper.fetch_iwv_pdf()
     holdings = mapper.extract_holdings(mapper.render_iwv_window(pdf))
     sources = mapper.load_source(russell_2006, 2006) + mapper.load_source(russell_2010, 2010)
-    exact_index = mapper.build_indexes(sources)
+    raw_exact = mapper.build_indexes(sources)
+    sig_exact: dict[str, list] = {}
+    for item in sources:
+        sig_exact.setdefault(abbrev.signature(item.company), []).append(item)
 
     mapped: dict[str, dict] = {}
     ambiguous: dict[str, dict] = {}
@@ -95,30 +101,43 @@ def build(args: argparse.Namespace) -> dict:
     method_counts: dict[str, int] = {}
     for holding in holdings:
         canonical = mapper.canonical_company(holding.company)
-        exact = exact_index.get(canonical, [])
-        ticker = mapper.unique_ticker(exact)
-        if ticker:
-            candidates = exact
-            method = "exact_canonical"
-        else:
+        signature = abbrev.signature(holding.company)
+        candidates = raw_exact.get(canonical, [])
+        ticker = abbrev.unique_ticker(candidates)
+        method = "exact_canonical" if ticker else ""
+        if not ticker:
             candidates = mapper.prefix_candidates(canonical, sources)
-            ticker = mapper.unique_ticker(candidates)
-            method = "unique_truncation_prefix" if ticker else ""
+            ticker = abbrev.unique_ticker(candidates)
+            method = "literal_prefix" if ticker else ""
+        if not ticker:
+            candidates = sig_exact.get(signature, [])
+            ticker = abbrev.unique_ticker(candidates)
+            method = "abbreviation_signature_exact" if ticker else ""
+        if not ticker:
+            candidates = abbrev.prefix_candidates(signature, sources)
+            ticker = abbrev.unique_ticker(candidates)
+            method = "abbreviation_signature_prefix" if ticker else ""
         if ticker:
-            mapped[holding.company] = {"ticker": ticker, "method": method}
+            mapped[holding.company] = {"ticker": ticker, "method": method, "signature": signature}
             method_counts[method] = method_counts.get(method, 0) + 1
-        elif candidates or exact:
-            pool = exact if exact else candidates
+        elif candidates:
             ambiguous[holding.company] = {
-                "candidate_tickers": sorted({x.ticker for x in pool}),
+                "candidate_tickers": sorted({x.ticker for x in candidates}),
+                "signature": signature,
             }
         else:
-            unmatched[holding.company] = {}
+            unmatched[holding.company] = {"signature": signature}
 
     counts = (len(holdings), len(mapped), len(ambiguous), len(unmatched))
     expected = (EXPECTED_ROWS, EXPECTED_MAPPED, EXPECTED_AMBIGUOUS, EXPECTED_UNMATCHED)
     if counts != expected:
         raise SystemExit(f"2007 archive baseline drift: observed={counts} expected={expected}")
+    ticker_counts: dict[str, int] = {}
+    for item in mapped.values():
+        ticker_counts[item["ticker"]] = ticker_counts.get(item["ticker"], 0) + 1
+    duplicate_mapped_tickers = {k: v for k, v in sorted(ticker_counts.items()) if v > 1}
+    if duplicate_mapped_tickers:
+        raise SystemExit(f"unexpected duplicate mapped tickers: {duplicate_mapped_tickers}")
 
     out = args.output.resolve()
     if out.exists():
@@ -153,14 +172,17 @@ def build(args: argparse.Namespace) -> dict:
             status = "AMBIGUOUS"
             reason = "ARCHIVE_NAME_MAP_AMBIGUOUS_DISCOVERY_ONLY"
             candidates = ";".join(ambiguous[holding.company]["candidate_tickers"])
+            signature = ambiguous[holding.company]["signature"]
         elif holding.company in unmatched:
             status = "NO_AUTHORITY"
             reason = "ARCHIVE_NAME_UNMATCHED_DISCOVERY_ONLY"
             candidates = ""
+            signature = unmatched[holding.company]["signature"]
         else:
             status = "NO_AUTHORITY"
             reason = "ARCHIVE_NAME_TO_TICKER_MAP_DISCOVERY_ONLY"
             candidates = ticker
+            signature = item["signature"]
         adjudication_rows.append({
             "source_row_id": sid,
             "resolution_status": status,
@@ -184,6 +206,7 @@ def build(args: argparse.Namespace) -> dict:
             "archive_category": "mapped" if item else ("ambiguous" if holding.company in ambiguous else "unmatched"),
             "archive_ticker": ticker,
             "candidate_tickers": candidates,
+            "signature": signature,
             "method": item["method"] if item else "",
         })
 
@@ -191,7 +214,7 @@ def build(args: argparse.Namespace) -> dict:
     write_gzip_csv(out / "adjudications_2007.csv.gz", ADJ_FIELDS, adjudication_rows)
     write_gzip_csv(
         out / "archive_mapping_diagnostics_2007.csv.gz",
-        ["source_row_id", "company_name", "archive_category", "archive_ticker", "candidate_tickers", "method"],
+        ["source_row_id", "company_name", "archive_category", "archive_ticker", "candidate_tickers", "signature", "method"],
         diagnostic_rows,
     )
 
@@ -201,6 +224,7 @@ def build(args: argparse.Namespace) -> dict:
         "expected_rows": EXPECTED_ROWS,
         "archive_commit": args.archive_commit,
         "archive_mapper_sha256": sha256_file(mapper_path),
+        "archive_abbrev_mapper_sha256": sha256_file(abbrev_path),
         "archive_russell_2006_sha256": sha256_file(russell_2006),
         "archive_russell_2010_sha256": sha256_file(russell_2010),
         "iwv_pdf_sha256": pdf_sha,
@@ -212,6 +236,7 @@ def build(args: argparse.Namespace) -> dict:
         "baseline_name_unmatched": len(unmatched),
         "baseline_unclassified": 0,
         "baseline_no_identity_authority": EXPECTED_ROWS - len(ambiguous),
+        "duplicate_mapped_tickers": duplicate_mapped_tickers,
         "mapping_method_counts": method_counts,
         "causality_note": "2010 Russell snapshot is future to 2007 and is discovery-only; it cannot certify a 2007 identity.",
     }
