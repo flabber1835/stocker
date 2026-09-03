@@ -1,0 +1,47 @@
+name: Inspect June 2007 IWV filed holdings
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - '.github/workflows/pit-russell-2007-iwv-sec-filing-diagnostic.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  inspect:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Install Poppler
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Download filed iShares Trust schedule and inspect IWV section
+        run: |
+          set -euo pipefail
+          url='https://announcements.asx.com.au/asxpdf/20071010/pdf/3151dyspjmvx7w.pdf'
+          curl -fL --retry 4 --retry-all-errors "$url" -o /tmp/ishares-20070630.pdf
+          test "$(head -c 5 /tmp/ishares-20070630.pdf)" = '%PDF-'
+          sha256sum /tmp/ishares-20070630.pdf
+          pdfinfo /tmp/ishares-20070630.pdf | grep -E '^(Pages|File size|PDF version)'
+          pdftotext -layout -f 160 -l 265 /tmp/ishares-20070630.pdf /tmp/iwv-window.txt
+          python - <<'PY'
+          from pathlib import Path
+          text=Path('/tmp/iwv-window.txt').read_text(errors='replace')
+          up=text.upper()
+          needles=['ISHARES® RUSSELL 3000 INDEX FUND','ISHARES RUSSELL 3000 INDEX FUND','RUSSELL 3000 INDEX FUND','RUSSELL 3000 GROWTH INDEX FUND']
+          for n in needles:
+              print('NEEDLE',n,'INDEX',up.find(n.upper()))
+          # print compact contexts around every Russell 3000 heading
+          start=0
+          while True:
+              i=up.find('RUSSELL 3000',start)
+              if i<0: break
+              print('\n=== CONTEXT',i,'===')
+              print(text[max(0,i-500):i+1800])
+              start=i+1
+          PY
