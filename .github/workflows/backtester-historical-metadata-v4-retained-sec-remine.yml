@@ -1,0 +1,313 @@
+name: Backtester - historical metadata V4 retained SEC remine
+run-name: Historical metadata V4 retained SEC remine — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-pit-corpus-recovery-v4]
+    paths:
+      - '.github/workflows/backtester-historical-metadata-v4-retained-sec-remine.yml'
+      - 'backtester/plan_historical_metadata_residual_v4.py'
+      - 'backtester/mine_historical_metadata_candidates_v3.py'
+      - 'tests/backtester/test_historical_metadata_residual_v4.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  AUDIT_RUN_ID: '33711744625'
+  AUDIT_ARTIFACT: historical-metadata-v3-corrected-canonical-observation-audit-9536ee216f0d8ef2299530a02e0fa1f41154fce1
+  V2_RUN_ID: '33701529865'
+  V2_ARTIFACT: historical-metadata-v2-resilient-indexed-evidence-431686edffef158ff61c122c977ff2c7c18b7036-3556a6c9e01410bed6af02c0bd0d42eb718d2068
+  V3_RUN_ID: '33704396721'
+  V3_ARTIFACT: historical-metadata-v3-candidates-5d4d826c1c295cdc0a9dde5b80208a7cdf3e14f2
+  CORRECTED_RUN_ID: '33710114749'
+  CORRECTED_ARTIFACT: historical-metadata-v3-corrected-topology-recovery-4834767c842adb1155b6a2244ec3c4cc33aca886
+  RAW_RUN_ID: '33468938050'
+
+jobs:
+  plan:
+    name: Build exact V4 residual plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    outputs:
+      matrix: ${{ steps.matrix.outputs.matrix }}
+    steps:
+      - name: Check out exact V4 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-historical-metadata-v4-retained-sec-remine.yml
+            /backtester/plan_historical_metadata_residual_v4.py
+            /backtester/mine_historical_metadata_candidates_v3.py
+            /tests/backtester/test_historical_metadata_residual_v4.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Run V4 fail-closed regression
+        run: |
+          set -euo pipefail
+          python -m compileall -q backtester/plan_historical_metadata_residual_v4.py backtester/mine_historical_metadata_candidates_v3.py tests/backtester/test_historical_metadata_residual_v4.py
+          python - <<'PY'
+          import runpy, tempfile
+          from pathlib import Path
+          ns=runpy.run_path('tests/backtester/test_historical_metadata_residual_v4.py')
+          with tempfile.TemporaryDirectory() as td:
+              ns['test_v4_routes_only_exact_existing_authority'](Path(td))
+          with tempfile.TemporaryDirectory() as td:
+              ns['test_exact_ticker_identity_candidate_can_bootstrap_causal_cik'](Path(td))
+          print({'status':'PASS','contract':'V4 is plan-only; hints never become causal without exact ticker proof'})
+          PY
+
+      - name: Download definitive corrected observation audit
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.AUDIT_ARTIFACT }}
+          path: inputs/audit
+          repository: ${{ github.repository }}
+          run-id: ${{ env.AUDIT_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download authenticated V2 evidence package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.V2_ARTIFACT }}
+          path: inputs/v2
+          repository: ${{ github.repository }}
+          run-id: ${{ env.V2_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download authenticated V3 candidate package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.V3_ARTIFACT }}
+          path: inputs/v3
+          repository: ${{ github.repository }}
+          run-id: ${{ env.V3_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download corrected identity topology
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.CORRECTED_ARTIFACT }}
+          path: inputs/corrected
+          repository: ${{ github.repository }}
+          run-id: ${{ env.CORRECTED_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Build exact bounded residual plan
+        run: |
+          set -euo pipefail
+          rm -rf results/v4-plan
+          python -m backtester.plan_historical_metadata_residual_v4 \
+            --audit-root inputs/audit \
+            --v2-root inputs/v2 \
+            --v3-root inputs/v3 \
+            --corrected-root inputs/corrected \
+            --output results/v4-plan
+          python - <<'PY'
+          import json
+          s=json.load(open('results/v4-plan/summary.json'))
+          assert s['status']=='PASS' and s['candidate_only'] is True and s['admission_effect']=='NONE'
+          assert s['definitive_unresolved_episodes']==10795
+          assert s['episodes_with_causal_cik']==4369
+          assert s['episodes_without_causal_cik']==6426
+          assert s['retained_sec_remine_episodes']==5127
+          assert s['external_recovery_episodes']==5668
+          assert s['retained_sec_target_ciks']==4833
+          assert s['resolution_routes']=={
+              'HISTORICAL_IDENTITY_DISCOVERY_REQUIRED':5668,
+              'REMINE_RETAINED_SEC_CAUSAL_CIK':4369,
+              'REMINE_RETAINED_SEC_DISCOVERY_HINT':758,
+          }
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Build authenticated raw-shard matrix
+        id: matrix
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          index=json.load(open('inputs/v2/web/web_shard_artifact_index.json'))
+          assert index['status']=='PASS' and index['expected_shards']==32
+          rows=[]
+          for item in sorted(index['artifacts'], key=lambda x:x['shard']):
+              rows.append({
+                  'shard':item['shard'],
+                  'artifact_name':item['name'],
+                  'checksum_sha256':item['shard_checksum_manifest_sha256'],
+                  'source_manifest_sha256':item['source_manifest_sha256'],
+                  'runner_coverage_sha256':item['runner_coverage_sha256'],
+                  'web_coverage_sha256':item['web_coverage_sha256'],
+              })
+          assert [r['shard'] for r in rows]==[f'{i:02d}' for i in range(32)]
+          value=json.dumps({'include':rows},separators=(',',':'))
+          with open(os.environ['GITHUB_OUTPUT'],'a',encoding='utf-8') as fh:
+              fh.write('matrix='+value+'\n')
+          print({'status':'PASS','shards':len(rows)})
+          PY
+
+      - name: Upload immutable V4 residual plan
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: metadata-v4-residual-plan-${{ github.sha }}
+          path: results/v4-plan
+          if-no-files-found: error
+          retention-days: 90
+
+  remine:
+    name: Re-mine retained SEC shard ${{ matrix.shard }}
+    needs: plan
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix: ${{ fromJson(needs.plan.outputs.matrix) }}
+    steps:
+      - name: Check out exact miner source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/mine_historical_metadata_candidates_v3.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Download V4 residual plan
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: metadata-v4-residual-plan-${{ github.sha }}
+          path: inputs/plan
+
+      - name: Download exact retained SEC raw shard
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ matrix.artifact_name }}
+          path: inputs/raw
+          repository: ${{ github.repository }}
+          run-id: ${{ env.RAW_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate raw shard lineage
+        env:
+          EXPECTED_CHECKSUM: ${{ matrix.checksum_sha256 }}
+          EXPECTED_SOURCE_MANIFEST: ${{ matrix.source_manifest_sha256 }}
+          EXPECTED_RUNNER: ${{ matrix.runner_coverage_sha256 }}
+          EXPECTED_WEB: ${{ matrix.web_coverage_sha256 }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, os
+          from pathlib import Path
+          root=Path('inputs/raw')
+          checks={
+              'SHA256SUMS.txt':os.environ['EXPECTED_CHECKSUM'],
+              'web_source_manifest.csv.gz':os.environ['EXPECTED_SOURCE_MANIFEST'],
+              'shard_runner_coverage.json':os.environ['EXPECTED_RUNNER'],
+              'web_coverage.json':os.environ['EXPECTED_WEB'],
+          }
+          for rel, expected in checks.items():
+              actual=hashlib.sha256((root/rel).read_bytes()).hexdigest()
+              assert actual==expected,(rel,actual,expected)
+          print({'status':'PASS','files':len(checks)})
+          PY
+
+      - name: Re-mine corrected residual inventory from frozen SEC sources
+        run: |
+          set -euo pipefail
+          rm -rf results/shard
+          python -m backtester.mine_historical_metadata_candidates_v3 mine \
+            --shard-root inputs/raw \
+            --inventory inputs/plan/retained_sec_remine_inventory.csv.gz \
+            --output results/shard \
+            --shard '${{ matrix.shard }}'
+          python - <<'PY'
+          import json
+          s=json.load(open('results/shard/summary.json'))
+          assert s['status']=='PASS' and s['candidate_only'] is True and s['admission_effect']=='NONE'
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Upload V4 retained-SEC candidates
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: metadata-v4-remine-${{ matrix.shard }}-${{ github.sha }}
+          path: results/shard
+          if-no-files-found: error
+          retention-days: 90
+
+  merge:
+    name: Merge V4 retained SEC candidates
+    needs: remine
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact merger source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/mine_historical_metadata_candidates_v3.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Download all V4 retained-SEC candidate shards
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: metadata-v4-remine-*-${{ github.sha }}
+          path: inputs/shards
+          merge-multiple: false
+
+      - name: Merge and summarize retained-SEC recovery
+        run: |
+          set -euo pipefail
+          rm -rf results/merged
+          python -m backtester.mine_historical_metadata_candidates_v3 merge \
+            --inputs inputs/shards \
+            --output results/merged \
+            --expected-shards 32
+          python - <<'PY'
+          import json
+          s=json.load(open('results/merged/summary.json'))
+          assert s['status']=='PASS' and s['candidate_only'] is True and s['merged_shards']==32
+          print(json.dumps(s,indent=2,sort_keys=True))
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write('## V4 retained-SEC re-mine\n\n')
+              fh.write(f"Candidate rows: **{s['candidate_rows']:,}**\n\n")
+              fh.write(f"Episodes with identity candidates: **{s['episodes_with_identity_candidates']:,}**\n\n")
+              fh.write(f"Episodes with security-type candidates: **{s['episodes_with_security_type_candidates']:,}**\n\n")
+              fh.write(f"Episodes with SIC candidates: **{s['episodes_with_sic_candidates']:,}**\n")
+          PY
+
+      - name: Upload merged V4 retained-SEC candidate corpus
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-v4-retained-sec-candidates-${{ github.sha }}
+          path: results/merged
+          if-no-files-found: error
+          retention-days: 90
