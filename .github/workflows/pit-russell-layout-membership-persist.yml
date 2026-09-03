@@ -96,7 +96,7 @@ jobs:
             'scope' => 'independent fixed-layout PDF extraction cross-checked against preserved companion CSV',
             'source_repository' => 'kact998/Russell3000Components',
             'source_repository_ref' => '2e259d1d541db01c78f3a0637b4b86dfdd911d0a',
-            'extractor_contract' => 'poppler_layout_header_sliced_ruby_v1',
+            'extractor_contract' => 'poppler_layout_header_sliced_uppercase_company_ruby_v2',
             'pit_effective_boundary_status' => 'NOT_YET_CERTIFIED',
             'annual_universes' => annual
           }
