@@ -2,8 +2,8 @@
 """Reconstruct the authenticated 2007 IWV/Russell discovery baseline.
 
 The June-2007 IWV filing establishes an exact, hash-pinned 2,976-row observation
-set.  The archived mapper relates those names to the validated 2006/2010 Russell
-snapshots for discovery only.  Because the 2010 snapshot is future information,
+set. The archived mapper relates those names to the validated 2006/2010 Russell
+snapshots for discovery only. Because the 2010 snapshot is future information,
 that mapping is never promoted to point-in-time identity authority here.
 
 This module packages the historical diagnostic into the V4 closure-input shape
@@ -22,6 +22,7 @@ import importlib.util
 import io
 import json
 import shutil
+import sys
 from pathlib import Path
 
 SCHEMA = "backtester.historical-metadata-2007-closure-input/1"
@@ -43,10 +44,6 @@ ADJ_FIELDS = [
     "accession", "filed", "usable_after", "source_url", "source_member",
     "source_sha256", "reason_code",
 ]
-
-
-def sha256_bytes(payload: bytes) -> str:
-    return hashlib.sha256(payload).hexdigest()
 
 
 def sha256_file(path: Path) -> str:
@@ -72,6 +69,7 @@ def load_module(path: Path):
     if spec is None or spec.loader is None:
         raise RuntimeError(f"cannot import archived mapper: {path}")
     module = importlib.util.module_from_spec(spec)
+    sys.modules[spec.name] = module
     spec.loader.exec_module(module)
     return module
 
