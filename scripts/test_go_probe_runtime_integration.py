@@ -18,6 +18,7 @@ SCRIPT_DIR = ROOT / "scripts"
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import sentinel_deployment_bootstrap as deploy_bootstrap  # noqa: E402
 import sentinel_go_24x7_entry as source_final  # noqa: E402
 import sentinel_go_probe_contract as contract  # noqa: E402
 import sentinel_go_readonly_data_preflight as preflight  # noqa: E402
@@ -67,6 +68,7 @@ def main(argv=None) -> int:
     env.update({
         "SENTINEL_POSTGRES_PASSWORD": "ci-probe-database-password",
         "SENTINEL_PUBLICATION_RECEIPT_KEY": "ci-probe-publication-receipt-key",
+        "SENTINEL_BACKUP_DIR": "/ci/unused-backup",
         "SHARADAR_API_KEY": "ci-probe-sharadar-key",
         "SENTINEL_RUNTIME_IMAGE_REF": runtime_image,
         "SENTINEL_GO_POSTGRES_START_TIMEOUT_SECONDS": "120",
@@ -82,14 +84,10 @@ def main(argv=None) -> int:
 
     cleanup()
     try:
-        # Start from a true stopped/cold database and prove the shared helper
-        # makes exactly the PostgreSQL service healthy.
         failure = contract.ensure_postgres_ready(
             runner, env=env, compose_args=compose_args)
         _require(failure is None, "cold-start PostgreSQL helper did not pass")
 
-        # The ordinary production image must execute the probe as the fixed
-        # non-root runtime user introduced by PR301.
         identity = runner.run(prefix + [
             "--profile", "cli", "run", "--rm", "-T", "--no-deps",
             "--entrypoint", "sh", "sentinel", "-ceu",
@@ -98,8 +96,6 @@ def main(argv=None) -> int:
         _require(identity.returncode == 0,
                  "ordinary Sentinel probe did not run as uid/gid 10001")
 
-        # Empty schema is an expected typed recovery state, proving imports,
-        # DNS, authentication, transaction setup, and marker parsing all work.
         empty = _run_probe(
             runner, compose_args, env, preflight._READ_ONLY_CODE)
         report = preflight._payload(empty)
@@ -110,8 +106,6 @@ def main(argv=None) -> int:
         _require(report.get("reason_code") == "CORPUS_SCHEMA_NOT_INSTALLED",
                  "empty database recovery reason changed")
 
-        # Stopped DB must still produce a typed marker from inside the runtime;
-        # it may never collapse to a host-side missing-report refusal.
         stopped = runner.run(prefix + ["stop", contract.POSTGRES_SERVICE], env=env)
         _require(stopped.returncode == 0, "could not stop probe PostgreSQL")
         unavailable = _run_probe(
@@ -126,13 +120,10 @@ def main(argv=None) -> int:
         _require(unavailable_report.get("reason_code") == "DATABASE_CONNECT_UNAVAILABLE",
                  "stopped database did not retain its causal reason")
 
-        # The host helper must be able to recover that exact stopped state.
         failure = contract.ensure_postgres_ready(
             runner, env=env, compose_args=compose_args)
         _require(failure is None, "stopped PostgreSQL did not recover to healthy")
 
-        # Import failure is another pre-marker historical gap. It now has its
-        # own child marker even though sentinel.feed never imported.
         broken_code = preflight._READ_ONLY_CODE.replace(
             "from sentinel.feed import (",
             "from sentinel_missing_for_go_probe import (", 1)
@@ -145,8 +136,6 @@ def main(argv=None) -> int:
         _require(broken_report.get("reason_code") == "RUNTIME_IMPORT_UNAVAILABLE",
                  "runtime import failure lost its causal reason")
 
-        # Bad DB credentials stay typed and do not echo the DSN or password in
-        # the marker. The credential here is synthetic CI-only data.
         bad = _run_probe(
             runner, compose_args, env, preflight._READ_ONLY_CODE,
             database_url=(
@@ -165,9 +154,6 @@ def main(argv=None) -> int:
         _require("postgresql://" not in marker_text,
                  "bad-auth marker leaked a database URL")
 
-        # The installed 24x7 Production preparation code must preserve the same
-        # typed envelope. These failures occur before backup/schema mutation, so
-        # they are safe to exercise against the isolated empty CI database.
         mutable_import_code = source_final._PREPARATION_CODE.replace(
             "from sentinel import backup_guard, schema",
             "from sentinel_missing_for_go_probe import backup_guard, schema", 1)
@@ -202,6 +188,77 @@ def main(argv=None) -> int:
                  "24x7 bad-auth marker leaked the synthetic password")
         _require("postgresql://" not in mutable_marker_text,
                  "24x7 bad-auth marker leaked a database URL")
+
+        original_compose_args = deploy_bootstrap._compose_args
+        original_backup_target = deploy_bootstrap._require_backup_target
+        deploy_bootstrap._compose_args = lambda _env: compose_args
+        deploy_bootstrap._require_backup_target = lambda _env: None
+        try:
+            state = deploy_bootstrap._receipt_ancestry(env)
+            _require(
+                state == deploy_bootstrap.SAFE_FRESH_DATABASE,
+                "fresh database was not safe for first-install receipt authority")
+
+            # The generation guard must own the same advisory lock canonical
+            # publication uses. A second publisher-shaped lock attempt must fail
+            # for the whole yielded ancestry interval.
+            with deploy_bootstrap._receipt_ancestry_guard(env) as locked_state:
+                _require(
+                    locked_state == deploy_bootstrap.SAFE_FRESH_DATABASE,
+                    "locked fresh ancestry changed classification")
+                competing = deploy_bootstrap._psql(
+                    env, compose_args,
+                    "SELECT pg_try_advisory_lock(%d)::int"
+                    % deploy_bootstrap.CORPUS_LOCK_KEY)
+                _require(
+                    competing == "0",
+                    "receipt bootstrap did not exclude canonical publication")
+            released = deploy_bootstrap._psql(
+                env, compose_args,
+                "SELECT pg_try_advisory_lock(%d)::int"
+                % deploy_bootstrap.CORPUS_LOCK_KEY)
+            _require(
+                released == "1",
+                "receipt bootstrap did not release publication authority")
+
+            deploy_bootstrap._psql(
+                env, compose_args,
+                "CREATE TABLE sentinel_corpus_publications (version BIGINT PRIMARY KEY);"
+                " INSERT INTO sentinel_corpus_publications(version) VALUES (7)")
+            try:
+                deploy_bootstrap._receipt_ancestry(env)
+            except deploy_bootstrap.BootstrapRefused as exc:
+                _require(
+                    "cannot distinguish a verified pre-receipt database" in str(exc),
+                    "ambiguous 1:0:0 ancestry refused for the wrong reason")
+            else:
+                raise RuntimeError(
+                    "publication history without receipt authority was grandfathered")
+
+            deploy_bootstrap._psql(
+                env, compose_args,
+                "CREATE TABLE sentinel_publication_validation_policy ("
+                "id BOOLEAN PRIMARY KEY, required_after_version BIGINT NOT NULL);"
+                " INSERT INTO sentinel_publication_validation_policy"
+                "(id,required_after_version) VALUES (TRUE,7);"
+                " CREATE TABLE sentinel_publication_validation_receipts ("
+                "publication_version BIGINT PRIMARY KEY)")
+            state = deploy_bootstrap._receipt_ancestry(env)
+            _require(
+                state == deploy_bootstrap.SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS,
+                "empty receipt-policy era was not recognized")
+
+            deploy_bootstrap._psql(
+                env, compose_args,
+                "INSERT INTO sentinel_publication_validation_receipts"
+                "(publication_version) VALUES (8)")
+            state = deploy_bootstrap._receipt_ancestry(env)
+            _require(
+                state == deploy_bootstrap.AUTHENTICATED_RECEIPTS_EXIST,
+                "authenticated receipt ancestry did not fence key rotation")
+        finally:
+            deploy_bootstrap._compose_args = original_compose_args
+            deploy_bootstrap._require_backup_target = original_backup_target
 
         print("GO_PROBE_RUNTIME_INTEGRATION_PASS")
         return 0

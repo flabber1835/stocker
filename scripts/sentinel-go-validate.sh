@@ -66,6 +66,15 @@ for ARG in "$@"; do
   esac
 done
 
+# First-install authority is host configuration, not financial data. Provision
+# it before any Compose-dependent probe. The helper may generate the receipt
+# HMAC key only when PostgreSQL proves there is no authenticated receipt ancestry;
+# an existing receipt chain requires recovery of the original secret.
+if [ "$PRODUCTION_RUN" -eq 1 ]; then
+  go_phase "DEPLOYMENT SECRETS BOOTSTRAP"
+  "$PYTHON" scripts/sentinel_deployment_bootstrap.py
+fi
+
 # Retained certification/retry evidence and exact post-validation handoff are
 # bound to the current Linux boot. This is a deterministic prerequisite, so
 # prove it before any long image build/test work. Development input is neither
