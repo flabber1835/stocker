@@ -1,6 +1,7 @@
 import importlib.util
 import json
 from pathlib import Path
+import sys
 import unittest
 
 
@@ -9,6 +10,7 @@ MODULE_PATH = ROOT / "tools" / "pit_russell_archive_probe.py"
 SPEC = importlib.util.spec_from_file_location("pit_russell_archive_probe", MODULE_PATH)
 probe = importlib.util.module_from_spec(SPEC)
 assert SPEC.loader is not None
+sys.modules[SPEC.name] = probe
 SPEC.loader.exec_module(probe)
 
 
