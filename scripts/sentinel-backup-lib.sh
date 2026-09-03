@@ -61,9 +61,10 @@ else
 fi
 [ "$rc" -eq 4 ] || exit "$rc"
 
-tmp="${marker}.tmp.$$"
-# Double quotes are deliberate: this whole program is a single-quoted host
-# argument. Expand the fixed in-container path now and retain one EXIT cleanup.
+tmp="$(mktemp "${marker}.tmp.XXXXXX")"
+# The temporary file is unique on every container invocation and lives beside
+# the marker so the final hard link remains on one filesystem. Retain one EXIT
+# cleanup until publication succeeds.
 trap "rm -f \"$tmp\"" 0
 umask 022
 printf "%s\n" "$EXPECTED" > "$tmp"
