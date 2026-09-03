@@ -1,0 +1,128 @@
+name: Independent Russell layout membership extraction
+
+on:
+  push:
+    branches:
+      - research/pit-russell-layout-independent-final10
+    paths:
+      - 'tools/pit_russell_layout_membership_validate.rb'
+      - 'tests/scripts/test_pit_russell_layout_membership_validate.rb'
+      - '.github/workflows/pit-russell-layout-membership-persist.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+jobs:
+  validate-and-persist:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact research revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+
+      - name: Verify Ruby and run extractor regression tests
+        run: |
+          set -euo pipefail
+          ruby --version
+          ruby tests/scripts/test_pit_russell_layout_membership_validate.rb
+
+      - name: Install Poppler
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+          pdftotext -v
+
+      - name: Independently extract and cross-check full membership years
+        run: |
+          set -euo pipefail
+          source_ref='2e259d1d541db01c78f3a0637b4b86dfdd911d0a'
+          base="https://raw.githubusercontent.com/kact998/Russell3000Components/${source_ref}"
+          rm -rf /tmp/russell-layout
+          mkdir -p /tmp/russell-layout
+
+          validate() {
+            year="$1"; date="$2"; pdf="$3"; csv="$4"
+            echo "=== Russell 3000 ${year} (${date}) ==="
+            mkdir -p "/tmp/russell-layout/$year"
+            curl -fsSL --retry 4 --retry-all-errors "$base/pdfs/$pdf" -o "/tmp/russell-layout/$year/source.pdf"
+            curl -fsSL --retry 4 --retry-all-errors "$base/$csv" -o "/tmp/russell-layout/$year/source.csv"
+            ruby tools/pit_russell_layout_membership_validate.rb \
+              --year "$year" \
+              --membership-date "$date" \
+              --pdf "/tmp/russell-layout/$year/source.pdf" \
+              --csv "/tmp/russell-layout/$year/source.csv" \
+              --source-ref "$source_ref" \
+              --min-rows 2800 \
+              --max-rows 3200 \
+              --output-dir "/tmp/russell-layout/$year/out"
+          }
+
+          validate 2010 2010-06-28 ru3000_membershiplist_20100628.pdf 20100628.csv
+          validate 2011 2011-06-27 ru3000_membershiplist_20110627.pdf 20110627.csv
+          validate 2012 2012-06-25 ru3000_membershiplist_20120625.pdf 20120625.csv
+          validate 2014 2014-06-27 ru3000_membershiplist_20140627.pdf 20140627.csv
+          validate 2015 2015-06-26 ru3000_membershiplist_20150626.pdf 20150626.csv
+          validate 2016 2016-06-27 ru3000_membershiplist_20160627.pdf 20160627.csv
+          validate 2017 2017-06-26 ru3000_membershiplist_20170626.pdf 20170626.csv
+          validate 2018 2018-06-25 ru3000_membershiplist_20180625_0.pdf 20180625.csv
+          validate 2019 2019-07-01 RU3000_MembershipList_20190701.pdf 20190701.csv
+          validate 2020 2020-06-29 ru3000_membershiplist_20200629.pdf 20200629.csv
+          validate 2021 2021-06-28 ru3000_membershiplist_20210628.pdf 20210628.csv
+          validate 2022 2022-06-24 ru3000_membershiplist_20220624_0.pdf 20220624.csv
+
+      - name: Materialize accepted annual universes and combined manifest
+        run: |
+          set -euo pipefail
+          ruby -rjson -rfileutils - <<'RUBY'
+          years = [2010, 2011, 2012, 2014, 2015, 2016, 2017, 2018, 2019, 2020, 2021, 2022]
+          target = 'research/pit_russell_archive/annual_universes'
+          FileUtils.mkdir_p(target)
+          annual = years.map do |year|
+            source = "/tmp/russell-layout/#{year}/out"
+            manifest = JSON.parse(File.read("#{source}/manifest.json"))
+            %w[count_gate determinism_gate pdf_csv_membership_gate].each do |gate|
+              abort "#{year}: #{gate}=#{manifest[gate]}" unless manifest[gate] == 'PASS'
+            end
+            FileUtils.cp("#{source}/russell3000_#{year}.csv", "#{target}/russell3000_#{year}.csv")
+            manifest
+          end
+          combined = {
+            'schema' => 2,
+            'index' => 'Russell 3000',
+            'scope' => 'independent fixed-layout PDF extraction cross-checked against preserved companion CSV',
+            'source_repository' => 'kact998/Russell3000Components',
+            'source_repository_ref' => '2e259d1d541db01c78f3a0637b4b86dfdd911d0a',
+            'extractor_contract' => 'poppler_layout_header_sliced_ruby_v1',
+            'pit_effective_boundary_status' => 'NOT_YET_CERTIFIED',
+            'annual_universes' => annual
+          }
+          File.write("#{target}/manifest_2010_2012_2014_2022.json", JSON.pretty_generate(combined) + "\n")
+          RUBY
+
+      - name: Show accepted corpus summary
+        run: |
+          set -euo pipefail
+          ruby -rjson - <<'RUBY'
+          data = JSON.parse(File.read('research/pit_russell_archive/annual_universes/manifest_2010_2012_2014_2022.json'))
+          puts 'year rows table_pages pdf_csv determinism pdf_sha256 layout_rows_sha256'
+          data['annual_universes'].each do |item|
+            puts [item['year'], item['row_count'], item['table_pages'], item['pdf_csv_membership_gate'], item['determinism_gate'], item['source_pdf_sha256'], item['layout_rows_sha256']].join(' ')
+          end
+          RUBY
+
+      - name: Commit accepted corpus on validation branch
+        run: |
+          set -euo pipefail
+          git add research/pit_russell_archive/annual_universes
+          if git diff --cached --quiet; then
+            echo 'Annual corpus already matches independently validated sources.'
+            exit 0
+          fi
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'Persist independently validated 2010-2012 and 2014-2022 Russell universes'
+          git push origin "HEAD:${GITHUB_REF_NAME}"
