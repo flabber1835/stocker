@@ -35,6 +35,9 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 1
+          sparse-checkout: |
+            tools
+            tests/scripts
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -56,13 +59,28 @@ jobs:
 
   annual-coverage-discovery:
     needs: deterministic-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: early
+            from_year: 2005
+            to_year: 2013
+          - label: middle
+            from_year: 2014
+            to_year: 2019
+          - label: recent
+            from_year: 2020
+            to_year: 2026
     runs-on: ubuntu-24.04
-    timeout-minutes: 20
+    timeout-minutes: 10
     steps:
       - name: Check out exact experiment revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 1
+          sparse-checkout: |
+            tools
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -71,28 +89,31 @@ jobs:
       - name: Discover official Russell 3000 annual artifacts
         run: |
           set -euo pipefail
-          rm -rf /tmp/russell-coverage
+          out="/tmp/russell-coverage-${{ matrix.label }}"
+          rm -rf "$out"
           python tools/pit_russell_coverage_discovery.py \
-            --from-year 2005 \
-            --to-year 2026 \
-            --timeout 20 \
-            --attempts 3 \
-            --delay 0.3 \
-            --output-dir /tmp/russell-coverage
+            --from-year '${{ matrix.from_year }}' \
+            --to-year '${{ matrix.to_year }}' \
+            --timeout 12 \
+            --attempts 2 \
+            --delay 0.2 \
+            --output-dir "$out"
       - name: Publish coverage summary
         if: always()
         run: |
-          if [ -f /tmp/russell-coverage/report.md ]; then
-            cat /tmp/russell-coverage/report.md >> "$GITHUB_STEP_SUMMARY"
+          report="/tmp/russell-coverage-${{ matrix.label }}/report.md"
+          if [ -f "$report" ]; then
+            echo "## Coverage ${{ matrix.from_year }}-${{ matrix.to_year }}" >> "$GITHUB_STEP_SUMMARY"
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
           fi
       - name: Upload derived coverage evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: pit-russell-annual-coverage-${{ github.sha }}
+          name: pit-russell-annual-coverage-${{ matrix.label }}-${{ github.sha }}
           path: |
-            /tmp/russell-coverage/coverage.json
-            /tmp/russell-coverage/report.md
+            /tmp/russell-coverage-${{ matrix.label }}/coverage.json
+            /tmp/russell-coverage-${{ matrix.label }}/report.md
           if-no-files-found: warn
           retention-days: 30
 
@@ -131,12 +152,14 @@ jobs:
             url: 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf'
             timestamp: '20131019065015'
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 10
     steps:
       - name: Check out exact experiment revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 1
+          sparse-checkout: |
+            tools
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
