@@ -16,6 +16,9 @@ import pandas as pd
 
 import backtester.run_certification_parallel as base
 from backtester.canonical_pit_dataset import CanonicalPITDataset
+from backtester.certification_metadata_completeness import (
+    require_certification_metadata_complete,
+)
 
 WARMUP_START = pd.Timestamp("2006-01-03")
 MEASUREMENT_START = pd.Timestamp("2006-07-31")
@@ -264,6 +267,7 @@ def main() -> int:
     canonical = CanonicalPITDataset(
         canonical_path, expected_start=WARMUP_START.date().isoformat(), expected_end=end
     )
+    require_certification_metadata_complete(canonical.manifest)
     output_root = _option_path("--output-root")
     os.environ["CERTIFICATION_END_SESSION"] = end
     os.environ["CERTIFICATION_WARMUP_START"] = WARMUP_START.date().isoformat()
