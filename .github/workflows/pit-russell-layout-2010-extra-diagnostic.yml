@@ -1,0 +1,34 @@
+name: Diagnose independent 2010 layout extras
+
+on:
+  push:
+    branches:
+      - research/pit-russell-layout-independent-final10
+    paths:
+      - '.github/workflows/pit-russell-layout-2010-extra-diagnostic.yml'
+  workflow_dispatch:
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - name: Install Poppler
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Show exact source lines for extra tokens
+        run: |
+          set -euo pipefail
+          ref='2e259d1d541db01c78f3a0637b4b86dfdd911d0a'
+          url="https://raw.githubusercontent.com/kact998/Russell3000Components/${ref}/pdfs/ru3000_membershiplist_20100628.pdf"
+          curl -fsSL --retry 4 --retry-all-errors "$url" -o /tmp/2010.pdf
+          pdftotext -layout /tmp/2010.pdf /tmp/2010.txt
+          echo '=== exact lines ==='
+          grep -n -E '(^|[[:space:]])(IOR|IZATION\.|MATION|NT)([[:space:]]|$)' /tmp/2010.txt || true
+          echo '=== context ==='
+          for n in $(grep -n -E '(^|[[:space:]])(IOR|IZATION\.|MATION|NT)([[:space:]]|$)' /tmp/2010.txt | cut -d: -f1); do
+            start=$(( n > 2 ? n-2 : 1 )); end=$((n+2)); sed -n "${start},${end}p" /tmp/2010.txt; echo '---';
+          done
