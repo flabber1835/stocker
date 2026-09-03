@@ -60,7 +60,7 @@ jobs:
           - label: r3000-2006-sep
             timestamp: '20060927140930'
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 12
     steps:
       - name: Check out exact experiment revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -71,9 +71,13 @@ jobs:
         with:
           python-version: '3.12'
           check-latest: false
-      - name: Verify PDF text extractor exists
+      - name: Install and identify PDF text extractor
         run: |
           set -euo pipefail
+          if ! command -v pdftotext >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends poppler-utils
+          fi
           command -v pdftotext
           pdftotext -v
       - name: Extract factual Russell 3000 membership rows
