@@ -74,6 +74,12 @@ if [ "$before" != "$after" ]; then
   exec bash scripts/sentinel-autonomous-deploy.sh "$@"
 fi
 
+# The supported installer owns first-install secret provisioning. This is
+# idempotent for an existing key and will generate a missing publication receipt
+# authority only when PostgreSQL proves that no authenticated receipt ancestry
+# exists. It never prints the secret.
+"$PYTHON" scripts/sentinel_deployment_bootstrap.py
+
 # The deployable image now runs as fixed uid/gid 10001. Upgrade an existing
 # audit-only named volume before the bootstrap starts any new runtime. Fresh
 # installations have no volume yet and this helper exits successfully.
