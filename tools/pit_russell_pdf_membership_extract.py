@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Extract factual company/ticker membership rows from one archived Russell PDF.
 
-Research only. The archived PDF and its pdftotext representation remain ephemeral.
+Research only. The archived PDF and Poppler representations remain ephemeral.
 Persisted output contains provenance, integrity hashes, parser diagnostics, and factual
 company/ticker rows used for reconstruction validation.
 """
@@ -18,7 +18,8 @@ import re
 import shutil
 import subprocess
 import tempfile
-from typing import Sequence
+from typing import Iterable, Sequence
+import xml.etree.ElementTree as ET
 
 import pit_russell_archive_probe as archive
 
@@ -28,6 +29,8 @@ EXCLUDED = {
     "MEMBERSHIP", "PAGE", "INC", "CORP", "LLC", "LTD", "NYSE", "NASDAQ",
     "AMEX", "OTC", "US", "USA",
 }
+HEADER_COMPANY = {"company"}
+HEADER_SYMBOL = {"ticker", "symbol"}
 
 
 @dataclass(frozen=True)
@@ -35,6 +38,13 @@ class MembershipRow:
     ticker: str
     company: str
     source_line: int
+
+
+@dataclass(frozen=True)
+class PositionedWord:
+    x: float
+    y: float
+    text: str
 
 
 def normalize(value: str) -> str:
@@ -48,12 +58,7 @@ def is_ticker(value: str) -> bool:
 
 
 def parse_layout_text(text: str) -> list[MembershipRow]:
-    """Parse layout-preserving text into adjacent Company | Symbol pairs.
-
-    Historical Russell PDFs use one or more company/symbol column pairs. We split
-    only on runs of two or more spaces, preserving spaces inside company names, then
-    pair each ticker-like field with the immediately preceding non-ticker field.
-    """
+    """Legacy diagnostic parser retained to quantify why coordinate parsing is needed."""
     rows: list[MembershipRow] = []
     seen: set[tuple[str, str]] = set()
     for line_no, raw_line in enumerate(text.splitlines(), start=1):
@@ -78,6 +83,146 @@ def parse_layout_text(text: str) -> list[MembershipRow]:
     return rows
 
 
+def _tag_name(tag: str) -> str:
+    return tag.rsplit("}", 1)[-1]
+
+
+def _page_visual_rows(page: ET.Element, y_tolerance: float = 1.5) -> list[list[PositionedWord]]:
+    """Merge Poppler line fragments that share the same visual baseline."""
+    fragments: list[tuple[float, list[PositionedWord]]] = []
+    for line in page.iter():
+        if _tag_name(line.tag) != "line":
+            continue
+        words: list[PositionedWord] = []
+        for word in line.iter():
+            if _tag_name(word.tag) != "word":
+                continue
+            text = normalize("".join(word.itertext()))
+            if not text:
+                continue
+            x = float(word.attrib.get("xMin", line.attrib.get("xMin", "0")))
+            y = float(word.attrib.get("yMin", line.attrib.get("yMin", "0")))
+            words.append(PositionedWord(x=x, y=y, text=text))
+        if words:
+            fragments.append((sum(w.y for w in words) / len(words), words))
+
+    fragments.sort(key=lambda item: item[0])
+    groups: list[tuple[float, list[PositionedWord]]] = []
+    for y, words in fragments:
+        if groups and abs(y - groups[-1][0]) <= y_tolerance:
+            old_y, old_words = groups[-1]
+            combined = old_words + words
+            groups[-1] = ((old_y + y) / 2.0, combined)
+        else:
+            groups.append((y, list(words)))
+    return [sorted(words, key=lambda word: (word.x, word.text)) for _, words in groups]
+
+
+def _header_positions(words: Sequence[PositionedWord]) -> tuple[list[float], list[float]] | None:
+    company = [w.x for w in words if w.text.casefold() in HEADER_COMPANY]
+    symbol = [w.x for w in words if w.text.casefold() in HEADER_SYMBOL]
+    if not company or not symbol:
+        return None
+    ordered = sorted([(x, "company") for x in company] + [(x, "symbol") for x in symbol])
+    if len(ordered) < 2:
+        return None
+    # A usable header must alternate Company -> Symbol for each pair.
+    if ordered[0][1] != "company":
+        return None
+    pairs = []
+    idx = 0
+    while idx + 1 < len(ordered):
+        if ordered[idx][1] == "company" and ordered[idx + 1][1] == "symbol":
+            pairs.append((ordered[idx][0], ordered[idx + 1][0]))
+            idx += 2
+        else:
+            idx += 1
+    if not pairs:
+        return None
+    return ([p[0] for p in pairs], [p[1] for p in pairs])
+
+
+def _choose_column_positions(page_rows: Sequence[Sequence[PositionedWord]]) -> tuple[list[float], list[float]] | None:
+    candidates: list[tuple[list[float], list[float]]] = []
+    for words in page_rows:
+        positions = _header_positions(words)
+        if positions:
+            candidates.append(positions)
+    if not candidates:
+        return None
+    # Prefer the header describing the greatest number of company/symbol pairs.
+    return max(candidates, key=lambda item: len(item[0]))
+
+
+def _column_boundaries(starts: Sequence[float]) -> list[float]:
+    return [(left + right) / 2.0 for left, right in zip(starts, starts[1:])]
+
+
+def _assign_column(x: float, starts: Sequence[float]) -> int:
+    boundaries = _column_boundaries(starts)
+    for idx, boundary in enumerate(boundaries):
+        if x < boundary:
+            return idx
+    return len(starts) - 1
+
+
+def parse_bbox_xml(xml_text: str) -> list[MembershipRow]:
+    """Parse Poppler bbox-layout XHTML by visual columns.
+
+    Russell full-list PDFs place multiple Company/Symbol pairs side-by-side. Poppler's
+    plain text reading order can interleave those columns. Bounding boxes let us use
+    the document's repeated Company/Symbol headers as the column authority.
+    """
+    root = ET.fromstring(xml_text)
+    pages = [element for element in root.iter() if _tag_name(element.tag) == "page"]
+    rows: list[MembershipRow] = []
+    seen: set[tuple[str, str]] = set()
+    inherited: tuple[list[float], list[float]] | None = None
+    source_line = 0
+
+    for page in pages:
+        visual_rows = _page_visual_rows(page)
+        positions = _choose_column_positions(visual_rows) or inherited
+        if positions is None:
+            continue
+        company_starts, symbol_starts = positions
+        if len(company_starts) != len(symbol_starts):
+            continue
+        inherited = positions
+        starts: list[float] = []
+        kinds: list[str] = []
+        for company_x, symbol_x in zip(company_starts, symbol_starts):
+            starts.extend([company_x, symbol_x])
+            kinds.extend(["company", "symbol"])
+        ordered = sorted(zip(starts, kinds), key=lambda item: item[0])
+        starts = [item[0] for item in ordered]
+        kinds = [item[1] for item in ordered]
+
+        for words in visual_rows:
+            source_line += 1
+            if _header_positions(words):
+                continue
+            cells: list[list[str]] = [[] for _ in starts]
+            for word in words:
+                cells[_assign_column(word.x, starts)].append(word.text)
+            values = [normalize(" ".join(cell)) for cell in cells]
+            for idx in range(1, len(values)):
+                if kinds[idx] != "symbol" or kinds[idx - 1] != "company":
+                    continue
+                ticker = values[idx]
+                company = values[idx - 1]
+                if not is_ticker(ticker):
+                    continue
+                if not company or is_ticker(company) or company.upper() in EXCLUDED or len(company) < 3:
+                    continue
+                key = (ticker.upper(), company)
+                if key in seen:
+                    continue
+                seen.add(key)
+                rows.append(MembershipRow(ticker.upper(), company, source_line))
+    return rows
+
+
 def query_exact_capture(url: str, timestamp: str, timeout: int, attempts: int) -> archive.Capture:
     year = int(timestamp[:4])
     payload, status, _, _ = archive._request(
@@ -95,24 +240,27 @@ def query_exact_capture(url: str, timestamp: str, timeout: int, attempts: int) -
     return matches[0]
 
 
-def pdf_to_layout_text(payload: bytes) -> str:
+def _run_pdftotext(payload: bytes, mode: str) -> str:
     pdftotext = shutil.which("pdftotext")
     if not pdftotext:
         raise RuntimeError("pdftotext is unavailable on this runner")
     with tempfile.TemporaryDirectory(prefix="russell-pdf-") as tmp:
         pdf_path = Path(tmp) / "source.pdf"
-        txt_path = Path(tmp) / "source.txt"
+        out_path = Path(tmp) / ("source.xml" if mode == "bbox-layout" else "source.txt")
         pdf_path.write_bytes(payload)
+        option = "-bbox-layout" if mode == "bbox-layout" else "-layout"
         proc = subprocess.run(
-            [pdftotext, "-layout", str(pdf_path), str(txt_path)],
+            [pdftotext, option, str(pdf_path), str(out_path)],
             check=False,
             stdout=subprocess.PIPE,
             stderr=subprocess.PIPE,
             text=True,
         )
         if proc.returncode != 0:
-            raise RuntimeError(f"pdftotext failed rc={proc.returncode}: {proc.stderr.strip()[:500]}")
-        return txt_path.read_text(errors="replace")
+            raise RuntimeError(
+                f"pdftotext {mode} failed rc={proc.returncode}: {proc.stderr.strip()[:500]}"
+            )
+        return out_path.read_text(errors="replace")
 
 
 def write_outputs(output_dir: Path, result: dict) -> None:
@@ -121,13 +269,14 @@ def write_outputs(output_dir: Path, result: dict) -> None:
     lines = [
         "# Archived Russell 3000 membership extraction",
         "",
-        "Research evidence only. Raw PDF/text is not persisted.",
+        "Research evidence only. Raw PDF/text/bbox output is not persisted.",
         "",
         f"- Capture: `{result['capture']['timestamp']}`",
         f"- Archived original: `{result['capture']['original']}`",
         f"- PDF SHA-256: `{result['pdf_sha256']}`",
         f"- PDF bytes: **{result['pdf_bytes']:,}**",
-        f"- Parsed company/ticker rows: **{result['row_count']:,}**",
+        f"- BBox parsed company/ticker rows: **{result['row_count']:,}**",
+        f"- Layout diagnostic rows: **{result['layout_diagnostic_rows']:,}**",
         f"- Unique tickers: **{result['unique_tickers']:,}**",
         f"- Ambiguous tickers with multiple company labels: **{len(result['ambiguous_tickers'])}**",
         f"- Count gate: **{result['count_gate']}**",
@@ -158,8 +307,12 @@ def main(argv: Sequence[str] | None = None) -> int:
         raise RuntimeError(
             f"archive payload is not a PDF: status={status} content_type={content_type!r} bytes={len(payload)}"
         )
-    text = pdf_to_layout_text(payload)
-    rows = parse_layout_text(text)
+
+    layout_text = _run_pdftotext(payload, "layout")
+    layout_rows = parse_layout_text(layout_text)
+    bbox_xml = _run_pdftotext(payload, "bbox-layout")
+    rows = parse_bbox_xml(bbox_xml)
+
     by_ticker: dict[str, set[str]] = {}
     for row in rows:
         by_ticker.setdefault(row.ticker, set()).add(row.company)
@@ -170,16 +323,18 @@ def main(argv: Sequence[str] | None = None) -> int:
     }
     count_ok = args.min_rows <= len(rows) <= args.max_rows
     result = {
-        "schema": 1,
+        "schema": 2,
         "generated_utc": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "raw_pdf_persisted": False,
         "raw_text_persisted": False,
-        "parser_contract": "pdftotext_layout_then_adjacent_company_symbol",
+        "raw_bbox_persisted": False,
+        "parser_contract": "poppler_bbox_layout_header_anchored_company_symbol_columns",
         "capture": asdict(capture),
         "fetch_final_url": final_url,
         "fetch_content_type": content_type,
         "pdf_sha256": hashlib.sha256(payload).hexdigest(),
         "pdf_bytes": len(payload),
+        "layout_diagnostic_rows": len(layout_rows),
         "row_count": len(rows),
         "unique_tickers": len(by_ticker),
         "ambiguous_tickers": ambiguous,
@@ -191,6 +346,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     write_outputs(args.output_dir, result)
     print(json.dumps({
         "rows": len(rows),
+        "layout_diagnostic_rows": len(layout_rows),
         "unique_tickers": len(by_ticker),
         "ambiguous_tickers": len(ambiguous),
         "count_gate": result["count_gate"],
