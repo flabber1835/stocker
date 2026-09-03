@@ -42,6 +42,16 @@ if { : > "$work/base/.host-write-probe"; } 2>/dev/null; then
   exit 1
 fi
 
+# Simulate a killed prior container after it made its PID-derived temp read-only.
+# Container entrypoints commonly run as PID 1, so a fixed .tmp.$$ name can recur
+# and permanently block the next postgres-uid initialization.
+docker run --rm --network none --user "$pg_uid" \
+  -e "MARKER=$MARKER" \
+  -v "$work/wal:/probe" --entrypoint sh "$IMAGE" -ceu '
+    printf stale > "/probe/${MARKER}.tmp.1"
+    chmod 0444 "/probe/${MARKER}.tmp.1"
+  '
+
 # First-time provisioning must succeed through container authority even though
 # the invoking host user cannot write either marker directory.
 initialized="$(
