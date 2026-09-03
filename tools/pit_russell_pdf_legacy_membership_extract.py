@@ -3,8 +3,8 @@
 
 Research only. Raw archived PDF and Poppler bbox XML remain ephemeral. The early
 Russell PDFs use two side-by-side ticker/company groups. Membership acceptance is
-anchored to the measured starts at x=90/135 and x=330/375 and fails closed on source
-hash changes, data-like rows that cannot be explained, conflicting ticker labels, or
+anchored to the measured ticker starts at x=90 and x=330 and fails closed on source
+hash changes, anchored ticker rows without company text, conflicting ticker labels, or
 non-deterministic row reconstruction.
 """
 
@@ -16,6 +16,7 @@ from datetime import UTC, datetime
 import hashlib
 import json
 from pathlib import Path
+import re
 import shutil
 import subprocess
 import tempfile
@@ -23,7 +24,7 @@ from typing import Sequence
 import xml.etree.ElementTree as ET
 
 import pit_russell_archive_probe as archive
-from pit_russell_pdf_membership_extract import MembershipRow, is_ticker, normalize, query_exact_capture
+from pit_russell_pdf_membership_extract import MembershipRow, normalize, query_exact_capture
 
 
 EXPECTED_PDF_SHA256 = {
@@ -31,11 +32,15 @@ EXPECTED_PDF_SHA256 = {
     "20060710045437": "18080cd078342b05dba51f2fe75b1d1c0dd85de1a8e715fc0ce18090a44d7024",
 }
 
-# Measured from the stable 612-point-wide 2005/2006 PDFs.
-GROUPS = ((90.0, 135.0, 306.0), (330.0, 375.0, 612.0))
+# The company tab is normally near 135/375, but pages 11 and 20 prove that it can
+# move left. The ticker starts remain stable, so each half-page is delimited by its
+# ticker anchor and the next half-page boundary.
+GROUPS = ((90.0, 306.0), (330.0, 612.0))
+NOMINAL_COMPANY_STARTS = (135.0, 375.0)
 ANCHOR_TOLERANCE = 3.0
 Y_TOLERANCE = 1.5
-HEADER_WORDS = {"ticker", "symbol", "company", "name"}
+EARLY_TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,9}$")
+NON_DATA_ANCHORS = {"TICKER", "SYMBOL", "COMPANY", "NAME", "RUSSELL", "INDEX", "MEMBERSHIP", "PAGE", "FINAL"}
 
 
 @dataclass(frozen=True)
@@ -96,12 +101,19 @@ def _cell_text(words: Sequence[PositionedWord]) -> str:
     return normalize(" ".join(word.text for word in sorted(words, key=lambda word: word.x)))
 
 
-def parse_bbox_records(xml_text: str) -> tuple[list[MembershipRow], list[ParseIssue]]:
-    """Parse the two measured early-PDF ticker/company groups.
+def is_early_ticker(value: str) -> bool:
+    value = normalize(value)
+    upper = value.upper()
+    return value == upper and EARLY_TICKER_RE.fullmatch(upper) is not None and upper not in NON_DATA_ANCHORS
 
-    A data row is recognized only when a word begins at the measured ticker anchor.
-    Header words at that anchor are ignored. Once a ticker anchor is present, failure to
-    produce exactly one valid ticker plus a non-empty company is an unexplained issue.
+
+def parse_bbox_records(xml_text: str) -> tuple[list[MembershipRow], list[ParseIssue]]:
+    """Parse each half-page from its stable ticker anchor.
+
+    The anchored word is the ticker. Every later word in the same half-page visual row
+    belongs to that company. Text at the anchor that is not ticker-shaped is document
+    furniture. A valid anchored ticker with no following company text is unexplained and
+    fails the ambiguity gate.
     """
     root = ET.fromstring(xml_text)
     pages = [element for element in root.iter() if _tag_name(element.tag) == "page"]
@@ -116,35 +128,31 @@ def parse_bbox_records(xml_text: str) -> tuple[list[MembershipRow], list[ParseIs
             raise RuntimeError(f"unexpected page width on page {page_no}: {width}")
         for visual_row, words in enumerate(_visual_rows(page), start=1):
             source_line += 1
-            for side, (ticker_x, company_x, end_x) in enumerate(GROUPS):
-                ticker_anchor_words = [
-                    word for word in words
-                    if abs(word.x - ticker_x) <= ANCHOR_TOLERANCE
-                ]
-                if not ticker_anchor_words:
+            for side, (ticker_x, end_x) in enumerate(GROUPS):
+                anchored = sorted(
+                    (word for word in words if abs(word.x - ticker_x) <= ANCHOR_TOLERANCE),
+                    key=lambda word: (abs(word.x - ticker_x), word.x, word.text),
+                )
+                if not anchored:
                     continue
-                ticker_cell_words = [
+                ticker_word = anchored[0]
+                ticker = ticker_word.text
+                if not is_early_ticker(ticker):
+                    continue
+                company_words = [
                     word for word in words
-                    if ticker_x - ANCHOR_TOLERANCE <= word.x < company_x - 0.5
+                    if word.x > ticker_word.x + 0.5 and word.x < end_x
                 ]
-                company_words = [word for word in words if company_x - 0.5 <= word.x < end_x]
-                ticker_cell = _cell_text(ticker_cell_words)
                 company = _cell_text(company_words)
-
-                if ticker_cell.casefold() in HEADER_WORDS:
-                    continue
-                if not is_ticker(ticker_cell):
-                    issues.append(ParseIssue(page_no, visual_row, side, "invalid_ticker", ticker_cell, company))
-                    continue
-                if not company or company.casefold() in HEADER_WORDS:
-                    issues.append(ParseIssue(page_no, visual_row, side, "missing_company", ticker_cell, company))
+                if not company:
+                    issues.append(ParseIssue(page_no, visual_row, side, "missing_company", ticker, company))
                     continue
 
-                key = (ticker_cell.upper(), company)
+                key = (ticker.upper(), company)
                 if key in seen:
                     continue
                 seen.add(key)
-                rows.append(MembershipRow(ticker_cell.upper(), company, source_line))
+                rows.append(MembershipRow(ticker.upper(), company, source_line))
 
     return rows, issues
 
@@ -252,12 +260,17 @@ def main(argv: Sequence[str] | None = None) -> int:
     ambiguity_ok = not ambiguous and not issues
     page_count = sum(1 for element in ET.fromstring(bbox_xml).iter() if _tag_name(element.tag) == "page")
     result = {
-        "schema": 2,
+        "schema": 3,
         "generated_utc": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "raw_pdf_persisted": False,
         "raw_bbox_persisted": False,
-        "parser_contract": "poppler_bbox_measured_612pt_two_group_ticker_company_v2",
-        "geometry": {"page_width": 612.0, "groups": [[90.0, 135.0], [330.0, 375.0]], "anchor_tolerance": ANCHOR_TOLERANCE},
+        "parser_contract": "poppler_bbox_measured_612pt_two_halfpage_stable_ticker_anchor_v3",
+        "geometry": {
+            "page_width": 612.0,
+            "ticker_anchors": [90.0, 330.0],
+            "nominal_company_starts": list(NOMINAL_COMPANY_STARTS),
+            "anchor_tolerance": ANCHOR_TOLERANCE,
+        },
         "capture": asdict(capture),
         "fetch_final_url": final_url,
         "fetch_content_type": content_type,
