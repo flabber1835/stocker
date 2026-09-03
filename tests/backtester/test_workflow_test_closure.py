@@ -140,6 +140,20 @@ class BacktesterWorkflowTestClosureTests(unittest.TestCase):
                 f"{path.name}: complete-suite pytest version is not pinned",
             )
 
+    def test_dynamic_future_leak_gate_uses_real_replay_and_physical_mutations(self) -> None:
+        suite = CERTIFICATION_SUITE.read_text(encoding="utf-8")
+        source = (ROOT / "backtester" / "future_leak_certification.py").read_text(
+            encoding="utf-8"
+        )
+        self.assertIn("--require-real-replay", suite)
+        self.assertIn("CanonicalPITDataset", source)
+        self.assertIn("sentinel.core.kernel", source)
+        self.assertIn("kernel.advance_session", source)
+        self.assertIn("_poisoned_mapping", source)
+        self.assertIn("_truncated_mapping", source)
+        self.assertIn("_future_contaminated_current", source)
+        self.assertIn("negative_control_detected", source)
+
     def test_root_conftest_enforces_runtime_backtester_package_identity(self) -> None:
         conftest = (ROOT / "tests" / "conftest.py").read_text(encoding="utf-8")
         self.assertIn('expected = (_ROOT / "backtester" / "__init__.py").resolve()', conftest)
