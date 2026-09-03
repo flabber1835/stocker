@@ -79,7 +79,7 @@ def write_canonical_csv(path: Path, rows: list[dict[str, str]]) -> str:
 def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--year", type=int, required=True)
-    p.add_argument("--effective-date", required=True)
+    p.add_argument("--membership-date", required=True)
     p.add_argument("--pdf-url", required=True)
     p.add_argument("--csv-url", required=True)
     p.add_argument("--output-dir", type=Path, required=True)
@@ -117,7 +117,9 @@ def main() -> int:
         "schema": 1,
         "generated_utc": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "year": args.year,
-        "effective_date": args.effective_date,
+        "membership_date": args.membership_date,
+        "membership_date_basis": "date encoded by preserved Russell membership-list source filename",
+        "pit_effective_boundary_status": "NOT_YET_CERTIFIED",
         "source_pdf_url": args.pdf_url,
         "source_csv_url": args.csv_url,
         "source_pdf_sha256": hashlib.sha256(pdf).hexdigest(),
@@ -133,7 +135,7 @@ def main() -> int:
         "pdf_csv_membership_gate": "PASS" if crosscheck_ok else "FAIL",
         "missing_from_pdf": missing_from_pdf,
         "missing_from_csv": missing_from_csv,
-        "evidence_grade": "A" if count_ok and deterministic and crosscheck_ok else "UNACCEPTED",
+        "evidence_grade": "A_SOURCE_MEMBERSHIP" if count_ok and deterministic and crosscheck_ok else "UNACCEPTED",
     }
     (out / "manifest.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     print(json.dumps(result, sort_keys=True))
