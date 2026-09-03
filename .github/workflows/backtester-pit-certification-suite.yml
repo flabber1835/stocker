@@ -18,6 +18,10 @@ on:
       parameters_json:
         required: true
         type: string
+      experiment_artifact_name:
+        required: false
+        default: ''
+        type: string
     outputs:
       artifact_name:
         value: ${{ jobs.certification.outputs.artifact_name }}
@@ -25,6 +29,7 @@ on:
         value: ${{ jobs.certification.outputs.evidence_status }}
 
 permissions:
+  actions: read
   contents: read
   packages: read
 
@@ -79,6 +84,35 @@ jobs:
             /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
             /pytest.ini
 
+      - name: Download run-specific canonical pointer
+        if: ${{ inputs.experiment_artifact_name != '' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ inputs.experiment_artifact_name }}
+          path: experiment-input
+
+      - name: Select and authenticate experiment pointer
+        shell: bash
+        run: |
+          set -euo pipefail
+          if test -n "${{ inputs.experiment_artifact_name }}"; then
+            test -f experiment-input/canonical-pit-pointer.json
+            test -f experiment-input/experiment.json
+            python - <<'PY'
+          import json, os
+          from pathlib import Path
+          value=json.loads(Path('experiment-input/experiment.json').read_text())
+          pointer=json.loads(Path('experiment-input/canonical-pit-pointer.json').read_text())
+          assert value['source_sha'] == os.environ['PIT_SOURCE_SHA']
+          assert value['production_main_sha'] == os.environ['PIT_RUNTIME_MAIN_SHA']
+          assert value['canonical_dataset_hash'] == pointer['dataset_hash']
+          assert value['canonical_package'] == pointer['package']
+          PY
+            echo "PIT_POINTER=experiment-input/canonical-pit-pointer.json" >> "${GITHUB_ENV}"
+          else
+            test -f "${PIT_POINTER}"
+          fi
+
       - name: Check out exact runtime / Production source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -132,7 +166,7 @@ jobs:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
-          PACKAGE="$(python -c "import json; print(json.load(open('backtester/data/canonical-pit-20y.json'))['package'])")"
+          PACKAGE="$(python -c "import json,os; print(json.load(open(os.environ['PIT_POINTER']))['package'])")"
           test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
           echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           docker pull "${PACKAGE}"
@@ -142,7 +176,8 @@ jobs:
           docker cp "${cid}:/canonical-pit/." "${PIT_DATASET}/"
           test -s "${PIT_DATASET}/manifest.json"
           test -s "${PIT_DATASET}/session-hashes.csv"
-          python backtester/canonical_pit_package.py verify --pointer "${PIT_POINTER}" --dataset "${PIT_DATASET}"
+          python backtester/canonical_pit_package.py verify \
+            --pointer "${PIT_POINTER}" --dataset "${PIT_DATASET}"
 
       - name: Freeze exact suite experiment identity
         id: freeze
@@ -151,7 +186,8 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p backtester-results/pit-certification-suite
-          python backtester/certify_backtest_result.py identity \
+          cp "${PIT_POINTER}" backtester-results/pit-certification-suite/canonical-pit-pointer.json
+          python backtester/certify_backtest_result_v2.py identity \
             --mode "${PIT_MODE}" \
             --source-sha "${PIT_SOURCE_SHA}" \
             --strategy-sha "${PIT_STRATEGY_SHA}" \
@@ -168,7 +204,8 @@ jobs:
         run: |
           set -uo pipefail
           python -m compileall -q backtester tests/backtester tests/support
-          python -m pytest -q tests/backtester 2>&1 | tee backtester-results/pit-certification-suite/tests-backtester.log
+          python -m pytest -q tests/backtester \
+            2>&1 | tee backtester-results/pit-certification-suite/tests-backtester.log
           exit "${PIPESTATUS[0]}"
 
       - name: Audit exact canonical dataset and historical universe
@@ -177,7 +214,7 @@ jobs:
         shell: bash
         run: |
           set -uo pipefail
-          python backtester/certify_backtest_result.py audit-dataset \
+          python backtester/certify_backtest_result_v2.py audit-dataset \
             --dataset "${PIT_DATASET}" \
             --pointer "${PIT_POINTER}" \
             --output backtester-results/pit-certification-suite/dataset-audit.json \
@@ -211,7 +248,7 @@ jobs:
           dynamic=FAIL
           if test "${FINANCIAL_OUTCOME}" = success; then financial=PASS; fi
           if test "${DYNAMIC_OUTCOME}" = success; then dynamic=PASS; fi
-          python backtester/certify_backtest_result.py collect-tests \
+          python backtester/certify_backtest_result_v2.py collect-tests \
             --identity backtester-results/pit-certification-suite/experiment-identity.json \
             --dataset-audit backtester-results/pit-certification-suite/dataset-audit.json \
             --static-forward-bias "${financial}" \
@@ -248,7 +285,6 @@ jobs:
           name: ${{ steps.identity_name.outputs.artifact_name }}
           path: |
             backtester-results/pit-certification-suite/**
-            backtester/data/canonical-pit-20y.json
           if-no-files-found: warn
           retention-days: 90
           compression-level: 6
