@@ -56,11 +56,13 @@ def strip_iwv_footnotes(name: str) -> str:
 
 def canonical_company(name: str) -> str:
     value = strip_iwv_footnotes(name).upper()
-    # Russell source labels and the filed schedule differ in punctuation and often place
-    # a leading article at the end, e.g. "Company (The)". Keep semantic words; normalize
-    # only presentation differences.
+    # Presentation-only differences between the filed schedule and Russell's narrow
+    # membership columns. Apostrophes are deleted (MCDONALD'S -> MCDONALDS), while
+    # hyphens/slashes remain word boundaries. "(The)" is a filing style suffix and is
+    # removed only at the end of a company label.
+    value = value.replace("’", "").replace("'", "")
     value = value.replace("&", " AND ")
-    value = re.sub(r"\(THE\)", " THE ", value)
+    value = re.sub(r"\s*\(THE\)\s*$", "", value)
     value = NON_ALNUM_RE.sub(" ", value)
     return SPACE_RE.sub(" ", value).strip()
 
@@ -162,13 +164,15 @@ def unique_ticker(items: list[SourceIdentity]) -> str | None:
 
 
 def prefix_candidates(name: str, sources: list[SourceIdentity]) -> list[SourceIdentity]:
-    # Source labels are visibly truncated by their PDF column width. Accept prefix relation
-    # only when the shorter canonical side is reasonably identifying; never fuzzy-edit names.
+    # The validated Russell source labels are fixed-width and visibly truncate long names.
+    # A short label is allowed only if it contains at least two tokens and at least six
+    # characters; the final mapping still requires one and only one ticker across both
+    # bracketing source years. There is no edit-distance or semantic fuzzy matching.
     out: list[SourceIdentity] = []
     for item in sources:
         source = item.canonical_company
-        shorter = min(len(name), len(source))
-        if shorter < 10:
+        shorter_value = source if len(source) <= len(name) else name
+        if len(shorter_value) < 6 or len(shorter_value.split()) < 2:
             continue
         if name.startswith(source) or source.startswith(name):
             out.append(item)
@@ -238,7 +242,7 @@ def main() -> int:
     duplicate_mapped_tickers = {k: v for k, v in sorted(ticker_counts.items()) if v > 1}
 
     result = {
-        "schema": 1,
+        "schema": 2,
         "source_role": "independent IWV June 30 2007 filed holdings mapping diagnostic; not Russell membership authority",
         "iwv_source_url": IWV_PDF_URL,
         "iwv_pdf_sha256": EXPECTED_IWV_PDF_SHA256,
@@ -247,7 +251,7 @@ def main() -> int:
         "validated_russell_source_years": [2006, 2010],
         "mapping_methods": {
             "exact_canonical": "same normalized company label after punctuation/article/footnote normalization",
-            "unique_truncation_prefix": "unique ticker where validated Russell fixed-width company label is a >=10-character prefix relation; no fuzzy edit",
+            "unique_truncation_prefix": "unique ticker across bracketing validated snapshots under literal fixed-width prefix relation; shorter side >=6 chars and >=2 tokens; no fuzzy edit",
         },
         "method_counts": method_counts,
         "mapped_count": len(mapped),
