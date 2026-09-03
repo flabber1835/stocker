@@ -3,6 +3,8 @@
 
 Research-only diagnostic. Raw PDF and full extracted text remain ephemeral. Persisted
 outputs contain hashes, structural statistics, candidate parser counts, and small samples.
+An optional --pdf-output writes the already-fetched PDF to an ephemeral runner path so
+subsequent diagnostics can reuse the exact bytes without a second Wayback request.
 """
 
 from __future__ import annotations
@@ -119,6 +121,7 @@ def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p.add_argument("--url", required=True)
     p.add_argument("--timestamp", required=True)
     p.add_argument("--output-dir", type=Path, required=True)
+    p.add_argument("--pdf-output", type=Path, default=None, help="Ephemeral local path for reusing the fetched PDF")
     p.add_argument("--timeout", type=int, default=30)
     p.add_argument("--attempts", type=int, default=5)
     return p.parse_args(argv)
@@ -130,6 +133,11 @@ def main(argv: Sequence[str] | None = None) -> int:
     payload, status, content_type, final_url = archive._request(cap.raw_archive_url, timeout=args.timeout, attempts=args.attempts)
     if status != 200 or not payload.startswith(b"%PDF-"):
         raise RuntimeError(f"not PDF status={status} content_type={content_type!r}")
+
+    pdf_sha256 = hashlib.sha256(payload).hexdigest()
+    if args.pdf_output is not None:
+        args.pdf_output.parent.mkdir(parents=True, exist_ok=True)
+        args.pdf_output.write_bytes(payload)
 
     modes = {}
     for mode in ("raw", "layout", "plain"):
@@ -145,13 +153,14 @@ def main(argv: Sequence[str] | None = None) -> int:
         }
 
     result = {
-        "schema": 1,
+        "schema": 2,
         "generated_utc": datetime.now(UTC).replace(microsecond=0).isoformat(),
         "capture": asdict(cap),
         "fetch_final_url": final_url,
-        "pdf_sha256": hashlib.sha256(payload).hexdigest(),
+        "pdf_sha256": pdf_sha256,
         "pdf_bytes": len(payload),
         "raw_pdf_persisted": False,
+        "ephemeral_pdf_reuse": args.pdf_output is not None,
         "full_text_persisted": False,
         "accepted_as_corpus": False,
         "modes": modes,
@@ -166,6 +175,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         f"- Capture: `{cap.timestamp}`",
         f"- PDF SHA-256: `{result['pdf_sha256']}`",
         f"- PDF bytes: **{len(payload):,}**",
+        f"- Ephemeral local reuse enabled: **{result['ephemeral_pdf_reuse']}**",
         "",
     ]
     for mode, data in modes.items():
