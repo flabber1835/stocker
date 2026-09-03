@@ -17,7 +17,7 @@ permissions:
 jobs:
   archive-probe:
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 10
     steps:
       - name: Check out exact experiment revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -36,14 +36,19 @@ jobs:
           test "${GITHUB_REF_NAME}" = "research/pit-russell-archive-reconstruction"
           python -m unittest tests.scripts.test_pit_russell_archive_probe -v
 
-      - name: Probe Internet Archive Russell membership captures
+      - name: Probe primary Russell membership endpoints
         run: |
           set -euo pipefail
           rm -rf /tmp/pit-russell-archive
           python tools/pit_russell_archive_probe.py \
             --from-year 2005 \
             --to-year 2014 \
-            --max-downloads-per-year 4 \
+            --max-downloads-per-year 1 \
+            --timeout 6 \
+            --attempts 2 \
+            --delay 0.25 \
+            --url 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf' \
+            --url 'https://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf' \
             --output-dir /tmp/pit-russell-archive
 
       - name: Publish evidence summary
