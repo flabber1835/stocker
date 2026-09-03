@@ -28,6 +28,10 @@ RELEVANT_WORDS = (
     "reconstitution", "final", "preliminary",
 )
 TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,8}$")
+NON_TICKER_TOKENS = {
+    "RUSSELL", "INDEX", "TICKER", "SYMBOL", "COMPANY", "NAME", "FINAL", "ADD", "DELETE",
+    "NYSE", "NASDAQ", "AMEX", "OTC", "MARKET", "EXCHANGE",
+}
 
 
 @dataclass(frozen=True)
@@ -122,8 +126,8 @@ def endpoint_kind(url: str) -> str:
 
 def relevant_artifact_link(base_url: str, href: str, text: str) -> ArtifactLink | None:
     resolved = urllib.parse.urljoin(base_url, href)
-    # Relevance must come from the child link itself. Using the parent URL here would
-    # make every navigation link on recon_additions.asp look like an addition artifact.
+    # Relevance must come from the child link itself. The parent page may itself be
+    # a reconstitution endpoint, which must not make every navigation child relevant.
     haystack = f"{href} {text}".casefold()
     path = urllib.parse.urlparse(resolved).path.casefold()
     if not any(word in haystack for word in RELEVANT_WORDS) and not path.endswith(ARTIFACT_EXTENSIONS):
@@ -131,28 +135,51 @@ def relevant_artifact_link(base_url: str, href: str, text: str) -> ArtifactLink 
     return ArtifactLink("", base_url, href, resolved, text[:240])
 
 
+def is_ticker_cell(value: str) -> bool:
+    upper = value.upper()
+    return value == upper and TICKER_RE.fullmatch(upper) is not None and upper not in NON_TICKER_TOKENS
+
+
+def candidates_from_cells(
+    cells: Sequence[str], timestamp: str, original: str, kind: str
+) -> list[CandidateRow]:
+    """Extract every adjacent company/ticker pair from a Russell table row.
+
+    Historical Russell pages commonly place two independent pairs in one HTML row:
+    Company | Symbol | Company | Symbol. Pairing a ticker with the longest text in
+    the whole row can silently attach it to the other company, so adjacency is part
+    of the evidence contract.
+    """
+    cleaned = tuple(normalize_text(cell)[:240] for cell in cells if normalize_text(cell))
+    if len(cleaned) < 2:
+        return []
+    rows: list[CandidateRow] = []
+    for idx in range(1, len(cleaned)):
+        ticker_cell = cleaned[idx]
+        label = cleaned[idx - 1]
+        if not is_ticker_cell(ticker_cell):
+            continue
+        if is_ticker_cell(label) or label.upper() in NON_TICKER_TOKENS or len(label) <= 2:
+            continue
+        rows.append(
+            CandidateRow(
+                timestamp,
+                original,
+                kind,
+                ticker_cell.upper(),
+                label[:240],
+                cleaned[:8],
+            )
+        )
+    return rows
+
+
 def candidate_from_cells(
     cells: Sequence[str], timestamp: str, original: str, kind: str
 ) -> CandidateRow | None:
-    cleaned = tuple(normalize_text(cell)[:240] for cell in cells if normalize_text(cell))
-    if len(cleaned) < 2:
-        return None
-    ticker_index = None
-    excluded = {
-        "RUSSELL", "INDEX", "TICKER", "SYMBOL", "COMPANY", "NAME", "FINAL", "ADD", "DELETE"
-    }
-    for idx, cell in enumerate(cleaned):
-        upper = cell.upper()
-        if cell == upper and TICKER_RE.fullmatch(upper) and upper not in excluded:
-            ticker_index = idx
-            break
-    if ticker_index is None:
-        return None
-    ticker = cleaned[ticker_index].upper()
-    labels = [cell for idx, cell in enumerate(cleaned) if idx != ticker_index and len(cell) > 2]
-    if not labels:
-        return None
-    return CandidateRow(timestamp, original, kind, ticker, max(labels, key=len)[:240], cleaned[:8])
+    """Compatibility helper returning the first adjacent pair, if any."""
+    rows = candidates_from_cells(cells, timestamp, original, kind)
+    return rows[0] if rows else None
 
 
 def extract_evidence(capture: archive.Capture, payload: bytes) -> tuple[list[ArtifactLink], list[CandidateRow]]:
@@ -172,11 +199,11 @@ def extract_evidence(capture: archive.Capture, payload: bytes) -> tuple[list[Art
     candidates: list[CandidateRow] = []
     seen_candidates: set[tuple[str, str]] = set()
     for cells in parser.rows:
-        row = candidate_from_cells(cells, capture.timestamp, capture.original, kind)
-        if row is None or (row.ticker, row.label) in seen_candidates:
-            continue
-        seen_candidates.add((row.ticker, row.label))
-        candidates.append(row)
+        for row in candidates_from_cells(cells, capture.timestamp, capture.original, kind):
+            if (row.ticker, row.label) in seen_candidates:
+                continue
+            seen_candidates.add((row.ticker, row.label))
+            candidates.append(row)
     return links, candidates
 
 
@@ -260,12 +287,13 @@ def run(args: argparse.Namespace) -> dict:
     } for year in range(args.from_year, args.to_year + 1)]
 
     return {
-        "schema": 1,
+        "schema": 2,
         "generated_utc": datetime.utcnow().replace(microsecond=0).isoformat() + "Z",
         "from_year": args.from_year,
         "to_year": args.to_year,
         "urls": list(args.url),
         "raw_html_persisted": False,
+        "row_pairing_contract": "adjacent_company_then_ticker",
         "capture_count": len(deduped_captures),
         "fetches": fetches,
         "artifact_links": [asdict(row) for row in sorted(
@@ -285,6 +313,7 @@ def write_outputs(output_dir: Path, result: dict) -> None:
     lines = [
         "# Legacy Russell membership/delta content probe", "",
         "Research evidence only. Raw archived pages are not persisted.", "",
+        f"Row pairing: `{result['row_pairing_contract']}`", "",
         "| Year | Captures | Pages fetched | Candidate rows | Artifact links |",
         "|---:|---:|---:|---:|---:|",
     ]
