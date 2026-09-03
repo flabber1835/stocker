@@ -1,7 +1,9 @@
 import importlib.util
+import json
 from pathlib import Path
 import sys
 import unittest
+from unittest import mock
 
 
 ROOT = Path(__file__).resolve().parents[2]
@@ -42,6 +44,36 @@ class RussellNavigationProbeTests(unittest.TestCase):
 
     def test_irrelevant_link_is_ignored(self):
         self.assertIsNone(nav.relevant_link("http://example.test/a/", "about.asp", "About"))
+
+    def test_fetch_seed_captures_uses_archive_request_seam(self):
+        payload = json.dumps(
+            [
+                list(nav.archive.CDX_FIELDS),
+                [
+                    "20060703120000",
+                    "http://www.russell.com/US/Indexes/US/reconstitution/schedule.asp",
+                    "200",
+                    "text/html",
+                    "ABC",
+                    "123",
+                ],
+            ]
+        ).encode()
+        with mock.patch.object(
+            nav.archive,
+            "_request",
+            return_value=(payload, 200, "application/json", "https://web.archive.org/cdx/search/cdx"),
+        ) as request:
+            rows = nav.fetch_seed_captures(
+                "http://www.russell.com/us/indexes/us/reconstitution/schedule.asp",
+                2005,
+                2008,
+                20,
+                3,
+            )
+        self.assertEqual(1, len(rows))
+        self.assertEqual("ABC", rows[0].digest)
+        request.assert_called_once()
 
 
 if __name__ == "__main__":
