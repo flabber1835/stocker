@@ -122,7 +122,7 @@ jobs:
           SHARD_INDEX: ${{ matrix.shard }}
         run: |
           set -euo pipefail
-          PLAN_ROOT="backtester-results/v4-external-sec-plan-${SHARD_INDEX}"
+          export PLAN_ROOT="backtester-results/v4-external-sec-plan-${SHARD_INDEX}"
           echo "PLAN_ROOT=${PLAN_ROOT}" >> "${GITHUB_ENV}"
           python -m backtester.plan_historical_metadata_external_v4 \
             --inventory "${AUDIT_ROOT}/definitive_unresolved_episodes_v4.csv.gz" \
@@ -146,7 +146,7 @@ jobs:
           SHARD_INDEX: ${{ matrix.shard }}
         run: |
           set -euo pipefail
-          OUTPUT_ROOT="backtester-results/v4-external-sec-evidence-${SHARD_INDEX}"
+          export OUTPUT_ROOT="backtester-results/v4-external-sec-evidence-${SHARD_INDEX}"
           echo "OUTPUT_ROOT=${OUTPUT_ROOT}" >> "${GITHUB_ENV}"
           python -m backtester.expand_historical_authority_v4_issuer_safe harvest \
             --plan "${PLAN_ROOT}/plan.csv.gz" \
