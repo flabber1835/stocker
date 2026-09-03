@@ -28,6 +28,43 @@ ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
             or Path(__file__).resolve().parents[2])
 
 
+def _write_fake_backup_docker(path: Path) -> None:
+    path.write_text(
+        "#!/bin/sh\n"
+        "if [ \"$1\" = info ]; then\n"
+        "  printf '%s\\n' \"${FAKE_DOCKER_ROOT:-/unreadable-docker-root}\"\n"
+        "  exit 0\n"
+        "fi\n"
+        "case \" $* \" in *' --entrypoint id '*) echo 999; exit 0;; esac\n"
+        "mode=\n"
+        "parent=\n"
+        "for arg in \"$@\"; do\n"
+        "  case \"$arg\" in\n"
+        "    MODE=*) mode=\"${arg#MODE=}\";;\n"
+        "    *:/probe) parent=\"${arg%:/probe}\";;\n"
+        "  esac\n"
+        "done\n"
+        "if [ -n \"$mode\" ]; then\n"
+        "  marker=\"$parent/.sentinel-independent-durable-target-v1\"\n"
+        "  expected=sentinel-independent-durable-target-v1\n"
+        "  if [ \"$mode\" = initialize ] && [ ! -e \"$marker\" ] && [ ! -L \"$marker\" ]; then\n"
+        "    printf '%s\\n' \"$expected\" > \"$marker\" || exit 3\n"
+        "    chmod 0444 \"$marker\" || exit 3\n"
+        "  fi\n"
+        "  if [ -L \"$marker\" ]; then echo INVALID_SYMLINK; exit 3; fi\n"
+        "  if [ ! -e \"$marker\" ]; then echo MISSING; exit 4; fi\n"
+        "  if [ ! -f \"$marker\" ] || [ ! -r \"$marker\" ]; then echo INVALID_TYPE; exit 3; fi\n"
+        "  content=\"$(cat \"$marker\")\" || { echo INVALID_UNREADABLE; exit 3; }\n"
+        "  if [ \"$content\" != \"$expected\" ]; then echo INVALID_CONTENT; exit 3; fi\n"
+        "  echo VALID\n"
+        "  exit 0\n"
+        "fi\n"
+        "exit 0\n",
+        encoding="utf-8",
+    )
+    path.chmod(0o755)
+
+
 async def _noop(_context):
     return None
 
@@ -219,12 +256,7 @@ def test_attested_cold_boot_fallback_cannot_recreate_marker(tmp_path):
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     docker = fake_bin / "docker"
-    docker.write_text(
-        "#!/bin/sh\n"
-        "if [ \"$1\" = info ]; then echo /unreadable-docker-root; exit 0; fi\n"
-        "case \" $* \" in *' --entrypoint id '*) echo 999;; esac\n"
-        "exit 0\n")
-    docker.chmod(0o755)
+    _write_fake_backup_docker(docker)
     env = {
         **os.environ,
         "PATH": f"{fake_bin}{os.pathsep}{os.environ['PATH']}",
