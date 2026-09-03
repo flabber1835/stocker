@@ -1,22 +1,35 @@
 #!/usr/bin/env python3
-"""Run the strict-PIT production replay against the exact current-main source.
+"""Run strict-PIT Production against the exact main revision frozen at experiment start.
 
-This compatibility launcher exists only on the backtester branch. It reuses the
-retained historical harness while binding every production-source identity seam
-to the unmodified current-main checkout. No production source file is patched.
+This compatibility launcher exists only on the backtester branch.  It reuses the
+retained historical harness while binding every Production-source identity seam
+to an unmodified checkout.  The caller may supply ``PRODUCTION_MAIN_SHA``; when
+omitted, the fallback is the current reviewed main revision.  Production source
+files are never patched.
 """
 from __future__ import annotations
 
 import os
 from pathlib import Path
+import re
 import subprocess
 import sys
+
 
 ROOT = Path(__file__).resolve().parents[1]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-CURRENT_MAIN_SHA = "ea0e100b43da989bfb39ab69cdfb2b9745f3b850"
+_DEFAULT_MAIN_SHA = "f1c4be214da458b425998f8616631a4fa6072aa0"
+CURRENT_MAIN_SHA = (
+    os.environ.get("PRODUCTION_MAIN_SHA", "").strip() or _DEFAULT_MAIN_SHA
+)
+if not re.fullmatch(r"[0-9a-f]{40}", CURRENT_MAIN_SHA):
+    raise RuntimeError("PRODUCTION_MAIN_SHA must be an exact 40-hex commit")
+
+# These are the economically active Production files.  An experiment may bind a
+# later main commit only while these exact blobs remain unchanged; otherwise the
+# backtester generation must be reviewed and updated before certification.
 EXPECTED_PRODUCTION_BLOBS = {
     "sentinel/core/kernel.py": "12617af8eb954d4ae18fef2ae16977048e2e40cd",
     "sentinel/core/production.py": "e4ebfebae2fa1a737c52063af63003a82b6e19cf",
@@ -50,7 +63,7 @@ def _git(root: Path, *args: str) -> str:
 
 
 def verify_experiment_start_origin_main(root: Path) -> None:
-    """Fail closed when the declared Production SHA is no longer origin/main."""
+    """Freeze authority: the declared SHA must equal origin/main at experiment start."""
     _git(
         root,
         "fetch",
@@ -62,31 +75,33 @@ def verify_experiment_start_origin_main(root: Path) -> None:
     resolved = _git(root, "rev-parse", "refs/remotes/origin/main")
     if resolved != CURRENT_MAIN_SHA:
         raise RuntimeError(
-            "origin/main moved since this backtester generation was declared: "
+            "origin/main differs from the experiment-start Production SHA: "
             f"{resolved} != {CURRENT_MAIN_SHA}"
         )
 
 
 def verify_unmodified_current_main(root: Path) -> None:
     if _git(root, "rev-parse", "HEAD") != CURRENT_MAIN_SHA:
-        raise RuntimeError("production checkout is not the certified current-main revision")
+        raise RuntimeError("production checkout is not the frozen experiment revision")
     if _git(root, "status", "--porcelain"):
         raise RuntimeError("production checkout is modified; certification requires pristine main")
     for path, expected_blob in EXPECTED_PRODUCTION_BLOBS.items():
         observed = _git(root, "hash-object", path)
         if observed != expected_blob:
             raise RuntimeError(
-                f"production source blob mismatch for {path}: {observed} != {expected_blob}"
+                f"production source blob mismatch for {path}: "
+                f"{observed} != {expected_blob}"
             )
 
 
 def _load_retained_harness():
     import backtester.run_production_strict_pit_20y as retained
+
     return retained
 
 
 def bind_current_main_identity(retained) -> None:
-    """Override retained-harness identity constants, never production code."""
+    """Override retained-harness identity constants, never Production code."""
     modules = {
         retained,
         retained.strict,
@@ -109,7 +124,7 @@ def main() -> int:
     verify_unmodified_current_main(root)
     if "--self-test-source-identity" in sys.argv[1:]:
         print(
-            "[SELFTEST PASS] unmodified current-main production source "
+            "[SELFTEST PASS] unmodified experiment-start Production source "
             f"root={root} sha={CURRENT_MAIN_SHA}",
             flush=True,
         )
@@ -117,7 +132,7 @@ def main() -> int:
     retained = _load_retained_harness()
     bind_current_main_identity(retained)
     print(
-        "[SOURCE IDENTITY PASS] production=current-main "
+        "[SOURCE IDENTITY PASS] production=experiment-start-main "
         f"sha={CURRENT_MAIN_SHA} patched=false",
         flush=True,
     )
