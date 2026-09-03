@@ -2,18 +2,20 @@
 """Provision first-install Sentinel secrets before Compose is allowed to resolve.
 
 The supported GO and autonomous-deployment launchers call this helper before any
-Compose-dependent phase.  Its only managed value is the independent publication
+Compose-dependent phase. Its only managed value is the independent publication
 receipt HMAC authority introduced by the receipt-chain hardening.
 
 A missing key may be generated automatically only after PostgreSQL proves that
-no authenticated receipt row already exists.  A legacy/pre-receipt corpus is
+no authenticated receipt row already exists. A legacy/pre-receipt corpus is
 safe: the schema migration records its current publication frontier as the
-legacy prefix and only later publications require authenticated receipts.  If
+legacy prefix and only later publications require authenticated receipts. If
 any authenticated receipt exists, losing the key is recovery of an existing
 secret, never permission to rotate it.
 
 The key is generated with ``secrets``, written atomically to the existing .env
-at mode 0600, never printed, and never passed on a command line.
+at mode 0600, never printed, and never passed on a command line. PostgreSQL is
+never started for this proof until the existing durable-backup-target guard has
+passed.
 """
 from __future__ import annotations
 
@@ -137,6 +139,31 @@ def _run(argv: Sequence[str], *, env: Mapping[str, str]) -> subprocess.Completed
             [str(item) for item in argv], 127, stdout="", stderr="")
 
 
+def _require_probe_prerequisites(env: Mapping[str, str]) -> None:
+    password = str(env.get("SENTINEL_POSTGRES_PASSWORD") or "").strip()
+    if not password or _PLACEHOLDER.fullmatch(password):
+        raise BootstrapRefused(
+            "SENTINEL_POSTGRES_PASSWORD is absent or still a placeholder; "
+            "refusing to initialize PostgreSQL with a known credential")
+    backup_dir = str(env.get("SENTINEL_BACKUP_DIR") or "").strip()
+    if not backup_dir:
+        raise BootstrapRefused(
+            "SENTINEL_BACKUP_DIR is required before first-install secret bootstrap")
+
+
+def _require_backup_target(env: Mapping[str, str]) -> None:
+    # Reuse the exact production durability authority before starting PostgreSQL.
+    # This prevents a failed external mount from turning the fallback directory
+    # underneath the mount point into the WAL archive during bootstrap.
+    completed = _run([
+        "bash", "-c",
+        ". scripts/sentinel-backup-lib.sh; sentinel_backup_root >/dev/null",
+    ], env=env)
+    if completed.returncode != 0:
+        raise BootstrapRefused(
+            "independently durable Sentinel backup target is not ready")
+
+
 def _compose_args(env: Mapping[str, str]) -> Sequence[str]:
     completed = _run(
         ["bash", "scripts/sentinel-compose.sh", "--explain"], env=env)
@@ -215,6 +242,8 @@ def _psql(env: Mapping[str, str], compose_args: Sequence[str], sql: str) -> str:
 
 
 def _receipt_ancestry(env: Mapping[str, str]) -> str:
+    _require_probe_prerequisites(env)
+    _require_backup_target(env)
     compose_args = _compose_args(env)
     _ensure_postgres_ready(env, compose_args)
     shape = _psql(
