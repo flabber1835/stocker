@@ -1,0 +1,58 @@
+name: Map June 2007 IWV holdings to validated Russell tickers
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - 'tools/pit_russell_2007_iwv_name_map.py'
+      - '.github/workflows/pit-russell-2007-iwv-name-map.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  map:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact inputs
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            tools/pit_russell_2007_iwv_name_map.py
+            research/pit_russell_archive/annual_universes/russell3000_2006.csv
+            research/pit_russell_archive/annual_universes/russell3000_2010.csv
+            .github/workflows/pit-russell-2007-iwv-name-map.yml
+          sparse-checkout-cone-mode: false
+      - name: Install Poppler
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Map filed holdings conservatively
+        run: |
+          set -euo pipefail
+          python tools/pit_russell_2007_iwv_name_map.py \
+            --russell-2006 research/pit_russell_archive/annual_universes/russell3000_2006.csv \
+            --russell-2010 research/pit_russell_archive/annual_universes/russell3000_2010.csv \
+            --output /tmp/iwv-2007-name-map.json
+      - name: Print compact mapping summary
+        run: |
+          python - <<'PY'
+          import json
+          d=json.load(open('/tmp/iwv-2007-name-map.json'))
+          print('holdings',d['iwv_holding_count'])
+          print('mapped',d['mapped_count'],d['method_counts'])
+          print('ambiguous',d['ambiguous_count'])
+          print('unmatched',d['unmatched_count'])
+          print('duplicate_mapped_tickers',d['duplicate_mapped_tickers'])
+          print('UNMATCHED_NAMES')
+          for row in d['unmatched']:
+              print(row['iwv_company'])
+          print('AMBIGUOUS_NAMES')
+          for row in d['ambiguous']:
+              print(row['iwv_company'],row['candidate_tickers'])
+          PY
