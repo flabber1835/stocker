@@ -33,11 +33,11 @@ docker run --rm --network none \
     chmod 0700 /probe/base
   '
 
-if : > "$work/wal/.host-write-probe" 2>/dev/null; then
+if { : > "$work/wal/.host-write-probe"; } 2>/dev/null; then
   echo "REFUSED: test host unexpectedly writes the postgres-owned WAL directory" >&2
   exit 1
 fi
-if : > "$work/base/.host-write-probe" 2>/dev/null; then
+if { : > "$work/base/.host-write-probe"; } 2>/dev/null; then
   echo "REFUSED: test host unexpectedly writes the root-owned base directory" >&2
   exit 1
 fi
@@ -80,11 +80,11 @@ docker run --rm --network none \
 
 # Provisioning must not loosen directory ownership or permissions merely to make
 # the host initializer succeed.
-if : > "$work/wal/.host-write-probe-2" 2>/dev/null; then
+if { : > "$work/wal/.host-write-probe-2"; } 2>/dev/null; then
   echo "REFUSED: WAL directory permissions were weakened by marker bootstrap" >&2
   exit 1
 fi
-if : > "$work/base/.host-write-probe-2" 2>/dev/null; then
+if { : > "$work/base/.host-write-probe-2"; } 2>/dev/null; then
   echo "REFUSED: base directory permissions were weakened by marker bootstrap" >&2
   exit 1
 fi
