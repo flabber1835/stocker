@@ -15,40 +15,85 @@ sys.modules[SPEC.name] = legacy
 SPEC.loader.exec_module(legacy)
 
 
+def bbox(lines: list[list[tuple[float, float, str]]], width: float = 612.0) -> str:
+    rendered = []
+    for words in lines:
+        body = "".join(
+            f'<word xMin="{x}" yMin="{y}">{text}</word>' for x, y, text in words
+        )
+        rendered.append(f"<line>{body}</line>")
+    return f'<doc><page width="{width}" height="792">{"".join(rendered)}</page></doc>'
+
+
 class RussellLegacyMembershipExtractTests(unittest.TestCase):
-    def test_terminal_ticker_record(self):
-        rows = legacy.parse_raw_records("ABRAXAS PETROLEUM CORP ABP\nIDERA PHARMACEUTICALS IDRA\n")
+    def test_two_side_by_side_ticker_company_groups(self):
+        xml = bbox([[ 
+            (90.0, 100.0, "ABP"), (135.0, 100.0, "ABRAXAS"), (171.0, 100.0, "PETROLEUM"), (220.0, 100.0, "CORP"),
+            (330.0, 100.0, "IDRA"), (375.0, 100.0, "IDERA"), (405.0, 100.0, "PHARMACEUTICALS"),
+        ]])
+        rows, issues = legacy.parse_bbox_records(xml)
+        self.assertEqual([], issues)
         self.assertEqual(
             [("ABP", "ABRAXAS PETROLEUM CORP"), ("IDRA", "IDERA PHARMACEUTICALS")],
             [(row.ticker, row.company) for row in rows],
         )
 
-    def test_class_and_dot_tickers_are_preserved(self):
-        rows = legacy.parse_raw_records("ACME HOLDINGS CLASS A ACM.A\nBERKSHIRE EXAMPLE BRK-B\n")
+    def test_fragments_at_same_y_are_reconstructed_as_one_visual_row(self):
+        xml = bbox([
+            [(90.0, 120.0, "ACMR"), (135.0, 120.0, "A"), (145.0, 120.0, "C"), (155.0, 120.0, "MOORE")],
+            [(180.0, 120.4, "ARTS"), (205.0, 120.4, "&amp;"), (218.0, 120.4, "CRAFTS")],
+        ])
+        rows, issues = legacy.parse_bbox_records(xml)
+        self.assertEqual([], issues)
+        self.assertEqual([("ACMR", "A C MOORE ARTS & CRAFTS")], [(r.ticker, r.company) for r in rows])
+
+    def test_header_at_ticker_anchor_is_ignored(self):
+        xml = bbox([[(90.0, 80.0, "Ticker"), (135.0, 80.0, "Company")]])
+        rows, issues = legacy.parse_bbox_records(xml)
+        self.assertEqual([], rows)
+        self.assertEqual([], issues)
+
+    def test_anchored_data_like_row_without_company_fails_ambiguity_gate(self):
+        xml = bbox([[(90.0, 140.0, "ABP")]])
+        rows, issues = legacy.parse_bbox_records(xml)
+        self.assertEqual([], rows)
+        self.assertEqual(1, len(issues))
+        self.assertEqual("missing_company", issues[0].reason)
+
+    def test_invalid_anchored_ticker_is_reported(self):
+        xml = bbox([[(90.0, 140.0, "bad"), (135.0, 140.0, "EXAMPLE"), (170.0, 140.0, "CORP")]])
+        rows, issues = legacy.parse_bbox_records(xml)
+        self.assertEqual([], rows)
+        self.assertEqual("invalid_ticker", issues[0].reason)
+
+    def test_class_and_dash_tickers_are_preserved(self):
+        xml = bbox([
+            [(90.0, 150.0, "ACM.A"), (135.0, 150.0, "ACME"), (170.0, 150.0, "HOLDINGS")],
+            [(90.0, 160.0, "BRK-B"), (135.0, 160.0, "BERKSHIRE"), (190.0, 160.0, "EXAMPLE")],
+        ])
+        rows, issues = legacy.parse_bbox_records(xml)
+        self.assertEqual([], issues)
         self.assertEqual(["ACM.A", "BRK-B"], [row.ticker for row in rows])
 
-    def test_headers_and_footer_are_rejected(self):
-        text = (
-            "Russell 3000 Index Membership List R3000\n"
-            "Company Symbol\n"
-            "EXAMPLE CORP EXM\n"
-            "Copyright 2005 Russell Investment Group\n"
-            "Page 1\n"
-        )
-        rows = legacy.parse_raw_records(text)
-        self.assertEqual([("EXM", "EXAMPLE CORP")], [(row.ticker, row.company) for row in rows])
-
-    def test_non_terminal_ticker_is_not_guessed(self):
-        rows = legacy.parse_raw_records("EXM EXAMPLE CORP\n")
-        self.assertEqual([], rows)
-
-    def test_exact_duplicate_is_deduplicated(self):
-        rows = legacy.parse_raw_records("EXAMPLE CORP EXM\nEXAMPLE CORP EXM\n")
+    def test_exact_duplicate_pair_is_deduplicated(self):
+        xml = bbox([
+            [(90.0, 170.0, "EXM"), (135.0, 170.0, "EXAMPLE"), (175.0, 170.0, "CORP")],
+            [(90.0, 180.0, "EXM"), (135.0, 180.0, "EXAMPLE"), (175.0, 180.0, "CORP")],
+        ])
+        rows, issues = legacy.parse_bbox_records(xml)
+        self.assertEqual([], issues)
         self.assertEqual(1, len(rows))
 
-    def test_conflicting_company_labels_are_preserved_for_ambiguity_gate(self):
-        rows = legacy.parse_raw_records("EXAMPLE CORP EXM\nEXAMPLE HOLDINGS EXM\n")
-        self.assertEqual(2, len(rows))
+    def test_unexpected_page_width_fails_closed(self):
+        with self.assertRaisesRegex(RuntimeError, "unexpected page width"):
+            legacy.parse_bbox_records(bbox([[(90.0, 100.0, "EXM"), (135.0, 100.0, "EXAMPLE")]], width=600.0))
+
+    def test_row_hash_is_stable(self):
+        xml = bbox([[(90.0, 190.0, "EXM"), (135.0, 190.0, "EXAMPLE"), (175.0, 190.0, "CORP")]])
+        first, _ = legacy.parse_bbox_records(xml)
+        second, _ = legacy.parse_bbox_records(xml)
+        self.assertEqual(first, second)
+        self.assertEqual(legacy.rows_sha256(first), legacy.rows_sha256(second))
 
 
 if __name__ == "__main__":
