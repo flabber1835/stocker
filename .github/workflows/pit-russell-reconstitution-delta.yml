@@ -1,0 +1,91 @@
+name: PIT Russell reconstitution deltas
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - 'tools/pit_russell_reconstitution_delta_extract.py'
+      - '.github/workflows/pit-russell-reconstitution-delta.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  delta-parse:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - year: 2023
+            kind: additions
+            url: https://www.lseg.com/content/dam/ftse-russell/en_us/documents/other/ru3000-additions-final-20230623.pdf
+          - year: 2023
+            kind: deletions
+            url: https://www.lseg.com/content/dam/ftse-russell/en_us/documents/other/ru3000-deletions-final-20230623.pdf
+          - year: 2024
+            kind: additions
+            url: https://www.lseg.com/content/dam/ftse-russell/en_us/documents/other/ru3000-additions-final-20240628.pdf
+          - year: 2024
+            kind: deletions
+            url: https://www.lseg.com/content/dam/ftse-russell/en_us/documents/other/ru3000-deletions-final-20240628.pdf
+          - year: 2025
+            kind: additions
+            url: https://www.lseg.com/content/dam/ftse-russell/en_us/documents/other/ru3000-additions-20250627.pdf
+          - year: 2025
+            kind: deletions
+            url: https://www.lseg.com/content/dam/ftse-russell/en_us/documents/other/ru3000-deletions-20250627.pdf
+          - year: 2026
+            kind: additions
+            url: https://www.lseg.com/content/dam/ftse-russell/en_us/documents/other/ru3000-additions-20260626.pdf
+          - year: 2026
+            kind: deletions
+            url: https://www.lseg.com/content/dam/ftse-russell/en_us/documents/other/ru3000-deletions-20260626.pdf
+    runs-on: ubuntu-24.04
+    timeout-minutes: 6
+    steps:
+      - name: Check out exact research revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+          sparse-checkout: |
+            tools
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Install Poppler
+        run: |
+          set -euo pipefail
+          if ! command -v pdftotext >/dev/null 2>&1; then
+            sudo apt-get update
+            sudo apt-get install -y --no-install-recommends poppler-utils
+          fi
+      - name: Parse official reconstitution delta
+        run: |
+          set -euo pipefail
+          out="/tmp/russell-delta-${{ matrix.year }}-${{ matrix.kind }}"
+          python tools/pit_russell_reconstitution_delta_extract.py \
+            --year '${{ matrix.year }}' \
+            --kind '${{ matrix.kind }}' \
+            --url '${{ matrix.url }}' \
+            --min-rows 20 \
+            --max-rows 500 \
+            --output-dir "$out"
+      - name: Publish summary
+        if: always()
+        run: |
+          report="/tmp/russell-delta-${{ matrix.year }}-${{ matrix.kind }}/report.md"
+          if [ -f "$report" ]; then cat "$report" >> "$GITHUB_STEP_SUMMARY"; fi
+      - name: Upload derived delta evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pit-russell-delta-${{ matrix.year }}-${{ matrix.kind }}-${{ github.sha }}
+          path: |
+            /tmp/russell-delta-${{ matrix.year }}-${{ matrix.kind }}/delta.json
+            /tmp/russell-delta-${{ matrix.year }}-${{ matrix.kind }}/report.md
+          if-no-files-found: warn
+          retention-days: 30
