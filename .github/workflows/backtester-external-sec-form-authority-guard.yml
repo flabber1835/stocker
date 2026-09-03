@@ -1,0 +1,51 @@
+name: Backtester - external SEC form authority guard
+run-name: External SEC form authority guard — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-pit-corpus-recovery-v4]
+    paths:
+      - '.github/workflows/backtester-external-sec-form-authority-guard.yml'
+      - 'backtester/merge_historical_metadata_external_v4.py'
+      - 'tests/backtester/test_merge_historical_metadata_external_v4_form_guard.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  guard:
+    name: Reject unreviewed reporting-person forms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact guard source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/merge_historical_metadata_external_v4.py
+            /tests/backtester/test_merge_historical_metadata_external_v4_form_guard.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Run form authority regressions
+        run: |
+          set -euo pipefail
+          python -m compileall -q backtester/merge_historical_metadata_external_v4.py tests/backtester/test_merge_historical_metadata_external_v4_form_guard.py
+          python - <<'PY'
+          import runpy
+          ns=runpy.run_path('tests/backtester/test_merge_historical_metadata_external_v4_form_guard.py')
+          for name in sorted(ns):
+              if name.startswith('test_'):
+                  ns[name]()
+          print({'status':'PASS','contract':'unreviewed forms cannot establish issuer identity; ownership XML-only; Form 8-A explicitly reviewed'})
+          PY
