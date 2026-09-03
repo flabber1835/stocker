@@ -71,11 +71,6 @@ def test_generated_secret_is_never_printed(tmp_path, monkeypatch, capsys):
     _write_env(path)
     monkeypatch.delenv(bootstrap.RECEIPT_KEY, raising=False)
     monkeypatch.setattr(bootstrap, "ENV_PATH", path)
-    monkeypatch.setattr(
-        bootstrap, "_receipt_ancestry",
-        lambda _env: bootstrap.SAFE_FRESH_DATABASE)
-    # main() binds the public ensure helper; provide the probe explicitly through
-    # a narrow wrapper so this remains a pure host-side unit test.
     original = bootstrap.ensure_publication_receipt_key
     monkeypatch.setattr(
         bootstrap, "ensure_publication_receipt_key",
@@ -166,6 +161,35 @@ def test_duplicate_receipt_key_assignments_are_refused(tmp_path, monkeypatch):
     with pytest.raises(bootstrap.BootstrapRefused, match="more than once"):
         bootstrap.ensure_publication_receipt_key(
             path, receipt_state_probe=lambda _env: bootstrap.SAFE_FRESH_DATABASE)
+
+
+def test_known_postgres_placeholder_cannot_initialize_database():
+    with pytest.raises(bootstrap.BootstrapRefused, match="known credential"):
+        bootstrap._require_probe_prerequisites({
+            "SENTINEL_POSTGRES_PASSWORD": "replace-with-a-long-random-value",
+            "SENTINEL_BACKUP_DIR": "/durable/backup",
+        })
+
+
+def test_backup_durability_is_proven_before_postgres_start(monkeypatch):
+    events = []
+    monkeypatch.setattr(
+        bootstrap, "_require_probe_prerequisites",
+        lambda _env: events.append("prerequisites"))
+    monkeypatch.setattr(
+        bootstrap, "_require_backup_target",
+        lambda _env: events.append("backup"))
+    monkeypatch.setattr(
+        bootstrap, "_compose_args",
+        lambda _env: events.append("compose") or ["-f", "compose.yml"])
+    monkeypatch.setattr(
+        bootstrap, "_ensure_postgres_ready",
+        lambda _env, _args: events.append("postgres"))
+    monkeypatch.setattr(
+        bootstrap, "_psql",
+        lambda _env, _args, _sql: events.append("query") or "0:0:0")
+    assert bootstrap._receipt_ancestry({}) == bootstrap.SAFE_FRESH_DATABASE
+    assert events[:4] == ["prerequisites", "backup", "compose", "postgres"]
 
 
 def test_supported_launchers_bootstrap_before_compose_dependent_work():
