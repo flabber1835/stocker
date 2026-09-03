@@ -3,7 +3,8 @@
 
 Research only. Raw PDF and full bbox XML remain ephemeral. Persisted output contains
 coordinate histograms and a tiny structural sample sufficient to define a deterministic
-column parser.
+column parser. The PDF may be supplied locally so the geometry stage can reuse bytes
+already fetched by a preceding diagnostic step.
 """
 from __future__ import annotations
 
@@ -80,8 +81,6 @@ def geometry(xml_text: str) -> dict:
             for row in rows:
                 if len(samples) >= 12:
                     break
-                # Structural sample only: x position, token length and ticker-likeness.
-                # Do not persist constituent text.
                 ticker_like = sum(1 for _, _, text in row if is_ticker(text.upper()))
                 if ticker_like >= 2 and len(row) >= 4:
                     samples.append({
@@ -106,28 +105,41 @@ def geometry(xml_text: str) -> dict:
 
 def parse_args(argv: Sequence[str] | None = None) -> argparse.Namespace:
     p = argparse.ArgumentParser(description=__doc__)
-    p.add_argument("--url", required=True)
-    p.add_argument("--timestamp", required=True)
+    p.add_argument("--pdf-file", type=Path, default=None, help="Ephemeral local PDF fetched by a preceding step")
+    p.add_argument("--url", default=None)
+    p.add_argument("--timestamp", default=None)
     p.add_argument("--output-dir", type=Path, required=True)
     p.add_argument("--timeout", type=int, default=30)
     p.add_argument("--attempts", type=int, default=5)
-    return p.parse_args(argv)
+    args = p.parse_args(argv)
+    if args.pdf_file is None and (not args.url or not args.timestamp):
+        p.error("provide --pdf-file or both --url and --timestamp")
+    return args
 
 
 def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
-    cap = query_exact_capture(args.url, args.timestamp, args.timeout, args.attempts)
-    payload, status, content_type, final_url = archive._request(cap.raw_archive_url, timeout=args.timeout, attempts=args.attempts)
-    if status != 200 or not payload.startswith(b"%PDF-"):
-        raise RuntimeError(f"not PDF status={status} content_type={content_type!r}")
+    cap = None
+    final_url = None
+    if args.pdf_file is not None:
+        payload = args.pdf_file.read_bytes()
+        if not payload.startswith(b"%PDF-"):
+            raise RuntimeError(f"local file is not a PDF: {args.pdf_file}")
+    else:
+        cap = query_exact_capture(args.url, args.timestamp, args.timeout, args.attempts)
+        payload, status, content_type, final_url = archive._request(cap.raw_archive_url, timeout=args.timeout, attempts=args.attempts)
+        if status != 200 or not payload.startswith(b"%PDF-"):
+            raise RuntimeError(f"not PDF status={status} content_type={content_type!r}")
+
     xml_text = bbox_xml(payload)
     result = {
-        "schema": 1,
+        "schema": 2,
         "generated_utc": datetime.now(UTC).replace(microsecond=0).isoformat(),
-        "capture": asdict(cap),
+        "capture": asdict(cap) if cap is not None else {"timestamp": args.timestamp, "original": args.url},
         "fetch_final_url": final_url,
         "pdf_sha256": hashlib.sha256(payload).hexdigest(),
         "bbox_sha256": hashlib.sha256(xml_text.encode()).hexdigest(),
+        "source_mode": "local-ephemeral-pdf" if args.pdf_file is not None else "direct-wayback-fetch",
         "raw_pdf_persisted": False,
         "full_bbox_persisted": False,
         "accepted_as_corpus": False,
@@ -141,8 +153,9 @@ def main(argv: Sequence[str] | None = None) -> int:
         "",
         "Diagnostic only; no membership rows are accepted.",
         "",
-        f"- Capture: `{cap.timestamp}`",
+        f"- Capture: `{args.timestamp or (cap.timestamp if cap else 'local')}`",
         f"- PDF SHA-256: `{result['pdf_sha256']}`",
+        f"- Source mode: `{result['source_mode']}`",
         f"- Pages: **{g['page_count']}**",
         f"- Page widths: `{g['page_widths']}`",
         "",
