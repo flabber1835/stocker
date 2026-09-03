@@ -168,96 +168,126 @@ def execute():
             cur.execute('SHOW transaction_read_only')
             if str(cur.fetchone()[0]).lower() not in {'on', 'true'}:
                 raise RuntimeError('read-only transaction could not be established')
-            cur.execute("SELECT to_regclass('public.sentinel_corpus_publications')")
-            publication_table = cur.fetchone()[0]
             cur.execute("SELECT to_regclass('public.sentinel_processed_sessions')")
             cursor_table = cur.fetchone()[0]
+            cur.execute(
+                "SELECT "
+                "(to_regclass('public.sentinel_corpus_publications') IS NOT NULL)::int"
+                " || ':' || "
+                "(to_regclass('public.sentinel_publication_validation_policy') IS NOT NULL)::int"
+                " || ':' || "
+                "(to_regclass('public.sentinel_publication_validation_receipts') IS NOT NULL)::int")
+            receipt_shape = str(cur.fetchone()[0])
 
         state['phase'] = 'LOCAL_AUTHORITY'
-        if publication_table is None:
+        if receipt_shape == '0:0:0':
             emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CORPUS_SCHEMA_NOT_INSTALLED'})
+        elif receipt_shape == '1:0:0':
+            emit({
+                'status': 'RECOVERY_REQUIRED',
+                'reason_code': 'PUBLICATION_RECEIPT_SCHEMA_MIGRATION_REQUIRED',
+            })
+        elif receipt_shape != '1:1:1':
+            emit({
+                'status': 'REFUSED',
+                'reason_code': 'PUBLICATION_RECEIPT_SCHEMA_PARTIAL',
+            })
         else:
-            current = publication.require_current(c)
-            target_raw = calendar.latest_closed_session()
-            target = dt.date.fromisoformat(str(target_raw))
-            if cursor_table is None:
-                emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CURSOR_SCHEMA_NOT_INSTALLED'})
+            with c.cursor() as cur:
+                cur.execute(
+                    'SELECT COUNT(*)::bigint,'
+                    ' COALESCE(MIN(required_after_version),-1)::bigint,'
+                    ' COALESCE(MAX(required_after_version),-1)::bigint'
+                    ' FROM sentinel_publication_validation_policy')
+                policy = cur.fetchone()
+            if (not policy or int(policy[0]) != 1 or int(policy[1]) < 0
+                    or int(policy[1]) != int(policy[2])):
+                emit({
+                    'status': 'REFUSED',
+                    'reason_code': 'PUBLICATION_RECEIPT_POLICY_INVALID',
+                })
             else:
-                sep_cursor = load_cursor_readonly(
-                    c, name=maintenance.SEP_CURSOR_NAME,
-                    kind='sharadar-sep-lastupdated/v1',
-                    current_version=current.version)
-                actions_cursor = load_cursor_readonly(
-                    c, name=maintenance.ACTIONS_CURSOR_NAME,
-                    kind=maintenance.ACTIONS_CURSOR_KIND,
-                    current_version=current.version)
-                recent_cursor = load_cursor_readonly(
-                    c, name=recent_reconciliation.CURSOR_NAME,
-                    kind=recent_reconciliation.CURSOR_KIND,
-                    current_version=current.version)
-
-                require_not_future(
-                    sep_cursor, name=maintenance.SEP_CURSOR_NAME, target=target)
-                require_not_future(
-                    actions_cursor, name=maintenance.ACTIONS_CURSOR_NAME, target=target)
-                require_not_future(
-                    recent_cursor, name=recent_reconciliation.CURSOR_NAME, target=target)
-
-                if sep_cursor is None:
-                    emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'SEP_CURSOR_MISSING'})
+                current = publication.require_current(c)
+                target_raw = calendar.latest_closed_session()
+                target = dt.date.fromisoformat(str(target_raw))
+                if cursor_table is None:
+                    emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CURSOR_SCHEMA_NOT_INSTALLED'})
                 else:
-                    through, _version = sep_cursor
-                    local_lag = []
-                    if actions_cursor is None:
-                        local_lag.append('ACTIONS_CURSOR_MISSING')
-                    elif actions_cursor[0] < target:
-                        local_lag.append('ACTIONS_CURSOR_BEHIND')
-                    if recent_cursor is None:
-                        local_lag.append('RECENT_SEP_CURSOR_MISSING')
-                    elif recent_cursor[0] < target:
-                        local_lag.append('RECENT_SEP_CURSOR_BEHIND')
+                    sep_cursor = load_cursor_readonly(
+                        c, name=maintenance.SEP_CURSOR_NAME,
+                        kind='sharadar-sep-lastupdated/v1',
+                        current_version=current.version)
+                    actions_cursor = load_cursor_readonly(
+                        c, name=maintenance.ACTIONS_CURSOR_NAME,
+                        kind=maintenance.ACTIONS_CURSOR_KIND,
+                        current_version=current.version)
+                    recent_cursor = load_cursor_readonly(
+                        c, name=recent_reconciliation.CURSOR_NAME,
+                        kind=recent_reconciliation.CURSOR_KIND,
+                        current_version=current.version)
 
-                    if through == target:
-                        emit({
-                            'status': 'PASS', 'reason_code': 'SEP_CDC_ALREADY_CURRENT',
-                            'source_rows': 0, 'affected_source_dates': 0,
-                            'local_followup': local_lag,
-                        })
-                    elif dt.datetime.now(dt.timezone.utc) < publication_not_before(target_raw):
-                        emit({
-                            'status': 'DEFERRED',
-                            'reason_code': 'SHARADAR_SOURCE_NOT_FINAL',
-                            'local_followup': local_lag,
-                        })
+                    require_not_future(
+                        sep_cursor, name=maintenance.SEP_CURSOR_NAME, target=target)
+                    require_not_future(
+                        actions_cursor, name=maintenance.ACTIONS_CURSOR_NAME, target=target)
+                    require_not_future(
+                        recent_cursor, name=recent_reconciliation.CURSOR_NAME, target=target)
+
+                    if sep_cursor is None:
+                        emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'SEP_CURSOR_MISSING'})
                     else:
-                        state['phase'] = 'SOURCE_CDC'
-                        lo = through - dt.timedelta(days=1)
-                        params = {
-                            'lastupdated.gte': lo.isoformat(),
-                            'lastupdated.lte': target.isoformat(),
-                        }
-                        envelope = source_authority.SepUpdateEnvelope.interval(
-                            lo, target, context='read-only SEP CDC preflight')
-                        guarded = source_authority.CanonicalSourceFetch(
-                            sharadar.fetch_table, sep_update_envelope=envelope)
-                        rows = maintenance._stable_rows(
-                            guarded, sharadar.SEP, params)
-                        market_start, market_end = maintenance._retained_market_bounds(c)
-                        dates, refresh_required = (
-                            identity_refresh.validate_with_current_tickers_if_refreshable(
-                                c, rows, lo=lo, hi=target,
-                                published_from=dt.date.fromisoformat(market_start),
-                                published_through=dt.date.fromisoformat(market_end),
-                            ))
-                        emit({
-                            'status': 'PASS',
-                            'reason_code': (
-                                'LOCAL_IDENTITY_REFRESH_REQUIRED'
-                                if refresh_required else 'SEP_CDC_SOURCE_VALID'),
-                            'source_rows': len(rows),
-                            'affected_source_dates': len(set(dates)),
-                            'local_followup': local_lag,
-                        })
+                        through, _version = sep_cursor
+                        local_lag = []
+                        if actions_cursor is None:
+                            local_lag.append('ACTIONS_CURSOR_MISSING')
+                        elif actions_cursor[0] < target:
+                            local_lag.append('ACTIONS_CURSOR_BEHIND')
+                        if recent_cursor is None:
+                            local_lag.append('RECENT_SEP_CURSOR_MISSING')
+                        elif recent_cursor[0] < target:
+                            local_lag.append('RECENT_SEP_CURSOR_BEHIND')
+
+                        if through == target:
+                            emit({
+                                'status': 'PASS', 'reason_code': 'SEP_CDC_ALREADY_CURRENT',
+                                'source_rows': 0, 'affected_source_dates': 0,
+                                'local_followup': local_lag,
+                            })
+                        elif dt.datetime.now(dt.timezone.utc) < publication_not_before(target_raw):
+                            emit({
+                                'status': 'DEFERRED',
+                                'reason_code': 'SHARADAR_SOURCE_NOT_FINAL',
+                                'local_followup': local_lag,
+                            })
+                        else:
+                            state['phase'] = 'SOURCE_CDC'
+                            lo = through - dt.timedelta(days=1)
+                            params = {
+                                'lastupdated.gte': lo.isoformat(),
+                                'lastupdated.lte': target.isoformat(),
+                            }
+                            envelope = source_authority.SepUpdateEnvelope.interval(
+                                lo, target, context='read-only SEP CDC preflight')
+                            guarded = source_authority.CanonicalSourceFetch(
+                                sharadar.fetch_table, sep_update_envelope=envelope)
+                            rows = maintenance._stable_rows(
+                                guarded, sharadar.SEP, params)
+                            market_start, market_end = maintenance._retained_market_bounds(c)
+                            dates, refresh_required = (
+                                identity_refresh.validate_with_current_tickers_if_refreshable(
+                                    c, rows, lo=lo, hi=target,
+                                    published_from=dt.date.fromisoformat(market_start),
+                                    published_through=dt.date.fromisoformat(market_end),
+                                ))
+                            emit({
+                                'status': 'PASS',
+                                'reason_code': (
+                                    'LOCAL_IDENTITY_REFRESH_REQUIRED'
+                                    if refresh_required else 'SEP_CDC_SOURCE_VALID'),
+                                'source_rows': len(rows),
+                                'affected_source_dates': len(set(dates)),
+                                'local_followup': local_lag,
+                            })
     except identity_refresh.SepMutationIdentityRefused as exc:
         codes = {
             'NO_PERMANENT_ID': 'SOURCE_IDENTITY_NO_PERMANENT_ID',
