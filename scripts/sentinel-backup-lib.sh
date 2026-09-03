@@ -62,7 +62,9 @@ fi
 [ "$rc" -eq 4 ] || exit "$rc"
 
 tmp="${marker}.tmp.$$"
-trap 'rm -f "$tmp"' EXIT INT TERM
+# Double quotes are deliberate: this whole program is a single-quoted host
+# argument. Expand the fixed in-container path now and retain one EXIT cleanup.
+trap "rm -f \"$tmp\"" 0
 umask 022
 printf "%s\n" "$EXPECTED" > "$tmp"
 chmod 0444 "$tmp"
@@ -72,12 +74,12 @@ sync "$tmp"
 # the race, verify the winner instead of overwriting it.
 if ! ln "$tmp" "$marker" 2>/dev/null; then
   rm -f "$tmp"
-  trap - EXIT INT TERM
+  trap - 0
   status
   exit $?
 fi
 rm -f "$tmp"
-trap - EXIT INT TERM
+trap - 0
 sync /probe
 status
 '
@@ -95,7 +97,7 @@ sentinel_backup_root() {
   }
 
   local root raw_root repo parent docker_root docker_canonical root_dev docker_dev uid
-  local marker_uid marker_status marker_rc marker_mode
+  local marker_uid marker_status marker_rc marker_mode marker_action
   raw_root="${SENTINEL_BACKUP_DIR:-}"
   root="$raw_root"
   [ -n "$root" ] || {
@@ -208,8 +210,10 @@ sentinel_backup_root() {
       marker_uid=""
     fi
     marker_mode=verify
+    marker_action=verified
     if [ "$initialize_markers" -eq 1 ]; then
       marker_mode=initialize
+      marker_action=initialized
     fi
 
     if marker_status="$(_sentinel_backup_marker_container \
@@ -228,7 +232,7 @@ sentinel_backup_root() {
       echo "run scripts/sentinel-compose.sh --initialize-backup only while the verified external target is mounted" >&2
       return 2
     fi
-    echo "REFUSED: backup durable-target marker is invalid or could not be ${marker_mode}d: $parent/$SENTINEL_BACKUP_TARGET_MARKER" >&2
+    echo "REFUSED: backup durable-target marker is invalid or could not be $marker_action: $parent/$SENTINEL_BACKUP_TARGET_MARKER" >&2
     return 2
   done
 
