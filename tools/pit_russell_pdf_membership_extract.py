@@ -18,7 +18,7 @@ import re
 import shutil
 import subprocess
 import tempfile
-from typing import Iterable, Sequence
+from typing import Sequence
 import xml.etree.ElementTree as ET
 
 import pit_russell_archive_probe as archive
@@ -88,7 +88,6 @@ def _tag_name(tag: str) -> str:
 
 
 def _page_visual_rows(page: ET.Element, y_tolerance: float = 1.5) -> list[list[PositionedWord]]:
-    """Merge Poppler line fragments that share the same visual baseline."""
     fragments: list[tuple[float, list[PositionedWord]]] = []
     for line in page.iter():
         if _tag_name(line.tag) != "line":
@@ -111,8 +110,7 @@ def _page_visual_rows(page: ET.Element, y_tolerance: float = 1.5) -> list[list[P
     for y, words in fragments:
         if groups and abs(y - groups[-1][0]) <= y_tolerance:
             old_y, old_words = groups[-1]
-            combined = old_words + words
-            groups[-1] = ((old_y + y) / 2.0, combined)
+            groups[-1] = ((old_y + y) / 2.0, old_words + words)
         else:
             groups.append((y, list(words)))
     return [sorted(words, key=lambda word: (word.x, word.text)) for _, words in groups]
@@ -124,10 +122,7 @@ def _header_positions(words: Sequence[PositionedWord]) -> tuple[list[float], lis
     if not company or not symbol:
         return None
     ordered = sorted([(x, "company") for x in company] + [(x, "symbol") for x in symbol])
-    if len(ordered) < 2:
-        return None
-    # A usable header must alternate Company -> Symbol for each pair.
-    if ordered[0][1] != "company":
+    if len(ordered) < 2 or ordered[0][1] != "company":
         return None
     pairs = []
     idx = 0
@@ -143,36 +138,29 @@ def _header_positions(words: Sequence[PositionedWord]) -> tuple[list[float], lis
 
 
 def _choose_column_positions(page_rows: Sequence[Sequence[PositionedWord]]) -> tuple[list[float], list[float]] | None:
-    candidates: list[tuple[list[float], list[float]]] = []
-    for words in page_rows:
-        positions = _header_positions(words)
-        if positions:
-            candidates.append(positions)
+    candidates = [positions for words in page_rows if (positions := _header_positions(words))]
     if not candidates:
         return None
-    # Prefer the header describing the greatest number of company/symbol pairs.
     return max(candidates, key=lambda item: len(item[0]))
 
 
-def _column_boundaries(starts: Sequence[float]) -> list[float]:
-    return [(left + right) / 2.0 for left, right in zip(starts, starts[1:])]
-
-
 def _assign_column(x: float, starts: Sequence[float]) -> int:
-    boundaries = _column_boundaries(starts)
-    for idx, boundary in enumerate(boundaries):
-        if x < boundary:
-            return idx
-    return len(starts) - 1
+    """Assign by actual header starts, not midpoints between headers.
+
+    Company text may extend close to the Symbol header. A word belongs to the newest
+    column whose header has actually begun; this prevents long company names from
+    leaking into the ticker cell.
+    """
+    selected = 0
+    for idx, start in enumerate(starts):
+        if x + 0.25 >= start:
+            selected = idx
+        else:
+            break
+    return selected
 
 
 def parse_bbox_xml(xml_text: str) -> list[MembershipRow]:
-    """Parse Poppler bbox-layout XHTML by visual columns.
-
-    Russell full-list PDFs place multiple Company/Symbol pairs side-by-side. Poppler's
-    plain text reading order can interleave those columns. Bounding boxes let us use
-    the document's repeated Company/Symbol headers as the column authority.
-    """
     root = ET.fromstring(xml_text)
     pages = [element for element in root.iter() if _tag_name(element.tag) == "page"]
     rows: list[MembershipRow] = []
@@ -189,12 +177,10 @@ def parse_bbox_xml(xml_text: str) -> list[MembershipRow]:
         if len(company_starts) != len(symbol_starts):
             continue
         inherited = positions
-        starts: list[float] = []
-        kinds: list[str] = []
-        for company_x, symbol_x in zip(company_starts, symbol_starts):
-            starts.extend([company_x, symbol_x])
-            kinds.extend(["company", "symbol"])
-        ordered = sorted(zip(starts, kinds), key=lambda item: item[0])
+        ordered = sorted(
+            [(x, "company") for x in company_starts] + [(x, "symbol") for x in symbol_starts],
+            key=lambda item: item[0],
+        )
         starts = [item[0] for item in ordered]
         kinds = [item[1] for item in ordered]
 
@@ -328,7 +314,7 @@ def main(argv: Sequence[str] | None = None) -> int:
         "raw_pdf_persisted": False,
         "raw_text_persisted": False,
         "raw_bbox_persisted": False,
-        "parser_contract": "poppler_bbox_layout_header_anchored_company_symbol_columns",
+        "parser_contract": "poppler_bbox_layout_header_start_anchored_company_symbol_columns",
         "capture": asdict(capture),
         "fetch_final_url": final_url,
         "fetch_content_type": content_type,
