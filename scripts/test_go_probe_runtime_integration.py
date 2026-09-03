@@ -205,10 +205,13 @@ def main(argv=None) -> int:
                  "24x7 bad-auth marker leaked a database URL")
 
         # Exercise the first-install receipt-key ancestry proof against this same
-        # real isolated PostgreSQL. Only Compose resolution is injected so the
-        # helper cannot accidentally touch the canonical `sentinel` project.
+        # real isolated PostgreSQL. Compose resolution and the production backup
+        # guard are injected only for this test so the helper cannot touch the
+        # canonical `sentinel` project or require a production durability mount.
         original_compose_args = deploy_bootstrap._compose_args
+        original_backup_target = deploy_bootstrap._require_backup_target
         deploy_bootstrap._compose_args = lambda _env: compose_args
+        deploy_bootstrap._require_backup_target = lambda _env: None
         try:
             state = deploy_bootstrap._receipt_ancestry(env)
             _require(
@@ -247,6 +250,7 @@ def main(argv=None) -> int:
                 "authenticated receipt ancestry did not fence key rotation")
         finally:
             deploy_bootstrap._compose_args = original_compose_args
+            deploy_bootstrap._require_backup_target = original_backup_target
 
         print("GO_PROBE_RUNTIME_INTEGRATION_PASS")
         return 0
