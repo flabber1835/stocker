@@ -1,0 +1,164 @@
+name: Backtester - historical metadata V4 authority probe
+run-name: Historical metadata V4 authority probe — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-pit-corpus-recovery-v4]
+    paths:
+      - '.github/workflows/backtester-historical-metadata-v4-authority-probe.yml'
+      - 'backtester/expand_historical_authority_v4.py'
+      - 'tests/backtester/test_expand_historical_authority_v4.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: backtester-historical-metadata-v4-authority-probe
+  cancel-in-progress: false
+
+env:
+  AUDIT_RUN_ID: '33711744625'
+  AUDIT_ARTIFACT: historical-metadata-v3-corrected-canonical-observation-audit-9536ee216f0d8ef2299530a02e0fa1f41154fce1
+  AUDIT_ROOT: backtester-results/v3-corrected-audit
+  PLAN_ROOT: backtester-results/v4-authority-plan
+  OUTPUT_ROOT: backtester-results/v4-authority-probe
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  probe:
+    name: Freeze bounded strict-prior SEC authority evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact V4 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Run V4 fail-closed regression contract
+        run: |
+          set -euo pipefail
+          python -m compileall -q \
+            backtester/expand_historical_authority_v4.py \
+            tests/backtester/test_expand_historical_authority_v4.py
+          python - <<'PY'
+          import runpy
+          import tempfile
+          from pathlib import Path
+          ns = runpy.run_path('tests/backtester/test_expand_historical_authority_v4.py')
+          with tempfile.TemporaryDirectory() as td:
+              ns['test_v4_plan_uses_earliest_unresolved_observation_and_strict_prior_end'](Path(td))
+          ns['test_efts_parser_and_display_ticker_match_are_discovery_only']()
+          ns['test_exact_archived_filing_can_emit_candidate_but_never_admission']()
+          ns['test_same_day_or_future_filing_is_rejected']()
+          print({'status':'PASS','contract':'EFTS discovery-only; archived exact-ticker filing strict-prior; candidate-only'})
+          PY
+
+      - name: Download definitive corrected canonical observation audit
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.AUDIT_ARTIFACT }}
+          path: ${{ env.AUDIT_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.AUDIT_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify immutable V3 audit input
+        run: |
+          set -euo pipefail
+          (cd "${AUDIT_ROOT}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['AUDIT_ROOT'])
+          s=json.load(open(root/'summary.json'))
+          assert s['status']=='PASS'
+          assert s['admission_status']=='REVIEW_REQUIRED'
+          assert s['canonical_observation_rows']==31820893
+          assert s['unresolved_after_corrected_overlay']['episodes']==10795
+          assert s['next_gate']=='expand historical authority for definitive unresolved inventory'
+          assert s['unknown_never_means_ineligible'] is True
+          print({'status':'PASS','definitive_unresolved':10795,'canonical_observations':31820893})
+          PY
+
+      - name: Build bounded V4 probe plan
+        run: |
+          set -euo pipefail
+          rm -rf "${PLAN_ROOT}"
+          python -m backtester.expand_historical_authority_v4 plan \
+            --inventory "${AUDIT_ROOT}/definitive_unresolved_episodes.csv.gz" \
+            --output "${PLAN_ROOT}" \
+            --limit 25 \
+            --include-ticker LYG \
+            --include-ticker GIB
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.load(open(Path(os.environ['PLAN_ROOT'])/'plan_summary.json'))
+          assert s['status']=='PASS'
+          assert s['planned_rows']==25
+          assert {'LYG','GIB'}.issubset(set(s['included_tickers_present']))
+          assert s['strict_prior_rule']=='filing_date < earliest unresolved canonical observation'
+          print(s)
+          PY
+
+      - name: Harvest and freeze V4 SEC authority candidates
+        run: |
+          set -euo pipefail
+          rm -rf "${OUTPUT_ROOT}"
+          python -m backtester.expand_historical_authority_v4 harvest \
+            --plan "${PLAN_ROOT}/plan.csv.gz" \
+            --output "${OUTPUT_ROOT}" \
+            --min-interval 1.0 \
+            --max-pages 1 \
+            --max-filings-per-episode 6
+
+      - name: Enforce evidence-only probe result
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['OUTPUT_ROOT'])
+          s=json.load(open(root/'summary.json'))
+          assert s['status']=='PASS'
+          assert s['admission_status']=='REVIEW_REQUIRED'
+          assert s['candidate_only'] is True
+          assert s['canonical_price_dataset_rewritten'] is False
+          assert s['unknown_never_means_ineligible'] is True
+          assert s['discovery_is_authority'] is False
+          assert s['episodes']==25
+          print(json.dumps(s, indent=2, sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write('## V4 historical authority probe\n\n')
+              fh.write(f"- Episodes probed: {s['episodes']}\n")
+              fh.write(f"- Candidate found: {s['candidate_found']}\n")
+              fh.write(f"- Ambiguous: {s['ambiguous']}\n")
+              fh.write(f"- No discovery match: {s['no_discovery_match']}\n")
+              fh.write(f"- No archived proof: {s['no_archived_proof']}\n")
+              fh.write(f"- Candidate evidence rows: {s['candidate_evidence_rows']}\n")
+              fh.write('- Admission effect: none; explicit authority allocation remains required\n')
+          PY
+
+      - name: Upload frozen V4 authority probe
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-v4-authority-probe-${{ github.sha }}
+          path: |
+            ${{ env.PLAN_ROOT }}
+            ${{ env.OUTPUT_ROOT }}
+            !${{ env.OUTPUT_ROOT }}/.http-cache/**
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
