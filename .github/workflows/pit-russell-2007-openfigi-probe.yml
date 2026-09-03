@@ -1,0 +1,48 @@
+name: Probe OpenFIGI for unresolved 2007 identities
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - '.github/workflows/pit-russell-2007-openfigi-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Query representative historical company names
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, urllib.request
+          names=[
+            'Bionovo Inc',
+            'On2 Technologies Inc',
+            'Greenfield Online Inc',
+            'Midwest Air Group Inc',
+            'Bear Stearns Companies Inc',
+            'Donnelley R H Corp',
+            'Hanesbrands Inc',
+            'NexCen Brands Inc',
+            'Uranium Resources Inc',
+            'Amerigon Inc',
+          ]
+          for name in names:
+              body=json.dumps({'query':name}).encode()
+              req=urllib.request.Request('https://api.openfigi.com/v3/search',data=body,headers={'Content-Type':'application/json','User-Agent':'stocker-pit-russell-research/1.0'})
+              try:
+                  with urllib.request.urlopen(req,timeout=20) as r:
+                      payload=json.load(r)
+                  rows=payload.get('data',[])[:8]
+                  print('QUERY',name)
+                  for row in rows:
+                      print(json.dumps({k:row.get(k) for k in ('ticker','name','exchCode','securityType','securityType2','marketSector','figi','compositeFIGI')},sort_keys=True))
+              except Exception as exc:
+                  print('ERROR',name,type(exc).__name__,str(exc))
+          PY
