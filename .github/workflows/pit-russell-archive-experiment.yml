@@ -1,0 +1,73 @@
+name: PIT Russell archive experiment
+
+on:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - 'research/pit_russell_archive/**'
+      - 'tools/pit_russell_archive_probe.py'
+      - 'tests/scripts/test_pit_russell_archive_probe.py'
+      - '.github/workflows/pit-russell-archive-experiment.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  archive-probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact experiment revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Verify isolation and deterministic probe tests
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/pit-russell-archive-reconstruction"
+          python -m unittest tests.scripts.test_pit_russell_archive_probe -v
+
+      - name: Probe Internet Archive Russell membership captures
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/pit-russell-archive
+          python tools/pit_russell_archive_probe.py \
+            --from-year 2005 \
+            --to-year 2014 \
+            --max-downloads-per-year 4 \
+            --output-dir /tmp/pit-russell-archive
+
+      - name: Publish evidence summary
+        if: always()
+        run: |
+          if [ -f /tmp/pit-russell-archive/report.md ]; then
+            cat /tmp/pit-russell-archive/report.md >> "$GITHUB_STEP_SUMMARY"
+          else
+            {
+              echo '# Russell 3000 Wayback probe'
+              echo
+              echo 'Probe did not produce a report. Inspect the preceding job logs.'
+            } >> "$GITHUB_STEP_SUMMARY"
+          fi
+
+      - name: Upload provenance evidence only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pit-russell-archive-evidence-${{ github.sha }}
+          path: |
+            /tmp/pit-russell-archive/manifest.json
+            /tmp/pit-russell-archive/summary.json
+            /tmp/pit-russell-archive/captures.csv
+            /tmp/pit-russell-archive/report.md
+          if-no-files-found: warn
+          retention-days: 30
