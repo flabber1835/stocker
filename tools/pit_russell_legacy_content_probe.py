@@ -24,14 +24,8 @@ import pit_russell_archive_probe as archive
 
 ARTIFACT_EXTENSIONS = (".pdf", ".xls", ".xlsx", ".csv", ".txt", ".zip")
 RELEVANT_WORDS = (
-    "3000",
-    "membership",
-    "constituent",
-    "addition",
-    "deletion",
-    "reconstitution",
-    "final",
-    "preliminary",
+    "3000", "membership", "constituent", "addition", "deletion",
+    "reconstitution", "final", "preliminary",
 )
 TICKER_RE = re.compile(r"^[A-Z][A-Z0-9.\-]{0,8}$")
 
@@ -88,14 +82,12 @@ class EvidenceParser(HTMLParser):
     def handle_endtag(self, tag: str) -> None:
         tag = tag.casefold()
         if tag == "a" and self._href is not None:
-            text = normalize_text(" ".join(self._link_text))
-            self.links.append((self._href, text[:240]))
+            self.links.append((self._href, normalize_text(" ".join(self._link_text))[:240]))
             self._href = None
             self._link_text = []
         elif tag in {"td", "th"} and self._in_cell:
-            value = normalize_text(" ".join(self._cell_text))
             if self._row is not None:
-                self._row.append(value)
+                self._row.append(normalize_text(" ".join(self._cell_text)))
             self._in_cell = False
             self._cell_text = []
         elif tag == "tr" and self._row is not None:
@@ -130,7 +122,9 @@ def endpoint_kind(url: str) -> str:
 
 def relevant_artifact_link(base_url: str, href: str, text: str) -> ArtifactLink | None:
     resolved = urllib.parse.urljoin(base_url, href)
-    haystack = f"{resolved} {text}".casefold()
+    # Relevance must come from the child link itself. Using the parent URL here would
+    # make every navigation link on recon_additions.asp look like an addition artifact.
+    haystack = f"{href} {text}".casefold()
     path = urllib.parse.urlparse(resolved).path.casefold()
     if not any(word in haystack for word in RELEVANT_WORDS) and not path.endswith(ARTIFACT_EXTENSIONS):
         return None
@@ -144,11 +138,12 @@ def candidate_from_cells(
     if len(cleaned) < 2:
         return None
     ticker_index = None
+    excluded = {
+        "RUSSELL", "INDEX", "TICKER", "SYMBOL", "COMPANY", "NAME", "FINAL", "ADD", "DELETE"
+    }
     for idx, cell in enumerate(cleaned):
         upper = cell.upper()
-        if cell == upper and TICKER_RE.fullmatch(upper) and upper not in {
-            "RUSSELL", "INDEX", "TICKER", "SYMBOL", "COMPANY", "NAME", "FINAL", "ADD", "DELETE"
-        }:
+        if cell == upper and TICKER_RE.fullmatch(upper) and upper not in excluded:
             ticker_index = idx
             break
     if ticker_index is None:
@@ -157,13 +152,13 @@ def candidate_from_cells(
     labels = [cell for idx, cell in enumerate(cleaned) if idx != ticker_index and len(cell) > 2]
     if not labels:
         return None
-    label = max(labels, key=len)
-    return CandidateRow(timestamp, original, kind, ticker, label[:240], cleaned[:8])
+    return CandidateRow(timestamp, original, kind, ticker, max(labels, key=len)[:240], cleaned[:8])
 
 
 def extract_evidence(capture: archive.Capture, payload: bytes) -> tuple[list[ArtifactLink], list[CandidateRow]]:
     parser = EvidenceParser()
     parser.feed(decode_html(payload))
+
     links: list[ArtifactLink] = []
     seen_links: set[str] = set()
     for href, text in parser.links:
@@ -171,27 +166,16 @@ def extract_evidence(capture: archive.Capture, payload: bytes) -> tuple[list[Art
         if row is None or row.resolved_url in seen_links:
             continue
         seen_links.add(row.resolved_url)
-        links.append(
-            ArtifactLink(
-                capture_timestamp=capture.timestamp,
-                source_original=capture.original,
-                href=href,
-                resolved_url=row.resolved_url,
-                link_text=text,
-            )
-        )
+        links.append(ArtifactLink(capture.timestamp, capture.original, href, row.resolved_url, text))
 
     kind = endpoint_kind(capture.original)
     candidates: list[CandidateRow] = []
     seen_candidates: set[tuple[str, str]] = set()
     for cells in parser.rows:
         row = candidate_from_cells(cells, capture.timestamp, capture.original, kind)
-        if row is None:
+        if row is None or (row.ticker, row.label) in seen_candidates:
             continue
-        key = (row.ticker, row.label)
-        if key in seen_candidates:
-            continue
-        seen_candidates.add(key)
+        seen_candidates.add((row.ticker, row.label))
         candidates.append(row)
     return links, candidates
 
@@ -220,58 +204,45 @@ def run(args: argparse.Namespace) -> dict:
             errors.append({"url": url, "stage": "cdx", "error": f"{type(exc).__name__}: {exc}"})
             continue
 
-        selected = archive.choose_downloads(
-            captures, args.from_year, args.to_year, args.max_pages_per_year
-        )
-        for capture in selected:
+        for capture in archive.choose_downloads(captures, args.from_year, args.to_year, args.max_pages_per_year):
             time.sleep(args.delay)
             try:
                 payload, status, content_type, final_url = archive._request(
                     capture.raw_archive_url, timeout=args.timeout, attempts=args.attempts
                 )
-                digest = hashlib.sha256(payload).hexdigest()
                 page_links, page_candidates = extract_evidence(capture, payload)
                 links.extend(page_links)
                 candidates.extend(page_candidates)
-                fetches.append(
-                    {
-                        "timestamp": capture.timestamp,
-                        "year": capture.year,
-                        "kind": endpoint_kind(capture.original),
-                        "original": capture.original,
-                        "archive_digest": capture.digest,
-                        "http_status": status,
-                        "content_type": content_type,
-                        "byte_length": len(payload),
-                        "sha256": digest,
-                        "final_url": final_url,
-                        "artifact_links": len(page_links),
-                        "candidate_rows": len(page_candidates),
-                    }
-                )
+                fetches.append({
+                    "timestamp": capture.timestamp,
+                    "year": capture.year,
+                    "kind": endpoint_kind(capture.original),
+                    "original": capture.original,
+                    "archive_digest": capture.digest,
+                    "http_status": status,
+                    "content_type": content_type,
+                    "byte_length": len(payload),
+                    "sha256": hashlib.sha256(payload).hexdigest(),
+                    "final_url": final_url,
+                    "artifact_links": len(page_links),
+                    "candidate_rows": len(page_candidates),
+                })
             except Exception as exc:
-                errors.append(
-                    {
-                        "url": url,
-                        "stage": "archive_fetch",
-                        "timestamp": capture.timestamp,
-                        "original": capture.original,
-                        "error": f"{type(exc).__name__}: {exc}",
-                    }
-                )
+                errors.append({
+                    "url": url, "stage": "archive_fetch", "timestamp": capture.timestamp,
+                    "original": capture.original, "error": f"{type(exc).__name__}: {exc}",
+                })
 
-    dedup_links = {
-        (row.capture_timestamp, row.resolved_url): row for row in links
-    }
+    deduped_captures = archive.dedupe_captures(all_captures)
+    dedup_links = {(row.capture_timestamp, row.resolved_url): row for row in links}
     dedup_candidates = {
         (row.capture_timestamp, row.endpoint_kind, row.ticker, row.label): row for row in candidates
     }
-
     captures_by_year: dict[int, int] = defaultdict(int)
     fetched_by_year: dict[int, int] = defaultdict(int)
     candidates_by_year: dict[int, int] = defaultdict(int)
     links_by_year: dict[int, int] = defaultdict(int)
-    for row in archive.dedupe_captures(all_captures):
+    for row in deduped_captures:
         captures_by_year[row.year] += 1
     for row in fetches:
         fetched_by_year[int(row["year"])] += 1
@@ -280,17 +251,13 @@ def run(args: argparse.Namespace) -> dict:
     for row in dedup_links.values():
         links_by_year[int(row.capture_timestamp[:4])] += 1
 
-    years = []
-    for year in range(args.from_year, args.to_year + 1):
-        years.append(
-            {
-                "year": year,
-                "captures": captures_by_year.get(year, 0),
-                "pages_fetched": fetched_by_year.get(year, 0),
-                "candidate_rows": candidates_by_year.get(year, 0),
-                "artifact_links": links_by_year.get(year, 0),
-            }
-        )
+    years = [{
+        "year": year,
+        "captures": captures_by_year.get(year, 0),
+        "pages_fetched": fetched_by_year.get(year, 0),
+        "candidate_rows": candidates_by_year.get(year, 0),
+        "artifact_links": links_by_year.get(year, 0),
+    } for year in range(args.from_year, args.to_year + 1)]
 
     return {
         "schema": 1,
@@ -299,18 +266,14 @@ def run(args: argparse.Namespace) -> dict:
         "to_year": args.to_year,
         "urls": list(args.url),
         "raw_html_persisted": False,
-        "capture_count": len(archive.dedupe_captures(all_captures)),
+        "capture_count": len(deduped_captures),
         "fetches": fetches,
-        "artifact_links": [
-            asdict(row) for row in sorted(dedup_links.values(), key=lambda x: (x.capture_timestamp, x.resolved_url))
-        ],
-        "candidate_rows": [
-            asdict(row)
-            for row in sorted(
-                dedup_candidates.values(),
-                key=lambda x: (x.capture_timestamp, x.endpoint_kind, x.ticker, x.label),
-            )
-        ],
+        "artifact_links": [asdict(row) for row in sorted(
+            dedup_links.values(), key=lambda x: (x.capture_timestamp, x.resolved_url)
+        )],
+        "candidate_rows": [asdict(row) for row in sorted(
+            dedup_candidates.values(), key=lambda x: (x.capture_timestamp, x.endpoint_kind, x.ticker, x.label)
+        )],
         "years": years,
         "errors": errors,
     }
@@ -320,10 +283,8 @@ def write_outputs(output_dir: Path, result: dict) -> None:
     output_dir.mkdir(parents=True, exist_ok=True)
     (output_dir / "manifest.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
     lines = [
-        "# Legacy Russell membership/delta content probe",
-        "",
-        "Research evidence only. Raw archived pages are not persisted.",
-        "",
+        "# Legacy Russell membership/delta content probe", "",
+        "Research evidence only. Raw archived pages are not persisted.", "",
         "| Year | Captures | Pages fetched | Candidate rows | Artifact links |",
         "|---:|---:|---:|---:|---:|",
     ]
@@ -340,9 +301,7 @@ def write_outputs(output_dir: Path, result: dict) -> None:
     if result["candidate_rows"]:
         lines.extend(["", "## Candidate factual rows", ""])
         for row in result["candidate_rows"][:100]:
-            lines.append(
-                f"- {row['capture_timestamp']} {row['endpoint_kind']}: `{row['ticker']}` — {row['label']}"
-            )
+            lines.append(f"- {row['capture_timestamp']} {row['endpoint_kind']}: `{row['ticker']}` — {row['label']}")
     if result["errors"]:
         lines.extend(["", "## Errors", ""])
         for row in result["errors"]:
@@ -373,18 +332,13 @@ def main(argv: Sequence[str] | None = None) -> int:
     args = parse_args(argv)
     result = run(args)
     write_outputs(args.output_dir, result)
-    print(
-        json.dumps(
-            {
-                "captures": result["capture_count"],
-                "pages": len(result["fetches"]),
-                "artifact_links": len(result["artifact_links"]),
-                "candidate_rows": len(result["candidate_rows"]),
-                "errors": len(result["errors"]),
-            },
-            sort_keys=True,
-        )
-    )
+    print(json.dumps({
+        "captures": result["capture_count"],
+        "pages": len(result["fetches"]),
+        "artifact_links": len(result["artifact_links"]),
+        "candidate_rows": len(result["candidate_rows"]),
+        "errors": len(result["errors"]),
+    }, sort_keys=True))
     return 0
 
 
