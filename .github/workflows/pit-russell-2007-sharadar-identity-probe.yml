@@ -1,0 +1,48 @@
+name: Probe Sharadar identities spanning June 2007
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/pit-russell-archive-reconstruction
+    paths:
+      - '.github/workflows/pit-russell-2007-sharadar-identity-probe.yml'
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    env:
+      SHARADAR_API_KEY: ${{ secrets.SHARADAR_API_KEY }}
+    steps:
+      - name: Probe historical identity interval
+        run: |
+          set -euo pipefail
+          test -n "${SHARADAR_API_KEY:-}" || { echo 'SHARADAR_API_KEY is unavailable'; exit 2; }
+          python - <<'PY'
+          import json, os, urllib.parse, urllib.request
+          base='https://data.nasdaq.com/api/v3/datatables/SHARADAR/TICKERS.json'
+          params=[
+              ('table','SEP'),
+              ('firstpricedate.lte','2007-06-30'),
+              ('lastpricedate.gte','2007-06-30'),
+              ('qopts.per_page','10000'),
+              ('api_key',os.environ['SHARADAR_API_KEY']),
+          ]
+          req=urllib.request.Request(base+'?'+urllib.parse.urlencode(params),headers={'User-Agent':'stocker-pit-russell-research/1.0'})
+          with urllib.request.urlopen(req,timeout=90) as r:
+              payload=json.load(r)
+          dt=payload['datatable']
+          cols=[c['name'] for c in dt['columns']]
+          rows=dt['data']
+          print('columns',cols)
+          print('rows_page',len(rows))
+          print('next_cursor_id',dt.get('next_cursor_id'))
+          wanted=['ticker','name','permaticker','firstpricedate','lastpricedate','exchange','category','isdelisted']
+          ix={name:i for i,name in enumerate(cols)}
+          for row in rows[:20]:
+              print('sample',{k:row[ix[k]] for k in wanted if k in ix})
+          PY
