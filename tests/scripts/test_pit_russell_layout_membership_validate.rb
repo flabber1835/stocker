@@ -15,6 +15,7 @@ class RussellLayoutMembershipValidateTest < Minitest::Test
       AUTONATION INC                AN        INTUIT                        INTU
       LIMITED BRANDS INC            LTD       SOTHEBYS                      BID
       PROLOGIS                      PLD       AMERCO                        UHAL
+      tax legal prose               NT        more lower prose              IOR
       \f
       Important information
       tax, securities, or investment advice, nor AN
@@ -28,6 +29,8 @@ class RussellLayoutMembershipValidateTest < Minitest::Test
     assert_equal 'SOTHEBYS', rows['BID']
     assert_equal 'PROLOGIS', rows['PLD']
     assert_equal 'AMERCO', rows['UHAL']
+    refute rows.key?('NT')
+    refute rows.key?('IOR')
     assert_equal 6, rows.length
   end
 
