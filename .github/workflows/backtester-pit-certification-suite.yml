@@ -193,6 +193,7 @@ jobs:
           python backtester/future_leak_certification.py \
             --dataset "${PIT_DATASET}" \
             --output backtester-results/pit-certification-suite/dynamic-future-leak.json \
+            --require-real-replay \
             2>&1 | tee backtester-results/pit-certification-suite/dynamic-future-leak.log
           exit "${PIPESTATUS[0]}"
 
