@@ -78,11 +78,11 @@ jobs:
           set -euo pipefail
           test "$(git -C "${IDENTITY_SOURCE_ROOT}" rev-parse HEAD)" = "${IDENTITY_SOURCE_SHA}"
           python - <<'PY'
-          import hashlib, os
+          import hashlib, os, re
           from pathlib import Path
           root=Path(os.environ['IDENTITY_SOURCE_ROOT'])
           source=root/'backtester'/'strict_pit_metadata.py'
-          text=source.read_text(encoding='utf-8')
+          text=' '.join(source.read_text(encoding='utf-8').split())
           required=[
               'SEC CIK is issuer evidence only',
               'cannot create a security identity episode by itself',
