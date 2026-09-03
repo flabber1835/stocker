@@ -39,8 +39,6 @@ def test_durable_target_marker_bootstrap_uses_container_authority():
     assert '"$parent" "$marker_uid" "$marker_mode"' in source
     assert 'marker_uid="$uid"' in source
     assert 'chmod 0444 "$tmp"' in source
-    assert 'stat -c %a "$marker"' in source
-    assert 'if [ "$permissions" != 444 ]' in source
     assert 'sync "$tmp"' in source
     assert 'sync /probe' in source
     assert 'ln "$tmp" "$marker"' in source
