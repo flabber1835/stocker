@@ -5,9 +5,12 @@ on:
     branches:
       - research/pit-russell-archive-reconstruction
     paths:
-      - 'research/pit_russell_archive/**'
       - 'tools/pit_russell_archive_probe.py'
+      - 'tools/pit_russell_wayback_nav_probe.py'
+      - 'tools/pit_iwv_holdings_probe.py'
       - 'tests/scripts/test_pit_russell_archive_probe.py'
+      - 'tests/scripts/test_pit_russell_wayback_nav_probe.py'
+      - 'tests/scripts/test_pit_iwv_holdings_probe.py'
       - '.github/workflows/pit-russell-archive-experiment.yml'
   workflow_dispatch:
 
@@ -28,28 +31,20 @@ jobs:
         with:
           python-version: '3.12'
           check-latest: false
-      - name: Verify isolation and deterministic probe tests
+      - name: Verify isolation and deterministic parsers
         run: |
           set -euo pipefail
           test "${GITHUB_REF_NAME}" = "research/pit-russell-archive-reconstruction"
-          python -m unittest tests.scripts.test_pit_russell_archive_probe -v
+          python -m unittest \
+            tests.scripts.test_pit_russell_archive_probe \
+            tests.scripts.test_pit_russell_wayback_nav_probe \
+            tests.scripts.test_pit_iwv_holdings_probe \
+            -v
 
-  old-site-discovery:
+  old-navigation-probe:
     needs: deterministic-tests
-    strategy:
-      fail-fast: false
-      matrix:
-        include:
-          - label: old-us-indexes-us-upper
-            query: 'http://www.russell.com/US/Indexes/US/*3000*'
-          - label: old-us-indexes-us-lower
-            query: 'http://www.russell.com/us/indexes/us/*3000*'
-          - label: old-us-indexes-upper
-            query: 'http://www.russell.com/US/Indexes/*3000*'
-          - label: old-us-indexes-lower
-            query: 'http://www.russell.com/us/indexes/*3000*'
     runs-on: ubuntu-24.04
-    timeout-minutes: 8
+    timeout-minutes: 10
     steps:
       - name: Check out exact experiment revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -60,36 +55,80 @@ jobs:
         with:
           python-version: '3.12'
           check-latest: false
-      - name: Discover archived pre-2009 Russell URLs
+      - name: Recover pre-2009 Russell reconstitution navigation
         run: |
           set -euo pipefail
-          out="/tmp/${{ matrix.label }}"
-          rm -rf "$out"
-          python tools/pit_russell_archive_probe.py \
+          rm -rf /tmp/russell-nav
+          python tools/pit_russell_wayback_nav_probe.py \
             --from-year 2005 \
             --to-year 2008 \
-            --max-downloads-per-year 3 \
+            --max-pages-per-year 3 \
             --timeout 20 \
             --attempts 3 \
             --delay 0.4 \
-            --url '${{ matrix.query }}' \
-            --output-dir "$out"
-      - name: Publish discovery summary
+            --seed 'http://www.russell.com/us/indexes/us/reconstitution/schedule.asp' \
+            --seed 'http://www.russell.com/US/Indexes/US/reconstitution/schedule.asp' \
+            --seed 'http://www.russell.com/us/indexes/us/reconstitution/' \
+            --output-dir /tmp/russell-nav
+      - name: Publish navigation evidence
         if: always()
         run: |
-          report="/tmp/${{ matrix.label }}/report.md"
-          if [ -f "$report" ]; then
-            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          if [ -f /tmp/russell-nav/report.md ]; then
+            cat /tmp/russell-nav/report.md >> "$GITHUB_STEP_SUMMARY"
           fi
-      - name: Upload provenance evidence only
+      - name: Upload navigation provenance only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: pit-russell-${{ matrix.label }}-${{ github.sha }}
+          name: pit-russell-navigation-${{ github.sha }}
           path: |
-            /tmp/${{ matrix.label }}/manifest.json
-            /tmp/${{ matrix.label }}/summary.json
-            /tmp/${{ matrix.label }}/captures.csv
-            /tmp/${{ matrix.label }}/report.md
+            /tmp/russell-nav/manifest.json
+            /tmp/russell-nav/report.md
+          if-no-files-found: warn
+          retention-days: 30
+
+  iwv-holdings-probe:
+    needs: deterministic-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Check out exact experiment revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Probe historical IWV holdings around annual reconstitution
+        run: |
+          set -euo pipefail
+          rm -rf /tmp/iwv-holdings
+          python tools/pit_iwv_holdings_probe.py \
+            --as-of 20050701 \
+            --as-of 20060703 \
+            --as-of 20070625 \
+            --as-of 20080630 \
+            --as-of 20090629 \
+            --as-of 20100628 \
+            --timeout 20 \
+            --attempts 3 \
+            --delay 0.5 \
+            --output-dir /tmp/iwv-holdings
+      - name: Publish IWV evidence
+        if: always()
+        run: |
+          if [ -f /tmp/iwv-holdings/report.md ]; then
+            cat /tmp/iwv-holdings/report.md >> "$GITHUB_STEP_SUMMARY"
+          fi
+      - name: Upload IWV provenance only
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: pit-iwv-holdings-${{ github.sha }}
+          path: |
+            /tmp/iwv-holdings/manifest.json
+            /tmp/iwv-holdings/report.md
           if-no-files-found: warn
           retention-days: 30
