@@ -19,8 +19,8 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  HARVEST_RUN_ID: '33756508546'
-  HARVEST_SOURCE_SHA: 'cabc92ebabaaea4eca18a3f56bccf41da24e475f'
+  HARVEST_RUN_ID: '33757920177'
+  HARVEST_SOURCE_SHA: 'd7df715277e02e8add2782b84582adc449285fa7'
   RETAINED_RUN_ID: '33720380653'
   RETAINED_ARTIFACT: historical-metadata-v4-ownership-strict-retained-sec-candidates-1cef44c743913dbeac0b7136a717781068adbfc7
   RETAINED_CANDIDATE_SHA256: '76a3dfa83a1dc565dea70157bfab443e2bdc1730908809dad080a8da30f467cb'
