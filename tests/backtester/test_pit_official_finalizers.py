@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import re
 import unittest
 
 
@@ -28,12 +29,18 @@ class OfficialPITFinalizerStructureTests(unittest.TestCase):
                 text,
                 path.name,
             )
-            self.assertIn("certify_backtest_result.py finalize", text, path.name)
+            self.assertRegex(
+                text,
+                r"certify_backtest_result(?:_v2)?\.py finalize",
+                path.name,
+            )
 
     def test_official_finalizers_have_one_authoritative_pit_conclusion(self) -> None:
         for path in OFFICIAL:
             text = path.read_text(encoding="utf-8")
-            self.assertEqual(text.count("Enforce authoritative certification conclusion"), 1, path.name)
+            self.assertEqual(
+                text.count("Enforce authoritative certification conclusion"), 1, path.name
+            )
             self.assertEqual(text.count("PIT CERTIFIED — point-in-time"), 1, path.name)
 
 
