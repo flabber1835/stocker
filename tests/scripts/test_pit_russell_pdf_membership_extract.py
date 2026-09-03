@@ -32,6 +32,27 @@ class RussellPdfMembershipExtractTests(unittest.TestCase):
             [(row.ticker, row.company) for row in rows],
         )
 
+    def test_bbox_parser_uses_two_explicit_company_symbol_columns(self):
+        xml = '''<?xml version="1.0" encoding="UTF-8"?>
+        <doc><page width="400" height="600"><flow><block>
+          <line xMin="10" yMin="10"><word xMin="10" yMin="10">Company</word><word xMin="100" yMin="10">Symbol</word></line>
+          <line xMin="210" yMin="10.2"><word xMin="210" yMin="10.2">Company</word><word xMin="300" yMin="10.2">Symbol</word></line>
+          <line xMin="10" yMin="30"><word xMin="10" yMin="30">ABRAXAS</word><word xMin="35" yMin="30">PETE</word><word xMin="55" yMin="30">CORP</word><word xMin="100" yMin="30">ABP</word></line>
+          <line xMin="210" yMin="30.3"><word xMin="210" yMin="30.3">IDERA</word><word xMin="238" yMin="30.3">PHARMACEUTICALS</word><word xMin="300" yMin="30.3">IDRA</word></line>
+        </block></flow></page></doc>'''
+        rows = extractor.parse_bbox_xml(xml)
+        self.assertEqual(
+            [("ABP", "ABRAXAS PETE CORP"), ("IDRA", "IDERA PHARMACEUTICALS")],
+            [(row.ticker, row.company) for row in rows],
+        )
+
+    def test_bbox_header_positions_require_company_then_symbol(self):
+        words = [
+            extractor.PositionedWord(10, 10, "Symbol"),
+            extractor.PositionedWord(100, 10, "Company"),
+        ]
+        self.assertIsNone(extractor._header_positions(words))
+
     def test_header_and_exchange_tokens_are_not_tickers(self):
         text = (
             "Company                     Symbol     Company                     Symbol\n"
