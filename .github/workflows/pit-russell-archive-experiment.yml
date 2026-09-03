@@ -15,101 +15,85 @@ permissions:
   contents: read
 
 jobs:
-  archive-probe:
+  deterministic-tests:
     runs-on: ubuntu-24.04
-    timeout-minutes: 12
+    timeout-minutes: 5
     steps:
       - name: Check out exact experiment revision
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           fetch-depth: 1
-
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
           check-latest: false
-
       - name: Verify isolation and deterministic probe tests
         run: |
           set -euo pipefail
           test "${GITHUB_REF_NAME}" = "research/pit-russell-archive-reconstruction"
           python -m unittest tests.scripts.test_pit_russell_archive_probe -v
 
-      - name: Probe Russell 3000 primary membership endpoint
+  component-probe:
+    needs: deterministic-tests
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - label: r1000-exact
+            index: '1000'
+            query: 'https://www.russell.com/indexes/documents/Membership/Russell1000_Membership_List.pdf'
+          - label: r1000-wildcard
+            index: '1000'
+            query: 'http://www.russell.com/indexes/*Russell1000*Membership*'
+          - label: r2000-exact
+            index: '2000'
+            query: 'https://www.russell.com/indexes/documents/Membership/Russell2000_Membership_List.pdf'
+          - label: r2000-wildcard
+            index: '2000'
+            query: 'http://www.russell.com/indexes/*Russell2000*Membership*'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 8
+    steps:
+      - name: Check out exact experiment revision
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 1
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Probe archived Russell component list
         run: |
           set -euo pipefail
-          rm -rf /tmp/pit-russell-3000
+          out="/tmp/${{ matrix.label }}"
+          rm -rf "$out"
           python tools/pit_russell_archive_probe.py \
             --from-year 2005 \
-            --to-year 2014 \
-            --max-downloads-per-year 1 \
-            --timeout 6 \
-            --attempts 2 \
-            --delay 0.25 \
-            --url 'http://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf' \
-            --url 'https://www.russell.com/indexes/documents/Membership/Russell3000_Membership_List.pdf' \
-            --output-dir /tmp/pit-russell-3000
-
-      - name: Probe Russell 1000 component endpoint
-        run: |
-          set -euo pipefail
-          rm -rf /tmp/pit-russell-1000
-          python tools/pit_russell_archive_probe.py \
-            --from-year 2005 \
-            --to-year 2009 \
-            --max-downloads-per-year 1 \
-            --timeout 6 \
-            --attempts 2 \
-            --delay 0.25 \
-            --url 'http://www.russell.com/indexes/documents/Membership/Russell1000_Membership_List.pdf' \
-            --url 'https://www.russell.com/indexes/documents/Membership/Russell1000_Membership_List.pdf' \
-            --output-dir /tmp/pit-russell-1000
-
-      - name: Probe Russell 2000 component endpoint
-        run: |
-          set -euo pipefail
-          rm -rf /tmp/pit-russell-2000
-          python tools/pit_russell_archive_probe.py \
-            --from-year 2005 \
-            --to-year 2009 \
-            --max-downloads-per-year 1 \
-            --timeout 6 \
-            --attempts 2 \
-            --delay 0.25 \
-            --url 'http://www.russell.com/indexes/documents/Membership/Russell2000_Membership_List.pdf' \
-            --url 'https://www.russell.com/indexes/documents/Membership/Russell2000_Membership_List.pdf' \
-            --output-dir /tmp/pit-russell-2000
-
-      - name: Publish evidence summaries
+            --to-year 2010 \
+            --max-downloads-per-year 2 \
+            --timeout 20 \
+            --attempts 3 \
+            --delay 0.4 \
+            --url '${{ matrix.query }}' \
+            --output-dir "$out"
+      - name: Publish evidence summary
         if: always()
         run: |
-          for index in 3000 1000 2000; do
-            report="/tmp/pit-russell-${index}/report.md"
-            if [ -f "$report" ]; then
-              echo >> "$GITHUB_STEP_SUMMARY"
-              echo "## Russell ${index}" >> "$GITHUB_STEP_SUMMARY"
-              cat "$report" >> "$GITHUB_STEP_SUMMARY"
-            fi
-          done
-
+          report="/tmp/${{ matrix.label }}/report.md"
+          if [ -f "$report" ]; then
+            cat "$report" >> "$GITHUB_STEP_SUMMARY"
+          fi
       - name: Upload provenance evidence only
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: pit-russell-archive-evidence-${{ github.sha }}
+          name: pit-russell-${{ matrix.label }}-${{ github.sha }}
           path: |
-            /tmp/pit-russell-3000/manifest.json
-            /tmp/pit-russell-3000/summary.json
-            /tmp/pit-russell-3000/captures.csv
-            /tmp/pit-russell-3000/report.md
-            /tmp/pit-russell-1000/manifest.json
-            /tmp/pit-russell-1000/summary.json
-            /tmp/pit-russell-1000/captures.csv
-            /tmp/pit-russell-1000/report.md
-            /tmp/pit-russell-2000/manifest.json
-            /tmp/pit-russell-2000/summary.json
-            /tmp/pit-russell-2000/captures.csv
-            /tmp/pit-russell-2000/report.md
+            /tmp/${{ matrix.label }}/manifest.json
+            /tmp/${{ matrix.label }}/summary.json
+            /tmp/${{ matrix.label }}/captures.csv
+            /tmp/${{ matrix.label }}/report.md
           if-no-files-found: warn
           retention-days: 30
