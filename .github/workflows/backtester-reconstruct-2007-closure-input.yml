@@ -1,0 +1,124 @@
+name: Backtester - reconstruct 2007 closure input
+run-name: Reconstruct authenticated 2007 closure input — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-pit-corpus-recovery-v4]
+    paths:
+      - '.github/workflows/backtester-reconstruct-2007-closure-input.yml'
+      - 'backtester/reconstruct_2007_closure_input.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  ARCHIVE_COMMIT: 7e46818ee99f026a56fe7c72cd6c56d79c4a173e
+  INPUT: backtester-results/2007-closure-input
+  BUILD: backtester-results/2007-closure-baseline-build
+  CERT: backtester-results/2007-closure-baseline-cert
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  reconstruct:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out exact V4 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Check out pinned 2007 archive lineage
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          repository: ${{ github.repository }}
+          ref: ${{ env.ARCHIVE_COMMIT }}
+          path: _archive_2007
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Install deterministic PDF text dependency
+        run: |
+          set -euo pipefail
+          sudo apt-get update -qq
+          sudo apt-get install -y --no-install-recommends poppler-utils
+      - name: Reconstruct exact archived 2,976-row baseline
+        run: |
+          set -euo pipefail
+          rm -rf "${INPUT}"
+          python backtester/reconstruct_2007_closure_input.py \
+            --archive _archive_2007 \
+            --archive-commit "${ARCHIVE_COMMIT}" \
+            --output "${INPUT}"
+          (cd "${INPUT}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          m=json.load(open(Path(os.environ['INPUT'])/'manifest.json'))
+          assert m['schema']=='backtester.historical-metadata-2007-closure-input/1'
+          assert m['expected_rows']==2976
+          assert m['archive_commit']==os.environ['ARCHIVE_COMMIT']
+          assert m['baseline_mapped_discovery']==2584
+          assert m['baseline_ambiguous']==52
+          assert m['baseline_name_unmatched']==340
+          assert m['baseline_unclassified']==0
+          assert m['certification_membership_authority'] is False
+          print(json.dumps(m,indent=2,sort_keys=True))
+          PY
+      - name: Prove V4 closure preserves discovery-only semantics
+        run: |
+          set -euo pipefail
+          rm -rf "${BUILD}" "${CERT}"
+          python -m backtester.historical_metadata_2007_closure build \
+            --source-holdings "${INPUT}/source_holdings_2007.csv.gz" \
+            --adjudications "${INPUT}/adjudications_2007.csv.gz" \
+            --output "${BUILD}" --target-year 2007
+          (cd "${BUILD}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          s=json.load(open(Path(os.environ['BUILD'])/'2007_build_summary.json'))
+          c=s['resolution_counts']
+          assert s['source_rows']==2976 and s['ledger_rows']==2976
+          assert c['AMBIGUOUS']==52
+          assert c['NO_AUTHORITY']==2924
+          assert c['UNCLASSIFIED']==0 and c['CONFLICT']==0 and c['RESOLVED']==0
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+          set +e
+          python -m backtester.historical_metadata_2007_closure certify \
+            --ledger "${BUILD}/2007_resolution_ledger.csv.gz" \
+            --evidence-root "${INPUT}/evidence" \
+            --output "${CERT}" --expected-rows 2976 --target-year 2007
+          rc=$?
+          set -e
+          test "$rc" -ne 0
+          (cd "${CERT}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          s=json.load(open(Path(os.environ['CERT'])/'2007_acceptance_summary.json'))
+          assert s['status']=='REVIEW_REQUIRED'
+          assert s['ledger_rows']==2976 and s['resolved_rows']==0
+          assert s['ambiguous_rows']==52 and s['no_authority_rows']==2924
+          assert s['unclassified_rows']==0 and s['conflict_rows']==0
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+      - name: Upload authenticated closure input and baseline diagnostics
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: historical-metadata-2007-closure-input-${{ github.sha }}
+          path: |
+            ${{ env.INPUT }}
+            ${{ env.BUILD }}
+            ${{ env.CERT }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
