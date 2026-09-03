@@ -67,12 +67,14 @@ jobs:
             --timeout 20 \
             --attempts 3 \
             --delay 0.4 \
+            --url 'http://www.russell.com/indexes/membership/Reconstitution/Recon_3000_Additions.asp' \
+            --url 'http://www.russell.com/indexes/membership/Reconstitution/Recon_3000_Deletions.asp' \
+            --url 'http://www.russell.com/indexes/membership/reconstitution/recon_3000_additions.asp' \
+            --url 'http://www.russell.com/indexes/membership/reconstitution/recon_3000_deletions.asp' \
             --url 'http://www.russell.com/US/Indexes/US/membership.asp' \
             --url 'http://www.russell.com/us/indexes/us/membership.asp' \
             --url 'http://www.russell.com/US/Indexes/US/Reconstitution/recon_additions.asp' \
-            --url 'http://www.russell.com/us/indexes/us/reconstitution/recon_additions.asp' \
             --url 'http://www.russell.com/US/Indexes/US/Reconstitution/recon_deletions.asp' \
-            --url 'http://www.russell.com/us/indexes/us/reconstitution/recon_deletions.asp' \
             --output-dir /tmp/russell-legacy-content
       - name: Publish legacy evidence summary
         if: always()
