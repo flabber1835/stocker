@@ -1,0 +1,24 @@
+name: Backtester - cancel stale historical metadata reconstruction
+run-name: Cancel stale historical metadata reconstruction — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/enrich-pit-2007-2026-metadata]
+    paths:
+      - '.github/workflows/backtester-historical-metadata-v2-cancel-stale.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: historical-metadata-reconstruction-v2
+  cancel-in-progress: true
+
+jobs:
+  cancel_stale:
+    name: Cancel stale reconstruction through concurrency authority
+    runs-on: ubuntu-24.04
+    timeout-minutes: 5
+    steps:
+      - name: Confirm cancellation sentinel
+        run: echo 'Stale historical-metadata-reconstruction-v2 run displaced; indexed finalize recovery is authoritative.'
