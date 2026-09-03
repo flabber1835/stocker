@@ -16,7 +16,7 @@ permissions:
 
 concurrency:
   group: backtester-historical-metadata-v4-authority-probe
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 env:
   AUDIT_RUN_ID: '33711744625'
@@ -38,6 +38,15 @@ jobs:
           ref: ${{ github.sha }}
           fetch-depth: 1
           persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-historical-metadata-v4-authority-probe.yml
+            /backtester/__init__.py
+            /backtester/expand_historical_authority_v4.py
+            /backtester/historical_metadata_reconstruction_v2.py
+            /backtester/mine_historical_metadata_candidates_v3.py
+            /tests/backtester/test_expand_historical_authority_v4.py
 
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
