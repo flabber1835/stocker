@@ -235,6 +235,12 @@ def main(argv=None) -> int:
                 raise RuntimeError(
                     "publication history without receipt authority was grandfathered")
 
+            state = deploy_bootstrap._receipt_ancestry(
+                env, allow_verified_pre_receipt=True)
+            _require(
+                state == deploy_bootstrap.SAFE_VERIFIED_PRE_RECEIPT_DATABASE,
+                "operator-attested pre-receipt ancestry was not recognized")
+
             deploy_bootstrap._psql(
                 env, compose_args,
                 "CREATE TABLE sentinel_publication_validation_policy ("
@@ -256,6 +262,11 @@ def main(argv=None) -> int:
             _require(
                 state == deploy_bootstrap.AUTHENTICATED_RECEIPTS_EXIST,
                 "authenticated receipt ancestry did not fence key rotation")
+            attested_state = deploy_bootstrap._receipt_ancestry(
+                env, allow_verified_pre_receipt=True)
+            _require(
+                attested_state == deploy_bootstrap.AUTHENTICATED_RECEIPTS_EXIST,
+                "pre-receipt attestation bypassed authenticated receipt ancestry")
         finally:
             deploy_bootstrap._compose_args = original_compose_args
             deploy_bootstrap._require_backup_target = original_backup_target

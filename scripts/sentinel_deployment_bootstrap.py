@@ -8,9 +8,11 @@ that no authenticated receipt ancestry exists.
 
 A database containing publications but no receipt-policy relations is ambiguous:
 it may be a genuine pre-receipt deployment, or a receipt-era deployment that
-lost authority tables. Automatic generation therefore refuses that shape. A
-verified pre-receipt upgrade can provision an explicit 32+ byte key before its
-schema migration.
+lost authority tables. Automatic generation therefore refuses that shape. An
+operator who has independently verified that the database predates authenticated
+publication receipts can use ``--provision-verified-pre-receipt``. That explicit
+attestation is accepted only for the exact legacy publication-only schema shape;
+it does not bypass partial-schema or authenticated-receipt fences.
 
 The generated key is written atomically to the existing .env at mode 0600,
 never printed, and never passed on a command line. PostgreSQL is never started
@@ -46,6 +48,7 @@ CORPUS_LOCK_KEY = 0x5E27_C0B5
 
 SAFE_FRESH_DATABASE = "SAFE_FRESH_DATABASE"
 SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS = "SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS"
+SAFE_VERIFIED_PRE_RECEIPT_DATABASE = "SAFE_VERIFIED_PRE_RECEIPT_DATABASE"
 AUTHENTICATED_RECEIPTS_EXIST = "AUTHENTICATED_RECEIPTS_EXIST"
 
 _ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
@@ -318,7 +321,8 @@ def _publication_authority_lock(
 
 
 def _receipt_ancestry_ready(
-        env: Mapping[str, str], compose_args: Sequence[str]) -> str:
+        env: Mapping[str, str], compose_args: Sequence[str], *,
+        allow_verified_pre_receipt: bool = False) -> str:
     shape = _psql(
         env, compose_args,
         "SELECT "
@@ -330,12 +334,14 @@ def _receipt_ancestry_ready(
     if shape == "0:0:0":
         return SAFE_FRESH_DATABASE
     if shape == "1:0:0":
+        if allow_verified_pre_receipt:
+            return SAFE_VERIFIED_PRE_RECEIPT_DATABASE
         raise BootstrapRefused(
             "publication history exists without receipt-policy authority; "
             "PostgreSQL alone cannot distinguish a verified pre-receipt database "
             "from receipt-era authority loss. Restore the missing receipt authority, "
-            "or explicitly provision a 32+ byte key only after independently "
-            "verifying a pre-receipt migration")
+            "or rerun this bootstrap with --provision-verified-pre-receipt only after "
+            "independently verifying that the database predates authenticated receipts")
     if shape != "1:1:1":
         raise BootstrapRefused(
             "publication receipt schema is partially installed; refusing key generation")
@@ -374,18 +380,26 @@ def _receipt_ancestry_ready(
 
 
 @contextmanager
-def _receipt_ancestry_guard(env: Mapping[str, str]) -> Iterator[str]:
+def _receipt_ancestry_guard(
+        env: Mapping[str, str], *,
+        allow_verified_pre_receipt: bool = False) -> Iterator[str]:
     _require_probe_prerequisites(env)
     _require_backup_target(env)
     compose_args = _compose_args(env)
     _ensure_postgres_ready(env, compose_args)
     with _publication_authority_lock(env, compose_args):
-        yield _receipt_ancestry_ready(env, compose_args)
+        yield _receipt_ancestry_ready(
+            env, compose_args,
+            allow_verified_pre_receipt=allow_verified_pre_receipt)
 
 
-def _receipt_ancestry(env: Mapping[str, str]) -> str:
+def _receipt_ancestry(
+        env: Mapping[str, str], *,
+        allow_verified_pre_receipt: bool = False) -> str:
     """Diagnostic wrapper; generation uses _receipt_ancestry_guard directly."""
-    with _receipt_ancestry_guard(env) as state:
+    with _receipt_ancestry_guard(
+            env,
+            allow_verified_pre_receipt=allow_verified_pre_receipt) as state:
         return state
 
 
@@ -498,15 +512,23 @@ def _atomic_set_key(path: Path, generated: str) -> str:
             pass
 
 
-def _persist_for_state(path: Path, generated: str, state: str) -> str:
+def _persist_for_state(
+        path: Path, generated: str, state: str, *,
+        allow_verified_pre_receipt: bool = False) -> str:
     if state == AUTHENTICATED_RECEIPTS_EXIST:
         raise BootstrapRefused(
             "%s is missing but authenticated publication receipts already exist; "
             "restore the original key from deployment secrets/backups"
             % RECEIPT_KEY)
+    if (
+            state == SAFE_VERIFIED_PRE_RECEIPT_DATABASE
+            and not allow_verified_pre_receipt):
+        raise BootstrapRefused(
+            "verified pre-receipt state requires explicit operator attestation")
     if state not in {
             SAFE_FRESH_DATABASE,
-            SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS}:
+            SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS,
+            SAFE_VERIFIED_PRE_RECEIPT_DATABASE}:
         raise BootstrapRefused("publication receipt ancestry returned an unknown state")
     persisted = _atomic_set_key(path, generated)
     if persisted != generated:
@@ -517,13 +539,14 @@ def _persist_for_state(path: Path, generated: str, state: str) -> str:
 def ensure_publication_receipt_key(
         path: Path = ENV_PATH,
         *, receipt_state_probe: Optional[
-            Callable[[Mapping[str, str]], str]] = None) -> str:
+            Callable[[Mapping[str, str]], str]] = None,
+        allow_verified_pre_receipt: bool = False) -> str:
     values = _parse_env(path)
     configured = _configured_key(values)
     if configured is not None:
         return "PRESENT_EXTERNAL" if RECEIPT_KEY in os.environ else "PRESENT_FILE"
 
-    generated = secrets.token_hex(32)
+    generated = secrets.token_hex(MIN_KEY_BYTES)
     probe_env = dict(values)
     probe_env.update(os.environ)
     # Candidate exists only so Compose can resolve the graph. sentinel-postgres
@@ -535,23 +558,44 @@ def ensure_publication_receipt_key(
     # _atomic_set_key() and its directory fsync.
     if receipt_state_probe is not None:
         state = receipt_state_probe(probe_env)
-        return _persist_for_state(path, generated, state)
+        return _persist_for_state(
+            path, generated, state,
+            allow_verified_pre_receipt=allow_verified_pre_receipt)
 
-    with _receipt_ancestry_guard(probe_env) as state:
-        return _persist_for_state(path, generated, state)
+    with _receipt_ancestry_guard(
+            probe_env,
+            allow_verified_pre_receipt=allow_verified_pre_receipt) as state:
+        return _persist_for_state(
+            path, generated, state,
+            allow_verified_pre_receipt=allow_verified_pre_receipt)
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(
         description="Provision first-install Sentinel deployment secrets")
     parser.add_argument("--env-file", type=Path, default=ENV_PATH)
+    parser.add_argument(
+        "--provision-verified-pre-receipt",
+        action="store_true",
+        help=(
+            "Operator attestation that existing publication history predates "
+            "authenticated publication receipts. Accepted only for the exact "
+            "legacy publication-only schema shape; never bypasses receipt-era "
+            "or partial-schema authority fences."))
     args = parser.parse_args(list(argv) if argv is not None else None)
     try:
-        result = ensure_publication_receipt_key(args.env_file)
+        result = ensure_publication_receipt_key(
+            args.env_file,
+            allow_verified_pre_receipt=args.provision_verified_pre_receipt)
     except BootstrapRefused as exc:
         print("REFUSED: deployment bootstrap: %s" % exc, file=sys.stderr)
         return 2
-    if result.startswith("GENERATED_"):
+    if result == "GENERATED_" + SAFE_VERIFIED_PRE_RECEIPT_DATABASE:
+        print(
+            "deployment bootstrap: generated and securely persisted publication "
+            "receipt authority for operator-verified pre-receipt database",
+            flush=True)
+    elif result.startswith("GENERATED_"):
         print(
             "deployment bootstrap: generated and securely persisted publication receipt authority",
             flush=True)
