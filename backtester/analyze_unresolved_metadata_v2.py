@@ -32,7 +32,7 @@ def _write_gzip_csv(path: Path, fieldnames: list[str], rows: list[dict[str, str]
 def analyze(package_root: Path, output: Path) -> dict:
     unresolved = _read_gzip_csv(package_root / "timeline" / "unresolved_episodes.csv.gz")
     unresolved_sids = {row["security_id"] for row in unresolved}
-    unresolved_ciks = {
+    unresolved_observed_ciks = {
         cik
         for row in unresolved
         for cik in str(row.get("observed_ciks") or "").split(";")
@@ -62,17 +62,25 @@ def analyze(package_root: Path, output: Path) -> dict:
         if sid in unresolved_sids:
             by_web_rejected_type[sid].append(row)
 
-    by_web_sic = Counter()
-    for row in _iter_gzip_csv(package_root / "web" / "web_sic_sources.csv.gz"):
-        cik = str(row.get("cik") or "")
-        if cik in unresolved_ciks:
-            by_web_sic[cik] += 1
-
     by_timeline_identity = Counter()
+    by_timeline_identity_ciks: dict[str, set[str]] = defaultdict(set)
     for row in _iter_gzip_csv(package_root / "timeline" / "identity_events.csv.gz"):
         sid = str(row.get("security_id") or "")
         if sid in unresolved_sids:
             by_timeline_identity[sid] += 1
+            cik = str(row.get("cik") or "")
+            if cik:
+                by_timeline_identity_ciks[sid].add(cik)
+
+    all_known_ciks = set(unresolved_observed_ciks)
+    for values in by_timeline_identity_ciks.values():
+        all_known_ciks.update(values)
+
+    by_web_sic = Counter()
+    for row in _iter_gzip_csv(package_root / "web" / "web_sic_sources.csv.gz"):
+        cik = str(row.get("cik") or "")
+        if cik in all_known_ciks:
+            by_web_sic[cik] += 1
 
     by_timeline_type = Counter()
     for row in _iter_gzip_csv(package_root / "timeline" / "security_type_events.csv.gz"):
@@ -98,7 +106,12 @@ def analyze(package_root: Path, output: Path) -> dict:
         reasons = [value for value in str(row.get("reasons") or "").split(";") if value]
         for reason in reasons:
             reason_presence[reason] += 1
-        ciks = [value for value in str(row.get("observed_ciks") or "").split(";") if value]
+
+        observed_ciks = [
+            value for value in str(row.get("observed_ciks") or "").split(";") if value
+        ]
+        timeline_ciks = sorted(by_timeline_identity_ciks[sid])
+        known_ciks = sorted(set(observed_ciks) | set(timeline_ciks))
         plan_rows = by_plan[sid]
         rejected_rows = by_web_rejected_type[sid]
         for rejected in rejected_rows:
@@ -108,7 +121,7 @@ def analyze(package_root: Path, output: Path) -> dict:
         type_missing = "no_admitted_security_type_evidence" in reasons
         sic_missing = "no_admitted_sic_evidence" in reasons
 
-        if identity_missing and not ciks:
+        if identity_missing and not known_ciks:
             resolution_route = "IDENTITY_CIK_DISCOVERY"
         elif identity_missing:
             resolution_route = "IDENTITY_CONFIRMATION"
@@ -133,13 +146,13 @@ def analyze(package_root: Path, output: Path) -> dict:
         priority_counts[triage_priority] += 1
 
         # These labels direct the next investigation; they are never positive admission evidence.
-        if identity_missing and not ciks:
+        if identity_missing and not known_ciks:
             automation_hint = "LOW_NEEDS_NEW_IDENTITY_AUTHORITY"
         elif type_missing and rejected_rows:
             automation_hint = "HIGH_REJECTED_TYPE_EVIDENCE_PRESENT"
-        elif sic_missing and ciks and any(by_web_sic[cik] for cik in ciks):
+        elif sic_missing and known_ciks and any(by_web_sic[cik] for cik in known_ciks):
             automation_hint = "HIGH_SIC_EVIDENCE_PRESENT_REVIEW_ALLOCATION"
-        elif ciks and (type_missing or sic_missing):
+        elif known_ciks and (type_missing or sic_missing):
             automation_hint = "MEDIUM_KNOWN_CIK_TARGETED_EVIDENCE"
         else:
             automation_hint = "MEDIUM_REVIEW_EXISTING_EVIDENCE"
@@ -148,7 +161,9 @@ def analyze(package_root: Path, output: Path) -> dict:
         detail.append(
             dict(row)
             | {
-                "has_observed_cik": str(bool(ciks)).lower(),
+                "has_observed_cik": str(bool(observed_ciks)).lower(),
+                "timeline_identity_ciks": ";".join(timeline_ciks),
+                "has_any_known_cik": str(bool(known_ciks)).lower(),
                 "web_plan_rows": str(len(plan_rows)),
                 "web_plan_ciks": ";".join(
                     sorted({str(item.get("cik") or "") for item in plan_rows if item.get("cik")})
@@ -159,7 +174,7 @@ def analyze(package_root: Path, output: Path) -> dict:
                 "web_rejected_type_reasons": ";".join(
                     sorted({str(item.get("reason") or "") for item in rejected_rows if item.get("reason")})
                 ),
-                "web_sic_sources_for_observed_ciks": str(sum(by_web_sic[cik] for cik in ciks)),
+                "web_sic_sources_for_known_ciks": str(sum(by_web_sic[cik] for cik in known_ciks)),
                 "timeline_identity_events": str(by_timeline_identity[sid]),
                 "timeline_type_events": str(by_timeline_type[sid]),
                 "timeline_sic_events": str(by_timeline_sic[sid]),
@@ -201,6 +216,8 @@ def analyze(package_root: Path, output: Path) -> dict:
         ),
         "episodes_with_observed_cik": sum(item["has_observed_cik"] == "true" for item in detail),
         "episodes_without_observed_cik": sum(item["has_observed_cik"] == "false" for item in detail),
+        "episodes_with_any_known_cik": sum(item["has_any_known_cik"] == "true" for item in detail),
+        "episodes_without_any_known_cik": sum(item["has_any_known_cik"] == "false" for item in detail),
         "reason_presence": dict(reason_presence),
         "resolution_routes": dict(route_counts),
         "automation_hints": dict(automation_counts),
@@ -224,6 +241,8 @@ def analyze(package_root: Path, output: Path) -> dict:
         f"Unresolved episodes: **{len(detail):,}**",
         f"Episodes with observed CIK: **{summary['episodes_with_observed_cik']:,}**",
         f"Episodes without observed CIK: **{summary['episodes_without_observed_cik']:,}**",
+        f"Episodes with any causally established CIK: **{summary['episodes_with_any_known_cik']:,}**",
+        f"Episodes without any causally established CIK: **{summary['episodes_without_any_known_cik']:,}**",
         "",
         "## Resolution routes",
     ]
