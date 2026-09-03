@@ -20,6 +20,9 @@ import urllib.request
 import pit_russell_pdf_membership_extract as pdfparse
 
 
+PRESERVED_SOURCE_TICKER_EXCEPTIONS = {"LTD"}
+
+
 def fetch(url: str, timeout: int) -> bytes:
     req = urllib.request.Request(url, headers={"User-Agent": "stocker-pit-russell-research/1"})
     with urllib.request.urlopen(req, timeout=timeout) as response:
@@ -43,6 +46,11 @@ def rows_hash(rows: list[dict[str, str]]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def is_preserved_source_ticker(value: str) -> bool:
+    ticker = pdfparse.normalize(value).upper()
+    return ticker in PRESERVED_SOURCE_TICKER_EXCEPTIONS or pdfparse.is_ticker(ticker)
+
+
 def csv_membership(payload: bytes) -> tuple[set[str], dict[str, str]]:
     text = payload.decode("utf-8-sig", errors="strict")
     reader = csv.DictReader(io.StringIO(text))
@@ -55,7 +63,7 @@ def csv_membership(payload: bytes) -> tuple[set[str], dict[str, str]]:
         company = pdfparse.normalize(row.get("Company", ""))
         if not ticker:
             continue
-        if not pdfparse.is_ticker(ticker):
+        if not is_preserved_source_ticker(ticker):
             raise RuntimeError(f"invalid non-empty ticker in preserved CSV: {ticker!r}")
         prior = companies.get(ticker)
         if prior is not None and prior != company:
@@ -135,6 +143,7 @@ def main() -> int:
         "pdf_csv_membership_gate": "PASS" if crosscheck_ok else "FAIL",
         "missing_from_pdf": missing_from_pdf,
         "missing_from_csv": missing_from_csv,
+        "preserved_source_ticker_exceptions": sorted(PRESERVED_SOURCE_TICKER_EXCEPTIONS),
         "evidence_grade": "A_SOURCE_MEMBERSHIP" if count_ok and deterministic and crosscheck_ok else "UNACCEPTED",
     }
     (out / "manifest.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
