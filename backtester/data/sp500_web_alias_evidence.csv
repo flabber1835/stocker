@@ -1,0 +1,9 @@
+source_ticker,map_from,map_until_exclusive,candidate_ticker,evidence_type,evidence_url,evidence_summary
+AABA,1999-12-08,2017-06-19,YHOO,SEC_8K,https://www.sec.gov/Archives/edgar/data/1011006/000119312517206955/d389206d8k.htm,"Altaba states Yahoo common stock traded as YHOO through 2017-06-16 and AABA began 2017-06-19."
+BIG,1998-01-20,2001-05-16,CNS,SEC_10K,https://www.sec.gov/Archives/edgar/data/768835/000095015200003270/0000950152-00-003270-d1.html,"Consolidated Stores common stock was NYSE CNS before the 2001 Big Lots name change."
+BIG,2001-05-16,2006-08-18,BLI,SEC_10K,https://www.sec.gov/Archives/edgar/data/768835/000095015202003748/l94122ae10-k.htm,"Big Lots announced the 2001-05-16 name/ticker change to BLI; later SEC-filed company remarks state BLI changed to BIG effective 2006-08-18."
+DXC,1997-12-31,2015-12-01,CSC,SEC_10K,https://www.sec.gov/Archives/edgar/data/23082/000002308215000023/csc403201510-k.htm,"Computer Sciences Corporation common stock traded NYSE as CSC; DXC did not exist until the 2017 CSC/HPE Enterprise Services combination."
+JAVA,1997-12-31,2007-08-27,SUNW,SEC_10K,https://www.sec.gov/Archives/edgar/data/709519/000119312508187118/d10k.htm,"Sun Microsystems states its stock traded as SUNW prior to 2007-08-27, then JAVA."
+FTR,2001-02-27,2008-07-31,CZN,EXCHANGE_NOTICE,https://www.nasdaqtrader.com/content/phlxmemos/2008/Jul/1447-08.pdf,"Exchange notice states Citizens Communications CZN changed to Frontier Communications FTR effective 2008-07-31."
+ANTM,2002-07-25,2004-12-01,ATH,SEC_MERGER_FILING,https://www.sec.gov/Archives/edgar/data/1156039/000095012304006164/c81091a1sv4za.htm,"Anthem common stock traded NYSE as ATH before the 2004 merger."
+ANTM,2004-12-01,2014-12-02,WLP,SEC_8K,https://www.sec.gov/Archives/edgar/data/1156039/000119312504205298/dex991.htm,"After Anthem/WellPoint merger, surviving Anthem parent was renamed WellPoint and began trading as WLP on 2004-12-01; later renamed Anthem in December 2014."
