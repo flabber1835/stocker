@@ -19,7 +19,9 @@ def test_readonly_preflight_keeps_sep_vendor_clock_separate_from_market_clock():
     assert "source_day = dt.datetime.now(dt.timezone.utc).date()" in code
     assert "target=source_day" in code
     assert "boundary_label='current source observation date'" in code
-    assert "if through >= target:" in code
+    assert "if through >= target:" not in code
+    assert "elif through == source_day:" in code
+    assert "SEP_CDC_CURRENT_VENDOR_DAY_REOBSERVED" in code
 
 
 def test_readonly_preflight_keeps_market_cursors_on_market_target():
@@ -30,4 +32,5 @@ def test_readonly_preflight_keeps_market_cursors_on_market_target():
     assert (
         "recent_cursor, name=recent_reconciliation.CURSOR_NAME, target=target"
         in code)
-    assert "'lastupdated.lte': target.isoformat()" in code
+    assert "'lastupdated.lte': source_day.isoformat()" in code
+    assert "hi=source_day" in code
