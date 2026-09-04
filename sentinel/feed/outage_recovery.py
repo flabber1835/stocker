@@ -97,12 +97,13 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
         backup_guard.require_bulk_writes_permitted(
             conn, operation="retained full corpus reseed")
         ingest.seed(conn, date_from=retained_start, date_to=target)
-        # The seed may have repaired the local state, but the supported daily
-        # path still owns the final exact-target publication. Re-prove ordinary
-        # durability before that second mutation as well.
-        backup_guard.require_writes_permitted(
-            conn, operation="post-reseed canonical daily publication")
-        ingest.daily(conn, today=target)
+        # A successful canonical seed is already a complete exact-target data
+        # recovery. It publishes the retained market frontier, establishes the
+        # SEP mutation cursor from the independent vendor-update proof, re-earns
+        # complete ACTIONS authority, and proves the recent SEP frontier. Calling
+        # daily(target) again is both redundant and invalid when the seed was
+        # observed on a later vendor-update date than the market target: the
+        # mutation cursor would correctly be ahead of that older market date.
         mode = "RETAINED_FULL_RESEED"
     visible_after = store.latest_visible_session(conn)
     if visible_after != target:
