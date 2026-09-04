@@ -130,11 +130,12 @@ try:
     daily_attempted = False
     if eligible:
         phase = 'DAILY_CATCHUP'
-        recovered = outage_recovery.catch_up(c, target_session=target)
+        recovered = outage_recovery.catch_up(
+            c, target_session=target, reobserve_current=True)
         daily_attempted = True
         if recovered.mode == 'ALREADY_CURRENT':
-            # Current publication is terminal success. Re-contacting mutable
-            # vendor data adds source risk without proving a new condition.
+            # The requested current-vendor re-observation completed inside
+            # catch_up. No second mutable-source observation is needed here.
             pass
         elif recovered.mode == 'RETAINED_FULL_RESEED':
             print(RECOVERY_MARKER + json.dumps({

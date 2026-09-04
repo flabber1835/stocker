@@ -7,8 +7,7 @@ from types import SimpleNamespace
 from sentinel.feed import ingest, outage_recovery
 
 
-def test_already_current_market_frontier_still_runs_vendor_reobservation(
-        monkeypatch):
+def test_go_opt_in_reobserves_already_current_market_frontier(monkeypatch):
     target = "2026-09-02"
     calls = []
 
@@ -29,7 +28,8 @@ def test_already_current_market_frontier_still_runs_vendor_reobservation(
         outage_recovery.ingest, "daily",
         lambda _conn, *, today: calls.append(("daily", today)))
 
-    result = outage_recovery.catch_up(SimpleNamespace(), target_session=target)
+    result = outage_recovery.catch_up(
+        SimpleNamespace(), target_session=target, reobserve_current=True)
 
     assert result.mode == "ALREADY_CURRENT"
     assert result.recovered_from is None

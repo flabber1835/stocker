@@ -175,10 +175,11 @@ def test_nas_schema_and_recovery_mutations_cannot_bypass_backup_guard():
     assert schema_guard < schema_mutation
 
     # outage_recovery.catch_up() is the single daily/cursor reconciliation path.
-    # Ordinary daily and the retained full reseed each prove the appropriate WAL
-    # durability before their mutation. A successful full seed is terminal data
-    # recovery and cannot invoke a second daily mutation.
-    assert "outage_recovery.catch_up(c, target_session=target)" in entry
+    # GO explicitly requests a current-vendor re-observation. Ordinary daily and
+    # the retained full reseed each prove the appropriate WAL durability before
+    # their mutation. A successful full seed is terminal data recovery.
+    assert "outage_recovery.catch_up(" in entry
+    assert "reobserve_current=True" in entry
     daily_guard = recovery.index('operation="canonical outage daily catch-up"')
     daily_mutation = recovery.index("ingest.daily(conn, today=target)", daily_guard)
     bulk_guard = recovery.index('operation="retained full corpus reseed"')
@@ -189,8 +190,9 @@ def test_nas_schema_and_recovery_mutations_cannot_bypass_backup_guard():
     assert recovery.count("ingest.daily(conn, today=target)") == 1
     assert 'operation="post-reseed canonical daily publication"' not in recovery
 
-    # If catch_up reports ALREADY_CURRENT, there is deliberately no second vendor
-    # ingest or other mutation to guard: current publication is terminal success.
+    # Once catch_up returns ALREADY_CURRENT to GO, its requested source
+    # re-observation has already completed. The entry performs no second vendor
+    # ingest or mutation.
     marker = "if recovered.mode == 'ALREADY_CURRENT':"
     start = entry.index(marker)
     end = entry.index("elif recovered.mode == 'RETAINED_FULL_RESEED':", start)

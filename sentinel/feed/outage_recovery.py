@@ -58,8 +58,15 @@ def retained_market_start(conn) -> str:
     return start
 
 
-def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
+def catch_up(
+        conn, *, target_session: str,
+        reobserve_current: bool = False) -> OutageRecoveryResult:
     """Reach one explicit closed XNYS target without replaying strategy actions.
+
+    A coherent current market frontier is read-only by default. Callers whose
+    authority contract requires a fresh mutable-vendor observation may set
+    ``reobserve_current``; that path executes the canonical daily boundary under
+    the normal WAL durability fence before returning ``ALREADY_CURRENT``.
 
     The function mutates only the canonical data corpus. It has no execution,
     broker, plan, shadow-NAV, or catch-up strategy seam. Every mutation first
@@ -71,14 +78,12 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
     visible_before = store.latest_visible_session(conn)
     already_current = False
     if visible_before == target:
-        # Market-frontier equality does not prove the independent SEP vendor
-        # update clock current. Production daily must still re-observe the source
-        # date so a historical correction arriving later on the same lastupdated
-        # day cannot be validated by preflight and then skipped at write time.
         coherence = publication.operational_coherence(
             conn, frontier=target)
         already_current = bool(
             coherence.coherent and not publication.chain_gaps(conn))
+        if already_current and not reobserve_current:
+            return OutageRecoveryResult(target, "ALREADY_CURRENT", None, None)
 
     # The common primitive owns the durability rule. Callers such as unattended
     # shadow recovery and NAS validation cannot accidentally bypass it by
