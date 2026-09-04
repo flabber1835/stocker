@@ -38,6 +38,7 @@ jobs:
             /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
             /sharadar/SHARADAR_SEP_*.csv.gz
             /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_ACTIONS.zip
             /sharadar/SFP/SHARADAR_SFP.zip.*
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
@@ -45,7 +46,8 @@ jobs:
           python-version: '3.12'
           check-latest: false
 
-      - run: python -m pip install --disable-pip-version-check pandas numpy
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
 
       - name: Assemble pinned SFP archive
         run: |
@@ -57,6 +59,14 @@ jobs:
           cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
           unzip -t sharadar/SHARADAR_SFP.zip >/dev/null
           test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Verify frozen broad inputs
+        run: |
+          set -euo pipefail
+          test -f sharadar/SHARADAR_ACTIONS.zip
+          test -f sharadar/SHARADAR_TICKERS.zip
+          test -f sharadar/SHARADAR_SEP_1997.csv.gz
+          test -f backtester/data/GS3M_1996-12_2007-05.csv
 
       - name: Run frozen broad non-PIT reference
         run: |
