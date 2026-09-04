@@ -4,7 +4,7 @@ import datetime as dt
 
 import pytest
 
-from sentinel.feed import maintenance, maintenance_impl, recent_reconciliation
+from sentinel.feed import ingest, maintenance, maintenance_impl, recent_reconciliation
 
 
 FUTURE = dt.date(2026, 8, 28)
@@ -42,6 +42,44 @@ def test_sep_future_cursor_refuses_before_vendor_fetch(monkeypatch):
             object(), fetch=forbidden_fetch, through=THROUGH)
 
     assert calls == []
+
+
+def test_daily_caller_accepts_vendor_cursor_ahead_of_market_target(monkeypatch):
+    source_day = dt.datetime.now(dt.timezone.utc).date()
+    market_target = source_day - dt.timedelta(days=1)
+    current = maintenance.SourceCursor(
+        kind="sharadar-sep-lastupdated/v1",
+        processed_through=source_day,
+        publication_version=17,
+    )
+    monkeypatch.setattr(ingest.maintenance, "load_sep_cursor", lambda _conn: current)
+    monkeypatch.setattr(
+        ingest.maintenance, "reconcile_sep_mutations",
+        lambda *_args, **_kwargs: pytest.fail(
+            "vendor cursor already covering market target must not reconcile backwards"),
+    )
+
+    assert ingest._reconcile_sep_for_market_target(
+        object(), fetch=object(), target=market_target.isoformat()) is current
+
+
+def test_daily_caller_refuses_vendor_cursor_beyond_source_observation_date(
+        monkeypatch):
+    source_day = dt.datetime.now(dt.timezone.utc).date()
+    impossible = maintenance.SourceCursor(
+        kind="sharadar-sep-lastupdated/v1",
+        processed_through=source_day + dt.timedelta(days=1),
+        publication_version=17,
+    )
+    monkeypatch.setattr(
+        ingest.maintenance, "load_sep_cursor", lambda _conn: impossible)
+
+    with pytest.raises(
+        maintenance.SharadarMutationRefused,
+        match="ahead of current source observation date",
+    ):
+        ingest._reconcile_sep_for_market_target(
+            object(), fetch=object(), target=source_day.isoformat())
 
 
 def test_actions_future_cursor_refuses_before_export_or_vendor_fetch(monkeypatch):
