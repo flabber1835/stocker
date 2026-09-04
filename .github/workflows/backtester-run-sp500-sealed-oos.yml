@@ -84,6 +84,30 @@ jobs:
             backtester/sp500_best_effort_universe.py \
             backtester/run_sp500_ldrc_sealed_oos.py
 
+      - name: Bind sealed security helper to replay ticker array
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('backtester/run_sp500_ldrc_sealed_oos.py')
+          s=p.read_text(encoding='utf-8')
+          replacements=(
+              ("def sp500_security_id(tid,ds):\n    _tk=str(tick[int(tid)])",
+               "def sp500_security_id(ticker_value,ds):\n    _tk=str(ticker_value)", 1),
+              ("sp500_security_id(int(_i),ds)",
+               "sp500_security_id(tick[int(_i)],ds)", 2),
+              ("sp500_security_id(tid,ds)",
+               "sp500_security_id(tick[tid],ds)", 2),
+          )
+          for old,new,expected in replacements:
+              observed=s.count(old)
+              if observed != expected:
+                  raise SystemExit(f'sealed runner patch seam changed: {old!r}: {observed} != {expected}')
+              s=s.replace(old,new)
+          p.write_text(s,encoding='utf-8')
+          PY
+          python -m py_compile backtester/run_sp500_ldrc_sealed_oos.py
+
       - name: Assemble pinned SFP archive
         run: |
           set -euo pipefail
