@@ -1,0 +1,123 @@
+name: Backtester - broad PIT FAST 0.40 alignment
+run-name: Broad PIT FAST 0.40 alignment — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-broad-pit-fast40-alignment.yml'
+      - 'backtester/run_broad_pit_fast40_alignment.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  OUT_DIR: backtester-results/broad-pit-fast40
+  BASE_DIR: backtester-results/broad-pit-fast30
+
+jobs:
+  alignment:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-broad-pit-fast40-alignment.yml
+            /backtester/run_broad_pit_fast40_alignment.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Run main-aligned FAST 0.40 broad PIT replay
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.run_broad_pit_fast40_alignment --mode fullpit --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Download frozen FAST 0.30 baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf "$BASE_DIR" && mkdir -p "$BASE_DIR"
+          gh run download 33832270731 --repo flabber1835/stocker --name broad-pit-benchmark-5fe8c2c1bc1a07b932b62d3dbd2780755cf58133 --dir "$BASE_DIR"
+          (cd "$BASE_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Compare exact semantic delta
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR']); base=Path(os.environ['BASE_DIR'])
+          a=pd.read_csv(base/'metrics.csv',dtype={'window_years':str})
+          b=pd.read_csv(out/'metrics.csv',dtype={'window_years':str})
+          ar=a[a.variant.eq('RESEARCH')].set_index('window_years')
+          br=b[b.variant.eq('RESEARCH')].set_index('window_years')
+          ad=pd.read_csv(base/'daily.csv.gz',compression='gzip')
+          bd=pd.read_csv(out/'daily.csv.gz',compression='gzip')
+          assert ad.date.equals(bd.date)
+          result={
+            'status':'PASS',
+            'change':'FAST min_damaged_breadth_delta5 0.30 -> 0.40 only',
+            'baseline_run':33832270731,
+            'head':os.environ['GITHUB_SHA'],
+            'windows':{},
+            'native_target_changed_sessions':int((ad.native_close_target!=bd.native_close_target).sum()),
+            'final_allocation_changed_sessions':int((ad.research_allocation!=bd.research_allocation).sum()),
+            'fast_signal_changed_sessions':int((ad.fast_signal!=bd.fast_signal).sum()),
+          }
+          for w in ['5','10','15','20','max']:
+              result['windows'][w]={
+                'fast30_cagr':float(ar.loc[w,'cagr']),
+                'fast40_cagr':float(br.loc[w,'cagr']),
+                'cagr_delta':float(br.loc[w,'cagr']-ar.loc[w,'cagr']),
+                'fast30_max_dd':float(ar.loc[w,'max_drawdown']),
+                'fast40_max_dd':float(br.loc[w,'max_drawdown']),
+                'dd_delta':float(br.loc[w,'max_drawdown']-ar.loc[w,'max_drawdown']),
+              }
+          (out/'alignment-comparison.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,indent=2,sort_keys=True))
+          PY
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: broad-pit-fast40-alignment-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
