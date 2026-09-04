@@ -103,48 +103,38 @@ jobs:
             --output "$IDENTITY_DIR" \
             --start-year 1997 --end-year 2026
 
-      - name: Rebuild approved alias diagnostics
+      - name: Reuse green pinned Stage-3 identity diagnostics
+        env:
+          GH_TOKEN: ${{ github.token }}
         run: |
           set -euo pipefail
           rm -rf "$ALIAS_DIR" "$COVERAGE_DIR" "$TRADING_GAP_DIR" "$WEB_ALIAS_DIR" "$CIK_ALIAS_DIR"
-          python -m backtester.sp500_pit_alias_resolution_v2 \
-            --identity-root "$IDENTITY_DIR" \
-            --tickers-zip sharadar/SHARADAR_TICKERS.zip \
-            --sharadar-root sharadar \
-            --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz \
-            --output "$ALIAS_DIR" --start-year 1997 --end-year 2026
-          (cd "$ALIAS_DIR" && sha256sum -c SHA256SUMS.txt)
-
-          python -m backtester.sp500_pit_coverage_audit \
-            --membership-root "$MEMBERSHIP_DIR" \
-            --identity-root "$IDENTITY_DIR" \
-            --alias-root "$ALIAS_DIR" \
-            --output "$COVERAGE_DIR"
-          (cd "$COVERAGE_DIR" && sha256sum -c SHA256SUMS.txt)
-
-          python -m backtester.sp500_pit_trading_gap_filter \
-            --coverage-root "$COVERAGE_DIR" \
-            --sharadar-root sharadar \
-            --output "$TRADING_GAP_DIR" \
-            --start-year 1997 --end-year 2026
-          (cd "$TRADING_GAP_DIR" && sha256sum -c SHA256SUMS.txt)
-
-          python -m backtester.sp500_pit_web_alias_resolution \
-            --coverage-root "$TRADING_GAP_DIR" \
-            --evidence-path backtester/data/sp500_web_alias_evidence.csv \
-            --sharadar-root sharadar \
-            --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz \
-            --output "$WEB_ALIAS_DIR" \
-            --start-year 1997 --end-year 2026
-          (cd "$WEB_ALIAS_DIR" && sha256sum -c SHA256SUMS.txt)
-
-          python -m backtester.sp500_pit_cik_alias_resolution \
-            --coverage-root "$TRADING_GAP_DIR" \
-            --sharadar-root sharadar \
-            --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz \
-            --output "$CIK_ALIAS_DIR" \
-            --start-year 1997 --end-year 2026
-          (cd "$CIK_ALIAS_DIR" && sha256sum -c SHA256SUMS.txt)
+          gh run download 33823947011 \
+            --repo flabber1835/stocker \
+            --name sp500-pit-alias-v2-30dce7f2adedc8196bc14f73d8943786631922bb \
+            --dir backtester-results
+          for d in "$ALIAS_DIR" "$COVERAGE_DIR" "$TRADING_GAP_DIR" "$WEB_ALIAS_DIR" "$CIK_ALIAS_DIR"; do
+            test -f "$d/SHA256SUMS.txt"
+            (cd "$d" && sha256sum -c SHA256SUMS.txt)
+          done
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          t=json.loads((Path(os.environ["TRADING_GAP_DIR"])/"trading-gap-summary.json").read_text())
+          w=json.loads((Path(os.environ["WEB_ALIAS_DIR"])/"web-alias-summary.json").read_text())
+          k=json.loads((Path(os.environ["CIK_ALIAS_DIR"])/"cik-alias-summary.json").read_text())
+          assert t["status"]=="TRADING_GAP_FILTER_COMPLETE"
+          assert w["status"]=="WEB_ALIAS_RESOLUTION_COMPLETE"
+          assert k["status"]=="CIK_ALIAS_DIAGNOSTIC_COMPLETE"
+          print(json.dumps({
+              "pinned_stage3_run":33823947011,
+              "pinned_artifact_id":9919553500,
+              "pinned_artifact_zip_sha256":"01e56bc8fe3d495765d583f25594f59ef75e18eb6d4e688acd8e27e63f26f80d",
+              "true_trading_gap_intervals":t["output_gap_intervals"],
+              "web_alias_segments":w["accepted_binding_segments"],
+              "unique_cik_aliases":k["unique_gap_aliases"],
+          },indent=2,sort_keys=True))
+          PY
 
       - name: Materialize runnable best-effort OOS universe
         run: |
