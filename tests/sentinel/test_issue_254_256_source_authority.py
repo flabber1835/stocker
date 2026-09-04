@@ -128,7 +128,7 @@ def test_identical_duplicate_and_sfp_duplicate_refuse_actions_unchanged():
     assert evidence["row_fingerprints"][0]["count"] == 2
 
     sfp = {"ticker": "SPY", "date": "2026-08-21", "closeadj": 600.0}
-    assert '\"table\":\"SFP\"' in _duplicate_message(
+    assert '"table":"SFP"' in _duplicate_message(
         [sfp, dict(sfp, closeadj=601.0)], sharadar.SFP)
 
     actions = [{"ticker": "AAA", "date": "2026-08-21", "action": "split"},
