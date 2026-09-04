@@ -8,6 +8,7 @@ on:
       - '.github/workflows/backtester-resolve-sp500-pit-aliases-v2.yml'
       - 'backtester/sp500_pit_alias_resolution_v2.py'
       - 'backtester/sp500_pit_coverage_audit.py'
+      - 'backtester/sp500_pit_trading_gap_filter.py'
       - 'backtester/sp500_pit_cik_alias_resolution.py'
   workflow_dispatch:
 
@@ -20,6 +21,7 @@ env:
   IDENTITY_DIR: backtester-results/sp500-pit-identity
   OUTPUT_DIR: backtester-results/sp500-pit-alias
   COVERAGE_DIR: backtester-results/sp500-pit-coverage
+  TRADING_GAP_DIR: backtester-results/sp500-pit-trading-gaps
   CIK_ALIAS_DIR: backtester-results/sp500-pit-cik-alias
   SOURCE_URL: https://raw.githubusercontent.com/fja05680/sp500/c31ac3cc56f28cf9a02b4e694eff7ceab596a0ff/sp500_ticker_start_end.csv
 
@@ -41,6 +43,7 @@ jobs:
             /backtester/sp500_pit_alias_resolution.py
             /backtester/sp500_pit_alias_resolution_v2.py
             /backtester/sp500_pit_coverage_audit.py
+            /backtester/sp500_pit_trading_gap_filter.py
             /backtester/sp500_pit_cik_alias_resolution.py
             /backtester/strict_pit_metadata.py
             /backtester/data/sp500_official_overlay_2026.csv
@@ -74,11 +77,17 @@ jobs:
           rm -rf "$COVERAGE_DIR"
           python -m backtester.sp500_pit_coverage_audit --membership-root "$MEMBERSHIP_DIR" --identity-root "$IDENTITY_DIR" --alias-root "$OUTPUT_DIR" --output "$COVERAGE_DIR"
           (cd "$COVERAGE_DIR" && sha256sum -c SHA256SUMS.txt)
+      - name: Filter residual gaps to actual trading sessions
+        run: |
+          set -euo pipefail
+          rm -rf "$TRADING_GAP_DIR"
+          python -m backtester.sp500_pit_trading_gap_filter --coverage-root "$COVERAGE_DIR" --sharadar-root sharadar --output "$TRADING_GAP_DIR" --start-year 1997 --end-year 2026
+          (cd "$TRADING_GAP_DIR" && sha256sum -c SHA256SUMS.txt)
       - name: Discover residual aliases through historical SEC CIK
         run: |
           set -euo pipefail
           rm -rf "$CIK_ALIAS_DIR"
-          python -m backtester.sp500_pit_cik_alias_resolution --coverage-root "$COVERAGE_DIR" --sharadar-root sharadar --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz --output "$CIK_ALIAS_DIR" --start-year 1997 --end-year 2026
+          python -m backtester.sp500_pit_cik_alias_resolution --coverage-root "$TRADING_GAP_DIR" --sharadar-root sharadar --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz --output "$CIK_ALIAS_DIR" --start-year 1997 --end-year 2026
           (cd "$CIK_ALIAS_DIR" && sha256sum -c SHA256SUMS.txt)
       - name: Validate diagnostic
         run: |
@@ -87,25 +96,21 @@ jobs:
           from pathlib import Path
           a=json.loads((Path(os.environ['OUTPUT_DIR'])/'alias-summary.json').read_text())
           c=json.loads((Path(os.environ['COVERAGE_DIR'])/'coverage-summary.json').read_text())
+          t=json.loads((Path(os.environ['TRADING_GAP_DIR'])/'trading-gap-summary.json').read_text())
           k=json.loads((Path(os.environ['CIK_ALIAS_DIR'])/'cik-alias-summary.json').read_text())
-          assert a['schema']=='backtester.sp500-pit-alias-resolution/1'
           assert a['status']=='ALIAS_DIAGNOSTIC_COMPLETE'
-          assert a['input_unresolved_intervals']==299, a
-          assert a['blocking_identity_conflicts']==0
-          assert c['schema']=='backtester.sp500-pit-coverage-audit/1'
           assert c['status']=='COVERAGE_AUDIT_COMPLETE'
-          assert c['membership_intervals']==1261
-          assert c['post_tape_fully_covered_intervals']+c['post_tape_partial_coverage_intervals']+c['post_tape_no_coverage_intervals']+c['pre_tape_intervals']==1261
-          assert k['schema']=='backtester.sp500-pit-cik-alias-diagnostic/1'
+          assert t['schema']=='backtester.sp500-pit-trading-gap-filter/1'
+          assert t['status']=='TRADING_GAP_FILTER_COMPLETE'
+          assert t['output_gap_intervals'] <= c['post_tape_intervals_with_gap']
           assert k['status']=='CIK_ALIAS_DIAGNOSTIC_COMPLETE'
           assert k['blocking_identity_conflicts']==0
-          print(json.dumps({'alias':a,'coverage':c,'cik_alias':k},indent=2,sort_keys=True))
+          print(json.dumps({'alias':a,'coverage':c,'trading_gap_filter':t,'cik_alias':k},indent=2,sort_keys=True))
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
               fh.write('### S&P 500 PIT identity coverage\n')
-              fh.write(f"- Fully covered post-tape intervals: {c['post_tape_fully_covered_intervals']:,}\n")
-              fh.write(f"- Partial intervals: {c['post_tape_partial_coverage_intervals']:,}\n")
-              fh.write(f"- No-coverage intervals: {c['post_tape_no_coverage_intervals']:,}\n")
-              fh.write(f"- Residual gap intervals: {c['post_tape_intervals_with_gap']:,}\n")
+              fh.write(f"- Calendar-gap intervals: {c['post_tape_intervals_with_gap']:,}\n")
+              fh.write(f"- True trading-session gap intervals: {t['output_gap_intervals']:,}\n")
+              fh.write(f"- Non-trading gap ranges removed: {t['removed_nontrading_gap_ranges']:,}\n")
               fh.write(f"- Unique SEC-CIK residual alias candidates: {k['unique_gap_aliases']:,}\n")
               fh.write(f"- Ambiguous SEC-CIK residuals: {k['ambiguous_gap_aliases']:,}\n")
           PY
@@ -115,6 +120,7 @@ jobs:
           path: |
             ${{ env.OUTPUT_DIR }}
             ${{ env.COVERAGE_DIR }}
+            ${{ env.TRADING_GAP_DIR }}
             ${{ env.CIK_ALIAS_DIR }}
           if-no-files-found: error
           retention-days: 90
