@@ -45,6 +45,12 @@ def transformed_source(output: Path) -> str:
         raise RuntimeError(f"candidate pool seam count={text.count(old)}")
     text = text.replace(old, new, 1)
 
+    old_empty = "rawall=pool=durable=recsel=np.empty(0,np.int32); nk=0"
+    new_empty = "rawall=pool=durable=recsel=np.empty(0,np.int32); nk=0; cand_n=0"
+    if text.count(old_empty) != 1:
+        raise RuntimeError(f"empty candidate seam count={text.count(old_empty)}")
+    text = text.replace(old_empty, new_empty, 1)
+
     old_telemetry = "'leadership_population':int(nk),'held_count':int(len(held))"
     new_telemetry = "'leadership_population':int(nk),'candidate_population':int(cand_n),'held_count':int(len(held))"
     if text.count(old_telemetry) != 1:
