@@ -9,10 +9,11 @@ def _run(monkeypatch, *, boundary):
     seen = {}
     tracked = object()
 
-    def seed_source(fetch, *, final_hi, update_ceiling):
+    def seed_source(fetch, *, final_hi, update_ceiling=None):
         seen["fetch"] = fetch
         seen["final_hi"] = final_hi
-        seen["update_ceiling"] = update_ceiling
+        seen["update_ceiling"] = (
+            final_hi if update_ceiling is None else update_ceiling)
         return tracked, tracked
 
     monkeypatch.setattr(ingest, "_seed_source", seed_source)
