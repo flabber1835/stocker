@@ -1,0 +1,48 @@
+name: Backtester - R1000 IWB archive probe
+run-name: R1000 IWB archive probe — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-r1000-iwb-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Probe historical IWB holdings
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, io, json, urllib.parse, urllib.request
+          base='https://www.ishares.com/us/products/239707/ishares-russell-1000-etf/1467271812596.ajax'
+          dates=['20060929','20080630','20180629','20220630','20250731']
+          out=[]
+          for d in dates:
+              q=urllib.parse.urlencode({'fileType':'csv','fileName':'IWB_holdings','dataType':'fund','asOfDate':d})
+              req=urllib.request.Request(base+'?'+q,headers={'User-Agent':'Mozilla/5.0 R1000-PIT-research/1.0'})
+              with urllib.request.urlopen(req,timeout=30) as r:
+                  raw=r.read()
+                  status=getattr(r,'status',200)
+                  ctype=r.headers.get('content-type','')
+              text=raw.decode('utf-8-sig','replace')
+              lines=text.splitlines()
+              asof=next((line for line in lines[:15] if 'Fund Holdings as of' in line),None)
+              header_i=next((i for i,line in enumerate(lines) if line.startswith('Ticker,')),None)
+              equities=[]
+              if header_i is not None:
+                  for row in csv.DictReader(io.StringIO('\n'.join(lines[header_i:]))):
+                      if str(row.get('Asset Class','')).strip().lower()=='equity' and str(row.get('Ticker','')).strip():
+                          equities.append(str(row['Ticker']).strip())
+              out.append({'requested':d,'http_status':status,'content_type':ctype,'bytes':len(raw),'asof_line':asof,'header_index':header_i,'equity_count':len(equities),'sample':equities[:10]})
+          print(json.dumps(out,indent=2))
+          assert all(x['equity_count']>900 for x in out), out
+          assert len({x['asof_line'] for x in out})==len(out), out
+          PY
