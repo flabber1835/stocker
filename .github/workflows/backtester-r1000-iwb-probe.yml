@@ -16,7 +16,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Probe historical IWB product-data v2 holdings
+      - name: Probe 2017 historical IWB product-data v2 holdings
         shell: bash
         run: |
           set -euo pipefail
@@ -26,31 +26,35 @@ jobs:
             'https://www.ishares.com/varnish-api/blk-one01-product-data/product-data/api/v2/get-product-data',
             'https://www.blackrock.com/varnish-api/blk-one01-product-data/product-data/api/v2/get-product-data',
           ]
-          dates=['20060929','20080630','20180629','20220630','20250731']
+          dates=[
+            '20161230','20170131','20170228','20170331','20170428','20170531','20170630',
+            '20170731','20170831','20170929','20171031','20171130','20171229','20180131'
+          ]
           out=[]
           for d in dates:
               params={'appType':'PRODUCT_PAGE','appSubType':'ISHARES','targetSite':'us-ishares','locale':'en_US','portfolioId':'239707','userType':'individual','component':'holdings','asOfDate':d}
-              raw=None; used=None; errs=[]
+              row={'requested':d,'ticker_count':0,'asof':None,'bytes':0,'sha256':None,'error':None}
               for base in bases:
                   try:
                       req=urllib.request.Request(base+'?'+urllib.parse.urlencode(params),headers={'User-Agent':'Mozilla/5.0 R1000-PIT-research/1.0','Accept':'application/json'})
                       with urllib.request.urlopen(req,timeout=30) as r: raw=r.read()
-                      used=base; break
-                  except Exception as exc: errs.append(f'{base}: {type(exc).__name__}: {exc}')
-              if raw is None: raise RuntimeError('; '.join(errs))
-              payload=json.loads(raw.decode('utf-8-sig'))
-              dp=payload['componentsByNameMap']['holdings']['containersByNameMap']['all']['dataPointsByNameMap']
-              def vals(name):
-                  x=dp.get(name,{})
-                  v=x.get('value')
-                  if isinstance(v,list): return v
-                  v=x.get('formattedValue')
-                  return v if isinstance(v,list) else []
-              tickers=[str(x).strip() for x in vals('ticker') if str(x).strip() not in ('','-')]
-              asof=(dp.get('asOfDate') or {}).get('value') or (dp.get('asOfDate') or {}).get('formattedValue') or d
-              out.append({'requested':d,'source':used,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest(),'asof':str(asof),'ticker_count':len(tickers),'sample':tickers[:10]})
+                      payload=json.loads(raw.decode('utf-8-sig'))
+                      dp=payload['componentsByNameMap']['holdings']['containersByNameMap']['all']['dataPointsByNameMap']
+                      def vals(name):
+                          x=dp.get(name,{})
+                          v=x.get('value')
+                          if isinstance(v,list): return v
+                          v=x.get('formattedValue')
+                          return v if isinstance(v,list) else []
+                      tickers=[str(x).strip() for x in vals('ticker') if str(x).strip() not in ('','-')]
+                      asof=(dp.get('asOfDate') or {}).get('value') or (dp.get('asOfDate') or {}).get('formattedValue')
+                      row.update({'source':base,'ticker_count':len(tickers),'asof':str(asof) if asof else None,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest()})
+                      break
+                  except Exception as exc:
+                      row['error']=f'{type(exc).__name__}: {exc}'
+              out.append(row)
           print(json.dumps(out,indent=2))
-          assert len({x['sha256'] for x in out})==len(out), out
-          assert all(x['ticker_count']>900 for x in out), out
-          assert len({x['asof'] for x in out})==len(out), out
+          available=[x for x in out if x['ticker_count']>900]
+          assert available and available[0]['requested']=='20161230', out
+          assert any(x['requested']>'20161230' and x['ticker_count']>900 for x in out), out
           PY
