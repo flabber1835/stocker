@@ -16,34 +16,41 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 15
     steps:
-      - name: Probe historical IWB holdings
+      - name: Probe historical IWB product-data v2 holdings
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
           import hashlib, json, urllib.parse, urllib.request
-          base='https://www.ishares.com/us/products/239707/ishares-russell-1000-etf/1467271812596.ajax'
+          bases=[
+            'https://www.ishares.com/varnish-api/blk-one01-product-data/product-data/api/v2/get-product-data',
+            'https://www.blackrock.com/varnish-api/blk-one01-product-data/product-data/api/v2/get-product-data',
+          ]
           dates=['20060929','20080630','20180629','20220630','20250731']
           out=[]
           for d in dates:
-              q=urllib.parse.urlencode({'fileType':'json','tab':'all','asOfDate':d})
-              req=urllib.request.Request(base+'?'+q,headers={'User-Agent':'Mozilla/5.0 R1000-PIT-research/1.0','Accept':'application/json,text/plain,*/*'})
-              with urllib.request.urlopen(req,timeout=30) as r:
-                  raw=r.read(); status=getattr(r,'status',200); ctype=r.headers.get('content-type','')
-              sha=hashlib.sha256(raw).hexdigest()
-              prefix=raw[:180].decode('utf-8-sig','replace')
-              parsed=None; rows=None; asof=None
-              try:
-                  parsed=json.loads(raw.decode('utf-8-sig'))
-                  if isinstance(parsed,dict):
-                      rows=parsed.get('aaData') or parsed.get('data')
-                      asof=parsed.get('asOfDate') or parsed.get('as_of_date')
-                  elif isinstance(parsed,list):
-                      rows=parsed
-              except Exception as exc:
-                  parsed=f'{type(exc).__name__}: {exc}'
-              out.append({'requested':d,'http_status':status,'content_type':ctype,'bytes':len(raw),'sha256':sha,'json_type':type(parsed).__name__,'row_count':len(rows) if isinstance(rows,list) else None,'asof':asof,'prefix':prefix})
+              params={'appType':'PRODUCT_PAGE','appSubType':'ISHARES','targetSite':'us-ishares','locale':'en_US','portfolioId':'239707','userType':'individual','component':'holdings','asOfDate':d}
+              raw=None; used=None; errs=[]
+              for base in bases:
+                  try:
+                      req=urllib.request.Request(base+'?'+urllib.parse.urlencode(params),headers={'User-Agent':'Mozilla/5.0 R1000-PIT-research/1.0','Accept':'application/json'})
+                      with urllib.request.urlopen(req,timeout=30) as r: raw=r.read()
+                      used=base; break
+                  except Exception as exc: errs.append(f'{base}: {type(exc).__name__}: {exc}')
+              if raw is None: raise RuntimeError('; '.join(errs))
+              payload=json.loads(raw.decode('utf-8-sig'))
+              dp=payload['componentsByNameMap']['holdings']['containersByNameMap']['all']['dataPointsByNameMap']
+              def vals(name):
+                  x=dp.get(name,{})
+                  v=x.get('value')
+                  if isinstance(v,list): return v
+                  v=x.get('formattedValue')
+                  return v if isinstance(v,list) else []
+              tickers=[str(x).strip() for x in vals('ticker') if str(x).strip() not in ('','-')]
+              asof=(dp.get('asOfDate') or {}).get('value') or (dp.get('asOfDate') or {}).get('formattedValue') or d
+              out.append({'requested':d,'source':used,'bytes':len(raw),'sha256':hashlib.sha256(raw).hexdigest(),'asof':str(asof),'ticker_count':len(tickers),'sample':tickers[:10]})
           print(json.dumps(out,indent=2))
           assert len({x['sha256'] for x in out})==len(out), out
-          assert all((x['row_count'] or 0)>900 for x in out), out
+          assert all(x['ticker_count']>900 for x in out), out
+          assert len({x['asof'] for x in out})==len(out), out
           PY
