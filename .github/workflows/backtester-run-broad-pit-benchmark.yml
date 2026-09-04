@@ -1,0 +1,185 @@
+name: Backtester - frozen broad PIT benchmark
+run-name: Frozen broad PIT benchmark — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-run-broad-pit-benchmark.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OUT_DIR: backtester-results/broad-pit-benchmark
+
+jobs:
+  benchmark:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact benchmark head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-run-broad-pit-benchmark.yml
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Compile frozen benchmark harness
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/run_research_ldrc_corrected_warmup_cash.py \
+            backtester/run_research_ldrc_nonpit_vs_fullpit.py \
+            backtester/experiments/2026-08-27-sector-abc/run.py
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat \
+            sharadar/SFP/SHARADAR_SFP.zip.001 \
+            sharadar/SFP/SHARADAR_SFP.zip.002 \
+            sharadar/SFP/SHARADAR_SFP.zip.003 \
+            sharadar/SFP/SHARADAR_SFP.zip.004 \
+            > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Verify required PIT authorities
+        run: |
+          set -euo pipefail
+          test -f 'PIT input data/ACTIONS_PIT_ONLY.csv.gz'
+          test -f research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+          test -f research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+          test -f sharadar/SHARADAR_TICKERS.zip
+          test -f sharadar/SHARADAR_SEP_1997.csv.gz
+          test -f sharadar/SHARADAR_SEP_2026.csv.gz
+          test "$(sha256sum backtester/data/GS3M_1996-12_2007-05.csv | awk '{print $1}')" = "1c1dbdcddd50c2445f8c65d1378d3d2bc87626fe2dc9b9956bc0cd97682a72d3"
+
+      - name: Run frozen broad-universe full-PIT replay
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.run_research_ldrc_corrected_warmup_cash \
+            --mode fullpit \
+            --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Validate 5 10 15 20 and Max results
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          import pandas as pd
+
+          root=Path(os.environ['OUT_DIR'])
+          summary=json.loads((root/'summary.json').read_text())
+          metrics=pd.read_csv(root/'metrics.csv',dtype={'window_years':str})
+          daily=pd.read_csv(root/'daily.csv.gz',compression='gzip')
+
+          assert summary['status']=='PASS'
+          assert summary['mode']=='fullpit'
+          assert summary['full_stack_pit'] is True
+          assert summary['research_embedded_commit']=='c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c'
+          assert set(metrics.window_years.astype(str))=={'5','10','15','20','max'}
+          assert set(metrics.variant.astype(str))=={'RESEARCH','SPY'}
+          assert str(daily.iloc[0]['date'])=='1998-01-02'
+          assert str(daily.iloc[-1]['date'])=='2026-07-31'
+
+          # Reproducibility witness from the prior independent forensic replay.
+          expected={
+            '5': 0.276403,
+            '10': 0.248229,
+            '15': 0.208580,
+            '20': 0.204861,
+            'max': 0.200653,
+          }
+          r=metrics[metrics.variant.eq('RESEARCH')].set_index('window_years')
+          for w,v in expected.items():
+              got=float(r.loc[w,'cagr'])
+              assert abs(got-v) < 5e-7, (w,got,v)
+
+          manifest={
+            'status':'PASS',
+            'benchmark':'frozen_broad_universe_full_pit_ldrc',
+            'github_sha':os.environ['GITHUB_SHA'],
+            'strategy_embedded_commit':summary['research_embedded_commit'],
+            'measurement_start':'1998-01-02',
+            'measurement_end':'2026-07-31',
+            'warmup_start':'1997-01-02',
+            'formal_pit_certified':False,
+            'evidence_class':'broad full-stack PIT research estimate',
+            'limitations':[
+              'current TICKERS common-stock/category seam retained under prior zero-delta/equivalence evidence',
+              'this is a research benchmark, not the final certified golden corpus'
+            ],
+            'metrics':metrics.to_dict(orient='records'),
+          }
+          (root/'benchmark-manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          with (root/'SHA256SUMS.txt').open('a') as fh:
+              p=root/'benchmark-manifest.json'
+              fh.write(f"{hashlib.sha256(p.read_bytes()).hexdigest()}  {p.name}\n")
+
+          print(metrics.to_string(index=False))
+          print(json.dumps(manifest,indent=2,sort_keys=True))
+          PY
+          (cd "$OUT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Publish benchmark summary
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import pandas as pd
+          m=pd.read_csv(Path(os.environ['OUT_DIR'])/'metrics.csv',dtype={'window_years':str})
+          r=m[m.variant.eq('RESEARCH')].set_index('window_years')
+          s=m[m.variant.eq('SPY')].set_index('window_years')
+          labels=['5','10','15','20','max']
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Frozen broad-universe full-PIT LD-RC benchmark\n\n')
+              f.write('| Window | LD-RC CAGR | SPY CAGR | LD-RC Max DD | Sharpe | Ending multiple |\n')
+              f.write('|---|---:|---:|---:|---:|---:|\n')
+              for w in labels:
+                  f.write(f"| {w.upper() if w=='max' else w+' yr'} | {r.loc[w,'cagr']:.2%} | {s.loc[w,'cagr']:.2%} | {r.loc[w,'max_drawdown']:.2%} | {r.loc[w,'sharpe']:.3f} | {r.loc[w,'ending_multiple']:.2f}x |\n")
+          PY
+
+      - name: Upload immutable broad PIT benchmark bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: broad-pit-benchmark-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
