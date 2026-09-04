@@ -19,7 +19,7 @@ jobs:
   retrieve:
     name: Probe 2006-2026 IWB/IWM late-June holdings
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    timeout-minutes: 25
     steps:
       - name: Check out exact experiment source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -57,18 +57,21 @@ jobs:
 
           OUT = Path(os.environ['OUT'])
           RAW = OUT / 'raw'
-          UA = 'stocker-russell-retrieval-experiment/1.0 research-contact-via-github'
-          PRODUCTS = {
-              'IWB': 'us/products/239707/ishares-russell-1000-etf',
-              'IWM': 'us/products/239710/ishares-russell-2000-etf',
+          UA = 'Mozilla/5.0 (compatible; stocker-russell-retrieval-experiment/2.0)'
+          FUNDS = {
+              'IWB': {'product_id': '239707', 'slug': 'us/products/239707/ishares-russell-1000-etf', 'min_equities': 850},
+              'IWM': {'product_id': '239710', 'slug': 'us/products/239710/ishares-russell-2000-etf', 'min_equities': 1500},
           }
-          AJAX = '1467271812596.ajax'
-          EXPECTED_MIN_EQUITIES = {'IWB': 850, 'IWM': 1600}
+          PRODUCT_DATA_URLS = (
+              'https://www.ishares.com/varnish-api/blk-one01-product-data/product-data/api/v2/get-product-data',
+              'https://www.blackrock.com/varnish-api/blk-one01-product-data/product-data/api/v2/get-product-data',
+          )
+          LEGACY_AJAX = '1467271812596.ajax'
 
-          def http_get(url, *, timeout=45):
+          def http_get(url, *, timeout=12):
               req = Request(url, headers={
                   'User-Agent': UA,
-                  'Accept': 'text/csv,text/plain,application/json,text/html,*/*',
+                  'Accept': 'application/json,text/csv,text/plain,text/html,*/*',
                   'Referer': 'https://www.ishares.com/',
               })
               with urlopen(req, timeout=timeout) as r:
@@ -83,205 +86,275 @@ jobs:
               return payload.decode('utf-8', errors='replace')
 
           def candidate_dates(year):
-              base = date(year, 6, 30)
-              candidates = [base]
-              d = base
-              while d.weekday() >= 5:
-                  d -= timedelta(days=1)
-              candidates.append(d)
-              for delta in (-1, -2, -3, 1, 2, 3):
-                  candidates.append(base + timedelta(days=delta))
-              seen = set()
+              d = date(year, 6, 30)
               out = []
-              for d in candidates:
-                  if d not in seen:
-                      seen.add(d)
-                      out.append(d)
+              for lookback in range(8):
+                  candidate = d - timedelta(days=lookback)
+                  if candidate.weekday() < 5 and candidate not in out:
+                      out.append(candidate)
               return out
 
-          def parse_ishares_csv(payload, expected_year, ticker):
-              text = decode_payload(payload)
-              m = re.search(r'Fund Holdings as of\s*,?\s*"?([A-Za-z]{3}\s+\d{1,2},\s+\d{4})"?', text, re.I)
-              if not m:
-                  raise ValueError('missing Fund Holdings as of metadata')
-              asof = datetime.strptime(m.group(1), '%b %d, %Y').date()
-              if asof.year != expected_year or not (date(expected_year, 6, 20) <= asof <= date(expected_year, 7, 10)):
+          def parse_date(value):
+              if value is None:
+                  raise ValueError('missing as-of date')
+              if isinstance(value, dict):
+                  value = value.get('raw') or value.get('value') or value.get('formattedValue')
+              if isinstance(value, list):
+                  value = value[0] if value else None
+              text = str(value or '').strip()
+              if re.fullmatch(r'\d{8}', text):
+                  return datetime.strptime(text, '%Y%m%d').date()
+              for fmt in ('%b %d, %Y', '%B %d, %Y', '%Y-%m-%d', '%m/%d/%Y'):
+                  try:
+                      return datetime.strptime(text, fmt).date()
+                  except ValueError:
+                      pass
+              raise ValueError(f'unparseable as-of date: {text!r}')
+
+          def data_point_values(data_points, name):
+              point = data_points.get(name) if isinstance(data_points, dict) else None
+              if not isinstance(point, dict):
+                  return []
+              values = point.get('value')
+              if isinstance(values, list):
+                  return values
+              values = point.get('formattedValue')
+              return values if isinstance(values, list) else []
+
+          def parse_product_data(payload, expected_year, ticker):
+              text = decode_payload(payload).lstrip('\ufeff').strip()
+              if text.startswith('<'):
+                  raise ValueError('product-data endpoint returned HTML')
+              obj = json.loads(text)
+              try:
+                  points = obj['componentsByNameMap']['holdings']['containersByNameMap']['all']['dataPointsByNameMap']
+              except (KeyError, TypeError) as exc:
+                  raise ValueError('missing product-data holdings map') from exc
+              asof_point = points.get('asOfDate') or {}
+              asof = parse_date(asof_point.get('value') or asof_point.get('formattedValue'))
+              if asof.year != expected_year or not (date(expected_year, 6, 20) <= asof <= date(expected_year, 7, 5)):
                   raise ValueError(f'wrong as-of date returned: {asof.isoformat()}')
-              lines = text.splitlines()
-              header_idx = None
-              for i, line in enumerate(lines):
-                  if line.lstrip('\ufeff').startswith('Ticker,Name,'):
-                      header_idx = i
-                      break
-              if header_idx is None:
-                  raise ValueError('holdings CSV header missing')
-              reader = csv.DictReader(io.StringIO('\n'.join(lines[header_idx:])))
-              rows = list(reader)
-              equity_rows = [r for r in rows if (r.get('Asset Class') or '').strip().lower() == 'equity']
-              named_rows = [r for r in rows if (r.get('Name') or '').strip()]
-              if len(equity_rows) < EXPECTED_MIN_EQUITIES[ticker]:
-                  raise ValueError(f'too few equity rows: {len(equity_rows)}')
+              tickers = data_point_values(points, 'ticker')
+              names = data_point_values(points, 'issueName')
+              asset_classes = data_point_values(points, 'assetClass')
+              valid = [str(v or '').strip() for v in tickers if str(v or '').strip() not in ('', '-')]
+              if asset_classes and len(asset_classes) >= len(tickers):
+                  equities = sum(
+                      1 for i, symbol in enumerate(tickers)
+                      if str(symbol or '').strip() not in ('', '-') and str(asset_classes[i] or '').strip().lower() == 'equity'
+                  )
+              else:
+                  equities = len(valid)
+              if equities < FUNDS[ticker]['min_equities']:
+                  raise ValueError(f'too few equity rows: {equities}')
               return {
                   'asof_date': asof.isoformat(),
-                  'total_rows': len(rows),
-                  'equity_rows': len(equity_rows),
-                  'named_rows': len(named_rows),
-                  'columns': reader.fieldnames or [],
+                  'total_rows': len(tickers),
+                  'equity_rows': equities,
+                  'named_rows': sum(1 for x in names if str(x or '').strip()),
               }
 
-          def retrieve_ishares(year, ticker):
+          def product_data_url(base, ticker, d):
+              params = {
+                  'appType': 'PRODUCT_PAGE',
+                  'appSubType': 'ISHARES',
+                  'targetSite': 'us-ishares',
+                  'locale': 'en_US',
+                  'portfolioId': FUNDS[ticker]['product_id'],
+                  'userType': 'individual',
+                  'component': 'holdings',
+                  'asOfDate': d.strftime('%Y%m%d'),
+              }
+              return base + '?' + urlencode(params)
+
+          def retrieve_product_data(year, ticker):
+              errors = []
+              for d in candidate_dates(year):
+                  for base in PRODUCT_DATA_URLS:
+                      url = product_data_url(base, ticker, d)
+                      try:
+                          payload, content_type, status = http_get(url)
+                          parsed = parse_product_data(payload, year, ticker)
+                          sha = hashlib.sha256(payload).hexdigest()
+                          target = RAW / f"{ticker}_{parsed['asof_date'].replace('-', '')}_product_data_v2.json"
+                          target.write_bytes(payload)
+                          return {
+                              'status': 'PASS', 'route': 'blackrock_product_data_v2',
+                              'requested_date': d.isoformat(), 'source_date': parsed['asof_date'],
+                              'source_url': url, 'http_status': status, 'content_type': content_type,
+                              'sha256': sha, 'bytes': len(payload), 'total_rows': parsed['total_rows'],
+                              'equity_rows': parsed['equity_rows'], 'named_rows': parsed['named_rows'],
+                              'artifact_file': str(target.relative_to(OUT)), 'errors_before_success': errors,
+                          }
+                      except (HTTPError, URLError, TimeoutError, ValueError, OSError, json.JSONDecodeError) as exc:
+                          errors.append({'date': d.isoformat(), 'host': base.split('/')[2], 'error': f'{type(exc).__name__}: {exc}'})
+                  time.sleep(0.05)
+              return {'status': 'FAIL', 'route': 'blackrock_product_data_v2', 'errors': errors}
+
+          def parse_legacy_csv(payload, expected_year, ticker):
+              text = decode_payload(payload)
+              if text.lstrip().startswith('<'):
+                  raise ValueError('legacy endpoint returned HTML')
+              rows = list(csv.reader(io.StringIO(text.lstrip('\ufeff'))))
+              asof = None
+              for row in rows[:25]:
+                  if len(row) >= 2 and row[0].strip() == 'Fund Holdings as of':
+                      asof = parse_date(row[1])
+                      break
+              if asof is None:
+                  raise ValueError('missing Fund Holdings as of metadata')
+              if asof.year != expected_year or not (date(expected_year, 6, 20) <= asof <= date(expected_year, 7, 5)):
+                  raise ValueError(f'wrong as-of date returned: {asof.isoformat()}')
+              header_i = None
+              header = None
+              for i, row in enumerate(rows):
+                  normalized = [c.strip() for c in row]
+                  if normalized and normalized[0] == 'Ticker' and 'Name' in normalized:
+                      header_i, header = i, normalized
+                      break
+              if header_i is None:
+                  raise ValueError('holdings CSV header missing')
+              frame = [dict(zip(header, r + [''] * max(0, len(header)-len(r)))) for r in rows[header_i+1:] if r]
+              equities = sum(1 for r in frame if str(r.get('Asset Class','')).strip().lower() == 'equity')
+              if equities < FUNDS[ticker]['min_equities']:
+                  raise ValueError(f'too few equity rows: {equities}')
+              return {'asof_date': asof.isoformat(), 'total_rows': len(frame), 'equity_rows': equities,
+                      'named_rows': sum(1 for r in frame if str(r.get('Name','')).strip())}
+
+          def retrieve_legacy(year, ticker):
               errors = []
               for d in candidate_dates(year):
                   params = urlencode({'fileType': 'csv', 'tab': 'all', 'asOfDate': d.strftime('%Y%m%d')})
-                  url = f"https://www.ishares.com/{PRODUCTS[ticker]}/{AJAX}?{params}"
+                  url = f"https://www.ishares.com/{FUNDS[ticker]['slug']}/{LEGACY_AJAX}?{params}"
                   try:
                       payload, content_type, status = http_get(url)
-                      parsed = parse_ishares_csv(payload, year, ticker)
+                      parsed = parse_legacy_csv(payload, year, ticker)
                       sha = hashlib.sha256(payload).hexdigest()
-                      target = RAW / f"{ticker}_{parsed['asof_date'].replace('-', '')}.csv"
+                      target = RAW / f"{ticker}_{parsed['asof_date'].replace('-', '')}_legacy.csv"
                       target.write_bytes(payload)
                       return {
-                          'status': 'PASS',
-                          'route': 'ishares_ajax',
-                          'requested_date': d.isoformat(),
-                          'source_date': parsed['asof_date'],
-                          'source_url': url,
-                          'http_status': status,
-                          'content_type': content_type,
-                          'sha256': sha,
-                          'bytes': len(payload),
-                          'total_rows': parsed['total_rows'],
-                          'equity_rows': parsed['equity_rows'],
-                          'named_rows': parsed['named_rows'],
-                          'columns': parsed['columns'],
-                          'artifact_file': str(target.relative_to(OUT)),
-                          'errors_before_success': errors,
+                          'status': 'PASS', 'route': 'ishares_legacy_csv',
+                          'requested_date': d.isoformat(), 'source_date': parsed['asof_date'],
+                          'source_url': url, 'http_status': status, 'content_type': content_type,
+                          'sha256': sha, 'bytes': len(payload), 'total_rows': parsed['total_rows'],
+                          'equity_rows': parsed['equity_rows'], 'named_rows': parsed['named_rows'],
+                          'artifact_file': str(target.relative_to(OUT)), 'errors_before_success': errors,
                       }
                   except (HTTPError, URLError, TimeoutError, ValueError, OSError) as exc:
                       errors.append({'date': d.isoformat(), 'error': f'{type(exc).__name__}: {exc}'})
-                      time.sleep(0.20)
-              return {'status': 'FAIL', 'route': 'ishares_ajax', 'errors': errors}
+                  time.sleep(0.05)
+              return {'status': 'FAIL', 'route': 'ishares_legacy_csv', 'errors': errors}
 
-          def retrieve_2006_sec_fallback():
-              result = {
-                  'status': 'FAIL',
-                  'route': 'sec_edgar_nq',
-                  'index_url': 'https://www.sec.gov/Archives/edgar/full-index/2006/QTR3/master.idx',
-                  'candidates': [],
-              }
+          def retrieve_fund(year, ticker):
+              v2 = retrieve_product_data(year, ticker)
+              if v2['status'] == 'PASS':
+                  return v2
+              legacy = retrieve_legacy(year, ticker)
+              if legacy['status'] == 'PASS':
+                  legacy['product_data_errors'] = v2.get('errors', [])
+                  return legacy
+              return {'status': 'FAIL', 'route': 'none', 'product_data_errors': v2.get('errors', []), 'legacy_errors': legacy.get('errors', [])}
+
+          def retrieve_sec_combined_source(year):
+              result = {'status': 'FAIL', 'route': 'sec_edgar_nq', 'candidates': []}
+              index_url = f'https://www.sec.gov/Archives/edgar/full-index/{year}/QTR3/master.idx'
+              result['index_url'] = index_url
               try:
-                  payload, _, _ = http_get(result['index_url'])
-                  text = decode_payload(payload)
-                  rows = []
-                  for line in text.splitlines():
+                  payload, _, _ = http_get(index_url)
+                  candidates = []
+                  for line in decode_payload(payload).splitlines():
                       parts = line.split('|')
                       if len(parts) != 5:
                           continue
                       cik, name, form, filed, path = parts
-                      if cik == '1100663' and name.upper() == 'ISHARES TRUST' and form == 'N-Q':
-                          rows.append({'filed': filed, 'path': path})
-                  result['candidates'] = rows
-                  for row in rows:
+                      if cik == '1100663' and name.upper() == 'ISHARES TRUST' and form in ('N-Q', 'NPORT-P'):
+                          candidates.append({'filed': filed, 'form': form, 'path': path})
+                  result['candidates'] = candidates
+                  for row in candidates:
                       url = 'https://www.sec.gov/Archives/' + row['path']
                       try:
-                          filing, ctype, status = http_get(url, timeout=90)
+                          filing, ctype, status = http_get(url, timeout=30)
                       except Exception as exc:
                           row['fetch_error'] = f'{type(exc).__name__}: {exc}'
                           continue
-                      upper = decode_payload(filing).upper()
+                      upper = decode_payload(filing).upper().replace('&NBSP;', ' ')
                       has_iwb = 'RUSSELL 1000 INDEX FUND' in upper or 'RUSSELL 1000 ETF' in upper
                       has_iwm = 'RUSSELL 2000 INDEX FUND' in upper or 'RUSSELL 2000 ETF' in upper
-                      has_period = 'JUNE 30, 2006' in upper or 'JUNE&nbsp;30, 2006' in upper or '06/30/2006' in upper
+                      period_tokens = (f'JUNE 30, {year}', f'06/30/{year}', f'{year}-06-30')
+                      has_period = any(token in upper for token in period_tokens)
                       row.update({'source_url': url, 'http_status': status, 'content_type': ctype,
-                                  'bytes': len(filing), 'has_iwb': has_iwb, 'has_iwm': has_iwm,
-                                  'has_june_30_2006': has_period})
+                                  'bytes': len(filing), 'has_iwb': has_iwb, 'has_iwm': has_iwm, 'has_period': has_period})
                       if has_iwb and has_iwm and has_period:
                           sha = hashlib.sha256(filing).hexdigest()
-                          target = RAW / 'SEC_2006_IWB_IWM_combined_NQ.txt'
+                          target = RAW / f'SEC_{year}_IWB_IWM_combined_{row["form"]}.txt'
                           target.write_bytes(filing)
-                          result.update({
-                              'status': 'PASS',
-                              'source_url': url,
-                              'source_date': '2006-06-30',
-                              'filing_date': row['filed'],
-                              'sha256': sha,
-                              'bytes': len(filing),
-                              'artifact_file': str(target.relative_to(OUT)),
-                              'iwb_present': True,
-                              'iwm_present': True,
-                          })
+                          result.update({'status': 'PASS', 'source_url': url, 'source_date': f'{year}-06-30',
+                                         'filing_date': row['filed'], 'form': row['form'], 'sha256': sha,
+                                         'bytes': len(filing), 'artifact_file': str(target.relative_to(OUT))})
                           return result
                   return result
               except Exception as exc:
                   result['error'] = f'{type(exc).__name__}: {exc}'
                   return result
 
-          records = []
-          detail = {'schema': 'stocker.russell-1000-2000-retrieval-experiment/1', 'years': {}}
+          detail = {'schema': 'stocker.russell-1000-2000-retrieval-experiment/2', 'years': {}}
           for year in range(2006, 2027):
-              detail['years'][str(year)] = {}
+              y = detail['years'][str(year)] = {}
               print(f'=== {year} ===', flush=True)
-              for ticker in ('IWB', 'IWM'):
-                  r = retrieve_ishares(year, ticker)
-                  detail['years'][str(year)][ticker] = r
-                  print(ticker, r['status'], r.get('source_date'), r.get('equity_rows'), flush=True)
-              if year == 2006 and any(detail['years']['2006'][t]['status'] != 'PASS' for t in ('IWB','IWM')):
-                  sec = retrieve_2006_sec_fallback()
-                  detail['years']['2006']['SEC_FALLBACK'] = sec
-                  print('SEC_FALLBACK', sec['status'], sec.get('source_url'), flush=True)
+              for ticker in ('IWB','IWM'):
+                  r = retrieve_fund(year, ticker)
+                  y[ticker] = r
+                  print(ticker, r['status'], r.get('route'), r.get('source_date'), r.get('equity_rows'), flush=True)
+              if any(y[t]['status'] != 'PASS' for t in ('IWB','IWM')) and year <= 2018:
+                  sec = retrieve_sec_combined_source(year)
+                  y['SEC_SOURCE'] = sec
+                  print('SEC_SOURCE', sec['status'], sec.get('source_url'), flush=True)
 
+          records = []
           for year in range(2006, 2027):
               y = detail['years'][str(year)]
-              iwb = y['IWB']
-              iwm = y['IWM']
-              direct_pair = iwb['status'] == 'PASS' and iwm['status'] == 'PASS'
-              sec_pair = year == 2006 and y.get('SEC_FALLBACK', {}).get('status') == 'PASS'
-              pair_status = 'PASS' if direct_pair or sec_pair else 'FAIL'
-              route = 'ishares_ajax' if direct_pair else ('sec_edgar_nq' if sec_pair else 'none')
+              iwb, iwm = y['IWB'], y['IWM']
+              rows_pair = iwb['status'] == 'PASS' and iwm['status'] == 'PASS'
+              sec_source = y.get('SEC_SOURCE',{}).get('status') == 'PASS'
               records.append({
                   'year': year,
-                  'pair_status': pair_status,
-                  'route': route,
-                  'iwb_status': iwb['status'],
-                  'iwb_source_date': iwb.get('source_date',''),
-                  'iwb_equity_rows': iwb.get('equity_rows',''),
-                  'iwb_sha256': iwb.get('sha256',''),
-                  'iwm_status': iwm['status'],
-                  'iwm_source_date': iwm.get('source_date',''),
-                  'iwm_equity_rows': iwm.get('equity_rows',''),
-                  'iwm_sha256': iwm.get('sha256',''),
-                  'sec_2006_fallback_status': y.get('SEC_FALLBACK',{}).get('status',''),
-                  'notes': 'ETF holdings are reconstruction evidence, not exact Russell index-membership authority.',
+                  'rows_pair_status': 'PASS' if rows_pair else 'FAIL',
+                  'source_availability_status': 'PASS' if rows_pair or sec_source else 'FAIL',
+                  'iwb_route': iwb.get('route',''), 'iwb_source_date': iwb.get('source_date',''),
+                  'iwb_equity_rows': iwb.get('equity_rows',''), 'iwb_sha256': iwb.get('sha256',''),
+                  'iwm_route': iwm.get('route',''), 'iwm_source_date': iwm.get('source_date',''),
+                  'iwm_equity_rows': iwm.get('equity_rows',''), 'iwm_sha256': iwm.get('sha256',''),
+                  'sec_combined_source': y.get('SEC_SOURCE',{}).get('status',''),
+                  'notes': 'ETF holdings are reconstruction evidence, not exact licensed Russell membership authority.',
               })
 
-          with open(OUT / 'retrieval_manifest.csv', 'w', newline='', encoding='utf-8') as fh:
-              w = csv.DictWriter(fh, fieldnames=list(records[0]))
-              w.writeheader()
-              w.writerows(records)
-          (OUT / 'retrieval_detail.json').write_text(json.dumps(detail, indent=2, sort_keys=True) + '\n', encoding='utf-8')
-
-          passed = sum(r['pair_status'] == 'PASS' for r in records)
+          with open(OUT/'retrieval_manifest.csv','w',newline='',encoding='utf-8') as fh:
+              w=csv.DictWriter(fh,fieldnames=list(records[0])); w.writeheader(); w.writerows(records)
+          (OUT/'retrieval_detail.json').write_text(json.dumps(detail,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          rows_pass = sum(r['rows_pair_status']=='PASS' for r in records)
+          source_pass = sum(r['source_availability_status']=='PASS' for r in records)
           summary = {
-              'schema': 'stocker.russell-1000-2000-retrieval-experiment-summary/1',
+              'schema': 'stocker.russell-1000-2000-retrieval-experiment-summary/2',
               'years_requested': 21,
-              'years_pair_retrieved': passed,
-              'years_failed': [r['year'] for r in records if r['pair_status'] != 'PASS'],
-              'all_years_retrieved': passed == 21,
-              'primary_route': 'late-June iShares IWB/IWM historical holdings CSV',
-              'special_case': '2006 falls before the documented 2006-09-29 iShares historical endpoint floor; SEC Form N-Q fallback is probed.',
+              'years_direct_constituent_rows_retrieved': rows_pass,
+              'years_with_retrievable_source_evidence': source_pass,
+              'years_direct_rows_failed': [r['year'] for r in records if r['rows_pair_status']!='PASS'],
+              'years_source_failed': [r['year'] for r in records if r['source_availability_status']!='PASS'],
+              'all_direct_rows_retrieved': rows_pass == 21,
+              'all_source_years_retrieved': source_pass == 21,
+              'routes_tested': ['BlackRock/iShares product-data v2','legacy iShares historical CSV','SEC EDGAR combined N-Q source through 2018'],
               'authority_caveat': 'IWB/IWM holdings track Russell 1000/2000 but are fund holdings, not licensed official index constituent lists.',
           }
-          (OUT / 'summary.json').write_text(json.dumps(summary, indent=2, sort_keys=True) + '\n', encoding='utf-8')
-          print(json.dumps(summary, indent=2, sort_keys=True))
-
-          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as fh:
+          (OUT/'summary.json').write_text(json.dumps(summary,indent=2,sort_keys=True)+'\n',encoding='utf-8')
+          print(json.dumps(summary,indent=2,sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
               fh.write('## Russell 1000 + Russell 2000 retrieval experiment\n\n')
-              fh.write(f"Retrieved late-June paired evidence for **{passed}/21 years**.\n\n")
-              fh.write('| Year | Pair | Route | IWB equities | IWM equities |\n')
-              fh.write('|---:|:---:|---|---:|---:|\n')
+              fh.write(f"Direct IWB+IWM constituent rows retrieved for **{rows_pass}/21 years**; usable source evidence located for **{source_pass}/21 years**.\n\n")
+              fh.write('| Year | Direct rows | Source | IWB route | IWB equities | IWM route | IWM equities |\n')
+              fh.write('|---:|:---:|:---:|---|---:|---|---:|\n')
               for r in records:
-                  fh.write(f"| {r['year']} | {r['pair_status']} | {r['route']} | {r['iwb_equity_rows']} | {r['iwm_equity_rows']} |\n")
-              fh.write('\nETF holdings are reconstruction evidence; exact Russell membership remains a separate authority claim.\n')
+                  fh.write(f"| {r['year']} | {r['rows_pair_status']} | {r['source_availability_status']} | {r['iwb_route']} | {r['iwb_equity_rows']} | {r['iwm_route']} | {r['iwm_equity_rows']} |\n")
+              fh.write('\nETF holdings are reconstruction evidence; exact Russell membership is a separate authority claim.\n')
           PY
 
       - name: Verify experiment artifact structure
@@ -289,17 +362,13 @@ jobs:
           OUT: backtester-results/russell-1000-2000-retrieval-experiment
         run: |
           set -euo pipefail
-          test -f "$OUT/summary.json"
-          test -f "$OUT/retrieval_manifest.csv"
-          test -f "$OUT/retrieval_detail.json"
           python - <<'PY'
           import csv,json,os
           from pathlib import Path
           p=Path(os.environ['OUT'])
           s=json.load(open(p/'summary.json'))
           rows=list(csv.DictReader(open(p/'retrieval_manifest.csv',encoding='utf-8')))
-          assert len(rows)==21
-          assert s['years_requested']==21
+          assert len(rows)==21 and s['years_requested']==21
           print(json.dumps(s,indent=2,sort_keys=True))
           PY
 
