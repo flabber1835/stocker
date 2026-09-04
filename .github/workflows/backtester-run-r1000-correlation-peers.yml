@@ -14,6 +14,7 @@ permissions:
 env:
   MEMBERSHIP_DIR: backtester-results/r1000-membership
   OUT_DIR: backtester-results/r1000-correlation-peers
+  R1000_MAX_STALENESS_DAYS: '62'
 
 jobs:
   backtest:
@@ -32,6 +33,7 @@ jobs:
             /.github/workflows/backtester-run-r1000-correlation-peers.yml
             /backtester/R1000_IDEA.md
             /backtester/build_r1000_iwb_membership_sep.py
+            /backtester/build_r1000_iwb_membership_gap_safe.py
             /backtester/run_r1000_correlation_peers.py
             /backtester/run_r1000_correlation_peers_v2.py
             /backtester/run_research_ldrc_corrected_warmup_cash.py
@@ -58,6 +60,7 @@ jobs:
           set -euo pipefail
           python -m py_compile \
             backtester/build_r1000_iwb_membership_sep.py \
+            backtester/build_r1000_iwb_membership_gap_safe.py \
             backtester/run_r1000_correlation_peers.py \
             backtester/run_r1000_correlation_peers_v2.py \
             backtester/run_research_ldrc_corrected_warmup_cash.py \
@@ -81,7 +84,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf "$MEMBERSHIP_DIR" && mkdir -p "$MEMBERSHIP_DIR"
-          python -m backtester.build_r1000_iwb_membership_sep \
+          python -m backtester.build_r1000_iwb_membership_gap_safe \
             --tickers sharadar/SHARADAR_TICKERS.zip \
             --sep-root sharadar \
             --output "$MEMBERSHIP_DIR" \
@@ -119,6 +122,7 @@ jobs:
           assert ms['first_as_of']=='2006-09-29'
           assert ms['snapshot_count'] >= 230
           assert ms['minimum_mapping_coverage'] >= .90
+          assert ms['maximum_carried_staleness_days'] <= ms['maximum_allowed_staleness_days'] <= 62
           assert set(m.variant.astype(str))=={'RESEARCH','CORE','SPY'}
           assert {'5','10','15','20','max'}.issubset(set(m.window_years.astype(str)))
           print(m.to_string(index=False))
@@ -128,6 +132,8 @@ jobs:
             'snapshots':ms['snapshot_count'],
             'min_mapping':ms['minimum_mapping_coverage'],
             'median_mapping':ms['median_mapping_coverage'],
+            'carried_forward_requests':ms['carried_forward_request_count'],
+            'max_carried_staleness_days':ms['maximum_carried_staleness_days'],
             'active_start':s['active_start'],
             'peer_stats':s.get('correlation_peer_stats'),
           },indent=2,sort_keys=True))
