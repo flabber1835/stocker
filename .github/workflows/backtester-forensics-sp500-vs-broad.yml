@@ -1,0 +1,164 @@
+name: Backtester - S&P vs broad LD-RC forensics
+run-name: S&P vs broad LD-RC forensics — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-forensics-sp500-vs-broad.yml'
+      - 'backtester/forensics_sp500_vs_broad.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  BROAD_DIR: backtester-results/broad-fullpit-reference
+  INPUT_DIR: backtester-results/forensic-input
+  OUT_DIR: backtester-results/sp500-vs-broad-forensics
+
+jobs:
+  forensics:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-forensics-sp500-vs-broad.yml
+            /backtester/forensics_sp500_vs_broad.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install forensic dependencies
+        run: python -m pip install --disable-pip-version-check pandas numpy
+
+      - name: Compile forensic modules
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/forensics_sp500_vs_broad.py \
+            backtester/run_research_ldrc_corrected_warmup_cash.py \
+            backtester/run_research_ldrc_nonpit_vs_fullpit.py
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat \
+            sharadar/SFP/SHARADAR_SFP.zip.001 \
+            sharadar/SFP/SHARADAR_SFP.zip.002 \
+            sharadar/SFP/SHARADAR_SFP.zip.003 \
+            sharadar/SFP/SHARADAR_SFP.zip.004 \
+            > sharadar/SHARADAR_SFP.zip
+          unzip -t sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Run frozen broad-universe full-PIT reference
+        run: |
+          set -euo pipefail
+          rm -rf "$BROAD_DIR"
+          mkdir -p "$BROAD_DIR"
+          python -m backtester.run_research_ldrc_corrected_warmup_cash \
+            --mode fullpit \
+            --output "$BROAD_DIR"
+          (cd "$BROAD_DIR" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.loads((Path(os.environ['BROAD_DIR'])/'summary.json').read_text())
+          assert s['status']=='PASS'
+          assert s['mode']=='fullpit'
+          assert s['research_embedded_commit']=='c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c'
+          print(json.dumps({
+              'mode':s['mode'],
+              'research_embedded_commit':s['research_embedded_commit'],
+              'full_stack_pit':s['full_stack_pit'],
+              'pit_authority':s['pit_authority'],
+          },indent=2,sort_keys=True))
+          PY
+
+      - name: Download and authenticate S&P continuous artifact
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf "$INPUT_DIR"
+          mkdir -p "$INPUT_DIR"
+          gh run download 33828489539 \
+            --repo flabber1835/stocker \
+            --name sp500-continuous-1997-2026-f10f7ea9406ed2296210b93446b272deba2f96c3 \
+            --dir "$INPUT_DIR"
+          for d in \
+            "$INPUT_DIR/sp500-best-effort-universe-continuous" \
+            "$INPUT_DIR/sp500-continuous-1997-2026"; do
+            test -f "$d/SHA256SUMS.txt"
+            (cd "$d" && sha256sum -c SHA256SUMS.txt)
+          done
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['INPUT_DIR'])/'sp500-continuous-1997-2026'
+          s=json.loads((root/'summary.json').read_text())
+          assert s['status']=='PASS'
+          assert s['pre2006_seam_witness']['matches_sealed_oos_exactly'] is True
+          assert s['strategy_embedded_commit']=='c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c'
+          print(json.dumps({
+              'source_run':33828489539,
+              'source_artifact':9921123829,
+              'source_artifact_sha256':'69066a3ac496f797749514ccad3556600692008106a9accfc7ea364f8e018a4d',
+          },indent=2,sort_keys=True))
+          PY
+
+      - name: Decompose universe and LD-RC effects
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.forensics_sp500_vs_broad \
+            --sp500-result-root "$INPUT_DIR/sp500-continuous-1997-2026" \
+            --sp500-universe-root "$INPUT_DIR/sp500-best-effort-universe-continuous" \
+            --broad-root "$BROAD_DIR" \
+            --output "$OUT_DIR"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.loads((Path(os.environ['OUT_DIR'])/'forensics.json').read_text())
+          assert s['status']=='PASS'
+          print((Path(os.environ['OUT_DIR'])/'FORENSICS.md').read_text())
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write((Path(os.environ['OUT_DIR'])/'FORENSICS.md').read_text())
+          PY
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sp500-vs-broad-forensics-${{ github.sha }}
+          path: |
+            ${{ env.OUT_DIR }}
+            ${{ env.BROAD_DIR }}/summary.json
+            ${{ env.BROAD_DIR }}/metrics.csv
+            ${{ env.BROAD_DIR }}/daily.csv.gz
+            ${{ env.BROAD_DIR }}/SHA256SUMS.txt
+          if-no-files-found: error
+          retention-days: 90
