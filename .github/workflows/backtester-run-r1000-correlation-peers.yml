@@ -80,7 +80,7 @@ jobs:
           python -m backtester.build_r1000_iwb_membership \
             --tickers sharadar/SHARADAR_TICKERS.zip \
             --output "$MEMBERSHIP_DIR" \
-            --start 2006-07-31 \
+            --start 2006-09-29 \
             --end 2026-07-31
 
       - name: Run frozen R1000 correlation-peer replay
@@ -110,6 +110,7 @@ jobs:
           assert s['evidence_label']=='BEST_EFFORT_PIT_R1000_CORRELATION_PEERS'
           assert s['formal_pit_certified'] is False
           assert ms['status']=='PASS'
+          assert ms['first_as_of']=='2006-09-29'
           assert ms['snapshot_count'] >= 230
           assert ms['minimum_mapping_coverage'] >= .94
           assert set(m.variant.astype(str))=={'RESEARCH','CORE','SPY'}
