@@ -13,10 +13,19 @@ class LastUpdatedTrackingFetch:
 
     def __init__(self, fetch, *, update_ceiling: dt.date | str | None = None):
         self._fetch = fetch
-        # Production always supplies the validated seed-through date. The today
-        # fallback preserves the older diagnostic-only constructor while still
-        # refusing future clocks; it never establishes a production cursor.
-        ceiling = dt.date.today() if update_ceiling is None else update_ceiling
+        # A production complete seed reads a current Sharadar snapshot. Its
+        # market window may deliberately end before the vendor-observation day
+        # (for example, 24x7 installation preparing through the newest already
+        # source-final session). SEP ``lastupdated`` therefore belongs to the
+        # independent vendor-update clock, not the market-session frontier.
+        # StableSharadarFetch marks that exact complete-seed source with
+        # ``_seed_mode``. Injected/replay sources retain the explicit caller
+        # ceiling so deterministic historical tests cannot gain wall-clock
+        # authority.
+        if bool(getattr(fetch, "_seed_mode", False)):
+            ceiling = dt.datetime.now(dt.timezone.utc).date()
+        else:
+            ceiling = dt.date.today() if update_ceiling is None else update_ceiling
         self._envelope = SepUpdateEnvelope.through(
             ceiling, context="complete SEP seed observation")
         self.max_sep_lastupdated: Optional[dt.date] = None
