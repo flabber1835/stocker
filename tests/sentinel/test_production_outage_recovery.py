@@ -120,15 +120,16 @@ def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch):
     def daily(_conn, *, today):
         assert today == "2026-08-25"
         daily_calls["count"] += 1
-        if daily_calls["count"] == 1:
-            raise LocalRecoverable("stale")
-        return SimpleNamespace(kind="daily")
+        if daily_calls["count"] > 1:
+            pytest.fail("successful full seed must be terminal outage recovery")
+        raise LocalRecoverable("stale")
 
     monkeypatch.setattr(outage_recovery.ingest, "daily", daily)
 
     def seed(_conn, *, date_from, date_to):
         seeded["done"] = True
         seeded["args"] = (date_from, date_to)
+        return SimpleNamespace(kind="seed")
 
     monkeypatch.setattr(outage_recovery.ingest, "seed", seed)
     monkeypatch.setattr(
@@ -142,7 +143,7 @@ def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch):
     assert result.mode == "RETAINED_FULL_RESEED"
     assert result.recovered_from == "LocalRecoverable"
     assert seeded["args"] == ("2025-08-20", "2026-08-25")
-    assert daily_calls["count"] == 2
+    assert daily_calls["count"] == 1
 
 
 def test_hard_backup_fence_blocks_ordinary_daily_before_ingest(monkeypatch):
