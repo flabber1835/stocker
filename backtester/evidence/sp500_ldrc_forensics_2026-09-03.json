@@ -1,0 +1,181 @@
+{
+  "schema": "backtester.sp500-ldrc-forensics/1",
+  "status": "COMPLETE",
+  "as_of": "2026-09-03",
+  "scope": "Explain the CAGR gap between the historical broad-universe LD-RC expectation and the best-effort PIT S&P 500 replay; audit data, trading, accounting, causality, controller state transitions, and universe transfer.",
+  "strategy": {
+    "embedded_commit": "c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c",
+    "strategy_git_blob_sha1": "6c30a617b7ee615849dcf09f43612c1483703aa3",
+    "source": "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py",
+    "control": "Simplified LD-RC v3"
+  },
+  "historical_expectation": {
+    "source": "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/HARNESS_WIP.md",
+    "old_authoritative_gate_20y_cagr": 0.226302156206,
+    "old_authoritative_gate_sharpe": 1.213813871,
+    "old_authoritative_gate_max_drawdown": -0.216958215,
+    "old_authoritative_gate_ending_multiple": 59.1542869,
+    "note": "The old 22.63% target is real repository evidence. The current corrected broad references do not exactly reproduce the old geometry, so the old target is retained as historical context rather than treated as a current acceptance gate."
+  },
+  "s_and_p_continuous": {
+    "run_id": 33828489539,
+    "head_sha": "f10f7ea9406ed2296210b93446b272deba2f96c3",
+    "artifact_id": 9921123829,
+    "artifact_zip_sha256": "69066a3ac496f797749514ccad3556600692008106a9accfc7ea364f8e018a4d",
+    "window": ["1997-12-31", "2026-07-31"],
+    "first_invested_session": "1998-07-06",
+    "continuous_state_path": true,
+    "pre2006_seam_matches_sealed_oos_exactly": true,
+    "state_reset_at_2006": false,
+    "formal_pit_certified": false,
+    "best_effort_pit": true,
+    "windows": {
+      "5": {"core_cagr": 0.16717880593972434, "control_cagr": 0.13691781157451866, "spy_cagr": 0.1275588366954017, "core_max_drawdown": -0.19699597634337707, "control_max_drawdown": -0.20823400406818104},
+      "10": {"core_cagr": 0.1259737596941266, "control_cagr": 0.12477555310021171, "spy_cagr": 0.1498307955898699, "core_max_drawdown": -0.27798529759706747, "control_max_drawdown": -0.20823400406818093},
+      "15": {"core_cagr": 0.13067432961725656, "control_cagr": 0.12732190982921843, "spy_cagr": 0.14397255004731968, "core_max_drawdown": -0.27798529759706725, "control_max_drawdown": -0.20823400406818104},
+      "20": {"core_cagr": 0.1076268978513164, "control_cagr": 0.12124758744146469, "spy_cagr": 0.11256316445674552, "core_max_drawdown": -0.44561950653156746, "control_max_drawdown": -0.2197596395703144, "core_sharpe": 0.7006514627685854, "control_sharpe": 0.8655721007971564},
+      "Max": {"core_cagr": 0.11161114778906023, "control_cagr": 0.12263263039941563, "spy_cagr": 0.08725812854712878, "core_max_drawdown": -0.44561950653156746, "control_max_drawdown": -0.33616706824338616}
+    }
+  },
+  "broad_nonpit_reference": {
+    "run_id": 33830830167,
+    "head_sha": "a344ef155c49c2c327b98d6014ad9be5e3c44850",
+    "calculation_status": "COMPLETED",
+    "workflow_conclusion": "failure",
+    "workflow_failure_class": "REPORT_FORMATTING_ONLY_MISSING_TABULATE_AFTER_ALL_METRICS_AND_CHECKSUMS_COMPLETED",
+    "formal_pit_certified": false,
+    "20y_control_cagr": 0.214756,
+    "20y_control_max_drawdown": -0.216300,
+    "20y_control_sharpe": 1.169308,
+    "20y_control_ending_multiple": 48.952795,
+    "5y_control_cagr": 0.244306,
+    "10y_control_cagr": 0.255037,
+    "15y_control_cagr": 0.210404,
+    "max_control_cagr": 0.210172,
+    "note": "Diagnostic current-TICKERS/current-ACTIONS broad reference. Performance calculation and SHA256 validation completed before an optional pandas to_markdown call failed because tabulate was absent."
+  },
+  "broad_fullpit_reference": {
+    "run_id": 33830860739,
+    "head_sha": "4a8cf83f34e5f4b4a9267a46d97a631f7132c104",
+    "artifact_id": 9921789402,
+    "artifact_zip_sha256": "2f8e747a7131840dba3a78a1e841a0fc06b35cb6612ecc7ae931dc9533558436",
+    "workflow_conclusion": "success",
+    "formal_pit_certified": false,
+    "diagnostic_authority": {
+      "sector": "strict-prior SEC CIK -> strict-prior SEC SIC -> FF12",
+      "issuer": "strict-prior SEC CIK; unknown issuer is security singleton",
+      "actions": "PIT ACTIONS",
+      "exchange": "not economically active",
+      "category": "current TICKERS category retained as diagnostic broad discovery"
+    },
+    "windows": {
+      "5": {"core_cagr": 0.23783239009507806, "control_cagr": 0.276269021498071, "spy_cagr": 0.1275588366954017},
+      "10": {"core_cagr": 0.21742294079752633, "control_cagr": 0.2481095102850932, "spy_cagr": 0.1498307955898699},
+      "15": {"core_cagr": 0.18711402257466325, "control_cagr": 0.2084810933559651, "spy_cagr": 0.14397255004731968},
+      "20": {"core_cagr": 0.17183550472420084, "control_cagr": 0.20485634678944198, "spy_cagr": 0.11256316445674552, "core_max_drawdown": -0.4514201738530139, "control_max_drawdown": -0.288703844701944, "control_sharpe": 1.1097136884327128, "control_ending_multiple": 41.566038293348065},
+      "Max": {"core_cagr": 0.17482115494349704, "control_cagr": 0.2040978686592203, "spy_cagr": 0.08725812854712878}
+    }
+  },
+  "attribution": {
+    "20y_historical_old_gate_to_current_broad_nonpit_pp": -1.1546,
+    "20y_broad_nonpit_to_broad_fullpit_pp": -0.98997,
+    "20y_broad_fullpit_to_s_and_p_control_pp": -8.36088,
+    "20y_broad_core_to_s_and_p_core_pp": -6.42086,
+    "conclusion": "The S&P/domain restriction is overwhelmingly the dominant cause of the lower CAGR. PIT metadata/action corrections are material but about one percentage point in the controlled broad reference. The raw Wealth Core opportunity set loses about 6.42 CAGR points when restricted from the diagnostic broad universe to the S&P universe; controller/domain interaction explains additional loss."
+  },
+  "controller_input_drift_broad_vs_s_and_p_20y": {
+    "sessions": 5032,
+    "recent_r20_correlation": 0.8194697201895675,
+    "recent_r40_correlation": 0.8342032252503154,
+    "recent_r20_sign_disagreement_fraction": 0.1571939586645469,
+    "recent_r40_sign_disagreement_fraction": 0.18282988871224165,
+    "native_target_correlation": 0.5051413846965185,
+    "native_target_disagreement_days": 490,
+    "mean_abs_recent_r20_difference": 0.02522814964280364,
+    "mean_abs_recent_r40_difference": 0.03539494737691525,
+    "interpretation": "The smaller universe changes both stock selection and the leadership/risk signals. This is a domain transfer, not only a smaller candidate list."
+  },
+  "s_and_p_data_quality": {
+    "market_sessions": 7189,
+    "eligible_constituent_sessions": 3458733,
+    "excluded_constituent_sessions": 128664,
+    "exclusion_fraction": 0.035865559345675986,
+    "daily_constituents_min": 460,
+    "daily_constituents_median": 476.0,
+    "daily_constituents_max": 504,
+    "daily_constituents_last": 503,
+    "exclusion_fraction_by_selected_year": {
+      "2006": 0.0556,
+      "2015": 0.0247,
+      "2020": 0.0144,
+      "2025": 0.0049,
+      "2026": 0.0014
+    },
+    "assessment": "Identity exclusions can create some drag, especially in early years, but cannot plausibly explain most of the 10/15/20-year broad-vs-S&P gap. The recent weak windows persist when S&P identity coverage is already very high."
+  },
+  "trading_and_accounting_audit": {
+    "daily_rows": 7189,
+    "unique_dates": 7189,
+    "sorted_dates": true,
+    "nonpositive_or_nan_control_nav": 0,
+    "nonpositive_or_nan_core_equity": 0,
+    "full_allocation_no_transition_sessions_checked": 6057,
+    "max_abs_return_residual_control_vs_core_when_fully_invested": 6.661338147750939e-16,
+    "return_residuals_over_1e_minus_10": 0,
+    "control_allocation_transitions": 32,
+    "sum_absolute_allocation_changes": 21.1,
+    "modeled_transition_cost_rate": 0.001,
+    "independent_transition_cost_sum": 0.0211,
+    "engine_transition_cost_sum": 0.0211,
+    "independent_control_reason_mismatches": 0,
+    "independent_next_session_control_allocation_mismatches": 0,
+    "independent_next_session_effective_native_mismatches": 0,
+    "assessment": "No evidence of a silent LD-RC accounting, transition timing, state-machine, or return-propagation defect."
+  },
+  "s_and_p_controller_behavior_20y": {
+    "sessions": 5032,
+    "days_control_differs_from_effective_native": 250,
+    "fraction_control_differs_from_effective_native": 0.049682034976152626,
+    "allocation_levels": {"0.00": 377, "0.55": 157, "0.65": 146, "1.00": 4352},
+    "mean_allocation": 0.9008843402225755,
+    "control_reason_counts": {
+      "NORMAL": 4803,
+      "FULL_RISK_HELD": 212,
+      "RECOVERY_EPISODE_START": 7,
+      "FULL_RISK_CERTIFIED": 6,
+      "DIVERGENCE_CLEAR": 2,
+      "FULL_RISK_HELD|LD_ENTER_DIVERGENCE": 1,
+      "LD_ENTER_DIVERGENCE": 1
+    },
+    "notable_recovery_drag": "In 2023 native risk returned to full on 2023-04-20, while ControlLDRC stayed at zero until full-risk certification in June. The frozen rule requires seven consecutive sessions with both leadership R20 and R40 positive, or SPY R20 > 11%. This is a genuine S&P-domain calibration issue, not a code failure."
+  },
+  "selection_geometry": {
+    "top_fraction": 0.10,
+    "slots": 25,
+    "entry_weight": 0.04,
+    "review_age_sessions": 119,
+    "cooldown_sessions": 21,
+    "s_and_p_2008_12_23": {"eligible": 450, "top_population": 45, "leadership_overlap": 0},
+    "broad_2008_12_23": {"eligible": 1005, "top_population": 101, "leadership_overlap": 7},
+    "s_and_p_2022_01_03": {"eligible": 498, "top_population": 50, "leadership_overlap": 2},
+    "diagnostic_broad_2022_01_03": {"eligible": 1791, "top_population": 180, "leadership_overlap": 15},
+    "assessment": "TOP=10% is not universe-neutral. On S&P it produces a roughly 45-50 name candidate/leadership population, much smaller than the broad reference. The same percentage therefore changes both selection breadth and LD-RC breadth semantics."
+  },
+  "forensic_conclusions": {
+    "ldrc_implementation_broken": false,
+    "dominant_cagr_cause": "S_AND_P_UNIVERSE_AND_DOMAIN_TRANSFER",
+    "secondary_cause": "S_AND_P_SPECIFIC_CONTROLLER_AND_RECOVERY_CALIBRATION",
+    "data_gaps_primary_cause": false,
+    "should_have_calibrated_before_first_s_and_p_test": false,
+    "should_calibrate_if_s_and_p_is_chosen_for_production": true,
+    "reason_first_uncalibrated_test_was_correct": "It measured portability without contaminating the comparison. Calibrating first would have hidden the fact that the original broad-domain selector/controller does not transfer unchanged to S&P 500.",
+    "historical_oos_status": "The 1998-2005 S&P holdout has now been observed and is consumed for future parameter changes. Future S&P calibration must use walk-forward/rolling validation and future paper trading, not relabel 1998-2005 as untouched OOS."
+  },
+  "recommended_next_experiments": [
+    "Run a 2x2 domain decomposition with frozen parameters: broad holdings+broad leadership, S&P holdings+broad leadership, S&P holdings+S&P leadership, and optionally broad holdings+S&P leadership.",
+    "Test universe-normalized candidate/leadership breadth before threshold tuning. TOP=10% gives only ~50 S&P names; compare a fixed population near the original broad semantics (for example ~100) and/or decouple ownership candidate breadth from leadership breadth.",
+    "Only after domain normalization, calibrate recovery certification and divergence thresholds using coarse robust grids and walk-forward validation with explicit drawdown constraints.",
+    "Run sensitivity for the early S&P identity exclusions to bound how much the 2006-era ~5.6% missing constituent-session coverage can move results.",
+    "Do not choose S&P production eligibility solely for database-size savings until the normalized S&P economics are measured."
+  ]
+}
