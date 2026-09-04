@@ -112,11 +112,12 @@ def test_seed_generation_escalates_only_the_named_identity_mutation(monkeypatch)
     guarded = [object(), object()]
     source_calls = 0
 
-    def source(_fetch, *, final_hi, update_ceiling):
+    def source(_fetch, *, final_hi, update_ceiling=None):
         nonlocal source_calls
         index = source_calls
         source_calls += 1
-        calls.append(("source", final_hi, update_ceiling))
+        ceiling = final_hi if update_ceiling is None else update_ceiling
+        calls.append(("source", final_hi, ceiling))
         return trackers[index], guarded[index]
 
     monkeypatch.setattr(I, "_seed_source", source)
