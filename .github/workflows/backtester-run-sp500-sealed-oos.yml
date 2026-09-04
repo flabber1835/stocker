@@ -1,0 +1,225 @@
+name: Backtester - sealed S&P 500 best-effort LD-RC OOS
+run-name: Sealed S&P 500 LD-RC OOS — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-run-sp500-sealed-oos.yml'
+      - 'backtester/sp500_best_effort_universe.py'
+      - 'backtester/run_sp500_ldrc_sealed_oos.py'
+      - 'backtester/run_research_ldrc_corrected_warmup_cash.py'
+      - 'backtester/run_research_ldrc_nonpit_vs_fullpit.py'
+      - 'research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  SOURCE_DIR: backtester-results/sp500-pit-source
+  MEMBERSHIP_DIR: backtester-results/sp500-pit-membership
+  IDENTITY_DIR: backtester-results/sp500-pit-identity
+  ALIAS_DIR: backtester-results/sp500-pit-alias
+  COVERAGE_DIR: backtester-results/sp500-pit-coverage
+  TRADING_GAP_DIR: backtester-results/sp500-pit-trading-gaps
+  WEB_ALIAS_DIR: backtester-results/sp500-pit-web-alias
+  CIK_ALIAS_DIR: backtester-results/sp500-pit-cik-alias
+  UNIVERSE_DIR: backtester-results/sp500-best-effort-universe
+  RESULT_DIR: backtester-results/sp500-sealed-oos
+  SOURCE_URL: https://raw.githubusercontent.com/fja05680/sp500/c31ac3cc56f28cf9a02b4e694eff7ceab596a0ff/sp500_ticker_start_end.csv
+
+jobs:
+  sealed-oos:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-run-sp500-sealed-oos.yml
+            /backtester/sp500_best_effort_universe.py
+            /backtester/run_sp500_ldrc_sealed_oos.py
+            /backtester/sp500_pit_corpus.py
+            /backtester/sp500_pit_identity.py
+            /backtester/sp500_pit_alias_resolution.py
+            /backtester/sp500_pit_alias_resolution_v2.py
+            /backtester/sp500_pit_coverage_audit.py
+            /backtester/sp500_pit_trading_gap_filter.py
+            /backtester/sp500_pit_web_alias_resolution.py
+            /backtester/sp500_pit_cik_alias_resolution.py
+            /backtester/strict_pit_metadata.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/sp500_official_overlay_2026.csv
+            /backtester/data/sp500_web_alias_evidence.csv
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SFP.zip
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install replay dependencies
+        run: python -m pip install --disable-pip-version-check pandas numpy
+
+      - name: Compile sealed S&P modules
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/sp500_best_effort_universe.py \
+            backtester/run_sp500_ldrc_sealed_oos.py
+
+      - name: Rebuild pinned S&P membership and causal identities
+        run: |
+          set -euo pipefail
+          mkdir -p "$SOURCE_DIR"
+          curl --fail --location --retry 4 --retry-all-errors \
+            "$SOURCE_URL" --output "$SOURCE_DIR/sp500_ticker_start_end.csv"
+          rm -rf "$MEMBERSHIP_DIR" "$IDENTITY_DIR"
+          python -m backtester.sp500_pit_corpus \
+            --source "$SOURCE_DIR/sp500_ticker_start_end.csv" \
+            --overlay backtester/data/sp500_official_overlay_2026.csv \
+            --output "$MEMBERSHIP_DIR" \
+            --start 1996-01-02 --end 2026-09-03
+          python -m backtester.sp500_pit_identity \
+            --membership-root "$MEMBERSHIP_DIR" \
+            --sharadar-root sharadar \
+            --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz \
+            --output "$IDENTITY_DIR" \
+            --start-year 1997 --end-year 2026
+
+      - name: Rebuild approved alias diagnostics
+        run: |
+          set -euo pipefail
+          rm -rf "$ALIAS_DIR" "$COVERAGE_DIR" "$TRADING_GAP_DIR" "$WEB_ALIAS_DIR" "$CIK_ALIAS_DIR"
+          python -m backtester.sp500_pit_alias_resolution_v2 \
+            --identity-root "$IDENTITY_DIR" \
+            --tickers-zip sharadar/SHARADAR_TICKERS.zip \
+            --sharadar-root sharadar \
+            --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz \
+            --output "$ALIAS_DIR" --start-year 1997 --end-year 2026
+          (cd "$ALIAS_DIR" && sha256sum -c SHA256SUMS.txt)
+
+          python -m backtester.sp500_pit_coverage_audit \
+            --membership-root "$MEMBERSHIP_DIR" \
+            --identity-root "$IDENTITY_DIR" \
+            --alias-root "$ALIAS_DIR" \
+            --output "$COVERAGE_DIR"
+          (cd "$COVERAGE_DIR" && sha256sum -c SHA256SUMS.txt)
+
+          python -m backtester.sp500_pit_trading_gap_filter \
+            --coverage-root "$COVERAGE_DIR" \
+            --sharadar-root sharadar \
+            --output "$TRADING_GAP_DIR" \
+            --start-year 1997 --end-year 2026
+          (cd "$TRADING_GAP_DIR" && sha256sum -c SHA256SUMS.txt)
+
+          python -m backtester.sp500_pit_web_alias_resolution \
+            --coverage-root "$TRADING_GAP_DIR" \
+            --evidence-path backtester/data/sp500_web_alias_evidence.csv \
+            --sharadar-root sharadar \
+            --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz \
+            --output "$WEB_ALIAS_DIR" \
+            --start-year 1997 --end-year 2026
+          (cd "$WEB_ALIAS_DIR" && sha256sum -c SHA256SUMS.txt)
+
+          python -m backtester.sp500_pit_cik_alias_resolution \
+            --coverage-root "$TRADING_GAP_DIR" \
+            --sharadar-root sharadar \
+            --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz \
+            --output "$CIK_ALIAS_DIR" \
+            --start-year 1997 --end-year 2026
+          (cd "$CIK_ALIAS_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Materialize runnable best-effort OOS universe
+        run: |
+          set -euo pipefail
+          rm -rf "$UNIVERSE_DIR"
+          python -m backtester.sp500_best_effort_universe \
+            --membership-root "$MEMBERSHIP_DIR" \
+            --identity-root "$IDENTITY_DIR" \
+            --alias-root "$ALIAS_DIR" \
+            --trading-gap-root "$TRADING_GAP_DIR" \
+            --web-alias-root "$WEB_ALIAS_DIR" \
+            --cik-alias-root "$CIK_ALIAS_DIR" \
+            --sharadar-root sharadar \
+            --output "$UNIVERSE_DIR" \
+            --window-start 1997-12-31 \
+            --window-end 2005-12-30
+          (cd "$UNIVERSE_DIR" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.loads((Path(os.environ["UNIVERSE_DIR"])/"best-effort-summary.json").read_text())
+          assert s["status"]=="BEST_EFFORT_RUNNABLE"
+          assert s["formal_pit_certified"] is False
+          assert s["membership_dataset_hash"]=="1981828b71073be4d0fcf4addb37a56c844a29219090eb0c8fbc535d393bdb2d"
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Run one-shot sealed LD-RC OOS
+        run: |
+          set -euo pipefail
+          rm -rf "$RESULT_DIR"
+          python -m backtester.run_sp500_ldrc_sealed_oos \
+            --universe-root "$UNIVERSE_DIR" \
+            --output "$RESULT_DIR"
+          (cd "$RESULT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Validate and publish holdout summary
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ["RESULT_DIR"])
+          s=json.loads((root/"summary.json").read_text())
+          assert s["status"]=="PASS"
+          assert s["experiment"]=="SEALED_SP500_BEST_EFFORT_PIT_OOS"
+          assert s["formal_pit_certified"] is False
+          assert s["one_shot_holdout_observation_completed"] is True
+          u=s["universe"]; a=s["active_oos"]
+          print(json.dumps({
+              "first_invested_session":s["first_invested_session"],
+              "daily_constituents":u["daily_constituents"],
+              "excluded_source_sessions":u["excluded_source_sessions"],
+              "exclusion_fraction":u["exclusion_fraction_of_source_membership_sessions"],
+              "active_oos":a,
+          },indent=2,sort_keys=True))
+          with open(os.environ["GITHUB_STEP_SUMMARY"],"a",encoding="utf-8") as fh:
+              fh.write("### Sealed S&P 500 best-effort PIT OOS\n")
+              fh.write(f"- Tape: {s['sealed_window'][0]} through {s['sealed_window'][1]}\n")
+              fh.write(f"- First invested session: {s['first_invested_session']}\n")
+              fh.write(f"- Daily constituents min/median/max: {u['daily_constituents']['min']}/{u['daily_constituents']['median']}/{u['daily_constituents']['max']}\n")
+              fh.write(f"- Excluded constituent-sessions: {u['excluded_source_sessions']:,} ({u['exclusion_fraction_of_source_membership_sessions']:.4%})\n")
+              fh.write(f"- LD-RC active-OOS CAGR: {a['ld_rc']['cagr']:.4%}\n")
+              fh.write(f"- SPY active-OOS CAGR: {a['spy']['cagr']:.4%}\n")
+              fh.write(f"- CAGR spread: {a['cagr_spread_ldrc_minus_spy']:.4%}\n")
+              fh.write(f"- LD-RC max drawdown: {a['ld_rc']['max_drawdown']:.4%}\n")
+              fh.write(f"- LD-RC Sharpe: {a['ld_rc']['sharpe']:.4f}\n")
+              fh.write("\n**Status:** best-effort PIT viability result; formal PIT certification not claimed.\n")
+          PY
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sp500-sealed-oos-${{ github.sha }}
+          path: |
+            ${{ env.UNIVERSE_DIR }}
+            ${{ env.RESULT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
