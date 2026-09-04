@@ -140,13 +140,11 @@ class CandidateB:
         desired=min(native,desired)
         self.prev_native=native; self.prev_desired=desired
         return float(desired), '|'.join(reasons) if reasons else 'NORMAL'
-
-
-def bil_factors'''
+'''
     text = _replace_regex(
         text,
-        r"class CandidateA:.*?\ndef bil_factors",
-        candidates,
+        r"class CandidateA:.*?\n_cash_frame=pd\.read_csv",
+        candidates + "\n\n_cash_frame=pd.read_csv",
         "candidate architecture classes",
     )
 
