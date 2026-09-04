@@ -374,6 +374,9 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
     resolved_today = str(today)
     today_date = _dt.date.fromisoformat(resolved_today)
     yesterday = (today_date - _dt.timedelta(days=1)).isoformat()
+    source_observation_day = (
+        _dt.datetime.now(_dt.timezone.utc).date()
+        if production_snapshot else None)
 
     with feed_store.corpus_write_lock(conn):
         _recover_before_run(conn)
@@ -389,8 +392,14 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             if failed.kind == "daily":
                 pass
             elif failed.kind == "sep_mutations":
-                maintenance.reconcile_sep_mutations(
-                    conn, fetch=fetch, through=yesterday)
+                if production_snapshot:
+                    maintenance.reconcile_sep_mutations(
+                        conn, fetch=fetch,
+                        through=source_observation_day.isoformat(),
+                        reobserve_equal=True)
+                else:
+                    maintenance.reconcile_sep_mutations(
+                        conn, fetch=fetch, through=yesterday)
                 still_failed = _single_failed_live_candidate(conn)
                 if still_failed is not None:
                     if (still_failed.run_id != failed.run_id
@@ -398,8 +407,14 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
                         raise recovery.PublicationRecoveryRefused(
                             "SEP mutation recovery exposed a different failed "
                             "candidate; refusing to guess retry order")
-                    maintenance.reconcile_sep_mutations(
-                        conn, fetch=fetch, through=today_date.isoformat())
+                    if production_snapshot:
+                        maintenance.reconcile_sep_mutations(
+                            conn, fetch=fetch,
+                            through=source_observation_day.isoformat(),
+                            reobserve_equal=True)
+                    else:
+                        maintenance.reconcile_sep_mutations(
+                            conn, fetch=fetch, through=today_date.isoformat())
                 _require_failed_owner_cleared(conn, context="SEP mutation retry")
             elif failed.kind == "actions_reconcile":
                 retry_through = _failed_run_end(conn, failed.run_id)
@@ -448,9 +463,6 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         published_frontier = feed_store.latest_visible_session(conn)
         sep_reconciliation.reconcile_next(
             conn, fetch=fetch, through=published_frontier)
-        source_observation_day = (
-            _dt.datetime.now(_dt.timezone.utc).date()
-            if production_snapshot else None)
         _reconcile_sep_for_market_target(
             conn, fetch=fetch, target=today_date.isoformat(),
             source_observation_day=source_observation_day)
