@@ -4,7 +4,9 @@ import datetime as dt
 
 import pytest
 
-from sentinel.feed import ingest, maintenance, maintenance_impl, recent_reconciliation
+from sentinel.feed import (
+    ingest, maintenance, maintenance_impl, recent_reconciliation, sharadar,
+)
 
 
 FUTURE = dt.date(2026, 8, 28)
@@ -44,7 +46,7 @@ def test_sep_future_cursor_refuses_before_vendor_fetch(monkeypatch):
     assert calls == []
 
 
-def test_daily_caller_accepts_vendor_cursor_ahead_of_market_target(monkeypatch):
+def test_daily_caller_reobserves_vendor_cursor_ahead_of_market_target(monkeypatch):
     source_day = dt.datetime.now(dt.timezone.utc).date()
     market_target = source_day - dt.timedelta(days=1)
     current = maintenance.SourceCursor(
@@ -52,15 +54,18 @@ def test_daily_caller_accepts_vendor_cursor_ahead_of_market_target(monkeypatch):
         processed_through=source_day,
         publication_version=17,
     )
-    monkeypatch.setattr(ingest.maintenance, "load_sep_cursor", lambda _conn: current)
-    monkeypatch.setattr(
-        ingest.maintenance, "reconcile_sep_mutations",
-        lambda *_args, **_kwargs: pytest.fail(
-            "vendor cursor already covering market target must not reconcile backwards"),
-    )
+    calls = []
 
+    def reconcile(_conn, *, fetch, through, reobserve_equal=False):
+        calls.append((fetch, through, reobserve_equal))
+        return current
+
+    monkeypatch.setattr(ingest.maintenance, "reconcile_sep_mutations", reconcile)
+    fetch = object()
     assert ingest._reconcile_sep_for_market_target(
-        object(), fetch=object(), target=market_target.isoformat()) is current
+        object(), fetch=fetch, target=market_target.isoformat(),
+        source_observation_day=source_day) is current
+    assert calls == [(fetch, source_day.isoformat(), True)]
 
 
 def test_daily_caller_refuses_vendor_cursor_beyond_source_observation_date(
@@ -76,10 +81,57 @@ def test_daily_caller_refuses_vendor_cursor_beyond_source_observation_date(
 
     with pytest.raises(
         maintenance.SharadarMutationRefused,
-        match="ahead of current source observation date",
+        match="ahead of requested reconciliation through",
     ):
         ingest._reconcile_sep_for_market_target(
-            object(), fetch=object(), target=source_day.isoformat())
+            object(), fetch=object(), target=source_day.isoformat(),
+            source_observation_day=source_day)
+
+
+def test_equal_sep_cursor_reobserve_does_not_skip_same_date_row(monkeypatch):
+    source_day = dt.date(2026, 9, 3)
+    current = maintenance.SourceCursor(
+        kind="sharadar-sep-lastupdated/v1",
+        processed_through=source_day,
+        publication_version=17,
+    )
+    monkeypatch.setattr(maintenance, "load_sep_cursor", lambda _conn: current)
+
+    observed_requests = []
+    late_row = {
+        "ticker": "LATE",
+        "date": "2025-12-31",
+        "open": 10.0,
+        "close": 10.5,
+        "closeunadj": 10.5,
+        "volume": 1000,
+        "lastupdated": source_day.isoformat(),
+    }
+
+    def source(table, params=None, **_kwargs):
+        assert table == sharadar.SEP
+        observed_requests.append(dict(params or {}))
+        return [dict(late_row)]
+
+    def core(_conn, *, fetch, through, reobserve_equal=False):
+        assert through == source_day.isoformat()
+        assert reobserve_equal is True
+        params = {
+            "lastupdated.gte": (source_day - dt.timedelta(days=1)).isoformat(),
+            "lastupdated.lte": source_day.isoformat(),
+        }
+        first = list(fetch(sharadar.SEP, params))
+        second = list(fetch(sharadar.SEP, params))
+        assert first == [late_row]
+        assert second == [late_row]
+        return current
+
+    monkeypatch.setattr(maintenance, "_reconcile_sep_mutations_core", core)
+
+    assert maintenance.reconcile_sep_mutations(
+        object(), fetch=source, through=source_day.isoformat(),
+        reobserve_equal=True) is current
+    assert len(observed_requests) == 2
 
 
 def test_actions_future_cursor_refuses_before_export_or_vendor_fetch(monkeypatch):
