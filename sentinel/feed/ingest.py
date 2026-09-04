@@ -51,8 +51,14 @@ _prove_recent_frontier = _authority._prove_recent_frontier
 _today = _impl._today
 
 
-def _seed_source(fetch, *, final_hi: str):
+def _seed_source(fetch, *, final_hi: str, update_ceiling: str):
     """Return one stable canonical seed observation.
+
+    ``final_hi`` is the market-session boundary used for source corroboration.
+    ``update_ceiling`` is the independent vendor-update boundary captured before
+    the first production seed request. A 24x7 install may intentionally seed
+    through an older already-source-final market session while observing a newer
+    current Sharadar snapshot, so these clocks must never be collapsed.
 
     Exact listing coverage is enabled only for the production snapshot source.
     Injected/replay sources still receive canonical key/date/duplicate and
@@ -65,7 +71,7 @@ def _seed_source(fetch, *, final_hi: str):
             lambda params: str(params.get("date.lte") or "") == final_hi),
         after_session=None, seed_mode=production_snapshot)
     tracked = source_authority.LastUpdatedTrackingFetch(
-        guarded, update_ceiling=final_hi)
+        guarded, update_ceiling=update_ceiling)
     return tracked, tracked
 
 
@@ -223,7 +229,9 @@ def _run_seed_generation(conn, *, recovery_plan, fetch, final_hi: str,
                          boundary: str | None = None, resolve_identity=None):
     """Run one seed/reseed engine with source-specific proof hooks."""
     seed_from, seed_to = recovery_plan.date_from, recovery_plan.date_to
-    tracked, guarded = _seed_source(fetch, final_hi=final_hi)
+    update_ceiling = boundary or final_hi
+    tracked, guarded = _seed_source(
+        fetch, final_hi=final_hi, update_ceiling=update_ceiling)
     authority = _seed_authority(
         boundary=boundary, tracked=tracked, source_fetch=fetch,
         market_start=seed_from, market_end=seed_to,
@@ -244,7 +252,8 @@ def _run_seed_generation(conn, *, recovery_plan, fetch, final_hi: str,
     except universe.HistoricalIdentityMutation:
         plan = identity_rebuild.prepare(
             conn, date_from=seed_from, date_to=seed_to)
-        tracked, guarded = _seed_source(fetch, final_hi=final_hi)
+        tracked, guarded = _seed_source(
+            fetch, final_hi=final_hi, update_ceiling=update_ceiling)
         authority = _seed_authority(
             boundary=boundary, tracked=tracked, source_fetch=fetch,
             market_start=seed_from, market_end=seed_to,
