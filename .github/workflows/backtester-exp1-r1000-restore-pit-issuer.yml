@@ -1,0 +1,131 @@
+name: Backtester Exp1 - R1000 restore PIT issuer
+run-name: Exp1 R1000 restore PIT issuer — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-exp1-r1000-restore-pit-issuer.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  MEMBERSHIP_DIR: backtester-results/exp1-r1000-membership
+  OUT_DIR: backtester-results/exp1-r1000-pit-issuer
+  R1000_MAX_STALENESS_DAYS: '190'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact experiment head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-exp1-r1000-restore-pit-issuer.yml
+            /backtester/experiment1_r1000_restore_pit_issuer.py
+            /backtester/build_r1000_iwb_membership_sep.py
+            /backtester/build_r1000_iwb_membership_gap_safe.py
+            /backtester/run_r1000_correlation_peers.py
+            /backtester/run_r1000_correlation_peers_v2.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Compile experiment harness
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/experiment1_r1000_restore_pit_issuer.py \
+            backtester/build_r1000_iwb_membership_sep.py \
+            backtester/build_r1000_iwb_membership_gap_safe.py \
+            backtester/run_r1000_correlation_peers.py \
+            backtester/run_r1000_correlation_peers_v2.py
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Build causal R1000 membership tape
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$MEMBERSHIP_DIR" && mkdir -p "$MEMBERSHIP_DIR"
+          python -m backtester.build_r1000_iwb_membership_gap_safe \
+            --tickers sharadar/SHARADAR_TICKERS.zip \
+            --sep-root sharadar \
+            --output "$MEMBERSHIP_DIR" \
+            --start 2006-09-29 \
+            --end 2026-07-31 \
+            --min-coverage 0.90
+
+      - name: Run experiment 1
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.experiment1_r1000_restore_pit_issuer \
+            --membership "$MEMBERSHIP_DIR/r1000_iwb_snapshots.csv.gz" \
+            --membership-manifest "$MEMBERSHIP_DIR/r1000_iwb_membership_manifest.json" \
+            --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Validate experiment 1
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR'])
+          s=json.loads((out/'summary.json').read_text())
+          m=pd.read_csv(out/'metrics.csv',dtype={'window_years':str})
+          assert s['status']=='PASS'
+          assert s['evidence_label']=='EXPERIMENT_1_R1000_RESTORE_PIT_ISSUER'
+          assert set(m.variant.astype(str))=={'RESEARCH','CORE','SPY'}
+          print(m.to_string(index=False))
+          PY
+
+      - name: Upload experiment 1 bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: exp1-r1000-pit-issuer-${{ github.sha }}
+          path: |
+            ${{ env.OUT_DIR }}
+            ${{ env.MEMBERSHIP_DIR }}/r1000_iwb_membership_manifest.json
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
