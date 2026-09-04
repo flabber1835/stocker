@@ -69,16 +69,16 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
     """
     target = str(target_session)
     visible_before = store.latest_visible_session(conn)
+    already_current = False
     if visible_before == target:
-        # Frontier equality is not enough to declare recovery complete. An
-        # interrupted ingest may have committed invisible rows owned by an
-        # unpublished candidate while the last published frontier remains at
-        # the requested target. Returning here would permanently skip the normal
-        # daily recovery machinery and leave readiness fail-closed forever.
+        # Market-frontier equality does not prove the independent SEP vendor
+        # update clock current. Production daily must still re-observe the source
+        # date so a historical correction arriving later on the same lastupdated
+        # day cannot be validated by preflight and then skipped at write time.
         coherence = publication.operational_coherence(
             conn, frontier=target)
-        if coherence.coherent and not publication.chain_gaps(conn):
-            return OutageRecoveryResult(target, "ALREADY_CURRENT", None, None)
+        already_current = bool(
+            coherence.coherent and not publication.chain_gaps(conn))
 
     # The common primitive owns the durability rule. Callers such as unattended
     # shadow recovery and NAS validation cannot accidentally bypass it by
@@ -87,7 +87,7 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
         conn, operation="canonical outage daily catch-up")
     try:
         ingest.daily(conn, today=target)
-        mode = "DAILY"
+        mode = "ALREADY_CURRENT" if already_current else "DAILY"
         retained_start = None
         recovered_from = None
     except _RECOVERABLE_LOCAL_STATE as exc:
