@@ -184,27 +184,35 @@ class _CdcThenReplayFetch:
 
 
 def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
-                            through: str):
-    """Run the existing CDC engine behind exact pre-fingerprint guards."""
+                            through: str, reobserve_equal: bool = False):
+    """Run SEP CDC behind exact pre-fingerprint guards.
+
+    Equal cursors remain a terminal fast path unless the production caller
+    explicitly requests same-date re-observation. That exception is required for
+    Sharadar's date-granularity ``lastupdated`` field: later rows can still appear
+    with the same vendor date after an earlier observation.
+    """
     from sentinel.feed import maintenance
 
     cursor = maintenance.load_sep_cursor(conn)
     if cursor is None:
         return maintenance._reconcile_sep_mutations_core(
-            conn, fetch=fetch, through=through)
+            conn, fetch=fetch, through=through,
+            reobserve_equal=reobserve_equal)
     hi = _strict_date(through, field="SEP reconciliation through")
     if cursor.processed_through > hi:
         raise maintenance.SharadarMutationRefused(
             f"SEP mutation cursor {cursor.processed_through} is ahead of "
             f"requested reconciliation through {hi}; refusing to treat future "
             "durable authority as already current")
-    if cursor.processed_through == hi:
+    if cursor.processed_through == hi and not reobserve_equal:
         return cursor
     lo = cursor.processed_through - dt.timedelta(days=1)
     envelope = SepUpdateEnvelope.interval(lo, hi, context="SEP CDC request")
     guarded = _CdcThenReplayFetch(fetch, envelope)
     return maintenance._reconcile_sep_mutations_core(
-        conn, fetch=guarded, through=through)
+        conn, fetch=guarded, through=through,
+        reobserve_equal=reobserve_equal)
 
 
 __all__ = ["StableSharadarFetch", "reconcile_sep_mutations"]
