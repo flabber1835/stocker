@@ -1,0 +1,133 @@
+name: Backtester - calibrate broad simplified breadth
+run-name: Broad simplified breadth calibration — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-calibrate-broad-simplified-breadth.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OUT_DIR: backtester-results/broad-simplified-breadth-calibration
+
+jobs:
+  backtest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact calibration head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-calibrate-broad-simplified-breadth.yml
+            /backtester/calibrate_broad_simplified_breadth.py
+            /backtester/experiment2_broad_independent_correlation.py
+            /backtester/run_r1000_correlation_peers.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Compile calibration harness
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/calibrate_broad_simplified_breadth.py \
+            backtester/experiment2_broad_independent_correlation.py \
+            backtester/run_research_ldrc_corrected_warmup_cash.py \
+            backtester/run_research_ldrc_nonpit_vs_fullpit.py
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Run full-history broad simplified calibration
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.calibrate_broad_simplified_breadth --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Validate calibration result
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR'])
+          s=json.loads((out/'summary.json').read_text())
+          m=pd.read_csv(out/'metrics.csv',dtype={'window_years':str})
+          assert s['status']=='PASS'
+          assert s['evidence_label']=='BROAD_SIMPLIFIED_BREADTH_CALIBRATION_0875_0625'
+          c=s['calibration']
+          assert abs(c['fast_damaged_calibrated']-.875)<1e-15
+          assert abs(c['healthy_damaged_calibrated']-.625)<1e-15
+          assert c['wealth_core_parameters_changed'] is False
+          assert c['peer_definition_changed'] is False
+          assert set(m.variant.astype(str))=={'RESEARCH','CORE','SPY'}
+          core20=m[(m.window_years.astype(str)=='20')&(m.variant=='CORE')].iloc[0]
+          # Wealth Core must remain identical to Experiment 2; only overlay state is calibrated.
+          assert abs(float(core20.cagr)-0.171839)<5e-7, core20
+          print(m.to_string(index=False))
+          print(json.dumps(c,indent=2,sort_keys=True))
+          PY
+
+      - name: Publish calibration summary
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import pandas as pd
+          m=pd.read_csv(Path(os.environ['OUT_DIR'])/'metrics.csv',dtype={'window_years':str})
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Broad simplified breadth calibration\n\n')
+              f.write('FAST damaged: 85% → 87.5%; healthy damaged ceiling: 60% → 62.5%. All other mechanics frozen.\n\n')
+              f.write('| Window | Variant | CAGR | Max DD | Sharpe | Multiple |\n')
+              f.write('|---|---|---:|---:|---:|---:|\n')
+              order={'5':0,'10':1,'15':2,'20':3,'max':4}
+              m['_order']=m.window_years.map(order)
+              for r in m.sort_values(['_order','variant']).itertuples(index=False):
+                  f.write(f'| {r.window_years} | {r.variant} | {r.cagr:.2%} | {r.max_drawdown:.2%} | {r.sharpe:.3f} | {r.ending_multiple:.2f}x |\n')
+          PY
+
+      - name: Upload immutable calibration bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: broad-simplified-breadth-calibration-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
