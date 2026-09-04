@@ -1,0 +1,181 @@
+name: Backtester - broad PIT calibration forensics
+run-name: Broad PIT calibration forensics — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-forensics-broad-pit-metadata.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+env:
+  NONPIT_DIR: backtester-results/broad-nonpit-calibration
+  PIT_DIR: backtester-results/broad-pit-reference
+  OUT_DIR: backtester-results/broad-pit-calibration-forensics
+
+jobs:
+  compare:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-forensics-broad-pit-metadata.yml
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_ACTIONS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Run frozen broad non-PIT reference
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$NONPIT_DIR"
+          python -m backtester.run_research_ldrc_corrected_warmup_cash --mode nonpit --output "$NONPIT_DIR"
+          (cd "$NONPIT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Download authenticated broad PIT benchmark
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf "$PIT_DIR"
+          mkdir -p "$PIT_DIR"
+          gh run download 33832270731 --repo flabber1835/stocker --name broad-pit-benchmark-5fe8c2c1bc1a07b932b62d3dbd2780755cf58133 --dir "$PIT_DIR"
+          (cd "$PIT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Compare PIT calibration geometry
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR" && mkdir -p "$OUT_DIR"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import numpy as np
+          import pandas as pd
+
+          nroot=Path(os.environ['NONPIT_DIR']); proot=Path(os.environ['PIT_DIR']); out=Path(os.environ['OUT_DIR'])
+          n=pd.read_csv(nroot/'daily.csv.gz',compression='gzip',parse_dates=['date']).set_index('date')
+          p=pd.read_csv(proot/'daily.csv.gz',compression='gzip',parse_dates=['date']).set_index('date')
+          assert n.index.equals(p.index)
+          ns=json.loads((nroot/'summary.json').read_text()); ps=json.loads((proot/'summary.json').read_text())
+          start=pd.Timestamp('2006-07-31'); n=n.loc[start:]; p=p.loc[start:]
+
+          def first_diff(col,tol=1e-12):
+              a=n[col]; b=p[col]
+              if a.dtype==object or b.dtype==object:
+                  m=a.fillna('<NA>').astype(str).ne(b.fillna('<NA>').astype(str))
+              else:
+                  m=(a.astype(float)-b.astype(float)).abs()>tol
+              return str(m[m].index[0].date()) if m.any() else None
+
+          def cross_diff(col,threshold,op='le'):
+              a=n[col].astype(float); b=p[col].astype(float)
+              if op=='le': ma=a<=threshold; mb=b<=threshold
+              else: ma=a>=threshold; mb=b>=threshold
+              return int((ma!=mb).sum())
+
+          compare_cols=['research_wealth_core_equity','research_nav','damaged','green','recent_r20','recent_r40','native_close_target','research_allocation','control_reason','fast_signal','slow_signal']
+          first={c:first_diff(c) for c in compare_cols}
+          numeric={}
+          for c in ['research_wealth_core_equity','research_nav','damaged','green','recent_r20','recent_r40','native_close_target','research_allocation']:
+              delta=(p[c].astype(float)-n[c].astype(float)).abs()
+              numeric[c]={'changed_sessions':int((delta>1e-12).sum()),'mean_abs_delta':float(delta.mean()),'max_abs_delta':float(delta.max())}
+
+          thresholds={
+            'damaged_60':cross_diff('damaged',.60),
+            'damaged_75':cross_diff('damaged',.75,'ge'),
+            'damaged_85':cross_diff('damaged',.85,'ge'),
+            'green_20':cross_diff('green',.20),
+            'green_25':cross_diff('green',.25),
+            'recent_r20_0':cross_diff('recent_r20',0.0),
+            'recent_r20_minus8':cross_diff('recent_r20',-.08),
+            'recent_r40_0':cross_diff('recent_r40',0.0),
+          }
+
+          def yearly(frame,col):
+              s=frame[col].astype(float)
+              r={}
+              for y,g in s.groupby(s.index.year):
+                  first_i=s.index.get_loc(g.index[0]); base=s.iloc[first_i-1] if first_i>0 else g.iloc[0]
+                  r[int(y)]=float(g.iloc[-1]/base-1)
+              return r
+          ny=yearly(n,'research_nav'); py=yearly(p,'research_nav')
+          years=sorted(set(ny)&set(py)); ygaps=[{'year':y,'nonpit':ny[y],'pit':py[y],'pit_minus_nonpit':py[y]-ny[y]} for y in years]
+          ygaps=sorted(ygaps,key=lambda z:abs(z['pit_minus_nonpit']),reverse=True)
+
+          result={
+            'status':'PASS','window':['2006-07-31','2026-07-31'],
+            'first_divergence':first,'numeric_daily_differences':numeric,'threshold_crossing_disagreements':thresholds,
+            'native_target_disagreement_sessions':int((n.native_close_target!=p.native_close_target).sum()),
+            'final_allocation_disagreement_sessions':int((n.research_allocation!=p.research_allocation).sum()),
+            'fast_signal_disagreement_sessions':int((n.fast_signal!=p.fast_signal).sum()),
+            'slow_signal_disagreement_sessions':int((n.slow_signal!=p.slow_signal).sum()),
+            'control_reason_disagreement_sessions':int((n.control_reason!=p.control_reason).sum()),
+            'trade_counts':{
+              'nonpit':{'buys':ns['buys'],'sells':ns['sells'],'dividends':ns['dividend_events_held'],'splits':ns['split_events_applied']},
+              'pit':{'buys':ps['buys'],'sells':ps['sells'],'dividends':ps['dividend_events_held'],'splits':ps['split_events_applied']},
+            },
+            'largest_annual_control_return_gaps':ygaps[:10],
+          }
+          (out/'comparison.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          lines=['# Broad PIT vs non-PIT calibration geometry','','20-year comparison: 2006-07-31 through 2026-07-31.','',
+                 f"- Native target disagreement sessions: {result['native_target_disagreement_sessions']}",
+                 f"- Final allocation disagreement sessions: {result['final_allocation_disagreement_sessions']}",
+                 f"- FAST signal disagreement sessions: {result['fast_signal_disagreement_sessions']}",
+                 f"- SLOW signal disagreement sessions: {result['slow_signal_disagreement_sessions']}",
+                 f"- Control-reason disagreement sessions: {result['control_reason_disagreement_sessions']}",'',
+                 '## First divergence']
+          for k,v in first.items(): lines.append(f'- {k}: {v}')
+          lines += ['','## Threshold crossing disagreements']
+          for k,v in thresholds.items(): lines.append(f'- {k}: {v}')
+          lines += ['','## Largest annual control-return gaps','', '| Year | non-PIT | PIT | PIT - non-PIT |','|---|---:|---:|---:|']
+          for r in ygaps[:10]: lines.append(f"| {r['year']} | {r['nonpit']:.2%} | {r['pit']:.2%} | {r['pit_minus_nonpit']:+.2%} |")
+          (out/'COMPARISON.md').write_text('\n'.join(lines)+'\n')
+          print((out/'COMPARISON.md').read_text())
+          PY
+
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: broad-pit-calibration-forensics-${{ github.sha }}
+          path: |
+            ${{ env.OUT_DIR }}
+            ${{ env.NONPIT_DIR }}/summary.json
+            ${{ env.NONPIT_DIR }}/metrics.csv
+            ${{ env.NONPIT_DIR }}/daily.csv.gz
+          if-no-files-found: error
+          retention-days: 90
