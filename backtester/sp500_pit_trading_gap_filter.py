@@ -1,9 +1,10 @@
 #!/usr/bin/env python3
-"""Filter S&P PIT coverage gaps to actual SPY trading sessions.
+"""Filter S&P PIT coverage gaps to actual trading sessions.
 
 Coverage audit gaps are expressed as calendar intervals. This pass removes gaps
-that contain no market session in the frozen Sharadar SEP tape. SPY is used only
-as a market-session calendar proxy; it does not establish security identity.
+that contain no market session in the frozen Sharadar SEP tape. The session
+calendar is derived from the frozen tape itself; no single benchmark ticker is
+required and the calendar does not establish security identity.
 """
 from __future__ import annotations
 
@@ -12,10 +13,12 @@ import csv
 import gzip
 import hashlib
 import json
+from collections import Counter
 from pathlib import Path
 from typing import Iterable, Mapping, Sequence
 
 SCHEMA = "backtester.sp500-pit-trading-gap-filter/1"
+MIN_TICKERS_PER_SESSION = 1000
 
 
 def _read_csv(path: Path) -> list[dict[str, str]]:
@@ -50,30 +53,40 @@ def _parse_gaps(text: str) -> list[tuple[str, str]]:
     return out
 
 
-def _spy_sessions(sharadar_root: Path, start_year: int, end_year: int) -> set[str]:
-    sessions: set[str] = set()
+def _market_sessions(sharadar_root: Path, start_year: int, end_year: int) -> tuple[set[str], Counter[str]]:
+    """Derive regular US equity sessions from breadth in the frozen SEP tape.
+
+    A valid session must contain observations for at least MIN_TICKERS_PER_SESSION
+    distinct tickers. This rejects weekends, holidays, and isolated vendor rows
+    without depending on SPY or any other particular security being present.
+    """
+    counts: Counter[str] = Counter()
     for year in range(start_year, end_year + 1):
         path = sharadar_root / f"SHARADAR_SEP_{year}.csv.gz"
         if not path.exists():
             continue
+        seen_by_date: dict[str, set[str]] = {}
         with gzip.open(path, "rt", encoding="utf-8", newline="") as fh:
             reader = csv.DictReader(fh)
             if not reader.fieldnames or "ticker" not in reader.fieldnames or "date" not in reader.fieldnames:
                 raise RuntimeError(f"SEP file missing ticker/date columns: {path}")
             for row in reader:
-                if str(row.get("ticker") or "").strip().upper() == "SPY":
-                    d = str(row.get("date") or "").strip()
-                    if d:
-                        sessions.add(d)
+                d = str(row.get("date") or "").strip()
+                ticker = str(row.get("ticker") or "").strip().upper()
+                if d and ticker:
+                    seen_by_date.setdefault(d, set()).add(ticker)
+        for d, tickers in seen_by_date.items():
+            counts[d] = len(tickers)
+    sessions = {d for d, n in counts.items() if n >= MIN_TICKERS_PER_SESSION}
     if not sessions:
-        raise RuntimeError("no SPY sessions found in frozen SEP tape")
-    return sessions
+        raise RuntimeError("no regular market sessions found in frozen SEP tape")
+    return sessions, counts
 
 
 def filter_gaps(*, coverage_root: Path, sharadar_root: Path, output: Path,
                 start_year: int = 1997, end_year: int = 2026) -> dict:
     rows = _read_csv(coverage_root / "coverage-worklist.csv")
-    sessions = _spy_sessions(sharadar_root, start_year, end_year)
+    sessions, session_counts = _market_sessions(sharadar_root, start_year, end_year)
     kept: list[dict[str, object]] = []
     removed: list[dict[str, object]] = []
     total_ranges = 0
@@ -103,7 +116,7 @@ def filter_gaps(*, coverage_root: Path, sharadar_root: Path, output: Path,
                 "member_from": row.get("member_from", ""),
                 "member_until_exclusive": row.get("member_until_exclusive", ""),
                 "removed_gap_ranges": ";".join(f"{a}..{b}" for a, b in dropped_ranges),
-                "reason": "NO_SPY_TRADING_SESSION_IN_GAP",
+                "reason": "NO_REGULAR_MARKET_SESSION_IN_GAP",
             })
 
     output.mkdir(parents=True, exist_ok=True)
@@ -126,10 +139,12 @@ def filter_gaps(*, coverage_root: Path, sharadar_root: Path, output: Path,
         "input_gap_ranges": total_ranges,
         "output_gap_ranges": kept_ranges,
         "removed_nontrading_gap_ranges": total_ranges - kept_ranges,
-        "spy_session_start": min(sessions),
-        "spy_session_end": max(sessions),
-        "spy_session_count": len(sessions),
-        "authority": "SPY observations in frozen Sharadar SEP used solely as trading-session calendar",
+        "market_session_start": min(sessions),
+        "market_session_end": max(sessions),
+        "market_session_count": len(sessions),
+        "min_tickers_per_session": MIN_TICKERS_PER_SESSION,
+        "min_observed_tickers_on_kept_session": min(session_counts[d] for d in sessions),
+        "authority": "regular sessions derived from frozen Sharadar SEP breadth; no single ticker dependency",
     }
     summary = output / "trading-gap-summary.json"
     summary.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
