@@ -1,0 +1,119 @@
+{
+  "schema": "backtester.sp500-ldrc-continuous-evidence/1",
+  "status": "PASS",
+  "experiment": "SP500_BEST_EFFORT_PIT_CONTINUOUS_1997_2026",
+  "formal_pit_certified": false,
+  "best_effort_pit": true,
+  "continuous_state_path": true,
+  "window": ["1997-12-31", "2026-07-31"],
+  "first_invested_session": "1998-07-06",
+  "strategy": {
+    "embedded_commit": "c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c",
+    "git_blob_sha1": "6c30a617b7ee615849dcf09f43612c1483703aa3"
+  },
+  "universe": {
+    "membership_dataset_hash": "1981828b71073be4d0fcf4addb37a56c844a29219090eb0c8fbc535d393bdb2d",
+    "eligibility_sha256": "d3e141f2851e492abbca34350cd18f277e23bd635f4c4e868bb666a26ea3104b",
+    "market_sessions": 7189,
+    "daily_constituents_min": 460,
+    "daily_constituents_median": 476.0,
+    "daily_constituents_max": 504,
+    "daily_constituents_last": 503,
+    "source_membership_sessions": 3587397,
+    "eligible_source_sessions": 3458733,
+    "excluded_source_sessions": 128664,
+    "exclusion_fraction": 0.035865559345675986,
+    "exclusion_reason_counts": {
+      "NO_APPROVED_CAUSAL_IDENTITY_MAPPING": 108431,
+      "SEC_CIK_AMBIGUOUS_IDENTITY": 13453,
+      "DUPLICATE_RESOLVED_TICKER_ON_SESSION": 6170,
+      "STAGE3_AMBIGUOUS_IDENTITY": 610
+    },
+    "early_membership_caveat": "S&P membership before 2001-01-16 comes from the pinned secondary historical source's incomplete early-history region and is explicitly best-effort."
+  },
+  "pre2006_seam_witness": {
+    "pre2006_end": "2005-12-30",
+    "pre2006_sessions": 2013,
+    "control_nav": 2.8822811536528485,
+    "spy_nav": 1.4394278879361175,
+    "next_session": "2006-01-03",
+    "state_reset": false,
+    "matches_sealed_oos_exactly": true
+  },
+  "windows": {
+    "5": {
+      "ld_rc_cagr": 0.13691781157451866,
+      "spy_cagr": 0.1275588366954017,
+      "cagr_spread": 0.009358974879116966,
+      "ld_rc_max_drawdown": -0.20823400406818104,
+      "spy_max_drawdown": -0.2449730210824943,
+      "ld_rc_sharpe": 0.8238612634688827,
+      "spy_sharpe": 0.78782853401923,
+      "ld_rc_ending_multiple": 1.9000521004434252,
+      "spy_ending_multiple": 1.8230915657946114
+    },
+    "10": {
+      "ld_rc_cagr": 0.12477555310021171,
+      "spy_cagr": 0.1498307955898699,
+      "cagr_spread": -0.02505524248965818,
+      "ld_rc_max_drawdown": -0.20823400406818093,
+      "spy_max_drawdown": -0.33700067485140295,
+      "ld_rc_sharpe": 0.8463428094334168,
+      "spy_sharpe": 0.8704054911994901,
+      "ld_rc_ending_multiple": 3.2424918314189366,
+      "spy_ending_multiple": 4.042042042042041
+    },
+    "15": {
+      "ld_rc_cagr": 0.12732190982921843,
+      "spy_cagr": 0.14397255004731968,
+      "cagr_spread": -0.016650640218101254,
+      "ld_rc_max_drawdown": -0.20823400406818104,
+      "spy_max_drawdown": -0.33700067485140295,
+      "ld_rc_sharpe": 0.899467139725524,
+      "spy_sharpe": 0.8709781691056417,
+      "ld_rc_ending_multiple": 6.0402634054000925,
+      "spy_ending_multiple": 7.5268264667654075
+    },
+    "20": {
+      "ld_rc_cagr": 0.12124758744146469,
+      "spy_cagr": 0.11256316445674552,
+      "cagr_spread": 0.008684422984719165,
+      "ld_rc_max_drawdown": -0.2197596395703144,
+      "spy_max_drawdown": -0.55201855645911,
+      "ld_rc_sharpe": 0.8655721007971564,
+      "spy_sharpe": 0.6473414847918665,
+      "ld_rc_ending_multiple": 9.863949577934338,
+      "spy_ending_multiple": 8.443306659433066
+    },
+    "Max": {
+      "start": "1998-07-06",
+      "elapsed_years": 28.06902263564618,
+      "ld_rc_cagr": 0.12263263039941563,
+      "spy_cagr": 0.08725812854712878,
+      "cagr_spread": 0.035374501852286855,
+      "ld_rc_max_drawdown": -0.33616706824338616,
+      "spy_max_drawdown": -0.5520185564591099,
+      "ld_rc_sharpe": 0.8310256813186314,
+      "spy_sharpe": 0.5286976659985295,
+      "ld_rc_ending_multiple": 25.711182493851478,
+      "spy_ending_multiple": 10.467002942412778
+    }
+  },
+  "execution": {
+    "github_actions_run_id": 33828489539,
+    "run_head_sha": "f10f7ea9406ed2296210b93446b272deba2f96c3",
+    "artifact_id": 9921123829,
+    "artifact_name": "sp500-continuous-1997-2026-f10f7ea9406ed2296210b93446b272deba2f96c3",
+    "artifact_size_bytes": 42610359,
+    "artifact_zip_sha256": "69066a3ac496f797749514ccad3556600692008106a9accfc7ea364f8e018a4d",
+    "workflow_conclusion": "success",
+    "all_validation_steps_green": true
+  },
+  "pre2006_oos_evidence": {
+    "status": "CONSUMED_AND_PRESERVED",
+    "repository_file": "backtester/evidence/sp500_ldrc_oos_1998_2005.json",
+    "original_run_id": 33827090507,
+    "original_artifact_id": 9920465803,
+    "original_artifact_zip_sha256": "a006c2c87360e016262f46c211a9e10c1dad29ba4d6ec3f6e39d49da47e07568"
+  }
+}
