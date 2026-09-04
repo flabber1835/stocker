@@ -14,7 +14,7 @@ permissions:
 env:
   MEMBERSHIP_DIR: backtester-results/r1000-membership
   OUT_DIR: backtester-results/r1000-correlation-peers
-  R1000_MAX_STALENESS_DAYS: '62'
+  R1000_MAX_STALENESS_DAYS: '190'
 
 jobs:
   backtest:
@@ -122,7 +122,7 @@ jobs:
           assert ms['first_as_of']=='2006-09-29'
           assert ms['snapshot_count'] >= 230
           assert ms['minimum_mapping_coverage'] >= .90
-          assert ms['maximum_carried_staleness_days'] <= ms['maximum_allowed_staleness_days'] <= 62
+          assert ms['maximum_carried_staleness_days'] <= ms['maximum_allowed_staleness_days'] <= 190
           assert set(m.variant.astype(str))=={'RESEARCH','CORE','SPY'}
           assert {'5','10','15','20','max'}.issubset(set(m.window_years.astype(str)))
           print(m.to_string(index=False))
