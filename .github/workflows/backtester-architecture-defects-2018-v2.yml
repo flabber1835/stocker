@@ -1,0 +1,116 @@
+name: Backtester - architecture defects E1 E2 v2
+run-name: Architecture defects E1/E2 v2 — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-architecture-defects-2018-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OUT_DIR: backtester-results/architecture-defects-e1-e2-v2
+
+jobs:
+  backtest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact experiment head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-architecture-defects-2018-v2.yml
+            /backtester/experiment_architecture_defects_2018.py
+            /backtester/experiment_architecture_defects_2018_v2.py
+            /backtester/calibrate_broad_simplified_breadth.py
+            /backtester/experiment2_broad_independent_correlation.py
+            /backtester/run_r1000_correlation_peers.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Preflight generated source and cash authority
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/experiment_architecture_defects_2018.py backtester/experiment_architecture_defects_2018_v2.py
+          python - <<'PY'
+          from pathlib import Path
+          from backtester.experiment_architecture_defects_2018_v2 import transformed_source
+          text=transformed_source(Path('/tmp/preflight'))
+          compile(text,'<generated>','exec')
+          assert '_CASH_YIELD=' in text
+          assert 'LD_ENTER_OWNED_BOOK' in text
+          assert 'FULL_RISK_CERTIFIED_R20' in text
+          print('generated source + cash authority preflight: PASS')
+          PY
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Run full-history architecture-defect replay
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.experiment_architecture_defects_2018_v2 --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Validate fresh Strategy 9 control
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR'])
+          s=json.loads((out/'summary.json').read_text())
+          m=pd.read_csv(out/'metrics.csv',dtype={'window_years':str})
+          assert s['status']=='PASS'
+          assert s['experiment_budget']['completed_candidate_experiments_in_this_replay']==2
+          assert set(m.variant.astype(str))=={'RESEARCH','CORE','SPY','E1_OWNED_DIVERGENCE','E2_RECOVERY_SIMPLIFICATION'}
+          c20=m[(m.window_years=='20')&(m.variant=='RESEARCH')].iloc[0]
+          cmax=m[(m.window_years=='max')&(m.variant=='RESEARCH')].iloc[0]
+          assert abs(float(c20.cagr)-0.2009644213161852)<5e-10, c20
+          assert abs(float(c20.max_drawdown)+0.2962659467931288)<5e-10, c20
+          assert abs(float(cmax.cagr)-0.1979341893464519)<5e-10, cmax
+          assert abs(float(cmax.max_drawdown)+0.3345904831084260)<5e-10, cmax
+          print(m.to_string(index=False))
+          PY
+
+      - name: Upload immutable experiment bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: architecture-defects-e1-e2-v2-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
