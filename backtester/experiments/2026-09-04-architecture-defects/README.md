@@ -4,151 +4,71 @@
 
 Research only. No production activation. `main` is read-only.
 
-Owner-authorized hard budget: **at most 10 completed economic candidate experiments**. Screening against prior daily evidence does not consume the budget and is never promoted as backtest evidence. A candidate arm that completes a fresh chronological economic replay consumes one experiment. Infrastructure failures before a measured candidate replay do not consume the budget.
+Owner-authorized hard budget: **at most 10 completed economic candidate experiments**. Screening and observational diagnostics consume zero. A candidate arm consumes one experiment once its fresh chronological measured replay completes. Infrastructure failure before measured replay consumes zero.
 
-**Budget consumed: 2 / 10.**
+**Current budget: 4 / 10 consumed; 6 remain.**
+
+The complete durable record of hypotheses, exact runs, artifact IDs/digests, metrics, diagnostics, analysis, and decisions is in [`RESULTS_AND_ANALYSIS_LEDGER.md`](./RESULTS_AND_ANALYSIS_LEDGER.md).
 
 ## Baseline
 
-The control is Strategy 9, **Broad simplified fixed breadth calibration**.
+Control: Strategy 9, **Broad simplified fixed breadth calibration**.
 
-- Source lineage: `research/backtester-sp500-pit`
-- Historical control run: Actions `33876316789`
-- Control head: `238891bf67cc75afa3efd4b82b71cfdb52c2fd75`
-- Control artifact: `9939066139`
-- FAST damaged breadth minimum: `0.875`
-- healthy/recovery damaged breadth ceiling: `0.625`
-- Wealth Core, FAST return/acceleration predicates, SLOW, native recovery ramp, LD-RC, peer construction, price domains and execution timing are the baseline mechanics.
+- Historical Actions run: `33876316789`
+- Head: `238891bf67cc75afa3efd4b82b71cfdb52c2fd75`
+- Artifact: `9939066139`
+- Stable economic projection SHA256: `3a8a03799ddd06f14e1d8625e2f6540192e7255a11cb33e9462b2c9ffd625053`
+- Max-history: CAGR `19.7934%`, max DD `-33.4590%`, Sharpe `1.066746`
+- 20-year: CAGR `20.0964%`, max DD `-29.6266%`, Sharpe `1.091505`
 
-The later dynamic breadth experiment changed thresholds repeatedly but produced identical signals and allocations. Breadth-scale tuning is on an economic plateau and is outside this architecture pass.
+The dynamic breadth experiment produced identical signals/allocations despite repeated threshold changes; breadth-scale tuning is an economic plateau and is closed for this pass.
 
-## Objective
+## Completed experiment ledger
 
-Correct simple mechanical defects, then calibrate only a surviving architecture. A retained rule must explain a failure mode structurally and remain useful across multiple episodes. Simplicity and parameter economy are acceptance requirements.
+| # | Candidate | Evidence | Decision |
+|---:|---|---|---|
+| 1 | owned-book divergence mode | run `33908036047`, head `d6719c6a0a3b394d344f4d54e01cebc9821981be` | **REJECTED** — too many false defensive entries; no DD gain |
+| 2 | r20-only post-severe recovery | same fresh multi-arm run | **REJECTED** — false 2000 bear-market recovery; DD worsened |
+| 3 | cross-surface recovery concordance | run `33912976460`, artifact `9953264982` | **RETAINED** — improves 10/15/20y CAGR, DD and Sharpe; fixes most 2019 delay |
+| 4 | immediate symmetric Wealth Core deterioration exit | run `33920953006`, artifact `9956419168` | **REJECTED** — fixes 2018 but creates extreme churn and destroys long-run economics |
+| 5-10 | uncommitted | — | reserved |
 
-## Diagnosed architecture issue
+Detailed Experiment 3 record: [`EXPERIMENT3_RECOVERY_CONCORDANCE.md`](./EXPERIMENT3_RECOVERY_CONCORDANCE.md).
 
-The 2018-2019 path contains two distinct phenomena:
+Detailed Experiment 4 design, results, attribution and rejection analysis: [`EXPERIMENT4_SYMMETRIC_EXIT.md`](./EXPERIMENT4_SYMMETRIC_EXIT.md).
 
-1. the stateful owned Wealth Core book deteriorated before the broad market; and
-2. after severe defense, LD-RC delayed recovery because its full confirmation requires both recent-leadership r20 and r40 to be positive for seven sessions, or the existing SPY V-rebound.
+## Current architecture position
 
-The first two candidate repairs established important negative evidence.
+**Sentinel:** retain Experiment 3 cross-surface recovery concordance. It added only three early recovery releases — 2012-01-18, 2016-02-25, and 2019-02-04 — and did not weaken the 2000-2001, 2008-2009, or 2022 weak-recovery cases.
 
-## Experiment 1 — owned-book divergence mode — REJECTED
+**Wealth Core:** 2018 contains a real retention/selection weakness, but the correct repair is not yet established. The zero-budget 2018 diagnostic showed 76.19% of gross negative holding P&L occurred after the 12 identified held names were already outside the existing top-10% momentum pool with negative recent-21 return; they remained held a median 65.5 sessions after first detection. Experiment 4 proved that immediate daily symmetry is far too aggressive.
 
-Candidate: preserve current LD-RC and OR in a second divergence entry using the owned book:
+The age-119 review is intentionally one-time by specification. Repeating it would be a strategy redesign, not a bug fix.
 
-```
-native >= 1
-AND effective_native >= 1
-AND wc_drawdown <= -0.10
-AND wc_r20 < 0
-AND wc_r40 <= -0.08
-AND spy_r20 >= 0
-```
+## Zero-budget evidence
 
-Fresh full-history candidate replay completed in Actions run `33908036047`.
+### 2018 retention diagnostic — completed
 
-Measured max-period result:
+- Run: `33917445284`
+- Head: `154fcfdeb06d46ca578c8c4230f16921b84a2cb6`
+- Artifact: `9954537697`
+- Artifact digest: `sha256:a84a158f5a774fc9229a6df3cff9e5913892171bbb49a6d060e0f39033f72a48`
+- Decisions changed: false
+- Budget consumed: 0
 
-- baseline: CAGR `19.7934%`, max DD `-33.4590%`, Sharpe `1.06675`
-- E1: CAGR `19.6191%`, max DD `-33.4590%`, Sharpe `1.06530`
+Key findings: 2018 Wealth Core `-19.1185%`, within-year DD `-31.5475%`; 12 deterioration episodes; 76.1945% of gross negative holding P&L occurred after deterioration; median retention after first detection 65.5 sessions, max 115.
 
-E1 added 10 owned-book divergence entries and raised allocation transitions from 37 to 50 without improving maximum drawdown. Post-run episode screening shows the new sensor frequently engaged during rebounds, including 2004, 2016, August 2018 and 2024. It helped the November-December 2018 decline but its false defensive episodes outweighed that benefit.
+### Mechanical-state diagnostic — in progress
 
-**Decision: reject.** The stateful-book diagnosis is real, but this direct OR trigger is too permissive.
+This is the pre-Experiment-5 audit of review state, exit-fill delay, admission/replacement pressure, and a possible research-replay/canonical cooldown convention mismatch.
 
-## Experiment 2 — r20-only post-severe recovery — REJECTED
+- First attempt: `33926159642` at `b99a1472fe90aecebc4da2ead989130d0fb887bc`; harness failed before replay on an obsolete source seam. Budget impact: 0.
+- Fixed rerun: `33926503274` at `a9297b8669217ee1613a7f8d132a3e5180c21640`; fresh zero-budget replay currently running.
 
-Candidate: preserve the existing divergence latch and its release rule. For the separate post-severe recovery episode, permit full-risk certification after seven consecutive recent-leadership `r20 > 0` sessions once native exposure has left zero, retaining the existing SPY V-rebound alternative.
+No result from this diagnostic is accepted until the rerun completes and its validation/artifact pass.
 
-Fresh full-history candidate replay completed in Actions run `33908036047`.
+## Research discipline
 
-Measured max-period result:
+A surviving change must have a structural mechanism, use contemporaneous/strict-prior information, preserve next-open execution, avoid episode-specific tuning, and survive broad-history falsification. A disappointing experiment is rejected as specified; its thresholds are not adjusted until it works.
 
-- baseline: CAGR `19.7934%`, max DD `-33.4590%`, Sharpe `1.06675`
-- E2: CAGR `19.6964%`, max DD `-37.1649%`, Sharpe `1.05665`
-
-E2 solves the intended 2019 delay, but it mistakes the 2000 bear-market rebound for durable recovery and stays exposed far too early. The maximum drawdown deterioration is material.
-
-**Decision: reject.** The r40 gate is economically load-bearing as protection against false recovery. The repair must distinguish broad durable repair from a rebound inside a damaged book.
-
-## Control-parity note from the E1/E2 run
-
-The full replay produced the historical Strategy 9 max-period economics and all observed year-end control multiples, but the experiment wrapper's overly broad byte-level projection hash failed after output-schema telemetry was added. No candidate is promoted from that run. Future candidate wrappers must avoid inserting telemetry into the baseline output row and must validate the untouched economic path independently after replay.
-
-## Experiment 3 — cross-surface recovery concordance — PLANNED
-
-### Mechanical premise
-
-A false recovery can look excellent inside the damaged owned book. In June 2000 the owned Wealth Core 20-session rebound was much stronger than both the current leadership basket and SPY. In February 2019 the opposite geometry held: the owned book was recovering, while both current leadership and SPY were at least as strong.
-
-The early-release test therefore asks whether recovery is **concordant across all three surfaces**:
-
-- the owned stateful book;
-- the current investable leadership opportunity set; and
-- the broad market.
-
-### Rule
-
-The existing LD-RC post-severe recovery remains the fallback and is unchanged. Add one early full-risk release path while a recovery episode is active:
-
-```
-recent_positive_streak >= existing LDRC_REC  # 7 sessions
-AND wc_r20 > 0
-AND recent_leadership_r20 >= wc_r20
-AND spy_r20 >= wc_r20
-```
-
-The recent-positive streak accumulates only while the recovery episode is active and native target is above zero. A non-positive or unavailable recent r20 resets it. All comparisons use same-session causal 20-session returns already available in the replay. The rule is evaluated at the close and any exposure change remains next-open effective.
-
-### Parameter discipline
-
-- `7` is the existing LD-RC recovery persistence; no new duration is introduced.
-- `0` is only a sign boundary.
-- `recent >= core` and `SPY >= core` are relative comparisons, not calibrated thresholds.
-- No new exposure level, lookback horizon, percentile, crisis date or fitted numeric constant is introduced.
-- Existing full recovery and SPY V-rebound remain unchanged fallback routes.
-- Existing divergence entry/latch mechanics remain unchanged.
-
-### Pre-run falsification screening
-
-Screening on the prior Strategy 9 daily evidence is diagnostic only. It indicates this rule would add early release on only three historical recovery episodes:
-
-| decision date | current control posture after next open | candidate posture | subsequent candidate-difference interval |
-|---|---:|---:|---|
-| 2012-01-18 | 0% | 100% | 2012-01-19 through 2012-01-26 |
-| 2016-02-25 | 65% | 100% | 2016-02-26 through 2016-03-11 |
-| 2019-02-04 | 0% | 100% | 2019-02-05 through 2019-02-22 |
-
-It does **not** release early in the 2000-2001, 2008-2009 or 2022 false/weak recovery cases. All three screened added-risk intervals happened to have positive raw Wealth Core returns; that fact is a falsifier target for the fresh replay, not an acceptance claim.
-
-### Experiment 3 acceptance
-
-Experiment 3 survives only if the fresh replay proves all of the following:
-
-1. untouched Strategy 9 control path reproduces within the pinned control tolerance;
-2. the candidate changes only the three expected recovery episodes or produces an explainable additional episode from the fresh causal state;
-3. max-period and 20-year maximum drawdown do not materially worsen;
-4. long-horizon CAGR/Sharpe are not degraded;
-5. the 2019 recovery opportunity cost is reduced;
-6. no 2000-2001 early release occurs;
-7. no new numeric tuning is introduced after seeing the result.
-
-Failure closes this candidate. There is no threshold adjustment inside Experiment 3.
-
-## Acceptance principles for later work
-
-A surviving architecture must use contemporaneous/strict-prior evidence, preserve the immutable Wealth Core shadow, preserve next-open execution, improve more than one episode, maintain or improve drawdown economics, and have a small auditable state surface. A result that requires episode-specific thresholds is rejected even if CAGR improves.
-
-## Budget ledger
-
-| Experiment | Candidate | Status |
-|---|---|---|
-| 1 | owned-book divergence mode | **REJECTED — completed** |
-| 2 | r20-only recovery, divergence latch preserved | **REJECTED — completed** |
-| 3 | cross-surface recovery concordance | **PLANNED** |
-| 4-10 | uncommitted | held in reserve |
-
-Current budget: **2 / 10 consumed; 8 remain.**
+In particular, **do not tune Experiment 4**. First determine whether cooldown, replacement capacity, exit execution, or review-state handling contains an actual mechanical defect. If no defect exists, any further retention change is explicitly a strategy redesign and must be treated as such.
