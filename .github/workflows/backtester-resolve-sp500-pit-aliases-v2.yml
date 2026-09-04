@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/backtester-resolve-sp500-pit-aliases-v2.yml'
       - 'backtester/sp500_pit_alias_resolution_v2.py'
+      - 'backtester/sp500_pit_coverage_audit.py'
   workflow_dispatch:
 
 permissions:
@@ -17,6 +18,7 @@ env:
   MEMBERSHIP_DIR: backtester-results/sp500-pit-membership
   IDENTITY_DIR: backtester-results/sp500-pit-identity
   OUTPUT_DIR: backtester-results/sp500-pit-alias
+  COVERAGE_DIR: backtester-results/sp500-pit-coverage
   SOURCE_URL: https://raw.githubusercontent.com/fja05680/sp500/c31ac3cc56f28cf9a02b4e694eff7ceab596a0ff/sp500_ticker_start_end.csv
 
 jobs:
@@ -36,6 +38,7 @@ jobs:
             /backtester/sp500_pit_identity.py
             /backtester/sp500_pit_alias_resolution.py
             /backtester/sp500_pit_alias_resolution_v2.py
+            /backtester/sp500_pit_coverage_audit.py
             /backtester/strict_pit_metadata.py
             /backtester/data/sp500_official_overlay_2026.csv
             /backtester/data/causal-terminal-terms-v1.json
@@ -62,22 +65,41 @@ jobs:
           rm -rf "$OUTPUT_DIR"
           python -m backtester.sp500_pit_alias_resolution_v2 --identity-root "$IDENTITY_DIR" --tickers-zip sharadar/SHARADAR_TICKERS.zip --sharadar-root sharadar --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz --output "$OUTPUT_DIR" --start-year 1997 --end-year 2026
           (cd "$OUTPUT_DIR" && sha256sum -c SHA256SUMS.txt)
+      - name: Audit actual interval coverage
+        run: |
+          set -euo pipefail
+          rm -rf "$COVERAGE_DIR"
+          python -m backtester.sp500_pit_coverage_audit --membership-root "$MEMBERSHIP_DIR" --identity-root "$IDENTITY_DIR" --alias-root "$OUTPUT_DIR" --output "$COVERAGE_DIR"
+          (cd "$COVERAGE_DIR" && sha256sum -c SHA256SUMS.txt)
       - name: Validate diagnostic
         run: |
           python - <<'PY'
           import json, os
           from pathlib import Path
-          s=json.loads((Path(os.environ['OUTPUT_DIR'])/'alias-summary.json').read_text())
-          assert s['schema']=='backtester.sp500-pit-alias-resolution/1'
-          assert s['status']=='ALIAS_DIAGNOSTIC_COMPLETE'
-          assert s['input_unresolved_intervals']==299, s
-          assert s['resolved_intervals']+s['ambiguous_intervals']+s['still_unresolved_intervals']==299
-          assert s['blocking_identity_conflicts']==0
-          print(json.dumps(s,indent=2,sort_keys=True))
+          a=json.loads((Path(os.environ['OUTPUT_DIR'])/'alias-summary.json').read_text())
+          c=json.loads((Path(os.environ['COVERAGE_DIR'])/'coverage-summary.json').read_text())
+          assert a['schema']=='backtester.sp500-pit-alias-resolution/1'
+          assert a['status']=='ALIAS_DIAGNOSTIC_COMPLETE'
+          assert a['input_unresolved_intervals']==299, a
+          assert a['resolved_intervals']+a['ambiguous_intervals']+a['still_unresolved_intervals']==299
+          assert a['blocking_identity_conflicts']==0
+          assert c['schema']=='backtester.sp500-pit-coverage-audit/1'
+          assert c['status']=='COVERAGE_AUDIT_COMPLETE'
+          assert c['membership_intervals']==1261
+          assert c['post_tape_fully_covered_intervals']+c['post_tape_partial_coverage_intervals']+c['post_tape_no_coverage_intervals']+c['pre_tape_intervals']==1261
+          print(json.dumps({'alias':a,'coverage':c},indent=2,sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write('### S&P 500 PIT identity coverage\n')
+              fh.write(f"- Fully covered post-tape intervals: {c['post_tape_fully_covered_intervals']:,}\n")
+              fh.write(f"- Partial intervals: {c['post_tape_partial_coverage_intervals']:,}\n")
+              fh.write(f"- No-coverage intervals: {c['post_tape_no_coverage_intervals']:,}\n")
+              fh.write(f"- Residual gap intervals: {c['post_tape_intervals_with_gap']:,}\n")
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: sp500-pit-alias-v2-${{ github.sha }}
-          path: ${{ env.OUTPUT_DIR }}
+          path: |
+            ${{ env.OUTPUT_DIR }}
+            ${{ env.COVERAGE_DIR }}
           if-no-files-found: error
           retention-days: 90
