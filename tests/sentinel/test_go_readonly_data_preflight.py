@@ -53,9 +53,10 @@ def test_preflight_validates_all_local_maintenance_cursor_authority():
     assert "recent_reconciliation.CURSOR_KIND" in code
     assert "load_cursor_readonly" in code
     assert "require_not_future" in code
-    assert "processed_through %s is ahead of current closed session %s" in code
+    assert "processed_through %s is ahead of %s %s" in code
     assert "target <= through" not in code
-    assert "if through == target" in code
+    assert "if through >= target" not in code
+    assert "through == source_day" in code
 
 
 def test_missing_legacy_cursor_state_is_recovery_not_source_corruption():
