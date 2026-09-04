@@ -1,0 +1,189 @@
+name: Backtester - dynamic breadth calibration retry
+run-name: Dynamic broad breadth calibration retry — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-exp-dynamic-breadth-calibration-retry.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  OUT_DIR: backtester-results/broad-simplified-dynamic-breadth
+  BASE_DIR: backtester-results/fixed-broad-simplified-calibration
+
+jobs:
+  backtest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact experiment head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-exp-dynamic-breadth-calibration-retry.yml
+            /backtester/experiment_dynamic_breadth_calibration.py
+            /backtester/calibrate_broad_simplified_breadth.py
+            /backtester/experiment2_broad_independent_correlation.py
+            /backtester/run_r1000_correlation_peers.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Apply evidence-column reporting fix
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('backtester/experiment_dynamic_breadth_calibration.py')
+          s=p.read_text(encoding='utf-8')
+          old='"native_close_target","control_allocation",'
+          new='"native_close_target","research_allocation",'
+          if s.count(old) != 1:
+              raise SystemExit(f'expected one reporting seam, found {s.count(old)}')
+          p.write_text(s.replace(old,new,1),encoding='utf-8')
+          PY
+
+      - name: Compile experiment harness
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/experiment_dynamic_breadth_calibration.py \
+            backtester/calibrate_broad_simplified_breadth.py \
+            backtester/experiment2_broad_independent_correlation.py \
+            backtester/run_research_ldrc_corrected_warmup_cash.py \
+            backtester/run_research_ldrc_nonpit_vs_fullpit.py
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Run full-history dynamic calibration
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.experiment_dynamic_breadth_calibration --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Download fixed calibrated baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf "$BASE_DIR" && mkdir -p "$BASE_DIR"
+          gh run download 33876316789 \
+            --repo flabber1835/stocker \
+            --name broad-simplified-breadth-calibration-238891bf67cc75afa3efd4b82b71cfdb52c2fd75 \
+            --dir "$BASE_DIR"
+          (cd "$BASE_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Validate causality and compare fixed baseline
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, json, os
+          from pathlib import Path
+          import numpy as np
+          import pandas as pd
+
+          out=Path(os.environ['OUT_DIR']); base=Path(os.environ['BASE_DIR'])
+          s=json.loads((out/'summary.json').read_text())
+          assert s['status']=='PASS'
+          assert s['evidence_label']=='BROAD_SIMPLIFIED_DYNAMIC_BREADTH_5Y_HALFLIFE_V1'
+          assert s['calibration']['return_optimized'] is False
+          stats=s['dynamic_calibration_stats']
+          assert stats['half_life_years']==5.0
+
+          d=pd.read_csv(out/'daily.csv.gz',compression='gzip',parse_dates=['date','calibration_cutoff'])
+          b=pd.read_csv(base/'daily.csv.gz',compression='gzip',parse_dates=['date'])
+          assert d.date.equals(b.date)
+          assert np.array_equal(d.research_wealth_core_equity.to_numpy(),b.research_wealth_core_equity.to_numpy(),equal_nan=True)
+          cut=d.calibration_cutoff.notna()
+          assert (d.loc[cut,'calibration_cutoff'] < d.loc[cut,'date']).all()
+          assert d.dynamic_fast_damaged.between(.825,.925).all()
+          assert d.dynamic_healthy_damaged.between(.575,.675).all()
+          for series,anchor in [(d.dynamic_fast_damaged,.875),(d.dynamic_healthy_damaged,.625)]:
+              z=(series-anchor)/.025
+              assert np.allclose(z,np.round(z),atol=1e-10)
+
+          m=pd.read_csv(out/'metrics.csv',dtype={'window_years':str})
+          bm=pd.read_csv(base/'metrics.csv',dtype={'window_years':str})
+          r=m[m.variant.eq('RESEARCH')].set_index('window_years')
+          br=bm[bm.variant.eq('RESEARCH')].set_index('window_years')
+          comparison={'status':'PASS','fixed_run':33876316789,'dynamic_head':os.environ['GITHUB_SHA'],'windows':{},
+                      'dynamic_stats':stats,'changed_daily_allocation_sessions':int((d.research_allocation!=b.research_allocation).sum()),
+                      'fast_signal_changed_sessions':int((d.fast_signal!=b.fast_signal).sum())}
+          for w in ['5','10','15','20','max']:
+              comparison['windows'][w]={
+                  'fixed_cagr':float(br.loc[w,'cagr']),'dynamic_cagr':float(r.loc[w,'cagr']),
+                  'cagr_delta':float(r.loc[w,'cagr']-br.loc[w,'cagr']),
+                  'fixed_sharpe':float(br.loc[w,'sharpe']),'dynamic_sharpe':float(r.loc[w,'sharpe']),
+                  'sharpe_delta':float(r.loc[w,'sharpe']-br.loc[w,'sharpe']),
+                  'fixed_max_dd':float(br.loc[w,'max_drawdown']),'dynamic_max_dd':float(r.loc[w,'max_drawdown']),
+              }
+          cp=out/'fixed-comparison.json'; cp.write_text(json.dumps(comparison,indent=2,sort_keys=True)+'\n')
+          h=hashlib.sha256(cp.read_bytes()).hexdigest()
+          with (out/'SHA256SUMS.txt').open('a') as f: f.write(f'{h}  {cp.name}\n')
+          print(json.dumps(comparison,indent=2,sort_keys=True))
+          PY
+          (cd "$OUT_DIR" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Publish experiment summary
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          c=json.loads((Path(os.environ['OUT_DIR'])/'fixed-comparison.json').read_text())
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Dynamic broad breadth calibration — 5y half-life\n\n')
+              f.write('Monthly, strictly-prior breadth calibration; 5-year exponential half-life; 50% shrinkage; episode-latched activation. No return optimization.\n\n')
+              f.write('| Window | Fixed CAGR | Dynamic CAGR | Δ CAGR | Fixed Sharpe | Dynamic Sharpe | Dynamic DD |\n')
+              f.write('|---|---:|---:|---:|---:|---:|---:|\n')
+              for w in ['5','10','15','20','max']:
+                  x=c['windows'][w]
+                  f.write(f"| {w} | {x['fixed_cagr']:.2%} | {x['dynamic_cagr']:.2%} | {x['cagr_delta']:+.2%} | {x['fixed_sharpe']:.3f} | {x['dynamic_sharpe']:.3f} | {x['dynamic_max_dd']:.2%} |\n")
+              s=c['dynamic_stats']
+              f.write(f"\nThreshold range: FAST {s['fast_min']:.3f}–{s['fast_max']:.3f}; healthy {s['healthy_min']:.3f}–{s['healthy_max']:.3f}. Changed activations: {s['changed_activation_count']}; deferred month starts: {s['deferred_count']}.\n")
+          PY
+
+      - name: Upload immutable dynamic calibration bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: broad-simplified-dynamic-breadth-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
