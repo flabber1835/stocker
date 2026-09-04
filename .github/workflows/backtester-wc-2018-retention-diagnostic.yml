@@ -1,0 +1,128 @@
+name: Wealth Core 2018 retention diagnostic
+
+on:
+  workflow_dispatch:
+  push:
+    branches:
+      - research/backtester-wc-2018-diagnostic
+    paths:
+      - backtester/diagnose_wc_2018_retention_asymmetry.py
+      - .github/workflows/backtester-wc-2018-retention-diagnostic.yml
+
+permissions:
+  contents: read
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    env:
+      OUT_DIR: backtester-results/wc-2018-retention-diagnostic
+    steps:
+      - name: Check out exact diagnostic head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-wc-2018-retention-diagnostic.yml
+            /backtester/diagnose_wc_2018_retention_asymmetry.py
+            /backtester/calibrate_broad_simplified_breadth.py
+            /backtester/experiment2_broad_independent_correlation.py
+            /backtester/run_r1000_correlation_peers.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Compile diagnostic harness
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/diagnose_wc_2018_retention_asymmetry.py \
+            backtester/calibrate_broad_simplified_breadth.py \
+            backtester/experiment2_broad_independent_correlation.py \
+            backtester/run_research_ldrc_corrected_warmup_cash.py \
+            backtester/run_research_ldrc_nonpit_vs_fullpit.py
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Run fresh zero-budget structural diagnostic
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.diagnose_wc_2018_retention_asymmetry --output "$OUT_DIR"
+
+      - name: Validate diagnostic contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR'])
+          s=json.loads((out/'wc_2018_diagnostic_summary.json').read_text())
+          assert s['status']=='PASS'
+          assert s['evidence_label']=='WEALTH_CORE_2018_RETENTION_ASYMMETRY_DIAGNOSTIC'
+          assert s['economic_experiments_consumed']==0
+          assert s['experiment_budget_completed']==3
+          assert s['strategy_decisions_changed'] is False
+          h=pd.read_csv(out/'wc_2018_holding_daily.csv')
+          e=pd.read_csv(out/'wc_2018_equity.csv')
+          assert len(h)>1000
+          assert len(e)>200
+          assert {'in_top_decile_pool','recent_r21','post_deterioration_active','pending_sell_reason'}.issubset(h.columns)
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Publish diagnostic summary
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.loads((Path(os.environ['OUT_DIR'])/'wc_2018_diagnostic_summary.json').read_text())
+          d=s['deterioration']; w=s['wealth_core_2018']
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Wealth Core 2018 retention diagnostic — zero budget\n\n')
+              f.write(f"Economic experiment budget: **{s['experiment_budget_completed']}/10**; this diagnostic consumed **0**.\n\n")
+              f.write(f"2018 Wealth Core return: **{w['calendar_return']:.2%}**; within-year max DD: **{w['max_drawdown_within_2018']:.2%}**.\n\n")
+              f.write(f"Deterioration episodes first detected in 2018: **{d['episodes_first_detected_in_2018']}** across **{d['unique_tickers_first_detected_in_2018']}** tickers.\n\n")
+              f.write(f"Post-deterioration share of gross negative holding P&L: **{d['share_of_gross_negative_holding_pnl']:.2%}**.\n\n")
+              f.write(f"Post-deterioration net P&L: **${d['post_deterioration_net_pnl_2018']:,.0f}**.\n")
+          PY
+
+      - name: Upload immutable diagnostic bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wc-2018-retention-diagnostic-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
