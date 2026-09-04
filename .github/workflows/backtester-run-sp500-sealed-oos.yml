@@ -67,7 +67,7 @@ jobs:
             /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
             /sharadar/SHARADAR_SEP_*.csv.gz
             /sharadar/SHARADAR_TICKERS.zip
-            /sharadar/SHARADAR_SFP.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
@@ -83,6 +83,22 @@ jobs:
           python -m py_compile \
             backtester/sp500_best_effort_universe.py \
             backtester/run_sp500_ldrc_sealed_oos.py
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat \
+            sharadar/SFP/SHARADAR_SFP.zip.001 \
+            sharadar/SFP/SHARADAR_SFP.zip.002 \
+            sharadar/SFP/SHARADAR_SFP.zip.003 \
+            sharadar/SFP/SHARADAR_SFP.zip.004 \
+            > sharadar/SHARADAR_SFP.zip
+          unzip -t sharadar/SHARADAR_SFP.zip >/dev/null
+          sha256sum sharadar/SHARADAR_SFP.zip
 
       - name: Rebuild pinned S&P membership and causal identities
         run: |
