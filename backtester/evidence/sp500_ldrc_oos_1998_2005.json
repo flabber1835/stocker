@@ -1,0 +1,79 @@
+{
+  "schema": "backtester.sp500-ldrc-oos-evidence/1",
+  "status": "PASS",
+  "experiment": "SEALED_SP500_BEST_EFFORT_PIT_OOS",
+  "holdout_status": "CONSUMED_AFTER_ONE_SHOT_OBSERVATION",
+  "formal_pit_certified": false,
+  "best_effort_pit": true,
+  "sealed_window": ["1997-12-31", "2005-12-30"],
+  "active_oos_window": ["1998-07-06", "2005-12-30"],
+  "strategy": {
+    "embedded_commit": "c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c",
+    "git_blob_sha1": "6c30a617b7ee615849dcf09f43612c1483703aa3"
+  },
+  "universe": {
+    "membership_dataset_hash": "1981828b71073be4d0fcf4addb37a56c844a29219090eb0c8fbc535d393bdb2d",
+    "eligibility_sha256": "18a2c440f9a2f727c45cd062a6c1f42bfbac55173d429ee24dbdf73686355142",
+    "daily_constituents_min": 460,
+    "daily_constituents_median": 466.0,
+    "daily_constituents_max": 471,
+    "source_membership_sessions": 993245,
+    "eligible_source_sessions": 937688,
+    "excluded_source_sessions": 55557,
+    "exclusion_fraction": 0.05593483984314041,
+    "exclusion_reason_counts": {
+      "NO_APPROVED_CAUSAL_IDENTITY_MAPPING": 51513,
+      "SEC_CIK_AMBIGUOUS_IDENTITY": 2208,
+      "DUPLICATE_RESOLVED_TICKER_ON_SESSION": 1836
+    },
+    "early_membership_caveat": "S&P membership before 2001-01-16 comes from the pinned secondary historical source's incomplete early-history region and is explicitly best-effort."
+  },
+  "active_oos": {
+    "ld_rc": {
+      "cagr": 0.14947157443128933,
+      "ending_multiple": 2.8369767701751645,
+      "max_drawdown": -0.33616706824338616,
+      "sharpe": 0.8790790622969298,
+      "sessions": 1886
+    },
+    "spy": {
+      "cagr": 0.024334294075372576,
+      "ending_multiple": 1.1971836906263136,
+      "max_drawdown": -0.47503397620109766,
+      "sharpe": 0.22031449835061856,
+      "sessions": 1886
+    },
+    "cagr_spread_ldrc_minus_spy": 0.12513728035591676
+  },
+  "full_available_tape": {
+    "ld_rc": {
+      "cagr": 0.14152528617670002,
+      "ending_multiple": 2.8822811536528485,
+      "max_drawdown": -0.33616706824338627,
+      "sharpe": 0.8620922391446812,
+      "sessions": 2013
+    },
+    "spy": {
+      "cagr": 0.04659848661709143,
+      "ending_multiple": 1.4394278879361175,
+      "max_drawdown": -0.47503397620109766,
+      "sharpe": 0.330500310663417,
+      "sessions": 2013
+    }
+  },
+  "execution": {
+    "github_actions_run_id": 33827090507,
+    "run_head_sha": "95d89f7ccd577668251614b44b345c5ba56b4bad",
+    "artifact_id": 9920465803,
+    "artifact_name": "sp500-sealed-oos-95d89f7ccd577668251614b44b345c5ba56b4bad",
+    "artifact_size_bytes": 11708614,
+    "artifact_zip_sha256": "a006c2c87360e016262f46c211a9e10c1dad29ba4d6ec3f6e39d49da47e07568",
+    "workflow_conclusion": "success",
+    "all_validation_steps_green": true
+  },
+  "conclusion": {
+    "viability": "CONTINUE_LD_RC_RESEARCH",
+    "summary": "The one-shot pre-2006 holdout materially outperformed SPY on CAGR, drawdown, and Sharpe. This is sufficient evidence to continue evaluating LD-RC on the S&P 500 best-effort PIT universe.",
+    "guard": "The 1998-2005 holdout is now consumed. Any strategy change made after observing this result means this period is no longer untouched OOS for the revised strategy."
+  }
+}
