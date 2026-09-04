@@ -1,3 +1,4 @@
+# Retry after telemetry initialization fix; experiment definition unchanged.
 name: Backtester Exp3 - R1000 candidate geometry
 run-name: Exp3 R1000 candidate geometry — ${{ github.sha }}
 
