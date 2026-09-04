@@ -51,14 +51,13 @@ _prove_recent_frontier = _authority._prove_recent_frontier
 _today = _impl._today
 
 
-def _seed_source(fetch, *, final_hi: str, update_ceiling: str):
+def _seed_source(fetch, *, final_hi: str, update_ceiling: str | None = None):
     """Return one stable canonical seed observation.
 
     ``final_hi`` is the market-session boundary used for source corroboration.
-    ``update_ceiling`` is the independent vendor-update boundary captured before
-    the first production seed request. A 24x7 install may intentionally seed
-    through an older already-source-final market session while observing a newer
-    current Sharadar snapshot, so these clocks must never be collapsed.
+    Production supplies an independent vendor ``update_ceiling`` captured before
+    the first seed request. Injected/replay seeds omit it and deterministically
+    retain their market-end ceiling.
 
     Exact listing coverage is enabled only for the production snapshot source.
     Injected/replay sources still receive canonical key/date/duplicate and
@@ -70,35 +69,39 @@ def _seed_source(fetch, *, final_hi: str, update_ceiling: str):
         corroborate_reference=(
             lambda params: str(params.get("date.lte") or "") == final_hi),
         after_session=None, seed_mode=production_snapshot)
+    ceiling = final_hi if update_ceiling is None else update_ceiling
     tracked = source_authority.LastUpdatedTrackingFetch(
-        guarded, update_ceiling=update_ceiling)
+        guarded, update_ceiling=ceiling)
     return tracked, tracked
 
 
-def _reconcile_sep_for_market_target(conn, *, fetch, target: str):
-    """Advance SEP CDC only when the vendor cursor does not already cover target.
+def _reconcile_sep_for_market_target(
+        conn, *, fetch, target: str,
+        source_observation_day: _dt.date | str | None = None):
+    """Reconcile SEP on its vendor clock while preserving replay determinism.
 
-    The SEP cursor is a Sharadar ``lastupdated`` clock. A complete seed can prove
-    vendor negative space through an observation date later than its retained
-    market-session frontier. That state is valid authority, not a reason to move
-    the cursor backwards or to replay an older market target. A cursor beyond the
-    current UTC source-observation date remains impossible and fails closed.
+    Injected/replay callers omit ``source_observation_day`` and keep the explicit
+    market target as their only clock. Production supplies the current UTC source
+    observation date. Production also re-observes an equal cursor date because
+    Sharadar ``lastupdated`` is date-valued and later rows may still appear with
+    that same date.
     """
-    cursor = maintenance.load_sep_cursor(conn)
-    if cursor is None:
-        raise maintenance.MutationCursorUnavailable(
-            "SEP lastupdated cursor is absent at post-daily reconciliation")
     market_day = _dt.date.fromisoformat(str(target))
-    source_day = _dt.datetime.now(_dt.timezone.utc).date()
-    if cursor.processed_through > source_day:
+    if source_observation_day is None:
+        return maintenance.reconcile_sep_mutations(
+            conn, fetch=fetch, through=market_day.isoformat())
+
+    source_day = (
+        source_observation_day
+        if isinstance(source_observation_day, _dt.date)
+        else _dt.date.fromisoformat(str(source_observation_day)))
+    if source_day < market_day:
         raise maintenance.SharadarMutationRefused(
-            f"SEP mutation cursor {cursor.processed_through} is ahead of current "
-            f"source observation date {source_day}; refusing future durable "
-            "vendor authority")
-    if cursor.processed_through > market_day:
-        return cursor
+            f"current source observation date {source_day} is behind market "
+            f"target {market_day}; refusing mixed-clock SEP authority")
     return maintenance.reconcile_sep_mutations(
-        conn, fetch=fetch, through=market_day.isoformat())
+        conn, fetch=fetch, through=source_day.isoformat(),
+        reobserve_equal=True)
 
 
 class _InjectedSeedAuthority:
@@ -255,9 +258,11 @@ def _run_seed_generation(conn, *, recovery_plan, fetch, final_hi: str,
                          boundary: str | None = None, resolve_identity=None):
     """Run one seed/reseed engine with source-specific proof hooks."""
     seed_from, seed_to = recovery_plan.date_from, recovery_plan.date_to
-    update_ceiling = boundary or final_hi
-    tracked, guarded = _seed_source(
-        fetch, final_hi=final_hi, update_ceiling=update_ceiling)
+    if boundary is None:
+        tracked, guarded = _seed_source(fetch, final_hi=final_hi)
+    else:
+        tracked, guarded = _seed_source(
+            fetch, final_hi=final_hi, update_ceiling=boundary)
     authority = _seed_authority(
         boundary=boundary, tracked=tracked, source_fetch=fetch,
         market_start=seed_from, market_end=seed_to,
@@ -278,8 +283,11 @@ def _run_seed_generation(conn, *, recovery_plan, fetch, final_hi: str,
     except universe.HistoricalIdentityMutation:
         plan = identity_rebuild.prepare(
             conn, date_from=seed_from, date_to=seed_to)
-        tracked, guarded = _seed_source(
-            fetch, final_hi=final_hi, update_ceiling=update_ceiling)
+        if boundary is None:
+            tracked, guarded = _seed_source(fetch, final_hi=final_hi)
+        else:
+            tracked, guarded = _seed_source(
+                fetch, final_hi=final_hi, update_ceiling=boundary)
         authority = _seed_authority(
             boundary=boundary, tracked=tracked, source_fetch=fetch,
             market_start=seed_from, market_end=seed_to,
@@ -362,6 +370,7 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
 
     fetch = _authoritative_source(fetch)
     _validate_source_before_run(fetch)
+    production_snapshot = fetch is snapshot_source.fetch_table
     resolved_today = str(today)
     today_date = _dt.date.fromisoformat(resolved_today)
     yesterday = (today_date - _dt.timedelta(days=1)).isoformat()
@@ -439,8 +448,12 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         published_frontier = feed_store.latest_visible_session(conn)
         sep_reconciliation.reconcile_next(
             conn, fetch=fetch, through=published_frontier)
+        source_observation_day = (
+            _dt.datetime.now(_dt.timezone.utc).date()
+            if production_snapshot else None)
         _reconcile_sep_for_market_target(
-            conn, fetch=fetch, target=today_date.isoformat())
+            conn, fetch=fetch, target=today_date.isoformat(),
+            source_observation_day=source_observation_day)
         maintenance.reconcile_actions_if_due(
             conn, fetch=_actions_reconciliation_source(fetch),
             through=today_date.isoformat())
