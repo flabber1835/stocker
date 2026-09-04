@@ -152,11 +152,12 @@ def execute():
                     'source cursor %s names missing publication v%d' % (name, version))
         return through, version
 
-    def require_not_future(cursor, *, name, target):
+    def require_not_future(cursor, *, name, target,
+                           boundary_label='current closed session'):
         if cursor is not None and cursor[0] > target:
             raise maintenance.SharadarMutationRefused(
-                'source cursor %s processed_through %s is ahead of current closed session %s'
-                % (name, cursor[0], target))
+                'source cursor %s processed_through %s is ahead of %s %s'
+                % (name, cursor[0], boundary_label, target))
 
     c = None
     try:
@@ -180,6 +181,7 @@ def execute():
             current = publication.require_current(c)
             target_raw = calendar.latest_closed_session()
             target = dt.date.fromisoformat(str(target_raw))
+            source_day = dt.datetime.now(dt.timezone.utc).date()
             if cursor_table is None:
                 emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CURSOR_SCHEMA_NOT_INSTALLED'})
             else:
@@ -196,8 +198,13 @@ def execute():
                     kind=recent_reconciliation.CURSOR_KIND,
                     current_version=current.version)
 
+                # SEP is a vendor-update clock and may legitimately be ahead of
+                # the retained market frontier after a complete current seed.
+                # ACTIONS/recent cursors are market-session authorities.
                 require_not_future(
-                    sep_cursor, name=maintenance.SEP_CURSOR_NAME, target=target)
+                    sep_cursor, name=maintenance.SEP_CURSOR_NAME,
+                    target=source_day,
+                    boundary_label='current source observation date')
                 require_not_future(
                     actions_cursor, name=maintenance.ACTIONS_CURSOR_NAME, target=target)
                 require_not_future(
@@ -217,7 +224,7 @@ def execute():
                     elif recent_cursor[0] < target:
                         local_lag.append('RECENT_SEP_CURSOR_BEHIND')
 
-                    if through == target:
+                    if through >= target:
                         emit({
                             'status': 'PASS', 'reason_code': 'SEP_CDC_ALREADY_CURRENT',
                             'source_rows': 0, 'affected_source_dates': 0,
