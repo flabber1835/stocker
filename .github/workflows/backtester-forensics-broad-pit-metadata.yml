@@ -97,7 +97,8 @@ jobs:
 
           def first_diff(col,tol=1e-12):
               a=n[col]; b=p[col]
-              if a.dtype==object or b.dtype==object:
+              numeric = pd.api.types.is_numeric_dtype(a.dtype) and pd.api.types.is_numeric_dtype(b.dtype)
+              if not numeric:
                   m=a.fillna('<NA>').astype(str).ne(b.fillna('<NA>').astype(str))
               else:
                   m=(a.astype(float)-b.astype(float)).abs()>tol
