@@ -75,6 +75,32 @@ def _seed_source(fetch, *, final_hi: str, update_ceiling: str):
     return tracked, tracked
 
 
+def _reconcile_sep_for_market_target(conn, *, fetch, target: str):
+    """Advance SEP CDC only when the vendor cursor does not already cover target.
+
+    The SEP cursor is a Sharadar ``lastupdated`` clock. A complete seed can prove
+    vendor negative space through an observation date later than its retained
+    market-session frontier. That state is valid authority, not a reason to move
+    the cursor backwards or to replay an older market target. A cursor beyond the
+    current UTC source-observation date remains impossible and fails closed.
+    """
+    cursor = maintenance.load_sep_cursor(conn)
+    if cursor is None:
+        raise maintenance.MutationCursorUnavailable(
+            "SEP lastupdated cursor is absent at post-daily reconciliation")
+    market_day = _dt.date.fromisoformat(str(target))
+    source_day = _dt.datetime.now(_dt.timezone.utc).date()
+    if cursor.processed_through > source_day:
+        raise maintenance.SharadarMutationRefused(
+            f"SEP mutation cursor {cursor.processed_through} is ahead of current "
+            f"source observation date {source_day}; refusing future durable "
+            "vendor authority")
+    if cursor.processed_through > market_day:
+        return cursor
+    return maintenance.reconcile_sep_mutations(
+        conn, fetch=fetch, through=market_day.isoformat())
+
+
 class _InjectedSeedAuthority:
     """Non-certifying lifecycle hooks for deterministic injected/replay seeds."""
 
@@ -413,8 +439,8 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         published_frontier = feed_store.latest_visible_session(conn)
         sep_reconciliation.reconcile_next(
             conn, fetch=fetch, through=published_frontier)
-        maintenance.reconcile_sep_mutations(
-            conn, fetch=fetch, through=today_date.isoformat())
+        _reconcile_sep_for_market_target(
+            conn, fetch=fetch, target=today_date.isoformat())
         maintenance.reconcile_actions_if_due(
             conn, fetch=_actions_reconciliation_source(fetch),
             through=today_date.isoformat())
