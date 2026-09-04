@@ -40,8 +40,16 @@ _validate_sep_mutation_rows = validate_sep_mutation_rows
 
 
 def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
-                                  through: str) -> Optional[_core.SourceCursor]:
-    """Apply SEP CDC rows through the canonical typed identity boundary."""
+                                  through: str,
+                                  reobserve_equal: bool = False
+                                  ) -> Optional[_core.SourceCursor]:
+    """Apply SEP CDC rows through the canonical typed identity boundary.
+
+    Direct callers keep equal-cursor reconciliation terminal. Production daily
+    may explicitly request one same-date re-observation because Sharadar
+    ``lastupdated`` has date granularity: a row can appear later on the same UTC
+    vendor date after an earlier complete observation of that date.
+    """
     _core.store._assert_corpus_locked(conn)
     cursor = load_sep_cursor(conn)  # noqa: F405
     if cursor is None:
@@ -55,7 +63,7 @@ def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
             f"SEP mutation cursor {cursor.processed_through} is ahead of "
             f"requested reconciliation through {hi}; refusing to treat future "
             "durable authority as already current")
-    if cursor.processed_through == hi:
+    if cursor.processed_through == hi and not reobserve_equal:
         return cursor
     lo = cursor.processed_through - dt.timedelta(days=1)
     params = {"lastupdated.gte": lo.isoformat(),

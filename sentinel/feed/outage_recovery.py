@@ -58,8 +58,15 @@ def retained_market_start(conn) -> str:
     return start
 
 
-def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
+def catch_up(
+        conn, *, target_session: str,
+        reobserve_current: bool = False) -> OutageRecoveryResult:
     """Reach one explicit closed XNYS target without replaying strategy actions.
+
+    A coherent current market frontier is read-only by default. Callers whose
+    authority contract requires a fresh mutable-vendor observation may set
+    ``reobserve_current``; that path executes the canonical daily boundary under
+    the normal WAL durability fence before returning ``ALREADY_CURRENT``.
 
     The function mutates only the canonical data corpus. It has no execution,
     broker, plan, shadow-NAV, or catch-up strategy seam. Every mutation first
@@ -69,15 +76,13 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
     """
     target = str(target_session)
     visible_before = store.latest_visible_session(conn)
+    already_current = False
     if visible_before == target:
-        # Frontier equality is not enough to declare recovery complete. An
-        # interrupted ingest may have committed invisible rows owned by an
-        # unpublished candidate while the last published frontier remains at
-        # the requested target. Returning here would permanently skip the normal
-        # daily recovery machinery and leave readiness fail-closed forever.
         coherence = publication.operational_coherence(
             conn, frontier=target)
-        if coherence.coherent and not publication.chain_gaps(conn):
+        already_current = bool(
+            coherence.coherent and not publication.chain_gaps(conn))
+        if already_current and not reobserve_current:
             return OutageRecoveryResult(target, "ALREADY_CURRENT", None, None)
 
     # The common primitive owns the durability rule. Callers such as unattended
@@ -87,7 +92,7 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
         conn, operation="canonical outage daily catch-up")
     try:
         ingest.daily(conn, today=target)
-        mode = "DAILY"
+        mode = "ALREADY_CURRENT" if already_current else "DAILY"
         retained_start = None
         recovered_from = None
     except _RECOVERABLE_LOCAL_STATE as exc:
@@ -97,12 +102,13 @@ def catch_up(conn, *, target_session: str) -> OutageRecoveryResult:
         backup_guard.require_bulk_writes_permitted(
             conn, operation="retained full corpus reseed")
         ingest.seed(conn, date_from=retained_start, date_to=target)
-        # The seed may have repaired the local state, but the supported daily
-        # path still owns the final exact-target publication. Re-prove ordinary
-        # durability before that second mutation as well.
-        backup_guard.require_writes_permitted(
-            conn, operation="post-reseed canonical daily publication")
-        ingest.daily(conn, today=target)
+        # A successful canonical seed is already a complete exact-target data
+        # recovery. It publishes the retained market frontier, establishes the
+        # SEP mutation cursor from the independent vendor-update proof, re-earns
+        # complete ACTIONS authority, and proves the recent SEP frontier. Calling
+        # daily(target) again is both redundant and invalid when the seed was
+        # observed on a later vendor-update date than the market target: the
+        # mutation cursor would correctly be ahead of that older market date.
         mode = "RETAINED_FULL_RESEED"
     visible_after = store.latest_visible_session(conn)
     if visible_after != target:

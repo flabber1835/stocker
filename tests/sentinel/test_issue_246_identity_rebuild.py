@@ -112,11 +112,12 @@ def test_seed_generation_escalates_only_the_named_identity_mutation(monkeypatch)
     guarded = [object(), object()]
     source_calls = 0
 
-    def source(_fetch, *, final_hi):
+    def source(_fetch, *, final_hi, update_ceiling=None):
         nonlocal source_calls
         index = source_calls
         source_calls += 1
-        calls.append(("source", final_hi))
+        ceiling = final_hi if update_ceiling is None else update_ceiling
+        calls.append(("source", final_hi, ceiling))
         return trackers[index], guarded[index]
 
     monkeypatch.setattr(I, "_seed_source", source)
@@ -140,8 +141,10 @@ def test_seed_generation_escalates_only_the_named_identity_mutation(monkeypatch)
         final_hi="2026-08-21")
 
     assert got is progress and tracker is trackers[1]
+    assert calls[0] == ("source", "2026-08-21", "2026-08-21")
     assert calls[1] == ("prepare", {
         "date_from": "1998-01-01", "date_to": "2026-08-21"})
+    assert calls[2] == ("source", "2026-08-21", "2026-08-21")
     assert calls[3][0] == "full"
     assert calls[3][1]["identity_rebuild_plan"] == identity_plan
     assert calls[3][1]["fetch"] is guarded[1]

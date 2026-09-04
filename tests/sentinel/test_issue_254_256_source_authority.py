@@ -6,7 +6,7 @@ import json
 
 import pytest
 
-from sentinel.feed import maintenance, sharadar, source_authority, staging
+from sentinel.feed import ingest, maintenance, sharadar, source_authority, staging
 
 
 def _sep(ticker="AAA", date="2026-08-21", *,
@@ -47,6 +47,34 @@ def test_seed_watermark_malformed_refuses_and_exact_ceiling_passes():
         update_ceiling="2026-08-24")
     assert list(exact(sharadar.SEP))
     assert exact.max_sep_lastupdated == dt.date(2026, 8, 24)
+
+
+def test_production_complete_seed_separates_vendor_clock_from_market_frontier(
+        monkeypatch):
+    seen = {}
+    real_tracker = source_authority.LastUpdatedTrackingFetch
+
+    class CapturingTracker:
+        def __init__(self, fetch, *, update_ceiling):
+            seen["update_ceiling"] = str(update_ceiling)
+            self.fetch = fetch
+
+    monkeypatch.setattr(
+        ingest.source_authority, "LastUpdatedTrackingFetch", CapturingTracker)
+    tracked, guarded = ingest._seed_source(
+        ingest.snapshot_source.fetch_table,
+        final_hi="2026-09-02", update_ceiling="2026-09-03")
+    assert tracked is guarded
+    assert seen["update_ceiling"] == "2026-09-03"
+
+    # Reproduce the NAS row under that independently captured vendor ceiling.
+    tracker = real_tracker(
+        _fetch([_sep(
+            "ZTEKF", date="2025-12-31", lastupdated="2026-09-03")]),
+        update_ceiling="2026-09-03")
+    rows = list(tracker(sharadar.SEP))
+    assert rows[0]["ticker"] == "ZTEKF"
+    assert tracker.max_sep_lastupdated == dt.date(2026, 9, 3)
 
 
 def test_abandoned_seed_traversal_cannot_commit_watermark():

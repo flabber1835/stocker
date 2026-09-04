@@ -8,7 +8,9 @@ ACTIONS, and recent-complete-reconciliation cursor shapes against the current
 publication and decision frontier, then—only after the reviewed source-final
 boundary—fetches the pending SEP ``lastupdated`` interval twice through the
 canonical production CDC source membrane and runs the production mutation-row
-authority validator.
+authority validator. A cursor already on the current UTC vendor date is
+re-observed because ``lastupdated`` has date granularity and same-date rows may
+appear after an earlier observation.
 
 If a pending mutation fails only because local permanent identity is absent or a
 single known listing interval is stale, the preflight may observe current TICKERS
@@ -152,11 +154,12 @@ def execute():
                     'source cursor %s names missing publication v%d' % (name, version))
         return through, version
 
-    def require_not_future(cursor, *, name, target):
+    def require_not_future(cursor, *, name, target,
+                           boundary_label='current closed session'):
         if cursor is not None and cursor[0] > target:
             raise maintenance.SharadarMutationRefused(
-                'source cursor %s processed_through %s is ahead of current closed session %s'
-                % (name, cursor[0], target))
+                'source cursor %s processed_through %s is ahead of %s %s'
+                % (name, cursor[0], boundary_label, target))
 
     c = None
     try:
@@ -180,6 +183,7 @@ def execute():
             current = publication.require_current(c)
             target_raw = calendar.latest_closed_session()
             target = dt.date.fromisoformat(str(target_raw))
+            source_day = dt.datetime.now(dt.timezone.utc).date()
             if cursor_table is None:
                 emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CURSOR_SCHEMA_NOT_INSTALLED'})
             else:
@@ -196,8 +200,13 @@ def execute():
                     kind=recent_reconciliation.CURSOR_KIND,
                     current_version=current.version)
 
+                # SEP is a vendor-update clock and may legitimately be ahead of
+                # the retained market frontier after a complete current seed.
+                # ACTIONS/recent cursors are market-session authorities.
                 require_not_future(
-                    sep_cursor, name=maintenance.SEP_CURSOR_NAME, target=target)
+                    sep_cursor, name=maintenance.SEP_CURSOR_NAME,
+                    target=source_day,
+                    boundary_label='current source observation date')
                 require_not_future(
                     actions_cursor, name=maintenance.ACTIONS_CURSOR_NAME, target=target)
                 require_not_future(
@@ -217,13 +226,7 @@ def execute():
                     elif recent_cursor[0] < target:
                         local_lag.append('RECENT_SEP_CURSOR_BEHIND')
 
-                    if through == target:
-                        emit({
-                            'status': 'PASS', 'reason_code': 'SEP_CDC_ALREADY_CURRENT',
-                            'source_rows': 0, 'affected_source_dates': 0,
-                            'local_followup': local_lag,
-                        })
-                    elif dt.datetime.now(dt.timezone.utc) < publication_not_before(target_raw):
+                    if dt.datetime.now(dt.timezone.utc) < publication_not_before(target_raw):
                         emit({
                             'status': 'DEFERRED',
                             'reason_code': 'SHARADAR_SOURCE_NOT_FINAL',
@@ -234,10 +237,10 @@ def execute():
                         lo = through - dt.timedelta(days=1)
                         params = {
                             'lastupdated.gte': lo.isoformat(),
-                            'lastupdated.lte': target.isoformat(),
+                            'lastupdated.lte': source_day.isoformat(),
                         }
                         envelope = source_authority.SepUpdateEnvelope.interval(
-                            lo, target, context='read-only SEP CDC preflight')
+                            lo, source_day, context='read-only SEP CDC preflight')
                         guarded = source_authority.CanonicalSourceFetch(
                             sharadar.fetch_table, sep_update_envelope=envelope)
                         rows = maintenance._stable_rows(
@@ -245,15 +248,19 @@ def execute():
                         market_start, market_end = maintenance._retained_market_bounds(c)
                         dates, refresh_required = (
                             identity_refresh.validate_with_current_tickers_if_refreshable(
-                                c, rows, lo=lo, hi=target,
+                                c, rows, lo=lo, hi=source_day,
                                 published_from=dt.date.fromisoformat(market_start),
                                 published_through=dt.date.fromisoformat(market_end),
                             ))
+                        if refresh_required:
+                            reason_code = 'LOCAL_IDENTITY_REFRESH_REQUIRED'
+                        elif through == source_day:
+                            reason_code = 'SEP_CDC_CURRENT_VENDOR_DAY_REOBSERVED'
+                        else:
+                            reason_code = 'SEP_CDC_SOURCE_VALID'
                         emit({
                             'status': 'PASS',
-                            'reason_code': (
-                                'LOCAL_IDENTITY_REFRESH_REQUIRED'
-                                if refresh_required else 'SEP_CDC_SOURCE_VALID'),
+                            'reason_code': reason_code,
                             'source_rows': len(rows),
                             'affected_source_dates': len(set(dates)),
                             'local_followup': local_lag,
