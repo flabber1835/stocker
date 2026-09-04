@@ -1,0 +1,47 @@
+{
+  "artifact": {
+    "id": 9922250531,
+    "name": "broad-pit-benchmark-5fe8c2c1bc1a07b932b62d3dbd2780755cf58133",
+    "sha256": "e842bbf79615a022ea750019ab997445e5ab61e803a947647f8c4255d1919aae"
+  },
+  "benchmark": "frozen_broad_universe_full_pit_ldrc",
+  "evidence_class": "broad full-stack PIT research estimate",
+  "formal_pit_certified": false,
+  "github_actions_run": 33832270731,
+  "github_sha": "5fe8c2c1bc1a07b932b62d3dbd2780755cf58133",
+  "limitations": [
+    "current TICKERS common-stock/category seam retained under prior zero-delta/equivalence evidence",
+    "research benchmark only; not the final formally certified golden corpus"
+  ],
+  "measurement_end": "2026-07-31",
+  "measurement_start": "1998-01-02",
+  "metrics": {
+    "10": {
+      "ldrc": {"cagr": 0.2482287995252692, "ending_multiple": 9.182099305156235, "max_drawdown": -0.2887038447019441, "sessions": 2515, "sharpe": 1.21674509653162, "start": "2016-07-29"},
+      "spy": {"cagr": 0.1499000229404372, "ending_multiple": 4.042042042042042, "max_drawdown": -0.3370006748514029, "sessions": 2515, "sharpe": 0.8704054911994874, "start": "2016-07-29"}
+    },
+    "15": {
+      "ldrc": {"cagr": 0.2085797792082069, "ending_multiple": 17.144698676262063, "max_drawdown": -0.2887038447019441, "sessions": 3773, "sharpe": 1.1407820219066256, "start": "2011-07-29"},
+      "spy": {"cagr": 0.1440389047957442, "ending_multiple": 7.526826466765409, "max_drawdown": -0.3370006748514029, "sessions": 3773, "sharpe": 0.8709781691056416, "start": "2011-07-29"}
+    },
+    "20": {
+      "ldrc": {"cagr": 0.2048609575180966, "ending_multiple": 41.56603829334807, "max_drawdown": -0.288703844701944, "sessions": 5032, "sharpe": 1.1097136884327137, "start": "2006-07-31"},
+      "spy": {"cagr": 0.1125656013314331, "ending_multiple": 8.443306659433068, "max_drawdown": -0.55201855645911, "sessions": 5032, "sharpe": 0.647341484791865, "start": "2006-07-31"}
+    },
+    "5": {
+      "ldrc": {"cagr": 0.2764032822613487, "ending_multiple": 3.3879700427538144, "max_drawdown": -0.2048652042889391, "sessions": 1256, "sharpe": 1.3361895908480537, "start": "2021-07-30"},
+      "spy": {"cagr": 0.1276172120948504, "ending_multiple": 1.823091565794612, "max_drawdown": -0.2449730210824944, "sessions": 1256, "sharpe": 0.7878285340192289, "start": "2021-07-30"}
+    },
+    "max": {
+      "ldrc": {"cagr": 0.2006531690564732, "ending_multiple": 185.9514753119865, "max_drawdown": -0.334590483108426, "sessions": 7188, "sharpe": 1.0793162500808997, "start": "1998-01-02"},
+      "spy": {"cagr": 0.092474032212114, "ending_multiple": 12.52040559792173, "max_drawdown": -0.5520185564591099, "sessions": 7188, "sharpe": 0.5546673774424086, "start": "1998-01-02"}
+    }
+  },
+  "reproducibility": {
+    "matched_prior_independent_forensic_run": true,
+    "prior_forensic_run": 33830860739
+  },
+  "status": "PASS",
+  "strategy_embedded_commit": "c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c",
+  "warmup_start": "1997-01-02"
+}
