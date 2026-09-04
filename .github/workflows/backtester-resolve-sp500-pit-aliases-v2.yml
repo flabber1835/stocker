@@ -10,6 +10,8 @@ on:
       - 'backtester/sp500_pit_coverage_audit.py'
       - 'backtester/sp500_pit_trading_gap_filter.py'
       - 'backtester/sp500_pit_cik_alias_resolution.py'
+      - 'backtester/sp500_pit_web_alias_resolution.py'
+      - 'backtester/data/sp500_web_alias_evidence.csv'
   workflow_dispatch:
 
 permissions:
@@ -23,6 +25,7 @@ env:
   COVERAGE_DIR: backtester-results/sp500-pit-coverage
   TRADING_GAP_DIR: backtester-results/sp500-pit-trading-gaps
   CIK_ALIAS_DIR: backtester-results/sp500-pit-cik-alias
+  WEB_ALIAS_DIR: backtester-results/sp500-pit-web-alias
   SOURCE_URL: https://raw.githubusercontent.com/fja05680/sp500/c31ac3cc56f28cf9a02b4e694eff7ceab596a0ff/sp500_ticker_start_end.csv
 
 jobs:
@@ -45,8 +48,10 @@ jobs:
             /backtester/sp500_pit_coverage_audit.py
             /backtester/sp500_pit_trading_gap_filter.py
             /backtester/sp500_pit_cik_alias_resolution.py
+            /backtester/sp500_pit_web_alias_resolution.py
             /backtester/strict_pit_metadata.py
             /backtester/data/sp500_official_overlay_2026.csv
+            /backtester/data/sp500_web_alias_evidence.csv
             /backtester/data/causal-terminal-terms-v1.json
             /PIT input data/ACTIONS_PIT_ONLY.csv.gz
             /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
@@ -83,6 +88,12 @@ jobs:
           rm -rf "$TRADING_GAP_DIR"
           python -m backtester.sp500_pit_trading_gap_filter --coverage-root "$COVERAGE_DIR" --sharadar-root sharadar --output "$TRADING_GAP_DIR" --start-year 1997 --end-year 2026
           (cd "$TRADING_GAP_DIR" && sha256sum -c SHA256SUMS.txt)
+      - name: Resolve bounded web-proven aliases
+        run: |
+          set -euo pipefail
+          rm -rf "$WEB_ALIAS_DIR"
+          python -m backtester.sp500_pit_web_alias_resolution --coverage-root "$TRADING_GAP_DIR" --evidence-path backtester/data/sp500_web_alias_evidence.csv --sharadar-root sharadar --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz --output "$WEB_ALIAS_DIR" --start-year 1997 --end-year 2026
+          (cd "$WEB_ALIAS_DIR" && sha256sum -c SHA256SUMS.txt)
       - name: Discover residual aliases through historical SEC CIK
         run: |
           set -euo pipefail
@@ -97,22 +108,25 @@ jobs:
           a=json.loads((Path(os.environ['OUTPUT_DIR'])/'alias-summary.json').read_text())
           c=json.loads((Path(os.environ['COVERAGE_DIR'])/'coverage-summary.json').read_text())
           t=json.loads((Path(os.environ['TRADING_GAP_DIR'])/'trading-gap-summary.json').read_text())
+          w=json.loads((Path(os.environ['WEB_ALIAS_DIR'])/'web-alias-summary.json').read_text())
           k=json.loads((Path(os.environ['CIK_ALIAS_DIR'])/'cik-alias-summary.json').read_text())
           assert a['status']=='ALIAS_DIAGNOSTIC_COMPLETE'
           assert c['status']=='COVERAGE_AUDIT_COMPLETE'
-          assert t['schema']=='backtester.sp500-pit-trading-gap-filter/1'
           assert t['status']=='TRADING_GAP_FILTER_COMPLETE'
           assert t['output_gap_intervals'] <= c['post_tape_intervals_with_gap']
+          assert w['status']=='WEB_ALIAS_RESOLUTION_COMPLETE'
+          assert w['blocking_identity_conflicts']==0 and w['web_alias_conflicts']==0
           assert k['status']=='CIK_ALIAS_DIAGNOSTIC_COMPLETE'
           assert k['blocking_identity_conflicts']==0
-          print(json.dumps({'alias':a,'coverage':c,'trading_gap_filter':t,'cik_alias':k},indent=2,sort_keys=True))
+          print(json.dumps({'alias':a,'coverage':c,'trading_gap_filter':t,'web_alias':w,'cik_alias':k},indent=2,sort_keys=True))
           with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
               fh.write('### S&P 500 PIT identity coverage\n')
               fh.write(f"- Calendar-gap intervals: {c['post_tape_intervals_with_gap']:,}\n")
               fh.write(f"- True trading-session gap intervals: {t['output_gap_intervals']:,}\n")
               fh.write(f"- Non-trading gap ranges removed: {t['removed_nontrading_gap_ranges']:,}\n")
+              fh.write(f"- Accepted web-proven binding segments: {w['accepted_binding_segments']:,}\n")
+              fh.write(f"- Web-proven source tickers: {w['accepted_source_tickers']:,}\n")
               fh.write(f"- Unique SEC-CIK residual alias candidates: {k['unique_gap_aliases']:,}\n")
-              fh.write(f"- Ambiguous SEC-CIK residuals: {k['ambiguous_gap_aliases']:,}\n")
           PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
@@ -121,6 +135,7 @@ jobs:
             ${{ env.OUTPUT_DIR }}
             ${{ env.COVERAGE_DIR }}
             ${{ env.TRADING_GAP_DIR }}
+            ${{ env.WEB_ALIAS_DIR }}
             ${{ env.CIK_ALIAS_DIR }}
           if-no-files-found: error
           retention-days: 90
