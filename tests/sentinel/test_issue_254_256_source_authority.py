@@ -49,6 +49,27 @@ def test_seed_watermark_malformed_refuses_and_exact_ceiling_passes():
     assert exact.max_sep_lastupdated == dt.date(2026, 8, 24)
 
 
+def test_production_complete_seed_separates_vendor_clock_from_market_frontier():
+    class ProductionSeedSource:
+        _seed_mode = True
+
+        def __call__(self, table, params=None, **kwargs):
+            assert table == sharadar.SEP
+            return iter([_sep(
+                "ZTEKF", date="2025-12-31", lastupdated="2026-09-03")])
+
+    # This reproduces the NAS 24x7 recovery failure: the retained market seed is
+    # intentionally bounded through 2026-09-02 while the current complete vendor
+    # snapshot contains an old row revised on 2026-09-03. Production seed
+    # authority follows the vendor-observation clock; deterministic injected
+    # sources below retain the explicit historical ceiling.
+    tracker = maintenance.LastUpdatedTrackingFetch(
+        ProductionSeedSource(), update_ceiling="2026-09-02")
+    rows = list(tracker(sharadar.SEP))
+    assert rows[0]["ticker"] == "ZTEKF"
+    assert tracker.max_sep_lastupdated == dt.date(2026, 9, 3)
+
+
 def test_abandoned_seed_traversal_cannot_commit_watermark():
     tracker = maintenance.LastUpdatedTrackingFetch(
         _fetch([_sep("A"), _sep("B")]), update_ceiling="2026-08-24")
@@ -107,7 +128,7 @@ def test_identical_duplicate_and_sfp_duplicate_refuse_actions_unchanged():
     assert evidence["row_fingerprints"][0]["count"] == 2
 
     sfp = {"ticker": "SPY", "date": "2026-08-21", "closeadj": 600.0}
-    assert '"table":"SFP"' in _duplicate_message(
+    assert '\"table\":\"SFP\"' in _duplicate_message(
         [sfp, dict(sfp, closeadj=601.0)], sharadar.SFP)
 
     actions = [{"ticker": "AAA", "date": "2026-08-21", "action": "split"},
