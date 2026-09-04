@@ -32,6 +32,7 @@ jobs:
             /.github/workflows/backtester-run-r1000-correlation-peers.yml
             /backtester/R1000_IDEA.md
             /backtester/build_r1000_iwb_membership.py
+            /backtester/build_r1000_iwb_membership_v2.py
             /backtester/run_r1000_correlation_peers.py
             /backtester/run_research_ldrc_corrected_warmup_cash.py
             /backtester/run_research_ldrc_nonpit_vs_fullpit.py
@@ -56,6 +57,7 @@ jobs:
           set -euo pipefail
           python -m py_compile \
             backtester/build_r1000_iwb_membership.py \
+            backtester/build_r1000_iwb_membership_v2.py \
             backtester/run_r1000_correlation_peers.py \
             backtester/run_research_ldrc_corrected_warmup_cash.py \
             backtester/run_research_ldrc_nonpit_vs_fullpit.py
@@ -77,7 +79,7 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf "$MEMBERSHIP_DIR" && mkdir -p "$MEMBERSHIP_DIR"
-          python -m backtester.build_r1000_iwb_membership \
+          python -m backtester.build_r1000_iwb_membership_v2 \
             --tickers sharadar/SHARADAR_TICKERS.zip \
             --output "$MEMBERSHIP_DIR" \
             --start 2006-09-29 \
