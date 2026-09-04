@@ -196,9 +196,11 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
 
     cursor = maintenance.load_sep_cursor(conn)
     if cursor is None:
+        if reobserve_equal:
+            return maintenance._reconcile_sep_mutations_core(
+                conn, fetch=fetch, through=through, reobserve_equal=True)
         return maintenance._reconcile_sep_mutations_core(
-            conn, fetch=fetch, through=through,
-            reobserve_equal=reobserve_equal)
+            conn, fetch=fetch, through=through)
     hi = _strict_date(through, field="SEP reconciliation through")
     if cursor.processed_through > hi:
         raise maintenance.SharadarMutationRefused(
@@ -210,9 +212,11 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
     lo = cursor.processed_through - dt.timedelta(days=1)
     envelope = SepUpdateEnvelope.interval(lo, hi, context="SEP CDC request")
     guarded = _CdcThenReplayFetch(fetch, envelope)
+    if reobserve_equal:
+        return maintenance._reconcile_sep_mutations_core(
+            conn, fetch=guarded, through=through, reobserve_equal=True)
     return maintenance._reconcile_sep_mutations_core(
-        conn, fetch=guarded, through=through,
-        reobserve_equal=reobserve_equal)
+        conn, fetch=guarded, through=through)
 
 
 __all__ = ["StableSharadarFetch", "reconcile_sep_mutations"]
