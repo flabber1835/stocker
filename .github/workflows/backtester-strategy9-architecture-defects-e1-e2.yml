@@ -1,0 +1,157 @@
+name: Backtester - Strategy 9 architecture defects E1 E2
+run-name: Strategy 9 architecture defects E1/E2 — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-sp500-pit]
+    paths:
+      - '.github/workflows/backtester-strategy9-architecture-defects-e1-e2.yml'
+      - 'backtester/experiment_architecture_defects_e1_e2.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OUT_DIR: backtester-results/strategy9-architecture-defects-e1-e2
+
+jobs:
+  backtest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact experiment head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-strategy9-architecture-defects-e1-e2.yml
+            /backtester/experiment_architecture_defects_e1_e2.py
+            /backtester/calibrate_broad_simplified_breadth.py
+            /backtester/experiment2_broad_independent_correlation.py
+            /backtester/run_r1000_correlation_peers.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Compile experiment harness
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/experiment_architecture_defects_e1_e2.py \
+            backtester/calibrate_broad_simplified_breadth.py \
+            backtester/experiment2_broad_independent_correlation.py \
+            backtester/run_research_ldrc_corrected_warmup_cash.py \
+            backtester/run_research_ldrc_nonpit_vs_fullpit.py
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Run fresh full-history three-arm replay
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.experiment_architecture_defects_e1_e2 --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c ARCHITECTURE_SHA256SUMS.txt)
+
+      - name: Validate experiment and control parity
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, math, os
+          from pathlib import Path
+          import pandas as pd
+
+          out = Path(os.environ['OUT_DIR'])
+          summary = json.loads((out/'summary.json').read_text())
+          manifest = json.loads((out/'architecture_manifest.json').read_text())
+          metrics = pd.read_csv(out/'architecture_metrics.csv', dtype={'window_years':str})
+          daily = pd.read_csv(out/'daily.csv.gz', compression='gzip')
+
+          assert summary['status'] == 'PASS'
+          assert summary['evidence_label'] == 'STRATEGY9_ARCHITECTURE_DEFECTS_E1_E2'
+          assert summary['experiment_budget_consumed'] == 2
+          assert summary['experiment_budget_limit'] == 10
+          assert summary['control_parity']['status'] == 'PASS'
+          assert summary['control_parity']['projection_sha256'] == '3348f9db63fa960edb7dca48aa130d0782fab83777fa3b30f07b666128b898e3'
+          assert manifest['causal_contract']['fresh_chronological_replay'] is True
+          assert manifest['causal_contract']['same_session_multi_arm'] is True
+          assert manifest['causal_contract']['pre_recorded_decisions_used_as_input'] is False
+
+          expected = {'CONTROL','E1_OWNED_DIVERGENCE','E2_RECOVERY_SIMPLIFICATION','CORE','SPY'}
+          assert set(metrics.variant.astype(str)) == expected
+          assert len(daily) == 7188
+          for col in ('research_allocation','A_allocation','B_allocation','effective_native'):
+              assert daily[col].between(0.0, 1.0).all(), col
+          assert (daily['A_allocation'] <= daily['effective_native'] + 1e-12).all()
+          assert (daily['B_allocation'] <= daily['effective_native'] + 1e-12).all()
+          assert (daily['A_allocation'] - daily['research_allocation']).abs().gt(1e-12).any()
+          assert (daily['B_allocation'] - daily['research_allocation']).abs().gt(1e-12).any()
+          assert daily['A_reason'].astype(str).str.contains('LD_ENTER_OWNED_DIVERGENCE').any()
+          assert daily['B_reason'].astype(str).str.contains('FULL_RISK_CERTIFIED_R20').any()
+          assert metrics.cagr.map(math.isfinite).all()
+          assert metrics.max_drawdown.map(math.isfinite).all()
+          assert metrics.sharpe.map(math.isfinite).all()
+          print(metrics.to_string(index=False))
+          PY
+
+      - name: Publish experiment summary
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import pandas as pd
+
+          out = Path(os.environ['OUT_DIR'])
+          m = pd.read_csv(out/'architecture_metrics.csv', dtype={'window_years':str})
+          e = pd.read_csv(out/'architecture_episode_attribution.csv')
+          order={'5':0,'10':1,'15':2,'20':3,'max':4}
+          m['_order']=m.window_years.map(order)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Strategy 9 architecture-defect experiments — budget 2/10\n\n')
+              f.write('Control parity: **PASS** against the prior Strategy 9 daily control projection.\n\n')
+              f.write('| Window | Variant | CAGR | Max DD | Sharpe | Multiple |\n')
+              f.write('|---|---|---:|---:|---:|---:|\n')
+              for r in m.sort_values(['_order','variant']).itertuples(index=False):
+                  f.write(f'| {r.window_years} | {r.variant} | {r.cagr:.2%} | {r.max_drawdown:.2%} | {r.sharpe:.3f} | {r.ending_multiple:.2f}x |\n')
+              f.write('\n### Allocation-difference episodes\n\n')
+              f.write(f'Total candidate-vs-control episodes: **{len(e)}**.\n')
+          PY
+
+      - name: Upload immutable architecture experiment bundle
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: strategy9-architecture-defects-e1-e2-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
