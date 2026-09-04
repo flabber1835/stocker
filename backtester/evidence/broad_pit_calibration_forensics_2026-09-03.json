@@ -1,0 +1,170 @@
+{
+  "status": "PASS",
+  "purpose": "diagnose calibration needs in the first broad full-stack PIT LD-RC replay; analysis only, no parameter selected",
+  "baseline": {
+    "run_id": 33832270731,
+    "artifact_id": 9922250531,
+    "artifact_sha256": "e842bbf79615a022ea750019ab997445e5ab61e803a947647f8c4255d1919aae",
+    "strategy_embedded_commit": "c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c",
+    "window_20y": ["2006-07-31", "2026-07-31"],
+    "pit_control": {"cagr": 0.2048609575180966, "max_drawdown": -0.288703844701944, "sharpe": 1.1097136884327137},
+    "pit_raw_wealth_core": {"cagr": 0.1718393204044717, "max_drawdown": -0.4514201738530139, "sharpe": 0.8662766300825864},
+    "nonpit_control": {"cagr": 0.2147555014847604, "max_drawdown": -0.21629970189546, "sharpe": 1.1693075543934763},
+    "nonpit_raw_wealth_core": {"cagr": 0.1697028265619922, "max_drawdown": -0.444648446127379, "sharpe": 0.8587477459518361}
+  },
+  "attribution": {
+    "raw_wealth_core_pit_minus_nonpit_cagr_pp": 0.2136493842479514,
+    "control_pit_minus_nonpit_cagr_pp": -0.989454396666379,
+    "conclusion": "raw Wealth Core does not explain the PIT performance loss; controller/breadth timing is the primary recalibration domain"
+  },
+  "pit_vs_nonpit_geometry": {
+    "run_id": 33834083222,
+    "artifact_id": 9922813532,
+    "artifact_sha256": "e948dee28a2726cfb75d083c5add14c81309df6e1a0749df459089fd3c9173b9",
+    "native_target_disagreement_sessions": 232,
+    "final_allocation_disagreement_sessions": 208,
+    "fast_signal_disagreement_sessions": 9,
+    "slow_signal_disagreement_sessions": 10,
+    "control_reason_disagreement_sessions": 123,
+    "threshold_crossing_disagreements": {
+      "damaged_60": 240,
+      "damaged_75": 149,
+      "damaged_85": 87,
+      "green_20": 92,
+      "green_25": 146,
+      "recent_r20_0": 0,
+      "recent_r20_minus8": 0,
+      "recent_r40_0": 0
+    },
+    "first_divergence": {
+      "wealth_core_equity": "2006-07-31",
+      "damaged": "2006-08-02",
+      "recent_r20": null,
+      "recent_r40": null,
+      "native_target": "2008-07-02",
+      "fast_signal": "2008-07-02",
+      "slow_signal": "2008-08-15"
+    },
+    "trade_counts": {
+      "nonpit": {"buys": 755, "sells": 735, "dividends_held": 1357, "splits": 10435},
+      "pit": {"buys": 747, "sells": 727, "dividends_held": 1387, "splits": 10435}
+    },
+    "largest_annual_control_return_gaps": [
+      {"year": 2018, "nonpit": -0.0364, "pit": -0.1888, "pit_minus_nonpit": -0.1523},
+      {"year": 2010, "nonpit": 0.3838, "pit": 0.2525, "pit_minus_nonpit": -0.1313},
+      {"year": 2026, "nonpit": 0.4893, "pit": 0.6082, "pit_minus_nonpit": 0.1189},
+      {"year": 2021, "nonpit": 0.2176, "pit": 0.1649, "pit_minus_nonpit": -0.0527}
+    ]
+  },
+  "crisis_witnesses": [
+    {
+      "date": "2008-07-02",
+      "nonpit_damaged": 0.8636363636363636,
+      "pit_damaged": 0.8260869565217391,
+      "nonpit_fast": true,
+      "pit_fast": false,
+      "interpretation": "PIT breadth delayed FAST; PIT eventually fired on 2008-07-08"
+    },
+    {
+      "date": "2010-05-07",
+      "nonpit_damaged": 0.875,
+      "pit_damaged": 0.7916666666666666,
+      "nonpit_fast": true,
+      "pit_fast": false,
+      "pit_later_slow_decision": "2010-06-29",
+      "pit_wc_drawdown_at_later_slow": -0.200922780297632,
+      "raw_wc_forward_60_sessions_from_later_slow": 0.1110760208994761,
+      "interpretation": "PIT missed early FAST and entered late SLOW near a rebound"
+    },
+    {
+      "date": "2018-10-11",
+      "nonpit_damaged": 0.85,
+      "pit_damaged": 0.8,
+      "nonpit_fast": true,
+      "pit_fast": false,
+      "pit_later_slow_decision": "2018-12-19",
+      "pit_wc_drawdown_at_later_slow": -0.2810021175129478,
+      "raw_wc_forward_60_sessions_from_later_slow": 0.10530581934307293,
+      "interpretation": "one damaged holding out of 20 separated FAST protection from no FAST protection; PIT later entered SLOW after most drawdown had occurred"
+    },
+    {
+      "date": "2020-02-27",
+      "nonpit_damaged": 1.0,
+      "pit_damaged": 1.0,
+      "nonpit_fast": true,
+      "pit_fast": true,
+      "interpretation": "FAST remains effective when PIT breadth is unambiguously extreme"
+    }
+  ],
+  "slow_decision_forward_raw_wc_returns": [
+    {"decision": "2010-06-29", "wc_dd": -0.200922780297632, "r20": 0.0275996978157782, "r40": 0.0226856949326815, "r60": 0.1110760208994761},
+    {"decision": "2011-10-03", "wc_dd": -0.2198321375211968, "r20": 0.0841873179811414, "r40": 0.097151470698412, "r60": 0.1093489926957296},
+    {"decision": "2018-12-19", "wc_dd": -0.2810021175129478, "r20": 0.0430950572142836, "r40": 0.085805940343584, "r60": 0.1053058193430729},
+    {"decision": "2022-05-17", "wc_dd": -0.1961702494480039, "r20": -0.0403602506102168, "r40": -0.1215167162828981, "r60": -0.0929354261284258}
+  ],
+  "pit_metadata_coverage": {
+    "run_id": 33834404728,
+    "artifact_id": 9922783105,
+    "artifact_sha256": "3e4ae92495f7f757495bf00ae58ac33053e453c3e3503e7ebd1ef2a760b5a772",
+    "caveat": "coverage measured on active current-TICKERS common/listing projection, not the exact eligible or held population",
+    "strict_prior_sic_coverage": {
+      "2006-07-31": 0.0,
+      "2010-06-30": 0.06739590684544813,
+      "2011-10-03": 0.5356359649122807,
+      "2015-08-25": 0.6350432064717779,
+      "2018-12-19": 0.6834421820975797,
+      "2020-02-28": 0.6897998093422307,
+      "2022-05-17": 0.6646210931925217,
+      "2025-12-31": 0.7600210970464135,
+      "2026-07-31": 0.8530927835051546
+    },
+    "structural_effect": "missing SIC becomes UNKNOWN:<security>, effectively disabling shared sector contagion for that security; missing CIK also creates singleton issuer authority"
+  },
+  "fast_acceleration_version_alignment": {
+    "run_id": 33834321035,
+    "artifact_id": 9922907749,
+    "artifact_sha256": "60b724f8d0631500124e69629820b2f69cf5411797d28b685ced21ccb458cba7",
+    "change_only": "FAST damaged-breadth delta5 0.30 -> 0.40",
+    "fast_signal_changed_sessions": 10,
+    "native_target_changed_sessions": 87,
+    "final_allocation_changed_sessions": 104,
+    "twenty_year": {
+      "fast30_cagr": 0.2048609575180966,
+      "fast40_cagr": 0.1885083311681141,
+      "cagr_delta": -0.0163526263499825,
+      "fast30_max_drawdown": -0.288703844701944,
+      "fast40_max_drawdown": -0.2934711942450354
+    },
+    "conclusion": "main's historical 0.40 threshold is not portable to the current PIT breadth domain; the current 0.30 retained value performs better but is not considered calibrated"
+  },
+  "ldrc_recovery_diagnostic": {
+    "twenty_year_control_cagr": 0.2048609575180966,
+    "twenty_year_candidate_B_cagr": 0.2082795142274612,
+    "same_twenty_year_max_drawdown": true,
+    "interpretation": "there is some recovery-timing headroom, but it is much smaller than the native breadth/controller issue and is not first priority"
+  },
+  "universe_geometry": {
+    "retained_rule": "TOP=10%, 25 positions",
+    "leadership_population_2008_12_23": 101,
+    "leadership_population_2022_01_03": 180,
+    "older_authoritative_2022_fingerprint_population": 96,
+    "reason": "broad replay intentionally does not apply exchange gate because causal historical exchange authority is unavailable",
+    "calibration_implication": "freeze intended broad PIT eligibility domain before tuning leadership/recovery thresholds"
+  },
+  "priority_order": [
+    "P0 freeze intended broad PIT eligibility/security-type/exchange domain",
+    "P0 stabilize PIT sector/issuer authority or make breadth explicitly coverage-aware/taxonomy-robust",
+    "P0 create one explicit PIT controller version; do not blindly import old FAST 0.40 or treat retained 0.30 as final",
+    "P1 calibrate FAST damaged-breadth level, damaged-breadth acceleration and sector-stress interaction under the frozen PIT domain",
+    "P1 re-evaluate SLOW only after FAST is recalibrated; 2010/2018 SLOW problems are largely downstream of missed FAST",
+    "P2 evaluate recovery ramp and LD-RC divergence/recovery timing",
+    "P2 normalize leadership population/top-fraction if the broad eligible population remains materially larger than the original domain",
+    "P3 instrument trade-level exit reasons before changing stop/review/cooldown",
+    "P3 calibrate execution/capacity separately from signal calibration"
+  ],
+  "calibration_window_policy": {
+    "development_and_calibration": "2006-07-31 onward",
+    "do_not_use_for_parameter_selection": "1998-2005",
+    "note": "1998-2005 has already been observed for baseline performance, so it is a locked historical holdout, not a pristine never-seen sample"
+  }
+}
