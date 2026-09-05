@@ -21,6 +21,12 @@ import sys
 
 import pandas as pd
 
+# Direct script execution places backtester/ on sys.path. Add the repository root
+# so the existing backtester namespace package resolves identically to -m execution.
+REPO_ROOT = Path(__file__).resolve().parents[1]
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+
 from backtester import run_wc_targeted_hedge_stage6_strict_cash as strict
 
 LABEL = "WC_TARGETED_HEDGE_STAGE6B_PREMIUM_CAP_SENSITIVITY_ZERO_BUDGET"
