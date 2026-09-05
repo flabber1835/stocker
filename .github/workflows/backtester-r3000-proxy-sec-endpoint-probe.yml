@@ -1,0 +1,37 @@
+name: Backtester - R3000 proxy SEC per-CIK probe
+run-name: R3000 proxy SEC per-CIK probe — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/r3000-proxy-pit-corpus]
+    paths:
+      - '.github/workflows/backtester-r3000-proxy-sec-endpoint-probe.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: r3000-proxy-sec-endpoint-probe-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Probe data.sec.gov submissions endpoint
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-all-errors \
+            --connect-timeout 20 --max-time 120 \
+            --user-agent 'stocker-r3000-proxy-research/1.0 research contact via github.com/flabber1835/stocker' \
+            --output apple.json \
+            'https://data.sec.gov/submissions/CIK0000320193.json'
+          python - <<'PY'
+          import hashlib,json
+          p=json.load(open('apple.json'))
+          assert str(p['cik']) in {'320193','0000320193'}
+          assert p['name']
+          print({'status':'PASS','cik':p['cik'],'name':p['name'],'former_names':len(p.get('formerNames') or []),'sha256':hashlib.sha256(open('apple.json','rb').read()).hexdigest()})
+          PY
