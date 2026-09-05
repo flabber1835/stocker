@@ -1,0 +1,82 @@
+{
+  "allocation_divergence_episodes": 13,
+  "allocation_divergence_sessions": 448,
+  "causal_contract": {
+    "new_candidate_rules": 0,
+    "new_economic_thresholds": 0,
+    "observational_only": true,
+    "same_E3_decisions_as_completed_E5_run": true,
+    "same_E5_decisions_as_completed_E5_run": true,
+    "telemetry_only_source_changes": true
+  },
+  "e5_deterioration_exit_signals": 14,
+  "economic_experiment_budget_delta": 0,
+  "evidence_label": "ZERO_BUDGET_E5_WEALTH_CORE_SENTINEL_COUPLING_DIAGNOSTIC",
+  "experiment_budget_consumed": 5,
+  "fast_signal_cliffs": 5,
+  "fresh_control_e3_parity": "PASS",
+  "fresh_e5_replay_parity": "PASS",
+  "github_sha": "6048825fae989bf747bd6346bb1b37a993559e0a",
+  "largest_harmful_episodes": [
+    {
+      "cause_family": "FAST_SIGNAL_CLIFF",
+      "changed_threshold_predicates": "dam|ddam5",
+      "decision_date": "2008-01-23",
+      "e5_minus_e3_controlled_return": -0.13858126422377692,
+      "e5_minus_e3_core_return": -0.031239014898980733,
+      "end": "2008-05-21",
+      "episode": 1,
+      "sessions": 83,
+      "start": "2008-01-24"
+    },
+    {
+      "cause_family": "FAST_SIGNAL_CLIFF",
+      "changed_threshold_predicates": "dd",
+      "decision_date": "2018-02-08",
+      "e5_minus_e3_controlled_return": -0.07382685990312887,
+      "e5_minus_e3_core_return": -0.01171286753952927,
+      "end": "2018-05-17",
+      "episode": 6,
+      "sessions": 68,
+      "start": "2018-02-09"
+    },
+    {
+      "cause_family": "FAST_SIGNAL_CLIFF",
+      "changed_threshold_predicates": "dam",
+      "decision_date": "2021-03-08",
+      "e5_minus_e3_controlled_return": -0.043744659603200065,
+      "e5_minus_e3_core_return": 0.005463796976345137,
+      "end": "2021-04-06",
+      "episode": 9,
+      "sessions": 20,
+      "start": "2021-03-09"
+    },
+    {
+      "cause_family": "FAST_SIGNAL_CLIFF",
+      "changed_threshold_predicates": "ddam5",
+      "decision_date": "2011-08-04",
+      "e5_minus_e3_controlled_return": -0.018850067795992853,
+      "e5_minus_e3_core_return": 0.00036625588911787244,
+      "end": "2011-08-05",
+      "episode": 4,
+      "sessions": 1,
+      "start": "2011-08-05"
+    },
+    {
+      "cause_family": "NATIVE_STATE_OR_RAMP_TIMING",
+      "changed_threshold_predicates": "",
+      "decision_date": "2022-08-04",
+      "e5_minus_e3_controlled_return": -0.010519983886783546,
+      "e5_minus_e3_core_return": -0.0005892457056768663,
+      "end": "2022-08-05",
+      "episode": 12,
+      "sessions": 1,
+      "start": "2022-08-05"
+    }
+  ],
+  "mechanical_conclusion": "E5 changes Wealth Core composition; small differences in Wealth Core drawdown/breadth cross discrete FAST/SLOW or recovery-state boundaries, creating long exposure divergences whose controlled-return impact can greatly exceed the direct Wealth Core return difference.",
+  "other_carried_state_or_ramp_episodes": 4,
+  "recovery_release_timing_episodes": 2,
+  "slow_signal_cliffs": 2,
+  "status": "PASS"
+}

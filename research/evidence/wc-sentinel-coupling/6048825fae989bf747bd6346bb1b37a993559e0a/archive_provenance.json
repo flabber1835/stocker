@@ -1,0 +1,23 @@
+{
+  "provenance_version": 1,
+  "record_type": "failure_independent_workflow_evidence_archive",
+  "source_repository": "flabber1835/stocker",
+  "source_workflow_run_id": 33935820712,
+  "source_job_id": 101223439440,
+  "source_branch": "research/backtester-wc-sentinel-coupling-diagnostic",
+  "source_head_sha": "6048825fae989bf747bd6346bb1b37a993559e0a",
+  "observed_terminal_status": "completed",
+  "observed_conclusion": "success",
+  "artifact_id": 9961371708,
+  "artifact_sha256": "797237bc1c1e4dd7cebcf6327b437776d2d089657a3b7b49d7c17ded6c941e38",
+  "download_sha256_matches_github_digest": true,
+  "internal_sha256_manifest_verified": true,
+  "internal_sha256_manifest": "SENTINEL_COUPLING_SHA256SUMS.txt",
+  "archived_from_verified_artifact": true,
+  "preexisting_durable_bundle_path": "research/evidence/wc-sentinel-coupling/6048825fae989bf747bd6346bb1b37a993559e0a/bundle",
+  "canonical_path": "research/evidence/wc-sentinel-coupling/6048825fae989bf747bd6346bb1b37a993559e0a",
+  "canonical_files_materialized_by_existing_git_blob_sha": true,
+  "e5_or_later_experiment_branches_modified": false,
+  "economic_experiment_budget_changed": false,
+  "economic_experiment_budget": "5/10"
+}

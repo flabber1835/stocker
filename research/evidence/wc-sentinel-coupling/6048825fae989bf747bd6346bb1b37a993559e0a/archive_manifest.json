@@ -1,0 +1,36 @@
+{
+  "archive_branch": "research/backtester-wc-evidence-archive",
+  "archive_parent_commit": "6ae1767f8cdc16b3b7506d31869659bd69d9db8f",
+  "canonical_evidence_path": "research/evidence/wc-sentinel-coupling/6048825fae989bf747bd6346bb1b37a993559e0a",
+  "source": {
+    "repository": "flabber1835/stocker",
+    "workflow_run_id": 33935820712,
+    "job_id": 101223439440,
+    "branch": "research/backtester-wc-sentinel-coupling-diagnostic",
+    "head_sha": "6048825fae989bf747bd6346bb1b37a993559e0a",
+    "run_status": "completed",
+    "run_conclusion": "success"
+  },
+  "artifact": {
+    "id": 9961371708,
+    "name": "wc-sentinel-coupling-diagnostic-6048825fae989bf747bd6346bb1b37a993559e0a",
+    "github_sha256": "797237bc1c1e4dd7cebcf6327b437776d2d089657a3b7b49d7c17ded6c941e38",
+    "verified_download_sha256": "797237bc1c1e4dd7cebcf6327b437776d2d089657a3b7b49d7c17ded6c941e38",
+    "checksum_manifest": "SENTINEL_COUPLING_SHA256SUMS.txt",
+    "checksum_verification": "PASS",
+    "artifact_file_count": 20
+  },
+  "experiment_budget": {
+    "consumed": 5,
+    "limit": 10,
+    "delta_from_diagnostic": 0
+  },
+  "archival": {
+    "artifact_bytes_preserved_in_git": true,
+    "canonical_direct_path_materialized": true,
+    "source_blob_identity_preserved": true,
+    "run_metadata_file": "run_metadata.json",
+    "artifact_metadata_file": "artifacts_metadata.json",
+    "failure_independent_provenance_file": "archive_provenance.json"
+  }
+}
