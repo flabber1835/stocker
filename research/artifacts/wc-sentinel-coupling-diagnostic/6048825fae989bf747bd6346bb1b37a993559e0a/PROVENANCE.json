@@ -1,0 +1,11 @@
+{
+  "artifact_zip_sha256": "797237bc1c1e4dd7cebcf6327b437776d2d089657a3b7b49d7c17ded6c941e38",
+  "branch": "research/backtester-wc-sentinel-coupling-diagnostic",
+  "persist_workflow_run_id": 33940750583,
+  "schema": "stocker.wc-sentinel-coupling-persisted-artifact/1",
+  "source_artifact_id": 9961371708,
+  "source_artifact_name": "wc-sentinel-coupling-diagnostic-6048825fae989bf747bd6346bb1b37a993559e0a",
+  "source_head": "6048825fae989bf747bd6346bb1b37a993559e0a",
+  "source_run_id": 33935820712,
+  "source_run_url": "https://github.com/flabber1835/stocker/actions/runs/33935820712"
+}
