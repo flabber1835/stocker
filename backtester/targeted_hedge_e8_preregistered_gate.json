@@ -1,0 +1,70 @@
+{
+  "schema": "backtester.targeted-hedge-e8-preregistered-gate/1",
+  "status": "FROZEN_BEFORE_STAGE6_RESULT",
+  "experiment_budget_before_e8": 7,
+  "experiment_budget_limit": 10,
+  "e8_spent": false,
+  "baseline": {
+    "accepted_e3_head": "3f27834db427e71d9bb8d0b6160c8835b739c906",
+    "accepted_e3_run_id": 33912976460,
+    "accepted_e3_artifact_id": 9953264982,
+    "accepted_e3_artifact_digest": "sha256:22011d018a336c6da4d92b31e8786811a4f4288daa91d56a80c30c9f144f174f",
+    "control_max_history_cagr": 0.1979341893464519,
+    "control_max_history_max_drawdown": -0.3345904831084261,
+    "control_20y_cagr": 0.200964,
+    "control_20y_max_drawdown": -0.296266
+  },
+  "systemic_trigger": {
+    "source": "Stage5 zero-budget causal diagnostic",
+    "entry_at_close": "wc_dd<=-10% AND green<=25% AND SPY_r20<=-1% AND recent_leadership_r20<0 AND recent_leadership_r40<=-3%",
+    "new_fitted_numeric_thresholds": 0,
+    "rearm": "7 consecutive recent_r20>0 AND recent_r40>0 sessions OR SPY_r20>+11%",
+    "execution_earliest": "next trading open"
+  },
+  "modeled_instruments": ["SPY put", "IWM put", "QQQ put"],
+  "systematic_exposure_estimator": {
+    "method": "nonnegative least squares",
+    "lookback_sessions": 126,
+    "information_boundary": "returns through signal close only",
+    "execution_boundary": "next trading open or later"
+  },
+  "candidate_shapes": {
+    "ATM_90D": {"strike_ratio": 1.0, "calendar_dte": 90},
+    "OTM5_120D": {"strike_ratio": 0.95, "calendar_dte": 120},
+    "OTM10_180D": {"strike_ratio": 0.9, "calendar_dte": 180}
+  },
+  "conservative_pricing_stress": {
+    "entry_iv_multiplier": 1.25,
+    "half_spread_fraction_of_option_premium": 0.10,
+    "risk_free_rate_in_diagnostic": 0.0,
+    "dividend_yield_in_diagnostic": 0.0,
+    "evidence_label": "DIAGNOSTIC_ESTIMATE_MODELED_OPTIONS"
+  },
+  "funding_contract": {
+    "source": "Stage4 exact natural Wealth Core cash telemetry",
+    "allowed": "active Wealth Core sleeve next-open unreserved cash after preserving pending Wealth Core admission",
+    "sentinel_defensive_cash_allowed": false,
+    "forced_wealth_core_liquidation_allowed": false,
+    "borrowing_or_margin_allowed": false,
+    "initial_hedge_budget_only": true,
+    "rolls_may_use": "unused original hedge budget plus hedge proceeds"
+  },
+  "modeled_stage6_gate": {
+    "conservative_stress_required": true,
+    "max_history_relative_max_drawdown_improvement_min": 0.20,
+    "twenty_year_relative_max_drawdown_improvement_min": 0.20,
+    "max_history_cagr_delta_min": -0.01,
+    "twenty_year_cagr_delta_min": -0.01,
+    "positive_improvement_required_in_at_least_n_target_systemic_episodes": 2,
+    "target_systemic_episodes": ["2011", "2020", "2024_JULAUG", "2025"]
+  },
+  "observed_stage7_gate": {
+    "required_before_e8": true,
+    "history_boundary": "Alpaca historical option data available from February 2024 onward",
+    "minimum_target_episodes": ["2024_JULAUG", "2025"],
+    "purpose": "test whether modeled executable premiums and hedge P&L are materially optimistic relative to observed option data",
+    "failure_or_unavailability": "E8 remains closed"
+  },
+  "e8_open_rule": "E8 may be spent only after the modeled Stage6 gate and observed Stage7 gate both pass. Otherwise experiment budget remains 7/10.",
+  "production_change_authorized": false
+}
