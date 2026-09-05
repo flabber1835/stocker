@@ -64,8 +64,9 @@ def test_status_selects_newest_complete_backup_for_current_cluster_only():
     source = _read(STATUS)
     assert "COMPLETED_NAME_RE='^base-[0-9]{8}T[0-9]{6}Z$'" in source
     candidate_sort = 'grep -E "$COMPLETED_NAME_RE" | sort -r'
-    manifest = 'test -f "/sentinel-backup/base/$name/backup_manifest"'
-    marker = 'test -f "/sentinel-backup/base/$name/sentinel-recovery-marker"'
+    manifest = 'manifest="/sentinel-backup/base/$name/backup_manifest"'
+    marker = 'marker="/sentinel-backup/base/$name/sentinel-recovery-marker"'
+    identity = 'identity="/sentinel-backup/base/$name/sentinel-pitr-base-identity"'
     assignment = 'NAME="$CANDIDATE"'
     assert "pg_control_system()" in source
     assert 'WAL_NAMESPACE="cluster-$SYSTEM_ID"' in source
@@ -74,10 +75,12 @@ def test_status_selects_newest_complete_backup_for_current_cluster_only():
     assert "BASE_BACKUP_SYSTEM_ID_MISMATCH" in source
     assert "WAL_NAMESPACE_MISSING" in source
     assert candidate_sort in source
-    assert manifest in source and marker in source and assignment in source
+    assert manifest in source and marker in source and identity in source
+    assert assignment in source
     assert source.index(candidate_sort) > source.index(manifest)
     assert source.index(manifest) < source.index(assignment)
     assert source.index(marker) < source.index(assignment)
+    assert source.index(identity) < source.index(assignment)
     assert "no complete base backup exists for the current PostgreSQL cluster" in source
     assert "SENTINEL_BACKUP_STATUS_REASON=" in source
     assert "WAL_ARCHIVE_UNRESOLVED_FAILURE" in source
