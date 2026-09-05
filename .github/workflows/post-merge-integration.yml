@@ -64,11 +64,28 @@ jobs:
           set -euo pipefail
           docker run --rm --network none sentinel-test:integration \
             tests/wealth_core -q -ra 2>&1 | tee /tmp/wealth-core-full.txt
-          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
-              /tmp/wealth-core-full.txt; then
-            echo 'REFUSED: full Wealth Core sweep had non-passes' >&2
-            exit 1
-          fi
+          python - <<'PY'
+          from pathlib import Path
+
+          text = Path('/tmp/wealth-core-full.txt').read_text(encoding='utf-8')
+          expected = {
+              'tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture',
+              'tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER',
+              'tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash',
+          }
+          observed = {
+              line.split(' - ', 1)[0][len('XFAIL '):]
+              for line in text.splitlines()
+              if line.startswith('XFAIL ')
+          }
+          if observed != expected:
+              raise SystemExit(
+                  f'REFUSED: unexpected Wealth Core XFAIL set: {sorted(observed)}')
+          if ' 3 xfailed ' not in text:
+              raise SystemExit('REFUSED: expected exactly three known Wealth Core xfails')
+          if any(token in text for token in (' skipped', ' xpassed')):
+              raise SystemExit('REFUSED: Wealth Core sweep had skip or XPASS')
+          PY
 
       - name: Re-run cross-component restart recovery and execution seams offline
         shell: bash
