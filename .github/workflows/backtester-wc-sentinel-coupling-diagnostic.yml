@@ -12,8 +12,7 @@ on:
   workflow_dispatch:
 
 permissions:
-  actions: read
-  contents: write
+  contents: read
 
 concurrency:
   group: wc-sentinel-coupling-diagnostic-${{ github.ref }}
@@ -24,7 +23,6 @@ env:
 
 jobs:
   diagnostic:
-    if: ${{ github.event_name != 'push' || !contains(github.event.head_commit.message, '[persist-artifact]') }}
     runs-on: ubuntu-24.04
     timeout-minutes: 180
     steps:
@@ -155,75 +153,3 @@ jobs:
           path: ${{ env.OUT_DIR }}
           if-no-files-found: warn
           retention-days: 90
-
-  persist-artifact:
-    if: ${{ github.event_name == 'push' && contains(github.event.head_commit.message, '[persist-artifact]') }}
-    runs-on: ubuntu-24.04
-    timeout-minutes: 15
-    env:
-      SOURCE_RUN_ID: '33935820712'
-      SOURCE_HEAD: '6048825fae989bf747bd6346bb1b37a993559e0a'
-      SOURCE_ARTIFACT_ID: '9961371708'
-      SOURCE_ARTIFACT_NAME: 'wc-sentinel-coupling-diagnostic-6048825fae989bf747bd6346bb1b37a993559e0a'
-      SOURCE_ARTIFACT_SHA256: '797237bc1c1e4dd7cebcf6327b437776d2d089657a3b7b49d7c17ded6c941e38'
-      TARGET_DIR: 'research/artifacts/wc-sentinel-coupling-diagnostic/6048825fae989bf747bd6346bb1b37a993559e0a'
-    steps:
-      - name: Check out persistence branch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: research/backtester-wc-sentinel-coupling-diagnostic
-          fetch-depth: 1
-          persist-credentials: true
-          filter: blob:none
-          sparse-checkout-cone-mode: false
-          sparse-checkout: |
-            /.github/workflows/backtester-wc-sentinel-coupling-diagnostic.yml
-            /research/artifacts/wc-sentinel-coupling-diagnostic/**
-
-      - name: Download and verify exact artifact ZIP
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: |
-          set -euo pipefail
-          mkdir -p "$TARGET_DIR"
-          curl --fail --location --silent --show-error \
-            -H "Authorization: Bearer $GH_TOKEN" \
-            -H "Accept: application/vnd.github+json" \
-            -H "X-GitHub-Api-Version: 2022-11-28" \
-            "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${SOURCE_ARTIFACT_ID}/zip" \
-            -o "$TARGET_DIR/wc-sentinel-coupling-diagnostic.zip"
-          observed="$(sha256sum "$TARGET_DIR/wc-sentinel-coupling-diagnostic.zip" | awk '{print $1}')"
-          test "$observed" = "$SOURCE_ARTIFACT_SHA256"
-          unzip -tq "$TARGET_DIR/wc-sentinel-coupling-diagnostic.zip"
-
-      - name: Write immutable provenance
-        run: |
-          set -euo pipefail
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          target = Path(os.environ['TARGET_DIR'])
-          payload = {
-              'schema': 'stocker.wc-sentinel-coupling-persisted-artifact/1',
-              'source_run_id': int(os.environ['SOURCE_RUN_ID']),
-              'source_head': os.environ['SOURCE_HEAD'],
-              'source_artifact_id': int(os.environ['SOURCE_ARTIFACT_ID']),
-              'source_artifact_name': os.environ['SOURCE_ARTIFACT_NAME'],
-              'artifact_zip_sha256': os.environ['SOURCE_ARTIFACT_SHA256'],
-              'source_run_url': f"https://github.com/{os.environ['GITHUB_REPOSITORY']}/actions/runs/{os.environ['SOURCE_RUN_ID']}",
-              'persist_workflow_run_id': int(os.environ['GITHUB_RUN_ID']),
-              'branch': os.environ['GITHUB_REF_NAME'],
-          }
-          (target / 'PROVENANCE.json').write_text(json.dumps(payload, indent=2, sort_keys=True) + '\n', encoding='utf-8')
-          PY
-          sha256sum "$TARGET_DIR/wc-sentinel-coupling-diagnostic.zip" > "$TARGET_DIR/SHA256SUMS.txt"
-
-      - name: Commit artifact to Git history
-        run: |
-          set -euo pipefail
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$TARGET_DIR"
-          git diff --cached --check
-          git commit -m 'research(backtester): persist WC Sentinel coupling diagnostic bundle'
-          git push origin HEAD:"$GITHUB_REF_NAME"
