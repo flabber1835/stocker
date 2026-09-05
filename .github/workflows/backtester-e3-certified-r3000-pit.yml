@@ -1,0 +1,217 @@
+name: Backtester - E3 certified R3000 PIT
+run-name: E3 × certified R3000 PIT — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-e3-r3000-pit]
+    paths:
+      - '.github/workflows/backtester-e3-certified-r3000-pit.yml'
+      - 'backtester/run_e3_r3000_pit.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+
+env:
+  E3_HEAD: '3f27834db427e71d9bb8d0b6160c8835b739c906'
+  CORPUS_HEAD: '0ee69dfc699927bf5e7d768ae57b77d65e99ed59'
+  CORPUS_RUN_ID: '33940944721'
+  CORPUS_ARTIFACT: 'r3000-proxy-retained-v4-closure-0ee69dfc699927bf5e7d768ae57b77d65e99ed59'
+  CORPUS_DIGEST: 'sha256:c5ba5e6cf9d953797068a7af8b944129da9879051e1aac447acdc4b0c717346f'
+  OUT_DIR: '${{ github.workspace }}/backtester-results/e3-certified-r3000-pit'
+
+jobs:
+  backtest:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out runner and certified-corpus branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-e3-certified-r3000-pit.yml
+            /backtester/run_e3_r3000_pit.py
+            /backtester/data/canonical-pit-20y.json
+
+      - name: Check out exact accepted E3 source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.E3_HEAD }}
+          path: e3
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/experiment_architecture_recovery_concordance_e3.py
+            /backtester/calibrate_broad_simplified_breadth.py
+            /backtester/experiment2_broad_independent_correlation.py
+            /backtester/run_r1000_correlation_peers.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/sentinel-fastgate/pit-evidence/generated/sec_sic_submissions.csv.gz
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Authenticate certified R3000 artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CORPUS_RUN_ID}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CORPUS_RUN_ID}" --jq '.head_sha')" = "${CORPUS_HEAD}"
+          observed=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${CORPUS_RUN_ID}/artifacts" --jq ".artifacts[] | select(.name == \"${CORPUS_ARTIFACT}\") | .digest")
+          test "${observed}" = "${CORPUS_DIGEST}"
+
+      - name: Download certified R3000 PIT corpus
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.CORPUS_ARTIFACT }}
+          path: r3000-corpus
+          repository: ${{ github.repository }}
+          run-id: ${{ env.CORPUS_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate R3000 package contents
+        run: |
+          set -euo pipefail
+          (cd r3000-corpus && sha256sum -c SHA256SUMS.txt)
+          test -s r3000-corpus/r3000_proxy_union_pit_membership_v4.csv.gz
+
+      - name: Pull pinned canonical PIT observations
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PACKAGE=$(python - <<'PY'
+          import json
+          p=json.load(open('backtester/data/canonical-pit-20y.json'))
+          assert p['status']=='PASS'
+          print(p['package'])
+          PY
+          )
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          rm -rf canonical-pit && mkdir -p canonical-pit
+          docker cp "${cid}:/canonical-pit/." canonical-pit/
+          docker rm "${cid}"
+          trap - EXIT
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          pointer=json.load(open('backtester/data/canonical-pit-20y.json'))
+          root=Path('canonical-pit'); manifest=root/'manifest.json'; m=json.load(open(manifest))
+          assert hashlib.sha256(manifest.read_bytes()).hexdigest()==pointer['manifest_sha256']
+          assert m['dataset_hash']==pointer['dataset_hash']
+          print({'canonical_dataset_hash':m['dataset_hash']})
+          PY
+
+      - name: Assemble pinned SFP archive
+        working-directory: e3
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Install R3000 binding into exact E3 checkout
+        run: |
+          set -euo pipefail
+          cp backtester/run_e3_r3000_pit.py e3/backtester/run_e3_r3000_pit.py
+          python -m py_compile e3/backtester/run_e3_r3000_pit.py \
+            e3/backtester/experiment_architecture_recovery_concordance_e3.py \
+            e3/backtester/calibrate_broad_simplified_breadth.py \
+            e3/backtester/experiment2_broad_independent_correlation.py \
+            e3/backtester/run_research_ldrc_corrected_warmup_cash.py \
+            e3/backtester/run_research_ldrc_nonpit_vs_fullpit.py
+
+      - name: Run fresh E3 × certified R3000 PIT replay
+        working-directory: e3
+        env:
+          PYTHONUNBUFFERED: '1'
+          R3000_MEMBERSHIP_PATH: '${{ github.workspace }}/r3000-corpus/r3000_proxy_union_pit_membership_v4.csv.gz'
+          CANONICAL_ROOT: '${{ github.workspace }}/canonical-pit'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.run_e3_r3000_pit --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c E3_R3000_SHA256SUMS.txt)
+
+      - name: Validate result contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR'])
+          s=json.load(open(out/'e3_r3000_summary.json')); m=json.load(open(out/'e3_r3000_manifest.json'))
+          metrics=pd.read_csv(out/'e3_r3000_metrics.csv',dtype={'window_years':str})
+          trades=pd.read_csv(out/'e3_r3000_trade_counts.csv',dtype={'window_years':str})
+          portfolio=pd.read_csv(out/'e3_r3000_final_portfolio.csv')
+          assert s['status']=='PASS' and m['status']=='PASS'
+          assert s['strategy_source_head']==os.environ['E3_HEAD']
+          assert s['corpus_head']==os.environ['CORPUS_HEAD']
+          assert set(metrics.window_years)=={'5','10','15','20'}
+          assert set(metrics.variant)=={'E3','SPY'} and len(metrics)==8
+          assert set(trades.window_years)=={'5','10','15','20'} and len(trades)==4
+          assert (trades[['executed_buys','executed_sells']]>=0).all().all()
+          assert len(portfolio)>=1 and abs(float(portfolio.e3_effective_weight.sum())-1.0)<1e-8
+          print(metrics.to_string(index=False)); print(trades.to_string(index=False)); print(portfolio.to_string(index=False))
+          PY
+
+      - name: Publish headline summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR'])
+          if not (out/'e3_r3000_metrics.csv').exists(): raise SystemExit(0)
+          m=pd.read_csv(out/'e3_r3000_metrics.csv',dtype={'window_years':str}); t=pd.read_csv(out/'e3_r3000_trade_counts.csv',dtype={'window_years':str})
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Strategy 9 E3 × certified R3000 PIT\n\n')
+              f.write('| Window | E3 CAGR | E3 Max DD | SPY CAGR | SPY Max DD | Buys | Sells |\n|---|---:|---:|---:|---:|---:|---:|\n')
+              for w in ('5','10','15','20'):
+                  e=m[(m.window_years==w)&(m.variant=='E3')].iloc[0]; s=m[(m.window_years==w)&(m.variant=='SPY')].iloc[0]; q=t[t.window_years==w].iloc[0]
+                  f.write(f"| {w}y | {e.cagr:.2%} | {e.max_drawdown:.2%} | {s.cagr:.2%} | {s.max_drawdown:.2%} | {int(q.executed_buys)} | {int(q.executed_sells)} |\n")
+              f.write(f"\nE3 source: `{os.environ['E3_HEAD']}`  \nR3000 corpus: `{os.environ['CORPUS_HEAD']}` / run `{os.environ['CORPUS_RUN_ID']}`\n")
+          PY
+
+      - name: Upload immutable E3 R3000 bundle
+        if: ${{ always() && hashFiles('backtester-results/e3-certified-r3000-pit/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: e3-certified-r3000-pit-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
