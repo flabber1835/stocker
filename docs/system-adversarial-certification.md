@@ -32,7 +32,7 @@ the production transition.
 | No lost or duplicated fill | Real process death after fill observation and before local persistence | New gate |
 | Transactional strategy-state cursor | PostgreSQL rollback and resume | Existing gate |
 | Broker failure convergence | Scheduled contract faults and repeated recovery | Existing, extend |
-| Financial invariants under generated sequences | Reproducible seeds and invariant checks after every transition | New gate |
+| Financial invariants under generated sequences | Reproducible seeds and invariant checks after every transition | New gate: seeds 0-7, ten plans each |
 | Point-in-time causality | Publication/version and decision/effective-time provenance checks | Planned gate |
 | Research/production parity | Frozen input, exact first-divergence artifact | Planned gate |
 | Historical event behavior | Reviewed event fixtures with immutable expected economics | Planned gate |
@@ -64,6 +64,26 @@ This is also the falsifier for write ordering: moving the durable
 `SEND_PENDING` transition after transport makes the first post-death assertion
 fail because there is no recoverable command identity.
 
+## Generated economic-sequence tranche
+
+The initial campaign runs eight stable seeds twice. Each seed produces ten
+three-security plans and injects broker outages, accept-then-timeout ambiguity,
+rejections, partial fills, complete fills, and repeated reconciliation. After
+every economically relevant transition it checks:
+
+- broker order identity is unique and maps to one durable command;
+- every fill maps to that order and command and cannot exceed its quantity;
+- command filled quantity stays within `[0, quantity]`, with exact equality at
+  `FILLED`;
+- long-only positions and cash never become negative;
+- at the simulator's fixed execution price, `cash + holdings` remains equal to
+  initial equity; and
+- a client key crosses the submit boundary exactly once.
+
+The second run must produce an identical normalized command, order, position,
+fill, and cash ledger. Seeds are fixed because reproducibility is part of the
+claim. Expanding the seed set is a reviewed coverage change, not a retry tactic.
+
 ## Reproducibility and artifacts
 
 Adversarial campaigns are deterministic. Every generated case has a stable seed
@@ -85,4 +105,3 @@ tests when the fix preserves documented economics. It must stop for explicit
 approval before changing strategy decisions, changing Sentinel thresholds,
 weakening a fail-closed guard, merging, publishing a deployable image, activating
 paper transport, or contacting a live broker.
-
