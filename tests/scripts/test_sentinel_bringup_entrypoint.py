@@ -29,6 +29,12 @@ if target in {
     "sentinel_runtime_selection.py",
     "sentinel_go_account_preflight.py",
 }:
+    if scenario == "host_refused" and target == "sentinel_go_host_preflight.py":
+        print("fixture host preflight: REFUSED", file=sys.stderr)
+        raise SystemExit(2)
+    if scenario == "account_refused" and target == "sentinel_go_account_preflight.py":
+        print("fixture paper account preflight: REFUSED", file=sys.stderr)
+        raise SystemExit(2)
     print("fixture preflight: PASS")
     raise SystemExit(0)
 
@@ -62,6 +68,25 @@ if scenario == "source_refused":
         "reason_code": "SOURCE_PUBLICATION_UNSTABLE",
         "detail": "fixture source refusal",
     }])
+elif scenario == "already_current":
+    reports = iter([
+        {"status": "PASS", "reason_code": "SEP_CDC_SOURCE_VALID"},
+        {"status": "PASS", "reason_code": "SEP_CDC_SOURCE_VALID"},
+    ])
+elif scenario == "post_recovery_deferred":
+    reports = iter([
+        {"status": "DEFERRED", "reason_code": "SHARADAR_SOURCE_NOT_FINAL"},
+        {"status": "DEFERRED", "reason_code": "SHARADAR_SOURCE_NOT_FINAL"},
+    ])
+elif scenario == "post_recovery_refused":
+    reports = iter([
+        {"status": "DEFERRED", "reason_code": "SHARADAR_SOURCE_NOT_FINAL"},
+        {
+            "status": "REFUSED",
+            "reason_code": "SOURCE_PUBLICATION_UNSTABLE",
+            "detail": "fixture post-recovery refusal",
+        },
+    ])
 else:
     reports = iter([
         {
@@ -79,6 +104,9 @@ def run_recovery(*_args, **_kwargs):
     if scenario == "recovery_refused":
         raise base.BringupRefused(
             "SOURCE_CDC_INVALID - fixture post-seed request-envelope mismatch")
+    if scenario == "recovery_interrupted":
+        raise base.BringupRefused(
+            "PREPARATION_INTERRUPTED - fixture interrupted recovery")
     return SimpleNamespace(
         status=base.go.PASS, complete=True, elapsed_milliseconds=7)
 
@@ -133,3 +161,65 @@ def test_real_shell_entrypoint_blocks_true_source_refusal_before_recovery(tmp_pa
     assert "bring-up source: REFUSED - SOURCE_PUBLICATION_UNSTABLE" in completed.stdout
     assert "BRINGUP_BLOCKED - SOURCE_PUBLICATION_UNSTABLE" in completed.stdout
     assert "bring-up recovery: bounded production data preparation" not in completed.stdout
+
+
+def test_real_shell_entrypoint_stops_on_host_preflight_refusal(tmp_path):
+    completed = _run(tmp_path, "host_refused", "--recover")
+    assert completed.returncode == 2
+    assert "=== BRINGUP: CHEAP HOST AUTHORITY ===" in completed.stdout
+    assert "fixture host preflight: REFUSED" in completed.stderr
+    assert "=== BRINGUP: PAPER ACCOUNT - GET ONLY ===" not in completed.stdout
+    assert "=== BRINGUP: DATA + RECOVERY BRING-UP ===" not in completed.stdout
+
+
+def test_real_shell_entrypoint_stops_on_paper_account_preflight_refusal(tmp_path):
+    completed = _run(tmp_path, "account_refused", "--recover")
+    assert completed.returncode == 2
+    assert "=== BRINGUP: PAPER ACCOUNT - GET ONLY ===" in completed.stdout
+    assert "fixture paper account preflight: REFUSED" in completed.stderr
+    assert "=== BRINGUP: DATA + RECOVERY BRING-UP ===" not in completed.stdout
+
+
+def test_real_shell_entrypoint_without_recover_stops_before_mutation(tmp_path):
+    completed = _run(tmp_path, "pass")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "BRINGUP_READY_FOR_RECOVERY - SHARADAR_SOURCE_NOT_FINAL" in completed.stdout
+    assert "bring-up recovery: bounded production data preparation" not in completed.stdout
+    assert "BRINGUP_READY_FOR_CERTIFICATION" not in completed.stdout
+
+
+def test_real_shell_entrypoint_handles_already_current_source_state(tmp_path):
+    completed = _run(tmp_path, "already_current", "--recover")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "bring-up source: PASS - SEP_CDC_SOURCE_VALID" in completed.stdout
+    assert "bring-up recovery: PASS elapsed_ms=7" in completed.stdout
+    assert "post-recovery source: PASS - SEP_CDC_SOURCE_VALID" in completed.stdout
+    assert "BRINGUP_READY_FOR_CERTIFICATION" in completed.stdout
+
+
+def test_real_shell_entrypoint_waits_when_source_is_not_final_after_recovery(tmp_path):
+    completed = _run(tmp_path, "post_recovery_deferred", "--recover")
+    assert completed.returncode == 3
+    assert "bring-up recovery: PASS elapsed_ms=7" in completed.stdout
+    assert "post-recovery source: DEFERRED - SHARADAR_SOURCE_NOT_FINAL" in completed.stdout
+    assert (
+        "BRINGUP_DATA_RECOVERY_COMPLETE_WAIT_SOURCE_FINAL - SHARADAR_SOURCE_NOT_FINAL"
+        in completed.stdout)
+    assert "BRINGUP_READY_FOR_CERTIFICATION" not in completed.stdout
+
+
+def test_real_shell_entrypoint_blocks_post_recovery_source_refusal(tmp_path):
+    completed = _run(tmp_path, "post_recovery_refused", "--recover")
+    assert completed.returncode == 3
+    assert "bring-up recovery: PASS elapsed_ms=7" in completed.stdout
+    assert "post-recovery source: REFUSED - SOURCE_PUBLICATION_UNSTABLE" in completed.stdout
+    assert "BRINGUP_BLOCKED - SOURCE_PUBLICATION_UNSTABLE" in completed.stdout
+    assert "BRINGUP_READY_FOR_CERTIFICATION" not in completed.stdout
+
+
+def test_real_shell_entrypoint_surfaces_interrupted_recovery(tmp_path):
+    completed = _run(tmp_path, "recovery_interrupted", "--recover")
+    assert completed.returncode == 2
+    assert "bring-up recovery: bounded production data preparation" in completed.stdout
+    assert "BRINGUP_BLOCKED - PREPARATION_INTERRUPTED" in completed.stderr
+    assert "BRINGUP_READY_FOR_CERTIFICATION" not in completed.stdout
