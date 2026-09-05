@@ -53,6 +53,7 @@ jobs:
             /backtester
             /tests
             /services/backtester
+            /tools
             /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
             /research/strategy9-e3-broad-stability
 
@@ -86,6 +87,7 @@ jobs:
           test "$(git -C main-src rev-parse HEAD)" = "${PIT_RUNTIME_MAIN_SHA}"
           test -z "$(git -C main-src status --porcelain)"
           test -f services/backtester/app/__init__.py
+          test -f tools/corpus_parity.py
           echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/services/backtester:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
 
       - name: Set up Python 3.12
