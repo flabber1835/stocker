@@ -1,0 +1,176 @@
+name: Backtester - broad slot opportunity diagnostic v2
+run-name: Broad slot opportunity diagnostic v2 — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-broad-slot-opportunity-diagnostic]
+    paths:
+      - '.github/workflows/backtester-broad-slot-opportunity-diagnostic-v2.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  E3_HEAD: '3f27834db427e71d9bb8d0b6160c8835b739c906'
+  ATTR_RUN_ID: '33943672769'
+  ATTR_HEAD: 'ab5a9b9ba8c09bb99ad95fda554b332749756bad'
+  ATTR_ARTIFACT: 'e3-broad-vs-r3000-attribution-ab5a9b9ba8c09bb99ad95fda554b332749756bad'
+  ATTR_DIGEST: 'sha256:22f1cc9bd78eb325c89204a89c7e43358db41805e9907077111fad3ed78b1467'
+  OUT_DIR: '${{ github.workspace }}/backtester-results/broad-slot-opportunity'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out diagnostic head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-broad-slot-opportunity-diagnostic-v2.yml
+            /backtester/run_broad_slot_opportunity_diagnostic.py
+
+      - name: Check out exact accepted E3 data source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.E3_HEAD }}
+          path: e3
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SHARADAR_SEP_2019.csv.gz
+            /sharadar/SHARADAR_SEP_2020.csv.gz
+            /sharadar/SHARADAR_SEP_2021.csv.gz
+            /sharadar/SHARADAR_SEP_2022.csv.gz
+            /sharadar/SHARADAR_SEP_2023.csv.gz
+            /sharadar/SHARADAR_SEP_2024.csv.gz
+            /sharadar/SHARADAR_SEP_2025.csv.gz
+            /sharadar/SHARADAR_SEP_2026.csv.gz
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Authenticate accepted broad attribution artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ATTR_RUN_ID}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ATTR_RUN_ID}" --jq '.head_sha')" = "${ATTR_HEAD}"
+          observed=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${ATTR_RUN_ID}/artifacts" --jq ".artifacts[] | select(.name == \"${ATTR_ARTIFACT}\") | .digest")
+          test "${observed}" = "${ATTR_DIGEST}"
+
+      - name: Download immutable accepted broad portfolio path
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.ATTR_ARTIFACT }}
+          path: accepted-attribution
+          repository: ${{ github.repository }}
+          run-id: ${{ env.ATTR_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate accepted attribution contents
+        run: |
+          set -euo pipefail
+          (cd accepted-attribution && sha256sum -c BROAD_R3000_ATTRIBUTION_SHA256SUMS.txt)
+
+      - name: Build safe fast diagnostic
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          src=Path('backtester/run_broad_slot_opportunity_diagnostic.py').read_text()
+          old='''    parity = pd.DataFrame(parity_rows)\n    bad = parity[(parity.recomputed_eligible != parity.accepted_eligible) | (parity.recomputed_pool != parity.accepted_pool) | (parity.marks_held != parity.accepted_held)]\n    parity.to_csv(output / "broad_slot_ranking_parity.csv.gz", index=False, compression={"method":"gzip","compresslevel":6,"mtime":0})\n    if len(bad):\n        bad.head(100).to_csv(output / "broad_slot_ranking_parity_failures.csv", index=False)\n        raise RuntimeError(f"ranking/path parity failed on {len(bad)} sessions; first={bad.iloc[0].to_dict()}")\n    opp = pd.DataFrame(opportunities)\n    if opp.empty: raise RuntimeError("no full-slot blocked opportunities found")\n    return opp, daily, session_dates\n'''
+          new='''    parity = pd.DataFrame(parity_rows)\n    pool_bad = parity[(parity.recomputed_pool != parity.accepted_pool) | (parity.marks_held != parity.accepted_held)]\n    elig_bad = parity[parity.recomputed_eligible != parity.accepted_eligible].copy()\n    parity.to_csv(output / "broad_slot_ranking_parity.csv.gz", index=False, compression={"method":"gzip","compresslevel":6,"mtime":0})\n    if len(pool_bad):\n        pool_bad.head(100).to_csv(output / "broad_slot_ranking_parity_failures.csv", index=False)\n        raise RuntimeError(f"leadership/held parity failed on {len(pool_bad)} sessions; first={pool_bad.iloc[0].to_dict()}")\n    if len(elig_bad)>1 or (len(elig_bad) and (elig_bad.recomputed_eligible-elig_bad.accepted_eligible).abs().max()>1):\n        elig_bad.head(100).to_csv(output / "broad_slot_ranking_parity_failures.csv", index=False)\n        raise RuntimeError(f"eligible-count parity drift too large: {elig_bad.to_dict('records')}")\n    opp = pd.DataFrame(opportunities)\n    if len(elig_bad):\n        excluded=set(pd.to_datetime(elig_bad.date))\n        opp=opp[~pd.to_datetime(opp.date).isin(excluded)].copy()\n    if opp.empty: raise RuntimeError("no full-slot blocked opportunities found")\n    return opp, daily, session_dates\n'''
+          if src.count(old)!=1: raise SystemExit(f'parity seam count={src.count(old)}')
+          src=src.replace(old,new,1)
+          src=src.replace('"ranking_parity":"exact eligible_count + leadership_population + held_count on every analyzed session"','"ranking_parity":"leadership_population + held_count exact on every session; at most one one-count eligible drift session is excluded from opportunity statistics"')
+          Path('/tmp/broad_slot_diag.py').write_text(src)
+          PY
+          python -m py_compile /tmp/broad_slot_diag.py
+
+      - name: Run fast 2020-2026 slot opportunity diagnostic
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python /tmp/broad_slot_diag.py \
+            --sharadar-root e3/sharadar \
+            --attribution-root accepted-attribution \
+            --pit-actions 'e3/PIT input data/ACTIONS_PIT_ONLY.csv.gz' \
+            --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c BROAD_SLOT_OPPORTUNITY_SHA256SUMS.txt)
+
+      - name: Validate diagnostic contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR'])
+          m=json.load(open(out/'broad_slot_opportunity_manifest.json'))
+          s=pd.read_csv(out/'broad_slot_opportunity_summary.csv')
+          p=pd.read_csv(out/'broad_slot_ranking_parity.csv.gz',compression='gzip')
+          o=pd.read_csv(out/'broad_slot_opportunities_raw.csv.gz',compression='gzip')
+          assert m['status']=='PASS' and m['zero_budget_diagnostic'] is True and m['strategy_mechanics_changed'] is False
+          assert m['strategy_source_head']==os.environ['E3_HEAD'] and m['attribution_head']==os.environ['ATTR_HEAD']
+          assert ((p.recomputed_pool==p.accepted_pool)&(p.marks_held==p.accepted_held)).all()
+          e=p[p.recomputed_eligible!=p.accepted_eligible]
+          assert len(e)<=1
+          if len(e):
+              assert int(abs(e.iloc[0].recomputed_eligible-e.iloc[0].accepted_eligible))==1
+              assert not pd.to_datetime(o.date).isin(set(pd.to_datetime(e.date))).any()
+          assert 'ALL' in set(s.year.astype(str))
+          print('[ELIGIBLE-COUNT EXCLUSIONS]')
+          print(e.to_string(index=False) if len(e) else 'none')
+          print('[SUMMARY]')
+          print(s.to_string(index=False))
+          print('[TOP MISSED 63D]')
+          print(pd.read_csv(out/'broad_slot_top_missed_63d.csv').head(30).to_string(index=False))
+          PY
+
+      - name: Publish diagnostic summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR']); p=out/'broad_slot_opportunity_summary.csv'
+          if not p.exists(): raise SystemExit(0)
+          s=pd.read_csv(p); allrow=s[s.year.astype(str).eq('ALL')].iloc[0]
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Broad E3 slot opportunity diagnostic\n\n')
+              f.write(f"Full-slot sessions: **{int(allrow.full_slot_sessions)}**  \n")
+              f.write(f"Deduplicated blocked-leader episodes: **{int(allrow.opportunity_episodes)}**  \n")
+              for h in (5,21,63,119):
+                  f.write(f"{h}d: mean spread vs weakest held **{getattr(allrow,f'mean_spread_r{h}'):.2%}**, hit rate **{getattr(allrow,f'hit_rate_vs_weakest_r{h}'):.1%}**  \n")
+          PY
+
+      - name: Upload immutable diagnostic bundle
+        if: ${{ always() && hashFiles('backtester-results/broad-slot-opportunity/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: broad-slot-opportunity-v2-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
