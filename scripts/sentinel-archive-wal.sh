@@ -1,6 +1,7 @@
 #!/bin/sh
 # Publish one completed PostgreSQL WAL object without exposing a partial final
-# pathname. Invoked only by archive_command inside sentinel-postgres.
+# pathname. Each PostgreSQL cluster gets an immutable system-id namespace so a
+# recreated cluster can never collide with an older cluster's WAL filenames.
 set -eu
 
 refuse() {
@@ -11,8 +12,8 @@ refuse() {
 [ "$#" -eq 3 ] || refuse "expected SOURCE WAL_NAME ARCHIVE_DIRECTORY"
 source_wal="$1"
 wal_name="$2"
-archive_dir="$3"
-marker="$archive_dir/.sentinel-independent-durable-target-v1"
+archive_root="$3"
+marker="$archive_root/.sentinel-independent-durable-target-v1"
 marker_content="sentinel-independent-durable-target-v1"
 
 case "$wal_name" in
@@ -20,12 +21,32 @@ case "$wal_name" in
 esac
 [ -f "$source_wal" ] && [ -r "$source_wal" ] || \
   refuse "source is not a readable regular file: $source_wal"
-[ -d "$archive_dir" ] && [ ! -L "$archive_dir" ] || \
-  refuse "archive directory is missing or is a symlink: $archive_dir"
+[ -d "$archive_root" ] && [ ! -L "$archive_root" ] || \
+  refuse "archive directory is missing or is a symlink: $archive_root"
 [ -f "$marker" ] && [ ! -L "$marker" ] || \
   refuse "independent durable-target marker is missing: $marker"
 [ "$(cat "$marker")" = "$marker_content" ] || \
   refuse "independent durable-target marker is invalid: $marker"
+
+# PostgreSQL writes the 64-bit database-system identifier into the long WAL
+# page header at byte offset 24 of every segment's first page. Read the identity
+# from the immutable source itself; archive_command therefore cannot be pointed
+# at the wrong cluster namespace by configuration or environment drift.
+system_id="$(od -An -t u8 -j 24 -N 8 -- "$source_wal" 2>/dev/null | tr -d '[:space:]')" || \
+  refuse "could not read PostgreSQL system identifier from $wal_name"
+case "$system_id" in
+  ""|*[!0-9]*) refuse "invalid PostgreSQL system identifier in $wal_name" ;;
+esac
+namespace_name="cluster-$system_id"
+archive_dir="$archive_root/$namespace_name"
+if [ -e "$archive_dir" ] || [ -L "$archive_dir" ]; then
+  [ -d "$archive_dir" ] && [ ! -L "$archive_dir" ] || \
+    refuse "cluster WAL namespace is not a regular directory: $archive_dir"
+else
+  mkdir "$archive_dir" || refuse "could not create cluster WAL namespace: $archive_dir"
+  chmod 0700 "$archive_dir" || refuse "could not protect cluster WAL namespace: $archive_dir"
+  sync "$archive_root" || refuse "could not fsync WAL namespace root"
+fi
 
 target="$archive_dir/$wal_name"
 temporary=""
@@ -60,8 +81,6 @@ if [ -e "$target" ] || [ -L "$target" ]; then
   exit 0
 fi
 
-# The temporary is created in the destination directory so publication is a
-# same-filesystem atomic rename. No copy operation ever writes the final name.
 temporary="$(mktemp "$archive_dir/.${wal_name}.part.XXXXXX")" || \
   refuse "could not create same-directory temporary file"
 if ! cp -- "$source_wal" "$temporary"; then
@@ -79,14 +98,10 @@ source_size_after="$(stat -c %s -- "$source_wal")" || \
 cmp -s -- "$source_wal" "$temporary" || \
   refuse "temporary archive contents differ from source"
 
-# GNU coreutils sync with a pathname calls fsync(2) on that object. The pinned
-# PostgreSQL image supplies it. Refuse publication if durable file sync fails.
 sync "$temporary" || refuse "could not fsync temporary archive"
 final_matches_source "$temporary" || \
   refuse "temporary archive changed after fsync"
 
-# --no-clobber makes a concurrent publication a validation path, never an
-# overwrite. Successful publication is one atomic same-directory rename.
 if ! mv -T --no-clobber -- "$temporary" "$target"; then
   refuse "atomic publication failed for $wal_name"
 fi
@@ -101,9 +116,6 @@ fi
 final_matches_source "$target" || \
   refuse "published archive differs from source: $target"
 sync "$target" || refuse "could not fsync published archive: $target"
-
-# Persist the directory entry before archive_command reports success. If this
-# fails, PostgreSQL retries; the exact-match branch above repeats both fsyncs.
 sync "$archive_dir" || refuse "could not fsync archive directory: $archive_dir"
 final_matches_source "$target" || \
   refuse "published archive changed during durable validation: $target"
