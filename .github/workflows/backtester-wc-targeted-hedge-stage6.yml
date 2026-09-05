@@ -1,0 +1,219 @@
+name: Backtester - WC targeted hedge Stage 6
+run-name: WC targeted hedge Stage 6 modeled economics zero-budget — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-wc-targeted-hedge-diagnostic]
+    paths:
+      - '.github/workflows/backtester-wc-targeted-hedge-stage6.yml'
+      - 'backtester/diagnose_wc_targeted_hedge_stage6_pricing.py'
+      - 'backtester/run_wc_targeted_hedge_stage6_strict_cash.py'
+      - 'backtester/finalize_wc_targeted_hedge_stage6_gate.py'
+      - 'backtester/targeted_hedge_e8_preregistered_gate.json'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  STAGE4_RUN_ID: '33977701936'
+  STAGE4_HEAD: '63bd2628ff5b052c8746eef973eb97846243b30b'
+  STAGE4_ARTIFACT: 'wc-targeted-hedge-stage4-cash-63bd2628ff5b052c8746eef973eb97846243b30b'
+  STAGE4_DIGEST: 'sha256:14612cd469b18ca32998190ac1fb57037462cbd697e62186460fef096462f21e'
+  STAGE5_RUN_ID: '33978209220'
+  STAGE5_HEAD: '408fff2595f8d7f8ce1d1d273c7190b1e25b30d4'
+  STAGE5_ARTIFACT: 'wc-targeted-hedge-stage5-408fff2595f8d7f8ce1d1d273c7190b1e25b30d4'
+  STAGE5_DIGEST: 'sha256:05370c2948c28bfd3bd0c8f717aa974f6f8d12ade39828d2edfca090db02121a'
+  VIX_RUN_ID: '33978298317'
+  VIX_HEAD: '4027714436739dc334bc0134b93b817bfd484165'
+  VIX_ARTIFACT: 'wc-targeted-hedge-vix-4027714436739dc334bc0134b93b817bfd484165'
+  VIX_DIGEST: 'sha256:e3b0d1b8033f1f499c14a785395a586f66e34155c4994b2700e2a68a43d6fa38'
+  OUT_DIR: '${{ github.workspace }}/backtester-results/wc-targeted-hedge-stage6'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - name: Check out exact Stage 6 head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-wc-targeted-hedge-stage6.yml
+            /backtester/diagnose_wc_targeted_hedge_stage6_pricing.py
+            /backtester/run_wc_targeted_hedge_stage6_strict_cash.py
+            /backtester/finalize_wc_targeted_hedge_stage6_gate.py
+            /backtester/targeted_hedge_e8_preregistered_gate.json
+            /sharadar/SFP/SHARADAR_SFP.zip.001
+            /sharadar/SFP/SHARADAR_SFP.zip.002
+            /sharadar/SFP/SHARADAR_SFP.zip.003
+            /sharadar/SFP/SHARADAR_SFP.zip.004
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Compile Stage 6 harness
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/diagnose_wc_targeted_hedge_stage6_pricing.py \
+            backtester/run_wc_targeted_hedge_stage6_strict_cash.py \
+            backtester/finalize_wc_targeted_hedge_stage6_gate.py
+          test "$(git hash-object backtester/targeted_hedge_e8_preregistered_gate.json)" = "153e39f72469a69b06b1fbd4beb12aa848fa0b3c"
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p=Path('backtester/targeted_hedge_e8_preregistered_gate.json')
+          s=json.loads(p.read_text())
+          assert s['schema']=='backtester.targeted-hedge-e8-preregistered-gate/2'
+          assert s['status']=='FROZEN_BEFORE_STAGE6_RESULT'
+          assert s['experiment_budget_before_e8']==7 and s['experiment_budget_limit']==10
+          assert s['e8_spent'] is False
+          assert s['funding_contract']['wealth_core_next_open_fills_have_first_claim'] is True
+          assert s['modeled_stage6_gate']['max_history_relative_max_drawdown_improvement_min']==0.20
+          assert s['modeled_stage6_gate']['twenty_year_relative_max_drawdown_improvement_min']==0.20
+          assert s['observed_stage7_gate']['required_before_e8'] is True
+          PY
+
+      - name: Assemble and authenticate pinned SFP
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Authenticate immutable Stage 4, Stage 5, and VIX authorities
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for prefix in STAGE4 STAGE5 VIX; do
+            eval run_id="\$${prefix}_RUN_ID"
+            eval head="\$${prefix}_HEAD"
+            eval artifact="\$${prefix}_ARTIFACT"
+            eval digest="\$${prefix}_DIGEST"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.head_sha')" = "${head}"
+            observed=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" --jq ".artifacts[] | select(.name == \"${artifact}\") | .digest")
+            test "${observed}" = "${digest}"
+          done
+
+      - name: Download Stage 4 cash authority
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.STAGE4_ARTIFACT }}
+          path: stage4-cash
+          repository: ${{ github.repository }}
+          run-id: ${{ env.STAGE4_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download Stage 5 trigger authority
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.STAGE5_ARTIFACT }}
+          path: stage5-trigger
+          repository: ${{ github.repository }}
+          run-id: ${{ env.STAGE5_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download frozen VIX authority
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.VIX_ARTIFACT }}
+          path: vix-authority
+          repository: ${{ github.repository }}
+          run-id: ${{ env.VIX_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify immutable upstream contents
+        run: |
+          set -euo pipefail
+          (cd stage4-cash && sha256sum -c E3_SHA256SUMS.txt && sha256sum -c STAGE4_CASH_SHA256SUMS.txt)
+          (cd stage5-trigger && sha256sum -c STAGE5_SHA256SUMS.txt)
+          (cd vix-authority && sha256sum -c VIX_SHA256SUMS.txt)
+
+      - name: Run modeled long-put economics with strict Wealth Core cash priority
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python backtester/run_wc_targeted_hedge_stage6_strict_cash.py \
+            --stage4-root stage4-cash \
+            --stage5-root stage5-trigger \
+            --vix-root vix-authority \
+            --sfp sharadar/SHARADAR_SFP.zip \
+            --output "$OUT_DIR"
+          python backtester/finalize_wc_targeted_hedge_stage6_gate.py --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c STAGE6_SHA256SUMS.txt)
+
+      - name: Validate Stage 6 zero-budget contract
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path(os.environ['OUT_DIR'])
+          s=json.loads((p/'stage6_summary.json').read_text())
+          assert s['status']=='PASS'
+          assert s['zero_budget_diagnostic'] is True
+          assert s['strategy_mechanics_changed'] is False
+          assert s['experiment_budget_consumed'] is False
+          assert s['e8_spent'] is False
+          assert s['strict_dual_horizon_gate_applied'] is True
+          assert s['e8_gate'] in {'CLOSED_PENDING_OBSERVED_2024_2026_VALIDATION','CLOSED_MODELED_ECONOMICS_NO_GO'}
+          assert s['model_gate_contract']['required_relative_max_history_dd_improvement']==0.20
+          assert s['model_gate_contract']['required_20y_relative_maxdd_improvement']==0.20
+          assert s['model_gate_contract']['required_max_history_cagr_delta_min']==-0.01
+          assert s['model_gate_contract']['required_20y_cagr_delta_min']==-0.01
+          print(json.dumps({
+              'model_gate':s['conservative_model_gate_passed'],
+              'candidate':s['best_conservative_candidate'],
+              'e8_gate':s['e8_gate'],
+          },indent=2,sort_keys=True))
+          PY
+
+      - name: Publish Stage 6 summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          p=Path(os.environ['OUT_DIR']); q=p/'stage6_summary.json'
+          if not q.exists(): raise SystemExit(0)
+          s=json.loads(q.read_text()); m=pd.read_csv(p/'modeled_put_metrics.csv',dtype={'window':str})
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Targeted hedge Stage 6 — modeled long-put economics\n\n')
+              f.write(f"Strict conservative model gate: **{s['conservative_model_gate_passed']}**  \n")
+              f.write(f"Best conservative candidate: **{s['best_conservative_candidate']}**  \n")
+              f.write(f"E8 gate: **{s['e8_gate']}**  \n\n")
+              f.write('| Variant | Window | CAGR Δ | Max DD | Relative DD improvement |\n|---|---|---:|---:|---:|\n')
+              q=m[(m.stress.astype(str)=='CONSERVATIVE') & (m.window.astype(str).isin(['20','max']))].copy()
+              for r in q.sort_values(['variant','window']).itertuples(index=False):
+                  f.write(f'| {r.variant} | {r.window} | {r.cagr_delta:+.2%} | {r.max_drawdown:.2%} | {r.relative_maxdd_improvement:.1%} |\n')
+              f.write('\n**Experiment budget remains 7/10. E8 is not spent by Stage 6.**\n')
+          PY
+
+      - name: Upload immutable Stage 6 evidence
+        if: ${{ always() && hashFiles('backtester-results/wc-targeted-hedge-stage6/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wc-targeted-hedge-stage6-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
