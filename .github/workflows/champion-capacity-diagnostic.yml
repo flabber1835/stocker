@@ -1,0 +1,154 @@
+name: Research Champion - capacity/notional diagnostic
+run-name: UNCERTIFIED Champion capacity diagnostic - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-capacity-diagnostic]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+  actions: read
+jobs:
+  replay:
+    name: UNCERTIFIED - ${{ matrix.case }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        case: [capacity_off_100m, capacity_on_10m, capacity_on_1m]
+    env:
+      PYTHONUNBUFFERED: '1'
+      PIT_OFFICIAL_BACKTEST: '0'
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2026-07-31'
+      CASE: ${{ matrix.case }}
+      OUT: capacity-results/${{ matrix.case }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/**
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/strategy9-e3-broad-stability/**
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+      - name: Bind exact diagnostic source and pinned runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          mkdir -p "${OUT}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
+          python -m py_compile backtester/research_capacity_diagnostic.py
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Install frozen replay runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+      - name: Authenticate immutable canonical package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "${cid}:/canonical-pit/." canonical-pit/
+          docker rm "${cid}"; trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset canonical-pit > "${OUT}/package-integrity.json"
+      - name: Run 20-year capacity diagnostic
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/research_capacity_diagnostic.py --case "${CASE}" --output "${OUT}" 2>&1 | tee "${OUT}/replay.log"
+      - name: Upload diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-capacity-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.case }}
+          path: capacity-results/${{ matrix.case }}/
+          retention-days: 90
+          if-no-files-found: error
+
+  compare:
+    name: Compare capacity controls
+    needs: [replay]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: champion-capacity-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: comparison
+      - name: Build comparison
+        shell: bash
+        run: |
+          set -euo pipefail
+          python3 - <<'PY'
+          import csv,json
+          from pathlib import Path
+          rows=[]
+          for p in sorted(Path('comparison').rglob('capacity-diagnostic.json')):
+              v=json.loads(p.read_text())
+              research=next(x for x in v['metrics'] if x['variant']=='RESEARCH')
+              spy=next(x for x in v['metrics'] if x['variant']=='SPY')
+              rows.append({
+                  'case':v['case'],
+                  'capacity_guard_enabled':v['capacity_guard_enabled'],
+                  'initial_cash':v['initial_cash'],
+                  'capacity_deferred':v['capacity_deferred'],
+                  'research_cagr':research['cagr'],
+                  'research_max_drawdown':research['max_drawdown'],
+                  'research_ending_multiple':research['ending_multiple'],
+                  'spy_cagr':spy['cagr'],
+              })
+          expected={'capacity_off_100m','capacity_on_10m','capacity_on_1m'}
+          if {r['case'] for r in rows} != expected:
+              raise SystemExit(f'incomplete diagnostic: {rows}')
+          out=Path('comparison/capacity-comparison.csv')
+          with out.open('w',newline='') as f:
+              w=csv.DictWriter(f,fieldnames=list(rows[0])); w.writeheader(); w.writerows(rows)
+          lines=['# Champion capacity/notional diagnostic — UNCERTIFIED','',
+                 '| Case | 10% guard | Initial cash | Deferred | Research CAGR | Max DD | Ending multiple | SPY CAGR |',
+                 '|---|---:|---:|---:|---:|---:|---:|---:|']
+          for r in rows:
+              lines.append(f"| {r['case']} | {r['capacity_guard_enabled']} | ${float(r['initial_cash']):,.0f} | {int(r['capacity_deferred']):,} | {float(r['research_cagr']):.2%} | {float(r['research_max_drawdown']):.2%} | {float(r['research_ending_multiple']):.3f}x | {float(r['spy_cagr']):.2%} |")
+          lines += ['', 'These controls change execution capacity/account notional only. They are diagnostic and not PIT certification results.']
+          Path('comparison/REPORT.md').write_text('\n'.join(lines)+'\n')
+          print('\n'.join(lines))
+          PY
+          cat comparison/REPORT.md >> "${GITHUB_STEP_SUMMARY}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-capacity-comparison-${{ github.run_id }}-${{ github.run_attempt }}
+          path: comparison/
+          retention-days: 90
+          if-no-files-found: error
