@@ -1,0 +1,205 @@
+name: Backtester - R3000 proxy retained V4 closure
+run-name: R3000 proxy retained V4 closure — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/r3000-proxy-pit-corpus]
+    paths:
+      - '.github/workflows/backtester-r3000-proxy-retained-v4-closure.yml'
+      - 'backtester/r3000_proxy_identity_closure_v4.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+
+concurrency:
+  group: r3000-proxy-retained-v4-closure-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  B3B_RUN_ID: '33938736595'
+  B3B_HEAD: '5694b587f6065f3c4f4cf886333e7d0b20404496'
+  B3B_ARTIFACT: r3000-proxy-identity-offline-v3b-5694b587f6065f3c4f4cf886333e7d0b20404496
+  B3B_DIGEST: sha256:1b60b8bfcb19bf0d758ec48b81863743f659a43f06883f28c664d5762458c11f
+  V4_RUN_ID: '33720380653'
+  V4_HEAD: '1cef44c743913dbeac0b7136a717781068adbfc7'
+  V4_ARTIFACT: historical-metadata-v4-ownership-strict-retained-sec-candidates-1cef44c743913dbeac0b7136a717781068adbfc7
+  V4_DIGEST: sha256:68f84a9cd7871711843f08f9aa69532e24c4cc61693d3d74e0c97d810ab737f9
+  AUDIT_RUN_ID: '33720489684'
+  AUDIT_HEAD: '126e276c67d7ce577744edccc8ee2ae22ead18f6'
+  AUDIT_ARTIFACT: historical-metadata-v4-ownership-strict-canonical-audit-126e276c67d7ce577744edccc8ee2ae22ead18f6
+  AUDIT_DIGEST: sha256:61549a07b056faae5ee8062506a6ccdc25df9a0a59584325d3238b3a8ff47a2c
+  B3B_ROOT: backtester-results/r3000-v3b
+  V4_ROOT: backtester-results/v4-ownership-strict
+  AUDIT_ROOT: backtester-results/v4-audit
+  CANONICAL_ROOT: backtester-results/canonical-pit
+  OUTPUT: backtester-results/r3000-proxy-retained-v4-closure
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  closure:
+    name: Apply immutable V4 authority and emit PIT membership ledgers
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - name: Check out exact corpus branch head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Compile retained-authority closure
+        run: |
+          set -euo pipefail
+          python -m compileall -q \
+            backtester/r3000_proxy_identity_closure_v4.py \
+            backtester/r3000_proxy_identity_closure.py \
+            backtester/r3000_proxy_identity_closure_v3.py
+
+      - name: Authenticate immutable source runs and artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          check_run() {
+            local run_id="$1" head="$2" artifact="$3" digest="$4"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}" --jq '.head_sha')" = "${head}"
+            observed=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run_id}/artifacts" --jq ".artifacts[] | select(.name == \"${artifact}\") | .digest")
+            test "${observed}" = "${digest}"
+          }
+          check_run "${B3B_RUN_ID}" "${B3B_HEAD}" "${B3B_ARTIFACT}" "${B3B_DIGEST}"
+          check_run "${V4_RUN_ID}" "${V4_HEAD}" "${V4_ARTIFACT}" "${V4_DIGEST}"
+          check_run "${AUDIT_RUN_ID}" "${AUDIT_HEAD}" "${AUDIT_ARTIFACT}" "${AUDIT_DIGEST}"
+
+      - name: Download immutable B3b package
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.B3B_ARTIFACT }}
+          path: ${{ env.B3B_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.B3B_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download immutable ownership-strict V4 candidates
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.V4_ARTIFACT }}
+          path: ${{ env.V4_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.V4_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download immutable V4 canonical audit
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.AUDIT_ARTIFACT }}
+          path: ${{ env.AUDIT_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.AUDIT_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate downloaded packages
+        run: |
+          set -euo pipefail
+          (cd "${B3B_ROOT}" && sha256sum -c SHA256SUMS.txt)
+          (cd "${AUDIT_ROOT}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          b=Path(os.environ['B3B_ROOT']); v=Path(os.environ['V4_ROOT']); a=Path(os.environ['AUDIT_ROOT'])
+          bs=json.load(open(b/'identity_summary_v3b.json')); vs=json.load(open(v/'summary.json')); au=json.load(open(a/'summary.json'))
+          assert bs['status']=='PASS' and bs['source_rows']==63113 and bs['resolution_counts']=={'RESOLVED':60005,'AMBIGUOUS':5,'UNMATCHED':3103,'CONFLICT':0}
+          assert vs['status']=='PASS' and vs['candidate_rows']==26836 and vs['candidate_only'] is True
+          assert au['status']=='PASS' and au['resolved_by_v4_increment']['episodes']==195
+          print({'status':'PASS','b3b_rows':63113,'v4_candidate_rows':26836,'audit_increment_episodes':195})
+          PY
+
+      - name: Pull pinned canonical PIT package
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PACKAGE=$(python - <<'PY'
+          import json
+          p=json.load(open('backtester/data/canonical-pit-20y.json'))
+          assert p['status']=='PASS'
+          print(p['package'])
+          PY
+          )
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          rm -rf "${CANONICAL_ROOT}" && mkdir -p "${CANONICAL_ROOT}"
+          docker cp "${cid}:/canonical-pit/." "${CANONICAL_ROOT}/"
+          docker rm "${cid}"
+          trap - EXIT
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          pointer=json.load(open('backtester/data/canonical-pit-20y.json')); root=Path(os.environ['CANONICAL_ROOT'])
+          manifest=root/'manifest.json'; m=json.load(open(manifest))
+          assert hashlib.sha256(manifest.read_bytes()).hexdigest()==pointer['manifest_sha256']
+          assert m['dataset_hash']==pointer['dataset_hash']=='f9fb220871ad4152549d31a5da6e0dbcdd327dc7b05843764511b0e800ddb19b'
+          PY
+
+      - name: Run retained V4 closure and build membership ledgers
+        run: |
+          set -euo pipefail
+          rm -rf "${OUTPUT}"
+          python -m backtester.r3000_proxy_identity_closure_v4 \
+            --b3b "${B3B_ROOT}" \
+            --v4 "${V4_ROOT}" \
+            --v4-audit "${AUDIT_ROOT}" \
+            --canonical "${CANONICAL_ROOT}" \
+            --output "${OUTPUT}"
+          (cd "${OUTPUT}" && sha256sum -c SHA256SUMS.txt)
+
+      - name: Enforce full row reconciliation
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv,gzip,json,os
+          from pathlib import Path
+          root=Path(os.environ['OUTPUT']); s=json.load(open(root/'summary_v4.json')); c=s['resolution_counts']
+          assert s['status']=='PASS'
+          assert s['source_rows']==63113 and s['fund_snapshots']==42
+          assert sum(c.values())==63113
+          assert s['duplicate_security_assignments_after']==0
+          assert s['fund_ledger_rows']['IWB'] + s['fund_ledger_rows']['IWM'] == 63113
+          assert sum(s['residual_classification_counts'].values()) == c['UNMATCHED'] + c['AMBIGUOUS'] + c['CONFLICT']
+          for name, expected in [('iwb_pit_membership_v4.csv.gz',s['fund_ledger_rows']['IWB']),('iwm_pit_membership_v4.csv.gz',s['fund_ledger_rows']['IWM']),('r3000_proxy_union_pit_membership_v4.csv.gz',s['union_ledger_rows'])]:
+              with gzip.open(root/name,'rt',encoding='utf-8',newline='') as fh:
+                  assert sum(1 for _ in csv.DictReader(fh)) == expected
+          print(json.dumps(s,indent=2,sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write('## R3000 proxy retained V4 closure\n\n')
+              fh.write(f"- Resolved: **{c['RESOLVED']:,}**\n")
+              fh.write(f"- Ambiguous: **{c['AMBIGUOUS']:,}**\n")
+              fh.write(f"- Unmatched: **{c['UNMATCHED']:,}**\n")
+              fh.write(f"- Conflicts: **{c['CONFLICT']:,}**\n")
+              fh.write(f"- IWB membership rows: **{s['fund_ledger_rows']['IWB']:,}**\n")
+              fh.write(f"- IWM membership rows: **{s['fund_ledger_rows']['IWM']:,}**\n")
+              fh.write(f"- Union rows: **{s['union_ledger_rows']:,}**\n")
+              fh.write(f"- Duplicate resolved assignments: **{s['duplicate_security_assignments_after']}**\n")
+          PY
+
+      - name: Upload immutable retained-V4 closure package
+        if: ${{ always() && hashFiles('backtester-results/r3000-proxy-retained-v4-closure/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r3000-proxy-retained-v4-closure-${{ github.sha }}
+          path: ${{ env.OUTPUT }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
