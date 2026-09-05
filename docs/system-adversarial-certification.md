@@ -35,8 +35,8 @@ the production transition.
 | Financial invariants under generated sequences | Reproducible seeds and invariant checks after every transition | New gate: seeds 0-7, ten plans each |
 | Point-in-time causality | Publication/version and decision/effective-time provenance checks | Planned gate |
 | Research/production parity | Frozen input, exact first-divergence artifact | Planned gate |
-| Historical event behavior | Reviewed event fixtures with immutable expected economics | Planned gate |
-| Test sensitivity | Deliberate guard mutations killed by named tests | Planned gate |
+| Historical event behavior | Reviewed event fixtures with immutable expected economics | Controller checkpoints gated; full Wealth Core needs NAS |
+| Test sensitivity | Deliberate guard mutations killed by named tests | New gate: three reviewed mutants |
 | Runtime/deployment identity | Exact SHA, lock hashes, image digest, schema/semantic epochs | Existing gate |
 | Broker shadow agreement | Independent expected and observed ledgers with unexplained-divergence alert | Paper-only gate |
 
@@ -83,6 +83,28 @@ every economically relevant transition it checks:
 The second run must produce an identical normalized command, order, position,
 fill, and cash ledger. Seeds are fixed because reproducibility is part of the
 claim. Expanding the seed set is a reviewed coverage change, not a retry tactic.
+
+## Mutation tranche
+
+The pinned test image creates disposable source overlays and changes three
+load-bearing production rules: journal ordering around submit, working-order
+delta arithmetic, and the ramp confirmation comparison. Each mutant has one
+named falsifier test and must produce a normal pytest assertion failure. A test
+collection error, timeout, skip, or harness error is not a killed mutant. The
+machine-readable report retains source and mutant hashes plus the failure tail.
+
+## Historical tranche
+
+Named controller checkpoints cover the global financial crisis, 2010 flash
+crash, August 2015 shock, February and Q4 2018, March 2020, the meme-stock
+period, and the 2022 bear market. Each is replayed in sequence from the start of
+the 5,032-session frozen oracle and checks exposure plus durable session state.
+The existing every-session differential remains the stronger equality test.
+
+These offline checkpoints certify the controller only. Full Wealth Core
+universe, selections, orders, holdings, cash, and terminal-security economics
+require the authoritative Sharadar corpus on the NAS. CI must report that layer
+as outstanding; it may not infer a pass from the controller tape.
 
 ## Reproducibility and artifacts
 
