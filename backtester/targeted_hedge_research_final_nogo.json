@@ -1,0 +1,116 @@
+{
+  "schema": "backtester.targeted-hedge-research-final-nogo/1",
+  "status": "FINAL_RESEARCH_NO_GO",
+  "date": "2026-09-05",
+  "branch": "research/backtester-wc-targeted-hedge-diagnostic",
+  "production_changed": false,
+  "wealth_core_changed": false,
+  "sentinel_production_changed": false,
+  "experiment_budget": {
+    "consumed_before_program": 7,
+    "consumed_by_zero_budget_diagnostics": 0,
+    "e8_spent": false,
+    "remaining": 3,
+    "limit": 10
+  },
+  "decision": {
+    "targeted_long_put_concept": "NO_GO_UNDER_TESTED_MECHANICS",
+    "e8_gate": "CLOSED",
+    "stage7_observed_options_validation": "NOT_RUN_MODELED_GATE_DID_NOT_OPEN",
+    "reason": "The preregistered modeled economics gate failed, and the frozen premium-cap sensitivity found no passing cap/shape combination and no adjacent-cap plateau."
+  },
+  "authorities": {
+    "accepted_e3": {
+      "head": "3f27834db427e71d9bb8d0b6160c8835b739c906",
+      "run_id": 33912976460,
+      "artifact_id": 9953264982,
+      "artifact_digest": "sha256:22011d018a336c6da4d92b31e8786811a4f4288daa91d56a80c30c9f144f174f",
+      "max_history_cagr": 0.1979341893464519,
+      "max_history_max_drawdown": -0.3345904831084261
+    },
+    "stage4_cash": {
+      "head": "63bd2628ff5b052c8746eef973eb97846243b30b",
+      "run_id": 33977701936,
+      "artifact_id": 9973367141,
+      "artifact_digest": "sha256:14612cd469b18ca32998190ac1fb57037462cbd697e62186460fef096462f21e"
+    },
+    "stage5_trigger": {
+      "head": "408fff2595f8d7f8ce1d1d273c7190b1e25b30d4",
+      "run_id": 33978209220,
+      "artifact_id": 9972948738,
+      "artifact_digest": "sha256:05370c2948c28bfd3bd0c8f717aa974f6f8d12ade39828d2edfca090db02121a"
+    },
+    "vix": {
+      "head": "4027714436739dc334bc0134b93b817bfd484165",
+      "run_id": 33978298317,
+      "artifact_id": 9972972712,
+      "artifact_digest": "sha256:e3b0d1b8033f1f499c14a785395a586f66e34155c4994b2700e2a68a43d6fa38"
+    },
+    "stage6_preregistered_modeled_economics": {
+      "head": "26821b17a5fd61cb9950df979f7a50de1c07d681",
+      "run_id": 33979897878,
+      "artifact_id": 9973443690,
+      "artifact_digest": "sha256:6b06fab7e3c2019fa2f4d2b22acec7cb67ccc77924d41ced18b2dcae7ac9924e",
+      "gate": "CLOSED_MODELED_ECONOMICS_NO_GO"
+    },
+    "stage6b_premium_cap_sensitivity": {
+      "head": "571c1c37984d7b8cfcaf39994398ac010eb9d9a6",
+      "run_id": 33980882675,
+      "artifact_id": 9973745315,
+      "artifact_digest": "sha256:0c0491ed6b583ac24686f04e0f5e881329250c9e86a2dc48bfc56358e323b258",
+      "artifact_internal_checksums": "PASS"
+    }
+  },
+  "stage6b": {
+    "premium_caps": [0.0025, 0.005, 0.01, 0.02, 0.04],
+    "shapes": ["ATM_90D", "OTM5_120D", "OTM10_180D"],
+    "stress": "CONSERVATIVE",
+    "passing_cap_shape_combinations": 0,
+    "broad_adjacent_cap_plateau_by_shape": {
+      "ATM_90D": false,
+      "OTM5_120D": false,
+      "OTM10_180D": false
+    },
+    "smallest_cap_0p25pct": {
+      "ATM_90D": {
+        "twenty_year_cagr_delta": 0.000061,
+        "twenty_year_max_drawdown": -0.298709,
+        "twenty_year_relative_maxdd_improvement": -0.008246,
+        "max_history_cagr_delta": -0.000263,
+        "max_history_max_drawdown": -0.336044,
+        "max_history_relative_maxdd_improvement": -0.004343
+      },
+      "OTM5_120D": {
+        "twenty_year_cagr_delta": 0.000069,
+        "twenty_year_max_drawdown": -0.299973,
+        "twenty_year_relative_maxdd_improvement": -0.012514,
+        "max_history_cagr_delta": -0.000277,
+        "max_history_max_drawdown": -0.336381,
+        "max_history_relative_maxdd_improvement": -0.005351
+      },
+      "OTM10_180D": {
+        "twenty_year_cagr_delta": 0.000069,
+        "twenty_year_max_drawdown": -0.299873,
+        "twenty_year_relative_maxdd_improvement": -0.012174,
+        "max_history_cagr_delta": -0.000281,
+        "max_history_max_drawdown": -0.336635,
+        "max_history_relative_maxdd_improvement": -0.006111
+      }
+    },
+    "target_episode_conservative_result": {
+      "2011": "WORSE_AT_ALL_TESTED_CAPS_AND_SHAPES",
+      "2020": "WORSE_AT_ALL_TESTED_CAPS_AND_SHAPES",
+      "2024_JULAUG": "WORSE_AT_ALL_TESTED_CAPS_AND_SHAPES",
+      "2025": "BETTER_AT_ALL_TESTED_CAPS_AND_SHAPES",
+      "positive_target_episodes_per_cap_shape": 1,
+      "required_positive_target_episodes": 2
+    }
+  },
+  "interpretation": {
+    "premium_oversizing_was_not_the_only_failure": true,
+    "smaller_premium_caps_reduce_damage_but_do_not_create_drawdown_benefit": true,
+    "existing_next_open_allocation_semantics_prevent_funded_hedge_in_some_key_crises": true,
+    "no_parameter_selection_from_stage6b": true,
+    "research_program_stops_here": true
+  }
+}
