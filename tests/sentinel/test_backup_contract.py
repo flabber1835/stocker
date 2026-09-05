@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import os
-import subprocess
 from pathlib import Path
+import subprocess
+import sys
 
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
@@ -63,6 +64,9 @@ def test_backup_overlay_archives_wal_to_an_operator_target():
 
 def test_wal_archive_contract_requires_verified_atomic_durable_publication():
     text = _read("scripts/sentinel-archive-wal.sh")
+    assert 'od -An -t u8 -j 24 -N 8 -- "$source_wal"' in text
+    assert 'namespace_name="cluster-$system_id"' in text
+    assert 'archive_dir="$archive_root/$namespace_name"' in text
     assert 'mktemp "$archive_dir/.${wal_name}.part.XXXXXX"' in text
     assert 'cmp -s -- "$source_wal" "$temporary"' in text
     assert 'sync "$temporary"' in text
@@ -70,6 +74,17 @@ def test_wal_archive_contract_requires_verified_atomic_durable_publication():
     assert 'sync "$archive_dir"' in text
     assert text.index('sync "$temporary"') < text.index("mv -T --no-clobber")
     assert text.index("mv -T --no-clobber") < text.rindex('sync "$archive_dir"')
+
+
+def _fake_wal(path: Path, system_id: int, payload: bytes = b"sentinel") -> None:
+    data = bytearray(4096)
+    data[24:32] = int(system_id).to_bytes(8, byteorder=sys.byteorder, signed=False)
+    data[64:64 + len(payload)] = payload
+    path.write_bytes(data)
+
+
+def _namespace(archive: Path, system_id: int) -> Path:
+    return archive / f"cluster-{system_id}"
 
 
 def _archive_wal(source: Path, archive: Path, name: str, *, env=None):
@@ -91,40 +106,72 @@ def test_wal_archive_success_and_identical_retry_are_idempotent(tmp_path):
     archive = tmp_path / "wal"
     archive.mkdir()
     source = tmp_path / "source-wal"
-    source.write_bytes((b"sentinel-wal\x00" * 4096) + b"complete")
+    system_id = 7676888197645955109
+    _fake_wal(source, system_id, b"complete")
     name = "000000010000000000000001"
 
     first = _archive_wal(source, archive, name)
     assert first.returncode == 0, first.stderr
-    target = archive / name
+    target = _namespace(archive, system_id) / name
     assert target.read_bytes() == source.read_bytes()
-    assert not list(archive.glob(f".{name}.part.*"))
+    assert not list(target.parent.glob(f".{name}.part.*"))
     inode = target.stat().st_ino
 
     retry = _archive_wal(source, archive, name)
     assert retry.returncode == 0, retry.stderr
     assert target.stat().st_ino == inode
     assert target.read_bytes() == source.read_bytes()
-    assert not list(archive.glob(f".{name}.part.*"))
+    assert not list(target.parent.glob(f".{name}.part.*"))
 
 
-def test_wal_archive_refuses_partial_or_mismatched_final(tmp_path):
+def test_two_clusters_may_archive_same_wal_filename_without_collision(tmp_path):
     if os.name == "nt":
         return
+    archive = tmp_path / "wal"
+    archive.mkdir()
+    name = "000000010000000400000007"
+    old_id = 7672154738690088997
+    current_id = 7676888197645955109
+    old = tmp_path / "old-cluster-wal"
+    current = tmp_path / "current-cluster-wal"
+    _fake_wal(old, old_id, b"old-history")
+    _fake_wal(current, current_id, b"current-history")
+
+    old_result = _archive_wal(old, archive, name)
+    current_result = _archive_wal(current, archive, name)
+
+    assert old_result.returncode == 0, old_result.stderr
+    assert current_result.returncode == 0, current_result.stderr
+    old_target = _namespace(archive, old_id) / name
+    current_target = _namespace(archive, current_id) / name
+    assert old_target.read_bytes() == old.read_bytes()
+    assert current_target.read_bytes() == current.read_bytes()
+    assert old_target.read_bytes() != current_target.read_bytes()
+    assert not (archive / name).exists()
+
+
+def test_wal_archive_refuses_partial_or_mismatched_final_within_one_cluster(tmp_path):
+    if os.name == "nt":
+        return
+    system_id = 7676888197645955109
     source = tmp_path / "source-wal"
-    source.write_bytes(b"abcdefgh")
+    _fake_wal(source, system_id, b"abcdefgh")
     name = "000000010000000000000002"
 
     for existing in (b"abc", b"abcdEfgh"):
         archive = tmp_path / f"wal-{len(existing)}-{existing.hex()}"
         archive.mkdir()
-        target = archive / name
+        marker = archive / ".sentinel-independent-durable-target-v1"
+        marker.write_text("sentinel-independent-durable-target-v1", encoding="utf-8")
+        namespace = _namespace(archive, system_id)
+        namespace.mkdir(mode=0o700)
+        target = namespace / name
         target.write_bytes(existing)
         result = _archive_wal(source, archive, name)
         assert result.returncode != 0
         assert "existing archive differs from source" in result.stderr
         assert target.read_bytes() == existing
-        assert not list(archive.glob(f".{name}.part.*"))
+        assert not list(namespace.glob(f".{name}.part.*"))
 
 
 def test_wal_archive_copy_failure_leaves_no_final_or_temporary(tmp_path):
@@ -133,7 +180,8 @@ def test_wal_archive_copy_failure_leaves_no_final_or_temporary(tmp_path):
     archive = tmp_path / "wal"
     archive.mkdir()
     source = tmp_path / "source-wal"
-    source.write_bytes(b"complete source WAL")
+    system_id = 7676888197645955109
+    _fake_wal(source, system_id, b"complete source WAL")
     name = "000000010000000000000003"
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
@@ -151,10 +199,11 @@ def test_wal_archive_copy_failure_leaves_no_final_or_temporary(tmp_path):
     }
 
     result = _archive_wal(source, archive, name, env=env)
+    namespace = _namespace(archive, system_id)
     assert result.returncode != 0
     assert "copy failed" in result.stderr
-    assert not (archive / name).exists()
-    assert not list(archive.glob(f".{name}.part.*"))
+    assert not (namespace / name).exists()
+    assert not list(namespace.glob(f".{name}.part.*"))
 
 
 def test_wal_archive_file_fsync_failure_leaves_no_final(tmp_path):
@@ -163,8 +212,11 @@ def test_wal_archive_file_fsync_failure_leaves_no_final(tmp_path):
     archive = tmp_path / "wal"
     archive.mkdir()
     source = tmp_path / "source-wal"
-    source.write_bytes(b"complete source WAL")
+    system_id = 7676888197645955109
+    _fake_wal(source, system_id, b"complete source WAL")
     name = "000000010000000000000004"
+    namespace = _namespace(archive, system_id)
+    namespace.mkdir(mode=0o700)
     fake_bin = tmp_path / "bin"
     fake_bin.mkdir()
     fake_sync = fake_bin / "sync"
@@ -178,14 +230,18 @@ def test_wal_archive_file_fsync_failure_leaves_no_final(tmp_path):
     result = _archive_wal(source, archive, name, env=env)
     assert result.returncode != 0
     assert "could not fsync temporary archive" in result.stderr
-    assert not (archive / name).exists()
-    assert not list(archive.glob(f".{name}.part.*"))
+    assert not (namespace / name).exists()
+    assert not list(namespace.glob(f".{name}.part.*"))
 
 
 def test_base_backup_is_physical_streamed_and_verified_before_promotion():
     text = _read("scripts/sentinel-base-backup.sh")
     assert "pg_basebackup" in text and "-Xs" in text
     assert "pg_verifybackup" in text
+    assert "pg_control_system()" in text
+    assert 'WAL_NAMESPACE="cluster-$SYSTEM_ID"' in text
+    assert "schema=sentinel.base-backup-pitr/2" in text
+    assert "system_identifier=%s" in text
     promotion = (
         'mv -T --no-clobber -- "/sentinel-backup/base/$staging" '
         '"/sentinel-backup/base/$final"')
@@ -199,7 +255,9 @@ def test_restore_drill_is_isolated_and_cleans_only_its_unique_objects():
     text = _read("scripts/sentinel-restore-drill.sh")
     assert text.count("--network none") >= 1
     assert 'docker network create --internal "$NETWORK"' in text
-    assert ":/archive:ro" in text
+    assert 'WAL_SOURCE="$BACKUP_ROOT/wal/cluster-$SYSTEM_ID"' in text
+    assert 'WAL_SOURCE="$BACKUP_ROOT/wal"' in text
+    assert '-v "$WAL_SOURCE:/archive:ro"' in text
     assert 'VOLUME="sentinel-restore-drill-$TOKEN"' in text
     assert 'CONTAINER="sentinel-restore-drill-$TOKEN"' in text
     assert 'NETWORK="sentinel-restore-drill-$TOKEN"' in text
@@ -223,10 +281,15 @@ def test_restore_drill_is_isolated_and_cleans_only_its_unique_objects():
     assert "restore_semantics_ready:true" in text
 
 
-def test_backup_status_enforces_a_bounded_age_without_pruning():
+def test_backup_status_enforces_cluster_identity_age_and_no_pruning():
     text = _read("scripts/sentinel-backup-status.sh")
     assert "SENTINEL_BACKUP_MAX_AGE_HOURS" in text
     assert "pg_stat_archiver" in text
+    assert "pg_control_system()" in text
+    assert 'WAL_NAMESPACE="cluster-$SYSTEM_ID"' in text
+    assert "backup_matches_current_cluster" in text
+    assert "BASE_BACKUP_SYSTEM_ID_MISMATCH" in text
+    assert "WAL_NAMESPACE_MISSING" in text
     assert "backup_ready:true" in text
     assert "archive_mode" in text
     assert "last_archived_time" in text
@@ -382,12 +445,13 @@ def test_base_backup_requires_post_base_marker_wal_before_metadata():
     text = _read("scripts/sentinel-base-backup.sh")
     assert "sentinel_backup_recovery_markers" in text
     assert "pg_switch_wal" in text
-    wal_proof = 'test -f "/sentinel-backup/wal/$wal"'
+    wal_proof = 'test -f "/sentinel-backup/wal/$namespace/$wal"'
     metadata_publish = 'metadata="/sentinel-backup/base/$name/sentinel-recovery-marker"'
     assert wal_proof in text
-    assert 'test -r "/sentinel-backup/wal/$wal"' in text
+    assert 'test -r "/sentinel-backup/wal/$namespace/$wal"' in text
     assert metadata_publish in text
     assert text.index(wal_proof) < text.index(metadata_publish)
+    assert 'system_identifier=%s' in text
     assert 'sync "$metadata"' in text
     assert 'test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker"' in text
 

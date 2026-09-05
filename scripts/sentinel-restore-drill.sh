@@ -72,9 +72,10 @@ MARKER_ROW="$(${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   file="/sentinel-backup/base/$1/sentinel-recovery-marker"
   marker="$(sed -n "s/^marker=//p" "$file")"
   lsn="$(sed -n "s/^lsn=//p" "$file")"
-  printf "%s|%s\n" "$marker" "$lsn"
+  system_id="$(sed -n "s/^system_identifier=//p" "$file")"
+  printf "%s|%s|%s\n" "$marker" "$lsn" "$system_id"
 ' sh "$NAME")"
-IFS='|' read -r MARKER TARGET_LSN <<EOF
+IFS='|' read -r MARKER TARGET_LSN SYSTEM_ID <<EOF
 $MARKER_ROW
 EOF
 [ -n "$MARKER" ] && [ -n "$TARGET_LSN" ] || {
@@ -83,6 +84,26 @@ EOF
   echo "REFUSED: recovery marker identity is malformed" >&2; exit 4; }
 [[ "$TARGET_LSN" =~ ^[0-9A-F]+/[0-9A-F]+$ ]] || {
   echo "REFUSED: recovery marker LSN is malformed" >&2; exit 4; }
+
+# New backups are bound to a PostgreSQL system-id WAL namespace. Legacy backups
+# created before this contract intentionally retain the old flat restore path so
+# historical recovery evidence remains usable and untouched.
+if [ -n "$SYSTEM_ID" ]; then
+  [[ "$SYSTEM_ID" =~ ^[0-9]+$ ]] || {
+    echo "REFUSED: backup PostgreSQL system identifier is malformed" >&2; exit 4; }
+  WAL_SOURCE="$BACKUP_ROOT/wal/cluster-$SYSTEM_ID"
+  ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+    system_id="$1"
+    path="/sentinel-backup/wal/cluster-$system_id"
+    test -d "$path"
+    test ! -L "$path"
+  ' sh "$SYSTEM_ID" >/dev/null || {
+    echo "REFUSED: cluster-specific WAL namespace is unavailable for backup" >&2
+    exit 4
+  }
+else
+  WAL_SOURCE="$BACKUP_ROOT/wal"
+fi
 
 TOKEN="$(date -u +%Y%m%dT%H%M%SZ)-$$"
 VOLUME="sentinel-restore-drill-$TOKEN"
@@ -104,7 +125,7 @@ docker run --rm --network none \
 
 docker run -d --name "$CONTAINER" --network "$NETWORK" \
   --network-alias restored-postgres \
-  -v "$VOLUME:/var/lib/postgresql/data" -v "$BACKUP_ROOT/wal:/archive:ro" \
+  -v "$VOLUME:/var/lib/postgresql/data" -v "$WAL_SOURCE:/archive:ro" \
   postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
   postgres -c "restore_command=cp /archive/%f %p" -c "listen_addresses=*" >/dev/null
 

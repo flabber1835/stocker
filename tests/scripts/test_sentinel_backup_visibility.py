@@ -14,13 +14,14 @@ def test_backup_wal_and_marker_are_checked_inside_postgres_container():
     assert '[ -f "$BACKUP_ROOT/wal/$MARKER_WAL" ]' not in source
     assert '> "$METADATA"' not in source
 
-    # WAL visibility is proven as postgres, the authority that archives WAL.
-    # The private root-owned base-backup tree is mutated through the container
-    # default user, including staged recovery-marker publication and fsync.
+    # WAL visibility is proven as postgres, the authority that archives WAL,
+    # inside the namespace bound to this PostgreSQL system identifier.
     assert "exec -T -u postgres sentinel-postgres" in source
-    assert 'test -f "/sentinel-backup/wal/$wal"' in source
-    assert 'test -r "/sentinel-backup/wal/$wal"' in source
+    assert 'WAL_NAMESPACE="cluster-$SYSTEM_ID"' in source
+    assert 'test -f "/sentinel-backup/wal/$namespace/$wal"' in source
+    assert 'test -r "/sentinel-backup/wal/$namespace/$wal"' in source
     assert 'metadata="/sentinel-backup/base/$name/sentinel-recovery-marker"' in source
+    assert 'system_identifier=%s' in source
     assert 'sync "$metadata"' in source
     assert 'test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker"' in source
 
@@ -38,6 +39,7 @@ def test_durable_target_marker_bootstrap_uses_container_authority():
     assert "_sentinel_backup_marker_container" in source
     assert '"$parent" "$marker_uid" "$marker_mode"' in source
     assert 'marker_uid="$uid"' in source
+    assert '-e "MARKER=$SENTINEL_BACKUP_TARGET_MARKER_CONTENT"' not in source
     assert '-e "MARKER=$SENTINEL_BACKUP_TARGET_MARKER"' in source
     assert 'marker="/probe/$MARKER"' in source
     assert 'tmp="$(mktemp "${marker}.tmp.XXXXXX")"' in source

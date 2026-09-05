@@ -12,9 +12,6 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
 
 . scripts/sentinel-backup-lib.sh
 BACKUP_ROOT="$(sentinel_backup_root)"
-# Physical backup creation has one writer per canonical durable target across
-# every checkout owned by this host user. The inherited flock is proven by
-# inode and kernel lock state; environment markers alone are never authority.
 export SENTINEL_BASE_BACKUP_LOCK_ROOT="$BACKUP_ROOT"
 if ! "$PYTHON" scripts/sentinel_backup_lock.py verify >/dev/null 2>&1; then
   exec "$PYTHON" scripts/sentinel_backup_lock.py hold \
@@ -23,8 +20,6 @@ fi
 
 STAMP="$(date -u +%Y%m%dT%H%M%SZ)"
 NAME="base-$STAMP"
-# Staging never enters the completed base-* namespace. A crash therefore cannot
-# make an incomplete backup become the newest candidate seen by status/restore.
 STAGING=".$NAME.part-$$"
 MARKER="sentinel-backup-$STAMP-$$"
 
@@ -59,27 +54,27 @@ pitr_source_row() {
             substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8)"
 }
 
-# A SIGKILL/power-loss can bypass the EXIT trap. Under the target-bound host
-# lock, hidden staging directories from earlier versions of this same protocol
-# have no live writer and are safe to remove before starting a new backup.
 ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d \
     -name ".base-*.part-*" -exec rm -rf -- {} +
   sync -f /sentinel-backup/base
 '
 
-# Do not silently restart PostgreSQL to turn archiving on. The operator starts
-# the documented overlay; this command verifies that exact durable mode first.
 MODE="$(${COMPOSE[@]} exec -T sentinel-postgres \
   psql -U sentinel -d sentinel -Atc "SHOW archive_mode")"
 [ "$MODE" = "on" ] || {
   echo "REFUSED: archive_mode=$MODE; start the documented backup overlay" >&2
   exit 3
 }
+SYSTEM_ID="$(${COMPOSE[@]} exec -T sentinel-postgres \
+  psql -U sentinel -d sentinel -Atc \
+  "SELECT system_identifier::text FROM pg_control_system()")"
+[[ "$SYSTEM_ID" =~ ^[0-9]+$ ]] || {
+  echo "REFUSED: PostgreSQL system identifier is unavailable or malformed" >&2
+  exit 4
+}
+WAL_NAMESPACE="cluster-$SYSTEM_ID"
 
-# Capture xid8 epoch and WAL timeline on both sides of pg_basebackup. A backup
-# spanning an XID wrap or timeline transition cannot safely anchor an XID-based
-# publication PITR target, so it never enters the completed backup namespace.
 PITR_BEFORE="$(pitr_source_row)"
 IFS='|' read -r PITR_XID8_BEFORE PITR_TIMELINE_BEFORE <<EOF
 $PITR_BEFORE
@@ -91,10 +86,6 @@ EOF
 }
 PITR_EPOCH_BEFORE="$(xid_epoch "$PITR_XID8_BEFORE")"
 
-# The physical base-backup tree is written by container root. This is deliberate:
-# the operator-owned base/ parent need not be writable by PostgreSQL's uid, and
-# the resulting 0700 backup remains private. Keep it hidden/staged until every
-# post-base recovery proof has succeeded.
 STAGING_CREATED=1
 ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   staging="$1" final="$2"
@@ -126,19 +117,14 @@ PITR_EPOCH_AFTER="$(xid_epoch "$PITR_XID8_AFTER")"
   exit 4
 }
 ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
-  staging="$1" before="$2" after="$3" epoch="$4" timeline="$5"
+  staging="$1" before="$2" after="$3" epoch="$4" timeline="$5" system_id="$6"
   metadata="/sentinel-backup/base/$staging/sentinel-pitr-base-identity"
-  printf "schema=sentinel.base-backup-pitr/1\nxid8_before=%s\nxid8_after=%s\nxid_epoch=%s\ntimeline=0x%s\n" \
-    "$before" "$after" "$epoch" "$timeline" > "$metadata"
+  printf "schema=sentinel.base-backup-pitr/2\nsystem_identifier=%s\nxid8_before=%s\nxid8_after=%s\nxid_epoch=%s\ntimeline=0x%s\n" \
+    "$system_id" "$before" "$after" "$epoch" "$timeline" > "$metadata"
   sync "$metadata"
 ' sh "$STAGING" "$PITR_XID8_BEFORE" "$PITR_XID8_AFTER" \
-  "$PITR_EPOCH_AFTER" "$PITR_TIMELINE_AFTER"
+  "$PITR_EPOCH_AFTER" "$PITR_TIMELINE_AFTER" "$SYSTEM_ID"
 
-# Prove recovery beyond the base-backup boundary. The marker is created only
-# after pg_basebackup completed, then its transaction WAL is forced to archive.
-# WAL visibility is proven as postgres, the authority that archives WAL. The
-# marker metadata is first published into the hidden staging tree; the completed
-# base-* directory does not exist until all proof is complete.
 ${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
   -v ON_ERROR_STOP=1 -Atc "
     CREATE TABLE IF NOT EXISTS sentinel_backup_recovery_markers (
@@ -158,27 +144,28 @@ ${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel -Atc \
   "SELECT pg_switch_wal()" >/dev/null
 for _ in $(seq 1 60); do
   if ! ${COMPOSE[@]} exec -T -u postgres sentinel-postgres sh -ceu '
-    wal="$1"
-    test -f "/sentinel-backup/wal/$wal"
-    test -r "/sentinel-backup/wal/$wal"
-  ' sh "$MARKER_WAL"; then
+    namespace="$1" wal="$2"
+    test -d "/sentinel-backup/wal/$namespace"
+    test ! -L "/sentinel-backup/wal/$namespace"
+    test -f "/sentinel-backup/wal/$namespace/$wal"
+    test -r "/sentinel-backup/wal/$namespace/$wal"
+  ' sh "$WAL_NAMESPACE" "$MARKER_WAL"; then
     sleep 1
     continue
   fi
   ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
-    name="$1" marker="$2" lsn="$3" wal="$4"
+    name="$1" marker="$2" lsn="$3" wal="$4" system_id="$5"
     metadata="/sentinel-backup/base/$name/sentinel-recovery-marker"
-    printf "marker=%s\nlsn=%s\nwal=%s\n" "$marker" "$lsn" "$wal" > "$metadata"
+    printf "marker=%s\nlsn=%s\nwal=%s\nsystem_identifier=%s\n" \
+      "$marker" "$lsn" "$wal" "$system_id" > "$metadata"
     sync "$metadata"
-  ' sh "$STAGING" "$MARKER" "$MARKER_LSN" "$MARKER_WAL"
+  ' sh "$STAGING" "$MARKER" "$MARKER_LSN" "$MARKER_WAL" "$SYSTEM_ID"
   break
 done
 ${COMPOSE[@]} exec -T sentinel-postgres \
   test -f "/sentinel-backup/base/$STAGING/sentinel-recovery-marker" || {
-  echo "REFUSED: marker WAL $MARKER_WAL was not archived" >&2; exit 4; }
+  echo "REFUSED: marker WAL $MARKER_WAL was not archived in $WAL_NAMESPACE" >&2; exit 4; }
 
-# Publish the completed namespace atomically only after pg_verifybackup and the
-# post-base recovery marker/WAL/PITR identity proofs are all present.
 ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   staging="$1" final="$2"
   test -d "/sentinel-backup/base/$staging"
@@ -199,7 +186,5 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
   test -f "/sentinel-backup/base/$NAME/sentinel-pitr-base-identity" || {
   echo "REFUSED: promoted backup lost its PITR base identity" >&2; exit 4; }
 
-# Machine-readable mutation evidence is consumed by certified GO orchestration;
-# the exact path remains the existing operator/restore contract.
 echo "SENTINEL_BASE_BACKUP_DB_MUTATION=RECOVERY_MARKER_SCHEMA_AND_ROW"
 echo "verified_base_backup:$BACKUP_ROOT/base/$NAME"
