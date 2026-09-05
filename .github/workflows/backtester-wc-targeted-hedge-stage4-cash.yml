@@ -1,0 +1,158 @@
+name: Backtester - WC targeted hedge Stage 4 cash
+run-name: WC targeted hedge Stage 4 cash zero-budget — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-wc-targeted-hedge-diagnostic]
+    paths:
+      - '.github/workflows/backtester-wc-targeted-hedge-stage4-cash.yml'
+      - 'backtester/diagnose_wc_targeted_hedge_stage4_cash.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  OUT_DIR: backtester-results/wc-targeted-hedge-stage4-cash
+  BETA_RUN_ID: '33976008320'
+  BETA_HEAD: '92e5d340858dae00909d9d459b539b7e76de8297'
+  BETA_ARTIFACT: 'wc-hedge-decomposition-92e5d340858dae00909d9d459b539b7e76de8297'
+  BETA_DIGEST: 'sha256:19df7f1c2801629397c70600b10368cb0782c71dbd7dcb049caa6f02436367d3'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 120
+    steps:
+      - name: Check out exact diagnostic head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-wc-targeted-hedge-stage4-cash.yml
+            /backtester/diagnose_wc_targeted_hedge_stage4_cash.py
+            /backtester/experiment_architecture_recovery_concordance_e3.py
+            /backtester/calibrate_broad_simplified_breadth.py
+            /backtester/experiment2_broad_independent_correlation.py
+            /backtester/run_r1000_correlation_peers.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Compile telemetry harness
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/diagnose_wc_targeted_hedge_stage4_cash.py \
+            backtester/experiment_architecture_recovery_concordance_e3.py \
+            backtester/calibrate_broad_simplified_breadth.py \
+            backtester/experiment2_broad_independent_correlation.py \
+            backtester/run_research_ldrc_corrected_warmup_cash.py \
+            backtester/run_research_ldrc_nonpit_vs_fullpit.py
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Authenticate prior beta diagnostic
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BETA_RUN_ID}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BETA_RUN_ID}" --jq '.head_sha')" = "${BETA_HEAD}"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BETA_RUN_ID}/artifacts" --jq ".artifacts[] | select(.name == \"${BETA_ARTIFACT}\") | .digest")" = "${BETA_DIGEST}"
+
+      - name: Download prior beta diagnostic
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BETA_ARTIFACT }}
+          path: beta-diagnostic
+          repository: ${{ github.repository }}
+          run-id: ${{ env.BETA_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify prior beta contents
+        run: (cd beta-diagnostic && sha256sum -c WC_BETA_DRAWDOWN_SHA256SUMS.txt)
+
+      - name: Run fresh E3 telemetry-only cash replay
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.diagnose_wc_targeted_hedge_stage4_cash --output "$OUT_DIR" --beta-root beta-diagnostic
+          (cd "$OUT_DIR" && sha256sum -c E3_SHA256SUMS.txt)
+          (cd "$OUT_DIR" && sha256sum -c STAGE4_CASH_SHA256SUMS.txt)
+
+      - name: Validate zero-budget cash contract
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path(os.environ['OUT_DIR'])
+          s=json.loads((p/'stage4_cash_summary.json').read_text())
+          assert s['status']=='PASS'
+          assert s['zero_budget_diagnostic'] is True
+          assert s['strategy_mechanics_changed'] is False
+          assert s['experiment_budget_consumed'] is False
+          assert s['e8_spent'] is False
+          assert s['accepted_e3_control_parity']['status']=='PASS'
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Publish cash summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path(os.environ['OUT_DIR']); q=p/'stage4_cash_summary.json'
+          if not q.exists(): raise SystemExit(0)
+          s=json.loads(q.read_text()); x=s['all_session_cash_statistics']['wc_next_open_cash_fraction']; u=s['all_session_cash_statistics']['wc_next_open_unreserved_cash_fraction']
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Targeted hedge Stage 4 — natural cash\n\n')
+              f.write(f"Median next-open cash: **{x['median']:.2%}**  \n")
+              f.write(f"10th percentile next-open cash: **{x['p10']:.2%}**  \n")
+              f.write(f"Median next-open cash preserving pending admission: **{u['median']:.2%}**  \n")
+              f.write(f"Sessions with >=1% next-open cash: **{x['availability']['0.0100']:.1%}**  \n")
+              f.write(f"Sessions with >=2% next-open cash: **{x['availability']['0.0200']:.1%}**  \n\n")
+              f.write('**Experiment budget remains 7/10. E8 not spent.**\n')
+          PY
+
+      - name: Upload immutable Stage 4 cash evidence
+        if: ${{ always() && hashFiles('backtester-results/wc-targeted-hedge-stage4-cash/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wc-targeted-hedge-stage4-cash-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
