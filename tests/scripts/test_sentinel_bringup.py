@@ -59,6 +59,39 @@ def test_unknown_source_state_fails_closed():
         bringup.source_decision({"status": "MAYBE", "reason_code": "UNKNOWN"})
 
 
+def test_post_recovery_only_raw_pass_is_ready():
+    decision = bringup.post_recovery_source_decision({
+        "status": "PASS",
+        "reason_code": "SEP_CDC_SOURCE_VALID",
+    })
+    assert decision.proceed is True
+    assert decision.status == "PASS"
+
+
+def test_post_recovery_deferred_is_never_normalized_to_ready():
+    decision = bringup.post_recovery_source_decision({
+        "status": "DEFERRED",
+        "reason_code": "SHARADAR_SOURCE_NOT_FINAL",
+    })
+    assert decision.proceed is False
+    assert decision.status == "DEFERRED"
+
+
+def test_post_recovery_recovery_required_is_not_ready():
+    decision = bringup.post_recovery_source_decision({
+        "status": "RECOVERY_REQUIRED",
+        "reason_code": "SOURCE_IDENTITY_HISTORY_MUTATION",
+    })
+    assert decision.proceed is False
+    assert decision.status == "RECOVERY_REQUIRED"
+
+
+def test_post_recovery_unknown_state_fails_closed():
+    with pytest.raises(bringup.BringupRefused):
+        bringup.post_recovery_source_decision(
+            {"status": "MAYBE", "reason_code": "UNKNOWN"})
+
+
 def test_launcher_uses_go_lifecycle_lock_but_never_runs_certification_or_promotion():
     source = LAUNCHER.read_text(encoding="utf-8")
     assert "scripts/sentinel_go_lock.py" in source

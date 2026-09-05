@@ -75,6 +75,35 @@ def _seed_source(fetch, *, final_hi: str, update_ceiling: str | None = None):
     return tracked, tracked
 
 
+def _post_seed_proof_source(fetch, *, boundary: str, ceiling: str):
+    """Route each post-seed SEP request through its exact causal authority.
+
+    Mutation observations are CDC reads and must carry the exact bounded
+    ``lastupdated`` request. Replay and trailing-coherence observations are
+    market-date reads; they share the same frozen ceiling but cannot carry a CDC
+    request envelope. Keeping the two membranes distinct prevents one proof
+    phase from invalidating the request shape required by the other.
+    """
+    mutation_fetch = source_authority.CanonicalSourceFetch(
+        fetch,
+        sep_update_envelope=source_authority.SepUpdateEnvelope.interval(
+            boundary, ceiling, context="post-seed mutation observation"))
+    date_fetch = source_authority.CanonicalSourceFetch(
+        fetch,
+        sep_update_envelope=source_authority.SepUpdateEnvelope.through(
+            ceiling, context="post-seed date-window observation"))
+
+    def proof_fetch(table, params=None, **kwargs):
+        request = params or {}
+        is_sep_cdc = (
+            table == sharadar.SEP
+            and ("lastupdated.gte" in request or "lastupdated.lte" in request))
+        selected = mutation_fetch if is_sep_cdc else date_fetch
+        return selected(table, params, **kwargs)
+
+    return proof_fetch
+
+
 def _reconcile_sep_for_market_target(
         conn, *, fetch, target: str,
         source_observation_day: _dt.date | str | None = None):
@@ -167,11 +196,8 @@ class _SeedAuthority:
                 run.conn, run_id=str(run.progress.run_id),
                 evidence=coverage_evidence)
             ceiling = seed_coherence.capture_update_ceiling()
-            proof_fetch = source_authority.CanonicalSourceFetch(
-                self.source_fetch,
-                sep_update_envelope=source_authority.SepUpdateEnvelope.interval(
-                    self.boundary, ceiling,
-                    context="post-seed mutation observation"))
+            proof_fetch = _post_seed_proof_source(
+                self.source_fetch, boundary=self.boundary, ceiling=ceiling)
             self.proof = seed_coherence.prove(
                 run.conn, run=run, fetch=proof_fetch,
                 market_start=self.market_start, market_end=self.market_end,
