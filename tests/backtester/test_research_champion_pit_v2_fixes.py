@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import csv
 import gzip
+import importlib.util
 from pathlib import Path
 import tempfile
 import unittest
@@ -22,6 +23,12 @@ class ChampionPitV2FixTests(unittest.TestCase):
         self.tmp = tempfile.TemporaryDirectory()
         self.addCleanup(self.tmp.cleanup)
         self.root = Path(self.tmp.name)
+
+    def test_pytest_package_identity_is_unambiguous(self):
+        self.assertTrue(Path("tests/__init__.py").is_file())
+        spec = importlib.util.find_spec("tests.backtester.conftest")
+        self.assertIsNotNone(spec)
+        self.assertEqual(Path(spec.origin).resolve(), Path("tests/backtester/conftest.py").resolve())
 
     def test_same_session_terminal_is_removed_from_next_leadership_witness(self):
         source = "            " + leadership._OLD + "\n"
