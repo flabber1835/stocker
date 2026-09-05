@@ -52,3 +52,19 @@ candidate observation is resolved consistently.  Partial coverage remains
 The next dataset build may consume only the allocated observation ledger after
 it has been retained in a content-addressed package and bound to its source
 hashes.
+
+## Second closure stage
+
+The second stage closes the first held-position terminal batch.  A case is
+accepted only when contemporaneous SEC filings establish the holder
+consideration, completion date, and final executable session.  Mixed and
+elective consideration preserves every cash and successor-security component;
+the batch does not collapse those events to a cash approximation.
+
+The initial batch contains KMR, HRC, VMW, STRZA, and GMCR.  These are selected
+from the exact `1_HELD_POSITION` terminal priority produced by stage one.  The
+stage-two workflow authenticates that parent artifact, proves the five
+security-ID/ticker bindings, validates temporal ordering and consideration
+completeness, and emits a content-addressed accepted-event ledger.  Corpus
+mutation remains gated on that immutable ledger and a separate integration
+replay.

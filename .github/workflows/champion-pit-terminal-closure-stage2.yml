@@ -1,0 +1,90 @@
+name: Champion PIT held-terminal authority - stage 2
+run-name: Champion PIT held-terminal authority - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/champion-pit-metadata-closure]
+    paths:
+      - '.github/workflows/champion-pit-terminal-closure-stage2.yml'
+      - 'backtester/data/champion-terminal-evidence-stage2.json'
+      - 'backtester/validate_champion_terminal_evidence.py'
+      - 'tests/backtester/test_validate_champion_terminal_evidence.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  PRIORITY_RUN_ID: '33997143142'
+  PRIORITY_ARTIFACT: champion-pit-metadata-closure-stage1-33997143142-1
+
+jobs:
+  validate:
+    name: Validate and seal first held-terminal evidence batch
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact closure source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Run terminal authority regression tests
+        run: python -W error::ResourceWarning -m unittest tests.backtester.test_validate_champion_terminal_evidence -v
+
+      - name: Download exact stage-one priority artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.PRIORITY_ARTIFACT }}
+          path: inputs/priority
+          repository: ${{ github.repository }}
+          run-id: ${{ env.PRIORITY_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate stage-one lineage
+        run: |
+          set -euo pipefail
+          (cd inputs/priority && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json
+          value=json.load(open('inputs/priority/summary.json'))
+          assert value['status']=='PASS'
+          assert value['baseline']['terminal']==1405
+          assert value['source']['champion_run_id']=='33994291853'
+          PY
+
+      - name: Validate and seal held-terminal authority
+        run: |
+          set -euo pipefail
+          python backtester/validate_champion_terminal_evidence.py \
+            --evidence backtester/data/champion-terminal-evidence-stage2.json \
+            --priority inputs/priority/terminal-priority.csv \
+            --output results/stage2
+          (cd results/stage2 && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json
+          value=json.load(open('results/stage2/summary.json'))
+          assert value['status']=='PASS'
+          assert value['accepted_events']==5
+          assert value['held_terminal_starting_worklist']==1405
+          assert value['cash_events']==2
+          assert value['stock_events']==1
+          assert value['mixed_or_election_events']==2
+          PY
+
+      - name: Upload immutable stage-two evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-pit-terminal-closure-stage2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: results/stage2
+          if-no-files-found: error
+          retention-days: 90
