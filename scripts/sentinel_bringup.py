@@ -7,6 +7,11 @@ suite. Even with ``--recover`` it grants no deployment authority, emits no GO
 bundle, writes no requested-target pass, promotes no runtime, and performs no
 broker mutation. A final successful ``scripts/sentinel-go-validate.sh`` remains
 mandatory before any deployment target can become GO.
+
+The supported launcher installs ``sentinel_bringup_install_anytime`` so a
+Sharadar source-final temporal wait cannot block software installation. This
+base module retains fail-closed DEFERRED semantics when imported directly; the
+launcher overlay is the reviewed operator contract.
 """
 from __future__ import annotations
 
@@ -50,12 +55,12 @@ class SourceDecision:
 
 
 def source_decision(report: Mapping[str, object]) -> SourceDecision:
-    """Map the read-only source report to a bring-up action.
+    """Map the read-only source report to a base bring-up action.
 
-    Only PASS and RECOVERY_REQUIRED may reach the mutable recovery step.
-    DEFERRED is deliberately a hard stop here even though certified GO is
-    allowed to continue stable artifact certification while waiting for source
-    finality. The entire purpose of bring-up is to avoid expensive wasted work.
+    The public launcher installs the wall-clock-independent overlay before
+    calling ``main``. Without that reviewed overlay, DEFERRED remains a base
+    fail-closed state so internal/direct callers cannot silently acquire the
+    installation exception.
     """
     status = str(report.get("status") or "")
     reason = str(report.get("reason_code") or "READONLY_PREFLIGHT_UNAVAILABLE")
