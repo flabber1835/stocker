@@ -1,0 +1,27 @@
+{
+  "candidate": "E5_DETERIORATION_SECOND_REVIEW_E3",
+  "causal_contract": {
+    "E3_sentinel_preserved": true,
+    "candidate_change": "one additional post-review deterioration-triggered application of the existing Wealth Core review predicate per entry episode",
+    "decision_at_close_next_open_effect": true,
+    "existing_age119_review_preserved": true,
+    "existing_cooldown_preserved": true,
+    "existing_review_predicate_preserved": true,
+    "existing_stop_priority_preserved": true,
+    "fresh_chronological_candidate_replay": true,
+    "fresh_chronological_control_replay": true,
+    "pre_recorded_decisions_used_as_input": false,
+    "same_frozen_numerical_runtime": true,
+    "same_pinned_market_inputs": true
+  },
+  "control": "exact E3 surviving architecture rerun fresh",
+  "daily_rows_each": 7188,
+  "evidence_label": "WEALTH_CORE_E5_DETERIORATION_TRIGGERED_SECOND_REVIEW_WITH_E3",
+  "experiment": 5,
+  "github_sha": "ed79b9603e1e9d349c85ccd57db12953b5cc2c06",
+  "input_authority": {
+    "sfp_sha256": "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+  },
+  "schema": "backtester.wealth-core-e5-deterioration-second-review/1",
+  "status": "PASS"
+}

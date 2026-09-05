@@ -1,0 +1,307 @@
+{
+  "buys": 761,
+  "calibration": {
+    "fast_damaged_baseline": 0.85,
+    "fast_damaged_calibrated": 0.875,
+    "healthy_damaged_baseline": 0.6,
+    "healthy_damaged_calibrated": 0.625,
+    "kind": "correlation_breadth_scale_calibration",
+    "ldrc_parameters_changed": false,
+    "peer_definition_changed": false,
+    "ramp_parameters_changed": false,
+    "rationale": "forensic broad-history translation of the damaged-breadth scale: filter marginal correlation-peer FAST events while admitting near-threshold healthy recovery sessions; all other mechanics frozen",
+    "slow_parameters_changed": false,
+    "wealth_core_parameters_changed": false
+  },
+  "candidate_A_concordance_releases": 2,
+  "candidate_A_episodes": 11,
+  "candidate_B_episodes": 12,
+  "code_commit": "c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c",
+  "correlation_peer_stats": {
+    "accepted_peer_edges": 344932,
+    "breadth_sessions": 7062,
+    "holding_observations": 159755,
+    "insufficient_residual_histories": 0,
+    "neighborhood_size_sum": 504687,
+    "pair_correlations": 3510026
+  },
+  "daily_evidence_columns": [
+    "date",
+    "research_allocation",
+    "research_nav",
+    "research_wealth_core_equity",
+    "spy_nav"
+  ],
+  "defensive_cash_authority": {
+    "causal_rule": "actual BIL when available; otherwise previous completed calendar month's GS3M with calendar-day accrual",
+    "gs3m_sha256": "1c1dbdcddd50c2445f8c65d1378d3d2bc87626fe2dc9b9956bc0cd97682a72d3",
+    "source_description": "Federal Reserve H.15 3-month constant-maturity Treasury yield, investment basis; monthly average",
+    "source_id": "FRED:GS3M"
+  },
+  "dividend_events_held": 1355,
+  "domain_changes": {
+    "issuer_family": "disabled; each security independent",
+    "sector_contagion": "prior-only residual-correlation peers",
+    "universe": "unchanged broad full-PIT-estimate eligibility"
+  },
+  "e5_diagnostic_exit_signals": [
+    {
+      "age": 120,
+      "entry_day": 797,
+      "entry_signal_price": 19.583,
+      "peak": 22.593,
+      "price": 19.22,
+      "recent21": -0.0593647790857591,
+      "signal_date": "2001-08-21",
+      "ticker": "LNCR",
+      "tid": 11744
+    },
+    {
+      "age": 136,
+      "entry_day": 1681,
+      "entry_signal_price": 15.26,
+      "peak": 17.065,
+      "price": 14.775,
+      "recent21": -0.05591052011875042,
+      "signal_date": "2005-03-24",
+      "ticker": "FLIR",
+      "tid": 7457
+    },
+    {
+      "age": 121,
+      "entry_day": 2357,
+      "entry_signal_price": 26.64,
+      "peak": 30.26,
+      "price": 26.13,
+      "recent21": -0.021348342571234524,
+      "signal_date": "2007-11-07",
+      "ticker": "GEN1",
+      "tid": 8194
+    },
+    {
+      "age": 126,
+      "entry_day": 2504,
+      "entry_signal_price": 35.76,
+      "peak": 40.39,
+      "price": 34.22,
+      "recent21": -0.11872267869345787,
+      "signal_date": "2008-06-17",
+      "ticker": "BMRN",
+      "tid": 2774
+    },
+    {
+      "age": 126,
+      "entry_day": 2851,
+      "entry_signal_price": 17.68,
+      "peak": 21.17,
+      "price": 17.24,
+      "recent21": -0.009195380576898504,
+      "signal_date": "2009-10-30",
+      "ticker": "AN",
+      "tid": 1185
+    },
+    {
+      "age": 121,
+      "entry_day": 3333,
+      "entry_signal_price": 74.4,
+      "peak": 83.08,
+      "price": 66.15,
+      "recent21": -0.06488546794430083,
+      "signal_date": "2011-09-22",
+      "ticker": "SM",
+      "tid": 17957
+    },
+    {
+      "age": 139,
+      "entry_day": 3510,
+      "entry_signal_price": 15.61,
+      "peak": 17.97,
+      "price": 15.47,
+      "recent21": -0.007697251533892446,
+      "signal_date": "2012-07-02",
+      "ticker": "AUY",
+      "tid": 1920
+    },
+    {
+      "age": 126,
+      "entry_day": 3555,
+      "entry_signal_price": 208.0,
+      "peak": 219.9,
+      "price": 206.1,
+      "recent21": -0.02122812921469963,
+      "signal_date": "2012-08-16",
+      "ticker": "GWW",
+      "tid": 8948
+    },
+    {
+      "age": 121,
+      "entry_day": 3612,
+      "entry_signal_price": 62.94,
+      "peak": 63.7,
+      "price": 58.56,
+      "recent21": -0.000512035373097075,
+      "signal_date": "2012-11-01",
+      "ticker": "EC",
+      "tid": 6186
+    },
+    {
+      "age": 131,
+      "entry_day": 5233,
+      "entry_signal_price": 166.81,
+      "peak": 184.72,
+      "price": 166.77,
+      "recent21": -0.011733333333333262,
+      "signal_date": "2019-04-29",
+      "ticker": "AAP",
+      "tid": 59
+    },
+    {
+      "age": 122,
+      "entry_day": 5271,
+      "entry_signal_price": 115.48,
+      "peak": 131.02,
+      "price": 113.93,
+      "recent21": -0.016148557879760994,
+      "signal_date": "2019-06-10",
+      "ticker": "LLY",
+      "tid": 11701
+    },
+    {
+      "age": 123,
+      "entry_day": 5387,
+      "entry_signal_price": 6.18,
+      "peak": 6.49,
+      "price": 6.09,
+      "recent21": -0.011363611874360191,
+      "signal_date": "2019-11-22",
+      "ticker": "ZNGA",
+      "tid": 21876
+    },
+    {
+      "age": 121,
+      "entry_day": 6736,
+      "entry_signal_price": 112.23,
+      "peak": 114.99,
+      "price": 101.98,
+      "recent21": -0.05530335448832446,
+      "signal_date": "2025-04-04",
+      "ticker": "AFL",
+      "tid": 538
+    },
+    {
+      "age": 122,
+      "entry_day": 6880,
+      "entry_signal_price": 38.82,
+      "peak": 40.22,
+      "price": 38.24,
+      "recent21": -0.0013058478540559637,
+      "signal_date": "2025-10-31",
+      "ticker": "CNP",
+      "tid": 4519
+    }
+  ],
+  "e5_second_review_exit_signals": 14,
+  "e5_second_review_exits": 14,
+  "e5_second_review_passes": 260,
+  "e5_second_reviews": 274,
+  "evidence_label": "BROAD_SIMPLIFIED_BREADTH_CALIBRATION_0875_0625",
+  "evidence_level": "full_stack_PIT_SEC_CIK_SIC_plus_PIT_ACTIONS",
+  "exchange_gate": "not applied because supplied current TICKERS snapshot cannot establish historical exchange authority",
+  "experiment": "broad_simplified_breadth_calibration",
+  "formal_pit_certified": false,
+  "full_stack_pit": true,
+  "leadership_overlap_checks": {
+    "2008-12-23": {
+      "eligible": 1005,
+      "overlap": 7,
+      "population": 101
+    },
+    "2022-01-03": {
+      "eligible": 1791,
+      "overlap": 15,
+      "population": 180
+    }
+  },
+  "liquidity_domain": "current_main_equivalent: SEP.close * reported SEP.volume; algebraically raw close * raw-compatible volume per sharadar_domains.py",
+  "max_history_measurement_start": "1998-01-02",
+  "measurement_windows": [
+    "5",
+    "10",
+    "15",
+    "20",
+    "max"
+  ],
+  "metrics": {
+    "A": {
+      "cagr": 0.19488217126484453,
+      "end": "2026-07-31",
+      "ending_multiple": 162.03379171056076,
+      "max_drawdown": -0.32190674427321586,
+      "sessions": 7188,
+      "sharpe": 1.0739922563897941,
+      "start": "1998-01-02"
+    },
+    "B": {
+      "cagr": 0.17454856286746123,
+      "end": "2026-07-31",
+      "ending_multiple": 99.2203151882383,
+      "max_drawdown": -0.46634269237394876,
+      "sessions": 7188,
+      "sharpe": 0.9363629058579344,
+      "start": "1998-01-02"
+    },
+    "control": {
+      "cagr": 0.1938894836667706,
+      "end": "2026-07-31",
+      "ending_multiple": 158.23083898915505,
+      "max_drawdown": -0.32190674427321586,
+      "sessions": 7188,
+      "sharpe": 1.0697822034202102,
+      "start": "1998-01-02"
+    }
+  },
+  "mode": "fullpit",
+  "modeled_allocation_transition_cost_sum": {
+    "A": 0.026050000000000004,
+    "B": 0.024000000000000007,
+    "control": 0.026050000000000004
+  },
+  "pit_authority": {
+    "actions": "PIT ACTIONS",
+    "category": "current TICKERS field retained under prior zero-delta/equivalence evidence",
+    "exchange": "not economically active",
+    "issuer": "strict-prior SEC CIK; unknown issuer is security singleton",
+    "sector": "strict-prior SEC CIK -> strict-prior SEC SIC -> FF12"
+  },
+  "replay_mode": "fullpit",
+  "research_embedded_commit": "c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c",
+  "research_strategy_source": "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py",
+  "research_strategy_source_sha256": "3cb688aea8ebe5238b6b080fad012eef6bbc9df396e43252cbf336f651eb00e4",
+  "sells": 741,
+  "split_events_applied": 10435,
+  "spy": {
+    "cagr": 0.09247403221211403,
+    "end": "2026-07-31",
+    "ending_multiple": 12.52040559792173,
+    "max_drawdown": -0.5520185564591099,
+    "sessions": 7188,
+    "sharpe": 0.5546673774424093,
+    "start": "1998-01-02"
+  },
+  "status": "PASS",
+  "transition_counts": {
+    "A": 37,
+    "B": 28,
+    "control": 37
+  },
+  "warmup": {
+    "full_machine_state_carried": true,
+    "measured_warmup_sessions": 0,
+    "measurement_start": "1998-01-02",
+    "start": "1997-01-02"
+  },
+  "window": [
+    "1998-01-02",
+    "2026-07-31"
+  ]
+}

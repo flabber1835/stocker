@@ -1,0 +1,194 @@
+{
+  "calibration": {
+    "fast_damaged_baseline": 0.85,
+    "fast_damaged_calibrated": 0.875,
+    "healthy_damaged_baseline": 0.6,
+    "healthy_damaged_calibrated": 0.625,
+    "kind": "correlation_breadth_scale_calibration",
+    "ldrc_parameters_changed": false,
+    "peer_definition_changed": false,
+    "ramp_parameters_changed": false,
+    "rationale": "forensic broad-history translation of the damaged-breadth scale: filter marginal correlation-peer FAST events while admitting near-threshold healthy recovery sessions; all other mechanics frozen",
+    "slow_parameters_changed": false,
+    "wealth_core_parameters_changed": false
+  },
+  "correlation_peer_stats": {
+    "accepted_peer_edges": 344932,
+    "breadth_sessions": 7062,
+    "holding_observations": 159755,
+    "insufficient_residual_histories": 0,
+    "neighborhood_size_sum": 504687,
+    "pair_correlations": 3510026
+  },
+  "evidence_label": "BROAD_SIMPLIFIED_BREADTH_CALIBRATION_0875_0625",
+  "experiment": "broad_simplified_breadth_calibration",
+  "metrics": [
+    {
+      "cagr": 0.2600892265177339,
+      "end": "2026-07-31",
+      "ending_multiple": 3.1769215623518656,
+      "max_drawdown": -0.21787409915868194,
+      "sessions": 1256,
+      "sharpe": 1.26796446054328,
+      "start": "2021-07-30",
+      "variant": "RESEARCH",
+      "window_years": "5"
+    },
+    {
+      "cagr": 0.21173334000352106,
+      "end": "2026-07-31",
+      "ending_multiple": 2.612373603554552,
+      "max_drawdown": -0.33137570493908486,
+      "sessions": 1256,
+      "sharpe": 0.9682263345853088,
+      "start": "2021-07-30",
+      "variant": "CORE",
+      "window_years": "5"
+    },
+    {
+      "cagr": 0.12761721209485044,
+      "end": "2026-07-31",
+      "ending_multiple": 1.8230915657946116,
+      "max_drawdown": -0.2449730210824944,
+      "sessions": 1256,
+      "sharpe": 0.7878285340192289,
+      "start": "2021-07-30",
+      "variant": "SPY",
+      "window_years": "5"
+    },
+    {
+      "cagr": 0.22840949447329018,
+      "end": "2026-07-31",
+      "ending_multiple": 7.824050497788405,
+      "max_drawdown": -0.30498514276693856,
+      "sessions": 2515,
+      "sharpe": 1.14708652507784,
+      "start": "2016-07-29",
+      "variant": "RESEARCH",
+      "window_years": "10"
+    },
+    {
+      "cagr": 0.20538467758573775,
+      "end": "2026-07-31",
+      "ending_multiple": 6.475251866246516,
+      "max_drawdown": -0.35962087906860474,
+      "sessions": 2515,
+      "sharpe": 0.9436664745606635,
+      "start": "2016-07-29",
+      "variant": "CORE",
+      "window_years": "10"
+    },
+    {
+      "cagr": 0.14990002294043725,
+      "end": "2026-07-31",
+      "ending_multiple": 4.042042042042042,
+      "max_drawdown": -0.33700067485140295,
+      "sessions": 2515,
+      "sharpe": 0.8704054911994875,
+      "start": "2016-07-29",
+      "variant": "SPY",
+      "window_years": "10"
+    },
+    {
+      "cagr": 0.19176603984440144,
+      "end": "2026-07-31",
+      "ending_multiple": 13.895209093676767,
+      "max_drawdown": -0.30498514276693856,
+      "sessions": 3773,
+      "sharpe": 1.0803693495897109,
+      "start": "2011-07-29",
+      "variant": "RESEARCH",
+      "window_years": "15"
+    },
+    {
+      "cagr": 0.17525064557063819,
+      "end": "2026-07-31",
+      "ending_multiple": 11.270870926864815,
+      "max_drawdown": -0.35962087906860474,
+      "sessions": 3773,
+      "sharpe": 0.8901701969750829,
+      "start": "2011-07-29",
+      "variant": "CORE",
+      "window_years": "15"
+    },
+    {
+      "cagr": 0.14403890479574422,
+      "end": "2026-07-31",
+      "ending_multiple": 7.526826466765409,
+      "max_drawdown": -0.33700067485140295,
+      "sessions": 3773,
+      "sharpe": 0.8709781691056413,
+      "start": "2011-07-29",
+      "variant": "SPY",
+      "window_years": "15"
+    },
+    {
+      "cagr": 0.19358583929345397,
+      "end": "2026-07-31",
+      "ending_multiple": 34.440793889918254,
+      "max_drawdown": -0.30498514276693856,
+      "sessions": 5032,
+      "sharpe": 1.086830683732507,
+      "start": "2006-07-31",
+      "variant": "RESEARCH",
+      "window_years": "20"
+    },
+    {
+      "cagr": 0.16679797109251782,
+      "end": "2026-07-31",
+      "ending_multiple": 21.87324942819537,
+      "max_drawdown": -0.43051411180426136,
+      "sessions": 5032,
+      "sharpe": 0.8437967245597373,
+      "start": "2006-07-31",
+      "variant": "CORE",
+      "window_years": "20"
+    },
+    {
+      "cagr": 0.11256560133143312,
+      "end": "2026-07-31",
+      "ending_multiple": 8.443306659433068,
+      "max_drawdown": -0.55201855645911,
+      "sessions": 5032,
+      "sharpe": 0.6473414847918653,
+      "start": "2006-07-31",
+      "variant": "SPY",
+      "window_years": "20"
+    },
+    {
+      "cagr": 0.1938894836667706,
+      "end": "2026-07-31",
+      "ending_multiple": 158.23083898915505,
+      "max_drawdown": -0.32190674427321575,
+      "sessions": 7188,
+      "sharpe": 1.0697822034202105,
+      "start": "1998-01-02",
+      "variant": "RESEARCH",
+      "window_years": "max"
+    },
+    {
+      "cagr": 0.16985501238031064,
+      "end": "2026-07-31",
+      "ending_multiple": 88.4931243018147,
+      "max_drawdown": -0.43051411180426136,
+      "sessions": 7188,
+      "sharpe": 0.8449317812771846,
+      "start": "1998-01-02",
+      "variant": "CORE",
+      "window_years": "max"
+    },
+    {
+      "cagr": 0.09247403221211403,
+      "end": "2026-07-31",
+      "ending_multiple": 12.52040559792173,
+      "max_drawdown": -0.5520185564591099,
+      "sessions": 7188,
+      "sharpe": 0.5546673774424087,
+      "start": "1998-01-02",
+      "variant": "SPY",
+      "window_years": "max"
+    }
+  ],
+  "schema": "backtester.broad-simplified-breadth-calibration/1",
+  "status": "PASS"
+}

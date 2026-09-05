@@ -1,0 +1,20 @@
+{
+  "archive_download_url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/9959923294/zip",
+  "created_at": "2026-09-05T01:08:12Z",
+  "digest": "sha256:e512748d5d83997526771512fffa7317d57c99a7eee75904d7e1f2a26052ea19",
+  "expired": false,
+  "expires_at": "2026-12-03T23:49:58Z",
+  "id": 9959923294,
+  "name": "wc-deterioration-second-review-e5-ed79b9603e1e9d349c85ccd57db12953b5cc2c06",
+  "node_id": "MDg6QXJ0aWZhY3Q5OTU5OTIzMjk0",
+  "size_in_bytes": 1432658,
+  "updated_at": "2026-09-05T01:08:12Z",
+  "url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/9959923294",
+  "workflow_run": {
+    "head_branch": "research/backtester-wc-e5-deterioration-review",
+    "head_repository_id": 1233957439,
+    "head_sha": "ed79b9603e1e9d349c85ccd57db12953b5cc2c06",
+    "id": 33930932163,
+    "repository_id": 1233957439
+  }
+}

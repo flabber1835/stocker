@@ -1,0 +1,18 @@
+{
+  "candidate_experiment_number": 3,
+  "causal_contract": {
+    "candidate_feedback_into_native_sentinel": false,
+    "candidate_feedback_into_wealth_core": false,
+    "decision_at_close_next_open_effect": true,
+    "fresh_chronological_replay": true,
+    "historical_control_hash_used_only_after_replay": true,
+    "pre_recorded_decisions_used_as_input": false,
+    "same_session_control_and_candidate": true
+  },
+  "cross_surface_release_rows": 3,
+  "daily_rows": 7188,
+  "difference_episode_rows": 3,
+  "evidence_label": "STRATEGY9_E3_CROSS_SURFACE_RECOVERY_CONCORDANCE",
+  "schema": "backtester.strategy9-e3-recovery-concordance/1",
+  "status": "PASS"
+}

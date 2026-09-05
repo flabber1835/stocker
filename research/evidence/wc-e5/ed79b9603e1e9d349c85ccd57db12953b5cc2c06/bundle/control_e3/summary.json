@@ -1,0 +1,168 @@
+{
+  "buys": 747,
+  "calibration": {
+    "fast_damaged_baseline": 0.85,
+    "fast_damaged_calibrated": 0.875,
+    "healthy_damaged_baseline": 0.6,
+    "healthy_damaged_calibrated": 0.625,
+    "kind": "correlation_breadth_scale_calibration",
+    "ldrc_parameters_changed": false,
+    "peer_definition_changed": false,
+    "ramp_parameters_changed": false,
+    "rationale": "forensic broad-history translation of the damaged-breadth scale: filter marginal correlation-peer FAST events while admitting near-threshold healthy recovery sessions; all other mechanics frozen",
+    "slow_parameters_changed": false,
+    "wealth_core_parameters_changed": false
+  },
+  "candidate_A_concordance_releases": 3,
+  "candidate_A_episodes": 9,
+  "candidate_B_episodes": 9,
+  "candidate_E3": {
+    "cross_surface_release_count": 3,
+    "divergence_entry_changed": false,
+    "fallback_recovery_changed": false,
+    "name": "cross_surface_recovery_concordance",
+    "native_sentinel_changed": false,
+    "new_fitted_numeric_thresholds": 0,
+    "rule": "7 positive recent-r20 sessions AND wc_r20>0 AND recent_r20>=wc_r20 AND spy_r20>=wc_r20",
+    "wealth_core_changed": false
+  },
+  "code_commit": "c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c",
+  "control_parity": {
+    "expected_sha256": "3a8a03799ddd06f14e1d8625e2f6540192e7255a11cb33e9462b2c9ffd625053",
+    "historical_control_artifact": 9939066139,
+    "historical_control_run": 33876316789,
+    "method": "eight untouched economic/control columns, 12 significant digits per numeric value",
+    "observed_sha256": "3a8a03799ddd06f14e1d8625e2f6540192e7255a11cb33e9462b2c9ffd625053",
+    "status": "PASS"
+  },
+  "correlation_peer_stats": {
+    "accepted_peer_edges": 349354,
+    "breadth_sessions": 7062,
+    "holding_observations": 160128,
+    "insufficient_residual_histories": 0,
+    "neighborhood_size_sum": 509482,
+    "pair_correlations": 3525210
+  },
+  "daily_evidence_columns": [
+    "date",
+    "research_allocation",
+    "research_nav",
+    "research_wealth_core_equity",
+    "spy_nav"
+  ],
+  "defensive_cash_authority": {
+    "causal_rule": "actual BIL when available; otherwise previous completed calendar month's GS3M with calendar-day accrual",
+    "gs3m_sha256": "1c1dbdcddd50c2445f8c65d1378d3d2bc87626fe2dc9b9956bc0cd97682a72d3",
+    "source_description": "Federal Reserve H.15 3-month constant-maturity Treasury yield, investment basis; monthly average",
+    "source_id": "FRED:GS3M"
+  },
+  "dividend_events_held": 1387,
+  "domain_changes": {
+    "issuer_family": "disabled; each security independent",
+    "sector_contagion": "prior-only residual-correlation peers",
+    "universe": "unchanged broad full-PIT-estimate eligibility"
+  },
+  "evidence_label": "STRATEGY9_E3_CROSS_SURFACE_RECOVERY_CONCORDANCE",
+  "evidence_level": "full_stack_PIT_SEC_CIK_SIC_plus_PIT_ACTIONS",
+  "exchange_gate": "not applied because supplied current TICKERS snapshot cannot establish historical exchange authority",
+  "experiment": "strategy9_e3_cross_surface_recovery_concordance",
+  "experiment_budget_consumed_after_completion": 3,
+  "experiment_budget_limit": 10,
+  "experiment_budget_number": 3,
+  "formal_pit_certified": false,
+  "full_stack_pit": true,
+  "leadership_overlap_checks": {
+    "2008-12-23": {
+      "eligible": 1005,
+      "overlap": 7,
+      "population": 101
+    },
+    "2022-01-03": {
+      "eligible": 1791,
+      "overlap": 15,
+      "population": 180
+    }
+  },
+  "liquidity_domain": "current_main_equivalent: SEP.close * reported SEP.volume; algebraically raw close * raw-compatible volume per sharadar_domains.py",
+  "max_history_measurement_start": "1998-01-02",
+  "measurement_windows": [
+    "5",
+    "10",
+    "15",
+    "20",
+    "max"
+  ],
+  "metrics": {
+    "A": {
+      "cagr": 0.19954801557875324,
+      "end": "2026-07-31",
+      "ending_multiple": 181.12202909286611,
+      "max_drawdown": -0.3345904831084261,
+      "sessions": 7188,
+      "sharpe": 1.0736657409261394,
+      "start": "1998-01-02"
+    },
+    "B": {
+      "cagr": 0.19002961006794394,
+      "end": "2026-07-31",
+      "ending_multiple": 144.24596180147657,
+      "max_drawdown": -0.48047981603986156,
+      "sessions": 7188,
+      "sharpe": 0.9912489090029796,
+      "start": "1998-01-02"
+    },
+    "control": {
+      "cagr": 0.1979341893464519,
+      "end": "2026-07-31",
+      "ending_multiple": 174.28653130016576,
+      "max_drawdown": -0.3345904831084261,
+      "sessions": 7188,
+      "sharpe": 1.0667462593395953,
+      "start": "1998-01-02"
+    }
+  },
+  "mode": "fullpit",
+  "modeled_allocation_transition_cost_sum": {
+    "A": 0.022949999999999995,
+    "B": 0.018000000000000002,
+    "control": 0.022949999999999995
+  },
+  "pit_authority": {
+    "actions": "PIT ACTIONS",
+    "category": "current TICKERS field retained under prior zero-delta/equivalence evidence",
+    "exchange": "not economically active",
+    "issuer": "strict-prior SEC CIK; unknown issuer is security singleton",
+    "sector": "strict-prior SEC CIK -> strict-prior SEC SIC -> FF12"
+  },
+  "replay_mode": "fullpit",
+  "research_embedded_commit": "c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c",
+  "research_strategy_source": "research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py",
+  "research_strategy_source_sha256": "3cb688aea8ebe5238b6b080fad012eef6bbc9df396e43252cbf336f651eb00e4",
+  "sells": 727,
+  "split_events_applied": 10435,
+  "spy": {
+    "cagr": 0.09247403221211403,
+    "end": "2026-07-31",
+    "ending_multiple": 12.52040559792173,
+    "max_drawdown": -0.5520185564591099,
+    "sessions": 7188,
+    "sharpe": 0.5546673774424093,
+    "start": "1998-01-02"
+  },
+  "status": "PASS",
+  "transition_counts": {
+    "A": 37,
+    "B": 24,
+    "control": 37
+  },
+  "warmup": {
+    "full_machine_state_carried": true,
+    "measured_warmup_sessions": 0,
+    "measurement_start": "1998-01-02",
+    "start": "1997-01-02"
+  },
+  "window": [
+    "1998-01-02",
+    "2026-07-31"
+  ]
+}
