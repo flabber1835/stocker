@@ -1,5 +1,5 @@
 {
-  "schema": "backtester.targeted-hedge-e8-preregistered-gate/1",
+  "schema": "backtester.targeted-hedge-e8-preregistered-gate/2",
   "status": "FROZEN_BEFORE_STAGE6_RESULT",
   "experiment_budget_before_e8": 7,
   "experiment_budget_limit": 10,
@@ -43,6 +43,8 @@
   "funding_contract": {
     "source": "Stage4 exact natural Wealth Core cash telemetry",
     "allowed": "active Wealth Core sleeve next-open unreserved cash after preserving pending Wealth Core admission",
+    "wealth_core_next_open_fills_have_first_claim": true,
+    "hedge_budget_cap": "minimum of prior-close next-open-unreserved estimate and actual cash remaining after Wealth Core next-open fills",
     "sentinel_defensive_cash_allowed": false,
     "forced_wealth_core_liquidation_allowed": false,
     "borrowing_or_margin_allowed": false,
@@ -62,7 +64,14 @@
     "required_before_e8": true,
     "history_boundary": "Alpaca historical option data available from February 2024 onward",
     "minimum_target_episodes": ["2024_JULAUG", "2025"],
-    "purpose": "test whether modeled executable premiums and hedge P&L are materially optimistic relative to observed option data",
+    "contract_selection": "for each modeled leg use the real put with expiration closest to the preregistered target DTE and strike closest to the preregistered strike ratio, determined without using subsequent option returns",
+    "observed_price_source": "Alpaca historical option daily bars for the selected real contracts",
+    "coverage_requirement": "observed bars must cover at least 80% of modeled entry premium notional in each required target episode",
+    "entry_cost_check": "observed first-trade daily-bar entry premium may be at most 15% above the conservative modeled executable entry premium for each required target episode in aggregate",
+    "exit_value_check": "observed first-trade daily-bar exit proceeds may be at most 15% below conservative modeled executable exit proceeds for each required target episode in aggregate",
+    "both_required_target_episodes_must_pass": true,
+    "feed_evidence": "record the Alpaca entitlement/feed actually returned; indicative data remains lower-grade evidence than OPRA and is labeled explicitly",
+    "purpose": "test whether modeled executable premiums and hedge proceeds are materially optimistic relative to observed option data",
     "failure_or_unavailability": "E8 remains closed"
   },
   "e8_open_rule": "E8 may be spent only after the modeled Stage6 gate and observed Stage7 gate both pass. Otherwise experiment budget remains 7/10.",
