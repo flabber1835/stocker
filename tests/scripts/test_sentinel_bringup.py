@@ -3,6 +3,7 @@ from __future__ import annotations
 import importlib.util
 import os
 from pathlib import Path
+import subprocess
 import sys
 
 import pytest
@@ -92,6 +93,39 @@ def test_post_recovery_unknown_state_fails_closed():
             {"status": "MAYBE", "reason_code": "UNKNOWN"})
 
 
+def _backup_status(code: str, *, returncode: int = 4):
+    return subprocess.CompletedProcess(
+        ["bash", "scripts/sentinel-backup-status.sh"],
+        returncode,
+        stdout="",
+        stderr=(
+            "SENTINEL_BACKUP_STATUS_REASON=%s\n"
+            "REFUSED: fixture backup status\n" % code),
+    )
+
+
+@pytest.mark.parametrize("code", sorted(bringup.backup_refresh._REPAIRABLE_CODES))
+def test_every_certified_repairable_backup_state_is_a_bringup_handoff(code):
+    decision = bringup.backup_decision(_backup_status(code))
+    assert decision.healthy is False
+    assert decision.repairable is True
+    assert decision.reason_code == code
+
+
+def test_structural_backup_failure_remains_a_bringup_refusal():
+    decision = bringup.backup_decision(_backup_status("ARCHIVE_MODE_DISABLED"))
+    assert decision.healthy is False
+    assert decision.repairable is False
+    assert decision.reason_code == "ARCHIVE_MODE_DISABLED"
+
+
+def test_unclassified_backup_failure_fails_closed():
+    with pytest.raises(bringup.BringupRefused, match="unclassified failure"):
+        bringup.backup_decision(subprocess.CompletedProcess(
+            ["bash", "scripts/sentinel-backup-status.sh"],
+            4, stdout="", stderr="unexpected failure\n"))
+
+
 def test_launcher_uses_go_lifecycle_lock_but_never_runs_certification_or_promotion():
     source = LAUNCHER.read_text(encoding="utf-8")
     assert "scripts/sentinel_go_lock.py" in source
@@ -114,6 +148,8 @@ def test_bringup_module_has_no_deployment_authority_surface():
         "SHADOW_GO",
         "DUAL_RUN_GO",
         "PAPER_EXECUTION_GO",
+        "ensure_recent_verified_base_backup(",
+        "sentinel-base-backup.sh",
     )
     for token in forbidden:
         assert token not in source
@@ -126,6 +162,13 @@ def test_recovery_is_explicit_and_reuses_reviewed_24x7_feed_bound_path():
     assert "entry.FeedBoundPreparationRunner" in source
     assert "go._without_broker_authority" in source
     assert "go_lock.lifecycle_lock_is_held" in source
+
+
+def test_repairable_backup_handoff_reuses_certified_go_classifier():
+    source = MODULE.read_text(encoding="utf-8")
+    assert "backup_refresh._repairable_reason" in source
+    assert 'READY_CERTIFIED_BACKUP_REFRESH = "BRINGUP_READY_FOR_CERTIFIED_BACKUP_REFRESH"' in source
+    assert "Fast bring-up will not mutate backup durability before exact" in source
 
 
 def test_ready_message_still_requires_official_go():
