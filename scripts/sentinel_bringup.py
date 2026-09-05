@@ -29,6 +29,7 @@ if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
 import sentinel_go_24x7_entry as source_final  # noqa: E402
+import sentinel_go_backup_refresh as backup_refresh  # noqa: E402
 import sentinel_go_lock as go_lock  # noqa: E402
 import sentinel_go_phase_controller as controller  # noqa: E402
 import sentinel_go_probe_contract as probe_contract  # noqa: E402
@@ -39,6 +40,7 @@ import sentinel_go_validate_entry as entry  # noqa: E402
 ROOT = Path(__file__).resolve().parents[1]
 READY = "BRINGUP_READY_FOR_CERTIFICATION"
 READY_RECOVERY = "BRINGUP_READY_FOR_RECOVERY"
+READY_CERTIFIED_BACKUP_REFRESH = "BRINGUP_READY_FOR_CERTIFIED_BACKUP_REFRESH"
 BLOCKED = "BRINGUP_BLOCKED"
 DATA_DONE_WAIT = "BRINGUP_DATA_RECOVERY_COMPLETE_WAIT_SOURCE_FINAL"
 
@@ -51,6 +53,13 @@ class BringupRefused(RuntimeError):
 class SourceDecision:
     proceed: bool
     status: str
+    reason_code: str
+
+
+@dataclass(frozen=True)
+class BackupDecision:
+    healthy: bool
+    repairable: bool
     reason_code: str
 
 
@@ -89,6 +98,28 @@ def post_recovery_source_decision(report: Mapping[str, object]) -> SourceDecisio
         "post-recovery Sharadar preflight returned an unknown state")
 
 
+def backup_decision(completed: subprocess.CompletedProcess) -> BackupDecision:
+    """Classify the read-only backup checkpoint using certified GO's contract.
+
+    Fast bring-up may diagnose a repairable durability state, but it must never
+    create a base backup itself: certified GO owns that mutation only after the
+    exact artifact suite has passed. Keeping the repairable-code source of truth
+    in ``sentinel_go_backup_refresh`` prevents the two launch paths from drifting
+    again.
+    """
+    if int(completed.returncode) == 0:
+        return BackupDecision(True, False, "BACKUP_HEALTHY")
+    repairable = backup_refresh._repairable_reason(completed)
+    if repairable is not None:
+        return BackupDecision(False, True, repairable)
+    reason = backup_refresh._status_reason(completed)
+    if reason is not None:
+        return BackupDecision(False, False, reason)
+    raise BringupRefused(
+        "backup durability checkpoint returned an unclassified failure (exit %d)"
+        % int(completed.returncode))
+
+
 def _print_source_report(report: Mapping[str, object], *, prefix: str) -> None:
     decision = source_decision(report)
     detail = readonly._safe_detail(report.get("detail"))
@@ -98,13 +129,6 @@ def _print_source_report(report: Mapping[str, object], *, prefix: str) -> None:
     if report.get("detail_sha256"):
         text += " [detail_sha256=%s]" % str(report["detail_sha256"])
     print(text, flush=True)
-
-
-def _run_visible(argv: Sequence[str], *, env: Mapping[str, str], label: str) -> None:
-    completed = subprocess.run(
-        [str(item) for item in argv], cwd=str(ROOT), env=dict(env), check=False)
-    if completed.returncode != 0:
-        raise BringupRefused("%s failed (exit %d)" % (label, completed.returncode))
 
 
 def _require_exact_main(runner: go.CommandRunner):
@@ -142,10 +166,34 @@ def _compose_and_database_ready(runner: go.CommandRunner, env: Mapping[str, str]
     return run_env, compose_args
 
 
-def _require_backup_ready(env: Mapping[str, str]) -> None:
-    _run_visible(
+def _backup_checkpoint(env: Mapping[str, str]) -> Optional[str]:
+    """Return a repairable reason or prove current backup durability.
+
+    Structural failures still block immediately. Repairable failures are handed
+    to certified GO after the remaining read-only bring-up diagnostics complete.
+    """
+    completed = subprocess.run(
         ["bash", "scripts/sentinel-backup-status.sh"],
-        env=env, label="backup durability checkpoint")
+        cwd=str(ROOT), env=go._without_broker_authority(dict(env)),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE,
+        text=True, check=False)
+    if completed.stdout:
+        sys.stdout.write(completed.stdout)
+        sys.stdout.flush()
+    if completed.stderr:
+        sys.stderr.write(completed.stderr)
+        sys.stderr.flush()
+    decision = backup_decision(completed)
+    if decision.healthy:
+        return None
+    if decision.repairable:
+        print(
+            "bring-up backup: REPAIRABLE - %s" % decision.reason_code,
+            flush=True,
+        )
+        return decision.reason_code
+    raise BringupRefused(
+        "%s - backup durability requires operator repair" % decision.reason_code)
 
 
 def _read_only_report(
@@ -247,7 +295,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         _run_env, compose_args = _compose_and_database_ready(runner, env)
 
         print("bring-up gate: backup durability", flush=True)
-        _require_backup_ready(env)
+        backup_repair_reason = _backup_checkpoint(env)
 
         print("bring-up gate: exact ordinary runtime", flush=True)
         runtime_ref = _runtime_for_commit(runner, env=env, commit=git.commit)
@@ -260,6 +308,21 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         if not decision.proceed:
             print("%s - %s" % (BLOCKED, decision.reason_code), flush=True)
             return 3
+
+        if backup_repair_reason is not None:
+            print(
+                "%s - %s" % (
+                    READY_CERTIFIED_BACKUP_REFRESH, backup_repair_reason),
+                flush=True,
+            )
+            print(
+                "Fast bring-up will not mutate backup durability before exact "
+                "artifact certification. Certified GO will create and verify a "
+                "fresh base backup before financial preparation. Run: "
+                "bash scripts/sentinel-go-validate.sh",
+                flush=True,
+            )
+            return 0
 
         if not args.recover:
             print("%s - %s" % (READY_RECOVERY, decision.reason_code), flush=True)
