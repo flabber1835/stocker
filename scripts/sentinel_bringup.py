@@ -55,7 +55,7 @@ class SourceDecision:
 
 
 def source_decision(report: Mapping[str, object]) -> SourceDecision:
-    """Map the read-only source report to a base bring-up action.
+    """Map the read-only source report to a pre-recovery bring-up action.
 
     The public launcher installs the wall-clock-independent overlay before
     calling ``main``. Without that reviewed overlay, DEFERRED remains a base
@@ -69,6 +69,24 @@ def source_decision(report: Mapping[str, object]) -> SourceDecision:
     if status in {"DEFERRED", "REFUSED"}:
         return SourceDecision(False, status, reason)
     raise BringupRefused("read-only Sharadar preflight returned an unknown state")
+
+
+def post_recovery_source_decision(report: Mapping[str, object]) -> SourceDecision:
+    """Require raw post-recovery source authority before certification readiness.
+
+    The install-anytime overlay may normalize a pre-recovery DEFERRED result so
+    bounded catch-up can run. That exception must not cross the recovery
+    boundary: only an actual raw PASS may advertise readiness for final GO
+    certification. DEFERRED, RECOVERY_REQUIRED, and REFUSED remain non-ready.
+    """
+    status = str(report.get("status") or "")
+    reason = str(report.get("reason_code") or "READONLY_PREFLIGHT_UNAVAILABLE")
+    if status == "PASS":
+        return SourceDecision(True, status, reason)
+    if status in {"DEFERRED", "RECOVERY_REQUIRED", "REFUSED"}:
+        return SourceDecision(False, status, reason)
+    raise BringupRefused(
+        "post-recovery Sharadar preflight returned an unknown state")
 
 
 def _print_source_report(report: Mapping[str, object], *, prefix: str) -> None:
@@ -264,7 +282,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         after = _read_only_report(
             runner, env=env, runtime_ref=runtime_ref, compose_args=compose_args)
         _print_source_report(after, prefix="post-recovery source")
-        final = source_decision(after)
+        final = post_recovery_source_decision(after)
         if final.status == "PASS":
             print(READY, flush=True)
             print(
