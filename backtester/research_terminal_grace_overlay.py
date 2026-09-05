@@ -39,8 +39,15 @@ def capacity_guard(
     *,
     security_id: str,
     session: str,
-) -> float:
-    """Apply Production's prior-20-volume executable-order capacity rule."""
+    defer_excess: bool = False,
+) -> float | None:
+    """Apply Production's prior-20-volume executable-order capacity rule.
+
+    A missing 20-session authority is always a certification failure. An order
+    above the 10% ceiling may be kept pending by the replay and retried on a
+    later session; this preserves the strategy's requested share quantity while
+    enforcing the execution-capacity boundary causally.
+    """
     history = [float(value) for value in list(prior_volumes)[-MIN_TRAILING_VOLUME_SESSIONS:]
                if _positive(value)]
     if len(history) < MIN_TRAILING_VOLUME_SESSIONS:
@@ -52,6 +59,8 @@ def capacity_guard(
     average = sum(history) / len(history)
     participation = float(shares) / average
     if participation > MAX_TRAILING_VOLUME_PARTICIPATION + 1e-15:
+        if defer_excess:
+            return None
         raise ResearchFinancialGradeError(
             f"capacity ceiling exceeded on {session} {security_id}: "
             f"participation={participation:.4%} > "
@@ -265,7 +274,8 @@ def install(text: str) -> str:
                     book.cash+=s.qty*float(px)*(1-COST); sells+=1
 """
     new_sell_guard = """                if finite(px) and px>0 and finite(volume[s.tid]) and volume[s.tid]>0:
-                    _research_capacity_guard(s.qty,_capacity_volumes.get(int(s.tid),()),security_id=str(sid[int(s.tid)]),session=ds)
+                    if _research_capacity_guard(s.qty,_capacity_volumes.get(int(s.tid),()),security_id=str(sid[int(s.tid)]),session=ds,defer_excess=True) is None:
+                        continue
                     book.cash+=s.qty*float(px)*(1-COST); sells+=1
 """
     text = _replace_once(text, old_sell_guard, new_sell_guard, "exit capacity guard")
@@ -274,7 +284,8 @@ def install(text: str) -> str:
                     afford=math.floor(book.cash/(float(px)*(1+COST))); q=min(int(round(s.pending_shares)),afford)
 """
     new_buy_guard = """                if finite(px) and px>0 and finite(volume[tid]) and volume[tid]>0:
-                    _research_capacity_guard(s.pending_shares,_capacity_volumes.get(int(tid),()),security_id=str(sid[int(tid)]),session=ds)
+                    if _research_capacity_guard(s.pending_shares,_capacity_volumes.get(int(tid),()),security_id=str(sid[int(tid)]),session=ds,defer_excess=True) is None:
+                        continue
                     afford=math.floor(book.cash/(float(px)*(1+COST))); q=min(int(round(s.pending_shares)),afford)
 """
     text = _replace_once(text, old_buy_guard, new_buy_guard, "entry capacity guard")
@@ -340,6 +351,7 @@ def install(text: str) -> str:
         "_research_exact_terminal_economics(",
         "_research_capacity_guard(s.qty",
         "_research_capacity_guard(s.pending_shares",
+        "defer_excess=True",
         "_capacity_volumes[int(_tid0)]",
     )
     missing = [needle for needle in required if needle not in text]
