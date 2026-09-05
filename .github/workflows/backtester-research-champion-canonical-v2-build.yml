@@ -1,0 +1,252 @@
+name: Backtester - Research Champion rebuild canonical PIT v2
+run-name: Research Champion canonical PIT v2 rebuild — ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - research/research-champion
+    paths:
+      - '.github/workflows/backtester-research-champion-canonical-v2-build.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: write
+  packages: write
+
+concurrency:
+  group: backtester-research-champion-canonical-v2-build
+  cancel-in-progress: false
+
+jobs:
+  build_publish:
+    name: Build, certify, and pin canonical PIT v2 on Champion branch
+    if: github.ref_name == 'research/research-champion'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2026-07-31'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Check out exact reconstruction source and frozen authorities
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: true
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-research-champion-canonical-v2-build.yml
+            /backtester/canonical_pit_dataset.py
+            /backtester/canonical_pit_package.py
+            /backtester/canonical-pit.Dockerfile
+            /backtester/strict_pit_metadata.py
+            /backtester/causal_split_overrides.py
+            /backtester/causal_terminal_terms.py
+            /backtester/historical_cash.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/canonical-pit-20y.json
+            /backtester/data/causal-split-overrides-v1.json
+            /backtester/data/causal-split-overrides-v1.SHA256
+            /backtester/data/causal-split-overrides-v1.d/**
+            /backtester/data/causal-terminal-terms-v1.json
+            /backtester/data/causal-terminal-terms-v1.SHA256
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /backtester/data/production-chain-generation*.json
+            /tests/backtester/test_canonical_pit_dataset.py
+            /research/sentinel-fastgate/pit-evidence/ff12_sic_definition.txt
+            /research/sentinel-fastgate/pit-evidence/generated/**
+            /PIT input data/MANIFEST.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /PIT input data/PRICE_RECONSTRUCTION_MANIFEST.csv
+            /PIT input data/SFP_SPY_BIL_PRICE_FACTORS_PIT_ONLY.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SFP/**
+
+      - name: Prove isolated reconstruction identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/research-champion"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+          echo "BACKTESTER_BRANCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Reconstruct frozen SFP archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          parts=(sharadar/SFP/SHARADAR_SFP.zip.*)
+          test "${#parts[@]}" -ge 1
+          cat "${parts[@]}" > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+
+      - name: Check out pinned runtime closure read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Verify pinned runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C main-src rev-parse HEAD)" = "887f479b15ad861313da666ad698034d3847121c"
+          test -z "$(git -C main-src status --porcelain)"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen reconstruction runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Compile and test reconstruction contract
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/canonical_pit_dataset.py backtester/canonical_pit_package.py
+          python -m unittest tests.backtester.test_canonical_pit_dataset -v
+          python - <<'PY'
+          from backtester.canonical_pit_dataset import SCHEMA
+          if SCHEMA != 'backtester.canonical-pit-dataset/2':
+              raise SystemExit(f'expected canonical v2 reconstruction code, got {SCHEMA!r}')
+          print('[CANONICAL_V2_SOURCE] PASS')
+          PY
+
+      - name: Build and certify full-window canonical PIT v2 dataset
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANONICAL_PATH=backtester-results/canonical-pit-20y-v2
+          mkdir -p backtester-results
+          set +e
+          python backtester/canonical_pit_dataset.py build \
+            --output "${CANONICAL_PATH}" \
+            --warmup-start "${CERTIFICATION_WARMUP_START}" \
+            --measurement-start "${CERTIFICATION_MEASUREMENT_START}" \
+            --end "${CERTIFICATION_END_SESSION}" \
+            2>&1 | tee canonical-pit-20y-v2.log
+          BUILD_RC=${PIPESTATUS[0]}
+          set -e
+          if [[ "${BUILD_RC}" -eq 0 ]]; then
+            python backtester/canonical_pit_dataset.py validate --dataset "${CANONICAL_PATH}"
+          elif [[ "${BUILD_RC}" -eq 2 && -f "${CANONICAL_PATH}/manifest.json" ]]; then
+            python backtester/canonical_pit_dataset.py validate --dataset "${CANONICAL_PATH}" --allow-failed
+            echo 'Canonical v2 certification gate reported blockers; publication refused.' >&2
+            exit 2
+          else
+            exit "${BUILD_RC}"
+          fi
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          m=json.loads(Path('backtester-results/canonical-pit-20y-v2/manifest.json').read_text())
+          assert m['schema'] == 'backtester.canonical-pit-dataset/2', m['schema']
+          assert m['status'] == 'PASS', m.get('blockers')
+          assert m['reconstruction_code_sha'] == os.environ['GITHUB_SHA'], (m['reconstruction_code_sha'], os.environ['GITHUB_SHA'])
+          print('[CANONICAL_V2_BUILD] PASS', m['dataset_hash'])
+          PY
+
+      - name: Publish content-addressed canonical PIT v2 package
+        id: package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          CANONICAL_PATH=backtester-results/canonical-pit-20y-v2
+          DATASET_HASH=$(python -c "import json; print(json.load(open('${CANONICAL_PATH}/manifest.json'))['dataset_hash'])")
+          IMAGE="ghcr.io/flabber1835/stocker-canonical-pit:strict-pit-v2-${DATASET_HASH}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker build \
+            --file backtester/canonical-pit.Dockerfile \
+            --build-arg SOURCE_REPOSITORY="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}" \
+            --build-arg DATASET_HASH="${DATASET_HASH}" \
+            --tag "${IMAGE}" \
+            "${CANONICAL_PATH}"
+          docker push "${IMAGE}"
+          docker pull "${IMAGE}"
+          PACKAGE=$(docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}")
+          case "${PACKAGE}" in
+            ghcr.io/flabber1835/stocker-canonical-pit@sha256:*) ;;
+            *) echo "unexpected package digest: ${PACKAGE}" >&2; exit 1 ;;
+          esac
+          echo "package=${PACKAGE}" >> "${GITHUB_OUTPUT}"
+          echo "dataset_hash=${DATASET_HASH}" >> "${GITHUB_OUTPUT}"
+
+      - name: Pin admitted canonical PIT v2 pointer on Champion branch only
+        shell: bash
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          python backtester/canonical_pit_package.py write \
+            --dataset backtester-results/canonical-pit-20y-v2 \
+            --output "${POINTER}" \
+            --package "${PACKAGE}" \
+            --source-run-id "${GITHUB_RUN_ID}" \
+            --source-run-url "${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/actions/runs/${GITHUB_RUN_ID}"
+          python backtester/canonical_pit_package.py verify \
+            --pointer "${POINTER}" \
+            --dataset backtester-results/canonical-pit-20y-v2
+          git add -- "${POINTER}"
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git commit -m "data(backtester): pin Research Champion canonical PIT v2 ${{ steps.package.outputs.dataset_hash }}"
+          git fetch origin research/research-champion:refs/remotes/origin/research/research-champion
+          test "$(git rev-parse HEAD^)" = "$(git rev-parse origin/research/research-champion)"
+          git push origin HEAD:research/research-champion
+
+      - name: Upload immutable v2 reconstruction evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: research-champion-canonical-pit-v2-${{ github.run_id }}
+          path: |
+            backtester-results/canonical-pit-20y-v2/manifest.json
+            backtester-results/canonical-pit-20y-v2/SHA256SUMS.txt
+            backtester-results/canonical-pit-20y-v2/session-hashes.csv
+            canonical-pit-20y-v2.log
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
+
+      - name: Write canonical v2 publication summary
+        if: success()
+        shell: bash
+        env:
+          PACKAGE: ${{ steps.package.outputs.package }}
+          DATASET_HASH: ${{ steps.package.outputs.dataset_hash }}
+        run: |
+          set -euo pipefail
+          {
+            echo '## Research Champion canonical PIT v2 published'
+            echo
+            echo "Dataset hash: \`${DATASET_HASH}\`"
+            echo
+            echo "Package: \`${PACKAGE}\`"
+            echo
+            echo "Reconstruction SHA: \`${GITHUB_SHA}\`"
+            echo
+            echo 'Pointer updated only on `research/research-champion`.'
+          } >> "${GITHUB_STEP_SUMMARY}"
