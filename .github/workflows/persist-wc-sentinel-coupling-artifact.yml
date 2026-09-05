@@ -84,7 +84,7 @@ jobs:
           set -euo pipefail
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$TARGET_DIR"
+          git add -f "$TARGET_DIR"
           git diff --cached --check
           git commit -m 'research(backtester): persist WC Sentinel coupling diagnostic bundle'
           git push origin HEAD:"$GITHUB_REF_NAME"
