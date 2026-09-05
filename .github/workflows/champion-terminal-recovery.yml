@@ -1,0 +1,226 @@
+name: Research Champion - terminal lifecycle recovery
+run-name: Champion terminal recovery - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-terminal-lifecycle-fix]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+  actions: read
+jobs:
+  recovery:
+    name: Exact Champion regression, replay, and certification evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      PYTHONUNBUFFERED: '1'
+      PIT_OFFICIAL_BACKTEST: '1'
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2026-07-31'
+      PIT_PARAMETERS_JSON: '{"entrypoint":"run_research_champion_terminal_pit_20y.py","mode":"fullpit","profile":"strategy9-e3-research-champion-v1","LDRC_REC":8,"LDRC_R20":-0.085,"LDRC_V":0.11,"LDRC_DD":-0.10,"divergence_spy_floor":0.0,"full_recovery_r40_floor":0.0,"FAST_damaged":0.88,"healthy_damaged_ceiling":0.63,"runtime_main_sha":"887f479b15ad861313da666ad698034d3847121c","terminal_grace":true,"terminal_lifecycle":"canonical-event-close-retirement-v1","certification_contract":"backtester.pit-certification/1"}'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/**
+            /backtester/**
+            /services/backtester/**
+            /services/bt-engine/Dockerfile
+            /tools/**
+            /tests/conftest.py
+            /tests/backtester/**
+            /tests/support/**
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /research/strategy9-e3-broad-stability/**
+            /PIT input data/SEC_SECURITY_TYPE_POSITIVE_EVIDENCE.csv.gz
+            /PIT input data/SEC_SECURITY_TYPE_MANUAL_ADMISSION_AUDIT.csv
+            /pytest.ini
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          persist-credentials: false
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+      - name: Verify exact source and runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test -z "$(git -C main-src status --porcelain)"
+          mkdir -p recovery-evidence/replay recovery-evidence/suite recovery-evidence/final
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Install frozen runtime and test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install -r services/backtester/requirements.txt pytest==8.4.2
+      - name: Terminal regression and complete Champion source assembly
+        id: assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/backtester -p test_research_terminal_lifecycle.py -v 2>&1 | tee recovery-evidence/terminal-tests.log
+          python backtester/run_research_champion_terminal_pit_20y.py --self-test-imports
+          python - <<'PY'
+          from pathlib import Path
+          from backtester import run_research_champion_terminal_pit_20y as fixed
+          src=fixed._terminal_aware_source('fullpit',Path('recovery-evidence/replay'))
+          compile(src,'<fully-assembled-champion>','exec')
+          assert "pend['control']=a_d" in src
+          assert '_lead_return(' in src
+          assert "_retired_tids.update" in src
+          assert "defer_excess=True" in src
+          Path('recovery-evidence/generated-champion.py').write_text(src)
+          print('[CHAMPION_ASSEMBLY] PASS')
+          PY
+      - name: Full backtester tests on exact pinned runtime
+        id: tests
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          env -u CANONICAL_PIT_DATASET python -m backtester.research_pinned_suite tests -q tests/backtester 2>&1 | tee recovery-evidence/suite/tests.log
+      - name: Pull and verify immutable canonical PIT package
+        id: package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "${cid}:/canonical-pit/." canonical-pit/
+          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset canonical-pit | tee recovery-evidence/package-verification.json
+          cp "${POINTER}" recovery-evidence/canonical-pit-pointer.json
+      - name: Freeze schema-v2 Champion identity
+        id: identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/certify_research_champion.py identity --mode research --source-sha "${GITHUB_SHA}" --strategy-sha "${GITHUB_SHA}" --workflow-sha "${GITHUB_SHA}" --pointer backtester/data/canonical-pit-20y.json --parameters-json "${PIT_PARAMETERS_JSON}" --source-root . --output recovery-evidence/experiment-identity.json
+      - name: Audit canonical universe and terminal authority
+        id: audit
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/certify_research_champion.py audit-dataset --dataset canonical-pit --pointer backtester/data/canonical-pit-20y.json --output recovery-evidence/suite/dataset-audit.json 2>&1 | tee recovery-evidence/suite/dataset-audit.log
+      - name: Run corrected exact Champion full 20 years
+        id: replay
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/run_research_champion_terminal_pit_20y.py --mode fullpit --output recovery-evidence/replay 2>&1 | tee recovery-evidence/champion-replay.log
+      - name: Supplemental pinned-Production future-poison and truncation tests
+        id: dynamic
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m backtester.research_pinned_suite future --dataset canonical-pit --output recovery-evidence/suite/dynamic-future-leak.json --require-real-replay 2>&1 | tee recovery-evidence/suite/dynamic-future-leak.log
+      - name: Seal replay evidence
+        if: ${{ steps.replay.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          set -euo pipefail
+          checkpoint=FAIL
+          if test "${TEST_OUTCOME}" = success; then checkpoint=PASS; fi
+          python backtester/certify_research_champion.py collect-replay --identity recovery-evidence/experiment-identity.json --output-root recovery-evidence/replay --checkpoint-resume "${checkpoint}" --output recovery-evidence/replay/pit-replay-evidence.json
+      - name: Join strict certification evidence
+        if: ${{ always() && steps.identity.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        env:
+          TEST_OUTCOME: ${{ steps.tests.outcome }}
+        run: |
+          set -euo pipefail
+          financial=FAIL
+          if test "${TEST_OUTCOME}" = success; then financial=PASS; fi
+          # Existing real-kernel probes cover pinned Production. Champion needs
+          # its own exact generated-engine poison/truncation proof.
+          python backtester/certify_research_champion.py collect-tests --identity recovery-evidence/experiment-identity.json --dataset-audit recovery-evidence/suite/dataset-audit.json --static-forward-bias "${financial}" --dynamic-future-leak FAIL --runtime-causal-read-boundary FAIL --financial-semantics "${financial}" --checkpoint-resume "${financial}" --diagnostics recovery-evidence/suite/dynamic-future-leak.json --output recovery-evidence/suite/pit-test-evidence.json
+      - name: Issue authoritative certification result
+        if: ${{ always() && steps.identity.outcome == 'success' }}
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          args=()
+          test ! -f recovery-evidence/replay/pit-replay-evidence.json || args+=(--replay-evidence recovery-evidence/replay/pit-replay-evidence.json)
+          test ! -f recovery-evidence/suite/pit-test-evidence.json || args+=(--test-evidence recovery-evidence/suite/pit-test-evidence.json)
+          python backtester/certify_research_champion.py finalize --identity recovery-evidence/experiment-identity.json --dataset canonical-pit --pointer backtester/data/canonical-pit-20y.json "${args[@]}" --replay-job-result "${{ steps.replay.outcome }}" --tests-job-result "${{ steps.tests.outcome }}" --output recovery-evidence/final/pit-certification.json --summary-output recovery-evidence/final/pit-certification-summary.txt
+      - name: Summarize actual step outcomes
+        if: always()
+        shell: bash
+        env:
+          ASSEMBLY: ${{ steps.assembly.outcome }}
+          TESTS: ${{ steps.tests.outcome }}
+          AUDIT: ${{ steps.audit.outcome }}
+          REPLAY: ${{ steps.replay.outcome }}
+          DYNAMIC: ${{ steps.dynamic.outcome }}
+        run: |
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          keys=('ASSEMBLY','TESTS','AUDIT','REPLAY','DYNAMIC')
+          result={k:os.environ.get(k,'unknown') for k in keys}
+          result['champion_dynamic_scope']='PENDING_EXACT_CHAMPION_ENGINE_PROOF'
+          result['source_sha']=os.environ['GITHUB_SHA']
+          Path('recovery-evidence').mkdir(exist_ok=True)
+          Path('recovery-evidence/outcomes.json').write_text(json.dumps(result,indent=2)+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Exact-head Champion recovery\n\n')
+              for k,v in result.items(): f.write(f'{k}: **{v}**\n\n')
+          PY
+      - name: Upload immutable evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-terminal-recovery-${{ github.run_id }}-${{ github.run_attempt }}
+          path: recovery-evidence/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Enforce PIT CERTIFIED
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          files=list(Path('recovery-evidence/final').glob('*.json'))
+          results=[json.loads(p.read_text()) for p in files]
+          assert any(r.get('status')=='PIT_CERTIFIED' for r in results), 'PIT NOT CERTIFIED: inspect retained outcomes, dataset audit, and exact-Champion dynamic scope'
+          PY
