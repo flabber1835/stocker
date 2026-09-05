@@ -32,7 +32,7 @@ def test_backup_shell_contracts_are_syntax_valid():
 def test_completed_backup_namespace_is_published_only_after_recovery_proof():
     source = _read(BASE)
     pg_verify = source.index("pg_verifybackup")
-    wal_proof = source.index('test -f "/sentinel-backup/wal/$wal"')
+    wal_proof = source.index('test -f "/sentinel-backup/wal/$namespace/$wal"')
     marker_publish = source.index(
         'metadata="/sentinel-backup/base/$name/sentinel-recovery-marker"')
     marker_sync = source.index('sync "$metadata"', marker_publish)
@@ -42,6 +42,9 @@ def test_completed_backup_namespace_is_published_only_after_recovery_proof():
     namespace_sync = source.index("sync -f /sentinel-backup/base", final_publish)
 
     assert 'STAGING=".$NAME.part-$$"' in source
+    assert 'WAL_NAMESPACE="cluster-$SYSTEM_ID"' in source
+    assert "schema=sentinel.base-backup-pitr/2" in source
+    assert "system_identifier=%s" in source
     assert pg_verify < wal_proof < marker_publish < marker_sync < final_publish
     assert final_publish < namespace_sync
     assert 'test ! -e "/sentinel-backup/base/$final"' in source
@@ -57,30 +60,41 @@ def test_hidden_staging_is_ignored_and_reaped_under_the_backup_lock():
     assert 'case "$staging" in .base-*.part-*)' in source
 
 
-def test_status_selects_newest_complete_backup_only():
+def test_status_selects_newest_complete_backup_for_current_cluster_only():
     source = _read(STATUS)
     assert "COMPLETED_NAME_RE='^base-[0-9]{8}T[0-9]{6}Z$'" in source
     candidate_sort = 'grep -E "$COMPLETED_NAME_RE" | sort -r'
     manifest = 'test -f "/sentinel-backup/base/$name/backup_manifest"'
     marker = 'test -f "/sentinel-backup/base/$name/sentinel-recovery-marker"'
     assignment = 'NAME="$CANDIDATE"'
+    assert "pg_control_system()" in source
+    assert 'WAL_NAMESPACE="cluster-$SYSTEM_ID"' in source
+    assert "backup_matches_current_cluster" in source
+    assert 'sed -n "s/^system_identifier=//p"' in source
+    assert "BASE_BACKUP_SYSTEM_ID_MISMATCH" in source
+    assert "WAL_NAMESPACE_MISSING" in source
     assert candidate_sort in source
     assert manifest in source and marker in source and assignment in source
     assert source.index(candidate_sort) > source.index(manifest)
     assert source.index(manifest) < source.index(assignment)
     assert source.index(marker) < source.index(assignment)
-    assert "no complete base backup exists" in source
+    assert "no complete base backup exists for the current PostgreSQL cluster" in source
     assert "SENTINEL_BACKUP_STATUS_REASON=" in source
     assert "WAL_ARCHIVE_UNRESOLVED_FAILURE" in source
 
 
-def test_restore_selects_newest_complete_backup_only():
+def test_restore_binds_new_backup_to_system_id_namespace_and_keeps_legacy_read_only():
     source = _read(RESTORE)
     assert "COMPLETED_NAME_RE='^base-[0-9]{8}T[0-9]{6}Z$'" in source
     assert '[[ "$NAME" =~ $COMPLETED_NAME_RE ]]' in source
     assert 'grep -E "$COMPLETED_NAME_RE" | sort -r' in source
     assert 'test -f "/sentinel-backup/base/$name/backup_manifest"' in source
     assert 'test -f "/sentinel-backup/base/$name/sentinel-recovery-marker"' in source
+    assert 'system_id="$(sed -n "s/^system_identifier=//p" "$file")"' in source
+    assert 'WAL_SOURCE="$BACKUP_ROOT/wal/cluster-$SYSTEM_ID"' in source
+    assert 'WAL_SOURCE="$BACKUP_ROOT/wal"' in source
+    assert '-v "$WAL_SOURCE:/archive:ro"' in source
+    assert "cluster-specific WAL namespace is unavailable for backup" in source
     assert "no complete base backup exists" in source
     assert '-name "base-*"' not in source
     assert 'case "$NAME" in base-*)' not in source
