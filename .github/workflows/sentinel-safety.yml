@@ -160,8 +160,11 @@ jobs:
       - name: Run the complete Sentinel suite without network access
         run: |
           set -euo pipefail
+          mkdir -p /tmp/sentinel-system-evidence
           set +e
-          docker run --rm --network none sentinel-test:ci \
+          docker run --rm --network none \
+            -v /tmp/sentinel-system-evidence:/evidence \
+            sentinel-test:ci --junitxml=/evidence/sentinel.xml \
             tests/sentinel -q -ra 2>&1 | tee /tmp/sentinel-complete.txt
           test_status=${PIPESTATUS[0]}
           set -e
@@ -175,6 +178,24 @@ jobs:
             echo 'REFUSED: the complete Sentinel run skipped tests' >&2
             exit 1
           fi
+
+      - name: Build system adversarial evidence
+        if: always()
+        run: |
+          python tools/sentinel_adversarial_evidence.py \
+            --junit /tmp/sentinel-system-evidence/sentinel.xml \
+            --output /tmp/sentinel-system-evidence/report.json \
+            --repo . \
+            --tested-sha "${TESTED_SHA}"
+
+      - name: Retain system adversarial evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sentinel-system-${{ matrix.scope }}-${{ env.TESTED_SHA }}
+          path: /tmp/sentinel-system-evidence
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Run operator and bring-up script tests without network access
         run: |
@@ -265,6 +286,26 @@ jobs:
           else
             git diff --check HEAD^ HEAD
           fi
+
+      - name: Kill reviewed production mutants
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sentinel-mutation-evidence
+          docker run --rm --network none \
+            -e TESTED_SHA="${TESTED_SHA}" \
+            -v /tmp/sentinel-mutation-evidence:/evidence \
+            --entrypoint python sentinel-test:ci \
+            /work/tools/sentinel_mutation_certify.py \
+            --output /evidence/report.json
+
+      - name: Retain mutation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sentinel-mutation-${{ matrix.scope }}-${{ env.TESTED_SHA }}
+          path: /tmp/sentinel-mutation-evidence/report.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Export the exact tested OCI image for protected publication
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
