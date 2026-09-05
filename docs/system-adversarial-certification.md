@@ -43,6 +43,14 @@ the production transition.
 `Existing` does not mean complete. The coverage map must name the exact test and
 the exact claim; nearby tests do not inherit authority.
 
+The assembled-day gate begins with a known Wealth Core book and a published
+production session, advances the canonical kernel, serializes and restores its
+state, constructs the immutable next-open plan, submits through the typed broker
+port, fills, reconciles, reconnects PostgreSQL, and proves the repeated session
+submits nothing. This closes the stale `test_system_simulation` limitation that
+covered the controller/execution half without wiring the production Wealth Core
+transition into the same scenario.
+
 ## Process-death tranche
 
 Logical exceptions prove transaction rollback, but they do not prove that a
@@ -118,6 +126,11 @@ CI runs inside the pinned Sentinel test image with networking disabled. No skip
 is a pass. Local runs without PostgreSQL or Docker are diagnostic only and must
 be reported separately from the authoritative exact-head and synthetic-merge
 jobs.
+
+The CI report is an `offline_ci_software` certificate. It always carries four
+explicit external statuses: authoritative Sharadar full history, historical
+metadata causality, the NAS resource envelope, and the Alpaca expected/observed
+paper ledger. None can become PASS from an offline CI result.
 
 ## Safety boundary
 

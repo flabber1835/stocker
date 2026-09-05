@@ -11,7 +11,11 @@ from pathlib import Path
 
 
 LAYERS = {
-    "end_to_end": ("test_system_simulation", "test_production_decision"),
+    "contract": ("test_execution_contract", "test_pit_clock_contract"),
+    "end_to_end": (
+        "test_full_production_trading_day", "test_system_simulation",
+        "test_production_decision",
+    ),
     "fault_recovery": (
         "test_process_death_recovery", "test_adversarial_scenario",
         "test_production_outage_recovery", "test_reboot_outage_recovery",
@@ -25,6 +29,8 @@ LAYERS = {
         "test_controller_certification", "test_breadth_classifier",
         "test_forward_chain_certification",
     ),
+    "historical_replay": ("test_historical_stress_checkpoints",),
+    "performance_load": ("test_ingest_memory", "test_resource_envelope"),
     "deployment_recovery": (
         "test_image_layout", "test_automation_deployment",
         "test_backup_contract", "test_adapter_and_recovery_drill",
@@ -105,15 +111,17 @@ def main() -> int:
     nonpasses = [case for case in cases if case["status"] != "passed"]
     required_layers_present = all(
         layers[name]["tests"] > 0
-        for name in ("end_to_end", "fault_recovery", "generated_invariants",
-                     "point_in_time", "differential_golden",
-                     "deployment_recovery", "shadow")
+        for name in ("contract", "end_to_end", "fault_recovery",
+                     "generated_invariants", "point_in_time",
+                     "differential_golden", "historical_replay",
+                     "performance_load", "deployment_recovery", "shadow")
     )
     passed = bool(cases) and not harness_error and not nonpasses \
         and required_layers_present
 
     evidence = {
         "schema": "sentinel.system-adversarial-certification/1",
+        "certification_scope": "offline_ci_software",
         "tested_sha": args.tested_sha,
         "head_sha": _git(repo, "rev-parse", "HEAD"),
         "tree_sha": _git(repo, "rev-parse", "HEAD^{tree}"),
@@ -129,6 +137,12 @@ def main() -> int:
         "layers": layers,
         "required_layers_present": required_layers_present,
         "generated_seeds": list(range(8)),
+        "external_evidence": {
+            "authoritative_sharadar_full_history": "NAS_REQUIRED_NOT_RUN",
+            "historical_metadata_causality": "NOT_CLAIMED",
+            "nas_resource_envelope": "NAS_REQUIRED_NOT_RUN",
+            "alpaca_expected_observed_shadow": "PAPER_ACCOUNT_REQUIRED_NOT_RUN",
+        },
         "harness_error": harness_error or None,
         "certification_passed": passed,
     }
