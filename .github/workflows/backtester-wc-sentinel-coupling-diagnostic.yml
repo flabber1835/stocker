@@ -1,0 +1,155 @@
+name: Backtester - WC Sentinel coupling diagnostic
+
+run-name: WC→Sentinel coupling diagnostic — ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - research/backtester-wc-sentinel-coupling-diagnostic
+    paths:
+      - '.github/workflows/backtester-wc-sentinel-coupling-diagnostic.yml'
+      - 'backtester/diagnose_wc_sentinel_coupling_e5.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wc-sentinel-coupling-diagnostic-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  OUT_DIR: backtester-results/wc-sentinel-coupling-diagnostic
+
+jobs:
+  diagnostic:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Check out exact diagnostic head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-wc-sentinel-coupling-diagnostic.yml
+            /backtester/diagnose_wc_sentinel_coupling_e5.py
+            /backtester/experiment_wc_deterioration_second_review_e5.py
+            /backtester/experiment_architecture_recovery_concordance_e3.py
+            /backtester/calibrate_broad_simplified_breadth.py
+            /backtester/experiment2_broad_independent_correlation.py
+            /backtester/run_r1000_correlation_peers.py
+            /backtester/run_research_ldrc_corrected_warmup_cash.py
+            /backtester/run_research_ldrc_nonpit_vs_fullpit.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
+            /backtester/data/GS3M_1996-12_2007-05.csv
+            /PIT input data/ACTIONS_PIT_ONLY.csv.gz
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Compile diagnostic harness
+        run: |
+          python -m py_compile \
+            backtester/diagnose_wc_sentinel_coupling_e5.py \
+            backtester/experiment_wc_deterioration_second_review_e5.py \
+            backtester/experiment_architecture_recovery_concordance_e3.py \
+            backtester/calibrate_broad_simplified_breadth.py \
+            backtester/experiment2_broad_independent_correlation.py \
+            backtester/run_research_ldrc_corrected_warmup_cash.py \
+            backtester/run_research_ldrc_nonpit_vs_fullpit.py
+
+      - name: Assemble pinned SFP archive
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Run fresh zero-budget coupling diagnostic
+        env:
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python -m backtester.diagnose_wc_sentinel_coupling_e5 --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c SENTINEL_COUPLING_SHA256SUMS.txt)
+
+      - name: Validate diagnostic contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR'])
+          s=json.loads((out/'sentinel_coupling_summary.json').read_text())
+          e=pd.read_csv(out/'sentinel_coupling_episodes.csv')
+          p=pd.read_csv(out/'sentinel_threshold_predicates.csv')
+          x=pd.read_csv(out/'e5_exit_signal_events.csv')
+          assert s['status']=='PASS'
+          assert s['evidence_label']=='ZERO_BUDGET_E5_WEALTH_CORE_SENTINEL_COUPLING_DIAGNOSTIC'
+          assert s['economic_experiment_budget_delta']==0
+          assert s['experiment_budget_consumed']==5
+          assert s['fresh_control_e3_parity']=='PASS'
+          assert s['fresh_e5_replay_parity']=='PASS'
+          assert s['allocation_divergence_episodes']==13 == len(e) == len(p)
+          assert s['e5_deterioration_exit_signals']==14 == len(x)
+          c=s['causal_contract']
+          assert c['observational_only'] is True
+          assert c['telemetry_only_source_changes'] is True
+          assert c['new_economic_thresholds']==0
+          assert c['new_candidate_rules']==0
+          assert e.sessions.sum()==s['allocation_divergence_sessions']
+          print(e.to_string(index=False))
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Publish diagnostic summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR'])
+          if not (out/'sentinel_coupling_summary.json').exists():
+              raise SystemExit(0)
+          s=json.loads((out/'sentinel_coupling_summary.json').read_text())
+          e=pd.read_csv(out/'sentinel_coupling_episodes.csv')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Zero-budget Wealth Core → Sentinel coupling diagnostic\n\n')
+              f.write('Economic experiment budget delta: **0**; budget remains **5/10**.\n\n')
+              f.write(f"Allocation-divergence episodes: **{s['allocation_divergence_episodes']}** across **{s['allocation_divergence_sessions']}** sessions.\n\n")
+              f.write(f"FAST cliffs: **{s['fast_signal_cliffs']}**; SLOW cliffs: **{s['slow_signal_cliffs']}**; recovery-release timing episodes: **{s['recovery_release_timing_episodes']}**.\n\n")
+              f.write('| Ep | Decision | Start | End | Sessions | Cause | Changed predicates | E5-E3 controlled | E5-E3 core |\n')
+              f.write('|---:|---|---|---|---:|---|---|---:|---:|\n')
+              for r in e.itertuples(index=False):
+                  f.write(f'| {r.episode} | {r.decision_date} | {r.start} | {r.end} | {r.sessions} | {r.cause_family} | {r.changed_threshold_predicates} | {r.e5_minus_e3_controlled_return:.2%} | {r.e5_minus_e3_core_return:.2%} |\n')
+          PY
+
+      - name: Upload immutable diagnostic bundle
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wc-sentinel-coupling-diagnostic-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: warn
+          retention-days: 90
