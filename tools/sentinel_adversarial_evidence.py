@@ -20,7 +20,14 @@ LAYERS = {
         "test_process_death_recovery", "test_adversarial_scenario",
         "test_production_outage_recovery", "test_reboot_outage_recovery",
     ),
+    "combined_fault_injection": (
+        "test_combined_fault_injection_converges_and_replays_exactly",
+        "test_unknown_command_blocks_overlap_after_database_restart",
+        "test_cancel_outage_ignored_cancel_and_fill_race_converge_after_restart",
+        "test_process_death_recovery",
+    ),
     "generated_invariants": ("test_generated_economic_sequences",),
+    "state_machine_model": ("test_execution_state_machine_model",),
     "point_in_time": (
         "test_production_state", "test_corpus_snapshot_stability",
         "test_corpus_visibility", "test_feed_universe",
@@ -112,7 +119,9 @@ def main() -> int:
     required_layers_present = all(
         layers[name]["tests"] > 0
         for name in ("contract", "end_to_end", "fault_recovery",
-                     "generated_invariants", "point_in_time",
+                     "combined_fault_injection",
+                     "generated_invariants", "state_machine_model",
+                     "point_in_time",
                      "differential_golden", "historical_replay",
                      "performance_load", "deployment_recovery", "shadow")
     )
