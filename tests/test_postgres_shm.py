@@ -1,4 +1,4 @@
-"""Both Postgres services must raise /dev/shm above Docker's default.
+"""PostgreSQL server services must raise /dev/shm above Docker's default.
 
 THE FAILURE THIS PREVENTS. Docker gives a container 64MB of /dev/shm, and
 PostgreSQL allocates the per-worker segments a PARALLEL query needs there. On a
@@ -26,6 +26,7 @@ ROOT = pathlib.Path(__file__).resolve().parents[1]
 
 # Docker's default, in bytes. A container at or below this is unconfigured.
 DOCKER_DEFAULT_SHM = 64 * 1024 * 1024
+POSTGRES_DATA_DIR = "/var/lib/postgresql/data"
 
 
 def parse_size(v) -> int:
@@ -38,36 +39,64 @@ def parse_size(v) -> int:
     return int(float(s))
 
 
-def postgres_services():
-    """EVERY Postgres service in EVERY compose file, discovered.
+def _runs_postgres_server(svc) -> bool:
+    """Identify an actual PostgreSQL server, not any use of its image.
+
+    Compose may legitimately reuse the pinned postgres image as a narrow shell
+    utility. Such a helper never starts PostgreSQL and therefore has no server
+    shared-memory requirement. Server-mode services are identified by the
+    server health probe or the canonical PostgreSQL data mount.
+    """
+    if not str(svc.get("image", "")).startswith("postgres"):
+        return False
+
+    healthcheck = svc.get("healthcheck") or {}
+    health_test = healthcheck.get("test") or []
+    if isinstance(health_test, str):
+        health_text = health_test
+    else:
+        health_text = " ".join(str(part) for part in health_test)
+    if "pg_isready" in health_text:
+        return True
+
+    for volume in svc.get("volumes") or []:
+        if isinstance(volume, str):
+            if POSTGRES_DATA_DIR in volume:
+                return True
+        elif isinstance(volume, dict) and volume.get("target") == POSTGRES_DATA_DIR:
+            return True
+    return False
+
+
+def postgres_server_services():
+    """EVERY PostgreSQL server service in EVERY compose file, discovered.
 
     This used to name `docker-compose.yml` and `docker-compose.backtest.yml`
     literally. Both were deleted with the Stocker runtime, so the guard stopped
     collecting — and `sentinel-postgres`, which now holds the corpus those two
-    files' databases used to, was created with no `shm_size` at all. The invariant
-    did not lapse because anyone decided it should; it lapsed because it was
-    pinned to filenames rather than to the property.
+    files' databases used to, was created with no `shm_size` at all. The
+    invariant did not lapse because anyone decided it should; it lapsed because
+    it was pinned to filenames rather than to the property.
 
-    Discovery also means the next compose file is covered on the day it is
-    written, which a literal list can never be.
+    Discovery is intentionally about server behaviour, not image provenance:
+    a networkless permissions helper may use the same pinned postgres image
+    without ever starting a database server.
     """
     out = []
     for f in sorted(ROOT.glob("docker-compose*.yml")):
         doc = yaml.safe_load(f.read_text()) or {}
         for name, svc in (doc.get("services") or {}).items():
-            if str(svc.get("image", "")).startswith("postgres"):
+            if _runs_postgres_server(svc):
                 out.append((f.name, name, svc))
     return out
 
 
-def test_there_are_postgres_services_to_check():
-    """Guards the parametrisation below: if the image name changes — or every
-    compose file is renamed, which is exactly what happened — each test would
-    silently pass on an empty list."""
-    assert postgres_services()
+def test_there_are_postgres_servers_to_check():
+    """Guard against an accidentally empty discovery set."""
+    assert postgres_server_services()
 
 
-@pytest.mark.parametrize("f,name,svc", postgres_services())
+@pytest.mark.parametrize("f,name,svc", postgres_server_services())
 def test_shm_size_is_raised_above_the_docker_default(f, name, svc):
     assert "shm_size" in svc, (
         f"{f}:{name} has no shm_size, so it gets Docker's 64MB default. A "
@@ -76,6 +105,19 @@ def test_shm_size_is_raised_above_the_docker_default(f, name, svc):
     assert parse_size(svc["shm_size"]) > DOCKER_DEFAULT_SHM, (
         f"{f}:{name} sets shm_size at or below the 64MB default, which is the "
         f"value that caused the failure")
+
+
+def test_non_server_postgres_image_helpers_are_not_treated_as_databases():
+    """A shell helper sharing the image must not inherit database-only policy."""
+    helpers = []
+    for f in sorted(ROOT.glob("docker-compose*.yml")):
+        doc = yaml.safe_load(f.read_text()) or {}
+        for name, svc in (doc.get("services") or {}).items():
+            if (str(svc.get("image", "")).startswith("postgres")
+                    and not _runs_postgres_server(svc)):
+                helpers.append((f.name, name, svc))
+    assert helpers, "fixture no longer exercises a non-server postgres-image helper"
+    assert all("shm_size" not in svc for _, _, svc in helpers)
 
 
 def test_the_corpus_database_gets_at_least_the_allowance_that_was_needed():
@@ -88,7 +130,7 @@ def test_the_corpus_database_gets_at_least_the_allowance_that_was_needed():
     relative form would pass on any value at all.
     """
     sizes = {name: parse_size(svc["shm_size"])
-             for _, name, svc in postgres_services()}
+             for _, name, svc in postgres_server_services()}
     assert sizes.get("sentinel-postgres", 0) >= 1024 ** 3, (
         "sentinel-postgres holds the corpus; 1gb is the measured requirement, "
         "not a guess")
