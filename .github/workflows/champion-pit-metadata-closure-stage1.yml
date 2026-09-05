@@ -1,0 +1,110 @@
+name: Research Champion - PIT metadata closure stage 1
+run-name: Champion PIT retained-authority allocation - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/champion-pit-metadata-closure]
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: champion-pit-metadata-closure-stage1
+  cancel-in-progress: false
+
+jobs:
+  allocate:
+    name: Allocate retained V4 authority by economic priority
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact closure source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/prioritize_champion_pit_closure.py
+            /backtester/certification-decisions/2026-09-05-champion-pit-metadata-closure.md
+            /tests/backtester/test_prioritize_champion_pit_closure.py
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+
+      - name: Test authority allocation contract
+        run: |
+          python -m py_compile backtester/prioritize_champion_pit_closure.py
+          python -m unittest tests.backtester.test_prioritize_champion_pit_closure -v
+
+      - name: Download exact Champion closure artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: champion-pit-closure-*
+          path: inputs/champion
+          merge-multiple: true
+          repository: ${{ github.repository }}
+          run-id: '33994291853'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download ownership-strict V4 canonical audit
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: historical-metadata-v4-ownership-strict-canonical-audit-126e276c67d7ce577744edccc8ee2ae22ead18f6
+          path: inputs/v4
+          repository: ${{ github.repository }}
+          run-id: '33720489684'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify frozen input identities
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(sha256sum inputs/champion/strategy-path-worklist.csv | cut -d' ' -f1)" = 0c891b2e4f505cb7b21c857c373a12df4dcb766c430812678d9200e69b165c5b
+          test "$(sha256sum inputs/champion/strategy-path-session-ledger.jsonl.gz | cut -d' ' -f1)" = 2116177eb72436dc1c6fe5d59e57d739ff46a751cf5917748f3dd482dc604369
+          (cd inputs/v4 && sha256sum -c SHA256SUMS.txt)
+
+      - name: Allocate retained authority
+        run: |
+          python backtester/prioritize_champion_pit_closure.py \
+            --worklist inputs/champion/strategy-path-worklist.csv \
+            --session-ledger inputs/champion/strategy-path-session-ledger.jsonl.gz \
+            --v4-root inputs/v4 \
+            --output closure-stage1 | tee closure-stage1.log
+          (cd closure-stage1 && sha256sum -c SHA256SUMS.txt)
+
+      - name: Enforce measured checkpoint
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          value=json.loads(Path('closure-stage1/summary.json').read_text())
+          assert value['status']=='PASS'
+          assert value['baseline']=={'worklist':6914,'unknown_type':1751,'terminal':1405}
+          assert value['security_type']['status_counts']=={
+              'ELIGIBLE':31,'INELIGIBLE':17,'PARTIAL':11,'UNRESOLVED':1692}
+          assert value['security_type']['resolved_securities']==59
+          assert value['security_type']['resolved_observations']==25400
+          assert value['security_type']['rank_or_leadership_securities_touched']==8
+          print(json.dumps(value,indent=2,sort_keys=True))
+          PY
+          cat closure-stage1/summary.json >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload immutable allocation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-pit-metadata-closure-stage1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            closure-stage1/
+            closure-stage1.log
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
