@@ -1,0 +1,76 @@
+name: Champion ARXX canonical evidence diagnostic
+on:
+  push:
+    branches: [research/champion-arxx-diagnostic]
+    paths: [.github/workflows/champion-arxx-diagnostic.yml]
+permissions:
+  contents: read
+  packages: read
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          sparse-checkout: backtester
+      - name: Read immutable canonical ARXX evidence
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          PYTHONUNBUFFERED: '1'
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python3 -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical diagnostic
+          docker cp "${cid}:/canonical-pit/." canonical
+          docker rm "${cid}"; trap - EXIT
+          python3 - <<'PY' | tee diagnostic/arxx-evidence.log
+          import csv, gzip, hashlib, json
+          from pathlib import Path
+          root=Path('canonical')
+          pointer=json.loads(Path('backtester/data/canonical-pit-20y.json').read_text())
+          manifest=root/'manifest.json'
+          digest=hashlib.sha256(manifest.read_bytes()).hexdigest()
+          assert digest==pointer['manifest_sha256'], (digest,pointer)
+          print('POINTER',json.dumps(pointer,sort_keys=True))
+          print('FILES',json.dumps([str(p.relative_to(root)) for p in sorted(root.rglob('*')) if p.is_file()]))
+          for p in sorted(root.rglob('*.gz')):
+              name=str(p.relative_to(root))
+              if not any(s in name.lower() for s in ('2007','metadata','terminal','action')): continue
+              rows=[]; dates=[]
+              with gzip.open(p,'rt',newline='') as f:
+                  for row in csv.DictReader(f):
+                      if row.get('ticker')!='ARXX': continue
+                      ds=row.get('session',row.get('effective_session',''))
+                      dates.append(ds)
+                      if '2007' in name:
+                          if '2007-08-01'<=ds<='2007-09-10': rows.append(row)
+                      else: rows.append(row)
+              print('ARXX_FILE',name,'count',len(dates),'first',min(dates,default=None),'last',max(dates,default=None))
+              for row in rows[:100]: print(json.dumps(row,sort_keys=True))
+          for p in sorted(Path('backtester/data').glob('*terminal*.json')):
+              content=p.read_text()
+              if 'ARXX' in content:
+                  print('SIDECAR',str(p))
+                  obj=json.loads(content)
+                  for key,value in obj.items():
+                      if isinstance(value,list):
+                          for row in value:
+                              if 'ARXX' in json.dumps(row): print(json.dumps(row,sort_keys=True))
+          print('DIAGNOSTIC_COMPLETE')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: champion-arxx-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: diagnostic/
+          retention-days: 90
+          if-no-files-found: error
