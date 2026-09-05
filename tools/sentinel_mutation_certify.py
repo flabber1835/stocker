@@ -73,6 +73,105 @@ MUTANTS = (
             "test_the_ramp_reproduces_candidate_alloc_on_EVERY_session"
         ),
     ),
+    Mutant(
+        name="position-order-gap-direction-reversed",
+        relative_path="sentinel/execution/reconcile.py",
+        original="        gap = expected_quantity - observed_quantity\n",
+        replacement="        gap = expected_quantity + observed_quantity\n",
+        test=(
+            "tests/sentinel/test_journal_and_reconcile.py::"
+            "TestReconciliation::"
+            "test_position_endpoint_may_lead_exact_working_order_briefly"
+        ),
+    ),
+    Mutant(
+        name="corporate-actions-ignored-during-reconciliation",
+        relative_path="sentinel/execution/reconcile.py",
+        original="    lookup = actions or (lambda _sid: Decimal(1))\n",
+        replacement="    lookup = lambda _sid: Decimal(1)\n",
+        test=(
+            "tests/sentinel/test_journal_and_reconcile.py::"
+            "TestReconciliation::"
+            "test_A_SPLIT_DURING_AN_OUTAGE_IS_NOT_FOREIGN_ACTIVITY"
+        ),
+    ),
+    Mutant(
+        name="same-session-metadata-excluded",
+        relative_path="sentinel/core/loader.py",
+        original=(
+            '            "  MAX(snapshot_date) snapshot_date"\n'
+            '            " FROM sentinel_universe u"\n'
+            '            " WHERE permaticker IS NOT NULL AND ticker IS NOT NULL"\n'
+            '            "   AND snapshot_date<=%s AND " + visible_predicate("u") +\n'
+        ),
+        replacement=(
+            '            "  MAX(snapshot_date) snapshot_date"\n'
+            '            " FROM sentinel_universe u"\n'
+            '            " WHERE permaticker IS NOT NULL AND ticker IS NOT NULL"\n'
+            '            "   AND snapshot_date<%s AND " + visible_predicate("u") +\n'
+        ),
+        test=(
+            "tests/sentinel/test_issue209_session_effective_metadata.py::"
+            "test_future_tickers_snapshot_cannot_change_missed_session"
+        ),
+    ),
+    Mutant(
+        name="next-open-session-check-inverted",
+        relative_path="sentinel/core/decision.py",
+        original="    if effective_session != expected_effective:\n",
+        replacement="    if effective_session == expected_effective:\n",
+        test=(
+            "tests/sentinel/test_production_decision.py::"
+            "test_plan_refuses_an_effective_session_other_than_next_xnys"
+        ),
+    ),
+    Mutant(
+        name="cash-residual-adds-invested-notional",
+        relative_path="sentinel/execution/projection.py",
+        original="    residual = nav - invested\n",
+        replacement="    residual = nav + invested\n",
+        test=(
+            "tests/sentinel/test_projection_and_executor.py::"
+            "TestProjection::"
+            "test_the_defensive_sleeve_absorbs_what_the_core_did_not_take"
+        ),
+    ),
+    Mutant(
+        name="alpaca-submit-falls-back-to-mutable-symbol",
+        relative_path="sentinel/execution/alpaca.py",
+        original='            "symbol": str(instrument.broker_id),\n',
+        replacement='            "symbol": str(instrument.symbol),\n',
+        test=(
+            "tests/sentinel/test_alpaca_certification_boundary.py::"
+            "test_every_certified_alpaca_variant_submits_by_stable_asset_id"
+        ),
+    ),
+    Mutant(
+        name="illegal-command-transition-guard-disabled",
+        relative_path="sentinel/execution/states.py",
+        original="    if not can_transition(current, nxt):\n",
+        replacement="    if False:\n",
+        test=(
+            "tests/sentinel/test_execution_state_machine_model.py::"
+            "test_command_transition_guard_matches_every_independent_model_edge"
+        ),
+    ),
+    Mutant(
+        name="unknown-command-no-longer-blocks-overlap",
+        relative_path="sentinel/execution/states.py",
+        original=(
+            "IN_FLIGHT = frozenset({S.SEND_PENDING, S.ACKNOWLEDGED, S.UNKNOWN,\n"
+            "                       S.PARTIALLY_FILLED, S.CANCEL_PENDING})\n"
+        ),
+        replacement=(
+            "IN_FLIGHT = frozenset({S.SEND_PENDING, S.ACKNOWLEDGED,\n"
+            "                       S.PARTIALLY_FILLED, S.CANCEL_PENDING})\n"
+        ),
+        test=(
+            "tests/sentinel/test_generated_economic_sequences.py::"
+            "test_unknown_command_blocks_overlap_after_database_restart"
+        ),
+    ),
 )
 
 
