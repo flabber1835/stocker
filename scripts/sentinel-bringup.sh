@@ -33,13 +33,5 @@ phase "PAPER ACCOUNT - GET ONLY"
 "$PYTHON" scripts/sentinel_go_account_preflight.py \
   --target DUAL_RUN_OBSERVATION
 
-# Use the previously validated ordinary runtime only as a negative liveness
-# filter. It has no network and can never authorize recovery. If it says the
-# newest closed session has not reached the reviewed Sharadar source-final
-# boundary, stop before building a new exact-current image. READY merely allows
-# the current-commit authoritative checks below to proceed.
-phase "SOURCE-FINAL HINT - NO NETWORK"
-"$PYTHON" scripts/sentinel_bringup_source_hint.py
-
 phase "DATA + RECOVERY BRING-UP"
-exec "$PYTHON" scripts/sentinel_bringup.py "$@"
+exec "$PYTHON" scripts/sentinel_bringup_install_anytime.py "$@"
