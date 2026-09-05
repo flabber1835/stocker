@@ -58,6 +58,7 @@ _r3=pd.read_csv(_R3000_MEMBERSHIP_PATH,compression='gzip',dtype=str).fillna('')
 _r3=_r3[(_r3.identity_status=='RESOLVED')&(_r3.permanent_security_id!='')].copy()
 _r3['holdings_effective_date']=pd.to_datetime(_r3.holdings_effective_date).dt.normalize()
 _R3_DATES=sorted(_r3.holdings_effective_date.unique())
+_R3_FIRST_DATE=pd.Timestamp(_R3_DATES[0]) if _R3_DATES else None
 _R3_BY_DATE={pd.Timestamp(d):set(_r3.loc[_r3.holdings_effective_date.eq(d),'permanent_security_id'].astype(str)) for d in _R3_DATES}
 _R3_YEAR_CACHE={}
 
@@ -70,6 +71,8 @@ def _membership_sids(session):
 
 def r3000_year_tickers(year):
     if year in _R3_YEAR_CACHE: return _R3_YEAR_CACHE[year]
+    if _R3_FIRST_DATE is None or int(year) < int(_R3_FIRST_DATE.year):
+        _R3_YEAR_CACHE.clear(); _R3_YEAR_CACHE[year]={}; return {}
     p=_CANONICAL_ROOT/f'observations-{year}.csv.gz'
     if not p.is_file(): raise RuntimeError(f'missing canonical PIT partition {p}')
     q=pd.read_csv(p,compression='gzip',usecols=['session','security_id','ticker','listing_active','tradeable'],dtype=str).fillna('')
@@ -136,8 +139,6 @@ def trade_counts(daily: pd.DataFrame, start: str) -> tuple[int,int]:
 
 
 def finalize(output: Path) -> None:
-    # Reuse accepted E3's exact postprocessing chain, excluding its old-universe
-    # control-hash/release-date assertions, which are deliberately inapplicable.
     e3.strategy9.finalize(output)
     daily=pd.read_csv(output/'daily.csv.gz',compression='gzip',parse_dates=['date'])
     required={'A_nav','spy_nav','cum_buys','cum_sells','eligible_count'}
@@ -167,6 +168,7 @@ def finalize(output: Path) -> None:
         'corpus_artifact_digest':CORPUS_ARTIFACT_DIGEST,
         'universe_authority':'certified R3000_PROXY(t) union PIT membership; latest holdings_effective_date <= session; RESOLVED identities only',
         'universe_identity_binding':'permanent_security_id membership -> same-session canonical PIT ticker; canonical listing_active=true and tradeable=true',
+        'pre_corpus_warmup':'price/indicator state only; no admissions before first certified R3000 membership snapshot',
         'redundant_russell_eligibility_lookup_removed':True,
         'e3_mechanics_changed':False,
         'measurement_windows':list(WINDOWS),
@@ -180,6 +182,7 @@ def finalize(output: Path) -> None:
         'corpus_artifact_digest':CORPUS_ARTIFACT_DIGEST,'windows':list(WINDOWS),
         'fresh_chronological_replay':True,'decision_at_close_next_open_effect':True,
         'same_session_canonical_listing_tradeable_gate':True,'unresolved_membership_excluded':True,
+        'pre_corpus_warmup_price_state_only':True,
     }
     (output/'e3_r3000_manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
     files=[output/'daily.csv.gz',output/'e3_r3000_metrics.csv',output/'e3_r3000_trade_counts.csv',output/'e3_r3000_final_portfolio.csv',output/'e3_r3000_summary.json',output/'e3_r3000_manifest.json']
