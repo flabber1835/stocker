@@ -29,7 +29,7 @@ jobs:
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.sha }}
-          fetch-depth: 1
+          fetch-depth: 0
           persist-credentials: false
           filter: blob:none
           sparse-checkout-cone-mode: false
@@ -55,8 +55,12 @@ jobs:
       - name: Verify accepted E3 source lineage unchanged
         run: |
           set -euo pipefail
-          test "$(git rev-parse HEAD^)" = "${E3_HEAD}"
-          test "$(git diff --name-only ${E3_HEAD}..HEAD | grep -v '^backtester/experiment_wc_e6_exceptional_leader_displacement.py$' | grep -v '^.github/workflows/backtester-wc-e6-exceptional-leader-displacement.yml$' | wc -l)" -eq 0
+          git merge-base --is-ancestor "${E3_HEAD}" HEAD
+          unexpected=$(git diff --name-only "${E3_HEAD}"..HEAD \
+            | grep -v '^backtester/experiment_wc_e6_exceptional_leader_displacement.py$' \
+            | grep -v '^.github/workflows/backtester-wc-e6-exceptional-leader-displacement.yml$' \
+            || true)
+          test -z "${unexpected}"
 
       - name: Set up Python 3.12
         uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
