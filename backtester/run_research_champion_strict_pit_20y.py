@@ -110,11 +110,13 @@ def _champion_pre_strict(mode: str, output: Path) -> str:
 # Strict-PIT must consume the Champion source, not the historical retained control.
 strict._original_transform = _champion_pre_strict
 
-# Importing the 20-year wrapper now captures corrected.transformed_source with
-# strict._strict_transform already pointing at _champion_pre_strict.
+# Import the 20-year layer, then point its dynamic base transform directly at the
+# strict Champion source. This avoids applying the corrected warm-up/cash transform
+# a second time; the Champion builder already applied that transform exactly once.
 from backtester import run_research_strict_pit_20y as strict20  # noqa: E402
 
-_STRICT20_TRANSFORM = strict20.corrected.transformed_source
+strict20._base_transform = strict._strict_transform
+_STRICT20_TRANSFORM = strict20._twenty_year_transform
 
 
 def _champion_strict20_transform(mode: str, output: Path) -> str:
