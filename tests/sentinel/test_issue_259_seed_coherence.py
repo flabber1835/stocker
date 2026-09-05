@@ -1,10 +1,11 @@
 from __future__ import annotations
 
 import copy
+from types import SimpleNamespace
 
 import pytest
 
-from sentinel.feed import publication, seed_coherence
+from sentinel.feed import ingest, publication, seed_coherence, sharadar, source_authority
 
 
 class _Cursor:
@@ -138,6 +139,94 @@ def test_historical_mutation_is_double_observed_and_returned_for_replay():
         "lastupdated.gte": "2026-08-24",
         "lastupdated.lte": "2026-08-24",
     } for call in calls)
+
+
+def test_post_seed_proof_routes_cdc_and_date_windows_through_distinct_authority():
+    calls = []
+
+    def raw_source(_table, params=None, **_kwargs):
+        request = dict(params or {})
+        calls.append(request)
+        if "lastupdated.gte" in request:
+            return iter([_mutation(lastupdated="2026-09-05")])
+        return iter([_mutation(lastupdated="2026-09-04")])
+
+    fetch = ingest._post_seed_proof_source(
+        raw_source, boundary="2026-09-05", ceiling="2026-09-05")
+    cdc = {
+        "lastupdated.gte": "2026-09-05",
+        "lastupdated.lte": "2026-09-05",
+    }
+    date_window = {"date.gte": "2026-08-01", "date.lte": "2026-08-31"}
+
+    assert len(list(fetch(sharadar.SEP, cdc))) == 1
+    assert len(list(fetch(sharadar.SEP, date_window))) == 1
+    assert calls == [cdc, date_window]
+
+    with pytest.raises(source_authority.SourceAuthorityRefused,
+                       match="request envelope"):
+        list(fetch(sharadar.SEP, {"lastupdated.gte": "2026-09-05"}))
+
+
+def test_post_seed_date_window_keeps_the_frozen_update_ceiling():
+    def future_source(_table, _params=None, **_kwargs):
+        return iter([_mutation(lastupdated="2026-09-06")])
+
+    fetch = ingest._post_seed_proof_source(
+        future_source, boundary="2026-09-05", ceiling="2026-09-05")
+    with pytest.raises(source_authority.SepUpdateEnvelopeViolation,
+                       match="causal ceiling"):
+        list(fetch(sharadar.SEP, {
+            "date.gte": "2026-08-01", "date.lte": "2026-08-31"}))
+
+
+def test_seed_finalization_exercises_cdc_then_date_window_on_one_proof(monkeypatch):
+    calls = []
+
+    def raw_source(_table, params=None, **_kwargs):
+        request = dict(params or {})
+        calls.append(request)
+        if "lastupdated.gte" in request:
+            return iter([_mutation(lastupdated="2026-09-05")])
+        return iter([_mutation(lastupdated="2026-09-04")])
+
+    monkeypatch.setattr(
+        seed_coherence, "record_seed_coverage", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        seed_coherence, "capture_update_ceiling", lambda: "2026-09-05")
+
+    def prove(_conn, **kwargs):
+        proof_fetch = kwargs["fetch"]
+        list(proof_fetch(sharadar.SEP, {
+            "lastupdated.gte": "2026-09-05",
+            "lastupdated.lte": "2026-09-05",
+        }))
+        list(proof_fetch(sharadar.SEP, {
+            "date.gte": "2026-08-01", "date.lte": "2026-08-31",
+        }))
+        return "proof-complete"
+
+    monkeypatch.setattr(seed_coherence, "prove", prove)
+    tracked = SimpleNamespace(
+        seed_coverage_evidence={"schema": "fixture"},
+        max_sep_lastupdated="2026-09-04")
+    authority = ingest._SeedAuthority(
+        boundary="2026-09-05", tracked=tracked, source_fetch=raw_source,
+        market_start="2026-01-02", market_end="2026-08-31",
+        resolve_identity=None)
+    finishes = []
+    run = SimpleNamespace(
+        conn=object(), progress=SimpleNamespace(run_id="seed-1"),
+        finish=lambda *args: finishes.append(args))
+
+    authority.before_success(run, resolver=lambda *_args: "security")
+
+    assert authority.proof == "proof-complete"
+    assert finishes == []
+    assert calls == [
+        {"lastupdated.gte": "2026-09-05", "lastupdated.lte": "2026-09-05"},
+        {"date.gte": "2026-08-01", "date.lte": "2026-08-31"},
+    ]
 
 
 def test_unstable_or_out_of_envelope_mutation_refuses_cursor_authority():
