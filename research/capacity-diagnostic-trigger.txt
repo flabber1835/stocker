@@ -1,0 +1,1 @@
+Trigger exact-head capacity/notional diagnostic after workflow publication.
