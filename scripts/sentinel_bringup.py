@@ -148,9 +148,23 @@ def _read_only_report(
     return report
 
 
-def _runtime_for_commit(runner: go.CommandRunner, commit: str) -> str:
-    # Reuse the exact ordinary-runtime builder already used by the official
-    # read-only preflight. It binds SOURCE_GIT_SHA and returns the immutable ID.
+def _runtime_for_commit(
+        runner: go.CommandRunner, *, env: Mapping[str, str], commit: str) -> str:
+    """Reuse an already-proven exact runtime; rebuild only when it is unavailable."""
+    ref = "sentinel-go-runtime:%s" % commit
+    digest = go._inspect_image_id(runner, ref)
+    if digest is not None and go._IMAGE_DIGEST.fullmatch(str(digest)) is not None:
+        binding = entry._binding_or_none(
+            runner,
+            env=go._without_broker_authority(dict(env)),
+            cwd=ROOT,
+            runtime_ref=str(digest),
+            commit=str(commit),
+        )
+        if binding is not None:
+            print("bring-up runtime: REUSED exact clean-head image", flush=True)
+            return str(digest)
+    print("bring-up runtime: building exact clean-head image", flush=True)
     return readonly._build_exact_ordinary(runner, commit)
 
 
@@ -212,8 +226,8 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
         print("bring-up gate: backup durability", flush=True)
         _require_backup_ready(env)
 
-        print("bring-up gate: build exact ordinary runtime", flush=True)
-        runtime_ref = _runtime_for_commit(runner, git.commit)
+        print("bring-up gate: exact ordinary runtime", flush=True)
+        runtime_ref = _runtime_for_commit(runner, env=env, commit=git.commit)
 
         print("bring-up gate: volatile Sharadar/source authority", flush=True)
         report = _read_only_report(
