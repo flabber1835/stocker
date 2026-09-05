@@ -1,0 +1,170 @@
+name: Research Champion - UNCERTIFIED best-effort 20-year backtest
+run-name: UNCERTIFIED Champion best effort - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-best-effort-20y]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+  actions: read
+jobs:
+  replay:
+    name: UNCERTIFIED - ${{ matrix.scenario }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 4
+      matrix:
+        scenario: [baseline, terminal_50, terminal_0, unknown_inclusion]
+    env:
+      PYTHONUNBUFFERED: '1'
+      PIT_OFFICIAL_BACKTEST: '0'
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2026-07-31'
+      OUT: best-effort-results/${{ matrix.scenario }}
+      SCENARIO: ${{ matrix.scenario }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/**
+            /tests/backtester/test_research_terminal_lifecycle.py
+            /tests/backtester/test_research_best_effort.py
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/strategy9-e3-broad-stability/**
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+      - name: Bind exact code and frozen runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          test -z "$(git status --porcelain --untracked-files=no)"
+          test -z "$(git -C main-src status --porcelain)"
+          mkdir -p "${OUT}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Install frozen replay dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+      - name: Regression tests and full Champion source assembly
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m unittest discover -s tests/backtester -p test_research_best_effort.py -v 2>&1 | tee "${OUT}/tests.log"
+          python -m unittest discover -s tests/backtester -p test_research_terminal_lifecycle.py -v 2>&1 | tee -a "${OUT}/tests.log"
+          python backtester/research_best_effort.py --scenario "${SCENARIO}" --output "${OUT}/assembly" --self-test
+      - name: Authenticate immutable input package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "${cid}:/canonical-pit/." canonical-pit/
+          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset canonical-pit > "${OUT}/package-integrity.json"
+          cp "${POINTER}" "${OUT}/canonical-pit-pointer.json"
+          echo 'Input integrity verified. Results remain UNCERTIFIED.'
+      - name: Run 20-year best-effort scenario
+        id: replay
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/research_best_effort.py --scenario "${SCENARIO}" --output "${OUT}" 2>&1 | tee "${OUT}/replay.log"
+      - name: Record actual outcome
+        if: always()
+        env:
+          ACTUAL_OUTCOME: ${{ steps.replay.outcome }}
+        shell: bash
+        run: |
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          root=Path(os.environ['OUT']); root.mkdir(parents=True,exist_ok=True)
+          value={'scenario':os.environ['SCENARIO'],'replay_outcome':os.environ['ACTUAL_OUTCOME'],'certification_status':'NOT_CERTIFIED','source_sha':os.environ['GITHUB_SHA']}
+          (root/'workflow-outcome.json').write_text(json.dumps(value,indent=2)+'\n')
+          files=sorted(p for p in root.rglob('*') if p.is_file() and p.name!='ARTIFACT-SHA256SUMS.txt')
+          (root/'ARTIFACT-SHA256SUMS.txt').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest()+'  '+str(p.relative_to(root))+'\n' for p in files))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('# UNCERTIFIED best-effort backtest\n\n'+json.dumps(value,indent=2)+'\n')
+              report=root/'REPORT.md'
+              if report.exists(): f.write(report.read_text())
+          PY
+      - name: Retain scenario outputs and assumption journal
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-best-effort-${{ github.run_id }}-${{ github.run_attempt }}-${{ matrix.scenario }}
+          path: best-effort-results/${{ matrix.scenario }}/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Require completed replay
+        if: always()
+        shell: bash
+        run: test "${{ steps.replay.outcome }}" = success
+  compare:
+    name: UNCERTIFIED sensitivity comparison
+    needs: [replay]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: /backtester/research_best_effort.py
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: champion-best-effort-${{ github.run_id }}-${{ github.run_attempt }}-*
+          path: comparison
+      - name: Compare completed scenarios and disclose failures
+        id: comparison
+        continue-on-error: true
+        shell: bash
+        run: |
+          python3 backtester/research_best_effort.py --compare comparison
+          cat comparison/REPORT.md >> "${GITHUB_STEP_SUMMARY}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: champion-best-effort-comparison-${{ github.run_id }}-${{ github.run_attempt }}
+          path: comparison/
+          retention-days: 90
+          if-no-files-found: error
+      - name: Require all scenarios for complete comparison
+        if: always()
+        run: test "${{ steps.comparison.outcome }}" = success
