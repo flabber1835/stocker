@@ -1,0 +1,108 @@
+name: Backtester - R3000 proxy source recovery
+run-name: R3000 proxy source recovery — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/r3000-proxy-pit-corpus]
+    paths:
+      - '.github/workflows/backtester-r3000-proxy-source-recovery.yml'
+      - 'backtester/r3000_proxy/**'
+      - 'tests/backtester/test_r3000_proxy_source_recovery.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: r3000-proxy-pit-corpus-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  SEED_RUN_ID: '33820201471'
+  SEED_ARTIFACT: russell-1000-2000-retrieval-experiment-403527ea3b245481a4d80ae3dab0a03e95d5bf8d
+  SEED_ROOT: backtester-results/r3000-proxy-seed
+  OUTPUT: backtester-results/r3000-proxy-source-recovery
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  recover:
+    name: Authenticate and parse 2006-2026 IWB/IWM source evidence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact corpus source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Verify immutable seed run
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SEED_RUN_ID}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${SEED_RUN_ID}" --jq '.head_sha')" = "403527ea3b245481a4d80ae3dab0a03e95d5bf8d"
+      - name: Download authenticated retrieval seed
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.SEED_ARTIFACT }}
+          path: ${{ env.SEED_ROOT }}
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SEED_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+      - name: Run parser regressions
+        run: |
+          set -euo pipefail
+          python -m compileall -q backtester/r3000_proxy/source_recovery.py tests/backtester/test_r3000_proxy_source_recovery.py
+          python - <<'PY'
+          import runpy
+          from pathlib import Path
+          ns=runpy.run_path('tests/backtester/test_r3000_proxy_source_recovery.py')
+          seed=Path('backtester-results/r3000-proxy-seed')
+          ns['test_blackrock_2007_geometry'](seed)
+          ns['test_sec_missing_year_geometry'](seed)
+          print({'status':'PASS','contract':'BlackRock exact retrieval geometry + 2006/2017 fund-specific N-Q common-stock extraction'})
+          PY
+      - name: Build immutable Stage A source package
+        run: |
+          set -euo pipefail
+          rm -rf "${OUTPUT}"
+          python -m backtester.r3000_proxy.source_recovery --seed "${SEED_ROOT}" --output "${OUTPUT}"
+          (cd "${OUTPUT}" && sha256sum -c SHA256SUMS.txt)
+      - name: Enforce Stage A gate
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os
+          from pathlib import Path
+          s=json.load(open(Path(os.environ['OUTPUT'])/'summary.json'))
+          assert s['status']=='PASS'
+          assert s['years_source_covered']==21 and s['fund_snapshots']==42
+          assert s['blackrock_fund_snapshots']==38 and s['sec_fund_snapshots']==4
+          assert s['historical_state_proxy_source_coverage']=='PASS'
+          print(json.dumps(s,indent=2,sort_keys=True))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a',encoding='utf-8') as fh:
+              fh.write('## IWB/IWM R3000 proxy — Stage A\n\n')
+              fh.write(f"- Source years: {s['years_source_covered']}/21\n")
+              fh.write(f"- Fund snapshots: {s['fund_snapshots']}/42\n")
+              fh.write(f"- Parsed equity rows: {s['parsed_equity_rows']:,}\n")
+              fh.write('- HISTORICAL_STATE_PROXY source coverage: PASS\n')
+              fh.write('- INFORMATION_AVAILABLE_PROXY: gated on archival BlackRock publication authority\n')
+              fh.write('- This is an IWB/IWM-derived Russell 3000 proxy and is not a licensed FTSE Russell constituent history.\n')
+          PY
+      - name: Upload immutable Stage A package
+        if: ${{ always() && hashFiles('backtester-results/r3000-proxy-source-recovery/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: r3000-proxy-source-recovery-${{ github.sha }}
+          path: ${{ env.OUTPUT }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
