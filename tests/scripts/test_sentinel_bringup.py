@@ -21,7 +21,7 @@ sys.modules[spec.name] = bringup
 spec.loader.exec_module(bringup)
 
 
-def test_source_final_deferred_is_a_hard_bringup_stop():
+def test_base_source_final_deferred_is_non_authoritative_without_overlay():
     decision = bringup.source_decision({
         "status": "DEFERRED",
         "reason_code": "SHARADAR_SOURCE_NOT_FINAL",
@@ -62,7 +62,7 @@ def test_unknown_source_state_fails_closed():
 def test_launcher_uses_go_lifecycle_lock_but_never_runs_certification_or_promotion():
     source = LAUNCHER.read_text(encoding="utf-8")
     assert "scripts/sentinel_go_lock.py" in source
-    assert "scripts/sentinel_bringup.py" in source
+    assert "scripts/sentinel_bringup_install_anytime.py" in source
     assert "sentinel-go-validate.sh" not in "\n".join(
         line for line in source.splitlines()
         if line.strip() and not line.lstrip().startswith("#"))

@@ -34,4 +34,4 @@ phase "PAPER ACCOUNT - GET ONLY"
   --target DUAL_RUN_OBSERVATION
 
 phase "DATA + RECOVERY BRING-UP"
-exec "$PYTHON" scripts/sentinel_bringup.py "$@"
+exec "$PYTHON" scripts/sentinel_bringup_install_anytime.py "$@"
