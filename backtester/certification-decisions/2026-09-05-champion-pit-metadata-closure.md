@@ -68,3 +68,13 @@ security-ID/ticker bindings, validates temporal ordering and consideration
 completeness, and emits a content-addressed accepted-event ledger.  Corpus
 mutation remains gated on that immutable ledger and a separate integration
 replay.
+
+## Terminal integration planning gate
+
+Accepted evidence is translated into the existing
+`backtester.causal-terminal-terms/1` schema only after the pinned canonical PIT
+package reproduces the target identity, successor identity, issuer authority,
+and same-session successor price witness.  Cash mergers require the target
+identity at its last executable session.  Conversions and mixed mergers also
+require a delivered security on the effective session.  Election mergers stay
+blocked until the shareholder no-election allocation is established.
