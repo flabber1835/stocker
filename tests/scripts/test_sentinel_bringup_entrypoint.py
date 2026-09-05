@@ -58,7 +58,10 @@ base.go_lock.current_run_token = lambda _env: "fixture-run-token"
 base._require_exact_main = lambda _runner: SimpleNamespace(commit="a" * 40)
 base._compose_and_database_ready = (
     lambda _runner, env: (dict(env), ["-f", "docker-compose.sentinel.yml"]))
-base._require_backup_ready = lambda _env: None
+if scenario == "backup_repairable":
+    base._backup_checkpoint = lambda _env: "WAL_ARCHIVE_UNRESOLVED_FAILURE"
+else:
+    base._backup_checkpoint = lambda _env: None
 base._runtime_for_commit = (
     lambda _runner, **_kwargs: "sha256:" + "1" * 64)
 
@@ -145,6 +148,18 @@ def test_real_shell_entrypoint_reaches_recovery_and_certification_ready(tmp_path
     assert "bring-up recovery: PASS elapsed_ms=7" in completed.stdout
     assert "post-recovery source: PASS - SEP_CDC_SOURCE_VALID" in completed.stdout
     assert "BRINGUP_READY_FOR_CERTIFICATION" in completed.stdout
+
+
+def test_real_shell_entrypoint_hands_repairable_backup_to_certified_go(tmp_path):
+    completed = _run(tmp_path, "backup_repairable", "--recover")
+    assert completed.returncode == 0, completed.stdout + completed.stderr
+    assert "bring-up source: DEFERRED - SHARADAR_SOURCE_NOT_FINAL" in completed.stdout
+    assert (
+        "BRINGUP_READY_FOR_CERTIFIED_BACKUP_REFRESH - "
+        "WAL_ARCHIVE_UNRESOLVED_FAILURE" in completed.stdout)
+    assert "bash scripts/sentinel-go-validate.sh" in completed.stdout
+    assert "bring-up recovery: bounded production data preparation" not in completed.stdout
+    assert "BRINGUP_BLOCKED" not in completed.stdout + completed.stderr
 
 
 def test_real_shell_entrypoint_surfaces_recovery_refusal(tmp_path):
