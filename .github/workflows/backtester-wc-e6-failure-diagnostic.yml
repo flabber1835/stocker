@@ -1,0 +1,170 @@
+name: Backtester - Wealth Core E6 failure diagnostic
+run-name: WC E6 failure diagnostic — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-wc-e6-failure-diagnostic]
+    paths:
+      - '.github/workflows/backtester-wc-e6-failure-diagnostic.yml'
+      - 'backtester/diagnose_wc_e6_failure.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  E6_RUN_ID: '33948369534'
+  E6_HEAD: '468871e2d56a6e1cf4ab1ca6b41d673c6d2fbb25'
+  E6_ARTIFACT: 'wc-e6-exceptional-leader-displacement-468871e2d56a6e1cf4ab1ca6b41d673c6d2fbb25'
+  E6_DIGEST: 'sha256:9b1bfc22c5e2b4fa1fdcd6262d9faac98eb9c06e88a329bade28ac017503d277'
+  E3_RUN_ID: '33912976460'
+  E3_HEAD: '3f27834db427e71d9bb8d0b6160c8835b739c906'
+  E3_ARTIFACT: 'strategy9-recovery-concordance-e3-3f27834db427e71d9bb8d0b6160c8835b739c906'
+  E3_DIGEST: 'sha256:22011d018a336c6da4d92b31e8786811a4f4288daa91d56a80c30c9f144f174f'
+  SLOT_RUN_ID: '33947807175'
+  SLOT_HEAD: '1057d244b03e1b997edfb9d38ed655396f6764cc'
+  SLOT_ARTIFACT: 'broad-slot-opportunity-v2-1057d244b03e1b997edfb9d38ed655396f6764cc'
+  SLOT_DIGEST: 'sha256:42cd4b224b9b70ce578e48f02e5b44ea3ef9d0fafc8bbad20e436fcbfc837338'
+  OUT_DIR: '${{ github.workspace }}/backtester-results/wc-e6-failure-diagnostic'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out diagnostic and exact E3 data slices
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-wc-e6-failure-diagnostic.yml
+            /backtester/diagnose_wc_e6_failure.py
+            /sharadar/SHARADAR_SEP_2020.csv.gz
+            /sharadar/SHARADAR_SEP_2021.csv.gz
+            /sharadar/SHARADAR_SEP_2022.csv.gz
+            /sharadar/SHARADAR_SEP_2023.csv.gz
+            /sharadar/SHARADAR_SEP_2024.csv.gz
+            /sharadar/SHARADAR_SEP_2025.csv.gz
+            /sharadar/SHARADAR_SEP_2026.csv.gz
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Authenticate source artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          check_artifact() {
+            local run="$1" head="$2" name="$3" digest="$4"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+            test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run}" --jq '.head_sha')" = "${head}"
+            observed=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${run}/artifacts" --jq ".artifacts[] | select(.name == \"${name}\") | .digest")
+            test "${observed}" = "${digest}"
+          }
+          check_artifact "$E6_RUN_ID" "$E6_HEAD" "$E6_ARTIFACT" "$E6_DIGEST"
+          check_artifact "$E3_RUN_ID" "$E3_HEAD" "$E3_ARTIFACT" "$E3_DIGEST"
+          check_artifact "$SLOT_RUN_ID" "$SLOT_HEAD" "$SLOT_ARTIFACT" "$SLOT_DIGEST"
+
+      - name: Download immutable E6 artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.E6_ARTIFACT }}
+          path: e6-artifact
+          repository: ${{ github.repository }}
+          run-id: ${{ env.E6_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download immutable accepted E3 artifact
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.E3_ARTIFACT }}
+          path: accepted-e3
+          repository: ${{ github.repository }}
+          run-id: ${{ env.E3_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download immutable slot diagnostic
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.SLOT_ARTIFACT }}
+          path: slot-diagnostic
+          repository: ${{ github.repository }}
+          run-id: ${{ env.SLOT_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate artifact contents
+        run: |
+          set -euo pipefail
+          (cd e6-artifact && sha256sum -c E6_SHA256SUMS.txt)
+          (cd accepted-e3 && sha256sum -c E3_SHA256SUMS.txt)
+          (cd slot-diagnostic && sha256sum -c BROAD_SLOT_OPPORTUNITY_SHA256SUMS.txt)
+
+      - name: Run zero-budget failure attribution
+        run: |
+          set -euo pipefail
+          rm -rf "$OUT_DIR"
+          python backtester/diagnose_wc_e6_failure.py \
+            --e6-root e6-artifact \
+            --accepted-root accepted-e3 \
+            --slot-root slot-diagnostic \
+            --sharadar-root sharadar \
+            --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c E6_FAILURE_SHA256SUMS.txt)
+
+      - name: Validate diagnostic contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR'])
+          s=json.load(open(out/'e6_failure_summary.json'))
+          e=pd.read_csv(out/'e6_failure_event_attribution.csv')
+          assert s['status']=='PASS' and s['zero_budget_diagnostic'] is True
+          assert len(e)==27
+          assert s['events']==27
+          assert s['events_matching_original_diagnostic_weakest'] < 27
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Publish diagnostic summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR']); p=out/'e6_failure_summary.json'
+          if not p.exists(): raise SystemExit(0)
+          s=json.load(open(p)); a=pd.read_csv(out/'e6_failure_direct_spread_by_year.csv')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## E6 failure attribution\n\n')
+              f.write(f"Actual victims matching original diagnostic weakest: **{s['events_matching_original_diagnostic_weakest']}/{s['events']}**  \n")
+              f.write(f"Final raw-Core relative value E6/accepted: **{s['final_core_relative_e6_vs_accepted']:.2%}**  \n")
+              f.write(f"Final E3 relative value E6/accepted: **{s['final_e3_relative_e6_vs_accepted']:.2%}**  \n")
+              f.write(f"Allocation-divergence sessions: **{s['allocation_divergence_sessions']}**  \n\n")
+              f.write(a.to_markdown(index=False))
+          PY
+
+      - name: Upload immutable failure diagnostic
+        if: ${{ always() && hashFiles('backtester-results/wc-e6-failure-diagnostic/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wc-e6-failure-diagnostic-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
