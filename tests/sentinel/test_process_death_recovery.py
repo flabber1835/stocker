@@ -280,4 +280,3 @@ def test_process_death_recovers_one_order_and_one_fill_without_duplication(
         restarted._reload()
         assert len(restarted._orders) == 1
         assert len(restarted._fills) == 1
-

@@ -50,4 +50,3 @@ def test_named_stress_checkpoints_replay_the_frozen_economic_state():
             assert state["last_session"] == row["date"]
 
     assert set(seen) == set(CHECKPOINTS)
-

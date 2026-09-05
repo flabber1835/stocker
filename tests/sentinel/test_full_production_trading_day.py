@@ -161,4 +161,3 @@ def test_complete_production_day_reconciles_and_restart_is_a_noop(pg):
             is CommandState.FILLED
     finally:
         restarted.close()
-

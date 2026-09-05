@@ -250,4 +250,3 @@ def test_generated_failures_preserve_invariants_and_replay_exactly(pg, seed):
     first = _campaign(pg.sync_dsn, seed)
     second = _campaign(pg.sync_dsn, seed)
     assert second == first
-
