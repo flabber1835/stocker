@@ -14,6 +14,7 @@ import json
 from pathlib import Path
 import subprocess
 import sys
+from typing import Optional
 
 SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
@@ -44,7 +45,7 @@ print('SENTINEL_BRINGUP_SOURCE_HINT=' + json.dumps({
 '''.strip()
 
 
-def _payload(stdout: str) -> dict | None:
+def _payload(stdout: str) -> Optional[dict]:
     matches = []
     for line in (stdout or "").splitlines():
         if not line.startswith(MARKER):
