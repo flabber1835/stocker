@@ -20,13 +20,13 @@ def _write_gz(path: Path, fields: list[str], rows: list[dict[str, str]]) -> None
                 writer.writerows(rows)
 
 
-def _row(*, source_row: int, source_type: str, name: str, price: str, status: str, sid: str = "", ticker: str = "", issuer_id: str = "") -> dict[str, str]:
+def _row(*, source_row: int, source_type: str, name: str, price: str, status: str, sid: str = "", ticker: str = "", issuer_id: str = "", fund: str = "IWM") -> dict[str, str]:
     return {
         "snapshot_date": "2021-06-30",
         "holdings_effective_date": "2021-06-30",
         "source_publication_date": "",
         "available_to_model_date": "",
-        "fund": "IWM",
+        "fund": fund,
         "source_type": source_type,
         "source_id": "fixture",
         "source_sha256": hashlib.sha256(f"row-{source_row}".encode()).hexdigest(),
@@ -88,7 +88,7 @@ def _fixture(root: Path) -> tuple[Path, Path, Path]:
     canonical.mkdir()
 
     rows = [
-        _row(source_row=1, source_type="blackrock_product_data_v2", name="Getty Images Inc", price="10.00", status="RESOLVED", sid="sid-getty", ticker="GYI", issuer_id="SEC_CIK:100"),
+        _row(source_row=1, source_type="blackrock_product_data_v2", name="Getty Images Inc", price="10.00", status="RESOLVED", sid="sid-getty", ticker="GYI", issuer_id="SEC_CIK:100", fund="IWB"),
         _row(source_row=2, source_type="sec_n-q", name="Getty Images Inc.(1)", price="10.00", status="UNMATCHED"),
         _row(source_row=3, source_type="sec_n-q", name="Old Corporation(2)", price="20.00", status="UNMATCHED"),
         _row(source_row=4, source_type="blackrock_product_data_v2", name="Current Parent Inc", price="30.00", status="UNMATCHED", ticker="CUR"),
