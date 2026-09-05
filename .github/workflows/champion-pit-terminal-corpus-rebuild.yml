@@ -49,6 +49,7 @@ jobs:
             /backtester/causal_split_overrides.py
             /backtester/causal_terminal_terms.py
             /backtester/historical_cash.py
+            /backtester/experiments/2026-08-27-sector-abc/run.py
             /backtester/run_research_strict_pit_certification.py
             /backtester/run_production_strict_pit_certification.py
             /backtester/data/canonical-pit-20y.json
