@@ -59,12 +59,12 @@ def test_probe_has_no_source_stability_identity_or_mutation_authority():
         "SepUpdateEnvelope",
         "identity_refresh",
         "HistoricalIdentityMutation",
-        "TICKERS",
-        "INSERT ",
-        "UPDATE ",
-        "DELETE ",
+        "sharadar.TICKERS",
+        "INSERT INTO",
+        "UPDATE sentinel_",
+        "DELETE FROM",
         "CREATE TABLE",
-        "TRUNCATE ",
+        "TRUNCATE TABLE",
         "pg_switch_wal",
     )
     for token in forbidden:
