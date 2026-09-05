@@ -74,14 +74,15 @@ def test_publication_refuses_missing_or_ambiguous_pitr_authority(row):
         publication._publication_recovery_target(_XidConnection(row))
 
 
-def test_physical_base_backup_records_pitr_epoch_and_timeline_identity():
+def test_physical_base_backup_records_pitr_epoch_timeline_and_cluster_identity():
     script = (ROOT / "scripts/sentinel-base-backup.sh").read_text()
     assert "PITR_BEFORE=\"$(pitr_source_row)\"" in script
     assert "PITR_AFTER=\"$(pitr_source_row)\"" in script
     assert "base backup crossed a 32-bit transaction-id epoch" in script
     assert "base backup crossed a PostgreSQL WAL timeline" in script
     assert "sentinel-pitr-base-identity" in script
-    assert "schema=sentinel.base-backup-pitr/1" in script
+    assert "schema=sentinel.base-backup-pitr/2" in script
+    assert "system_identifier=%s" in script
     assert "xid_epoch=%s" in script
     assert "timeline=0x%s" in script
 
