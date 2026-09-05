@@ -160,8 +160,8 @@ def install(text: str) -> str:
     import_anchor = "from collections import defaultdict\n"
     import_replacement = (
         import_anchor
-        + "from types import SimpleNamespace\n"
         + "from backtester.causal_terminal_terms import load_frozen_terminal_terms\n"
+        + "from stock_strategy_shared.wealth_core.terminal import TerminalKind as _ProductionTerminalKind, TerminalTerms as _ProductionTerminalTerms\n"
         + "from backtester.research_terminal_grace_overlay import "
           "capacity_guard as _research_capacity_guard, exact_terminal_economics as _research_exact_terminal_economics\n"
     )
@@ -192,8 +192,8 @@ def install(text: str) -> str:
             sessions=list(_CANONICAL.sessions),
             resolve_identity=_terminal_resolve,
             meta={str(value):object() for value in sid},
-            TerminalTerms=lambda **kwargs: SimpleNamespace(**kwargs),
-            TerminalKind=lambda value:value,
+            TerminalTerms=_ProductionTerminalTerms,
+            TerminalKind=_ProductionTerminalKind,
             identity_binding='resolved',
             delivered_issuer_resolver=_terminal_issuer)
         for _session,_terms in _loaded.items():
@@ -219,7 +219,7 @@ def install(text: str) -> str:
                 if not(s.held() and s.tid in term_tids): continue
                 _term=_exact_terms.get(s.tid)
                 if _term is not None:
-                    _kind=str(_term.kind)
+                    _kind=getattr(_term.kind,'value',str(_term.kind))
                     _econ=_research_exact_terminal_economics(
                         kind=_kind, shares=s.qty,
                         cash_per_share=getattr(_term,'cash_per_share',None),
@@ -335,6 +335,8 @@ def install(text: str) -> str:
         raise RuntimeError("retained research split-dividend ordering repair did not survive overlay")
     required = (
         "load_frozen_terminal_terms(",
+        "_ProductionTerminalTerms",
+        "_ProductionTerminalKind",
         "_research_exact_terminal_economics(",
         "_research_capacity_guard(s.qty",
         "_research_capacity_guard(s.pending_shares",
@@ -344,6 +346,7 @@ def install(text: str) -> str:
     if missing:
         raise RuntimeError(f"retained research financial-grade seams missing: {missing}")
     forbidden = (
+        "SimpleNamespace",
         "sell_reason='terminal'",
         "px2=book.last_raw.get(s.tid",
     )
