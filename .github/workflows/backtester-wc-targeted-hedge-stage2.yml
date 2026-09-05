@@ -1,0 +1,141 @@
+name: Backtester - WC targeted hedge Stage 2
+run-name: WC targeted hedge Stage 2 zero-budget — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-wc-targeted-hedge-diagnostic]
+    paths:
+      - '.github/workflows/backtester-wc-targeted-hedge-stage2.yml'
+      - 'backtester/diagnose_wc_targeted_hedge_stage2.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  E3_HEAD: '3f27834db427e71d9bb8d0b6160c8835b739c906'
+  E3_RUN_ID: '33912976460'
+  E3_ARTIFACT: 'strategy9-recovery-concordance-e3-3f27834db427e71d9bb8d0b6160c8835b739c906'
+  E3_DIGEST: 'sha256:22011d018a336c6da4d92b31e8786811a4f4288daa91d56a80c30c9f144f174f'
+  BETA_HEAD: '92e5d340858dae00909d9d459b539b7e76de8297'
+  BETA_RUN_ID: '33976008320'
+  BETA_ARTIFACT: 'wc-hedge-decomposition-92e5d340858dae00909d9d459b539b7e76de8297'
+  BETA_DIGEST: 'sha256:19df7f1c2801629397c70600b10368cb0782c71dbd7dcb049caa6f02436367d3'
+  OUT_DIR: '${{ github.workspace }}/backtester-results/wc-targeted-hedge-stage2'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Check out exact diagnostic head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-wc-targeted-hedge-stage2.yml
+            /backtester/diagnose_wc_targeted_hedge_stage2.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Authenticate immutable upstream artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${E3_RUN_ID}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${E3_RUN_ID}" --jq '.head_sha')" = "${E3_HEAD}"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${E3_RUN_ID}/artifacts" --jq ".artifacts[] | select(.name == \"${E3_ARTIFACT}\") | .digest")" = "${E3_DIGEST}"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BETA_RUN_ID}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BETA_RUN_ID}" --jq '.head_sha')" = "${BETA_HEAD}"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BETA_RUN_ID}/artifacts" --jq ".artifacts[] | select(.name == \"${BETA_ARTIFACT}\") | .digest")" = "${BETA_DIGEST}"
+
+      - name: Download accepted E3
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.E3_ARTIFACT }}
+          path: accepted-e3
+          repository: ${{ github.repository }}
+          run-id: ${{ env.E3_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download prior beta diagnostic
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BETA_ARTIFACT }}
+          path: beta-diagnostic
+          repository: ${{ github.repository }}
+          run-id: ${{ env.BETA_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify upstream contents
+        run: |
+          set -euo pipefail
+          (cd accepted-e3 && sha256sum -c E3_SHA256SUMS.txt)
+          (cd beta-diagnostic && sha256sum -c WC_BETA_DRAWDOWN_SHA256SUMS.txt)
+
+      - name: Run Stage 2 zero-budget discriminator
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/diagnose_wc_targeted_hedge_stage2.py
+          rm -rf "$OUT_DIR"
+          python backtester/diagnose_wc_targeted_hedge_stage2.py --accepted-root accepted-e3 --beta-root beta-diagnostic --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c STAGE2_SHA256SUMS.txt)
+
+      - name: Validate E8 remains closed
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=Path(os.environ['OUT_DIR']); s=json.loads((p/'stage2_summary.json').read_text())
+          assert s['status']=='PASS'
+          assert s['zero_budget_diagnostic'] is True
+          assert s['strategy_mechanics_changed'] is False
+          assert s['experiment_budget_consumed'] is False
+          assert s['interpretation_contract']['e8_spent'] is False
+          assert s['native_severe_discrimination']['required_episode_coverage']['2020-02-18'] is True
+          assert s['native_severe_discrimination']['required_episode_coverage']['2011-07-07'] is True
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Publish Stage 2 summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          p=Path(os.environ['OUT_DIR']); q=p/'stage2_summary.json'
+          if not q.exists(): raise SystemExit(0)
+          s=json.loads(q.read_text()); a=pd.read_csv(p/'sentinel_event_aggregate.csv')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Targeted hedge Stage 2 — existing Sentinel discrimination\n\n')
+              f.write(f"Conclusion: **{s['conclusion']}**  \n")
+              n=s['native_severe_discrimination']
+              f.write(f"Market-dominant top-15 episodes caught: **{n['market_dominant_caught']}/{n['market_dominant_episodes']}**  \n")
+              f.write(f"Residual-dominant top-15 episodes also caught: **{n['residual_dominant_caught']}/{n['residual_dominant_episodes']}**  \n")
+              f.write(f"2025 systemic episode caught: **{n['required_episode_coverage'].get('2025-02-14')}**  \n\n")
+              f.write(a.to_markdown(index=False))
+              f.write('\n\n**Experiment budget remains 7/10. E8 not spent.**\n')
+          PY
+
+      - name: Upload immutable Stage 2 evidence
+        if: ${{ always() && hashFiles('backtester-results/wc-targeted-hedge-stage2/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wc-targeted-hedge-stage2-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
