@@ -1,0 +1,149 @@
+name: Backtester - durable WC evidence archive
+
+run-name: Durable WC evidence archive — ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - research/backtester-wc-evidence-archive
+    paths:
+      - '.github/workflows/backtester-wc-evidence-archive.yml'
+
+permissions:
+  actions: read
+  contents: write
+
+concurrency:
+  group: backtester-wc-evidence-archive
+  cancel-in-progress: false
+
+jobs:
+  archive:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      REPO: flabber1835/stocker
+      ARCHIVE_BRANCH: research/backtester-wc-evidence-archive
+      E5_RUN: '33930932163'
+      E5_ARTIFACT: '9959923294'
+      E5_SHA: ed79b9603e1e9d349c85ccd57db12953b5cc2c06
+      DIAG_RUN: '33935820712'
+      DIAG_SHA: 6048825fae989bf747bd6346bb1b37a993559e0a
+    steps:
+      - name: Check out isolated archive branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/backtester-wc-evidence-archive
+          fetch-depth: 1
+          persist-credentials: true
+
+      - name: Archive complete E5 artifact into Git
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          tmp="$(mktemp -d)"
+          e5_dir="research/evidence/wc-e5/${E5_SHA}"
+          mkdir -p "$e5_dir"
+          curl -fsSL \
+            -H "Authorization: Bearer ${GH_TOKEN}" \
+            -H 'Accept: application/vnd.github+json' \
+            -H 'X-GitHub-Api-Version: 2022-11-28' \
+            "https://api.github.com/repos/${REPO}/actions/artifacts/${E5_ARTIFACT}/zip" \
+            -o "$tmp/e5.zip"
+          rm -rf "$e5_dir/bundle"
+          mkdir -p "$e5_dir/bundle"
+          unzip -q "$tmp/e5.zip" -d "$e5_dir/bundle"
+          (
+            cd "$e5_dir/bundle"
+            sha256sum -c E5_SHA256SUMS.txt
+          )
+          python - <<'PY'
+          import json, os, urllib.request
+          from pathlib import Path
+          token=os.environ['GH_TOKEN']; repo=os.environ['REPO']; run=os.environ['E5_RUN']; aid=os.environ['E5_ARTIFACT']; sha=os.environ['E5_SHA']
+          headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+          def get(url):
+              req=urllib.request.Request(url,headers=headers)
+              with urllib.request.urlopen(req,timeout=60) as r: return json.load(r)
+          out=Path('research/evidence/wc-e5')/sha
+          (out/'run_metadata.json').write_text(json.dumps(get(f'https://api.github.com/repos/{repo}/actions/runs/{run}'),indent=2,sort_keys=True)+'\n')
+          (out/'artifact_metadata.json').write_text(json.dumps(get(f'https://api.github.com/repos/{repo}/actions/artifacts/{aid}'),indent=2,sort_keys=True)+'\n')
+          PY
+
+      - name: Wait for coupling diagnostic terminal state
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          for _ in $(seq 1 150); do
+            state="$(python - <<'PY'
+          import json, os, urllib.request
+          token=os.environ['GH_TOKEN']; repo=os.environ['REPO']; run=os.environ['DIAG_RUN']
+          req=urllib.request.Request(f'https://api.github.com/repos/{repo}/actions/runs/{run}',headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'})
+          with urllib.request.urlopen(req,timeout=60) as r: x=json.load(r)
+          print(x.get('status','unknown'))
+          PY
+            )"
+            echo "diagnostic status=${state}"
+            if [ "$state" = completed ]; then exit 0; fi
+            sleep 60
+          done
+          echo 'Diagnostic did not reach terminal state inside archive window' >&2
+          exit 1
+
+      - name: Archive complete coupling diagnostic artifact into Git
+        if: always()
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          diag_dir="research/evidence/wc-sentinel-coupling/${DIAG_SHA}"
+          mkdir -p "$diag_dir"
+          python - <<'PY'
+          import json, os, urllib.request
+          from pathlib import Path
+          token=os.environ['GH_TOKEN']; repo=os.environ['REPO']; run=os.environ['DIAG_RUN']; sha=os.environ['DIAG_SHA']
+          headers={'Authorization':f'Bearer {token}','Accept':'application/vnd.github+json','X-GitHub-Api-Version':'2022-11-28'}
+          def get(url):
+              req=urllib.request.Request(url,headers=headers)
+              with urllib.request.urlopen(req,timeout=60) as r: return json.load(r)
+          out=Path('research/evidence/wc-sentinel-coupling')/sha
+          runmeta=get(f'https://api.github.com/repos/{repo}/actions/runs/{run}')
+          artifacts=get(f'https://api.github.com/repos/{repo}/actions/runs/{run}/artifacts')
+          (out/'run_metadata.json').write_text(json.dumps(runmeta,indent=2,sort_keys=True)+'\n')
+          (out/'artifacts_metadata.json').write_text(json.dumps(artifacts,indent=2,sort_keys=True)+'\n')
+          matches=[a for a in artifacts.get('artifacts',[]) if not a.get('expired')]
+          if matches:
+              Path('/tmp/diag_artifact_id').write_text(str(matches[0]['id']))
+          PY
+          if [ -s /tmp/diag_artifact_id ]; then
+            aid="$(cat /tmp/diag_artifact_id)"
+            tmp="$(mktemp -d)"
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${REPO}/actions/artifacts/${aid}/zip" \
+              -o "$tmp/diag.zip"
+            rm -rf "$diag_dir/bundle"
+            mkdir -p "$diag_dir/bundle"
+            unzip -q "$tmp/diag.zip" -d "$diag_dir/bundle"
+            if [ -f "$diag_dir/bundle/SENTINEL_COUPLING_SHA256SUMS.txt" ]; then
+              (cd "$diag_dir/bundle" && sha256sum -c SENTINEL_COUPLING_SHA256SUMS.txt)
+            fi
+          fi
+
+      - name: Commit durable evidence to archive branch
+        if: always()
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add research/evidence
+          if git diff --cached --quiet; then
+            echo 'No new archive bytes to commit.'
+            exit 0
+          fi
+          git commit -m 'archive: permanently retain E5 and coupling diagnostic evidence'
+          git push origin HEAD:research/backtester-wc-evidence-archive
