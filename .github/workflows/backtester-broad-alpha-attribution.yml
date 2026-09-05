@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/backtester-broad-alpha-attribution.yml'
       - 'backtester/forensics_broad_alpha_attribution.py'
+      - 'backtester/run_research_ldrc_corrected_warmup_cash.py'
   workflow_dispatch:
 
 permissions:
@@ -16,6 +17,7 @@ env:
   BROAD_DIR: backtester-results/broad-alpha-reference
   INPUT_DIR: backtester-results/broad-alpha-input
   OUT_DIR: backtester-results/broad-alpha-attribution
+  RESEARCH_EMIT_POSITION_TRACE: '1'
 
 jobs:
   attribution:
@@ -79,6 +81,7 @@ jobs:
           mkdir -p "$BROAD_DIR"
           python -m backtester.run_research_ldrc_corrected_warmup_cash --mode fullpit --output "$BROAD_DIR"
           (cd "$BROAD_DIR" && sha256sum -c SHA256SUMS.txt)
+          test -f "$BROAD_DIR/position_trace.csv.gz"
           python - <<'PY'
           import json, os
           from pathlib import Path
@@ -86,9 +89,9 @@ jobs:
           s=json.loads((root/'summary.json').read_text())
           assert s['status']=='PASS'
           assert s['mode']=='fullpit'
+          assert s['diagnostic_position_trace']['observational_only'] is True
           print('broad result files:')
-          for p in sorted(root.iterdir()):
-              print(p.name)
+          for p in sorted(root.iterdir()): print(p.name)
           PY
 
       - name: Download authenticated S&P membership artifact
@@ -123,6 +126,7 @@ jobs:
             ${{ env.OUT_DIR }}
             ${{ env.BROAD_DIR }}/summary.json
             ${{ env.BROAD_DIR }}/metrics.csv
+            ${{ env.BROAD_DIR }}/position_trace.csv.gz
             ${{ env.BROAD_DIR }}/SHA256SUMS.txt
           if-no-files-found: error
           retention-days: 90
