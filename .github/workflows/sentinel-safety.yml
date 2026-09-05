@@ -11,6 +11,7 @@ on:
       - main
       - 'fix/**'
       - 'codex/**'
+      - 'stabilization/**'
   pull_request:
     branches: [main]
   # GitHub Enterprise Cloud organization/enterprise ruleset workflows accept
@@ -153,6 +154,7 @@ jobs:
             /app/sentinel \
             /usr/local/lib/python3.12/site-packages/stock_strategy_shared \
             /work/tests/sentinel \
+            /work/tests/scripts \
             /work/tools /work/repo/scripts
 
       - name: Run the complete Sentinel suite without network access
@@ -171,6 +173,25 @@ jobs:
           if grep -Eq '(^|, )[0-9]+ skipped(,| in |$)' \
               /tmp/sentinel-complete.txt; then
             echo 'REFUSED: the complete Sentinel run skipped tests' >&2
+            exit 1
+          fi
+
+      - name: Run operator and bring-up script tests without network access
+        run: |
+          set -euo pipefail
+          set +e
+          docker run --rm --network none sentinel-test:ci \
+            tests/scripts -q -ra 2>&1 | tee /tmp/sentinel-scripts.txt
+          test_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$test_status" -ne 0 ]; then
+            echo '--- Script/control failure tail ---' >&2
+            tail -n 240 /tmp/sentinel-scripts.txt >&2
+            exit "$test_status"
+          fi
+          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
+              /tmp/sentinel-scripts.txt; then
+            echo 'REFUSED: the script/control suite had non-passes' >&2
             exit 1
           fi
 
