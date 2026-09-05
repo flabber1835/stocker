@@ -53,10 +53,10 @@ jobs:
       - name: Authenticate stage-one lineage
         run: |
           set -euo pipefail
-          (cd inputs/priority && sha256sum -c SHA256SUMS.txt)
+          (cd inputs/priority/closure-stage1 && sha256sum -c SHA256SUMS.txt)
           python - <<'PY'
           import json
-          value=json.load(open('inputs/priority/summary.json'))
+          value=json.load(open('inputs/priority/closure-stage1/summary.json'))
           assert value['status']=='PASS'
           assert value['baseline']['terminal']==1405
           assert value['source']['champion_run_id']=='33994291853'
@@ -67,7 +67,7 @@ jobs:
           set -euo pipefail
           python backtester/validate_champion_terminal_evidence.py \
             --evidence backtester/data/champion-terminal-evidence-stage2.json \
-            --priority inputs/priority/terminal-priority.csv \
+            --priority inputs/priority/closure-stage1/terminal-priority.csv \
             --output results/stage2
           (cd results/stage2 && sha256sum -c SHA256SUMS.txt)
           python - <<'PY'
