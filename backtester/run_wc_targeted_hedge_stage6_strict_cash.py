@@ -26,8 +26,11 @@ def transformed_source() -> str:
     if count!=1:
         raise RuntimeError(f"Stage6 cash-priority seam count={count}; source identity changed")
     text=text.replace(OLD,NEW,1)
-    if "cash_frac=float(d.iloc[ti].wc_next_open_unreserved_cash_fraction)" in text:
+    legacy_line="        cash_frac=float(d.iloc[ti].wc_next_open_unreserved_cash_fraction)"
+    if legacy_line in text.splitlines():
         raise RuntimeError("uncapped Stage6 initial cash seam survived transform")
+    if text.count("actual_post_wc_cash_frac") != 2:
+        raise RuntimeError("strict Stage6 post-WC cash cap was not installed exactly once")
     return text
 
 
