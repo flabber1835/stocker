@@ -1,0 +1,323 @@
+name: Backtester - Research Champion direct formal PIT certification
+run-name: Research Champion direct formal PIT certification — ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - research/research-champion
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+  packages: read
+
+env:
+  PIT_OFFICIAL_BACKTEST: '1'
+
+jobs:
+  causality:
+    name: Mandatory PIT / financial / causality evidence
+    uses: ./.github/workflows/backtester-pit-certification-suite.yml
+    with:
+      mode: research
+      source_sha: ${{ github.sha }}
+      strategy_sha: ${{ github.sha }}
+      runtime_main_sha: 887f479b15ad861313da666ad698034d3847121c
+      parameters_json: '{"entrypoint":"run_research_champion_strict_pit_20y.py","mode":"fullpit","profile":"strategy9-e3-research-champion-v1","LDRC_REC":8,"LDRC_R20":-0.085,"LDRC_V":0.11,"LDRC_DD":-0.10,"divergence_spy_floor":0.0,"full_recovery_r40_floor":0.0,"FAST_damaged":0.88,"healthy_damaged_ceiling":0.63,"runtime_main_sha":"887f479b15ad861313da666ad698034d3847121c","terminal_grace":true,"certification_contract":"backtester.pit-certification/1"}'
+    secrets: inherit
+
+  replay:
+    name: Exact Research Champion canonical 20-year replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2026-07-31'
+      PIT_SOURCE_SHA: ${{ github.sha }}
+      PIT_STRATEGY_SHA: ${{ github.sha }}
+      PIT_PARAMETERS_JSON: '{"entrypoint":"run_research_champion_strict_pit_20y.py","mode":"fullpit","profile":"strategy9-e3-research-champion-v1","LDRC_REC":8,"LDRC_R20":-0.085,"LDRC_V":0.11,"LDRC_DD":-0.10,"divergence_spy_floor":0.0,"full_recovery_r40_floor":0.0,"FAST_damaged":0.88,"healthy_damaged_ceiling":0.63,"runtime_main_sha":"887f479b15ad861313da666ad698034d3847121c","terminal_grace":true,"certification_contract":"backtester.pit-certification/1"}'
+      PYTHONUNBUFFERED: '1'
+    steps:
+      - name: Check out exact Research Champion source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows
+            /backtester
+            /tests/backtester
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/strategy9-e3-broad-stability
+      - name: Prove exact Research Champion source identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/research-champion"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test -z "$(git status --porcelain)"
+      - name: Check out pinned runtime closure read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+      - name: Prove pinned runtime identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C main-src rev-parse HEAD)" = "887f479b15ad861313da666ad698034d3847121c"
+          test -z "$(git -C main-src status --porcelain)"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Install frozen runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+      - name: Compile and self-test Champion source
+        shell: bash
+        run: |
+          set -euo pipefail
+          CANONICAL_PIT_DATASET=/tmp/research-champion-canonical-selftest \
+            python backtester/run_research_champion_strict_pit_20y.py --self-test-imports
+          python -m unittest tests.backtester.test_canonical_pit_dataset -v
+      - name: Pull and verify immutable canonical PIT package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          rm -rf backtester-results/canonical-pit-20y && mkdir -p backtester-results/canonical-pit-20y
+          docker cp "${cid}:/canonical-pit/." backtester-results/canonical-pit-20y
+          docker rm "${cid}"; trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset backtester-results/canonical-pit-20y
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
+      - name: Freeze exact experiment identity
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backtester-results/research-champion-20y
+          python backtester/certify_backtest_result.py identity \
+            --mode research \
+            --source-sha "${PIT_SOURCE_SHA}" \
+            --strategy-sha "${PIT_STRATEGY_SHA}" \
+            --workflow-sha "${PIT_SOURCE_SHA}" \
+            --pointer backtester/data/canonical-pit-20y.json \
+            --parameters-json "${PIT_PARAMETERS_JSON}" \
+            --source-root . \
+            --output backtester-results/research-champion-20y/experiment-identity.json
+      - name: Run exact Research Champion full 20 years
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/run_research_champion_strict_pit_20y.py \
+            --mode fullpit \
+            --output backtester-results/research-champion-20y \
+            2>&1 | tee research-champion-20y.log
+      - name: Verify Champion promotion and financial-grade authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, re
+          from pathlib import Path
+          root=Path('backtester-results/research-champion-20y')
+          pointer=json.loads(Path('backtester/data/canonical-pit-20y.json').read_text())
+          summary=json.loads((root/'summary.json').read_text())
+          audit=json.loads((root/'metadata_authority_audit.json').read_text())
+          champ=json.loads((root/'research-champion-identity.json').read_text())
+          assert summary['canonical_pit_dataset_hash'] == pointer['dataset_hash']
+          assert champ['status'] == 'PASS'
+          assert champ['profile'] == 'strategy9-e3-research-champion-v1'
+          assert champ['authoritative_output']['promoted_from'] == 'A'
+          assert champ['authoritative_output']['promotion_nav_max_abs_gap'] <= 1e-12
+          assert champ['authoritative_output']['promotion_allocation_max_abs_gap'] <= 1e-12
+          assert audit['current_SHARADAR_TICKERS_economically_active_fields'] == []
+          assert audit['financial_grade'] == {
+              'dividend_lag_sessions':15,
+              'missing_leadership_return_policy':'FAIL_CLOSED',
+              'requires_resolved_nav':True,
+              'terminal_grace_integrated':True,
+          }
+          log=Path('research-champion-20y.log').read_text()
+          rows=re.findall(r'\[CERT_CAGR\] role=(research|spy) date=(\d{4}-\d{2}-\d{2}) cagr=([-+.0-9]+)',log)
+          by_date={}
+          for role,date,value in rows: by_date.setdefault(date,{})[role]=float(value)
+          assert by_date and all(set(v)=={'research','spy'} for v in by_date.values())
+          print('[RESEARCH_CHAMPION_REPLAY_VERIFY] PASS')
+          PY
+      - name: Seal replay evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/certify_backtest_result.py collect-replay \
+            --identity backtester-results/research-champion-20y/experiment-identity.json \
+            --output-root backtester-results/research-champion-20y \
+            --checkpoint-resume PASS \
+            --output backtester-results/research-champion-20y/pit-replay-evidence.json
+      - name: Upload immutable replay evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: research-champion-direct-replay-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backtester/data/canonical-pit-20y.json
+            backtester-results/research-champion-20y/**
+            research-champion-20y.log
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
+
+  finalize:
+    name: Authoritative Research Champion PIT certification
+    if: ${{ always() }}
+    needs: [replay, causality]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      PIT_SOURCE_SHA: ${{ github.sha }}
+      PIT_STRATEGY_SHA: ${{ github.sha }}
+      PIT_PARAMETERS_JSON: '{"entrypoint":"run_research_champion_strict_pit_20y.py","mode":"fullpit","profile":"strategy9-e3-research-champion-v1","LDRC_REC":8,"LDRC_R20":-0.085,"LDRC_V":0.11,"LDRC_DD":-0.10,"divergence_spy_floor":0.0,"full_recovery_r40_floor":0.0,"FAST_damaged":0.88,"healthy_damaged_ceiling":0.63,"runtime_main_sha":"887f479b15ad861313da666ad698034d3847121c","terminal_grace":true,"certification_contract":"backtester.pit-certification/1"}'
+      PIT_POINTER: backtester/data/canonical-pit-20y.json
+      PIT_DATASET: backtester-results/canonical-pit-20y
+      PIT_FINAL_ROOT: backtester-results/pit-certification-final
+    steps:
+      - name: Check out exact finalizer source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows
+            /backtester
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/strategy9-e3-broad-stability
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+      - name: Download replay evidence
+        if: ${{ needs.replay.result == 'success' }}
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: research-champion-direct-replay-${{ github.run_id }}-${{ github.run_attempt }}
+          path: research-final
+      - name: Download mandatory causality evidence
+        if: always()
+        continue-on-error: true
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: pit-certification-tests-research-${{ github.run_id }}-${{ github.run_attempt }}
+          path: causality-final
+      - name: Re-acquire immutable canonical dataset
+        id: dataset
+        continue-on-error: true
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PACKAGE=$(python -c "import json; print(json.load(open('${PIT_POINTER}'))['package'])")
+          test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          rm -rf "${PIT_DATASET}" && mkdir -p "${PIT_DATASET}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${cid}:/canonical-pit/." "${PIT_DATASET}/"
+          python backtester/canonical_pit_package.py verify --pointer "${PIT_POINTER}" --dataset "${PIT_DATASET}"
+      - name: Freeze final identity
+        id: identity
+        continue-on-error: true
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "${PIT_FINAL_ROOT}"
+          python backtester/certify_backtest_result.py identity \
+            --mode research \
+            --source-sha "${PIT_SOURCE_SHA}" \
+            --strategy-sha "${PIT_STRATEGY_SHA}" \
+            --workflow-sha "${PIT_SOURCE_SHA}" \
+            --pointer "${PIT_POINTER}" \
+            --parameters-json "${PIT_PARAMETERS_JSON}" \
+            --source-root . \
+            --output "${PIT_FINAL_ROOT}/experiment-identity.json"
+      - name: Issue common authoritative certification
+        id: issue
+        if: always()
+        continue-on-error: true
+        shell: bash
+        env:
+          REPLAY_JOB_RESULT: ${{ needs.replay.result }}
+          TESTS_JOB_RESULT: ${{ needs.causality.result }}
+          DATASET_JOB_RESULT: ${{ steps.dataset.outcome }}
+        run: |
+          set -euo pipefail
+          replay="research-final/backtester-results/research-champion-20y/pit-replay-evidence.json"
+          tests="causality-final/backtester-results/pit-certification-suite/pit-test-evidence.json"
+          args=()
+          if test "${DATASET_JOB_RESULT}" = success && test -d "${PIT_DATASET}"; then args+=(--dataset "${PIT_DATASET}" --pointer "${PIT_POINTER}"); fi
+          if test -f "${replay}"; then args+=(--replay-evidence "${replay}"); fi
+          if test -f "${tests}"; then args+=(--test-evidence "${tests}"); fi
+          python backtester/certify_backtest_result.py finalize \
+            --identity "${PIT_FINAL_ROOT}/experiment-identity.json" \
+            "${args[@]}" \
+            --replay-job-result "${REPLAY_JOB_RESULT}" \
+            --tests-job-result "${TESTS_JOB_RESULT}" \
+            --output "${PIT_FINAL_ROOT}/pit-certification.json" \
+            --summary-output "${PIT_FINAL_ROOT}/pit-certification-summary.txt"
+      - name: Upload final certification
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: research-champion-direct-certification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backtester-results/pit-certification-final/**
+            research-final/backtester-results/research-champion-20y/**
+            causality-final/backtester-results/pit-certification-suite/**
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
+      - name: Enforce PIT CERTIFIED
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${{ steps.dataset.outcome }}" = success
+          test "${{ steps.identity.outcome }}" = success
+          test "${{ steps.issue.outcome }}" = success
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          value=json.loads(Path('backtester-results/pit-certification-final/pit-certification.json').read_text())
+          if value.get('status') != 'PIT_CERTIFIED':
+              raise SystemExit('PIT NOT CERTIFIED')
+          print('PIT CERTIFIED — Research Champion point-in-time, causality, universe, and forward-bias checks passed')
+          PY
