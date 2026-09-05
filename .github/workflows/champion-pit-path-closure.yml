@@ -1,0 +1,214 @@
+name: Research Champion - corrected economics and PIT path closure
+run-name: Champion corrected 20y + PIT path closure - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/champion-pit-path-closure]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+jobs:
+  champion:
+    name: Corrected Champion 5/10/15/20y + closure ledger
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      PYTHONUNBUFFERED: '1'
+      PIT_OFFICIAL_BACKTEST: '0'
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2026-07-31'
+      OUT: champion-pit-closure-results
+    steps:
+      - name: Checkout exact research head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/**
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/strategy9-e3-broad-stability/**
+
+      - name: Checkout pinned Production runtime
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Bind exact source and runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          mkdir -p "${OUT}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
+          python -m py_compile \
+            backtester/research_champion_pit_closure.py \
+            backtester/run_research_champion_pit_closure_20y.py
+
+      - name: Setup frozen Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+
+      - name: Install frozen replay runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+
+      - name: Authenticate immutable canonical PIT package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "${cid}:/canonical-pit/." canonical-pit/
+          docker rm "${cid}"; trap - EXIT
+          python backtester/canonical_pit_package.py verify \
+            --pointer "${POINTER}" --dataset canonical-pit \
+            > "${OUT}/package-integrity.json"
+
+      - name: Prove corrected generated economics and closure instrumentation
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/run_research_champion_pit_closure_20y.py \
+            --self-test --output "${OUT}/selftest"
+          python - <<'PY'
+          from pathlib import Path
+          from backtester.run_research_champion_pit_closure_20y import build_source
+          text = build_source(Path('/tmp/champion-path-proof'))
+          required = [
+              'book.receivables.append((gday+1,q*rawdiv))',
+              'if ready and not unresolved and book.cash>0:',
+              '_PATH.observe_session(',
+              '_closure.production_leadership_return(',
+          ]
+          forbidden = [
+              '_research_capacity_guard(s.qty,',
+              '_research_capacity_guard(s.pending_shares,',
+              'gday+15,q*rawdiv',
+              'financial-grade NAV unresolved',
+          ]
+          missing = [x for x in required if x not in text]
+          present = [x for x in forbidden if x in text]
+          if missing or present:
+              raise SystemExit({'missing': missing, 'forbidden_present': present})
+          print('[ECONOMICS SOURCE PROOF] PASS')
+          PY
+          if grep -R "MAX_TRAILING_VOLUME_PARTICIPATION" -n \
+              main-src/shared/stock_strategy_shared/wealth_core \
+              main-src/sentinel/core >/tmp/capacity-production.txt; then
+            cat /tmp/capacity-production.txt
+            echo 'unexpected Production participation-cap rule' >&2
+            exit 1
+          fi
+          echo '[PINNED PRODUCTION CAPACITY SEARCH] PASS - no participation-cap rule'
+
+      - name: Run corrected frozen Champion 20-year replay and build PIT closure corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          python backtester/run_research_champion_pit_closure_20y.py \
+            --output "${OUT}" 2>&1 | tee "${OUT}/replay.log"
+
+      - name: Verify 5/10/15/20 windows and closure artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          import pandas as pd
+          root=Path('champion-pit-closure-results')
+          metrics=pd.read_csv(root/'metrics.csv')
+          windows=set(metrics.window_years.astype(str))
+          missing={'5','10','15','20'}-windows
+          if missing:
+              raise SystemExit(f'missing windows {sorted(missing)}')
+          manifest=json.loads((root/'strategy-path-manifest.json').read_text())
+          if manifest.get('profile_sha256') != '1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26':
+              raise SystemExit('Champion profile identity mismatch')
+          if manifest.get('economics_contract',{}).get('capacity_participation_cap') is not None:
+              raise SystemExit('capacity rule reappeared')
+          required=[
+              'strategy-path-session-ledger.jsonl.gz',
+              'strategy-path-worklist.csv',
+              'candidate-envelope-worklist.csv',
+              'strategy-path-events.jsonl.gz',
+              'REPORT.md',
+              'SHA256SUMS.txt',
+          ]
+          absent=[x for x in required if not (root/x).is_file()]
+          if absent:
+              raise SystemExit(f'missing closure artifacts: {absent}')
+          print(json.dumps({
+              'windows': sorted(windows),
+              'counts': manifest.get('counts'),
+              'event_counts': manifest.get('event_counts'),
+              'status': manifest.get('certification_status'),
+          }, indent=2, sort_keys=True))
+          PY
+          cat "${OUT}/REPORT.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload core Champion and PIT closure worklist evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-pit-closure-core-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            champion-pit-closure-results/REPORT.md
+            champion-pit-closure-results/metrics.csv
+            champion-pit-closure-results/daily.csv.gz
+            champion-pit-closure-results/summary.json
+            champion-pit-closure-results/run-status.json
+            champion-pit-closure-results/pit-closure-replay-identity.json
+            champion-pit-closure-results/package-integrity.json
+            champion-pit-closure-results/candidate_session_coverage.json
+            champion-pit-closure-results/candidate_session_unknown_breakdown.json
+            champion-pit-closure-results/strategy-path-worklist.csv
+            champion-pit-closure-results/candidate-envelope-worklist.csv
+            champion-pit-closure-results/strategy-path-manifest.json
+            champion-pit-closure-results/SHA256SUMS.txt
+            champion-pit-closure-results/replay.log
+          retention-days: 90
+          if-no-files-found: warn
+
+      - name: Upload session-level reconstruction ledger
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-pit-closure-ledger-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            champion-pit-closure-results/strategy-path-session-ledger.jsonl.gz
+            champion-pit-closure-results/strategy-path-events.jsonl.gz
+            champion-pit-closure-results/canonical_input_session_hashes.csv
+            champion-pit-closure-results/generated-replay.py
+          retention-days: 90
+          if-no-files-found: warn
