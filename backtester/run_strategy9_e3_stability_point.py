@@ -113,6 +113,11 @@ def main() -> int:
     )
     subprocess.run([sys.executable, str(generated)], check=True, env=env)
 
+    # The generated replay emits the raw retained-research files. Convert them
+    # into the canonical daily.csv.gz surface before the stability analysis.
+    corrected.old.postprocess("fullpit", args.output)
+    corrected.finalize("fullpit", args.output)
+
     daily = pd.read_csv(args.output / "daily.csv.gz", compression="gzip", parse_dates=["date"])
     metrics = metric_rows(daily)
     metrics.insert(0, "name", args.name)
