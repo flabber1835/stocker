@@ -1,0 +1,135 @@
+name: Backtester - Wealth Core hedge decomposition diagnostic
+run-name: WC hedge decomposition — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-wc-hedge-decomposition-diagnostic]
+    paths:
+      - '.github/workflows/backtester-wc-hedge-decomposition-diagnostic.yml'
+      - 'backtester/diagnose_wc_market_beta_drawdowns.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  E3_HEAD: '3f27834db427e71d9bb8d0b6160c8835b739c906'
+  E3_RUN_ID: '33912976460'
+  E3_ARTIFACT: 'strategy9-recovery-concordance-e3-3f27834db427e71d9bb8d0b6160c8835b739c906'
+  E3_DIGEST: 'sha256:22011d018a336c6da4d92b31e8786811a4f4288daa91d56a80c30c9f144f174f'
+  OUT_DIR: '${{ github.workspace }}/backtester-results/wc-hedge-decomposition'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Check out diagnostic head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-wc-hedge-decomposition-diagnostic.yml
+            /backtester/diagnose_wc_market_beta_drawdowns.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Authenticate accepted E3 artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${E3_RUN_ID}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${E3_RUN_ID}" --jq '.head_sha')" = "${E3_HEAD}"
+          observed=$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${E3_RUN_ID}/artifacts" --jq ".artifacts[] | select(.name == \"${E3_ARTIFACT}\") | .digest")
+          test "${observed}" = "${E3_DIGEST}"
+
+      - name: Download immutable accepted E3
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.E3_ARTIFACT }}
+          path: accepted-e3
+          repository: ${{ github.repository }}
+          run-id: ${{ env.E3_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Authenticate accepted E3 contents
+        run: |
+          set -euo pipefail
+          (cd accepted-e3 && sha256sum -c E3_SHA256SUMS.txt)
+          test -s accepted-e3/daily.csv.gz
+
+      - name: Run zero-budget drawdown decomposition
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/diagnose_wc_market_beta_drawdowns.py
+          rm -rf "$OUT_DIR"
+          python backtester/diagnose_wc_market_beta_drawdowns.py \
+            --accepted-root accepted-e3 \
+            --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c WC_BETA_DRAWDOWN_SHA256SUMS.txt)
+
+      - name: Validate diagnostic contract
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR'])
+          s=json.load(open(out/'wc_beta_drawdown_summary.json'))
+          a=pd.read_csv(out/'wc_drawdown_beta_attribution.csv')
+          d=pd.read_csv(out/'wc_daily_beta_decomposition.csv.gz',compression='gzip')
+          assert s['status']=='PASS' and s['zero_budget_diagnostic'] is True
+          assert s['strategy_mechanics_changed'] is False
+          assert s['accepted_e3']['head']==os.environ['E3_HEAD']
+          assert s['interpretation_contract']['future_information_used_for_beta'] is False
+          assert s['interpretation_contract']['hedge_strategy_tested'] is False
+          assert len(a)>=10 and len(d)>4000
+          assert {63,126,252}==set(s['beta_windows_sessions'])
+          assert (a['drawdown']<0).all()
+          print(json.dumps(s,indent=2,sort_keys=True))
+          print(a.head(15).to_string(index=False))
+          PY
+
+      - name: Publish diagnostic summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT_DIR']); p=out/'wc_beta_drawdown_summary.json'
+          if not p.exists(): raise SystemExit(0)
+          s=json.load(open(p)); a=pd.read_csv(out/'wc_drawdown_beta_attribution.csv').head(10)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Wealth Core market-beta drawdown decomposition\n\n')
+              q=s['top10_primary_market_share_of_covered_loss']
+              f.write(f"Primary beta lookback: **{s['primary_beta_window_sessions']} prior sessions**  \n")
+              f.write(f"Top-10 drawdown median market-beta share: **{q['median']:.1%}**  \n")
+              f.write(f"Top-10 drawdown mean market-beta share: **{q['mean']:.1%}**  \n\n")
+              f.write('| Peak | Trough | DD | Mean beta | Market share of loss |\n|---|---|---:|---:|---:|\n')
+              for r in a.itertuples(index=False):
+                  f.write(f'| {r.peak_date} | {r.trough_date} | {r.drawdown:.1%} | {r.mean_prior_beta_126:.2f} | {r.market_share_of_covered_loss_126:.1%} |\n')
+          PY
+
+      - name: Upload immutable hedge diagnostic
+        if: ${{ always() && hashFiles('backtester-results/wc-hedge-decomposition/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wc-hedge-decomposition-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
