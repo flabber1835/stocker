@@ -1,0 +1,153 @@
+name: Backtester - WC targeted hedge Stage 3
+run-name: WC targeted hedge Stage 3 zero-budget — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-wc-targeted-hedge-diagnostic]
+    paths:
+      - '.github/workflows/backtester-wc-targeted-hedge-stage3.yml'
+      - 'backtester/diagnose_wc_targeted_hedge_stage3.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+env:
+  E3_RUN_ID: '33912976460'
+  E3_HEAD: '3f27834db427e71d9bb8d0b6160c8835b739c906'
+  E3_ARTIFACT: 'strategy9-recovery-concordance-e3-3f27834db427e71d9bb8d0b6160c8835b739c906'
+  E3_DIGEST: 'sha256:22011d018a336c6da4d92b31e8786811a4f4288daa91d56a80c30c9f144f174f'
+  BETA_RUN_ID: '33976008320'
+  BETA_HEAD: '92e5d340858dae00909d9d459b539b7e76de8297'
+  BETA_ARTIFACT: 'wc-hedge-decomposition-92e5d340858dae00909d9d459b539b7e76de8297'
+  BETA_DIGEST: 'sha256:19df7f1c2801629397c70600b10368cb0782c71dbd7dcb049caa6f02436367d3'
+  OUT_DIR: '${{ github.workspace }}/backtester-results/wc-targeted-hedge-stage3'
+
+jobs:
+  diagnose:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 35
+    steps:
+      - name: Check out exact diagnostic head and pinned SFP
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-wc-targeted-hedge-stage3.yml
+            /backtester/diagnose_wc_targeted_hedge_stage3.py
+            /sharadar/SFP/SHARADAR_SFP.zip.001
+            /sharadar/SFP/SHARADAR_SFP.zip.002
+            /sharadar/SFP/SHARADAR_SFP.zip.003
+            /sharadar/SFP/SHARADAR_SFP.zip.004
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Assemble and authenticate pinned SFP
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat sharadar/SFP/SHARADAR_SFP.zip.001 sharadar/SFP/SHARADAR_SFP.zip.002 sharadar/SFP/SHARADAR_SFP.zip.003 sharadar/SFP/SHARADAR_SFP.zip.004 > sharadar/SHARADAR_SFP.zip
+          unzip -tq sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Authenticate immutable upstream artifacts
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${E3_RUN_ID}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${E3_RUN_ID}" --jq '.head_sha')" = "${E3_HEAD}"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${E3_RUN_ID}/artifacts" --jq ".artifacts[] | select(.name == \"${E3_ARTIFACT}\") | .digest")" = "${E3_DIGEST}"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BETA_RUN_ID}" --jq '.status+":"+(.conclusion // "")')" = "completed:success"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BETA_RUN_ID}" --jq '.head_sha')" = "${BETA_HEAD}"
+          test "$(gh api "repos/${GITHUB_REPOSITORY}/actions/runs/${BETA_RUN_ID}/artifacts" --jq ".artifacts[] | select(.name == \"${BETA_ARTIFACT}\") | .digest")" = "${BETA_DIGEST}"
+
+      - name: Download accepted E3
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.E3_ARTIFACT }}
+          path: accepted-e3
+          repository: ${{ github.repository }}
+          run-id: ${{ env.E3_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download prior beta diagnostic
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: ${{ env.BETA_ARTIFACT }}
+          path: beta-diagnostic
+          repository: ${{ github.repository }}
+          run-id: ${{ env.BETA_RUN_ID }}
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify upstream contents
+        run: |
+          set -euo pipefail
+          (cd accepted-e3 && sha256sum -c E3_SHA256SUMS.txt)
+          (cd beta-diagnostic && sha256sum -c WC_BETA_DRAWDOWN_SHA256SUMS.txt)
+
+      - name: Run Stage 3 prior-only multi-index diagnostic
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/diagnose_wc_targeted_hedge_stage3.py
+          rm -rf "$OUT_DIR"
+          python backtester/diagnose_wc_targeted_hedge_stage3.py --accepted-root accepted-e3 --beta-root beta-diagnostic --sfp sharadar/SHARADAR_SFP.zip --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c STAGE3_SHA256SUMS.txt)
+
+      - name: Validate causal diagnostic contract
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.loads((Path(os.environ['OUT_DIR'])/'stage3_summary.json').read_text())
+          assert s['status']=='PASS' and s['zero_budget_diagnostic'] is True
+          assert s['strategy_mechanics_changed'] is False and s['experiment_budget_consumed'] is False
+          assert s['interpretation_contract']['beta_and_blend_coefficients_strictly_prior_only'] is True
+          assert s['interpretation_contract']['e8_spent'] is False
+          assert s['SPY_parity_max_abs_return_diff'] < 1e-9
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Publish Stage 3 summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          import pandas as pd
+          p=Path(os.environ['OUT_DIR']); q=p/'stage3_summary.json'
+          if not q.exists(): raise SystemExit(0)
+          s=json.loads(q.read_text()); f=pd.read_csv(p/'multi_index_fit.csv'); f=f[f.window.eq(126)].sort_values('zero_intercept_oos_r2',ascending=False)
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as o:
+              o.write('## Targeted hedge Stage 3 — prior-only index mapping\n\n')
+              o.write(f"Best single index: **{s['best_single_index']}**  \n")
+              o.write(f"Best single OOS R²: **{s['best_single_oos_r2']:.4f}**  \n")
+              o.write(f"NNLS blend OOS R²: **{s['nnls_blend_oos_r2']:.4f}**  \n")
+              o.write(f"Blend gain: **{s['nnls_blend_r2_gain_vs_best_single']:.4f}**  \n\n")
+              o.write(f.to_markdown(index=False)); o.write('\n\n**Experiment budget remains 7/10.**\n')
+          PY
+
+      - name: Upload immutable Stage 3 evidence
+        if: ${{ always() && hashFiles('backtester-results/wc-targeted-hedge-stage3/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wc-targeted-hedge-stage3-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
