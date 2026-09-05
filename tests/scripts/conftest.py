@@ -16,7 +16,8 @@ _INSPECTION_TARGETS = (
 )
 
 
-def pytest_configure(_config):
+def pytest_configure(config):
+    del config
     if os.environ.get("SENTINEL_IN_IMAGE") != "1":
         return
     test_root = Path(__file__).resolve().parents[2]
