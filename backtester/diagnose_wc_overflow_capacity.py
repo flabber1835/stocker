@@ -48,11 +48,13 @@ def load_cash_path(attr_root: Path) -> pd.DataFrame:
     marks = pd.read_csv(attr_root / "broad_r3000_daily_position_marks.csv.gz", compression="gzip", parse_dates=["date"])
     marks = marks.sort_values(["trade_id", "date"], kind="mergesort").copy()
 
-    # Attribution dividends are cumulative per trade. Positive daily increments are
-    # exactly that session's newly-created one-session receivable.
+    # Attribution starts with already-open positions on 2006-07-31, so the first
+    # mark for a trade can contain dividends accumulated before telemetry began.
+    # That first cumulative value is a baseline, not a same-session receivable.
+    # All later positive increments are exact newly-created one-session receivables.
     marks["new_dividend_receivable"] = (
         marks.groupby("trade_id", sort=False)["dividends"].diff()
-        .fillna(marks["dividends"])
+        .fillna(0.0)
         .clip(lower=0.0)
     )
     agg = marks.groupby("date", as_index=False).agg(
