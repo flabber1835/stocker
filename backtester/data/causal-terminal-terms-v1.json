@@ -134,6 +134,78 @@
         "https://www.nasdaqtrader.com/content/phlxmemos/2008/Mar/0503-08.pdf"
       ],
       "ticker": "PHRM"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": 42.32,
+      "delivered_security_id": "870179108730805998",
+      "delivered_ticker": "KMI",
+      "effective_session": "2014-11-26",
+      "exchange_ratio": 2.4849,
+      "kind": "CONVERSION",
+      "known_by": "2014-11-26",
+      "price_witness": {
+        "closeunadj": 42.32,
+        "security_id": "870179108730805998",
+        "session": "2014-11-26",
+        "source_sep_sha256": "d0d11cd2f20c5b238932c64145400c537653017b9cf04448e9b5c103f053f36e",
+        "ticker": "KMI"
+      },
+      "reference": "Champion stage-2 KMI/KMR merger: each KMR listed share converted into 2.4849 KMI common shares; fractional entitlement valued at the effective-session KMI unadjusted close",
+      "security_id": "467549271426571429",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/1135017/000110465914084676/a14-25522_18k.htm"
+      ],
+      "ticker": "KMR"
+    },
+    {
+      "cash_per_share": 92.0,
+      "effective_session": "2016-03-03",
+      "kind": "CASH_MERGER",
+      "known_by": "2015-12-29",
+      "reference": "Champion stage-2 JAB/Keurig merger: each GMCR common share converted into $92.00 cash; transaction effective before the 2016-03-03 market open",
+      "security_id": "124998658609092760",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/909954/000104746915009420/a2226878zprem14a.htm",
+        "https://www.sec.gov/Archives/edgar/data/909954/000110465916102088/a16-5728_1ex99d1.htm"
+      ],
+      "ticker": "GMCR"
+    },
+    {
+      "cash_in_lieu_price_per_delivered_share": 26.09,
+      "cash_per_share": 18.0,
+      "delivered_security_id": "508944142132359351",
+      "delivered_ticker": "LGF.B",
+      "effective_session": "2016-12-08",
+      "exchange_ratio": 0.6784,
+      "kind": "CASH_PLUS_STOCK",
+      "known_by": "2016-11-07",
+      "price_witness": {
+        "closeunadj": 26.09,
+        "security_id": "508944142132359351",
+        "session": "2016-12-08",
+        "source_sep_sha256": "53632b75b4d3ee16569aeb4ea95e460ab8aa536b849ca037f872c4b3da6e5f52",
+        "ticker": "LGF.B"
+      },
+      "reference": "Champion stage-2 Lions Gate/Starz merger: each STRZA share converted into $18.00 cash plus 0.6784 LGF.B shares; fractional entitlement valued at the effective-session LGF.B unadjusted close",
+      "security_id": "136367649361663869",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/1507934/000157104916019576/t1602676-defm14a.htm",
+        "https://www.sec.gov/Archives/edgar/data/1507934/000157104916020446/t1602883_sc13e3a.htm"
+      ],
+      "ticker": "STRZA"
+    },
+    {
+      "cash_per_share": 156.0,
+      "effective_session": "2021-12-13",
+      "kind": "CASH_MERGER",
+      "known_by": "2021-10-18",
+      "reference": "Champion stage-2 Baxter/Hillrom merger: each HRC common share converted into $156.00 cash; merger completed 2021-12-13",
+      "security_id": "413759046550141969",
+      "sources": [
+        "https://www.sec.gov/Archives/edgar/data/47518/000114036121033299/ny20000619x3_prem14a.htm",
+        "https://www.sec.gov/Archives/edgar/data/47518/000119312521355520/d210479dex991.htm"
+      ],
+      "ticker": "HRC"
     }
   ],
   "schema": "backtester.causal-terminal-terms/1"
