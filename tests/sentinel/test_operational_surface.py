@@ -223,7 +223,8 @@ def test_ci_compiles_python_and_syntax_checks_every_tracked_shell_script():
     assert workflow.count("-m compileall -q -f") == 2
     assert "python -m compileall -q -f scripts" in workflow
     for path in ("/app/sentinel", "/usr/local/lib/python3.12/site-packages/stock_strategy_shared",
-                 "/work/tests/sentinel", "/work/tools", "/work/repo/scripts"):
+                 "/work/tests/sentinel", "/work/tests/scripts", "/work/tools",
+                 "/work/repo/scripts"):
         assert path in workflow
     assert "mapfile -d '' shell_scripts < <(git ls-files -z -- '*.sh')" \
         in workflow
@@ -235,6 +236,7 @@ def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
     workflow = _read(".github/workflows/sentinel-safety.yml")
     protected_logs = (
         "/tmp/sentinel-complete.txt",
+        "/tmp/sentinel-scripts.txt",
         "/tmp/wealth-core-prospective.txt",
     )
     assert workflow.count("set -euo pipefail") >= 4
