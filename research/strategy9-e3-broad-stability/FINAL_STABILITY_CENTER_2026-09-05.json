@@ -1,0 +1,68 @@
+{
+  "schema": "backtester.strategy9-e3-broad-stability-final/1",
+  "status": "RESEARCH_STABILITY_CENTER_LOCKED",
+  "date": "2026-09-05",
+  "branch": "research/backtester-e3-broad-stability-basin",
+  "source_e3_head": "3f27834db427e71d9bb8d0b6160c8835b739c906",
+  "stage1": {
+    "head": "61c48d5ed6015528141650c639d2e025bb696e61",
+    "run_id": 33971822256,
+    "url": "https://github.com/flabber1835/stocker/actions/runs/33971822256"
+  },
+  "stage2": {
+    "head": "15b7f1f5e1cde5b7f8af1898d04ff3c0dc303a8b",
+    "run_id": 33974007040,
+    "url": "https://github.com/flabber1835/stocker/actions/runs/33974007040",
+    "matrix_points": 11,
+    "matrix_successes": 11,
+    "matrix_failures": 0
+  },
+  "selection_principle": "Choose the interior of empirically flat mechanical/economic plateaus; do not select parameter values for maximum backtest CAGR.",
+  "final_center": {
+    "ldrc_rec": 8,
+    "ldrc_r20": -0.085,
+    "ldrc_v": 0.11,
+    "ldrc_dd": -0.10,
+    "div_spy_floor": 0.0,
+    "full_r40_floor": 0.0,
+    "fast_damaged": 0.88,
+    "healthy_damaged": 0.63
+  },
+  "changes_vs_original_e3": {
+    "ldrc_rec": {"from": 7, "to": 8},
+    "ldrc_r20": {"from": -0.08, "to": -0.085},
+    "fast_damaged": {"from": 0.875, "to": 0.88},
+    "healthy_damaged": {"from": 0.625, "to": 0.63}
+  },
+  "unchanged_vs_original_e3": {
+    "ldrc_v": 0.11,
+    "ldrc_dd": -0.10,
+    "div_spy_floor": 0.0,
+    "full_r40_floor": 0.0
+  },
+  "center_metrics": {
+    "5y": {"cagr": 0.272967, "max_drawdown": -0.204865, "sharpe": 1.318578, "ending_multiple": 3.342610},
+    "10y": {"cagr": 0.243197, "max_drawdown": -0.286507, "sharpe": 1.195193, "ending_multiple": 8.818587},
+    "15y": {"cagr": 0.206091, "max_drawdown": -0.286507, "sharpe": 1.127958, "ending_multiple": 16.622661},
+    "20y": {"cagr": 0.203000, "max_drawdown": -0.286507, "sharpe": 1.100287, "ending_multiple": 40.300396},
+    "max": {"cagr": 0.19946635877998697, "max_drawdown": -0.33281672950361074, "sharpe": 1.073345519099496, "ending_multiple": 180.77003708568435}
+  },
+  "center_structure": {
+    "sessions": 7188,
+    "allocation_transitions": 37,
+    "cross_surface_releases": 3,
+    "divergence_entries": 8,
+    "fast_signal_sessions": 21,
+    "slow_signal_sessions": 56
+  },
+  "stage2_findings": {
+    "ldrc_dd": "-9%, -10%, and -11% produced identical center economics and structural counts; -10% is the exact tested midpoint.",
+    "div_spy_floor": "-0.5% through +0.5% is effectively flat; +1.0% begins to soften economics. Keep semantic zero at the center.",
+    "full_r40_floor": "-0.5%, 0%, and +0.5% are identical; +1.0% changes only earlier max-history economics slightly. Keep semantic zero.",
+    "ldrc_v": "10.5% changes structure to 39 transitions / 2 cross-surface releases / 9 divergence entries; 12% changes structure to 35 / 4 / 7 and weakens 20y economics. Keep 11% as the mechanically centered value.",
+    "ldrc_r20": "-8.5% is materially more centered than -8.0% while preserving the accepted baseline path/economics in the refined screen.",
+    "ldrc_rec": "8 sessions is an interior choice in the 7-9 local stable region; 9 was not selected despite slightly better historical economics.",
+    "native_breadth": "FAST 88% and healthy 63% move off exact discrete-breadth boundary values while preserving the center path across nearby tested values."
+  },
+  "evidence_caveat": "Strong broad full-history PIT research evidence only. The historical exchange gate was not applied because the supplied current TICKERS snapshot cannot establish historical exchange authority; do not label this result formally PIT certified."
+}
