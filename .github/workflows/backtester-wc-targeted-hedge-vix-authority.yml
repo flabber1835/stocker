@@ -1,0 +1,98 @@
+name: Backtester - WC targeted hedge VIX authority
+run-name: WC targeted hedge VIX authority zero-budget — ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/backtester-wc-targeted-hedge-diagnostic]
+    paths:
+      - '.github/workflows/backtester-wc-targeted-hedge-vix-authority.yml'
+      - 'backtester/freeze_cboe_vix_for_hedge.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+env:
+  OUT_DIR: '${{ github.workspace }}/backtester-results/wc-targeted-hedge-vix'
+  VIX_URL: 'https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv'
+
+jobs:
+  freeze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Check out exact authority head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/backtester-wc-targeted-hedge-vix-authority.yml
+            /backtester/freeze_cboe_vix_for_hedge.py
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen numerical runtime
+        run: python -m pip install --disable-pip-version-check pandas==3.0.5 numpy==2.4.6
+
+      - name: Download Cboe VIX history
+        run: |
+          set -euo pipefail
+          curl --fail --location --silent --show-error --retry 3 --output /tmp/VIX_History.csv "$VIX_URL"
+          test -s /tmp/VIX_History.csv
+
+      - name: Freeze causal research slice
+        run: |
+          set -euo pipefail
+          python -m py_compile backtester/freeze_cboe_vix_for_hedge.py
+          rm -rf "$OUT_DIR"
+          python backtester/freeze_cboe_vix_for_hedge.py --raw /tmp/VIX_History.csv --output "$OUT_DIR"
+          (cd "$OUT_DIR" && sha256sum -c VIX_SHA256SUMS.txt)
+
+      - name: Validate zero-budget authority contract
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.loads((Path(os.environ['OUT_DIR'])/'vix_authority.json').read_text())
+          assert s['status']=='PASS'
+          assert s['zero_budget_diagnostic'] is True
+          assert s['experiment_budget_consumed'] is False
+          assert s['e8_spent'] is False
+          assert s['end']=='2026-07-31'
+          assert s['rows']>=7000
+          print(json.dumps(s,indent=2,sort_keys=True))
+          PY
+
+      - name: Publish VIX authority summary
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          q=Path(os.environ['OUT_DIR'])/'vix_authority.json'
+          if not q.exists(): raise SystemExit(0)
+          s=json.loads(q.read_text())
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Targeted hedge VIX authority\n\n')
+              f.write(f"Frozen range: **{s['start']} → {s['end']}**  \n")
+              f.write(f"Rows: **{s['rows']}**  \n")
+              f.write(f"Frozen SHA-256: `{s['frozen_sha256']}`  \n\n")
+              f.write('**Experiment budget remains 7/10. E8 not spent.**\n')
+          PY
+
+      - name: Upload immutable VIX authority
+        if: ${{ always() && hashFiles('backtester-results/wc-targeted-hedge-vix/**') != '' }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wc-targeted-hedge-vix-${{ github.sha }}
+          path: ${{ env.OUT_DIR }}
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
