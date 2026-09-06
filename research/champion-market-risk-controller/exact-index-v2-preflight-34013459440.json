@@ -1,0 +1,57 @@
+{
+  "schema": "research.exact-index-v2-preflight/1",
+  "status": "RESEARCH / NOT CERTIFIED",
+  "preflight_status": "PASS",
+  "source_sha": "9e2c36efeaf557858cf07e76421221c2fa8c041c",
+  "run_id": 34013459440,
+  "run_url": "https://github.com/flabber1835/stocker/actions/runs/34013459440",
+  "job_id": 101433126570,
+  "artifact_id": 9983178496,
+  "artifact_name": "champion-index-v2-preflight-34013459440-1",
+  "artifact_sha256": "bba6a8397603388bf543e53ffbef2b21541773686b7921110c39098747266834",
+  "tests": 13,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "tested_state_transitions": 5000,
+  "retained_fixture_sessions": 5032,
+  "fixture_scope": "Baseline fixture exercises finalization for both index labels; fixture outputs are not new replay performance results.",
+  "test_cases": [
+    "test_exact_matches_screen_for_5000_state_transitions",
+    "test_finalize_real_fixture_for_each_index",
+    "test_four_registered_cells_compile",
+    "test_frozen_classes_and_cash_functions_unchanged",
+    "test_frozen_path_mutation_detected",
+    "test_iwv_feature_prefix_is_causal",
+    "test_native_and_other_controller_call_inputs_unchanged",
+    "test_next_session_execution_assignments_unchanged",
+    "test_pinned_inputs_and_complete_measurement_coverage",
+    "test_recovery_routes_and_concordance_counter",
+    "test_summary_attributes_exist_and_serialize",
+    "test_witness_tampering_rejected",
+    "test_wrapper_restores_on_early_error"
+  ],
+  "artifact_files_sha256": {
+    "generated-IWV-iwv-center.py": "d6ba7877c25af374d7b5362f49aba6ffa23d96fc015f7dcc4fb06321101b859a",
+    "generated-IWV-spy-center.py": "8b7e7ab36983302974c9e94c9f1d0f0636c47a7f8973cf4a9d681f24f3fa160d",
+    "generated-SPY-iwv-center.py": "279d06b6ec2ecb8929ea041114e4503a1b8ecb2c11aa393b99a9ac4def0eb330",
+    "generated-SPY-spy-center.py": "e7abcbe96f731c00fbbcf3f76db0eeb589cfae09f204a1d27473b0b5989eeeba",
+    "preflight-result.json": "ea194f89aaf91143a907aeb0c741752bd6f37fdf45767ffd6e902ab819232dcd",
+    "preflight.log": "86dbd44a74c190ef48525cb197b030dd303a634c28e13aa018d66a128df4dfef"
+  },
+  "initial_preflight_failure": {
+    "run_id": 34013246755,
+    "source_sha": "988cb2cc51b0f61d7c5ed9351b04378f1106ba84",
+    "error": "market feature load: expected one source seam, found 0",
+    "cause": "Compile-only test setup omitted CANONICAL_PIT_DATASET, causing the source builder to select its noncanonical loader.",
+    "correction": "Test setup explicitly selects the canonical source transform inside a temporary environment patch.",
+    "exact_replays_started": false
+  },
+  "launched_replay_jobs": {
+    "IWV-iwv-center": 101433196260,
+    "IWV-spy-center": 101433196266,
+    "SPY-spy-center": 101433196269,
+    "SPY-iwv-center": 101433196280
+  },
+  "interpretation": "Preflight validation passed. Exact replay performance and completed-path invariance remain pending until each full replay and aggregation job succeeds."
+}
