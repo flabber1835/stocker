@@ -1,0 +1,86 @@
+[
+  {
+    "limit_shares": 132440.5,
+    "participation": 0.15480763059638103,
+    "prior_20_mean_raw_compatible_volume": 1324405.0,
+    "raw_open": 19.87,
+    "requested_shares": 205028.0,
+    "security_id": "1035638340512403010",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 0,
+    "ticker": "MED"
+  },
+  {
+    "limit_shares": 56991.0,
+    "participation": 0.11707462581811164,
+    "prior_20_mean_raw_compatible_volume": 569910.0,
+    "raw_open": 59.91,
+    "requested_shares": 66722.0,
+    "security_id": "70004177131076678",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 1,
+    "ticker": "ACLI"
+  },
+  {
+    "limit_shares": 28601.061753312395,
+    "participation": 0.12791832805214948,
+    "prior_20_mean_raw_compatible_volume": 286010.61753312394,
+    "raw_open": 109.520391,
+    "requested_shares": 36586.0,
+    "security_id": "983329147315909251",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 3,
+    "ticker": "SLG"
+  },
+  {
+    "limit_shares": 47497.5,
+    "participation": 0.13876098742039056,
+    "prior_20_mean_raw_compatible_volume": 474975.0,
+    "raw_open": 60.63,
+    "requested_shares": 65908.0,
+    "security_id": "555782615540001401",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 8,
+    "ticker": "LECO"
+  },
+  {
+    "limit_shares": 78542.5,
+    "participation": 0.17525543495559728,
+    "prior_20_mean_raw_compatible_volume": 785425.0,
+    "raw_open": 29.5,
+    "requested_shares": 137650.0,
+    "security_id": "244656944763341218",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 9,
+    "ticker": "DAKT"
+  },
+  {
+    "limit_shares": 69091.5,
+    "participation": 0.14656940434062077,
+    "prior_20_mean_raw_compatible_volume": 690915.0,
+    "raw_open": 40.15,
+    "requested_shares": 101267.0,
+    "security_id": "266855227169442591",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 13,
+    "ticker": "KEX"
+  },
+  {
+    "limit_shares": 77117.5,
+    "participation": 0.16894997892825883,
+    "prior_20_mean_raw_compatible_volume": 771175.0,
+    "raw_open": 30.78,
+    "requested_shares": 130290.0,
+    "security_id": "43902875209253344",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 16,
+    "ticker": "AGP"
+  }
+]

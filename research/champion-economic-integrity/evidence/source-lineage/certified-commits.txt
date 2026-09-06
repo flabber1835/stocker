@@ -1,0 +1,150 @@
+27bb992087182c42c3c051e62bf837895f5d2ab7 2026-09-05T22:27:50-07:00 fix(backtester): honor bounded C1 terminal carry in Champion NAV gate
+e7a606de2c0fa7ec0e3971f9566cd1375cb64742 2026-09-05T19:25:29-07:00 fix(backtester): materialize pinned Sentinel rule for PIT causality replay
+d70f96674269c69809964269e1442f5d6cbe435e 2026-09-05T18:19:40-07:00 fix(backtester): bind Champion v2 test closure to pinned runtime
+9fc1ccf1a84f3a7d32551693c8dba482c9e08774 2026-09-05T16:42:21-07:00 fix(backtester): include corpus parity tools in Champion PIT v2 closure
+202cb0c46bade8b0bfc984b6794993861be47a0a 2026-09-05T15:43:05-07:00 fix(backtester): expose exact service package to Champion PIT v2 tests
+f29da3e113956d3beab32a679140febcc3fe2480 2026-09-05T14:53:14-07:00 test(backtester): pin Champion pytest package identity
+1f86aa7151ddffe666d85daa3bdff89581d1d7cd 2026-09-05T14:52:21-07:00 fix(backtester): stabilize Champion pytest package identity
+4242886ff01b89e18a5d2383d9354f02ee7c9452 2026-09-05T14:22:41-07:00 fix(backtester): close Champion PIT v2 certification gaps
+466bf93211851dc5c1ec45e10c5ee538cfee19a8 2026-09-05T12:55:29-07:00 fix(backtester): defer over-capacity Champion fills
+34e9e2fb2475388f733fb60fdbee27019bcd799f 2026-09-05T12:28:40-07:00 fix(backtester): bind Champion terminal terms to pinned runtime types
+6bf0002c30e5319f4d39c7c8c5f5e3b7221aaa69 2026-09-05T12:14:46-07:00 chore(backtester): activate Champion replay on admitted canonical PIT v2
+548bcee34cd7200e7638ec0af922896a715283a4 2026-09-05T19:09:47Z data(backtester): pin Research Champion canonical PIT v2 5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993
+8bb1e499f2a96a58959bf91def1b149ba573e6a6 2026-09-05T10:58:55-07:00 fix: include canonical contract fixtures in v2 rebuild
+a1791be1e80ce7077dabd6e1dad7091cdcc85ef2 2026-09-05T10:55:24-07:00 data: rebuild Research Champion canonical PIT as schema v2
+96d0825ab66117e70e4418ceb679b7f52a66f751 2026-09-05T10:50:06-07:00 ci: launch unblocked Research Champion formal PIT certification
+c24238a0a77ad56d52bf1013a0d92ee33f0d177f 2026-09-05T10:47:12-07:00 test: add canonical Research Champion composition self-test
+475192d31dd417171503abf050d776643e79d8e0 2026-09-05T10:38:04-07:00 fix: compose Research Champion strict PIT transform once
+2a19019610051e3704a3b57c1a977874ee3fb7ae 2026-09-05T10:33:51-07:00 ci: grant Research Champion certification action read permission
+6777961a3b8d11bcda2f721a97447ede5d076130 2026-09-05T10:31:36-07:00 research: freeze Research Champion v1 and formal PIT certification
+256d0f55386ccfdcea58accd12135d263f5c9092 2026-09-05T09:24:41-07:00 research: record final Strategy 9 E3 stability verdict
+21c1df25b8366ac0bd001d8961df8a185483f753 2026-09-05T09:24:04-07:00 research: lock Strategy 9 E3 broad stability center
+15b7f1f5e1cde5b7f8af1898d04ff3c0dc303a8b 2026-09-05T08:10:51-07:00 ci: run Strategy 9 E3 stability basin stage 2
+6c7d0e66822bbc31a4b68005722c73b776008be3 2026-09-05T08:10:19-07:00 docs: record Strategy 9 E3 broad stability stage 1
+61c48d5ed6015528141650c639d2e025bb696e61 2026-09-05T07:26:29-07:00 fix: postprocess Strategy 9 E3 stability replay output
+acd42aeba764e19ac975ae62a13d930aaeda6560 2026-09-04T22:57:22-07:00 ci: run Strategy 9 E3 broad stability basin
+8705ed9e08b456c493d498cac444cf096e511c2a 2026-09-04T22:56:56-07:00 research: add Strategy 9 E3 stability-point replay
+b56ae39b3603a56141f9e5dc2f9134c008301793 2026-09-04T22:45:44-07:00 docs: define E3 broad stability-basin diagnostic
+3f27834db427e71d9bb8d0b6160c8835b739c906 2026-09-04T12:47:38-07:00 ci(backtester): run Strategy 9 recovery concordance E3
+f91b83067396ad3a313f084ceb5062ee46fee054 2026-09-04T12:47:01-07:00 research(backtester): add E3 cross-surface recovery concordance
+aa622e1973059e0aebd70623a20a2101c231f220 2026-09-04T12:45:44-07:00 docs(backtester): record E1 E2 rejection and E3 recovery concordance
+d6719c6a0a3b394d344f4d54e01cebc9821981be 2026-09-04T11:50:29-07:00 fix(backtester): preserve causal cash authority in architecture replay
+9c8c5be54b7f946ceb0261d6f80f7b1af0c5f882 2026-09-04T11:46:51-07:00 ci(backtester): run Strategy 9 architecture defect experiments
+95227d31d95390b1bf7919178ee06d18b2409363 2026-09-04T11:46:11-07:00 test(backtester): add Strategy 9 architecture defect replay
+267b615b0de3605f8de12f7ec96c07d4c98d57de 2026-09-04T11:41:25-07:00 ci(backtester): rerun architecture defects after cash seam fix
+8525a8c08dd8c784d8db2d27cd0c43342d804839 2026-09-04T11:41:02-07:00 fix(backtester): preserve causal cash init in E1 E2 transform
+78d3b34d6d9b0e8169836b6bba648fc440bbdb00 2026-09-04T11:36:41-07:00 ci(backtester): run architecture defect E1 E2 replay
+676cc769f621fe771f09583d8dda8402e0a4d9f9 2026-09-04T11:36:16-07:00 ci(backtester): replace architecture defect workflow preflight
+34b700d55742a1524010830140fe934bb3292cf5 2026-09-04T11:35:42-07:00 ci(backtester): run architecture defect E1 E2 replay
+be123aa6a461972d6b4dff0956550ba858c5da6f 2026-09-04T11:35:00-07:00 research(backtester): add architecture defect A/B replay
+2dfa589f349e88752c41487ac961eb9edced9fb2 2026-09-04T11:31:13-07:00 docs(backtester): define ten-run architecture defect budget
+4792c52b1c992f4f68584e7582b785416a061272 2026-09-04T08:38:35-07:00 ci(backtester): retry dynamic calibration after evidence-column fix
+865422f775984438603286f4a37fc4f69c13daeb 2026-09-04T07:55:24-07:00 ci(backtester): run dynamic breadth calibration experiment
+8e63e9ced6761130514e1b9892977e0e447cf671 2026-09-04T07:54:35-07:00 research(backtester): add causal dynamic breadth calibration experiment
+e35930f217e3b001fc9d658607bde4e583953e78 2026-09-04T06:12:15-07:00 docs(backtester): record simplified broad calibration forensics
+238891bf67cc75afa3efd4b82b71cfdb52c2fd75 2026-09-04T06:07:18-07:00 ci(backtester): run broad simplified breadth calibration
+e696e03173e881742479f6dfb5e00eebeb8366f8 2026-09-04T06:06:45-07:00 research(backtester): calibrate simplified broad damaged breadth
+cfb0286cb0a10921f60148ac4d9efe893807e962 2026-09-04T05:37:02-07:00 ci(backtester): retry experiment 3 after telemetry fix
+709dd9bbe001bdccadb3dcaf80fe974b12e33966 2026-09-04T05:36:19-07:00 fix(backtester): initialize experiment 3 candidate telemetry
+92f78e1e3977fcd0f1db0835b79f9a6c1fd38af2 2026-09-03T23:11:04-07:00 ci(backtester): run experiment 3 R1000 candidate geometry calibration
+01606ded15089af736b370fd1272f26e2aa6a3af 2026-09-03T23:10:34-07:00 research(backtester): add experiment 3 R1000 geometry calibration
+5f80de11175c5dd52dc4e3f7afdd92d7246c9324 2026-09-03T22:29:42-07:00 ci(backtester): run experiment 2 broad simplification attribution
+56a1d59bb1171f430fcdd43e5a418fe01192ebc5 2026-09-03T22:29:16-07:00 research(backtester): add broad simplification attribution experiment
+4355e79fe9cd5c274d39c99ea9b7e8bb407769fc 2026-09-03T22:28:35-07:00 ci(backtester): run experiment 1 R1000 PIT issuer attribution
+17f78b62ff78e95585c48dad716eeede5c73ac8c 2026-09-03T22:28:07-07:00 research(backtester): add R1000 PIT issuer attribution experiment
+ecc4f8b013a4e7e640768bd665b8544de1629804 2026-09-03T22:19:34-07:00 docs(backtester): record R1000 correlation-peer benchmark
+d0954f12561a75a69e07c293dcee5fa0d391cc43 2026-09-03T22:19:13-07:00 evidence(backtester): persist R1000 correlation-peer benchmark
+1a139402d363eeda0e61b8a9c56f08ff582c3d8e 2026-09-03T21:51:52-07:00 fix(backtester): accommodate authenticated 2017 IWB archive gap
+61d9144543d825abca52398926d2e57ec0926fd1 2026-09-03T21:50:19-07:00 chore(backtester): map 2017 IWB archive gap
+e81fefae00ba9e041fef2faaf9706410e75411d8 2026-09-03T21:45:16-07:00 fix(backtester): tolerate causal gaps in IWB archive
+6be0ffddbc3d071549c7bd18c3dcaa934812b4d8 2026-09-03T21:44:42-07:00 fix(backtester): carry prior R1000 snapshot across archive gaps
+67697c127f3d1594d168e69c2d427234c7e58347 2026-09-03T21:38:21-07:00 fix(backtester): run R1000 experiment on contemporaneous SEP identities
+6910c8b3f2c623afc1855248decedad67695f643 2026-09-03T21:36:44-07:00 feat(backtester): decouple R1000 replay identities from current TICKERS
+5ec677316404ed20956e5e64cfaa52175ca50df2 2026-09-03T21:36:26-07:00 feat(backtester): bind historical R1000 proxy directly to contemporaneous SEP
+eeea247e7e3799fe6d229fd49cb4d7240cfb7cc6 2026-09-03T21:32:54-07:00 fix(backtester): make R1000 membership authoritative over TICKERS bounds
+25d6b307b5393656ef7758ecf905bff56a564cc0 2026-09-03T21:32:19-07:00 fix(backtester): use R1000 membership as historical listing authority
+9224fed673d0debe3ce6ac00c3baefdd20940e80 2026-09-03T21:30:43-07:00 fix(backtester): start R1000 proxy at first authenticated IWB snapshot
+8b88d856563ae55a5a0c4fb726214f77c4667d3d 2026-09-03T21:28:46-07:00 ci(backtester): run frozen R1000 correlation-peer backtest
+b9dec95e760259fa0f79226b39502007b3820fb5 2026-09-03T21:28:12-07:00 feat(backtester): add frozen R1000 correlation-peer replay
+0bfe30ad28a04ba51ee9cd44ff5bd4242bca4e7b 2026-09-03T21:26:49-07:00 feat(backtester): build causal IWB R1000 proxy snapshots
+9af92b2be08bbacbdc531f4482c83f7b508cdf98 2026-09-03T21:22:46-07:00 fix(backtester): probe BlackRock product-data v2 IWB history
+725ad88c5498c4c73b684754910d3ce01fb1b8eb 2026-09-03T21:21:35-07:00 fix(backtester): probe IWB historical JSON endpoint
+b8379de211339e1a7a3a759c5a637011d51e7fe0 2026-09-03T21:20:39-07:00 ci(backtester): probe historical IWB holdings archive
+1fea469d4375d14f78bf5eb05193e8ac312244c5 2026-09-03T21:16:10-07:00 docs(backtester): document Russell 1000 PIT idea
+062c134ccd0353bd331780824f0ccf57b9d3e4c8 2026-09-03T20:57:59-07:00 docs(backtester): record broad PIT calibration diagnosis
+8aa4b9ccfa579bba47da9d7848a28155f3d1d969 2026-09-03T20:56:41-07:00 evidence(backtester): record broad PIT calibration forensics
+76f686e8c7f3d127c5ca60f428c59e3ec7129d6a 2026-09-03T20:46:06-07:00 ci(backtester): audit PIT metadata calibration coverage
+e4dfbd1655947d92b996f508ff22ef64c0bd76df 2026-09-03T20:44:44-07:00 ci(backtester): run broad PIT FAST 0.40 alignment
+380f269e35f702bdf0072e160cba57d189a6f601 2026-09-03T20:44:23-07:00 research(backtester): add FAST 0.40 semantic alignment probe
+27922c0f6fe0c8f6de79939e47ed4330d86099ad 2026-09-03T20:40:49-07:00 fix(backtester): handle pandas string dtype in PIT forensics
+04b6636d8c37311e5ec683d537f5e144bd832cd5 2026-09-03T20:31:59-07:00 ci(backtester): compare broad PIT versus non-PIT calibration geometry
+4b0435645107f874f8e52c1f0b300d591b71d5f8 2026-09-03T20:20:53-07:00 docs(backtester): record frozen broad PIT benchmark
+c1f735f830d58cee75118204a8fe72687e244681 2026-09-03T20:20:32-07:00 data(backtester): persist broad PIT benchmark evidence
+5fe8c2c1bc1a07b932b62d3dbd2780755cf58133 2026-09-03T20:11:02-07:00 ci(backtester): run frozen broad PIT benchmark
+e025c8a1aaeb407d50d866642112101163e116ed 2026-09-03T20:02:36-07:00 docs(backtester): record S&P LD-RC forensic conclusions
+8dca8b0ae3aea58bcd4ebf9841d23f34d2910fb1 2026-09-03T20:01:52-07:00 docs(backtester): persist S&P LD-RC forensic evidence
+4a8cf83f34e5f4b4a9267a46d97a631f7132c104 2026-09-03T19:48:04-07:00 fix(backtester): freeze broad full-PIT forensic inputs
+a344ef155c49c2c327b98d6014ad9be5e3c44850 2026-09-03T19:47:32-07:00 fix(backtester): freeze broad non-PIT forensic inputs
+97ae39b33841cfd2a319963a6b8d0eba30411d49 2026-09-03T19:45:15-07:00 ci(backtester): run broad non-PIT forensic reference
+c7403d49b745665feaecda718068e1aeb684a2c5 2026-09-03T19:38:22-07:00 ci(backtester): run S&P versus broad LD-RC forensics
+a1856e88d5c69aa2d38885e02fc8629b538416e8 2026-09-03T19:37:26-07:00 feat(backtester): add S&P vs broad LD-RC forensic decomposition
+ed06248186a7b6aa49529a63799d2faef0a73ac4 2026-09-03T19:27:38-07:00 docs(backtester): record continuous S&P LD-RC conclusion
+4227b4e1fc1a008695d0e0a245737cf357384923 2026-09-03T19:27:13-07:00 docs(backtester): persist continuous S&P LD-RC result evidence
+a032683800ea6f21619e591ce5e67a10411b68a6 2026-09-03T19:26:53-07:00 docs(backtester): persist continuous S&P LD-RC window metrics
+f10f7ea9406ed2296210b93446b272deba2f96c3 2026-09-03T19:09:53-07:00 ci(backtester): run continuous S&P LD-RC through 2026
+32576efcc651359b91f6f84194cf3cdedfb5f4cd 2026-09-03T19:09:13-07:00 feat(backtester): add continuous S&P LD-RC 5-10-15-20-max replay
+dd511bf4939679eff07a13179029b8306e8e44b6 2026-09-03T19:07:57-07:00 docs(backtester): record sealed S&P OOS conclusion
+443c558ddef6b3aa35e1e539d21acf349bbb3168 2026-09-03T19:07:37-07:00 docs(backtester): persist sealed S&P OOS result evidence
+95d89f7ccd577668251614b44b345c5ba56b4bad 2026-09-03T18:47:29-07:00 fix(backtester): bind sealed security helper to replay ticker array
+00e60c3915041f59eacf4148e58f54e4fe3bdf47 2026-09-03T18:40:59-07:00 fix(backtester): assemble split SFP archive for sealed OOS
+5ea2c86662cba76a1166741e7d77deed8dbc7767 2026-09-03T18:34:55-07:00 ci(backtester): reuse pinned green S&P identity artifact
+09d011c2821aa61507d40de7cfe48daa3745bba1 2026-09-03T18:30:33-07:00 feat(backtester): run sealed S&P 500 PIT viability OOS
+30dce7f2adedc8196bc14f73d8943786631922bb 2026-09-03T17:58:47-07:00 fix(backtester): derive S&P trading sessions from frozen SEP tape
+d6aa0b3a736b0675e16418e12ddda6cd516f709b 2026-09-03T17:48:56-07:00 data(backtester): expand web-proven S&P alias evidence
+13b49eda584f7e3b1e073e4669514239122c84bc 2026-09-03T17:48:01-07:00 ci(backtester): validate web-proven S&P aliases
+836aac02391e277c2f4d6600b9ccc008eadd795c 2026-09-03T17:47:28-07:00 feat(backtester): admit bounded web-proven S&P aliases
+14af85b2e1e5d474897f70ff5b63a57f5217a3cc 2026-09-03T17:47:01-07:00 data(backtester): add web-proven S&P historical aliases
+936caa668d1d52676f8039cc69de0258f9923edd 2026-09-03T17:44:56-07:00 ci(backtester): filter S&P residuals to trading sessions
+d812af72347d234c986a3bdf8c9bf1b29a25b00f 2026-09-03T17:44:31-07:00 feat(backtester): filter S&P identity gaps by trading sessions
+d1961f3e9b22505f86678a457408a998529b7637 2026-09-03T17:28:25-07:00 ci(backtester): add SEC CIK S&P alias diagnostic
+8a03fe39acead1b6b4ecaac41d962b28ce571cd2 2026-09-03T17:27:59-07:00 feat(backtester): discover S&P aliases through historical SEC CIK
+655e6a1b7815a3edf6c560014e1f1eed7d83cee6 2026-09-03T17:27:02-07:00 ci(backtester): enforce S&P identity coverage audit
+68a4d042be4cf8f270e532e809c7ab707356ec15 2026-09-03T17:26:39-07:00 feat(backtester): audit S&P PIT identity coverage gaps
+35480baf02fe9f32cc821de25a54e95873b9c409 2026-09-03T17:17:28-07:00 ci(backtester): rerun corrected S&P alias resolution
+671810ff3af339a7cc48eb898aaa2351dd09a736 2026-09-03T17:17:13-07:00 fix(backtester): read Stage-2 S&P worklist contract
+62cf637136d3825a6c6d61b87ff68c52b1dfc268 2026-09-03T17:14:05-07:00 ci(backtester): run S&P historical alias resolution
+7ea9f0da108f201361b32d0c573d101d795d92e2 2026-09-03T17:13:48-07:00 test(backtester): cover S&P alias resolution rules
+edf92e35edb49e01a087b24f2cc9ec62f90a6669 2026-09-03T17:13:40-07:00 feat(backtester): resolve S&P historical ticker aliases
+256d246b327ee22fd0206aba5fe6f37585cdee7f 2026-09-03T17:02:14-07:00 feat(backtester): bind S&P 500 PIT membership to causal identities
+5a37d730d645021e443c6110451302c312e55768 2026-09-03T16:57:02-07:00 docs(backtester): lock S&P 500 PIT stage-1 acceptance gate
+244e25337ef18b51a5c725c6be3c2d73b0213a2f 2026-09-03T16:56:30-07:00 ci(backtester): run sparse S&P 500 PIT build
+dc2c78e8d695491564674e4625da733ea5e9dd2d 2026-09-03T16:56:10-07:00 ci(backtester): sparse-checkout S&P 500 PIT build
+e7fadd2408b73d0356b10b103be5e946a3581710 2026-09-03T16:54:36-07:00 feat(backtester): build 1996-2026 S&P 500 PIT corpus
+e088bfd26c695309e259cfc44ab1e8982d6f858d 2026-09-02T18:41:42-07:00 test(backtester): lock frozen controller rule into official runtime closure
+fc9155b89e36f596f2b37d87e36a9a6f8837acc0 2026-09-02T18:41:28-07:00 fix(backtester): include frozen controller rule in annual replay
+f903460b55853273b55de5c5884af76f14913f73 2026-09-02T18:39:38-07:00 fix(backtester): include frozen controller rule in certification suite
+9b0bd993ca12cf9d21ab1bb8d7fb9e7e77cbc092 2026-09-02T18:37:46-07:00 fix(backtester): include frozen controller rule in code closure
+3e32caa5fdfa8694bab4afd5bb00204c9699ab4b 2026-09-02T18:37:18-07:00 test(backtester): require frozen dynamic Production experiment identity
+1aa0fe36f9821339ea506359df59a65a58144e84 2026-09-02T18:36:21-07:00 feat(backtester): combine 20y replay reporting and PIT certification
+8908e974969acffd76b95c9280dca22991e2e08a 2026-09-02T18:32:35-07:00 feat(backtester): run annual chain on frozen combined experiment
+f234cfdbf7108a1a35563786764bf53b25a8d0ef 2026-09-02T18:30:54-07:00 feat(backtester): certify run-specific canonical PIT package
+fe3203bdf408d195797cd47d772274e119f559af 2026-09-02T18:30:16-07:00 test(backtester): lock combined 20y reporting and certification workflow
+0b7638f95db520ff49361fd7a163e5ab1c6a32a3 2026-09-02T18:29:30-07:00 test(backtester): accept deterministic certification facade
+2df13f5709c4e34cefa09f6df717304cf59385a6 2026-09-02T18:29:17-07:00 test(backtester): cover frozen experiment Production main
+bf093f6492786cb19e61c33fad2690ece0715635 2026-09-02T18:28:55-07:00 test(backtester): cover final Production metrics and trade table
+9eeb0a391c094bc9b4b271660db5e0e3c9e82843 2026-09-02T18:28:35-07:00 test(backtester): cover strict-prior metadata V2 admission
+3ccfc5903f32495a2c21d0f659f8a2bc9301eb3e 2026-09-02T18:28:04-07:00 fix(backtester): freeze Production main at experiment start
+3dfe079588587527a10d2806100f0e290fed9eb4 2026-09-02T18:27:37-07:00 feat(backtester): rebuild canonical PIT with SEC V2 metadata
+6d4488469f423b51b016c56bf9ad17a13dedfbf0 2026-09-02T18:27:16-07:00 feat(backtester): admit strict-prior historical metadata V2
+a51733a30f6bab2e0790c81e0b45c5974edab4c1 2026-09-02T18:26:42-07:00 feat(backtester): report Production SPY windows and trade counts
+1061cb2cc36d85b6d82e0ed637df7851713024d9 2026-09-02T18:26:06-07:00 feat(backtester): add deterministic PIT certification facade
+576992538069da4fd7271b8bbdf3045fbd53747b 2026-09-02T18:25:46-07:00 ci(backtester): separate code closure from corpus certification
+a9f50a2a2c7a2a2b485fac2242583600305d7dbe 2026-09-02T17:14:53-07:00 test(backtester): execute real-kernel future leak canary on v2 fixture
+b2efb43c1912452c1230f4c9c66ef6e4c5fbc499 2026-09-02T17:05:55-07:00 fix(backtester): keep PIT evidence helper out of pytest collection
+9233d85f363f352485e70270c2ba1f64dfd1eb83 2026-09-02T17:03:27-07:00 test(backtester): lock real replay future leak contract
+23133fe424f9ce637adf17840269936db22d6b98 2026-09-02T17:01:53-07:00 fix(backtester): require real-kernel future leak canary
+227413f73d399852c411f5f99dccc242fb5162d3 2026-09-02T17:01:07-07:00 fix(backtester): drive future leak canary through real kernel
+e781f52fd79fc5545fc67d04f19e4f1f1c368acb 2026-09-02T16:47:14-07:00 test(backtester): lock official PIT finalizer package verification
+f5ca87bd0fea843c5e4b7066e78f89e65f0f6a02 2026-09-02T16:46:36-07:00 fix(backtester): harden production PIT final verification
+625ad59140069cd137710c753c46e5e20a0d1d9c 2026-09-02T16:44:00-07:00 fix(backtester): harden research PIT package extraction
+8b100d12973bc9fe0c1b8bdc2517db396a1ccad6 2026-09-02T16:42:47-07:00 test(backtester): validate reusable certification test closure

@@ -1,0 +1,50 @@
+{
+  "excluded": [
+    {
+      "nodeid": "tests/backtester/test_current_main_production_binding.py::test_backtester_package_import_does_not_mutate_production_owner",
+      "reason": "CURRENT_MAIN_KERNEL_EXTRACTION_POSTDATES_PINNED_RUNTIME"
+    },
+    {
+      "nodeid": "tests/backtester/test_current_main_production_binding.py::test_current_main_kernel_is_the_production_advance_state_target",
+      "reason": "CURRENT_MAIN_KERNEL_EXTRACTION_POSTDATES_PINNED_RUNTIME"
+    },
+    {
+      "nodeid": "tests/backtester/test_current_main_production_binding.py::test_strict_pit_stack_bridges_plan_session_to_current_kernel_owner",
+      "reason": "CURRENT_MAIN_KERNEL_EXTRACTION_POSTDATES_PINNED_RUNTIME"
+    },
+    {
+      "nodeid": "tests/backtester/test_pit_certification.py::WorkflowStructureTests::test_22_every_official_launch_path_reaches_common_finalizer",
+      "reason": "GLOBAL_MAIN_LAUNCHER_ENUMERATION_EXCLUDES_BRANCH_LOCAL_CHAMPION_CERTIFIER"
+    },
+    {
+      "nodeid": "tests/backtester/test_production_cooldown_age_zero.py::ProductionCooldownAgeZeroTest::test_mnst_omg_september_2006_boundary",
+      "reason": "CURRENT_PRODUCTION_COOLDOWN_CONTRACT_POSTDATES_PINNED_RUNTIME"
+    },
+    {
+      "nodeid": "tests/backtester/test_production_cooldown_age_zero.py::ProductionCooldownAgeZeroTest::test_pending_exit_creates_age_zero_cooldowns",
+      "reason": "CURRENT_PRODUCTION_COOLDOWN_CONTRACT_POSTDATES_PINNED_RUNTIME"
+    },
+    {
+      "nodeid": "tests/backtester/test_production_cooldown_age_zero.py::ProductionCooldownAgeZeroTest::test_terminal_exit_creates_age_zero_cooldowns",
+      "reason": "CURRENT_PRODUCTION_COOLDOWN_CONTRACT_POSTDATES_PINNED_RUNTIME"
+    },
+    {
+      "nodeid": "tests/backtester/test_production_reporting.py::test_recent_leadership_terminal_discovery_reports_all_gaps",
+      "reason": "CURRENT_PRODUCTION_KERNEL_REPORTING_PATH_POSTDATES_PINNED_RUNTIME"
+    },
+    {
+      "nodeid": "tests/backtester/test_production_reporting.py::test_recent_leadership_uses_exact_terminal_value_and_fails_closed",
+      "reason": "CURRENT_PRODUCTION_KERNEL_REPORTING_PATH_POSTDATES_PINNED_RUNTIME"
+    },
+    {
+      "nodeid": "tests/backtester/test_production_reporting.py::test_terminal_authority_is_causal_across_checkpoint_resume",
+      "reason": "CURRENT_PRODUCTION_KERNEL_REPORTING_PATH_POSTDATES_PINNED_RUNTIME"
+    }
+  ],
+  "excluded_count": 10,
+  "pinned_runtime_sha": "887f479b15ad861313da666ad698034d3847121c",
+  "policy": "Exact exclusions are limited to post-pinned-runtime production architecture contracts and global main-launcher enumeration.",
+  "schema": "backtester.research-champion-pinned-runtime-test-scope/1",
+  "source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+  "status": "PASS"
+}

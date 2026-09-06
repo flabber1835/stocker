@@ -1,0 +1,31 @@
+{
+  "authoritative_output": {
+    "allocation": "research_allocation",
+    "controller_state": "CandidateA",
+    "nav": "research_nav",
+    "promoted_from": "A",
+    "promotion_allocation_max_abs_gap": 0.0,
+    "promotion_nav_max_abs_gap": 0.0
+  },
+  "config": {
+    "div_spy_floor": 0.0,
+    "fast_damaged": 0.88,
+    "full_r40_floor": 0.0,
+    "healthy_damaged": 0.63,
+    "ldrc_dd": -0.1,
+    "ldrc_r20": -0.085,
+    "ldrc_rec": 8,
+    "ldrc_v": 0.11,
+    "profile": "strategy9-e3-research-champion-v1"
+  },
+  "lineage": {
+    "original_e3_head": "3f27834db427e71d9bb8d0b6160c8835b739c906",
+    "stability_stage1_run": 33971822256,
+    "stability_stage2_run": 33974007040,
+    "stability_verdict_head": "256d0f55386ccfdcea58accd12135d263f5c9092"
+  },
+  "profile": "strategy9-e3-research-champion-v1",
+  "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+  "schema": "backtester.research-champion/1",
+  "status": "PASS"
+}

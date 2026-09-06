@@ -1,0 +1,8 @@
+{
+  "audit_source_sha": "8ff8343d67c54dd4df758c5e7f42a45f671f25e7",
+  "files": {
+    "collector-claim-probe.json": "7ae07b6fccb37964d1aa37dd9df6ca7338144b99c65f36574f8bc6141c54ce56"
+  },
+  "run_id": "34043631885",
+  "scope": "COLLECTOR_UNIT_FIXTURE_NOT_FINALIZER_CERTIFICATION"
+}

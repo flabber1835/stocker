@@ -1,0 +1,48 @@
+{
+  "candidate_envelope_contract": {
+    "base_boundary": "all rows passing price/volume/history/signal prerequisites before security-type classification",
+    "certification_scope": "exact frozen Research Champion only; not a generic broad-universe certificate",
+    "economic_path": "leadership, pending, held, and terminal touches are always retained",
+    "ranking_inputs": "every actually eligible security is retained because it contributes to cross-sectional rank geometry",
+    "unknown_policy": "every unknown-type base candidate is a potential displacer and requires PIT resolution"
+  },
+  "counts": {
+    "durable_ranked": 202,
+    "eligible_ranking_inputs": 1224,
+    "held": 25,
+    "incomplete_terminal": 1,
+    "pending": 25,
+    "recent_leadership": 385,
+    "required_for_strategy_certificate": 1226,
+    "securities_touching_base_candidate": 1226
+  },
+  "event_counts": {
+    "TERMINAL_EVENT_ON_STRATEGY_PATH": 1
+  },
+  "files": {
+    "candidate-envelope-worklist.csv": {
+      "bytes": 239758,
+      "sha256": "d7c7507767cd0f7e340153c6a7457b03c5181de64295f3d88b2c2e7218db84d4"
+    },
+    "strategy-path-events.jsonl.gz": {
+      "bytes": 217,
+      "sha256": "c65a82d01cb8e111e74c5ecdbb7a9f7a3d4c49aae6e522789f12fd644bc9bca1"
+    },
+    "strategy-path-session-ledger.jsonl.gz": {
+      "bytes": 504317,
+      "sha256": "11a68fd626597f5317271d107bd8e2af07add9a8b2701770df8d75ab9fb943f7"
+    },
+    "strategy-path-worklist.csv": {
+      "bytes": 239758,
+      "sha256": "d7c7507767cd0f7e340153c6a7457b03c5181de64295f3d88b2c2e7218db84d4"
+    }
+  },
+  "first_session": "2006-01-03",
+  "last_session": "2006-08-02",
+  "profile": "strategy9-e3-research-champion-v1",
+  "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+  "required_lookback_sessions": 126,
+  "runtime_main_sha": "887f479b15ad861313da666ad698034d3847121c",
+  "schema": "backtester.research-champion-strategy-path-closure/1",
+  "session_count": 147
+}

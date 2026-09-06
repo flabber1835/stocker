@@ -1,0 +1,23 @@
+{
+  "audit_source_sha": "b0a3033d83584541f4d6f306ecee27e318d29a59",
+  "baseline_generated_sha256": "69a73f86eb8a2308556e81bfffeb4be1d535a13364bbfcad60e1e4ad5f899652",
+  "baseline_normalized_ast_sha256": "7dfe469e846409dad684532b1c964d413cdbdf7d175c40cede53e8629e8858e1",
+  "baseline_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+  "case": "certified_dividend_1",
+  "certification_status": "NOT_CERTIFIED_DIAGNOSTIC",
+  "changed_dimension": "DIVIDEND_SETTLEMENT_LAG_ONLY",
+  "corpus_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "economic_generated_sha256": "80f41037826b7d0d55e3a17270e192d2e460103612031a5c381373b463795872",
+  "economic_normalized_ast_sha256": "35f7a3768c942629a3169185047d529182f773ecabd69017805681f7dcea13d4",
+  "initial_shadow_cash": 100000000,
+  "instrumented_generated_sha256": "e6e984aa57b15dc61efa4a4cd85f8b89b6d7422c0a6359793d801eb707fe2874",
+  "measurement_start": "2006-07-31",
+  "observer_stripped_ast_matches": true,
+  "profile": "strategy9-e3-research-champion-v1",
+  "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+  "runtime_sha": "887f479b15ad861313da666ad698034d3847121c",
+  "schema": "champion.economic-prefix-audit/1",
+  "status": "PASS_BOUNDED_OBSERVATION",
+  "stop_after": "2006-08-02",
+  "warmup_start": "2006-01-03"
+}

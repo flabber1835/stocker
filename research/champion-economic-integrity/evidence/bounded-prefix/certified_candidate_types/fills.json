@@ -1,0 +1,152 @@
+[
+  {
+    "cash_flow": "-4003940.74080",
+    "quantity": 131577.0,
+    "raw_open": 30.4,
+    "security_id": "720308907044255892",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 3,
+    "ticker": "TTI"
+  },
+  {
+    "cash_flow": "-4074837.76700",
+    "quantity": 94669.0,
+    "raw_open": 43.0,
+    "security_id": "40196728613332525",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 6,
+    "ticker": "ADM"
+  },
+  {
+    "cash_flow": "-3986651.268599998934335400",
+    "quantity": 53230.0,
+    "raw_open": 74.81999999999998,
+    "security_id": "927939971812641882",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 7,
+    "ticker": "LVS"
+  },
+  {
+    "cash_flow": "-4025147.352618391220861640",
+    "quantity": 19459.0,
+    "raw_open": 206.64608799999996,
+    "security_id": "530996274575880476",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 8,
+    "ticker": "MNST"
+  },
+  {
+    "cash_flow": "-4050290.093850",
+    "quantity": 67947.0,
+    "raw_open": 59.55,
+    "security_id": "271029648870576069",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 9,
+    "ticker": "BFH"
+  },
+  {
+    "cash_flow": "-4011572.56500",
+    "quantity": 89057.0,
+    "raw_open": 45.0,
+    "security_id": "320397541735962213",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 13,
+    "ticker": "MTW"
+  },
+  {
+    "cash_flow": "-3976871.7188199996277731450",
+    "quantity": 74371.0,
+    "raw_open": 53.419999999999995,
+    "security_id": "134352070820280377",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 15,
+    "ticker": "EXPD"
+  },
+  {
+    "cash_flow": "-3982612.383750",
+    "quantity": 86775.0,
+    "raw_open": 45.85,
+    "security_id": "452140482835311476",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 17,
+    "ticker": "OII"
+  },
+  {
+    "cash_flow": "-4024255.43520",
+    "quantity": 57762.0,
+    "raw_open": 69.6,
+    "security_id": "1099247927332588244",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 18,
+    "ticker": "FTI1"
+  },
+  {
+    "cash_flow": "-4002741.042300",
+    "quantity": 46330.0,
+    "raw_open": 86.31,
+    "security_id": "8209006061861920",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 20,
+    "ticker": "JLL"
+  },
+  {
+    "cash_flow": "-3997064.591520",
+    "quantity": 58242.0,
+    "raw_open": 68.56,
+    "security_id": "1101212501432953147",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 22,
+    "ticker": "ATI"
+  },
+  {
+    "cash_flow": "-4007985.621640",
+    "quantity": 40379.0,
+    "raw_open": 99.16,
+    "security_id": "950063614365024268",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 23,
+    "ticker": "TEX"
+  },
+  {
+    "cash_flow": "-3993990.00000",
+    "quantity": 60000.0,
+    "raw_open": 66.5,
+    "security_id": "117908596615035418",
+    "session": "2006-07-06",
+    "side": "BUY",
+    "slot": 24,
+    "ticker": "WCC"
+  },
+  {
+    "cash_flow": "-3876004.93280",
+    "quantity": 56281.0,
+    "raw_open": 68.8,
+    "security_id": "214820292338870148",
+    "session": "2006-07-17",
+    "side": "BUY",
+    "slot": 4,
+    "ticker": "CHAP1"
+  },
+  {
+    "cash_flow": "-4073588.238720",
+    "quantity": 75028.0,
+    "raw_open": 54.24,
+    "security_id": "1040633074096912075",
+    "session": "2006-07-18",
+    "side": "BUY",
+    "slot": 2,
+    "ticker": "FALB"
+  }
+]

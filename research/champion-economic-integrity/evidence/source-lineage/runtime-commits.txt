@@ -1,0 +1,150 @@
+887f479b15ad861313da666ad698034d3847121c 2026-08-29T14:39:39-07:00 Fix Wealth Core exits when held security becomes ineligible (#287)
+b0a60a516d330925b13c1cf4b2e0fe7d3d8bf5ce 2026-08-29T14:07:26-07:00 Step 3: flatten Sentinel CLI architecture (#285)
+019d45d6cf5a25de4653750a78693005bb423b6f 2026-08-29T12:59:59-07:00 fix: close post-simplification ownership gaps (#284)
+f9cbb41852b27e8d55b6da8ddd3a5f272c7e4532 2026-08-29T11:13:49-07:00 refactor(feed): flatten PIT ingestion architecture (#283)
+14bd93569c2d63bf62523c17757e538542c49742 2026-08-29T07:06:23-07:00 refactor(execution): flatten remediation stack (#282)
+0f47e3d4208c1af9a7884804ff6683669b9d53ee 2026-08-28T21:31:46-07:00 Let GO refresh stale verified base backups (#281)
+8fcd0b1063b196b69b259f0765931f013ebf9615 2026-08-28T06:10:13-07:00 Fix GO historical identity recovery preflight (#280)
+ed1c91f01bf77a528dd55cf6fb997f2852f4be26 2026-08-27T20:50:07-07:00 Fix GO installation wall-clock coupling (#279)
+c502d077cae9c494f8b74a41ee8be7f40b25837d 2026-08-27T16:40:41-07:00 Make Sentinel GO certification fail-fast and observable (#278)
+e5184031b897ad63950538f369463c8cf204defe 2026-08-27T13:49:15-07:00 Fix Sentinel Sharadar identity-refresh deadlock (#277)
+53f8e49f57fda941c761ccc263ce08c8f21c29da 2026-08-27T11:42:36-07:00 Harden the Sentinel GO validation lifecycle (#276)
+17372046eae829751de4be62fbcdb89857b86778 2026-08-26T21:47:09-07:00 Bind GO validation to the operational Sentinel runtime (#274)
+c8b1a3088c8d66391fdda3a036f09247072b9ad8 2026-08-26T19:25:53-07:00 Harden nested Wealth Core restore state (#273)
+7a17a321cf8ba4e9e93daf1aa1d89323312d3b27 2026-08-26T17:56:24-07:00 Harden financial boundary validation (#272)
+79a8597c4f1973d4dac63200666246aff6f46b3f 2026-08-26T14:22:07-07:00 Harden Sentinel observability and restore validation (#271)
+684a663ade17f97f25826beb9b84af8b9f9969c1 2026-08-26T12:32:53-07:00 Harden Sentinel recovery across prolonged production outages (#268)
+c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c 2026-08-25T13:41:55-07:00 Fix post-merge shadow, automation, alert, and Sharadar authority gaps (#264)
+25e06271d483e946c4a7aedb6f58fab7a5b18ee9 2026-08-25T09:49:35-07:00 Fix Sharadar authority boundaries for issues #257–#259 (#262)
+9208083bb62ff251e431b383f2e3bc75c18fc714 2026-08-25T06:36:40-07:00 Fix #254 #255 #256: harden Sharadar SEP/SFP source authority (#263)
+56432495554bcac2ded9d21e60265dbe6c7d4a9c 2026-08-24T21:19:00-07:00 Fix identity projection replacement and source session envelopes (#261)
+722aa14ae0e452437b80425528ba30fcf133b029 2026-08-24T19:25:32-07:00 Keep GO launcher contract test aligned with wrapped validator entrypoint
+126ff8125e14060b4448402da78275f57a30df3d 2026-08-24T19:21:18-07:00 Fix automation P0/P1 continuity failures (#260)
+c9d40863270aa088783a534c78cd9a61bd6ec47f 2026-08-24T16:33:39-07:00 Fix #246: recover historical TICKERS identity corrections with a full replay (#249)
+22ebcf48addadbc7ec4531df415041d1b8674f48 2026-08-23T20:48:38-07:00 Final overnight dual-deploy hardening (#245)
+5b16c325ed08bb69267e86f9c97d0d2dd88a129c 2026-08-23T20:13:01-07:00 Fix GO preparation clean-HEAD feed binding (#243)
+28862d2c2022314dcd396a07102fcade44a3e7a5 2026-08-23T16:46:49-07:00 Fix weekend GO publication completeness check (#240)
+cafd4871735e02f49e361c788d860ace34176c15 2026-08-23T12:22:44-07:00 Re-earn ACTIONS semantics after TRI split resolver change (#239)
+36a05b313e78929f1cd76d95f20e6d3e67b735e7 2026-08-23T11:08:13-07:00 Fix TRI split corroboration and measured NAS OOM envelope (#238)
+5e9d04cb3c32382f7b436e558603dffb1562c1ca 2026-08-22T20:04:13-07:00 Fix Sharadar economic attribution boundaries (#234)
+da41a2c66a70f7844f6e14e292279d2548754379 2026-08-22T17:13:08-07:00 Bind feed mutations to certified image provenance (#233)
+7d0948ee6c75d3cd95c437818c010f396dfdc04b 2026-08-22T14:47:38-07:00 Fix same-day TICKERS retry validation (#231)
+81a1aa4c21cf7e46975cb5e84be8499f31d136db 2026-08-22T13:35:41-07:00 Fix terminal identity and Sharadar split semantics (#230)
+ea4903f5bedb0a5ed3c18f7fc4a3bc693fa780f7 2026-08-22T10:45:34-07:00 fix(feed): keep ACTIONS reconciliation inside retained corpus (#228)
+c97ee91d6480ce92967544c805193430d152f690 2026-08-21T23:55:31-07:00 fix(certification): cover NAS Wealth Core image layout (#227)
+620c24e43ad58a2de48cd9fb987de2b47f69dd96 2026-08-21T20:02:31-07:00 fix(sentinel): add NAS financial GO gate and reviewed dual mode (#226)
+f2fb9a478275bf2cf8d2d82343d0f872dfd7147c 2026-08-21T15:31:05-07:00 fix(sentinel): close remaining financial audit gaps (#225)
+c56411797a9babeaae78970cde8aa473f9d4cb97 2026-08-21T12:49:40-07:00 fix(sentinel): correct issue #223 financial audit defects (#224)
+de4d31146137bef5379c8c9b7d3d552ceeb793f7 2026-08-21T10:03:06-07:00 fix(sentinel): close realistic Alpaca paper gaps (#221)
+fd40efa661715b5718cdfa6f4a6900bf953d002d 2026-08-21T06:38:39-07:00 Add fail-closed financial-grade mobile trial verification (#219)
+5eca1897327a22d0603a12c9f054b3754758bc2e 2026-08-21T06:13:25-07:00 Fix financial-grade trial blockers from #209 and #212 (#210)
+65ed7325d4a5335de31733b8b7065acdfd4d757a 2026-08-20T13:54:10-07:00 Remove accidental noop file
+ca8b1cb2f51282c8aae86aa950d3c8e270fb49f4 2026-08-20T13:53:54-07:00 noop
+7789e5777f254c58edf8779b05cdfdcd2adb3fd3 2026-08-20T12:32:20-07:00 Build SEC PIT issuer reconstruction evidence (#192) (#207)
+790384d0b5993edde16f418df4b7595bbd09e1af 2026-08-20T11:38:40-07:00 SEC files for PIT data reconstruction
+189566d4e2ddb1bf6fe54650731ddf6760089adb 2026-08-20T10:38:38-07:00 Create .gitkeep
+994a54116727ec96d5419f4a357f20bd079a4a41 2026-08-20T10:33:04-07:00 Implement gated Sentinel Concordance LD-RC architecture (#206)
+6e812a6494695ece96e1661b040bc91040966db5 2026-08-20T08:41:58-07:00 Harden automation timing and liveness (#201) (#204)
+a63ec5e911efa3ec0f6d14854d306b1d03db9502 2026-08-20T07:13:23-07:00 Fix bt_actions source-row cardinality loss (#202)
+c146653618d9fd8ab5dd8000ab2fd9b0f836d491 2026-08-20T05:52:43-07:00 Harden Alpaca recovery and execution authority (#196)
+84c96041d8c34cbda88e2b477ba6592e186cee68 2026-08-19T19:53:49-07:00 Fix Sentinel execution projection correctness (#180) (#195)
+13127811bcb92f53ec96d692401f44b06cf6693e 2026-08-19T18:40:32-07:00 Harden Sharadar negative-space and economic-domain authority (#191)
+47f4c2d52836f9394221e479ba6c92fb32dccebd 2026-08-19T13:42:41-07:00 Merge pull request #186 from flabber1835/agent/fix-185-sharadar-boundary
+703c602c758905b191a6a97d34463712177fa4f7 2026-08-19T13:34:51-07:00 tests: provide raw SEP close for volume-domain mapping
+c94a367f5cc978171c8efcbcf73cda6a9f290570 2026-08-19T13:08:54-07:00 Keep retirement evidence test narrowly scoped
+9d46323a56991008778f7e8ac952d616e2ef9790 2026-08-19T13:06:56-07:00 Test daily retirement evidence on owning publication
+6397c0f2b0704f809e496a25b09cd1d4af3e4cca 2026-08-19T12:15:14-07:00 tests: select the successful daily retry explicitly
+19a5b44e1ff335dcdc94df1ae08802a81039bbe3 2026-08-19T12:13:38-07:00 tests: ignore independent maintenance runs in feed orchestration count
+4aced338b7f51b21f2d3c7f0b6518c9188b9a8dc 2026-08-19T12:00:54-07:00 tests: keep daily identity vendors source-complete
+c0553235da68c936270110d4a9c6c70686f8c76e 2026-08-19T11:59:34-07:00 tests: model complete SEP source in daily fixtures
+201c25c63a59218da781c9b7286c5d4a0361e62d 2026-08-19T11:58:17-07:00 sentinel: let proven split removals repair visible bars
+7ef7afca4fb4bfc6fbda4774c49f5ddb5b41ee03 2026-08-19T11:56:27-07:00 tests: pass published frontier to SEP mutation validation
+2014242e1a8cf8db3ab4cb45b90500b644350389 2026-08-19T11:56:06-07:00 sentinel: reconcile SEP only through published frontier
+6a3acf9f840e537d8adb2a7db515e64d87737d7f 2026-08-19T11:39:02-07:00 tests: retain signal-close evidence in lifecycle bars
+45a09b88eb7b0f38a934501c841f137fe990842d 2026-08-19T11:36:49-07:00 tests: give action lifecycle baselines permanent identity authority
+26b1c794a335199a48ef3df7cac337f19ee0d553 2026-08-19T11:35:11-07:00 tests: make split seam baseline a complete SEP authority
+ab42e41728af7cbf67f2615ee1835874395e7c94 2026-08-19T11:31:52-07:00 tests: compare ingest run IDs by value
+4b09393ec196d5e78ff7d77d0e2e154514028369 2026-08-19T11:30:43-07:00 tests: model the published SEP frontier in CDC integration
+9d24344fe8a41bc3137f82b7a14b4141cb7a198e 2026-08-19T11:19:35-07:00 tests: select the seed run when maintenance creates later runs
+4a4daec2e562aad05a6683ae02006652118e5395 2026-08-19T11:18:42-07:00 sentinel: keep leading-edge SEP rows on the daily path
+8df2365a2f5c810a58f997e92a5d5be84a278cc0 2026-08-19T11:15:54-07:00 tests: isolate Sharadar mutation cursors in actions wiring
+7c73af590029eb9e9bb185351c134579fd3b438a 2026-08-19T11:14:36-07:00 sentinel: use valid UUID staging IDs for SEP reconciliation
+4e1cae80073f7da5102ba7cd21390bbc54b901f7 2026-08-19T10:55:18-07:00 tests: separate full SEP proof from sparse seam overlap
+1fd6bcdced15a18a031281e93a22249c34b1132a 2026-08-19T10:52:15-07:00 tests: keep source-health action inside first seed generation
+7ea5e06f28d84b978f2df006ba1ef5599068be0f 2026-08-19T10:49:52-07:00 feed: restore explicit seed remedy for missing SEP cursor
+e4ac229177def12470d4f31a2a06d4c979f00363 2026-08-19T10:48:54-07:00 tests: establish source authority for split seam daily
+9686e1ac9f9c326684a3a8c8249ec11b93b5088b 2026-08-19T10:46:55-07:00 tests: bind action lifecycle fixtures to source cursors
+40d415a49451031bdf521dcdc6ece6cd966248b1 2026-08-19T10:44:46-07:00 tests: make readiness fixtures earn source authority
+c351b3eda1d3fc6e00cd1163a8ac974447a9345b 2026-08-19T10:39:42-07:00 tests: align publication fixtures with mutation authority
+ba494ef73df1ce98e47c4e4ae1d2a550c4884308 2026-08-19T10:38:54-07:00 tests: isolate mutation cursors in ingest memory suite
+240491050e192e0fbca49472d9163a7e84abd888 2026-08-19T10:37:46-07:00 tests: reset mutation cursors in identity regressions
+bab173efec6babb59daa1cc3bc515c1ef842b94a 2026-08-19T10:36:23-07:00 tests: make ingest evidence vendor mutation-complete
+cff3be70727e27ee6a2a9cbd854f891d86104d31 2026-08-19T10:35:43-07:00 tests: give ingest fixtures complete Sharadar authority
+63988ff486581e5b4830b59e48ab73f3f41a10e0 2026-08-19T10:34:42-07:00 tests: migrate ACTIONS wiring fixtures to mutation contract
+e0a8c8a246b73a6cef80612b520f8daf5f2cded0 2026-08-19T09:34:20-07:00 tests: align ingest fixtures with Sharadar CDC protocol
+ad122bff9450d2e3c93e5905229623d4972822f6 2026-08-19T09:32:30-07:00 tests: allow Sharadar transport to name SFP closeadj
+70f84f1403f43af7c821e0c4cff2510865e2089c 2026-08-19T09:31:35-07:00 sentinel: create durable Sharadar cursor state before use
+7b2aa0a34877bde6335a39d87059f038f3724476 2026-08-19T08:10:34-07:00 sentinel: port Sharadar dividend-domain correction onto #186
+012d9f245e85c59e2dbaab1e3417873500aab341 2026-08-19T05:49:01-07:00 merge main into issue 185 consolidation
+0d7ff6903a3742d0759b5a814f8822f3d6099172 2026-08-19T05:48:19-07:00 fix: consolidate issue 185 Sharadar domain boundary
+c0374d113c7875d2b79a19c2cb2444a350518377 2026-08-18T22:21:42-07:00 docs: capture Sentinel Concordance recovery-witness research
+647c54101bcdff783141df1b9ff4ff13e6a750cb 2026-08-18T22:05:59-07:00 docs: state exact ACTIONS recovery authority scope
+675164a6cb71746868e68e5935893c88d2d4fed2 2026-08-18T22:05:19-07:00 tests: pin bounded complete ACTIONS acquisition
+e460cb14f690d848489e4fb657a84b918e97a028 2026-08-18T22:04:57-07:00 sentinel: bound complete ACTIONS reconciliation to its authority window
+6f869d15ff42fead5ef868fb0de4d20099fa012d 2026-08-18T22:04:08-07:00 tests: reject suspicious ACTIONS during legacy reseed
+4e422b66bd5baa2075edb50a90d6400a35d8fc8e 2026-08-18T22:03:21-07:00 sentinel: reject suspicious ACTIONS source in full reseed
+61be4058740a9ebea64766913a7c406b99c76a21 2026-08-18T22:01:34-07:00 tests: pin separate ACTIONS recovery scope
+21dfcc98d922e0ae82a76274a320a595b60d32e3 2026-08-18T22:00:10-07:00 sentinel: keep full ACTIONS scope out of market reseed range
+10597adece58da1ec0d20ebb2de0d97e3712f2d4 2026-08-18T21:58:43-07:00 sentinel: separate market and ACTIONS reseed scopes
+a5f6b578d13a23529e26ea7a4366672c6c3f36e2 2026-08-18T21:56:33-07:00 docs: document #185 full-reseed crash recovery
+64b66759d25d7b41b68214a495d837a5e6cd4dbd 2026-08-18T21:54:17-07:00 tests: pin #185 legacy full-reseed convergence
+b6a2508e7980d52c8bb19ebe31d93ed9a728f269 2026-08-18T21:53:31-07:00 sentinel: wire full-seed legacy candidate recovery
+5b1ed152b0437127a54072fd123de9a5e86391c7 2026-08-18T21:52:47-07:00 sentinel: implement source-stable legacy full reseed
+3ede763a64ce7cca685a3018d46d84b9e16cce88 2026-08-18T21:52:11-07:00 sentinel: add full-reseed recovery for legacy candidates
+3c683637caa31e063b557941ea07ec43ed546735 2026-08-18T21:39:48-07:00 tests: cover #185 cross-maintenance crash convergence
+bd11dba068d55ea32e0094c132e5dcf004235f98 2026-08-18T21:39:09-07:00 sentinel: make failed feed retries converge across maintenance
+1ffc294f0843b9e9bf6d1781b97cc1972af92bbb 2026-08-18T21:37:54-07:00 sentinel: classify live failed feed candidates for recovery
+f16b81e770ce123bfea5e935f3b551f9d8f411c5 2026-08-18T21:34:49-07:00 tests: preserve #185 next-open readiness semantics
+8003d738dfc4176bc6373ce6909710781182862d 2026-08-18T21:34:22-07:00 sentinel: bind #185 readiness to decision frontier
+a857350d487a6bbe43171c45cc6edfd26a8cd867 2026-08-18T21:27:39-07:00 docs: retain corrected finalist CSCV evidence
+97b9f65f865c5cc05595898f0cd2cfde4ab10b70 2026-08-18T21:21:33-07:00 tests: pin #185 maintenance readiness fence
+82dc8ec95e143ad4715734cbe568312b1989186c 2026-08-18T21:21:14-07:00 sentinel: gate readiness on #185 source maintenance
+1627e463d3aa873d70e77918d5c0deed0da28b8a 2026-08-18T21:17:43-07:00 tests: package SEP reconciliation CLI in Sentinel lens
+75e3f99a6e75c4350eacec4f333f73ac2f9d88d3 2026-08-18T21:14:19-07:00 tests: bind historical corrections to one publication run
+5be519482109e9a0b91009b012aa241865a6eae6 2026-08-18T21:11:55-07:00 docs: document value-proof CDC bootstrap and correction replay
+544568ee55ff83c61d24dc30bc878c4f7b40d2b9 2026-08-18T21:11:13-07:00 sentinel: derive correction replay windows from XNYS directly
+3f4f6d85071d4554f8f9b7aeb424ab5a26fd9900 2026-08-18T21:09:43-07:00 tests: require full SEP proof before CDC cursor bootstrap
+0e6ce115095ae3f020a98bd22dbf375e6cdfbe83 2026-08-18T21:09:23-07:00 tests: pin historical correction renormalization windows
+173e88d8e32c9762a521529138a086972fb2a0ce 2026-08-18T21:08:59-07:00 tests: require SEP value proof before CDC bootstrap
+63e98c82171383ad0537f5f8de8d54ba0aaf498c 2026-08-18T21:08:23-07:00 sentinel: bootstrap SEP CDC only after full value proof
+6bfe7535acf9b89bb7a2bed5bf578fef90db18b9 2026-08-18T21:07:52-07:00 sentinel: prove SEP values before earning CDC watermark
+ed87d024239e743b25c476ba850ea9f9e85459f5 2026-08-18T21:07:42-07:00 docs: capture corrected Sharadar drawdown forensics
+24e73f30258c7f2ee3a597107ad083a9fceed984 2026-08-18T21:07:39-07:00 docs: compare corrected Sentinel against parent and shadow
+f296d6adb47e3837a1d077e3fc7b246fb416652a 2026-08-18T21:05:15-07:00 sentinel: route historical corrections through canonical normalizer
+d94bf39046db15dde07530253304bfe57945d4c5 2026-08-18T21:04:56-07:00 docs: retain independent #185 economic replay evidence
+7785bab00efa52bc3317e927bb3675ebadc6ea2c 2026-08-18T21:03:57-07:00 sentinel: reuse canonical normalizer for historical corrections
+1f50b897210acb8040d968534413e9db92dd0480 2026-08-18T21:00:27-07:00 docs: retain issue 185 liquidity impact evidence
+12adda7ef76e61eacdf890097d0f752387c64076 2026-08-18T20:59:52-07:00 tests: pin liquidity recertification comparison semantics
+b5492d49f9cb6c246c1d562759dbf9f90b382cf2 2026-08-18T20:59:30-07:00 tools: compare pre/post liquidity correction rehearsals
+3110f04b05b63218e777c630810852bcce5e89fa 2026-08-18T20:46:47-07:00 tests: pin Sharadar pre-ingest configuration refusal
+59e20ab21c7bac500c6d744861cc42f6632e93fc 2026-08-18T20:46:36-07:00 sentinel: fail launch reconciliation before DB on missing Sharadar key
+8496e17cc4bd63310f4f916aad2f2bd59c49b76c 2026-08-18T20:46:20-07:00 sentinel: validate production Sharadar credentials before ingest state
+55c21104c952be5325578ea336978c0899cca234 2026-08-18T20:43:52-07:00 docs: define Sharadar mutation and reconciliation cadence
+6cff94fb7cc3b85d407b7873d4199ea7fc2f6ca5 2026-08-18T20:43:31-07:00 sentinel: add complete SEP reconciliation launch command
+7379090fa4e9530405d618b1a3dd3e853609abb7 2026-08-18T20:42:35-07:00 tests: pin complete SEP reconciliation launch sweep
+00bfb67f90f32b308715c405c8dc9b6935127fb9 2026-08-18T20:42:09-07:00 sentinel: add complete SEP reconciliation launch gate
+fe30905da1bc2913586eb111b782f8d013072f99 2026-08-18T20:40:08-07:00 tests: prove rolling SEP deletion reconciliation fails closed
+1e6c5d324daecc3af1ce3830159017f4abf19e87 2026-08-18T20:39:50-07:00 tests: prove issue 108 crash states converge on ordinary rerun
+05cee7e9347698207e63093894e5c1fde827eadb 2026-08-18T20:39:17-07:00 sentinel: converge pre-validation ingest crashes on rerun
+b7edd0feee2a5f0220707c12335e2164cce19a78 2026-08-18T20:35:21-07:00 sentinel: gate daily publication on rolling SEP reconciliation
+0e8054ab653777dd2c0d710c1acb4d84366895f5 2026-08-18T20:33:10-07:00 sentinel: add rolling complete SEP keyset reconciliation
+3da8aa2def216732c8f961b51a748a59dad3882e 2026-08-18T20:30:37-07:00 wealth core: normalize Sharadar liquidity in canonical replay
+0f37ad94afc4a97ed9202f4f3cd3f3ca7f664140 2026-08-18T20:29:08-07:00 tests: fix protocol fake transport signature
+9b15c0849573abe30204b2118427d18dc3e145b7 2026-08-18T20:25:46-07:00 tests: pin issue 185 Sharadar boundary invariants
+f672dd70b65f3b641d1ac81619a1c8d90f3c3e8d 2026-08-18T20:23:39-07:00 tests: keep secret redaction under strict Sharadar protocol
+4c85dd34e0e4c772a5d104fb8b2ceb8287cdbf06 2026-08-18T20:23:09-07:00 sentinel: pin complete Sharadar table schemas
+7b9e709757863eca0c0be81f3caf4093ed500555 2026-08-18T20:18:35-07:00 sentinel: make CDC retry reclaim unpublished row ownership
+c54d19c9183a7cb36ff05e1de722b97095ce3e33 2026-08-18T20:16:24-07:00 sentinel: wire Sharadar CDC into daily authority path
+24a4f5855d28fa2b7cdc53e7c1d1cefefd61b3f2 2026-08-18T20:15:35-07:00 sentinel: add Sharadar mutation and ACTIONS reconciliation authority
+1d42cca148af1116165723b9364b8c96dbd043e7 2026-08-18T20:13:10-07:00 sentinel: converge Sharadar publication after crashes
+ce4b0c3903ae890d9fe5b65db90bbec1eeff5910 2026-08-18T20:12:48-07:00 sentinel: make validated ingest publication restart-convergent

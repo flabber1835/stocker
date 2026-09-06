@@ -1,0 +1,25 @@
+{
+  "artifacts": [
+    {
+      "archive_download_url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/9991751468/zip",
+      "created_at": "2026-09-06T15:07:53Z",
+      "digest": "sha256:2d1ba513508755b9ad2c378dcec5b6c3012e9f71d87fb4e8b16576a087e756fa",
+      "expired": false,
+      "expires_at": "2026-12-05T15:06:58Z",
+      "id": 9991751468,
+      "name": "champion-economic-integrity-source-34041287501-1",
+      "node_id": "MDg6QXJ0aWZhY3Q5OTkxNzUxNDY4",
+      "size_in_bytes": 13088919,
+      "updated_at": "2026-09-06T15:07:53Z",
+      "url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/9991751468",
+      "workflow_run": {
+        "head_branch": "research/champion-certification-economic-integrity",
+        "head_repository_id": 1233957439,
+        "head_sha": "a50a78357ee477f34329dceba5ccc2fce6ad4196",
+        "id": 34041287501,
+        "repository_id": 1233957439
+      }
+    }
+  ],
+  "total_count": 1
+}

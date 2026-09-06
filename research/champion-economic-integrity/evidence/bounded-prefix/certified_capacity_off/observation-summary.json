@@ -1,0 +1,10 @@
+{
+  "checks": 1651,
+  "failed_checks": 0,
+  "fills": 25,
+  "held_terminal_touches": [],
+  "last_session": "2006-08-02",
+  "scope": "BOUNDED_PREFIX_ONLY_NOT_A_CERTIFICATE",
+  "sessions": 147,
+  "terminal_settlement_independent_proof": "NOT_ESTABLISHED_BY_THIS_PREFIX"
+}

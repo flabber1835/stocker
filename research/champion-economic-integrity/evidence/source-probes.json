@@ -1,0 +1,151 @@
+{
+  "classification_availability": {
+    "classifier_sha256": "faa2ecddcc905a41b51ff20fa8d22a4c8428eda93d72f518f866b4dffba18ef3",
+    "correction_ledger_sha256": "30f1e7223bc088714e4ee17b131f90da61bcbaf0684bfcb9c3331c9d1bc06db3",
+    "future_authority_applied": true,
+    "requested_session": "2006-07-05",
+    "returned_correction": {
+      "authority_status": "AUTHORITATIVE_HISTORICAL",
+      "classification": "non_common",
+      "correction_reason": "Trust units are not common stock under Champion common-stock-only policy.",
+      "effective_first_session": "2006-07-05",
+      "effective_last_session": "2010-06-01",
+      "evidence_available_from": "2010-06-01",
+      "evidence_kind": "SEC_MATERIAL_CHANGE_REPORT",
+      "evidence_published_date": "2010-06-01",
+      "evidence_summary": "Precision Drilling Trust units were exchanged for corporation common shares on June 1, 2010; NYSE PDS common-share trading expected June 2, 2010.",
+      "evidence_url": "https://www.sec.gov/Archives/edgar/data/1013605/000119907310000485/ex99_2.htm",
+      "security_id": "594891209465982980",
+      "ticker": "PDS"
+    },
+    "security_id": "594891209465982980",
+    "ticker": "PDS"
+  },
+  "dividend_open_boundary": {
+    "candidate": {
+      "dividend_posted_after_open_nav": true,
+      "extracted_function_ast_sha256": "0e29c64300b43f5676ad24f28a2045d87db26de86cc6906a5f5cfc772881fa86",
+      "generated_source_sha256": "3e793d7d7484f2ede15fcc9cf70d43c62d0fd90c8e06eba2689af6c8d7975189",
+      "rows": [
+        {
+          "actual_overlay_factor": 0.8991,
+          "close_nav": 100,
+          "difference": -0.09989999999999999,
+          "entitlement_complete_factor": 0.999,
+          "entitlement_complete_open_nav": 100,
+          "ex_date_receivable": 10,
+          "new_allocation": 0.0,
+          "old_allocation": 1.0,
+          "prior_nav": 100,
+          "raw_open_position_value": 90,
+          "recorded_open_nav": 90
+        },
+        {
+          "actual_overlay_factor": 1.11,
+          "close_nav": 100,
+          "difference": 0.1110000000000001,
+          "entitlement_complete_factor": 0.999,
+          "entitlement_complete_open_nav": 100,
+          "ex_date_receivable": 10,
+          "new_allocation": 1.0,
+          "old_allocation": 0.0,
+          "prior_nav": 100,
+          "raw_open_position_value": 90,
+          "recorded_open_nav": 90
+        },
+        {
+          "actual_overlay_factor": 1.0,
+          "close_nav": 100,
+          "difference": 0.0,
+          "entitlement_complete_factor": 1.0,
+          "entitlement_complete_open_nav": 100,
+          "ex_date_receivable": 10,
+          "new_allocation": 1.0,
+          "old_allocation": 1.0,
+          "prior_nav": 100,
+          "raw_open_position_value": 90,
+          "recorded_open_nav": 90
+        },
+        {
+          "actual_overlay_factor": 1.0495275000000002,
+          "close_nav": 100,
+          "difference": 0.04997750000000012,
+          "entitlement_complete_factor": 0.99955,
+          "entitlement_complete_open_nav": 100,
+          "ex_date_receivable": 10,
+          "new_allocation": 1.0,
+          "old_allocation": 0.55,
+          "prior_nav": 100,
+          "raw_open_position_value": 90,
+          "recorded_open_nav": 90
+        }
+      ]
+    },
+    "certified": {
+      "dividend_posted_after_open_nav": true,
+      "extracted_function_ast_sha256": "0e29c64300b43f5676ad24f28a2045d87db26de86cc6906a5f5cfc772881fa86",
+      "generated_source_sha256": "2e94936de1b550fd500202a7b8d4322f892fb1bc69213af12b3c392d7a220803",
+      "rows": [
+        {
+          "actual_overlay_factor": 0.8991,
+          "close_nav": 100,
+          "difference": -0.09989999999999999,
+          "entitlement_complete_factor": 0.999,
+          "entitlement_complete_open_nav": 100,
+          "ex_date_receivable": 10,
+          "new_allocation": 0.0,
+          "old_allocation": 1.0,
+          "prior_nav": 100,
+          "raw_open_position_value": 90,
+          "recorded_open_nav": 90
+        },
+        {
+          "actual_overlay_factor": 1.11,
+          "close_nav": 100,
+          "difference": 0.1110000000000001,
+          "entitlement_complete_factor": 0.999,
+          "entitlement_complete_open_nav": 100,
+          "ex_date_receivable": 10,
+          "new_allocation": 1.0,
+          "old_allocation": 0.0,
+          "prior_nav": 100,
+          "raw_open_position_value": 90,
+          "recorded_open_nav": 90
+        },
+        {
+          "actual_overlay_factor": 1.0,
+          "close_nav": 100,
+          "difference": 0.0,
+          "entitlement_complete_factor": 1.0,
+          "entitlement_complete_open_nav": 100,
+          "ex_date_receivable": 10,
+          "new_allocation": 1.0,
+          "old_allocation": 1.0,
+          "prior_nav": 100,
+          "raw_open_position_value": 90,
+          "recorded_open_nav": 90
+        },
+        {
+          "actual_overlay_factor": 1.0495275000000002,
+          "close_nav": 100,
+          "difference": 0.04997750000000012,
+          "entitlement_complete_factor": 0.99955,
+          "entitlement_complete_open_nav": 100,
+          "ex_date_receivable": 10,
+          "new_allocation": 1.0,
+          "old_allocation": 0.55,
+          "prior_nav": 100,
+          "raw_open_position_value": 90,
+          "recorded_open_nav": 90
+        }
+      ]
+    }
+  },
+  "historical_classification_CAGR_impact": "NOT_ISOLATED",
+  "historical_dividend_CAGR_impact": "NOT_MEASURED",
+  "production_accrues_dividend_before_open_nav": true,
+  "production_adapter_sha256": "7da9d5d03d8deedfa0cd24e17d78df48191f2a143ab546e5d8d85a7e0ee7f0b7",
+  "schema": "champion.economic-source-probes/1",
+  "scope": "EXACT_EXTRACTED_FUNCTION_SYNTHETIC_FIXTURES_NOT_HISTORICAL_ATTRIBUTION",
+  "status": "DEFECTS_REPRODUCED"
+}

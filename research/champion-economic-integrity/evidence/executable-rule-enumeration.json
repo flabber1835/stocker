@@ -1,0 +1,226 @@
+{
+  "candidate": {
+    "constants": {
+      "ALLOWED_EXCH": [
+        "AMEX",
+        "BATS",
+        "NASDAQ",
+        "NYSE",
+        "NYSEARCA",
+        "NYSEMKT"
+      ],
+      "COMMIT": "c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c",
+      "COOLDOWN": 21,
+      "COST": 0.001,
+      "END": {
+        "expression": "pd.Timestamp('2026-07-31')"
+      },
+      "ENTRY_W": 0.04,
+      "FAST": {
+        "dam": 0.88,
+        "dd": -0.1,
+        "ddam5": 0.3,
+        "green": 0.2,
+        "r10": -0.08,
+        "r10confirm": -0.1,
+        "r5": -0.05,
+        "spy20": -0.01,
+        "volacc": 0.04
+      },
+      "LDRC_CEIL": 0.55,
+      "LDRC_DD": -0.1,
+      "LDRC_R20": -0.085,
+      "LDRC_REC": 8,
+      "LDRC_V": 0.11,
+      "MIN_ADV20": 20000000.0,
+      "MIN_DAY_DV": 5000000.0,
+      "MIN_PRICE": 1.0,
+      "MODE": {
+        "expression": "os.environ.get('RESEARCH_REPLAY_MODE', 'nonpit')"
+      },
+      "N_SLOTS": 25,
+      "ORD_DD": -0.155,
+      "OUT": {
+        "expression": "Path('/home/runner/work/stocker/stocker/economic-prefix-audit/candidate/engine')"
+      },
+      "PEER_CORR_FLOOR": 0.145,
+      "PEER_COUNT": 3,
+      "PEER_LOOKBACK": 252,
+      "PEER_MIN_OBS": 120,
+      "PEER_STATS": {
+        "accepted_peer_edges": 0,
+        "breadth_sessions": 0,
+        "holding_observations": 0,
+        "insufficient_residual_histories": 0,
+        "neighborhood_size_sum": 0,
+        "pair_correlations": 0
+      },
+      "PIT_MODE": {
+        "expression": "MODE == 'fullpit'"
+      },
+      "REVIEW_AGE": 119,
+      "ROOT": {
+        "expression": "Path('sharadar')"
+      },
+      "SLOW": {
+        "dam": 0.75,
+        "dur": 30,
+        "green": 0.25,
+        "r40": -0.03,
+        "ret": -0.02
+      },
+      "START": {
+        "expression": "pd.Timestamp('2006-07-31')"
+      },
+      "STOP_RET": 0.7,
+      "TERMINAL": [
+        "acquisitionby",
+        "bankruptcyliquidation",
+        "delisted",
+        "mergerto",
+        "regulatorydelisting",
+        "voluntarydelisting"
+      ],
+      "TOP": 0.1,
+      "_CASH_YIELD": {
+        "expression": "{pd.Timestamp(r.month): float(r.annual_yield_percent) for r in _cash_frame.itertuples(index=False)}"
+      }
+    },
+    "function_class_ast_sha256": {
+      "Book": "67323c65160ee6d63f780b664b1440f802d3b9c877a39b97f573edf939dc0cb5",
+      "CandidateA": "377a807ae2eb8d914b770fa6cc509a04562dac2b0173e2b1303758f03f764088",
+      "CandidateB": "229d7413acb24ecd1f096b7f933d5e76c31c8bb55f33fcf4c7cda461af538cfc",
+      "ControlLDRC": "af80c0c33c0c0227858bd70f21fb4f23ac00341f234271aa1fea25937c998c8d",
+      "Native": "e65f92dccd828e7d4f1d1fdf02c26b8c3a80f6b95e4a754bb598fa3f25d38d7a",
+      "Slot": "523ef9a9296fea71301baf029534143d95e4a20a4384d1d800270affb072d031",
+      "_peer_corr": "2098b06b9c658c505fe045c211a6a3f5526fab95472efb3c8cf87ac80d210714",
+      "_prior_residuals": "87e238b6b320223901fe7ff363925c22723638c036d2f99bbcaa90c0fc5870ed",
+      "apply_overlay": "fbeef9fa2cd82ca363b1ed94191e36542496d666296f82bda72c8ca344eb3daa",
+      "bil_factors": "81ec520768e317b2c1b02cabf09277d95ad65b5263021684da540447f017eb1a",
+      "dynamic_peer_breadth": "dc51b53055df04dda78953229f99eea75e4163bb81ee998b54f556bc9008077b",
+      "finite": "c786e83d278053f7f7901abf6b636f7df4f402bfd6d3082fbd7eb01a8a29d963",
+      "load_actions": "65df25e55f2f3d8b83f9e28b2ebc8bd2cc81853002988001c290f5486ab5b6f2",
+      "load_funds": "537f3f084317b5b35408b1fcd25dba89c0e7794ae366ef64ce7a1648a4e779b5",
+      "load_meta": "8fda5e116c345fee4c8a09292c0ac41e8cf91810396456fc9276bab0109296ce",
+      "metrics": "75090f826d5fd485cc2f46db5759e0f3c3672a46b3673969033d1aa8934c9282",
+      "nearest_split_authority": "d85480465d066e34c5e7771a688105fdcabe80963c9ab2439c5e71c6c794fe83",
+      "run": "de300a1e79d6a6d43f75fa87617bfd96a3456e71830c545240060a759207ae6a",
+      "strict_tid": "5692bc7cf750995000c49d9ebaf9c256da28d288377961938db6f565698fca9b",
+      "year_file": "7c0d62ce53df923b1ab2051de22109ce8c9a4a7999a7c2e79dd12037f4e7105b",
+      "zcsv": "5e03bb041bfeeed03e22337bad972872ab70f85ae158289f5c4d26f799ca889b"
+    },
+    "source_sha256": "3e793d7d7484f2ede15fcc9cf70d43c62d0fd90c8e06eba2689af6c8d7975189"
+  },
+  "certified": {
+    "constants": {
+      "ALLOWED_EXCH": [
+        "AMEX",
+        "BATS",
+        "NASDAQ",
+        "NYSE",
+        "NYSEARCA",
+        "NYSEMKT"
+      ],
+      "COMMIT": "c14f77b3c6c6fcc14cf00e8916d7968c853a5d6c",
+      "COOLDOWN": 21,
+      "COST": 0.001,
+      "END": {
+        "expression": "pd.Timestamp('2026-07-31')"
+      },
+      "ENTRY_W": 0.04,
+      "FAST": {
+        "dam": 0.88,
+        "dd": -0.1,
+        "ddam5": 0.3,
+        "green": 0.2,
+        "r10": -0.08,
+        "r10confirm": -0.1,
+        "r5": -0.05,
+        "spy20": -0.01,
+        "volacc": 0.04
+      },
+      "LDRC_CEIL": 0.55,
+      "LDRC_DD": -0.1,
+      "LDRC_R20": -0.085,
+      "LDRC_REC": 8,
+      "LDRC_V": 0.11,
+      "MIN_ADV20": 20000000.0,
+      "MIN_DAY_DV": 5000000.0,
+      "MIN_PRICE": 1.0,
+      "MODE": {
+        "expression": "os.environ.get('RESEARCH_REPLAY_MODE', 'nonpit')"
+      },
+      "N_SLOTS": 25,
+      "ORD_DD": -0.155,
+      "OUT": {
+        "expression": "Path('/home/runner/work/stocker/stocker/economic-prefix-audit/certified/engine')"
+      },
+      "PEER_CORR_FLOOR": 0.145,
+      "PEER_COUNT": 3,
+      "PEER_LOOKBACK": 252,
+      "PEER_MIN_OBS": 120,
+      "PEER_STATS": {
+        "accepted_peer_edges": 0,
+        "breadth_sessions": 0,
+        "holding_observations": 0,
+        "insufficient_residual_histories": 0,
+        "neighborhood_size_sum": 0,
+        "pair_correlations": 0
+      },
+      "PIT_MODE": {
+        "expression": "MODE == 'fullpit'"
+      },
+      "REVIEW_AGE": 119,
+      "ROOT": {
+        "expression": "Path('sharadar')"
+      },
+      "SLOW": {
+        "dam": 0.75,
+        "dur": 30,
+        "green": 0.25,
+        "r40": -0.03,
+        "ret": -0.02
+      },
+      "START": {
+        "expression": "pd.Timestamp('2006-07-31')"
+      },
+      "STOP_RET": 0.7,
+      "TERMINAL": [
+        "acquisitionby",
+        "bankruptcyliquidation",
+        "delisted",
+        "mergerto",
+        "regulatorydelisting",
+        "voluntarydelisting"
+      ],
+      "TOP": 0.1,
+      "_CASH_YIELD": {
+        "expression": "{pd.Timestamp(r.month): float(r.annual_yield_percent) for r in _cash_frame.itertuples(index=False)}"
+      }
+    },
+    "function_class_ast_sha256": {
+      "Book": "67323c65160ee6d63f780b664b1440f802d3b9c877a39b97f573edf939dc0cb5",
+      "CandidateA": "377a807ae2eb8d914b770fa6cc509a04562dac2b0173e2b1303758f03f764088",
+      "CandidateB": "229d7413acb24ecd1f096b7f933d5e76c31c8bb55f33fcf4c7cda461af538cfc",
+      "ControlLDRC": "af80c0c33c0c0227858bd70f21fb4f23ac00341f234271aa1fea25937c998c8d",
+      "Native": "e65f92dccd828e7d4f1d1fdf02c26b8c3a80f6b95e4a754bb598fa3f25d38d7a",
+      "Slot": "523ef9a9296fea71301baf029534143d95e4a20a4384d1d800270affb072d031",
+      "_peer_corr": "2098b06b9c658c505fe045c211a6a3f5526fab95472efb3c8cf87ac80d210714",
+      "_prior_residuals": "87e238b6b320223901fe7ff363925c22723638c036d2f99bbcaa90c0fc5870ed",
+      "apply_overlay": "fbeef9fa2cd82ca363b1ed94191e36542496d666296f82bda72c8ca344eb3daa",
+      "bil_factors": "81ec520768e317b2c1b02cabf09277d95ad65b5263021684da540447f017eb1a",
+      "dynamic_peer_breadth": "dc51b53055df04dda78953229f99eea75e4163bb81ee998b54f556bc9008077b",
+      "finite": "c786e83d278053f7f7901abf6b636f7df4f402bfd6d3082fbd7eb01a8a29d963",
+      "load_actions": "65df25e55f2f3d8b83f9e28b2ebc8bd2cc81853002988001c290f5486ab5b6f2",
+      "load_funds": "537f3f084317b5b35408b1fcd25dba89c0e7794ae366ef64ce7a1648a4e779b5",
+      "load_meta": "8fda5e116c345fee4c8a09292c0ac41e8cf91810396456fc9276bab0109296ce",
+      "metrics": "75090f826d5fd485cc2f46db5759e0f3c3672a46b3673969033d1aa8934c9282",
+      "nearest_split_authority": "d85480465d066e34c5e7771a688105fdcabe80963c9ab2439c5e71c6c794fe83",
+      "run": "ebb3f1cef9bf05334305b5354aba15affc6011bb8e0b27499fd84df20ff8e3e8",
+      "strict_tid": "5692bc7cf750995000c49d9ebaf9c256da28d288377961938db6f565698fca9b",
+      "year_file": "7c0d62ce53df923b1ab2051de22109ce8c9a4a7999a7c2e79dd12037f4e7105b",
+      "zcsv": "5e03bb041bfeeed03e22337bad972872ab70f85ae158289f5c4d26f799ca889b"
+    },
+    "source_sha256": "2e94936de1b550fd500202a7b8d4322f892fb1bc69213af12b3c392d7a220803"
+  }
+}

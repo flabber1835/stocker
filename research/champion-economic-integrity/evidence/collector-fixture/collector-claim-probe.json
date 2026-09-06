@@ -1,0 +1,26 @@
+{
+  "accounting_ledger_supplied": false,
+  "annual_chain": null,
+  "checkpoint_exercised": false,
+  "checks_returned": {
+    "checkpoint_resume": "PASS",
+    "corporate_actions": "PASS",
+    "financial_semantics": "PASS",
+    "pit_metadata": "PASS",
+    "runtime_source_binding": "PASS",
+    "terminal_events": "PASS"
+  },
+  "evidence_file_names": [
+    "metadata_authority_audit.json",
+    "summary.json"
+  ],
+  "execution_python": "3.12.14",
+  "files_supplied": [
+    "metadata_authority_audit.json",
+    "summary.json"
+  ],
+  "real_replay_executed": false,
+  "scope": "EVIDENCE_COLLECTOR_UNIT_FIXTURE_NOT_FINALIZER_CERTIFICATE",
+  "source_file_sha256": "e6af5674a34c3fc1d856aed343199d71ada04dc6db8fad2bed0507799b3afd10",
+  "source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7"
+}

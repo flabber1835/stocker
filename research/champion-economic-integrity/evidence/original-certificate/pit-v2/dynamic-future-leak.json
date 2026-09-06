@@ -1,0 +1,1324 @@
+{
+  "contract": "changing or removing canonical data strictly after cutoff must not change any economic prefix through cutoff",
+  "cutoff_scheme": "one deterministic cutoff per calendar year after >=127 prior sessions and with >=5 future sessions",
+  "cutoffs": [
+    {
+      "cutoff": "2006-08-08",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "12d1a19c7e4cdb43905904628540d5ed2a5c82e90c15f3f9ced250d084737fa6",
+        "checkpoint_state": "84e7558bbf577050b3b0b7f55996c92f9b0fb2fedb7bcab1cc9e0c42be5d5ebc",
+        "decisions": "baedee566c72f45c66ae4c22a0a8f47f4262e299249a589b530070344942e43c",
+        "executions": "e9719d4b890067fed9f6a493ee456f40552dba553904a64acbdcafd9e54d0602",
+        "holdings": "831d45ce8a323ff6b2c7aaf264b2ad729c193126231c8c365414426b806b07cc",
+        "nav": "d56f27e1b9f984fd54e3996b0c2282fc5ef415673811285e933ed5b88a3f06e7",
+        "path_dependent_state": "9e219cf8cacc74b14b76a5e349260e5cef58d98adcddc4ef5866adc9d37875a3",
+        "pending_orders": "baedee566c72f45c66ae4c22a0a8f47f4262e299249a589b530070344942e43c",
+        "rankings_signals": "0cf9658c3ec060f8207355d0789baea0598f75dea51db8f4b2871a4c36861c96",
+        "selected_universe": "0d93bc44e74b4c3d9136b5411f1cca94bce76a4f4f7ecb242d4d84db3258d2a4",
+        "strategy_state": "5e238d04bea58ee13d254908e1d9cea9ec5a7653a070d9b8b9d8bbb7e41e4254"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "12d1a19c7e4cdb43905904628540d5ed2a5c82e90c15f3f9ced250d084737fa6",
+        "checkpoint_state": "84e7558bbf577050b3b0b7f55996c92f9b0fb2fedb7bcab1cc9e0c42be5d5ebc",
+        "decisions": "baedee566c72f45c66ae4c22a0a8f47f4262e299249a589b530070344942e43c",
+        "executions": "e9719d4b890067fed9f6a493ee456f40552dba553904a64acbdcafd9e54d0602",
+        "holdings": "831d45ce8a323ff6b2c7aaf264b2ad729c193126231c8c365414426b806b07cc",
+        "nav": "d56f27e1b9f984fd54e3996b0c2282fc5ef415673811285e933ed5b88a3f06e7",
+        "path_dependent_state": "9e219cf8cacc74b14b76a5e349260e5cef58d98adcddc4ef5866adc9d37875a3",
+        "pending_orders": "baedee566c72f45c66ae4c22a0a8f47f4262e299249a589b530070344942e43c",
+        "rankings_signals": "0cf9658c3ec060f8207355d0789baea0598f75dea51db8f4b2871a4c36861c96",
+        "selected_universe": "0d93bc44e74b4c3d9136b5411f1cca94bce76a4f4f7ecb242d4d84db3258d2a4",
+        "strategy_state": "5e238d04bea58ee13d254908e1d9cea9ec5a7653a070d9b8b9d8bbb7e41e4254"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "12d1a19c7e4cdb43905904628540d5ed2a5c82e90c15f3f9ced250d084737fa6",
+        "checkpoint_state": "84e7558bbf577050b3b0b7f55996c92f9b0fb2fedb7bcab1cc9e0c42be5d5ebc",
+        "decisions": "baedee566c72f45c66ae4c22a0a8f47f4262e299249a589b530070344942e43c",
+        "executions": "e9719d4b890067fed9f6a493ee456f40552dba553904a64acbdcafd9e54d0602",
+        "holdings": "831d45ce8a323ff6b2c7aaf264b2ad729c193126231c8c365414426b806b07cc",
+        "nav": "d56f27e1b9f984fd54e3996b0c2282fc5ef415673811285e933ed5b88a3f06e7",
+        "path_dependent_state": "9e219cf8cacc74b14b76a5e349260e5cef58d98adcddc4ef5866adc9d37875a3",
+        "pending_orders": "baedee566c72f45c66ae4c22a0a8f47f4262e299249a589b530070344942e43c",
+        "rankings_signals": "0cf9658c3ec060f8207355d0789baea0598f75dea51db8f4b2871a4c36861c96",
+        "selected_universe": "0d93bc44e74b4c3d9136b5411f1cca94bce76a4f4f7ecb242d4d84db3258d2a4",
+        "strategy_state": "5e238d04bea58ee13d254908e1d9cea9ec5a7653a070d9b8b9d8bbb7e41e4254"
+      },
+      "truncation_mismatches": [],
+      "year": 2006
+    },
+    {
+      "cutoff": "2007-08-08",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "d761589d2619b6d9e902e8f79411adefddeee42a691fe9b3c9d2f5bc291774b2",
+        "checkpoint_state": "728c5c8aef6b5f62dbed91d041951c341e040478e87527084856ff4bb745b9f7",
+        "decisions": "e5854dd9a422c8869039b41afbdc658453f46942547dd818da8cb6e30e7f4d25",
+        "executions": "faff5b46405ecd0543b336721081e0dd80ea78acd257aaf2a6a0915d150ceebf",
+        "holdings": "e87ccedb81a191cd1aca2301aa8a34a95b29ef097b85c0e04b210618db97d189",
+        "nav": "6cc4a26406fcb9635e856fad28d113b8d65c21bbc7fb75ac39306455f6089539",
+        "path_dependent_state": "72eb4df906b6b195586256a6e27a3ac2ea665e3e40696b063ef7de97408b09d3",
+        "pending_orders": "e5854dd9a422c8869039b41afbdc658453f46942547dd818da8cb6e30e7f4d25",
+        "rankings_signals": "135df9617106fef93909c0b918cd27fb0f5689e10a210ce04bce7d60a282864c",
+        "selected_universe": "c6c52c225e55358c0994c890198bef4296961390da90c98df19e57fffe0fdd32",
+        "strategy_state": "73b97f2f881e1ecad1e4c1b93d728aabbead542ed61a70b883dffa7617b29373"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "d761589d2619b6d9e902e8f79411adefddeee42a691fe9b3c9d2f5bc291774b2",
+        "checkpoint_state": "728c5c8aef6b5f62dbed91d041951c341e040478e87527084856ff4bb745b9f7",
+        "decisions": "e5854dd9a422c8869039b41afbdc658453f46942547dd818da8cb6e30e7f4d25",
+        "executions": "faff5b46405ecd0543b336721081e0dd80ea78acd257aaf2a6a0915d150ceebf",
+        "holdings": "e87ccedb81a191cd1aca2301aa8a34a95b29ef097b85c0e04b210618db97d189",
+        "nav": "6cc4a26406fcb9635e856fad28d113b8d65c21bbc7fb75ac39306455f6089539",
+        "path_dependent_state": "72eb4df906b6b195586256a6e27a3ac2ea665e3e40696b063ef7de97408b09d3",
+        "pending_orders": "e5854dd9a422c8869039b41afbdc658453f46942547dd818da8cb6e30e7f4d25",
+        "rankings_signals": "135df9617106fef93909c0b918cd27fb0f5689e10a210ce04bce7d60a282864c",
+        "selected_universe": "c6c52c225e55358c0994c890198bef4296961390da90c98df19e57fffe0fdd32",
+        "strategy_state": "73b97f2f881e1ecad1e4c1b93d728aabbead542ed61a70b883dffa7617b29373"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "d761589d2619b6d9e902e8f79411adefddeee42a691fe9b3c9d2f5bc291774b2",
+        "checkpoint_state": "728c5c8aef6b5f62dbed91d041951c341e040478e87527084856ff4bb745b9f7",
+        "decisions": "e5854dd9a422c8869039b41afbdc658453f46942547dd818da8cb6e30e7f4d25",
+        "executions": "faff5b46405ecd0543b336721081e0dd80ea78acd257aaf2a6a0915d150ceebf",
+        "holdings": "e87ccedb81a191cd1aca2301aa8a34a95b29ef097b85c0e04b210618db97d189",
+        "nav": "6cc4a26406fcb9635e856fad28d113b8d65c21bbc7fb75ac39306455f6089539",
+        "path_dependent_state": "72eb4df906b6b195586256a6e27a3ac2ea665e3e40696b063ef7de97408b09d3",
+        "pending_orders": "e5854dd9a422c8869039b41afbdc658453f46942547dd818da8cb6e30e7f4d25",
+        "rankings_signals": "135df9617106fef93909c0b918cd27fb0f5689e10a210ce04bce7d60a282864c",
+        "selected_universe": "c6c52c225e55358c0994c890198bef4296961390da90c98df19e57fffe0fdd32",
+        "strategy_state": "73b97f2f881e1ecad1e4c1b93d728aabbead542ed61a70b883dffa7617b29373"
+      },
+      "truncation_mismatches": [],
+      "year": 2007
+    },
+    {
+      "cutoff": "2008-08-07",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "c8659d31b87182db7fc0e6534886b583c9a411d736aa602aaf742fd826205b85",
+        "checkpoint_state": "c30591456d0e0ff87a38ac95eb6d96a8d884f8e134c1ffe30fa2cc04096a860e",
+        "decisions": "75322c884b7c6b19094236c7dd5aae62b95f3d69690dbea3d51e8efa18c19660",
+        "executions": "4237fc262f45133d9fa6567dd659ddf2a86b6e18d44e39af9c1a017087182d8b",
+        "holdings": "71f206c8328140174ef5dfbb0e0a8889fbc7a95016f7fec8739dfd11fff31457",
+        "nav": "eee3058cdc48ffd410bf73ce2db106cd45ea721d5f970af81380b2e6a80115f3",
+        "path_dependent_state": "3a16478f0d8c432b59fb995e0434c6f447bf42fdbe45cec8b414afee02f73a4b",
+        "pending_orders": "75322c884b7c6b19094236c7dd5aae62b95f3d69690dbea3d51e8efa18c19660",
+        "rankings_signals": "a6500433ca0c4eddb40e53d9a8bb712af76e5bc5e5e7de1afe4a61a519da6e44",
+        "selected_universe": "7e5768e1c61d85eb86e7fe82dc9f79094558b17ab98289a280ce40e3bdc2d8fe",
+        "strategy_state": "20efd6655b5bb390695fac3ae81be59d93fcbf1bbb3b542b2b5ac11d8232f849"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "c8659d31b87182db7fc0e6534886b583c9a411d736aa602aaf742fd826205b85",
+        "checkpoint_state": "c30591456d0e0ff87a38ac95eb6d96a8d884f8e134c1ffe30fa2cc04096a860e",
+        "decisions": "75322c884b7c6b19094236c7dd5aae62b95f3d69690dbea3d51e8efa18c19660",
+        "executions": "4237fc262f45133d9fa6567dd659ddf2a86b6e18d44e39af9c1a017087182d8b",
+        "holdings": "71f206c8328140174ef5dfbb0e0a8889fbc7a95016f7fec8739dfd11fff31457",
+        "nav": "eee3058cdc48ffd410bf73ce2db106cd45ea721d5f970af81380b2e6a80115f3",
+        "path_dependent_state": "3a16478f0d8c432b59fb995e0434c6f447bf42fdbe45cec8b414afee02f73a4b",
+        "pending_orders": "75322c884b7c6b19094236c7dd5aae62b95f3d69690dbea3d51e8efa18c19660",
+        "rankings_signals": "a6500433ca0c4eddb40e53d9a8bb712af76e5bc5e5e7de1afe4a61a519da6e44",
+        "selected_universe": "7e5768e1c61d85eb86e7fe82dc9f79094558b17ab98289a280ce40e3bdc2d8fe",
+        "strategy_state": "20efd6655b5bb390695fac3ae81be59d93fcbf1bbb3b542b2b5ac11d8232f849"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "c8659d31b87182db7fc0e6534886b583c9a411d736aa602aaf742fd826205b85",
+        "checkpoint_state": "c30591456d0e0ff87a38ac95eb6d96a8d884f8e134c1ffe30fa2cc04096a860e",
+        "decisions": "75322c884b7c6b19094236c7dd5aae62b95f3d69690dbea3d51e8efa18c19660",
+        "executions": "4237fc262f45133d9fa6567dd659ddf2a86b6e18d44e39af9c1a017087182d8b",
+        "holdings": "71f206c8328140174ef5dfbb0e0a8889fbc7a95016f7fec8739dfd11fff31457",
+        "nav": "eee3058cdc48ffd410bf73ce2db106cd45ea721d5f970af81380b2e6a80115f3",
+        "path_dependent_state": "3a16478f0d8c432b59fb995e0434c6f447bf42fdbe45cec8b414afee02f73a4b",
+        "pending_orders": "75322c884b7c6b19094236c7dd5aae62b95f3d69690dbea3d51e8efa18c19660",
+        "rankings_signals": "a6500433ca0c4eddb40e53d9a8bb712af76e5bc5e5e7de1afe4a61a519da6e44",
+        "selected_universe": "7e5768e1c61d85eb86e7fe82dc9f79094558b17ab98289a280ce40e3bdc2d8fe",
+        "strategy_state": "20efd6655b5bb390695fac3ae81be59d93fcbf1bbb3b542b2b5ac11d8232f849"
+      },
+      "truncation_mismatches": [],
+      "year": 2008
+    },
+    {
+      "cutoff": "2009-08-10",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "f031cf9bb6e696fc11be917501c46cd8fca4f3170d16c04d6fbb66f1fa7e8fc2",
+        "checkpoint_state": "0960d5be4acee86a10a2c991e3ac19653fdc4d6259e33a12b92e4a334e64632c",
+        "decisions": "894ef2c82125ff2984b127e22c3235f2e4df48d9b03840e8289396c61eed5f9e",
+        "executions": "8c814ad6877b03c4f4c5ef8d7204d49335de2b2b805b6f3d0dde3ff11c825c52",
+        "holdings": "877dfa887e8f9f85b638d44ebfaf4423cff3f22afe87377b2ac4da4f7e126e15",
+        "nav": "c9bc8a77541373ca108b6bf636509496151909a903e5f2afde63a8f8f8b29121",
+        "path_dependent_state": "93c663479e0695eade7a2daef1021f36aabc500674996ddef1dbec57c0060948",
+        "pending_orders": "894ef2c82125ff2984b127e22c3235f2e4df48d9b03840e8289396c61eed5f9e",
+        "rankings_signals": "d52bc2b873de135ccf576bed7d9dd860f75886371744a33b44200abb57126e05",
+        "selected_universe": "7e575e7dd0a8878a42102c31ab9b31bb7c274c222dd7e2af3d1aceadf3d635b5",
+        "strategy_state": "59594d8433ff6f3aa3a869920548d745ac760dbd27b51585476b1674f443bb97"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "f031cf9bb6e696fc11be917501c46cd8fca4f3170d16c04d6fbb66f1fa7e8fc2",
+        "checkpoint_state": "0960d5be4acee86a10a2c991e3ac19653fdc4d6259e33a12b92e4a334e64632c",
+        "decisions": "894ef2c82125ff2984b127e22c3235f2e4df48d9b03840e8289396c61eed5f9e",
+        "executions": "8c814ad6877b03c4f4c5ef8d7204d49335de2b2b805b6f3d0dde3ff11c825c52",
+        "holdings": "877dfa887e8f9f85b638d44ebfaf4423cff3f22afe87377b2ac4da4f7e126e15",
+        "nav": "c9bc8a77541373ca108b6bf636509496151909a903e5f2afde63a8f8f8b29121",
+        "path_dependent_state": "93c663479e0695eade7a2daef1021f36aabc500674996ddef1dbec57c0060948",
+        "pending_orders": "894ef2c82125ff2984b127e22c3235f2e4df48d9b03840e8289396c61eed5f9e",
+        "rankings_signals": "d52bc2b873de135ccf576bed7d9dd860f75886371744a33b44200abb57126e05",
+        "selected_universe": "7e575e7dd0a8878a42102c31ab9b31bb7c274c222dd7e2af3d1aceadf3d635b5",
+        "strategy_state": "59594d8433ff6f3aa3a869920548d745ac760dbd27b51585476b1674f443bb97"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "f031cf9bb6e696fc11be917501c46cd8fca4f3170d16c04d6fbb66f1fa7e8fc2",
+        "checkpoint_state": "0960d5be4acee86a10a2c991e3ac19653fdc4d6259e33a12b92e4a334e64632c",
+        "decisions": "894ef2c82125ff2984b127e22c3235f2e4df48d9b03840e8289396c61eed5f9e",
+        "executions": "8c814ad6877b03c4f4c5ef8d7204d49335de2b2b805b6f3d0dde3ff11c825c52",
+        "holdings": "877dfa887e8f9f85b638d44ebfaf4423cff3f22afe87377b2ac4da4f7e126e15",
+        "nav": "c9bc8a77541373ca108b6bf636509496151909a903e5f2afde63a8f8f8b29121",
+        "path_dependent_state": "93c663479e0695eade7a2daef1021f36aabc500674996ddef1dbec57c0060948",
+        "pending_orders": "894ef2c82125ff2984b127e22c3235f2e4df48d9b03840e8289396c61eed5f9e",
+        "rankings_signals": "d52bc2b873de135ccf576bed7d9dd860f75886371744a33b44200abb57126e05",
+        "selected_universe": "7e575e7dd0a8878a42102c31ab9b31bb7c274c222dd7e2af3d1aceadf3d635b5",
+        "strategy_state": "59594d8433ff6f3aa3a869920548d745ac760dbd27b51585476b1674f443bb97"
+      },
+      "truncation_mismatches": [],
+      "year": 2009
+    },
+    {
+      "cutoff": "2010-08-10",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "c295999b78b1d8ec0edefa829dc872014873f0c558fa2f640de14cc6da9b7e8d",
+        "checkpoint_state": "bec324bd500894f845b85df9f49fc8f41598ba024f4132299557b8877d667049",
+        "decisions": "6677283ab7ed460cda6ed7eff755c7c8000a6c9b68f8285e5cb29cb0bc65df4a",
+        "executions": "19d6b99b03e5e9423c754d31aeb302736414d43261e028e1197d11cf31b4a8d8",
+        "holdings": "fd05d1a233a7088bcd9e55203fe7168767b0b10baa6645127b5190f293dd09c9",
+        "nav": "3d12f0b260a34871e7ab2e07b3c8231c6dc002ff7d9aa6385044f84fdb41609f",
+        "path_dependent_state": "07eccf91caf2ebf0467d24a70b7f2d5994ba8a3d74d1245ed87038c980bcbc8c",
+        "pending_orders": "6677283ab7ed460cda6ed7eff755c7c8000a6c9b68f8285e5cb29cb0bc65df4a",
+        "rankings_signals": "ce79933f2924de9ff53b0809ff998f3c5d12e5a97a0001461ba206d51c37bc67",
+        "selected_universe": "aa5492f2bcdec94319754ec3576e47f339f0eb99a1b5ec499382923db558c0ca",
+        "strategy_state": "0e06ec0d271bca8ebb915831bedd2817d52e9d5653b20997d078bd34f8125493"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "c295999b78b1d8ec0edefa829dc872014873f0c558fa2f640de14cc6da9b7e8d",
+        "checkpoint_state": "bec324bd500894f845b85df9f49fc8f41598ba024f4132299557b8877d667049",
+        "decisions": "6677283ab7ed460cda6ed7eff755c7c8000a6c9b68f8285e5cb29cb0bc65df4a",
+        "executions": "19d6b99b03e5e9423c754d31aeb302736414d43261e028e1197d11cf31b4a8d8",
+        "holdings": "fd05d1a233a7088bcd9e55203fe7168767b0b10baa6645127b5190f293dd09c9",
+        "nav": "3d12f0b260a34871e7ab2e07b3c8231c6dc002ff7d9aa6385044f84fdb41609f",
+        "path_dependent_state": "07eccf91caf2ebf0467d24a70b7f2d5994ba8a3d74d1245ed87038c980bcbc8c",
+        "pending_orders": "6677283ab7ed460cda6ed7eff755c7c8000a6c9b68f8285e5cb29cb0bc65df4a",
+        "rankings_signals": "ce79933f2924de9ff53b0809ff998f3c5d12e5a97a0001461ba206d51c37bc67",
+        "selected_universe": "aa5492f2bcdec94319754ec3576e47f339f0eb99a1b5ec499382923db558c0ca",
+        "strategy_state": "0e06ec0d271bca8ebb915831bedd2817d52e9d5653b20997d078bd34f8125493"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "c295999b78b1d8ec0edefa829dc872014873f0c558fa2f640de14cc6da9b7e8d",
+        "checkpoint_state": "bec324bd500894f845b85df9f49fc8f41598ba024f4132299557b8877d667049",
+        "decisions": "6677283ab7ed460cda6ed7eff755c7c8000a6c9b68f8285e5cb29cb0bc65df4a",
+        "executions": "19d6b99b03e5e9423c754d31aeb302736414d43261e028e1197d11cf31b4a8d8",
+        "holdings": "fd05d1a233a7088bcd9e55203fe7168767b0b10baa6645127b5190f293dd09c9",
+        "nav": "3d12f0b260a34871e7ab2e07b3c8231c6dc002ff7d9aa6385044f84fdb41609f",
+        "path_dependent_state": "07eccf91caf2ebf0467d24a70b7f2d5994ba8a3d74d1245ed87038c980bcbc8c",
+        "pending_orders": "6677283ab7ed460cda6ed7eff755c7c8000a6c9b68f8285e5cb29cb0bc65df4a",
+        "rankings_signals": "ce79933f2924de9ff53b0809ff998f3c5d12e5a97a0001461ba206d51c37bc67",
+        "selected_universe": "aa5492f2bcdec94319754ec3576e47f339f0eb99a1b5ec499382923db558c0ca",
+        "strategy_state": "0e06ec0d271bca8ebb915831bedd2817d52e9d5653b20997d078bd34f8125493"
+      },
+      "truncation_mismatches": [],
+      "year": 2010
+    },
+    {
+      "cutoff": "2011-08-09",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "0c4f21d537e69e10d6a1f639d76bcd036633f00032a7d288f1c2eab3b4e9b8c7",
+        "checkpoint_state": "2d8db3ed6b369209e8ff663278d0cc141e51ca5fb1fef078e12319cbfd04c436",
+        "decisions": "5d66352e1dd5abc5f56581dea58c5b7adb02b383bcd4ff30618a2ca9ff328b80",
+        "executions": "9515050db27b0bd656654e8d211a8d26b25d14f6bd460c5696320c9d89ee3c9c",
+        "holdings": "027627b13bf89effefe17d1fb4fd199093d195619ea7c12a8ac67962012db997",
+        "nav": "6d00af90fd890a94ce386e5249bccc2905d3576be4827e010ad1e8eb1fa8fc08",
+        "path_dependent_state": "3b3f71d4d2f7ac0d12a4583e17d40bb0fe8f44599944f2cea4d83edf5f72b91b",
+        "pending_orders": "5d66352e1dd5abc5f56581dea58c5b7adb02b383bcd4ff30618a2ca9ff328b80",
+        "rankings_signals": "a5259c5c7c71c4b5cbbaca782f4acd0cd24fa1ca284ac4165c29cb14e21d4245",
+        "selected_universe": "b6f9b273753fa86a21a00611952cf424d6f3ac906e2d16cea6ac42d215bcb337",
+        "strategy_state": "48958b782d99945193f7cbe5bb1e7efc7a4f14dca5ac928a58d9109c1b86fd02"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "0c4f21d537e69e10d6a1f639d76bcd036633f00032a7d288f1c2eab3b4e9b8c7",
+        "checkpoint_state": "2d8db3ed6b369209e8ff663278d0cc141e51ca5fb1fef078e12319cbfd04c436",
+        "decisions": "5d66352e1dd5abc5f56581dea58c5b7adb02b383bcd4ff30618a2ca9ff328b80",
+        "executions": "9515050db27b0bd656654e8d211a8d26b25d14f6bd460c5696320c9d89ee3c9c",
+        "holdings": "027627b13bf89effefe17d1fb4fd199093d195619ea7c12a8ac67962012db997",
+        "nav": "6d00af90fd890a94ce386e5249bccc2905d3576be4827e010ad1e8eb1fa8fc08",
+        "path_dependent_state": "3b3f71d4d2f7ac0d12a4583e17d40bb0fe8f44599944f2cea4d83edf5f72b91b",
+        "pending_orders": "5d66352e1dd5abc5f56581dea58c5b7adb02b383bcd4ff30618a2ca9ff328b80",
+        "rankings_signals": "a5259c5c7c71c4b5cbbaca782f4acd0cd24fa1ca284ac4165c29cb14e21d4245",
+        "selected_universe": "b6f9b273753fa86a21a00611952cf424d6f3ac906e2d16cea6ac42d215bcb337",
+        "strategy_state": "48958b782d99945193f7cbe5bb1e7efc7a4f14dca5ac928a58d9109c1b86fd02"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "0c4f21d537e69e10d6a1f639d76bcd036633f00032a7d288f1c2eab3b4e9b8c7",
+        "checkpoint_state": "2d8db3ed6b369209e8ff663278d0cc141e51ca5fb1fef078e12319cbfd04c436",
+        "decisions": "5d66352e1dd5abc5f56581dea58c5b7adb02b383bcd4ff30618a2ca9ff328b80",
+        "executions": "9515050db27b0bd656654e8d211a8d26b25d14f6bd460c5696320c9d89ee3c9c",
+        "holdings": "027627b13bf89effefe17d1fb4fd199093d195619ea7c12a8ac67962012db997",
+        "nav": "6d00af90fd890a94ce386e5249bccc2905d3576be4827e010ad1e8eb1fa8fc08",
+        "path_dependent_state": "3b3f71d4d2f7ac0d12a4583e17d40bb0fe8f44599944f2cea4d83edf5f72b91b",
+        "pending_orders": "5d66352e1dd5abc5f56581dea58c5b7adb02b383bcd4ff30618a2ca9ff328b80",
+        "rankings_signals": "a5259c5c7c71c4b5cbbaca782f4acd0cd24fa1ca284ac4165c29cb14e21d4245",
+        "selected_universe": "b6f9b273753fa86a21a00611952cf424d6f3ac906e2d16cea6ac42d215bcb337",
+        "strategy_state": "48958b782d99945193f7cbe5bb1e7efc7a4f14dca5ac928a58d9109c1b86fd02"
+      },
+      "truncation_mismatches": [],
+      "year": 2011
+    },
+    {
+      "cutoff": "2012-08-07",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "selected_universe",
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "75b6aaaf273879eda0abe07665b4e8c7691303f147794a4b1d9924d0617f5134",
+        "checkpoint_state": "fedff6eda9d7c87c7cab076f5db3ff40808ad14f0bc4f9a4d6b0d70345d458ef",
+        "decisions": "1d1678d14912c693640149b09a72afe38cad1cf28f0c751f32742f17a77cc635",
+        "executions": "8087a8af26ac1cb79d28b579c1bbff83a65021cc148e9ccac388250dd69e515a",
+        "holdings": "915a12ddfcf429b06c0baed56d399b69acb25b3ff4350ae14c2ce9db3080c94f",
+        "nav": "dfd6a16b13bedd0fcda0a3dbccd99b7ac95130e047a888c2cdcc3243b51f4246",
+        "path_dependent_state": "fca88c7d6f7b1ee6d5e10ea228ac372dd2f99eb2643e205286993b8854c0d654",
+        "pending_orders": "1d1678d14912c693640149b09a72afe38cad1cf28f0c751f32742f17a77cc635",
+        "rankings_signals": "4362280f49e40a8bec62400160cd644eb1f2c107fda89d9b3549a3a3cead8aaf",
+        "selected_universe": "1a3ed3e931f7b9d9aff7197b628609bb1788e6768e8b49f9b4ca6e657adda6c8",
+        "strategy_state": "d1de07048b18d30c1b02a9b14edb6c2311c27ff96c19e628e088fd95f2628891"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "75b6aaaf273879eda0abe07665b4e8c7691303f147794a4b1d9924d0617f5134",
+        "checkpoint_state": "fedff6eda9d7c87c7cab076f5db3ff40808ad14f0bc4f9a4d6b0d70345d458ef",
+        "decisions": "1d1678d14912c693640149b09a72afe38cad1cf28f0c751f32742f17a77cc635",
+        "executions": "8087a8af26ac1cb79d28b579c1bbff83a65021cc148e9ccac388250dd69e515a",
+        "holdings": "915a12ddfcf429b06c0baed56d399b69acb25b3ff4350ae14c2ce9db3080c94f",
+        "nav": "dfd6a16b13bedd0fcda0a3dbccd99b7ac95130e047a888c2cdcc3243b51f4246",
+        "path_dependent_state": "fca88c7d6f7b1ee6d5e10ea228ac372dd2f99eb2643e205286993b8854c0d654",
+        "pending_orders": "1d1678d14912c693640149b09a72afe38cad1cf28f0c751f32742f17a77cc635",
+        "rankings_signals": "4362280f49e40a8bec62400160cd644eb1f2c107fda89d9b3549a3a3cead8aaf",
+        "selected_universe": "1a3ed3e931f7b9d9aff7197b628609bb1788e6768e8b49f9b4ca6e657adda6c8",
+        "strategy_state": "d1de07048b18d30c1b02a9b14edb6c2311c27ff96c19e628e088fd95f2628891"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "75b6aaaf273879eda0abe07665b4e8c7691303f147794a4b1d9924d0617f5134",
+        "checkpoint_state": "fedff6eda9d7c87c7cab076f5db3ff40808ad14f0bc4f9a4d6b0d70345d458ef",
+        "decisions": "1d1678d14912c693640149b09a72afe38cad1cf28f0c751f32742f17a77cc635",
+        "executions": "8087a8af26ac1cb79d28b579c1bbff83a65021cc148e9ccac388250dd69e515a",
+        "holdings": "915a12ddfcf429b06c0baed56d399b69acb25b3ff4350ae14c2ce9db3080c94f",
+        "nav": "dfd6a16b13bedd0fcda0a3dbccd99b7ac95130e047a888c2cdcc3243b51f4246",
+        "path_dependent_state": "fca88c7d6f7b1ee6d5e10ea228ac372dd2f99eb2643e205286993b8854c0d654",
+        "pending_orders": "1d1678d14912c693640149b09a72afe38cad1cf28f0c751f32742f17a77cc635",
+        "rankings_signals": "4362280f49e40a8bec62400160cd644eb1f2c107fda89d9b3549a3a3cead8aaf",
+        "selected_universe": "1a3ed3e931f7b9d9aff7197b628609bb1788e6768e8b49f9b4ca6e657adda6c8",
+        "strategy_state": "d1de07048b18d30c1b02a9b14edb6c2311c27ff96c19e628e088fd95f2628891"
+      },
+      "truncation_mismatches": [],
+      "year": 2012
+    },
+    {
+      "cutoff": "2013-08-08",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "80855df810aaae346f55308ba7dcf118afc638ea61a26096cc8f834426b743fe",
+        "checkpoint_state": "8718874bc7645c13ca176c56a3ec2177e21198b6e4d0381b2069f41261a6bad9",
+        "decisions": "4efc877e3fc0d8532d662f0ac7f6ac0d583dabae0ed2b82bc69bf0ea1aa8beaf",
+        "executions": "5a6458a51c7df90a83023a11cecd5a4fc280e6974715d201885d09d460097e77",
+        "holdings": "6f101a45c4ee76783f3ce1be7e5f40f334e01a9bb73b60117ad9460a9fe50d46",
+        "nav": "46b791b0e54e5cc164c9fff6fe01856bfa36f781b511e84c24583a4588b7e311",
+        "path_dependent_state": "ba83e351cb77e77687a3e9bee134ee4ad96ca679507fb0d81cf2b9658031b7ef",
+        "pending_orders": "4efc877e3fc0d8532d662f0ac7f6ac0d583dabae0ed2b82bc69bf0ea1aa8beaf",
+        "rankings_signals": "6795044115f6c65c7d84d4f2d34de539549bf6cf1fca5696ba0af91b463a627c",
+        "selected_universe": "571efa1c3fafc831c7180a79e836c12ff1518bb15a55bd892d4daa982c468cf2",
+        "strategy_state": "dbfa9498d77644dcbc090447b917aa8f05be0763912130f6ed36bfd3a3509e3d"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "80855df810aaae346f55308ba7dcf118afc638ea61a26096cc8f834426b743fe",
+        "checkpoint_state": "8718874bc7645c13ca176c56a3ec2177e21198b6e4d0381b2069f41261a6bad9",
+        "decisions": "4efc877e3fc0d8532d662f0ac7f6ac0d583dabae0ed2b82bc69bf0ea1aa8beaf",
+        "executions": "5a6458a51c7df90a83023a11cecd5a4fc280e6974715d201885d09d460097e77",
+        "holdings": "6f101a45c4ee76783f3ce1be7e5f40f334e01a9bb73b60117ad9460a9fe50d46",
+        "nav": "46b791b0e54e5cc164c9fff6fe01856bfa36f781b511e84c24583a4588b7e311",
+        "path_dependent_state": "ba83e351cb77e77687a3e9bee134ee4ad96ca679507fb0d81cf2b9658031b7ef",
+        "pending_orders": "4efc877e3fc0d8532d662f0ac7f6ac0d583dabae0ed2b82bc69bf0ea1aa8beaf",
+        "rankings_signals": "6795044115f6c65c7d84d4f2d34de539549bf6cf1fca5696ba0af91b463a627c",
+        "selected_universe": "571efa1c3fafc831c7180a79e836c12ff1518bb15a55bd892d4daa982c468cf2",
+        "strategy_state": "dbfa9498d77644dcbc090447b917aa8f05be0763912130f6ed36bfd3a3509e3d"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "80855df810aaae346f55308ba7dcf118afc638ea61a26096cc8f834426b743fe",
+        "checkpoint_state": "8718874bc7645c13ca176c56a3ec2177e21198b6e4d0381b2069f41261a6bad9",
+        "decisions": "4efc877e3fc0d8532d662f0ac7f6ac0d583dabae0ed2b82bc69bf0ea1aa8beaf",
+        "executions": "5a6458a51c7df90a83023a11cecd5a4fc280e6974715d201885d09d460097e77",
+        "holdings": "6f101a45c4ee76783f3ce1be7e5f40f334e01a9bb73b60117ad9460a9fe50d46",
+        "nav": "46b791b0e54e5cc164c9fff6fe01856bfa36f781b511e84c24583a4588b7e311",
+        "path_dependent_state": "ba83e351cb77e77687a3e9bee134ee4ad96ca679507fb0d81cf2b9658031b7ef",
+        "pending_orders": "4efc877e3fc0d8532d662f0ac7f6ac0d583dabae0ed2b82bc69bf0ea1aa8beaf",
+        "rankings_signals": "6795044115f6c65c7d84d4f2d34de539549bf6cf1fca5696ba0af91b463a627c",
+        "selected_universe": "571efa1c3fafc831c7180a79e836c12ff1518bb15a55bd892d4daa982c468cf2",
+        "strategy_state": "dbfa9498d77644dcbc090447b917aa8f05be0763912130f6ed36bfd3a3509e3d"
+      },
+      "truncation_mismatches": [],
+      "year": 2013
+    },
+    {
+      "cutoff": "2014-08-08",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "3578bfc2c9a0f4a59afc99997b5000d6c25c28249cc229a1c8ab968a0aa4c271",
+        "checkpoint_state": "08098cb3433e9b6807441cb779157af0dc628100bfa3a5961c53901e26a05cc4",
+        "decisions": "d0fb8a2431bea16496657acb02973422ecf376ffc2db835a9109dc517fc14f03",
+        "executions": "44c5b40de4541b8c16653c6c31437b371efc03dce15ece4d807b3442ef3a46b0",
+        "holdings": "8937b62c8ec0ba82c5720a3af7ad91a67b55d0b11b3e142cd1c2c45a251bf2ed",
+        "nav": "8483af8c1ce1770693ae5e67acb82b7d363214337e199f063d69c1dc4d5707c8",
+        "path_dependent_state": "a9a3a4ec709d07ca2480f27a42a51e9774c4505853387dff47008ecab1f89c5f",
+        "pending_orders": "d0fb8a2431bea16496657acb02973422ecf376ffc2db835a9109dc517fc14f03",
+        "rankings_signals": "c8dc74a706ee2a0dbc2403793abf3abbe7ef0ae3791477ef79fa1e6f7c925421",
+        "selected_universe": "2d15dd226c861cb8cd963ec09b4ad304206d639944a90ff32a961c7992a078bd",
+        "strategy_state": "69b06b8bcc2edc7ff981fe7a900129a3d2c0cac754dc51d35f6f88484d80f9e6"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "3578bfc2c9a0f4a59afc99997b5000d6c25c28249cc229a1c8ab968a0aa4c271",
+        "checkpoint_state": "08098cb3433e9b6807441cb779157af0dc628100bfa3a5961c53901e26a05cc4",
+        "decisions": "d0fb8a2431bea16496657acb02973422ecf376ffc2db835a9109dc517fc14f03",
+        "executions": "44c5b40de4541b8c16653c6c31437b371efc03dce15ece4d807b3442ef3a46b0",
+        "holdings": "8937b62c8ec0ba82c5720a3af7ad91a67b55d0b11b3e142cd1c2c45a251bf2ed",
+        "nav": "8483af8c1ce1770693ae5e67acb82b7d363214337e199f063d69c1dc4d5707c8",
+        "path_dependent_state": "a9a3a4ec709d07ca2480f27a42a51e9774c4505853387dff47008ecab1f89c5f",
+        "pending_orders": "d0fb8a2431bea16496657acb02973422ecf376ffc2db835a9109dc517fc14f03",
+        "rankings_signals": "c8dc74a706ee2a0dbc2403793abf3abbe7ef0ae3791477ef79fa1e6f7c925421",
+        "selected_universe": "2d15dd226c861cb8cd963ec09b4ad304206d639944a90ff32a961c7992a078bd",
+        "strategy_state": "69b06b8bcc2edc7ff981fe7a900129a3d2c0cac754dc51d35f6f88484d80f9e6"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "3578bfc2c9a0f4a59afc99997b5000d6c25c28249cc229a1c8ab968a0aa4c271",
+        "checkpoint_state": "08098cb3433e9b6807441cb779157af0dc628100bfa3a5961c53901e26a05cc4",
+        "decisions": "d0fb8a2431bea16496657acb02973422ecf376ffc2db835a9109dc517fc14f03",
+        "executions": "44c5b40de4541b8c16653c6c31437b371efc03dce15ece4d807b3442ef3a46b0",
+        "holdings": "8937b62c8ec0ba82c5720a3af7ad91a67b55d0b11b3e142cd1c2c45a251bf2ed",
+        "nav": "8483af8c1ce1770693ae5e67acb82b7d363214337e199f063d69c1dc4d5707c8",
+        "path_dependent_state": "a9a3a4ec709d07ca2480f27a42a51e9774c4505853387dff47008ecab1f89c5f",
+        "pending_orders": "d0fb8a2431bea16496657acb02973422ecf376ffc2db835a9109dc517fc14f03",
+        "rankings_signals": "c8dc74a706ee2a0dbc2403793abf3abbe7ef0ae3791477ef79fa1e6f7c925421",
+        "selected_universe": "2d15dd226c861cb8cd963ec09b4ad304206d639944a90ff32a961c7992a078bd",
+        "strategy_state": "69b06b8bcc2edc7ff981fe7a900129a3d2c0cac754dc51d35f6f88484d80f9e6"
+      },
+      "truncation_mismatches": [],
+      "year": 2014
+    },
+    {
+      "cutoff": "2015-08-10",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "1bc5a3023a72c980737688529e129ae998f9c9e5628c0443f1e285ed3f6a34ec",
+        "checkpoint_state": "c9f962121545feb5f05145679fa32c96e3ef91e890178dddeb32ed27e0ebc981",
+        "decisions": "3f8ab685179746d426130c2c62d0b9ec8f8e8ccbff111f209e61df754f22c8d7",
+        "executions": "b185d1940e8a0c7f50a70361d3190e0bcd323b4015d60671ee6123000947c31c",
+        "holdings": "2fb20fbb5f56e5c0cbe2d7ecf13eb0953bb4c9babc2b83f30d88aaf261bfef2e",
+        "nav": "0cbdf131650ef72a16b00044ac8a04b87d17a0088f25170f4589863b991f6d38",
+        "path_dependent_state": "5d6075276c854c5f7f7d03955955fecc490ecaec2566301aa17132237c453966",
+        "pending_orders": "3f8ab685179746d426130c2c62d0b9ec8f8e8ccbff111f209e61df754f22c8d7",
+        "rankings_signals": "3184d9336e42aba0856a4fd2224a874bb48d09eadcff7708a4fd425486e205c0",
+        "selected_universe": "0f0806853c8eea478a025a16c6da58e7e89bf4ff612e7bf82ca28ab4a86c372b",
+        "strategy_state": "ac72d01c9487a0574bfd9c691b9929f9ecfbcc492e48578f36d70503a11c1d9d"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "1bc5a3023a72c980737688529e129ae998f9c9e5628c0443f1e285ed3f6a34ec",
+        "checkpoint_state": "c9f962121545feb5f05145679fa32c96e3ef91e890178dddeb32ed27e0ebc981",
+        "decisions": "3f8ab685179746d426130c2c62d0b9ec8f8e8ccbff111f209e61df754f22c8d7",
+        "executions": "b185d1940e8a0c7f50a70361d3190e0bcd323b4015d60671ee6123000947c31c",
+        "holdings": "2fb20fbb5f56e5c0cbe2d7ecf13eb0953bb4c9babc2b83f30d88aaf261bfef2e",
+        "nav": "0cbdf131650ef72a16b00044ac8a04b87d17a0088f25170f4589863b991f6d38",
+        "path_dependent_state": "5d6075276c854c5f7f7d03955955fecc490ecaec2566301aa17132237c453966",
+        "pending_orders": "3f8ab685179746d426130c2c62d0b9ec8f8e8ccbff111f209e61df754f22c8d7",
+        "rankings_signals": "3184d9336e42aba0856a4fd2224a874bb48d09eadcff7708a4fd425486e205c0",
+        "selected_universe": "0f0806853c8eea478a025a16c6da58e7e89bf4ff612e7bf82ca28ab4a86c372b",
+        "strategy_state": "ac72d01c9487a0574bfd9c691b9929f9ecfbcc492e48578f36d70503a11c1d9d"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "1bc5a3023a72c980737688529e129ae998f9c9e5628c0443f1e285ed3f6a34ec",
+        "checkpoint_state": "c9f962121545feb5f05145679fa32c96e3ef91e890178dddeb32ed27e0ebc981",
+        "decisions": "3f8ab685179746d426130c2c62d0b9ec8f8e8ccbff111f209e61df754f22c8d7",
+        "executions": "b185d1940e8a0c7f50a70361d3190e0bcd323b4015d60671ee6123000947c31c",
+        "holdings": "2fb20fbb5f56e5c0cbe2d7ecf13eb0953bb4c9babc2b83f30d88aaf261bfef2e",
+        "nav": "0cbdf131650ef72a16b00044ac8a04b87d17a0088f25170f4589863b991f6d38",
+        "path_dependent_state": "5d6075276c854c5f7f7d03955955fecc490ecaec2566301aa17132237c453966",
+        "pending_orders": "3f8ab685179746d426130c2c62d0b9ec8f8e8ccbff111f209e61df754f22c8d7",
+        "rankings_signals": "3184d9336e42aba0856a4fd2224a874bb48d09eadcff7708a4fd425486e205c0",
+        "selected_universe": "0f0806853c8eea478a025a16c6da58e7e89bf4ff612e7bf82ca28ab4a86c372b",
+        "strategy_state": "ac72d01c9487a0574bfd9c691b9929f9ecfbcc492e48578f36d70503a11c1d9d"
+      },
+      "truncation_mismatches": [],
+      "year": 2015
+    },
+    {
+      "cutoff": "2016-08-09",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "de045d232180899e67fc570d7b0076ac844523e9fe9bbc58ac5632e0b827c484",
+        "checkpoint_state": "609da354138d0f2cb5882fd62922a5921724de286678bbb7cf7bc2138fe56958",
+        "decisions": "5c9b701774d8e3fe70c1a8df7eedc72ce5e9c3ca7318fee95df0612531c87f03",
+        "executions": "5bc2a2eaef13ff6afb207ac8ecc63668d2714e2427e10b5e5f0f7e547aafe9ff",
+        "holdings": "0c701f9c3ac553c8821d56f237d9355f5ac423a4ca9c8d4f0f8041cc09d0246a",
+        "nav": "4ecaca7156892db80c06f6e8d348b454a96d5aa6c4a93fb71b70a658c765db70",
+        "path_dependent_state": "cfcddae3db42a8aadd5c583b15a95f9dc6a576ba4e07d10d575f818d30bf0bef",
+        "pending_orders": "5c9b701774d8e3fe70c1a8df7eedc72ce5e9c3ca7318fee95df0612531c87f03",
+        "rankings_signals": "75a6b236718573475f42d9eeb05c078ce21717790461628ad147bffaf4f2a22f",
+        "selected_universe": "9fb0322532b8caa18c155fbf41ede08b422aeecda92a7e2f67012adc5adcd0b9",
+        "strategy_state": "3f876cc7cac52383c9e2394b3b3a91810767961b3edc708df4bfaacaa6116c51"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "de045d232180899e67fc570d7b0076ac844523e9fe9bbc58ac5632e0b827c484",
+        "checkpoint_state": "609da354138d0f2cb5882fd62922a5921724de286678bbb7cf7bc2138fe56958",
+        "decisions": "5c9b701774d8e3fe70c1a8df7eedc72ce5e9c3ca7318fee95df0612531c87f03",
+        "executions": "5bc2a2eaef13ff6afb207ac8ecc63668d2714e2427e10b5e5f0f7e547aafe9ff",
+        "holdings": "0c701f9c3ac553c8821d56f237d9355f5ac423a4ca9c8d4f0f8041cc09d0246a",
+        "nav": "4ecaca7156892db80c06f6e8d348b454a96d5aa6c4a93fb71b70a658c765db70",
+        "path_dependent_state": "cfcddae3db42a8aadd5c583b15a95f9dc6a576ba4e07d10d575f818d30bf0bef",
+        "pending_orders": "5c9b701774d8e3fe70c1a8df7eedc72ce5e9c3ca7318fee95df0612531c87f03",
+        "rankings_signals": "75a6b236718573475f42d9eeb05c078ce21717790461628ad147bffaf4f2a22f",
+        "selected_universe": "9fb0322532b8caa18c155fbf41ede08b422aeecda92a7e2f67012adc5adcd0b9",
+        "strategy_state": "3f876cc7cac52383c9e2394b3b3a91810767961b3edc708df4bfaacaa6116c51"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "de045d232180899e67fc570d7b0076ac844523e9fe9bbc58ac5632e0b827c484",
+        "checkpoint_state": "609da354138d0f2cb5882fd62922a5921724de286678bbb7cf7bc2138fe56958",
+        "decisions": "5c9b701774d8e3fe70c1a8df7eedc72ce5e9c3ca7318fee95df0612531c87f03",
+        "executions": "5bc2a2eaef13ff6afb207ac8ecc63668d2714e2427e10b5e5f0f7e547aafe9ff",
+        "holdings": "0c701f9c3ac553c8821d56f237d9355f5ac423a4ca9c8d4f0f8041cc09d0246a",
+        "nav": "4ecaca7156892db80c06f6e8d348b454a96d5aa6c4a93fb71b70a658c765db70",
+        "path_dependent_state": "cfcddae3db42a8aadd5c583b15a95f9dc6a576ba4e07d10d575f818d30bf0bef",
+        "pending_orders": "5c9b701774d8e3fe70c1a8df7eedc72ce5e9c3ca7318fee95df0612531c87f03",
+        "rankings_signals": "75a6b236718573475f42d9eeb05c078ce21717790461628ad147bffaf4f2a22f",
+        "selected_universe": "9fb0322532b8caa18c155fbf41ede08b422aeecda92a7e2f67012adc5adcd0b9",
+        "strategy_state": "3f876cc7cac52383c9e2394b3b3a91810767961b3edc708df4bfaacaa6116c51"
+      },
+      "truncation_mismatches": [],
+      "year": 2016
+    },
+    {
+      "cutoff": "2017-08-08",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "125c533c869cd3bdc5f538aee81cd7dc57836f83c4c252f40a4b81661aeaed34",
+        "checkpoint_state": "ad6fcd037c2fce940cecc16101ee60635bf0cda2c703124354adc7ec557a7895",
+        "decisions": "36a446507e06718e2f31bacf7c49e1e942af4a848f3e17f040b12407e12e4c88",
+        "executions": "1ee2672cde8668af654a649de5d1261b531152d465942e6d0faf9618fcf0a43b",
+        "holdings": "cd6730a786605748e790c878488e0893a05f9ea5f12587f8209fb3000ccd7cbb",
+        "nav": "c316268709866b82e8014b1bba457fa374133b8157d951ce7ef8441e2c51631f",
+        "path_dependent_state": "9b88d39e7068a2e63227dc90f68fbf1ea2a1d21cc705d7f327d0d6136887de41",
+        "pending_orders": "36a446507e06718e2f31bacf7c49e1e942af4a848f3e17f040b12407e12e4c88",
+        "rankings_signals": "b047955df9d0fbb597cf7e6b024febbf898360255dff41eae23494e888d4f6f6",
+        "selected_universe": "88f8c0a12878e221d894da105fd3631b316b2613e60355a49ec124c8e19f9040",
+        "strategy_state": "a52915a37fa18b01bd986bc5b2efda7e4e6fa6f3df3e671a85a0927f451bbb76"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "125c533c869cd3bdc5f538aee81cd7dc57836f83c4c252f40a4b81661aeaed34",
+        "checkpoint_state": "ad6fcd037c2fce940cecc16101ee60635bf0cda2c703124354adc7ec557a7895",
+        "decisions": "36a446507e06718e2f31bacf7c49e1e942af4a848f3e17f040b12407e12e4c88",
+        "executions": "1ee2672cde8668af654a649de5d1261b531152d465942e6d0faf9618fcf0a43b",
+        "holdings": "cd6730a786605748e790c878488e0893a05f9ea5f12587f8209fb3000ccd7cbb",
+        "nav": "c316268709866b82e8014b1bba457fa374133b8157d951ce7ef8441e2c51631f",
+        "path_dependent_state": "9b88d39e7068a2e63227dc90f68fbf1ea2a1d21cc705d7f327d0d6136887de41",
+        "pending_orders": "36a446507e06718e2f31bacf7c49e1e942af4a848f3e17f040b12407e12e4c88",
+        "rankings_signals": "b047955df9d0fbb597cf7e6b024febbf898360255dff41eae23494e888d4f6f6",
+        "selected_universe": "88f8c0a12878e221d894da105fd3631b316b2613e60355a49ec124c8e19f9040",
+        "strategy_state": "a52915a37fa18b01bd986bc5b2efda7e4e6fa6f3df3e671a85a0927f451bbb76"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "125c533c869cd3bdc5f538aee81cd7dc57836f83c4c252f40a4b81661aeaed34",
+        "checkpoint_state": "ad6fcd037c2fce940cecc16101ee60635bf0cda2c703124354adc7ec557a7895",
+        "decisions": "36a446507e06718e2f31bacf7c49e1e942af4a848f3e17f040b12407e12e4c88",
+        "executions": "1ee2672cde8668af654a649de5d1261b531152d465942e6d0faf9618fcf0a43b",
+        "holdings": "cd6730a786605748e790c878488e0893a05f9ea5f12587f8209fb3000ccd7cbb",
+        "nav": "c316268709866b82e8014b1bba457fa374133b8157d951ce7ef8441e2c51631f",
+        "path_dependent_state": "9b88d39e7068a2e63227dc90f68fbf1ea2a1d21cc705d7f327d0d6136887de41",
+        "pending_orders": "36a446507e06718e2f31bacf7c49e1e942af4a848f3e17f040b12407e12e4c88",
+        "rankings_signals": "b047955df9d0fbb597cf7e6b024febbf898360255dff41eae23494e888d4f6f6",
+        "selected_universe": "88f8c0a12878e221d894da105fd3631b316b2613e60355a49ec124c8e19f9040",
+        "strategy_state": "a52915a37fa18b01bd986bc5b2efda7e4e6fa6f3df3e671a85a0927f451bbb76"
+      },
+      "truncation_mismatches": [],
+      "year": 2017
+    },
+    {
+      "cutoff": "2018-08-07",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "3a133a7ed0db9a0810a1ce725f0267023ca5769a522bf480aa1612eaec47bc17",
+        "checkpoint_state": "58d0ef1d60b68a52039825d90a4da262b99b830763d9959c78aa14d0c19308b4",
+        "decisions": "b8f9118da568b1b60a2d2a3eb8276630c2e8af90c131d797cc865a060a223871",
+        "executions": "9b4ea6e3fec65b8729667d5e7dfc4b884699ee9d343eab673983865efe2d3780",
+        "holdings": "aeff288ab5688f56c5016bb8dd5cd37fa450c4c13d0e8e1a7147dfafba6d5d29",
+        "nav": "71d152f37ca6177ea8ab8e9406526e42ee6befe2b5f0206c0599f05a562b8ac6",
+        "path_dependent_state": "7f70dd7aaf4100ad616c8ffeb3917f3838d75f0c3ca5e67fc40df16c9bfe9ee2",
+        "pending_orders": "b8f9118da568b1b60a2d2a3eb8276630c2e8af90c131d797cc865a060a223871",
+        "rankings_signals": "28d202a7c07cfbbce05c64159287b6cb004ef242c68e4c362d09cefce020ce22",
+        "selected_universe": "59d00f6313b88d62958ecee598d621f148a032f81c7e8e4ba431e67f2115e944",
+        "strategy_state": "b55049dfd5fadcc41691bc3f8789210699cdf122202d3596dc041ab9eaf56475"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "3a133a7ed0db9a0810a1ce725f0267023ca5769a522bf480aa1612eaec47bc17",
+        "checkpoint_state": "58d0ef1d60b68a52039825d90a4da262b99b830763d9959c78aa14d0c19308b4",
+        "decisions": "b8f9118da568b1b60a2d2a3eb8276630c2e8af90c131d797cc865a060a223871",
+        "executions": "9b4ea6e3fec65b8729667d5e7dfc4b884699ee9d343eab673983865efe2d3780",
+        "holdings": "aeff288ab5688f56c5016bb8dd5cd37fa450c4c13d0e8e1a7147dfafba6d5d29",
+        "nav": "71d152f37ca6177ea8ab8e9406526e42ee6befe2b5f0206c0599f05a562b8ac6",
+        "path_dependent_state": "7f70dd7aaf4100ad616c8ffeb3917f3838d75f0c3ca5e67fc40df16c9bfe9ee2",
+        "pending_orders": "b8f9118da568b1b60a2d2a3eb8276630c2e8af90c131d797cc865a060a223871",
+        "rankings_signals": "28d202a7c07cfbbce05c64159287b6cb004ef242c68e4c362d09cefce020ce22",
+        "selected_universe": "59d00f6313b88d62958ecee598d621f148a032f81c7e8e4ba431e67f2115e944",
+        "strategy_state": "b55049dfd5fadcc41691bc3f8789210699cdf122202d3596dc041ab9eaf56475"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "3a133a7ed0db9a0810a1ce725f0267023ca5769a522bf480aa1612eaec47bc17",
+        "checkpoint_state": "58d0ef1d60b68a52039825d90a4da262b99b830763d9959c78aa14d0c19308b4",
+        "decisions": "b8f9118da568b1b60a2d2a3eb8276630c2e8af90c131d797cc865a060a223871",
+        "executions": "9b4ea6e3fec65b8729667d5e7dfc4b884699ee9d343eab673983865efe2d3780",
+        "holdings": "aeff288ab5688f56c5016bb8dd5cd37fa450c4c13d0e8e1a7147dfafba6d5d29",
+        "nav": "71d152f37ca6177ea8ab8e9406526e42ee6befe2b5f0206c0599f05a562b8ac6",
+        "path_dependent_state": "7f70dd7aaf4100ad616c8ffeb3917f3838d75f0c3ca5e67fc40df16c9bfe9ee2",
+        "pending_orders": "b8f9118da568b1b60a2d2a3eb8276630c2e8af90c131d797cc865a060a223871",
+        "rankings_signals": "28d202a7c07cfbbce05c64159287b6cb004ef242c68e4c362d09cefce020ce22",
+        "selected_universe": "59d00f6313b88d62958ecee598d621f148a032f81c7e8e4ba431e67f2115e944",
+        "strategy_state": "b55049dfd5fadcc41691bc3f8789210699cdf122202d3596dc041ab9eaf56475"
+      },
+      "truncation_mismatches": [],
+      "year": 2018
+    },
+    {
+      "cutoff": "2019-08-08",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "086b3444ab75a9c245fc6d5bb358038b1caccc51fa2b69a2e708057e024779eb",
+        "checkpoint_state": "f19c2ec4a8822b7be9b44fbebbd13bbc8d686fb60812d8363c2bb426de50e082",
+        "decisions": "47984781cc00ec60795b8a9c33607a77a226d188760c948691949ac528da8503",
+        "executions": "71f6761cf911b5ed9d51d47aff52d94e0ef1d3a8d234a7357e52e1f5c2c216e6",
+        "holdings": "5cde9fb16b23469fd7193f32486c06ac55df212eaf6bc27797e90fd53e980d2f",
+        "nav": "0788f0e79efa91b348a536c40d97e40e3eee8f44be1851f3b1af9021898abfd5",
+        "path_dependent_state": "48fd7aac1901b2a6e65dc188b9998b317d359594203b964b0a5b08026fa1807a",
+        "pending_orders": "47984781cc00ec60795b8a9c33607a77a226d188760c948691949ac528da8503",
+        "rankings_signals": "0cb523d240fdfad90357501062ce4e8cd07a3844d2760b77f05f30201c9b8e68",
+        "selected_universe": "61c00caecf42ac6cc3a2e7f5fcff79476555cc42ea48ad758a8b7ffdfb23c502",
+        "strategy_state": "d749bc85bcdeb6d020101d6de72c4879d884a3026c307070807bc2c98de1c711"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "086b3444ab75a9c245fc6d5bb358038b1caccc51fa2b69a2e708057e024779eb",
+        "checkpoint_state": "f19c2ec4a8822b7be9b44fbebbd13bbc8d686fb60812d8363c2bb426de50e082",
+        "decisions": "47984781cc00ec60795b8a9c33607a77a226d188760c948691949ac528da8503",
+        "executions": "71f6761cf911b5ed9d51d47aff52d94e0ef1d3a8d234a7357e52e1f5c2c216e6",
+        "holdings": "5cde9fb16b23469fd7193f32486c06ac55df212eaf6bc27797e90fd53e980d2f",
+        "nav": "0788f0e79efa91b348a536c40d97e40e3eee8f44be1851f3b1af9021898abfd5",
+        "path_dependent_state": "48fd7aac1901b2a6e65dc188b9998b317d359594203b964b0a5b08026fa1807a",
+        "pending_orders": "47984781cc00ec60795b8a9c33607a77a226d188760c948691949ac528da8503",
+        "rankings_signals": "0cb523d240fdfad90357501062ce4e8cd07a3844d2760b77f05f30201c9b8e68",
+        "selected_universe": "61c00caecf42ac6cc3a2e7f5fcff79476555cc42ea48ad758a8b7ffdfb23c502",
+        "strategy_state": "d749bc85bcdeb6d020101d6de72c4879d884a3026c307070807bc2c98de1c711"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "086b3444ab75a9c245fc6d5bb358038b1caccc51fa2b69a2e708057e024779eb",
+        "checkpoint_state": "f19c2ec4a8822b7be9b44fbebbd13bbc8d686fb60812d8363c2bb426de50e082",
+        "decisions": "47984781cc00ec60795b8a9c33607a77a226d188760c948691949ac528da8503",
+        "executions": "71f6761cf911b5ed9d51d47aff52d94e0ef1d3a8d234a7357e52e1f5c2c216e6",
+        "holdings": "5cde9fb16b23469fd7193f32486c06ac55df212eaf6bc27797e90fd53e980d2f",
+        "nav": "0788f0e79efa91b348a536c40d97e40e3eee8f44be1851f3b1af9021898abfd5",
+        "path_dependent_state": "48fd7aac1901b2a6e65dc188b9998b317d359594203b964b0a5b08026fa1807a",
+        "pending_orders": "47984781cc00ec60795b8a9c33607a77a226d188760c948691949ac528da8503",
+        "rankings_signals": "0cb523d240fdfad90357501062ce4e8cd07a3844d2760b77f05f30201c9b8e68",
+        "selected_universe": "61c00caecf42ac6cc3a2e7f5fcff79476555cc42ea48ad758a8b7ffdfb23c502",
+        "strategy_state": "d749bc85bcdeb6d020101d6de72c4879d884a3026c307070807bc2c98de1c711"
+      },
+      "truncation_mismatches": [],
+      "year": 2019
+    },
+    {
+      "cutoff": "2020-08-07",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "715d7eececf3abac0db9724051c86d718df5e51b7f5b1a11569ad6de404fb942",
+        "checkpoint_state": "471c432aab601cdf0fd1deb977519c34cfcde2365c5398fcef96eaa5c2884c9a",
+        "decisions": "da84c2cccfacb8606532936e435d562d77ff9798b64b9c154acf6da4935a89a7",
+        "executions": "bda6842848cc409561531c4f39150a43b8a102683198c32301ec170b326a4d47",
+        "holdings": "5b7ee15521db7f9118a5173c974f8a58464cf87302bb0d7b4c07c42757220bd5",
+        "nav": "cbcfa06a681f66ea931995ab97de7bae34424adc28f61e49467ca637cde84405",
+        "path_dependent_state": "a16bc97f62f4160367a9ed9629d09786d94739ce091b5e1d41cac4afe2f05961",
+        "pending_orders": "da84c2cccfacb8606532936e435d562d77ff9798b64b9c154acf6da4935a89a7",
+        "rankings_signals": "6773044f42df17a8b504e3d497691d77aa93eef56276b0cf95cadc2fd169e8f0",
+        "selected_universe": "1227b61c984049aac22d1724ef7eca08a3595f2a33e036337fc5f377ffbb6ec5",
+        "strategy_state": "8a39644d948655a2206093ab94b74f1b81df447c480eeccfbf2a144417eb3dba"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "715d7eececf3abac0db9724051c86d718df5e51b7f5b1a11569ad6de404fb942",
+        "checkpoint_state": "471c432aab601cdf0fd1deb977519c34cfcde2365c5398fcef96eaa5c2884c9a",
+        "decisions": "da84c2cccfacb8606532936e435d562d77ff9798b64b9c154acf6da4935a89a7",
+        "executions": "bda6842848cc409561531c4f39150a43b8a102683198c32301ec170b326a4d47",
+        "holdings": "5b7ee15521db7f9118a5173c974f8a58464cf87302bb0d7b4c07c42757220bd5",
+        "nav": "cbcfa06a681f66ea931995ab97de7bae34424adc28f61e49467ca637cde84405",
+        "path_dependent_state": "a16bc97f62f4160367a9ed9629d09786d94739ce091b5e1d41cac4afe2f05961",
+        "pending_orders": "da84c2cccfacb8606532936e435d562d77ff9798b64b9c154acf6da4935a89a7",
+        "rankings_signals": "6773044f42df17a8b504e3d497691d77aa93eef56276b0cf95cadc2fd169e8f0",
+        "selected_universe": "1227b61c984049aac22d1724ef7eca08a3595f2a33e036337fc5f377ffbb6ec5",
+        "strategy_state": "8a39644d948655a2206093ab94b74f1b81df447c480eeccfbf2a144417eb3dba"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "715d7eececf3abac0db9724051c86d718df5e51b7f5b1a11569ad6de404fb942",
+        "checkpoint_state": "471c432aab601cdf0fd1deb977519c34cfcde2365c5398fcef96eaa5c2884c9a",
+        "decisions": "da84c2cccfacb8606532936e435d562d77ff9798b64b9c154acf6da4935a89a7",
+        "executions": "bda6842848cc409561531c4f39150a43b8a102683198c32301ec170b326a4d47",
+        "holdings": "5b7ee15521db7f9118a5173c974f8a58464cf87302bb0d7b4c07c42757220bd5",
+        "nav": "cbcfa06a681f66ea931995ab97de7bae34424adc28f61e49467ca637cde84405",
+        "path_dependent_state": "a16bc97f62f4160367a9ed9629d09786d94739ce091b5e1d41cac4afe2f05961",
+        "pending_orders": "da84c2cccfacb8606532936e435d562d77ff9798b64b9c154acf6da4935a89a7",
+        "rankings_signals": "6773044f42df17a8b504e3d497691d77aa93eef56276b0cf95cadc2fd169e8f0",
+        "selected_universe": "1227b61c984049aac22d1724ef7eca08a3595f2a33e036337fc5f377ffbb6ec5",
+        "strategy_state": "8a39644d948655a2206093ab94b74f1b81df447c480eeccfbf2a144417eb3dba"
+      },
+      "truncation_mismatches": [],
+      "year": 2020
+    },
+    {
+      "cutoff": "2021-08-10",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "4cd55f90947b4c62e5bb4358bbf2fa9a3f83a9a85be9f8f4720935810f1eef2c",
+        "checkpoint_state": "7113a10b522b650e5f6634e7d80006b1318d50fe23d7c55b5060577ec965780f",
+        "decisions": "bef5e986aa4f6d050c663dee20fc41baf2bdab1e7d181b0d674fc5abc700ad29",
+        "executions": "fa0329deae200aac41127cff611fc7a18fac2346c77e2191be7326e36b6c18d1",
+        "holdings": "c358516a43788112a749b50e1a398bd5a37fb8f605cd7672b2e35b3eff1ce5f7",
+        "nav": "4b40be43f669a3be4e9a51c8c07c20b4ae53e927f1c71aebff80add94c023d86",
+        "path_dependent_state": "f459e3c19eefe51cccec812d6be1933e45d638d01a68272c71b38a95b6eb835e",
+        "pending_orders": "bef5e986aa4f6d050c663dee20fc41baf2bdab1e7d181b0d674fc5abc700ad29",
+        "rankings_signals": "c14f4776e9eac87412074d7abb98d09eebb3344a259c615af748bc589c726384",
+        "selected_universe": "97502df70dd03dabd4ef3d6f2e2be66077b08d91ef04714f9c379210a9b613d4",
+        "strategy_state": "ab0decabcdb3673d4f619541e699ea30e21f3ae67619db677b90c4deb2541155"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "4cd55f90947b4c62e5bb4358bbf2fa9a3f83a9a85be9f8f4720935810f1eef2c",
+        "checkpoint_state": "7113a10b522b650e5f6634e7d80006b1318d50fe23d7c55b5060577ec965780f",
+        "decisions": "bef5e986aa4f6d050c663dee20fc41baf2bdab1e7d181b0d674fc5abc700ad29",
+        "executions": "fa0329deae200aac41127cff611fc7a18fac2346c77e2191be7326e36b6c18d1",
+        "holdings": "c358516a43788112a749b50e1a398bd5a37fb8f605cd7672b2e35b3eff1ce5f7",
+        "nav": "4b40be43f669a3be4e9a51c8c07c20b4ae53e927f1c71aebff80add94c023d86",
+        "path_dependent_state": "f459e3c19eefe51cccec812d6be1933e45d638d01a68272c71b38a95b6eb835e",
+        "pending_orders": "bef5e986aa4f6d050c663dee20fc41baf2bdab1e7d181b0d674fc5abc700ad29",
+        "rankings_signals": "c14f4776e9eac87412074d7abb98d09eebb3344a259c615af748bc589c726384",
+        "selected_universe": "97502df70dd03dabd4ef3d6f2e2be66077b08d91ef04714f9c379210a9b613d4",
+        "strategy_state": "ab0decabcdb3673d4f619541e699ea30e21f3ae67619db677b90c4deb2541155"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "4cd55f90947b4c62e5bb4358bbf2fa9a3f83a9a85be9f8f4720935810f1eef2c",
+        "checkpoint_state": "7113a10b522b650e5f6634e7d80006b1318d50fe23d7c55b5060577ec965780f",
+        "decisions": "bef5e986aa4f6d050c663dee20fc41baf2bdab1e7d181b0d674fc5abc700ad29",
+        "executions": "fa0329deae200aac41127cff611fc7a18fac2346c77e2191be7326e36b6c18d1",
+        "holdings": "c358516a43788112a749b50e1a398bd5a37fb8f605cd7672b2e35b3eff1ce5f7",
+        "nav": "4b40be43f669a3be4e9a51c8c07c20b4ae53e927f1c71aebff80add94c023d86",
+        "path_dependent_state": "f459e3c19eefe51cccec812d6be1933e45d638d01a68272c71b38a95b6eb835e",
+        "pending_orders": "bef5e986aa4f6d050c663dee20fc41baf2bdab1e7d181b0d674fc5abc700ad29",
+        "rankings_signals": "c14f4776e9eac87412074d7abb98d09eebb3344a259c615af748bc589c726384",
+        "selected_universe": "97502df70dd03dabd4ef3d6f2e2be66077b08d91ef04714f9c379210a9b613d4",
+        "strategy_state": "ab0decabcdb3673d4f619541e699ea30e21f3ae67619db677b90c4deb2541155"
+      },
+      "truncation_mismatches": [],
+      "year": 2021
+    },
+    {
+      "cutoff": "2022-08-09",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "204cbb4bc866f6f886c3e4d4633ade8a59b4606ca0cb7935f0b44c86b2490424",
+        "checkpoint_state": "146485308871ec3fdea6693997ecfbf1a7c135289d2e08c72fe617fed48d241f",
+        "decisions": "58b034598d236f5472caecd54b1c6e0083973b4bae54e8db36aad4e07f02e914",
+        "executions": "d61a4f85bafcc2d29592d3b8a23ac093eea9505e56f8e16113eb90a127941cc3",
+        "holdings": "84c243d847b344d56c2ee68062a9936dfa22c223daa4f603d3abf17a7d8be2c1",
+        "nav": "3c6275846026513b6832a038d10f0dc13cac8c906e94e73ecbd22df7fa865c03",
+        "path_dependent_state": "9423468ded845eb761fc779ab9c984600a2d4848b4fe4f1cb6d95850039d155d",
+        "pending_orders": "58b034598d236f5472caecd54b1c6e0083973b4bae54e8db36aad4e07f02e914",
+        "rankings_signals": "bc4b6aa1d4b35dd97a435db4c44bc2e87ee5a43429f4afc79a1c38a2ab10c0d2",
+        "selected_universe": "d4c7d4e3c914d32a4c98ad7324fc7d847cfdb477b631e0b0280a90271e2800c1",
+        "strategy_state": "7ab359017468bcb622570c96f1e1bae8e2412736558cae87450697525813b98b"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "204cbb4bc866f6f886c3e4d4633ade8a59b4606ca0cb7935f0b44c86b2490424",
+        "checkpoint_state": "146485308871ec3fdea6693997ecfbf1a7c135289d2e08c72fe617fed48d241f",
+        "decisions": "58b034598d236f5472caecd54b1c6e0083973b4bae54e8db36aad4e07f02e914",
+        "executions": "d61a4f85bafcc2d29592d3b8a23ac093eea9505e56f8e16113eb90a127941cc3",
+        "holdings": "84c243d847b344d56c2ee68062a9936dfa22c223daa4f603d3abf17a7d8be2c1",
+        "nav": "3c6275846026513b6832a038d10f0dc13cac8c906e94e73ecbd22df7fa865c03",
+        "path_dependent_state": "9423468ded845eb761fc779ab9c984600a2d4848b4fe4f1cb6d95850039d155d",
+        "pending_orders": "58b034598d236f5472caecd54b1c6e0083973b4bae54e8db36aad4e07f02e914",
+        "rankings_signals": "bc4b6aa1d4b35dd97a435db4c44bc2e87ee5a43429f4afc79a1c38a2ab10c0d2",
+        "selected_universe": "d4c7d4e3c914d32a4c98ad7324fc7d847cfdb477b631e0b0280a90271e2800c1",
+        "strategy_state": "7ab359017468bcb622570c96f1e1bae8e2412736558cae87450697525813b98b"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "204cbb4bc866f6f886c3e4d4633ade8a59b4606ca0cb7935f0b44c86b2490424",
+        "checkpoint_state": "146485308871ec3fdea6693997ecfbf1a7c135289d2e08c72fe617fed48d241f",
+        "decisions": "58b034598d236f5472caecd54b1c6e0083973b4bae54e8db36aad4e07f02e914",
+        "executions": "d61a4f85bafcc2d29592d3b8a23ac093eea9505e56f8e16113eb90a127941cc3",
+        "holdings": "84c243d847b344d56c2ee68062a9936dfa22c223daa4f603d3abf17a7d8be2c1",
+        "nav": "3c6275846026513b6832a038d10f0dc13cac8c906e94e73ecbd22df7fa865c03",
+        "path_dependent_state": "9423468ded845eb761fc779ab9c984600a2d4848b4fe4f1cb6d95850039d155d",
+        "pending_orders": "58b034598d236f5472caecd54b1c6e0083973b4bae54e8db36aad4e07f02e914",
+        "rankings_signals": "bc4b6aa1d4b35dd97a435db4c44bc2e87ee5a43429f4afc79a1c38a2ab10c0d2",
+        "selected_universe": "d4c7d4e3c914d32a4c98ad7324fc7d847cfdb477b631e0b0280a90271e2800c1",
+        "strategy_state": "7ab359017468bcb622570c96f1e1bae8e2412736558cae87450697525813b98b"
+      },
+      "truncation_mismatches": [],
+      "year": 2022
+    },
+    {
+      "cutoff": "2023-08-09",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "060640bf73946e2beab047f5b16b24d16c6904789d0241543789bb062f81143e",
+        "checkpoint_state": "681183313fe6f7d97d49c08f92463b77e5a5f2848793de4f148d2a1528d5c260",
+        "decisions": "ebff5a741f83a16a2557d5a8a8282760bfefc07e79191d67fec5ab131d5a60a9",
+        "executions": "5a251459c159ae15cd8aa0ac2b1d8b970305be8caecc0d0e1f1c696ee22ef074",
+        "holdings": "03ac2dff5c4400aceb6b8628863abf498f7a403e8ac3814b69eded2ac5f83cf1",
+        "nav": "8075907efbb7f8d95ae228265f9f27f7a3b431cc2cb0fac506bd9ac1e1baa718",
+        "path_dependent_state": "5786153ef3bba15b4a94c313f0ea9704a55235265853317516d90e7cccf2c966",
+        "pending_orders": "ebff5a741f83a16a2557d5a8a8282760bfefc07e79191d67fec5ab131d5a60a9",
+        "rankings_signals": "be69f726f26286cde1197061f5ffb2e11a46cec0ef59ed96bc28b3787642d716",
+        "selected_universe": "66ff355408f45865b67ce8f400247573ec89c9f2565b24c8d165aa95a3d8b89f",
+        "strategy_state": "378828cbb5aec3204fdf3cbcf5600e26aa3639f5b794a85a29285cb1e90e8e36"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "060640bf73946e2beab047f5b16b24d16c6904789d0241543789bb062f81143e",
+        "checkpoint_state": "681183313fe6f7d97d49c08f92463b77e5a5f2848793de4f148d2a1528d5c260",
+        "decisions": "ebff5a741f83a16a2557d5a8a8282760bfefc07e79191d67fec5ab131d5a60a9",
+        "executions": "5a251459c159ae15cd8aa0ac2b1d8b970305be8caecc0d0e1f1c696ee22ef074",
+        "holdings": "03ac2dff5c4400aceb6b8628863abf498f7a403e8ac3814b69eded2ac5f83cf1",
+        "nav": "8075907efbb7f8d95ae228265f9f27f7a3b431cc2cb0fac506bd9ac1e1baa718",
+        "path_dependent_state": "5786153ef3bba15b4a94c313f0ea9704a55235265853317516d90e7cccf2c966",
+        "pending_orders": "ebff5a741f83a16a2557d5a8a8282760bfefc07e79191d67fec5ab131d5a60a9",
+        "rankings_signals": "be69f726f26286cde1197061f5ffb2e11a46cec0ef59ed96bc28b3787642d716",
+        "selected_universe": "66ff355408f45865b67ce8f400247573ec89c9f2565b24c8d165aa95a3d8b89f",
+        "strategy_state": "378828cbb5aec3204fdf3cbcf5600e26aa3639f5b794a85a29285cb1e90e8e36"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "060640bf73946e2beab047f5b16b24d16c6904789d0241543789bb062f81143e",
+        "checkpoint_state": "681183313fe6f7d97d49c08f92463b77e5a5f2848793de4f148d2a1528d5c260",
+        "decisions": "ebff5a741f83a16a2557d5a8a8282760bfefc07e79191d67fec5ab131d5a60a9",
+        "executions": "5a251459c159ae15cd8aa0ac2b1d8b970305be8caecc0d0e1f1c696ee22ef074",
+        "holdings": "03ac2dff5c4400aceb6b8628863abf498f7a403e8ac3814b69eded2ac5f83cf1",
+        "nav": "8075907efbb7f8d95ae228265f9f27f7a3b431cc2cb0fac506bd9ac1e1baa718",
+        "path_dependent_state": "5786153ef3bba15b4a94c313f0ea9704a55235265853317516d90e7cccf2c966",
+        "pending_orders": "ebff5a741f83a16a2557d5a8a8282760bfefc07e79191d67fec5ab131d5a60a9",
+        "rankings_signals": "be69f726f26286cde1197061f5ffb2e11a46cec0ef59ed96bc28b3787642d716",
+        "selected_universe": "66ff355408f45865b67ce8f400247573ec89c9f2565b24c8d165aa95a3d8b89f",
+        "strategy_state": "378828cbb5aec3204fdf3cbcf5600e26aa3639f5b794a85a29285cb1e90e8e36"
+      },
+      "truncation_mismatches": [],
+      "year": 2023
+    },
+    {
+      "cutoff": "2024-08-08",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "af4ee254bb0b5d84eb8a256cc60ad8358f7008180f356fa19f5e8d306c765a25",
+        "checkpoint_state": "a8001167caabdf256bf756bca301be1223040f6d90e3e1ab0e0cfb740e3538c8",
+        "decisions": "6b1ce269658eea8db8b2dea743a2be32b55587204e69bfe4e834475a4f4860f1",
+        "executions": "244299621961fdae1fed10f116cf5cf6ea02e438c2afa47c78d58909d406bc41",
+        "holdings": "e42cb339e5bea7a5cad5192f2c69e71c1fe489c285daaf1c12cd5c85f1dbd92a",
+        "nav": "8274283a790e0abb7a7fef6a5c2e93c3e6ffd9d938307476750f76ef089992b7",
+        "path_dependent_state": "3f29374880d69b0007e754157ff4012a71aa9c6603f9aedd2712103fc4236210",
+        "pending_orders": "6b1ce269658eea8db8b2dea743a2be32b55587204e69bfe4e834475a4f4860f1",
+        "rankings_signals": "9a73f6cef6db8ef3566f5db839d2a535cdf1f7e0cb0d2f459e3415a05ddb0474",
+        "selected_universe": "cafab346c9d5e5b4e2e0eeecdbbadb404c80ca92a407f67bed5141d52dd9a47c",
+        "strategy_state": "c8bb8d46ffb5f1bac3e697b190046c8f771040dc3f83f93759992fcba273d745"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "af4ee254bb0b5d84eb8a256cc60ad8358f7008180f356fa19f5e8d306c765a25",
+        "checkpoint_state": "a8001167caabdf256bf756bca301be1223040f6d90e3e1ab0e0cfb740e3538c8",
+        "decisions": "6b1ce269658eea8db8b2dea743a2be32b55587204e69bfe4e834475a4f4860f1",
+        "executions": "244299621961fdae1fed10f116cf5cf6ea02e438c2afa47c78d58909d406bc41",
+        "holdings": "e42cb339e5bea7a5cad5192f2c69e71c1fe489c285daaf1c12cd5c85f1dbd92a",
+        "nav": "8274283a790e0abb7a7fef6a5c2e93c3e6ffd9d938307476750f76ef089992b7",
+        "path_dependent_state": "3f29374880d69b0007e754157ff4012a71aa9c6603f9aedd2712103fc4236210",
+        "pending_orders": "6b1ce269658eea8db8b2dea743a2be32b55587204e69bfe4e834475a4f4860f1",
+        "rankings_signals": "9a73f6cef6db8ef3566f5db839d2a535cdf1f7e0cb0d2f459e3415a05ddb0474",
+        "selected_universe": "cafab346c9d5e5b4e2e0eeecdbbadb404c80ca92a407f67bed5141d52dd9a47c",
+        "strategy_state": "c8bb8d46ffb5f1bac3e697b190046c8f771040dc3f83f93759992fcba273d745"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "af4ee254bb0b5d84eb8a256cc60ad8358f7008180f356fa19f5e8d306c765a25",
+        "checkpoint_state": "a8001167caabdf256bf756bca301be1223040f6d90e3e1ab0e0cfb740e3538c8",
+        "decisions": "6b1ce269658eea8db8b2dea743a2be32b55587204e69bfe4e834475a4f4860f1",
+        "executions": "244299621961fdae1fed10f116cf5cf6ea02e438c2afa47c78d58909d406bc41",
+        "holdings": "e42cb339e5bea7a5cad5192f2c69e71c1fe489c285daaf1c12cd5c85f1dbd92a",
+        "nav": "8274283a790e0abb7a7fef6a5c2e93c3e6ffd9d938307476750f76ef089992b7",
+        "path_dependent_state": "3f29374880d69b0007e754157ff4012a71aa9c6603f9aedd2712103fc4236210",
+        "pending_orders": "6b1ce269658eea8db8b2dea743a2be32b55587204e69bfe4e834475a4f4860f1",
+        "rankings_signals": "9a73f6cef6db8ef3566f5db839d2a535cdf1f7e0cb0d2f459e3415a05ddb0474",
+        "selected_universe": "cafab346c9d5e5b4e2e0eeecdbbadb404c80ca92a407f67bed5141d52dd9a47c",
+        "strategy_state": "c8bb8d46ffb5f1bac3e697b190046c8f771040dc3f83f93759992fcba273d745"
+      },
+      "truncation_mismatches": [],
+      "year": 2024
+    },
+    {
+      "cutoff": "2025-08-11",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "selected_universe",
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "37ecff41affe4ae2c8600b2181f92bf9e6e6c8087ca7c62650340374a7a1d1f3",
+        "checkpoint_state": "13e716e6b57474848b33c16eeb451e337ee89efbe0ed6bc00bc222bd474577df",
+        "decisions": "405aa307b6f3d6fc417f521aa15e54632160060a8dbc028f6b0b2bade4d4aec9",
+        "executions": "bf41e9ca9697c7f1a8ad8a3bfa5b64421c9bf9bb49edd3351560394c1bd0eb8f",
+        "holdings": "49af6b71f0ac87972b760ba42031810fae639baeac0171c8852bfe5c951aa332",
+        "nav": "6bb5340b03be9b6ca0726db647dd8b7f400bee9e7ea3a339f63dc951558a3fc4",
+        "path_dependent_state": "058b8a4d6a98a13408b86ebfa4f79b4cafe2a18e0de2263e4cf68caec4705262",
+        "pending_orders": "405aa307b6f3d6fc417f521aa15e54632160060a8dbc028f6b0b2bade4d4aec9",
+        "rankings_signals": "5fb93e462619db7bd2f98a4fe56a84888db0fb42716cc2651dea7f99daa915d5",
+        "selected_universe": "434bf734b576ee0e9061d76c44d349be9127c0b46882d37131e72f0466f8a8a1",
+        "strategy_state": "56525ef5e55b0ddc9d9fc54f2119de7efb25ad3aa4151ada6033bab8c1dbcac5"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "37ecff41affe4ae2c8600b2181f92bf9e6e6c8087ca7c62650340374a7a1d1f3",
+        "checkpoint_state": "13e716e6b57474848b33c16eeb451e337ee89efbe0ed6bc00bc222bd474577df",
+        "decisions": "405aa307b6f3d6fc417f521aa15e54632160060a8dbc028f6b0b2bade4d4aec9",
+        "executions": "bf41e9ca9697c7f1a8ad8a3bfa5b64421c9bf9bb49edd3351560394c1bd0eb8f",
+        "holdings": "49af6b71f0ac87972b760ba42031810fae639baeac0171c8852bfe5c951aa332",
+        "nav": "6bb5340b03be9b6ca0726db647dd8b7f400bee9e7ea3a339f63dc951558a3fc4",
+        "path_dependent_state": "058b8a4d6a98a13408b86ebfa4f79b4cafe2a18e0de2263e4cf68caec4705262",
+        "pending_orders": "405aa307b6f3d6fc417f521aa15e54632160060a8dbc028f6b0b2bade4d4aec9",
+        "rankings_signals": "5fb93e462619db7bd2f98a4fe56a84888db0fb42716cc2651dea7f99daa915d5",
+        "selected_universe": "434bf734b576ee0e9061d76c44d349be9127c0b46882d37131e72f0466f8a8a1",
+        "strategy_state": "56525ef5e55b0ddc9d9fc54f2119de7efb25ad3aa4151ada6033bab8c1dbcac5"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "37ecff41affe4ae2c8600b2181f92bf9e6e6c8087ca7c62650340374a7a1d1f3",
+        "checkpoint_state": "13e716e6b57474848b33c16eeb451e337ee89efbe0ed6bc00bc222bd474577df",
+        "decisions": "405aa307b6f3d6fc417f521aa15e54632160060a8dbc028f6b0b2bade4d4aec9",
+        "executions": "bf41e9ca9697c7f1a8ad8a3bfa5b64421c9bf9bb49edd3351560394c1bd0eb8f",
+        "holdings": "49af6b71f0ac87972b760ba42031810fae639baeac0171c8852bfe5c951aa332",
+        "nav": "6bb5340b03be9b6ca0726db647dd8b7f400bee9e7ea3a339f63dc951558a3fc4",
+        "path_dependent_state": "058b8a4d6a98a13408b86ebfa4f79b4cafe2a18e0de2263e4cf68caec4705262",
+        "pending_orders": "405aa307b6f3d6fc417f521aa15e54632160060a8dbc028f6b0b2bade4d4aec9",
+        "rankings_signals": "5fb93e462619db7bd2f98a4fe56a84888db0fb42716cc2651dea7f99daa915d5",
+        "selected_universe": "434bf734b576ee0e9061d76c44d349be9127c0b46882d37131e72f0466f8a8a1",
+        "strategy_state": "56525ef5e55b0ddc9d9fc54f2119de7efb25ad3aa4151ada6033bab8c1dbcac5"
+      },
+      "truncation_mismatches": [],
+      "year": 2025
+    },
+    {
+      "cutoff": "2026-07-24",
+      "negative_control_detected": true,
+      "negative_control_differences": [
+        "rankings_signals",
+        "checkpoint_state"
+      ],
+      "pre_cutoff_mismatches": [],
+      "prefix_hashes_poisoned_future": {
+        "cash": "086720ef4884655b04030f459703b6fefaf608ce57f5b473a2cf87b379244b43",
+        "checkpoint_state": "7581823cf8a8176dc69f977e6babb47127dafe14208a61dba528d05f72c9c69a",
+        "decisions": "c086d3355098af8434488d978391d03aa9e41a9cc478aa871e5e4abf75d56879",
+        "executions": "834d3e92f4ba2283217f8b0881583e938e2f0e60a2428820cf353327d33bfdb5",
+        "holdings": "f66070a04af236e2e6723204872dd6e7efab41af34ab7c3f6a9d598a64265a7c",
+        "nav": "d717899208a3e675177ce8ef53748e5ffcd1ab704985dfe841742d39c33c6d2e",
+        "path_dependent_state": "8fba82ceddeaa4715265568c2f78032040404c10cc56548711a8963ee11dccff",
+        "pending_orders": "c086d3355098af8434488d978391d03aa9e41a9cc478aa871e5e4abf75d56879",
+        "rankings_signals": "16362ed2876944fa318af8324b82c00adf59f00636c331912c16593360e6a91a",
+        "selected_universe": "f0a588f679c92cdd3eda9897c6c2628c33d1528f68fa67c7c9ad7ee5b70fa6f1",
+        "strategy_state": "f67102e8fcc24e9527aad02b134e8c123ab6648b4a41fd3f17fcf090637d80a0"
+      },
+      "prefix_hashes_run_a": {
+        "cash": "086720ef4884655b04030f459703b6fefaf608ce57f5b473a2cf87b379244b43",
+        "checkpoint_state": "7581823cf8a8176dc69f977e6babb47127dafe14208a61dba528d05f72c9c69a",
+        "decisions": "c086d3355098af8434488d978391d03aa9e41a9cc478aa871e5e4abf75d56879",
+        "executions": "834d3e92f4ba2283217f8b0881583e938e2f0e60a2428820cf353327d33bfdb5",
+        "holdings": "f66070a04af236e2e6723204872dd6e7efab41af34ab7c3f6a9d598a64265a7c",
+        "nav": "d717899208a3e675177ce8ef53748e5ffcd1ab704985dfe841742d39c33c6d2e",
+        "path_dependent_state": "8fba82ceddeaa4715265568c2f78032040404c10cc56548711a8963ee11dccff",
+        "pending_orders": "c086d3355098af8434488d978391d03aa9e41a9cc478aa871e5e4abf75d56879",
+        "rankings_signals": "16362ed2876944fa318af8324b82c00adf59f00636c331912c16593360e6a91a",
+        "selected_universe": "f0a588f679c92cdd3eda9897c6c2628c33d1528f68fa67c7c9ad7ee5b70fa6f1",
+        "strategy_state": "f67102e8fcc24e9527aad02b134e8c123ab6648b4a41fd3f17fcf090637d80a0"
+      },
+      "prefix_hashes_truncated_future": {
+        "cash": "086720ef4884655b04030f459703b6fefaf608ce57f5b473a2cf87b379244b43",
+        "checkpoint_state": "7581823cf8a8176dc69f977e6babb47127dafe14208a61dba528d05f72c9c69a",
+        "decisions": "c086d3355098af8434488d978391d03aa9e41a9cc478aa871e5e4abf75d56879",
+        "executions": "834d3e92f4ba2283217f8b0881583e938e2f0e60a2428820cf353327d33bfdb5",
+        "holdings": "f66070a04af236e2e6723204872dd6e7efab41af34ab7c3f6a9d598a64265a7c",
+        "nav": "d717899208a3e675177ce8ef53748e5ffcd1ab704985dfe841742d39c33c6d2e",
+        "path_dependent_state": "8fba82ceddeaa4715265568c2f78032040404c10cc56548711a8963ee11dccff",
+        "pending_orders": "c086d3355098af8434488d978391d03aa9e41a9cc478aa871e5e4abf75d56879",
+        "rankings_signals": "16362ed2876944fa318af8324b82c00adf59f00636c331912c16593360e6a91a",
+        "selected_universe": "f0a588f679c92cdd3eda9897c6c2628c33d1528f68fa67c7c9ad7ee5b70fa6f1",
+        "strategy_state": "f67102e8fcc24e9527aad02b134e8c123ab6648b4a41fd3f17fcf090637d80a0"
+      },
+      "truncation_mismatches": [],
+      "year": 2026
+    }
+  ],
+  "economic_prefix_fields": [
+    "selected_universe",
+    "rankings_signals",
+    "decisions",
+    "pending_orders",
+    "executions",
+    "holdings",
+    "cash",
+    "strategy_state",
+    "path_dependent_state",
+    "nav",
+    "checkpoint_state"
+  ],
+  "evidence_hash": "5fc7562be20af00808eb12f2c0496152b888fdc399d697c2677c54ff0ee0d57e",
+  "negative_control": "intentional T+1 close read must be detected at every cutoff",
+  "real_replay_interface": {
+    "cutoff_scheme": "five deterministic representative epochs; each cold-start bounded to <=141 sessions plus one T+1 poison source",
+    "cutoffs": [
+      {
+        "cutoff": "2006-08-08",
+        "lookback_sessions": 141,
+        "negative_control_detected": true,
+        "negative_control_differences": [
+          "rankings_signals",
+          "strategy_state",
+          "path_dependent_state",
+          "checkpoint_state"
+        ],
+        "pre_cutoff_mismatches": [],
+        "prefix_hashes_poisoned_future": {
+          "cash": "83f7939ac23af2833bef198d230ade6229d90cbfe94ef7733d7345b7488b713b",
+          "checkpoint_state": "ef390a2b91bde40147b2501bb71f57a16e0e2499c52922005f43f8c70e8a8a29",
+          "decisions": "06fdab4314f48592eb9642c5e436e927bf350c1f8a7ea5e3290b0be762827606",
+          "executions": "92777c72d35e061a9d9f42e2bca1bd3339205dac5c0a6e10a4907a1d27dfcac8",
+          "holdings": "67e50db8f8ea57da915e67ce60d45f6c04eb4c2583d8a3944b2e971db65466a5",
+          "nav": "4923f6e75a371a7ea37762aec20bfc927de9dbc006727997d49f1f0ec45a433f",
+          "path_dependent_state": "b978d1a1d5bdb276735549a22f9d9d1592ca459bb74effcfd0efee20abb04cfe",
+          "pending_orders": "6dc05055643f5f569e791072dd495885eb812678e10ee1cdc35f4a7fc90e236f",
+          "rankings_signals": "1b7506da4cb986ebddb0868c5c121003e33ecf4cca2c15df1693e86345b0ec5d",
+          "selected_universe": "9db5d301106dc8ecc40b7198bc666c32b98ac79dc74bc06e21a75b5eef880938",
+          "strategy_state": "688714ae1b229063d98cfe27bfba7bb94452a0d8a99e28f0ecd40f243169d75e"
+        },
+        "prefix_hashes_run_a": {
+          "cash": "83f7939ac23af2833bef198d230ade6229d90cbfe94ef7733d7345b7488b713b",
+          "checkpoint_state": "ef390a2b91bde40147b2501bb71f57a16e0e2499c52922005f43f8c70e8a8a29",
+          "decisions": "06fdab4314f48592eb9642c5e436e927bf350c1f8a7ea5e3290b0be762827606",
+          "executions": "92777c72d35e061a9d9f42e2bca1bd3339205dac5c0a6e10a4907a1d27dfcac8",
+          "holdings": "67e50db8f8ea57da915e67ce60d45f6c04eb4c2583d8a3944b2e971db65466a5",
+          "nav": "4923f6e75a371a7ea37762aec20bfc927de9dbc006727997d49f1f0ec45a433f",
+          "path_dependent_state": "b978d1a1d5bdb276735549a22f9d9d1592ca459bb74effcfd0efee20abb04cfe",
+          "pending_orders": "6dc05055643f5f569e791072dd495885eb812678e10ee1cdc35f4a7fc90e236f",
+          "rankings_signals": "1b7506da4cb986ebddb0868c5c121003e33ecf4cca2c15df1693e86345b0ec5d",
+          "selected_universe": "9db5d301106dc8ecc40b7198bc666c32b98ac79dc74bc06e21a75b5eef880938",
+          "strategy_state": "688714ae1b229063d98cfe27bfba7bb94452a0d8a99e28f0ecd40f243169d75e"
+        },
+        "year": 2006
+      },
+      {
+        "cutoff": "2011-08-09",
+        "lookback_sessions": 141,
+        "negative_control_detected": true,
+        "negative_control_differences": [
+          "strategy_state",
+          "path_dependent_state",
+          "checkpoint_state"
+        ],
+        "pre_cutoff_mismatches": [],
+        "prefix_hashes_poisoned_future": {
+          "cash": "ed9c450aa5b4ee059dff66659132dbc57a18ca4cd9603486de6c6e733bf87710",
+          "checkpoint_state": "f0dd66eff1e8c8403019cc509123182a711b7edfdb0d31968a9cb3a91c94cef6",
+          "decisions": "ae8ef66954430d6bd50f1ee72cb6d48bd5ebe070e7d317bec25430b5fbdf32f7",
+          "executions": "ac60a0b9b1a35374f218e7093da2a3c8fadabf1d1ab75f411d2a7b458c267fa0",
+          "holdings": "254461e9c27aa82910c130596f5b16fcebf162353c5456add25f69b72cb163e5",
+          "nav": "624a3c247301af8ef9708744e61d4c118de6290ccf1047bfdb88f0d7aa8b866a",
+          "path_dependent_state": "2f1b8400d40e0d9a20b246986a312f3c0d98f0fea1b8059ebd560c02892c7cfa",
+          "pending_orders": "c32de416e98ea3285e32ebe759774332acf6291b9c3ade0fe9938267c20908e4",
+          "rankings_signals": "22cece227bdf0efc1fa53c055aa16a655c4fd8a40b6b3c05897b79832365b984",
+          "selected_universe": "134ee620d07460a779ba6321cc2e764b4128b95d721c07c6a0a8a19405a588a5",
+          "strategy_state": "984ccf8b29edf4ef27a8386418a09370c6ab84e14d7a4483dcebca2e5dad9cbb"
+        },
+        "prefix_hashes_run_a": {
+          "cash": "ed9c450aa5b4ee059dff66659132dbc57a18ca4cd9603486de6c6e733bf87710",
+          "checkpoint_state": "f0dd66eff1e8c8403019cc509123182a711b7edfdb0d31968a9cb3a91c94cef6",
+          "decisions": "ae8ef66954430d6bd50f1ee72cb6d48bd5ebe070e7d317bec25430b5fbdf32f7",
+          "executions": "ac60a0b9b1a35374f218e7093da2a3c8fadabf1d1ab75f411d2a7b458c267fa0",
+          "holdings": "254461e9c27aa82910c130596f5b16fcebf162353c5456add25f69b72cb163e5",
+          "nav": "624a3c247301af8ef9708744e61d4c118de6290ccf1047bfdb88f0d7aa8b866a",
+          "path_dependent_state": "2f1b8400d40e0d9a20b246986a312f3c0d98f0fea1b8059ebd560c02892c7cfa",
+          "pending_orders": "c32de416e98ea3285e32ebe759774332acf6291b9c3ade0fe9938267c20908e4",
+          "rankings_signals": "22cece227bdf0efc1fa53c055aa16a655c4fd8a40b6b3c05897b79832365b984",
+          "selected_universe": "134ee620d07460a779ba6321cc2e764b4128b95d721c07c6a0a8a19405a588a5",
+          "strategy_state": "984ccf8b29edf4ef27a8386418a09370c6ab84e14d7a4483dcebca2e5dad9cbb"
+        },
+        "year": 2011
+      },
+      {
+        "cutoff": "2016-08-09",
+        "lookback_sessions": 141,
+        "negative_control_detected": true,
+        "negative_control_differences": [
+          "rankings_signals",
+          "strategy_state",
+          "path_dependent_state",
+          "checkpoint_state"
+        ],
+        "pre_cutoff_mismatches": [],
+        "prefix_hashes_poisoned_future": {
+          "cash": "8a1a957f771ccac41c8b9ad450dba3c59d75588a58d771c826fbf9692e922250",
+          "checkpoint_state": "88e994da300ec8f4b331d7bbe4ee4559133fea10ba34bfc0bc1f6fc02c7d5ab6",
+          "decisions": "d6d6bca31d6bba216530a9d06118d17977787c0b884caf469481a965c2a52593",
+          "executions": "f4a3a23f0d9ceda17521cb32d68becdd7f01fd7182b297059259cbdf6c9f615e",
+          "holdings": "10f370829920020fce599b0affdca924a4c45316bc153c5017ad232febe64266",
+          "nav": "cfd118e54bbfed4eb9c7888bf619fd9ba97120b099badcb56052729db9dc4a1c",
+          "path_dependent_state": "0c2db8e05a90ba6692bfcaccd43afca5a35bf4e55a7693461e3682c0390560da",
+          "pending_orders": "3834b20ceda1feb14de79d8dc68d00b0cab846ce5db1ce7a9e17302ef4645753",
+          "rankings_signals": "41f210cfdbba0f47786ca25e9d32f631173e061c0fe86408f627b09f9ab038f1",
+          "selected_universe": "7f2c889809ebe99a7cc4fadfc37b8bf2093f06f2f1eb96714245eec9dd1d0da3",
+          "strategy_state": "9883e55891cbdd34d92f094cf846561b673b5049bbd84ecdf77320a3d3928489"
+        },
+        "prefix_hashes_run_a": {
+          "cash": "8a1a957f771ccac41c8b9ad450dba3c59d75588a58d771c826fbf9692e922250",
+          "checkpoint_state": "88e994da300ec8f4b331d7bbe4ee4559133fea10ba34bfc0bc1f6fc02c7d5ab6",
+          "decisions": "d6d6bca31d6bba216530a9d06118d17977787c0b884caf469481a965c2a52593",
+          "executions": "f4a3a23f0d9ceda17521cb32d68becdd7f01fd7182b297059259cbdf6c9f615e",
+          "holdings": "10f370829920020fce599b0affdca924a4c45316bc153c5017ad232febe64266",
+          "nav": "cfd118e54bbfed4eb9c7888bf619fd9ba97120b099badcb56052729db9dc4a1c",
+          "path_dependent_state": "0c2db8e05a90ba6692bfcaccd43afca5a35bf4e55a7693461e3682c0390560da",
+          "pending_orders": "3834b20ceda1feb14de79d8dc68d00b0cab846ce5db1ce7a9e17302ef4645753",
+          "rankings_signals": "41f210cfdbba0f47786ca25e9d32f631173e061c0fe86408f627b09f9ab038f1",
+          "selected_universe": "7f2c889809ebe99a7cc4fadfc37b8bf2093f06f2f1eb96714245eec9dd1d0da3",
+          "strategy_state": "9883e55891cbdd34d92f094cf846561b673b5049bbd84ecdf77320a3d3928489"
+        },
+        "year": 2016
+      },
+      {
+        "cutoff": "2021-08-10",
+        "lookback_sessions": 141,
+        "negative_control_detected": true,
+        "negative_control_differences": [
+          "rankings_signals",
+          "strategy_state",
+          "path_dependent_state",
+          "checkpoint_state"
+        ],
+        "pre_cutoff_mismatches": [],
+        "prefix_hashes_poisoned_future": {
+          "cash": "928ebfc04439bdb64f34736064282e6eefdacd650ac35bec03ad71671ceba8b7",
+          "checkpoint_state": "b833e8e462205d050a756fa598e4c11c716f86ff5aec1a7a21ffeb3ea807ddfc",
+          "decisions": "d3b39139504d491cc8dd45ce7b0d5da9a422907ac5ba20e1a025a2e93036a1ef",
+          "executions": "3283e7fa45f086424157310877db10189acbf3c0a2f230b48b560becdef363c9",
+          "holdings": "f816df90ee9602c4b67ea37568b0d9b5c32157adc3de5026dfc57016fc8cea1c",
+          "nav": "a5f4d7667dabca9fd7a6a35ac6adbb4ed93df89f9ff9a983fa980850db8a4924",
+          "path_dependent_state": "e81db78e3037325482b9ebb50d3ff72048dad407f79ea535fd3d926a255af436",
+          "pending_orders": "fd2153a1d5e784c4de6f319276dd0e073aabe0bfa667b46793fa4384a061e73a",
+          "rankings_signals": "3c39a26b5bcf5b0e0436073eaceef935636042f9e54925cc1af6543390d03b52",
+          "selected_universe": "8443dfd055e9b3cc038648cba1836ecb9155d82069934205a63729ea4940c968",
+          "strategy_state": "926c513b3adbbcc0e6eca85450a234f8997d1b6e6b2d75c615eb3597eb3aad4b"
+        },
+        "prefix_hashes_run_a": {
+          "cash": "928ebfc04439bdb64f34736064282e6eefdacd650ac35bec03ad71671ceba8b7",
+          "checkpoint_state": "b833e8e462205d050a756fa598e4c11c716f86ff5aec1a7a21ffeb3ea807ddfc",
+          "decisions": "d3b39139504d491cc8dd45ce7b0d5da9a422907ac5ba20e1a025a2e93036a1ef",
+          "executions": "3283e7fa45f086424157310877db10189acbf3c0a2f230b48b560becdef363c9",
+          "holdings": "f816df90ee9602c4b67ea37568b0d9b5c32157adc3de5026dfc57016fc8cea1c",
+          "nav": "a5f4d7667dabca9fd7a6a35ac6adbb4ed93df89f9ff9a983fa980850db8a4924",
+          "path_dependent_state": "e81db78e3037325482b9ebb50d3ff72048dad407f79ea535fd3d926a255af436",
+          "pending_orders": "fd2153a1d5e784c4de6f319276dd0e073aabe0bfa667b46793fa4384a061e73a",
+          "rankings_signals": "3c39a26b5bcf5b0e0436073eaceef935636042f9e54925cc1af6543390d03b52",
+          "selected_universe": "8443dfd055e9b3cc038648cba1836ecb9155d82069934205a63729ea4940c968",
+          "strategy_state": "926c513b3adbbcc0e6eca85450a234f8997d1b6e6b2d75c615eb3597eb3aad4b"
+        },
+        "year": 2021
+      },
+      {
+        "cutoff": "2026-07-24",
+        "lookback_sessions": 141,
+        "negative_control_detected": true,
+        "negative_control_differences": [
+          "rankings_signals",
+          "strategy_state",
+          "path_dependent_state",
+          "checkpoint_state"
+        ],
+        "pre_cutoff_mismatches": [],
+        "prefix_hashes_poisoned_future": {
+          "cash": "b577b41ec3a3c2de62942450c66dc363dc7b40acd58b327c0b6a1e1400049b68",
+          "checkpoint_state": "c3bb541fce2f02ce341ac19c4e938696b5f0f7fec70aa8b9effd7bc4ed1dcf0e",
+          "decisions": "4f55ef6985e86d3113773c0165e4c832705c364ed09130c6ddeecb2e8584db52",
+          "executions": "cd43020a17954d3ecf7486161ffaf73cae236d8f8a3ded4cc3496ead95c81ea0",
+          "holdings": "21ef491b0361530c7313ccdc90469e158fcac2197687261c9efde73697a22712",
+          "nav": "3f617cc9e4310f43131217313ab21b0f8039c5960bc3337039d781a43f504d3c",
+          "path_dependent_state": "a01dc6c8592a58aee7c00cf667a43ef116191c787194d87335ddb49b4a40faeb",
+          "pending_orders": "cce567f69ca4626b0a4e68bdd9ed81c0ca1f044c6a767c084713cb76c8f9207c",
+          "rankings_signals": "67e98b5b81bc1a48948d859cd2d667ad3451bb63f0156a7b8c1ee436d3d63747",
+          "selected_universe": "4b2096027d5a6b6cea3d4cb41816359f85e75ec6ebb7429583a4594b61636904",
+          "strategy_state": "ecaa602e181c3d27706a06216fc9d36d53c666e502759c566b1a403c21232531"
+        },
+        "prefix_hashes_run_a": {
+          "cash": "b577b41ec3a3c2de62942450c66dc363dc7b40acd58b327c0b6a1e1400049b68",
+          "checkpoint_state": "c3bb541fce2f02ce341ac19c4e938696b5f0f7fec70aa8b9effd7bc4ed1dcf0e",
+          "decisions": "4f55ef6985e86d3113773c0165e4c832705c364ed09130c6ddeecb2e8584db52",
+          "executions": "cd43020a17954d3ecf7486161ffaf73cae236d8f8a3ded4cc3496ead95c81ea0",
+          "holdings": "21ef491b0361530c7313ccdc90469e158fcac2197687261c9efde73697a22712",
+          "nav": "3f617cc9e4310f43131217313ab21b0f8039c5960bc3337039d781a43f504d3c",
+          "path_dependent_state": "a01dc6c8592a58aee7c00cf667a43ef116191c787194d87335ddb49b4a40faeb",
+          "pending_orders": "cce567f69ca4626b0a4e68bdd9ed81c0ca1f044c6a767c084713cb76c8f9207c",
+          "rankings_signals": "67e98b5b81bc1a48948d859cd2d667ad3451bb63f0156a7b8c1ee436d3d63747",
+          "selected_universe": "4b2096027d5a6b6cea3d4cb41816359f85e75ec6ebb7429583a4594b61636904",
+          "strategy_state": "ecaa602e181c3d27706a06216fc9d36d53c666e502759c566b1a403c21232531"
+        },
+        "year": 2026
+      }
+    ],
+    "dataset_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+    "dataset_schema": "backtester.canonical-pit-dataset/2",
+    "economic_prefix_fields": [
+      "selected_universe",
+      "rankings_signals",
+      "decisions",
+      "pending_orders",
+      "executions",
+      "holdings",
+      "cash",
+      "strategy_state",
+      "path_dependent_state",
+      "nav",
+      "checkpoint_state"
+    ],
+    "interface": "CanonicalPITDataset -> sentinel.core.kernel.advance_session",
+    "kernel_path": "/home/runner/work/stocker/stocker/main-src/sentinel/core/production.py",
+    "negative_control": "T+1 canonical row is deliberately consumed into the cutoff publication and must change the exact Production kernel output",
+    "schema": "backtester.real-kernel-future-leak/1",
+    "status": "PASS",
+    "years": [
+      2006,
+      2011,
+      2016,
+      2021,
+      2026
+    ]
+  },
+  "schema": "backtester.dynamic-future-leak/2",
+  "status": "PASS",
+  "years": [
+    2006,
+    2007,
+    2008,
+    2009,
+    2010,
+    2011,
+    2012,
+    2013,
+    2014,
+    2015,
+    2016,
+    2017,
+    2018,
+    2019,
+    2020,
+    2021,
+    2022,
+    2023,
+    2024,
+    2025,
+    2026
+  ]
+}

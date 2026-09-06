@@ -1,0 +1,25 @@
+{
+  "artifacts": [
+    {
+      "archive_download_url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/9981966560/zip",
+      "created_at": "2026-09-06T03:34:54Z",
+      "digest": "sha256:4860751ea45f7480f785e927bc4cebba1c8be3783b354d186ce059d6fb09a841",
+      "expired": false,
+      "expires_at": "2026-12-05T02:55:28Z",
+      "id": 9981966560,
+      "name": "champion-corrected-classification-34007704385-1",
+      "node_id": "MDg6QXJ0aWZhY3Q5OTgxOTY2NTYw",
+      "size_in_bytes": 161051494,
+      "updated_at": "2026-09-06T03:34:54Z",
+      "url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/9981966560",
+      "workflow_run": {
+        "head_branch": "research/champion-pit-metadata-closure",
+        "head_repository_id": 1233957439,
+        "head_sha": "ba74e79490beb8950611b1d17f5d124833b3d91e",
+        "id": 34007704385,
+        "repository_id": 1233957439
+      }
+    }
+  ],
+  "total_count": 1
+}

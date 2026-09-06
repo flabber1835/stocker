@@ -1,0 +1,4414 @@
+{
+  "baseline_reproduction": {
+    "candidate": {
+      "compared_columns": [
+        "A_allocation",
+        "A_nav",
+        "A_reason",
+        "B_allocation",
+        "B_nav",
+        "B_reason",
+        "control_reason",
+        "damaged",
+        "date",
+        "effective_native",
+        "eligible_count",
+        "fast_signal",
+        "green",
+        "held_count",
+        "leadership_population",
+        "native_close_target",
+        "open_equity",
+        "recent_r20",
+        "recent_r40",
+        "research_eligible_universe",
+        "research_ldrc_state",
+        "research_ranking_count",
+        "research_ranking_sha256",
+        "research_selected_positions",
+        "research_selected_positions_sha256",
+        "shadow_equity",
+        "slow_signal",
+        "spy_nav",
+        "spy_r20",
+        "wc_dd"
+      ],
+      "first": "2006-07-31",
+      "last": "2006-08-02",
+      "observed_daily_sha256": "23e962c89381b00c0d9d85f30de09fed8a0f10a154cbc523eb9445fe4b900001",
+      "original_daily_sha256": "fbc8a18d2e6f01bbc5154fe359990633bbe93e28b4dbeba57da0be149f4811a8",
+      "sessions": 3,
+      "status": "PASS"
+    },
+    "candidate_source_ast_matches_retained": true,
+    "certified": {
+      "compared_columns": [
+        "A_allocation",
+        "A_nav",
+        "A_reason",
+        "B_allocation",
+        "B_nav",
+        "B_reason",
+        "control_reason",
+        "damaged",
+        "date",
+        "effective_native",
+        "eligible_count",
+        "fast_signal",
+        "green",
+        "held_count",
+        "leadership_population",
+        "native_close_target",
+        "open_equity",
+        "recent_r20",
+        "recent_r40",
+        "research_eligible_universe",
+        "research_ldrc_state",
+        "research_ranking_count",
+        "research_ranking_sha256",
+        "research_selected_positions",
+        "research_selected_positions_sha256",
+        "shadow_equity",
+        "slow_signal",
+        "spy_nav",
+        "spy_r20",
+        "wc_dd"
+      ],
+      "first": "2006-07-31",
+      "last": "2006-08-02",
+      "observed_daily_sha256": "cd3c43d6fc538c7827eaaf0bad0f73f13c5140275cc19ec30ae3f0be5517d487",
+      "original_daily_sha256": "6606b43c84ade28404564652dea52743f2ba6631eb9479211ed3a58390d4cf0d",
+      "sessions": 3,
+      "status": "PASS"
+    },
+    "explicit_report_column_mapping": {
+      "research_wealth_core_equity": "shadow_equity",
+      "research_wealth_core_open_equity": "open_equity"
+    },
+    "observer_stripped_asts_reverified": [
+      "candidate",
+      "certified",
+      "certified_capacity_off",
+      "certified_dividend_1",
+      "certified_candidate_types"
+    ],
+    "original_run_id": 34042141867,
+    "original_workflow_status": "FAIL_POSTPROCESSING_COLUMN_NAME_KEYERROR",
+    "recovery": "OFFLINE_VALIDATION_OF_UNCHANGED_RETAINED_BYTES",
+    "scope": "BOUNDED_PREFIX_ONLY_NOT_CERTIFICATION",
+    "tolerances": {
+      "atol": 1e-07,
+      "rtol": 1e-12
+    },
+    "validator_python": "3.12.14"
+  },
+  "cases": {
+    "candidate": {
+      "accounting_check_types": {
+        "after_buys_cash": 147,
+        "after_sells_cash": 147,
+        "dividend_cash_unchanged": 147,
+        "dividend_claim_amount": 147,
+        "independent_close_nav": 147,
+        "independent_open_nav": 147,
+        "settlement_cash": 147,
+        "settlement_claims": 147,
+        "split_shares": 475
+      },
+      "cash_at_prefix_end": 34.847525626886636,
+      "entitlement_completeness_status": "NOT_EXERCISED",
+      "first_measured_daily": {
+        "A_allocation": "1.0",
+        "A_nav": "1.0",
+        "A_reason": "NORMAL",
+        "B_allocation": "1.0",
+        "B_nav": "1.0",
+        "B_reason": "NORMAL",
+        "control_allocation": "1.0",
+        "control_nav": "1.0",
+        "control_reason": "NORMAL",
+        "damaged": "0.68",
+        "date": "2006-07-31",
+        "effective_native": "1.0",
+        "eligible_count": "1065",
+        "fast_signal": "False",
+        "green": "0.2",
+        "held_count": "25",
+        "leadership_population": "107",
+        "native_close_target": "1.0",
+        "open_equity": "91522149.87468863",
+        "recent_r20": "-0.06323123832623068",
+        "recent_r40": "-0.06323123832623068",
+        "research_eligible_universe": "1065",
+        "research_ldrc_state": "{\"concordance_releases\":0,\"episode\":false,\"episodes\":0,\"full_streak\":0,\"latched\":false,\"prev_desired\":1.0,\"prev_native\":1.0,\"recent_positive_streak\":0}",
+        "research_ranking_count": "107",
+        "research_ranking_sha256": "dcefdbbb0eddeabfcb71d4d6a1a2e55f5f0261b47b8d5cb45c1698f2c0beb102",
+        "research_selected_positions": "[\"1035638340512403010\",\"1040633074096912075\",\"1099247927332588244\",\"1101212501432953147\",\"117908596615035418\",\"134352070820280377\",\"214820292338870148\",\"244656944763341218\",\"266855227169442591\",\"271029648870576069\",\"320397541735962213\",\"353685636371040898\",\"40196728613332525\",\"43902875209253344\",\"452140482835311476\",\"530996274575880476\",\"555782615540001401\",\"70004177131076678\",\"720308907044255892\",\"788900523736619527\",\"8209006061861920\",\"840588175708298328\",\"88378928586164151\",\"927939971812641882\",\"950063614365024268\"]",
+        "research_selected_positions_sha256": "e0069ae2ec3b9d642234b1e7c0ce19bb4e0f580e5f0841c9128e960c5c851acf",
+        "shadow_equity": "92410966.71752562",
+        "slow_signal": "False",
+        "spy_nav": "1.0",
+        "spy_r20": "0.004484508577333068",
+        "wc_dd": "-0.07589033282474389"
+      },
+      "first_open_entitlement_gap": null,
+      "first_over_capacity_order": {
+        "limit_shares": 132440.5,
+        "participation": 0.15480763059638103,
+        "prior_20_mean_raw_compatible_volume": 1324405.0,
+        "raw_open": 19.87,
+        "requested_shares": 205028.0,
+        "security_id": "1035638340512403010",
+        "session": "2006-07-06",
+        "side": "BUY",
+        "slot": 0,
+        "ticker": "MED"
+      },
+      "held_count_at_prefix_end": 25,
+      "identity": {
+        "audit_source_sha": "b0a3033d83584541f4d6f306ecee27e318d29a59",
+        "baseline_generated_sha256": "3e793d7d7484f2ede15fcc9cf70d43c62d0fd90c8e06eba2689af6c8d7975189",
+        "baseline_normalized_ast_sha256": "a8c979ec34833076a51b0bb0f9f8273dacc377ab669cbda9cff76ddc441f219d",
+        "baseline_source_sha": "ba74e79490beb8950611b1d17f5d124833b3d91e",
+        "case": "candidate",
+        "certification_status": "NOT_CERTIFIED_DIAGNOSTIC",
+        "changed_dimension": "NONE_OBSERVATION_ONLY",
+        "corpus_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+        "economic_generated_sha256": "3e793d7d7484f2ede15fcc9cf70d43c62d0fd90c8e06eba2689af6c8d7975189",
+        "economic_normalized_ast_sha256": "a8c979ec34833076a51b0bb0f9f8273dacc377ab669cbda9cff76ddc441f219d",
+        "initial_shadow_cash": 100000000,
+        "instrumented_generated_sha256": "e583493d300b89ef93f84885af100792b8c06b80710ea25227d29c2d21a57462",
+        "measurement_start": "2006-07-31",
+        "observer_stripped_ast_matches": true,
+        "profile": "strategy9-e3-research-champion-v1",
+        "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+        "runtime_sha": "887f479b15ad861313da666ad698034d3847121c",
+        "schema": "champion.economic-prefix-audit/1",
+        "status": "PASS_BOUNDED_OBSERVATION",
+        "stop_after": "2006-08-02",
+        "warmup_start": "2006-01-03"
+      },
+      "ledger_arithmetic_status": "PASS_RECORDED_STATE_ONLY",
+      "observation": {
+        "checks": 1651,
+        "failed_checks": 0,
+        "fills": 25,
+        "held_terminal_touches": [],
+        "last_session": "2006-08-02",
+        "scope": "BOUNDED_PREFIX_ONLY_NOT_A_CERTIFICATE",
+        "sessions": 147,
+        "terminal_settlement_independent_proof": "NOT_ESTABLISHED_BY_THIS_PREFIX"
+      },
+      "open_entitlement_missing_sessions": 0,
+      "over_capacity_order_observations": 12,
+      "terminal_full_horizon_proof": "NOT_ESTABLISHED"
+    },
+    "certified": {
+      "accounting_check_types": {
+        "after_buys_cash": 147,
+        "after_sells_cash": 147,
+        "dividend_cash_unchanged": 147,
+        "dividend_claim_amount": 147,
+        "independent_close_nav": 147,
+        "independent_open_nav": 147,
+        "settlement_cash": 147,
+        "settlement_claims": 147,
+        "split_shares": 342
+      },
+      "cash_at_prefix_end": 27987265.84574911,
+      "entitlement_completeness_status": "NOT_EXERCISED",
+      "first_measured_daily": {
+        "A_allocation": "1.0",
+        "A_nav": "1.0",
+        "A_reason": "NORMAL",
+        "B_allocation": "1.0",
+        "B_nav": "1.0",
+        "B_reason": "NORMAL",
+        "control_allocation": "1.0",
+        "control_nav": "1.0",
+        "control_reason": "NORMAL",
+        "damaged": "0.7777777777777778",
+        "date": "2006-07-31",
+        "effective_native": "1.0",
+        "eligible_count": "807",
+        "fast_signal": "False",
+        "green": "0.16666666666666666",
+        "held_count": "18",
+        "leadership_population": "81",
+        "native_close_target": "1.0",
+        "open_equity": "92678635.2706211",
+        "recent_r20": "-0.06769269555771029",
+        "recent_r40": "-0.06769269555771029",
+        "research_eligible_universe": "807",
+        "research_ldrc_state": "{\"concordance_releases\":0,\"episode\":false,\"episodes\":0,\"full_streak\":0,\"latched\":false,\"prev_desired\":1.0,\"prev_native\":1.0,\"recent_positive_streak\":0}",
+        "research_ranking_count": "81",
+        "research_ranking_sha256": "678b65327cbcffec00b74c9d6fd03fcad0e1b1b3a0c8999b37f2ed36218488c2",
+        "research_selected_positions": "[\"1094655969856693337\",\"1101212501432953147\",\"117908596615035418\",\"134352070820280377\",\"212510547980373430\",\"226714775113304174\",\"271029648870576069\",\"320397541735962213\",\"40196728613332525\",\"452140482835311476\",\"530996274575880476\",\"561839039720650585\",\"635499515642261586\",\"720308907044255892\",\"801778135593349062\",\"8209006061861920\",\"927939971812641882\",\"950063614365024268\"]",
+        "research_selected_positions_sha256": "99704e3b19baa64d60b3be2149716f912f6f3f8183aaa7329560e56fe90f9298",
+        "shadow_equity": "93207107.2657491",
+        "slow_signal": "False",
+        "spy_nav": "1.0",
+        "spy_r20": "0.004484508577333068",
+        "wc_dd": "-0.067928927342509"
+      },
+      "first_open_entitlement_gap": null,
+      "first_over_capacity_order": {
+        "limit_shares": 132440.5,
+        "participation": 0.15480763059638103,
+        "prior_20_mean_raw_compatible_volume": 1324405.0,
+        "raw_open": 19.87,
+        "requested_shares": 205028.0,
+        "security_id": "1035638340512403010",
+        "session": "2006-07-06",
+        "side": "BUY",
+        "slot": 0,
+        "ticker": "MED"
+      },
+      "held_count_at_prefix_end": 18,
+      "identity": {
+        "audit_source_sha": "b0a3033d83584541f4d6f306ecee27e318d29a59",
+        "baseline_generated_sha256": "2e94936de1b550fd500202a7b8d4322f892fb1bc69213af12b3c392d7a220803",
+        "baseline_normalized_ast_sha256": "7dfe469e846409dad684532b1c964d413cdbdf7d175c40cede53e8629e8858e1",
+        "baseline_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+        "case": "certified",
+        "certification_status": "NOT_CERTIFIED_DIAGNOSTIC",
+        "changed_dimension": "NONE_OBSERVATION_ONLY",
+        "corpus_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+        "economic_generated_sha256": "2e94936de1b550fd500202a7b8d4322f892fb1bc69213af12b3c392d7a220803",
+        "economic_normalized_ast_sha256": "7dfe469e846409dad684532b1c964d413cdbdf7d175c40cede53e8629e8858e1",
+        "initial_shadow_cash": 100000000,
+        "instrumented_generated_sha256": "0a19328ab8c483c152e0a12db781d94e37050105912d929da33ac27c9df2268f",
+        "measurement_start": "2006-07-31",
+        "observer_stripped_ast_matches": true,
+        "profile": "strategy9-e3-research-champion-v1",
+        "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+        "runtime_sha": "887f479b15ad861313da666ad698034d3847121c",
+        "schema": "champion.economic-prefix-audit/1",
+        "status": "PASS_BOUNDED_OBSERVATION",
+        "stop_after": "2006-08-02",
+        "warmup_start": "2006-01-03"
+      },
+      "ledger_arithmetic_status": "PASS_RECORDED_STATE_ONLY",
+      "observation": {
+        "checks": 1518,
+        "failed_checks": 0,
+        "fills": 18,
+        "held_terminal_touches": [],
+        "last_session": "2006-08-02",
+        "scope": "BOUNDED_PREFIX_ONLY_NOT_A_CERTIFICATE",
+        "sessions": 147,
+        "terminal_settlement_independent_proof": "NOT_ESTABLISHED_BY_THIS_PREFIX"
+      },
+      "open_entitlement_missing_sessions": 0,
+      "over_capacity_order_observations": 140,
+      "terminal_full_horizon_proof": "NOT_ESTABLISHED"
+    },
+    "certified_candidate_types": {
+      "accounting_check_types": {
+        "after_buys_cash": 147,
+        "after_sells_cash": 147,
+        "dividend_cash_unchanged": 147,
+        "dividend_claim_amount": 147,
+        "independent_close_nav": 147,
+        "independent_open_nav": 147,
+        "settlement_cash": 147,
+        "settlement_claims": 147,
+        "split_shares": 270
+      },
+      "cash_at_prefix_end": 39912446.2473816,
+      "entitlement_completeness_status": "NOT_EXERCISED",
+      "first_measured_daily": {
+        "A_allocation": "1.0",
+        "A_nav": "1.0",
+        "A_reason": "NORMAL",
+        "B_allocation": "1.0",
+        "B_nav": "1.0",
+        "B_reason": "NORMAL",
+        "control_allocation": "1.0",
+        "control_nav": "1.0",
+        "control_reason": "NORMAL",
+        "damaged": "0.6666666666666666",
+        "date": "2006-07-31",
+        "effective_native": "1.0",
+        "eligible_count": "1065",
+        "fast_signal": "False",
+        "green": "0.2",
+        "held_count": "15",
+        "leadership_population": "107",
+        "native_close_target": "1.0",
+        "open_equity": "94803556.08894959",
+        "recent_r20": "-0.06323123832623068",
+        "recent_r40": "-0.06323123832623068",
+        "research_eligible_universe": "1065",
+        "research_ldrc_state": "{\"concordance_releases\":0,\"episode\":false,\"episodes\":0,\"full_streak\":0,\"latched\":false,\"prev_desired\":1.0,\"prev_native\":1.0,\"recent_positive_streak\":0}",
+        "research_ranking_count": "107",
+        "research_ranking_sha256": "dcefdbbb0eddeabfcb71d4d6a1a2e55f5f0261b47b8d5cb45c1698f2c0beb102",
+        "research_selected_positions": "[\"1040633074096912075\",\"1099247927332588244\",\"1101212501432953147\",\"117908596615035418\",\"134352070820280377\",\"214820292338870148\",\"271029648870576069\",\"320397541735962213\",\"40196728613332525\",\"452140482835311476\",\"530996274575880476\",\"720308907044255892\",\"8209006061861920\",\"927939971812641882\",\"950063614365024268\"]",
+        "research_selected_positions_sha256": "eda029bea8599dd118007cfaedbcc44a50170466abe7e51f9a6e4528d12ba0fa",
+        "shadow_equity": "95226702.39738159",
+        "slow_signal": "False",
+        "spy_nav": "1.0",
+        "spy_r20": "0.004484508577333068",
+        "wc_dd": "-0.04773297602618409"
+      },
+      "first_open_entitlement_gap": null,
+      "first_over_capacity_order": {
+        "limit_shares": 132440.5,
+        "participation": 0.15480763059638103,
+        "prior_20_mean_raw_compatible_volume": 1324405.0,
+        "raw_open": 19.87,
+        "requested_shares": 205028.0,
+        "security_id": "1035638340512403010",
+        "session": "2006-07-06",
+        "side": "BUY",
+        "slot": 0,
+        "ticker": "MED"
+      },
+      "held_count_at_prefix_end": 15,
+      "identity": {
+        "audit_source_sha": "b0a3033d83584541f4d6f306ecee27e318d29a59",
+        "baseline_generated_sha256": "e20e43766ae34c82f85f572abcd50cb68978edaf39b59f699ccc5a4a78393046",
+        "baseline_normalized_ast_sha256": "7dfe469e846409dad684532b1c964d413cdbdf7d175c40cede53e8629e8858e1",
+        "baseline_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+        "case": "certified_candidate_types",
+        "certification_status": "NOT_CERTIFIED_DIAGNOSTIC",
+        "changed_dimension": "UNKNOWN_SECURITY_TYPE_CLASSIFICATION_ONLY",
+        "corpus_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+        "economic_generated_sha256": "d909f8bf5c995341c147bebb5c8f96e835b8a0049154c0864456aff96deade99",
+        "economic_normalized_ast_sha256": "0dc6b6f8ef84b4af2a59e14d7c767a7126c1ccfd13c51b468fbb0ed22a8fd6f9",
+        "initial_shadow_cash": 100000000,
+        "instrumented_generated_sha256": "7e4638153d3dd1dc43149eb081c9fe1c358a488e4988ccc8df247e492c727a80",
+        "measurement_start": "2006-07-31",
+        "observer_stripped_ast_matches": true,
+        "profile": "strategy9-e3-research-champion-v1",
+        "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+        "runtime_sha": "887f479b15ad861313da666ad698034d3847121c",
+        "schema": "champion.economic-prefix-audit/1",
+        "status": "PASS_BOUNDED_OBSERVATION",
+        "stop_after": "2006-08-02",
+        "warmup_start": "2006-01-03"
+      },
+      "ledger_arithmetic_status": "PASS_RECORDED_STATE_ONLY",
+      "observation": {
+        "checks": 1446,
+        "failed_checks": 0,
+        "fills": 15,
+        "held_terminal_touches": [],
+        "last_session": "2006-08-02",
+        "scope": "BOUNDED_PREFIX_ONLY_NOT_A_CERTIFICATE",
+        "sessions": 147,
+        "terminal_settlement_independent_proof": "NOT_ESTABLISHED_BY_THIS_PREFIX"
+      },
+      "open_entitlement_missing_sessions": 0,
+      "over_capacity_order_observations": 215,
+      "terminal_full_horizon_proof": "NOT_ESTABLISHED"
+    },
+    "certified_capacity_off": {
+      "accounting_check_types": {
+        "after_buys_cash": 147,
+        "after_sells_cash": 147,
+        "dividend_cash_unchanged": 147,
+        "dividend_claim_amount": 147,
+        "independent_close_nav": 147,
+        "independent_open_nav": 147,
+        "settlement_cash": 147,
+        "settlement_claims": 147,
+        "split_shares": 475
+      },
+      "cash_at_prefix_end": 4.638717982918024,
+      "entitlement_completeness_status": "NOT_EXERCISED",
+      "first_measured_daily": {
+        "A_allocation": "1.0",
+        "A_nav": "1.0",
+        "A_reason": "NORMAL",
+        "B_allocation": "1.0",
+        "B_nav": "1.0",
+        "B_reason": "NORMAL",
+        "control_allocation": "1.0",
+        "control_nav": "1.0",
+        "control_reason": "NORMAL",
+        "damaged": "0.8",
+        "date": "2006-07-31",
+        "effective_native": "1.0",
+        "eligible_count": "807",
+        "fast_signal": "False",
+        "green": "0.16",
+        "held_count": "25",
+        "leadership_population": "81",
+        "native_close_target": "1.0",
+        "open_equity": "89981536.56716797",
+        "recent_r20": "-0.06769269555771029",
+        "recent_r40": "-0.06769269555771029",
+        "research_eligible_universe": "807",
+        "research_ldrc_state": "{\"concordance_releases\":0,\"episode\":false,\"episodes\":0,\"full_streak\":0,\"latched\":false,\"prev_desired\":1.0,\"prev_native\":1.0,\"recent_positive_streak\":0}",
+        "research_ranking_count": "81",
+        "research_ranking_sha256": "678b65327cbcffec00b74c9d6fd03fcad0e1b1b3a0c8999b37f2ed36218488c2",
+        "research_selected_positions": "[\"1035638340512403010\",\"1094655969856693337\",\"1101212501432953147\",\"117908596615035418\",\"134352070820280377\",\"212510547980373430\",\"226714775113304174\",\"244656944763341218\",\"266855227169442591\",\"271029648870576069\",\"320397541735962213\",\"40196728613332525\",\"43902875209253344\",\"452140482835311476\",\"530996274575880476\",\"555782615540001401\",\"561839039720650585\",\"635499515642261586\",\"70004177131076678\",\"720308907044255892\",\"801778135593349062\",\"8209006061861920\",\"927939971812641882\",\"950063614365024268\",\"983329147315909251\"]",
+        "research_selected_positions_sha256": "89496fd9d7e2df0c231ee939043e0b2a7210cfd7d3ddbac6beecdb5cdf98ca7f",
+        "shadow_equity": "90904976.06871799",
+        "slow_signal": "False",
+        "spy_nav": "1.0",
+        "spy_r20": "0.004484508577333068",
+        "wc_dd": "-0.09095023931282009"
+      },
+      "first_open_entitlement_gap": null,
+      "first_over_capacity_order": {
+        "limit_shares": 132440.5,
+        "participation": 0.15480763059638103,
+        "prior_20_mean_raw_compatible_volume": 1324405.0,
+        "raw_open": 19.87,
+        "requested_shares": 205028.0,
+        "security_id": "1035638340512403010",
+        "session": "2006-07-06",
+        "side": "BUY",
+        "slot": 0,
+        "ticker": "MED"
+      },
+      "held_count_at_prefix_end": 25,
+      "identity": {
+        "audit_source_sha": "b0a3033d83584541f4d6f306ecee27e318d29a59",
+        "baseline_generated_sha256": "6d13313c5f6a45dc9eed665b7575f64bef8286c1be2ff6fba259c62e5c674a0a",
+        "baseline_normalized_ast_sha256": "7dfe469e846409dad684532b1c964d413cdbdf7d175c40cede53e8629e8858e1",
+        "baseline_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+        "case": "certified_capacity_off",
+        "certification_status": "NOT_CERTIFIED_DIAGNOSTIC",
+        "changed_dimension": "EXECUTION_PARTICIPATION_CAP_ONLY",
+        "corpus_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+        "economic_generated_sha256": "8394401940a74d65e7cda2b4d2240ad5a0aada947bde8b87e3a07650102ecff6",
+        "economic_normalized_ast_sha256": "65c896d4d869ed7779d0c0f291e45eb78f22642945310bf2ab7535b46a1a444f",
+        "initial_shadow_cash": 100000000,
+        "instrumented_generated_sha256": "e4efd21d4b2612d6a29b294156bf859c30cc060ce8f77f3f2bbc2c944e9863b9",
+        "measurement_start": "2006-07-31",
+        "observer_stripped_ast_matches": true,
+        "profile": "strategy9-e3-research-champion-v1",
+        "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+        "runtime_sha": "887f479b15ad861313da666ad698034d3847121c",
+        "schema": "champion.economic-prefix-audit/1",
+        "status": "PASS_BOUNDED_OBSERVATION",
+        "stop_after": "2006-08-02",
+        "warmup_start": "2006-01-03"
+      },
+      "ledger_arithmetic_status": "PASS_RECORDED_STATE_ONLY",
+      "observation": {
+        "checks": 1651,
+        "failed_checks": 0,
+        "fills": 25,
+        "held_terminal_touches": [],
+        "last_session": "2006-08-02",
+        "scope": "BOUNDED_PREFIX_ONLY_NOT_A_CERTIFICATE",
+        "sessions": 147,
+        "terminal_settlement_independent_proof": "NOT_ESTABLISHED_BY_THIS_PREFIX"
+      },
+      "open_entitlement_missing_sessions": 0,
+      "over_capacity_order_observations": 7,
+      "terminal_full_horizon_proof": "NOT_ESTABLISHED"
+    },
+    "certified_dividend_1": {
+      "accounting_check_types": {
+        "after_buys_cash": 147,
+        "after_sells_cash": 147,
+        "dividend_cash_unchanged": 147,
+        "dividend_claim_amount": 147,
+        "independent_close_nav": 147,
+        "independent_open_nav": 147,
+        "settlement_cash": 147,
+        "settlement_claims": 147,
+        "split_shares": 342
+      },
+      "cash_at_prefix_end": 27987265.84574911,
+      "entitlement_completeness_status": "NOT_EXERCISED",
+      "first_measured_daily": {
+        "A_allocation": "1.0",
+        "A_nav": "1.0",
+        "A_reason": "NORMAL",
+        "B_allocation": "1.0",
+        "B_nav": "1.0",
+        "B_reason": "NORMAL",
+        "control_allocation": "1.0",
+        "control_nav": "1.0",
+        "control_reason": "NORMAL",
+        "damaged": "0.7777777777777778",
+        "date": "2006-07-31",
+        "effective_native": "1.0",
+        "eligible_count": "807",
+        "fast_signal": "False",
+        "green": "0.16666666666666666",
+        "held_count": "18",
+        "leadership_population": "81",
+        "native_close_target": "1.0",
+        "open_equity": "92678635.2706211",
+        "recent_r20": "-0.06769269555771029",
+        "recent_r40": "-0.06769269555771029",
+        "research_eligible_universe": "807",
+        "research_ldrc_state": "{\"concordance_releases\":0,\"episode\":false,\"episodes\":0,\"full_streak\":0,\"latched\":false,\"prev_desired\":1.0,\"prev_native\":1.0,\"recent_positive_streak\":0}",
+        "research_ranking_count": "81",
+        "research_ranking_sha256": "678b65327cbcffec00b74c9d6fd03fcad0e1b1b3a0c8999b37f2ed36218488c2",
+        "research_selected_positions": "[\"1094655969856693337\",\"1101212501432953147\",\"117908596615035418\",\"134352070820280377\",\"212510547980373430\",\"226714775113304174\",\"271029648870576069\",\"320397541735962213\",\"40196728613332525\",\"452140482835311476\",\"530996274575880476\",\"561839039720650585\",\"635499515642261586\",\"720308907044255892\",\"801778135593349062\",\"8209006061861920\",\"927939971812641882\",\"950063614365024268\"]",
+        "research_selected_positions_sha256": "99704e3b19baa64d60b3be2149716f912f6f3f8183aaa7329560e56fe90f9298",
+        "shadow_equity": "93207107.2657491",
+        "slow_signal": "False",
+        "spy_nav": "1.0",
+        "spy_r20": "0.004484508577333068",
+        "wc_dd": "-0.067928927342509"
+      },
+      "first_open_entitlement_gap": null,
+      "first_over_capacity_order": {
+        "limit_shares": 132440.5,
+        "participation": 0.15480763059638103,
+        "prior_20_mean_raw_compatible_volume": 1324405.0,
+        "raw_open": 19.87,
+        "requested_shares": 205028.0,
+        "security_id": "1035638340512403010",
+        "session": "2006-07-06",
+        "side": "BUY",
+        "slot": 0,
+        "ticker": "MED"
+      },
+      "held_count_at_prefix_end": 18,
+      "identity": {
+        "audit_source_sha": "b0a3033d83584541f4d6f306ecee27e318d29a59",
+        "baseline_generated_sha256": "69a73f86eb8a2308556e81bfffeb4be1d535a13364bbfcad60e1e4ad5f899652",
+        "baseline_normalized_ast_sha256": "7dfe469e846409dad684532b1c964d413cdbdf7d175c40cede53e8629e8858e1",
+        "baseline_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+        "case": "certified_dividend_1",
+        "certification_status": "NOT_CERTIFIED_DIAGNOSTIC",
+        "changed_dimension": "DIVIDEND_SETTLEMENT_LAG_ONLY",
+        "corpus_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+        "economic_generated_sha256": "80f41037826b7d0d55e3a17270e192d2e460103612031a5c381373b463795872",
+        "economic_normalized_ast_sha256": "35f7a3768c942629a3169185047d529182f773ecabd69017805681f7dcea13d4",
+        "initial_shadow_cash": 100000000,
+        "instrumented_generated_sha256": "e6e984aa57b15dc61efa4a4cd85f8b89b6d7422c0a6359793d801eb707fe2874",
+        "measurement_start": "2006-07-31",
+        "observer_stripped_ast_matches": true,
+        "profile": "strategy9-e3-research-champion-v1",
+        "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+        "runtime_sha": "887f479b15ad861313da666ad698034d3847121c",
+        "schema": "champion.economic-prefix-audit/1",
+        "status": "PASS_BOUNDED_OBSERVATION",
+        "stop_after": "2006-08-02",
+        "warmup_start": "2006-01-03"
+      },
+      "ledger_arithmetic_status": "PASS_RECORDED_STATE_ONLY",
+      "observation": {
+        "checks": 1518,
+        "failed_checks": 0,
+        "fills": 18,
+        "held_terminal_touches": [],
+        "last_session": "2006-08-02",
+        "scope": "BOUNDED_PREFIX_ONLY_NOT_A_CERTIFICATE",
+        "sessions": 147,
+        "terminal_settlement_independent_proof": "NOT_ESTABLISHED_BY_THIS_PREFIX"
+      },
+      "open_entitlement_missing_sessions": 0,
+      "over_capacity_order_observations": 140,
+      "terminal_full_horizon_proof": "NOT_ESTABLISHED"
+    }
+  },
+  "comparisons": {
+    "candidate__certified": {
+      "allocation": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "cash": {
+        "differing_observations": 156,
+        "first": {
+          "left": 34.847525626886636,
+          "phase": "after_buys",
+          "right": 27987265.84574911,
+          "session": "2006-07-06"
+        }
+      },
+      "close_nav": {
+        "differing_observations": 20,
+        "first": {
+          "left": 99615288.33752564,
+          "phase": "close_nav",
+          "right": 99329237.17574912,
+          "session": "2006-07-06"
+        }
+      },
+      "dividend_receivables": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "durable_ranking": {
+        "differing_observations": 21,
+        "first": {
+          "left_count": 111,
+          "left_first_30": [
+            "153285850651631106",
+            "1035638340512403010",
+            "70004177131076678",
+            "1040633074096912075",
+            "774133617828255111",
+            "1087795559108646174",
+            "76950714006927886",
+            "671156860799182295",
+            "720308907044255892",
+            "214820292338870148",
+            "788900523736619527",
+            "420059517812568504",
+            "40196728613332525",
+            "927939971812641882",
+            "610550910758960793",
+            "1141346111756759492",
+            "319449693233671007",
+            "530996274575880476",
+            "271029648870576069",
+            "353685636371040898",
+            "555782615540001401",
+            "244656944763341218",
+            "320397541735962213",
+            "1089135472417080980",
+            "467726443352731838",
+            "74286179754649606",
+            "840588175708298328",
+            "134352070820280377",
+            "71106764588941805",
+            "643216859069485864"
+          ],
+          "left_only": [
+            "1008312226617164966",
+            "1024163234837360095",
+            "1040633074096912075",
+            "1083953115955373776",
+            "1089135472417080980",
+            "1099247927332588244",
+            "1118252242801920420",
+            "1120157951438313179",
+            "1145718711669119820",
+            "179723888445251193",
+            "214820292338870148",
+            "319449693233671007",
+            "32017049104064467",
+            "353685636371040898",
+            "399015290409969211",
+            "496491162214967514",
+            "499133590037325343",
+            "579519756002918974",
+            "622802662196915364",
+            "74286179754649606",
+            "765856696925416500",
+            "788900523736619527",
+            "793410471315351029",
+            "819475645860203151",
+            "840588175708298328",
+            "88378928586164151",
+            "902581431598383667",
+            "913289373016644680",
+            "913893647957981163",
+            "935924025138960001",
+            "937288233487556127",
+            "988542438072308803"
+          ],
+          "phase": "before_actions",
+          "right_count": 84,
+          "right_first_30": [
+            "153285850651631106",
+            "1035638340512403010",
+            "70004177131076678",
+            "774133617828255111",
+            "1087795559108646174",
+            "76950714006927886",
+            "671156860799182295",
+            "720308907044255892",
+            "983329147315909251",
+            "420059517812568504",
+            "40196728613332525",
+            "927939971812641882",
+            "610550910758960793",
+            "1141346111756759492",
+            "530996274575880476",
+            "271029648870576069",
+            "555782615540001401",
+            "244656944763341218",
+            "320397541735962213",
+            "467726443352731838",
+            "801778135593349062",
+            "134352070820280377",
+            "71106764588941805",
+            "643216859069485864",
+            "266855227169442591",
+            "452140482835311476",
+            "631714153765036714",
+            "554888571548807090",
+            "8209006061861920",
+            "43902875209253344"
+          ],
+          "right_only": [
+            "374378422212971395",
+            "464105271038507021",
+            "586750746546450762",
+            "801778135593349062",
+            "983329147315909251"
+          ],
+          "session": "2006-07-05"
+        }
+      },
+      "eligible_universe": {
+        "differing_observations": 21,
+        "first": {
+          "left_count": 1102,
+          "left_first_30": [
+            "247195603529201713",
+            "1034005275914348244",
+            "440033579184807244",
+            "610608780185649068",
+            "379492518508907652",
+            "1069110264874011291",
+            "172506604651624661",
+            "21037131285426558",
+            "172417666029195463",
+            "258893123405622697",
+            "889150038220957596",
+            "1047996635297042917",
+            "908793440963430061",
+            "530017738984364812",
+            "70004177131076678",
+            "608388447607862249",
+            "647949771662877522",
+            "728424009236554971",
+            "144700299941973079",
+            "357327402876032356",
+            "696702663051800713",
+            "22906513656678826",
+            "40196728613332525",
+            "486996261836773554",
+            "1141372739113607068",
+            "757624306032622561",
+            "834167427414703878",
+            "913893647957981163",
+            "226714775113304174",
+            "1140502487323287787"
+          ],
+          "left_only": [
+            "1008312226617164966",
+            "1010834858905861612",
+            "1012536259009666805",
+            "1024163234837360095",
+            "1025975490253483719",
+            "1028362773411686417",
+            "1035563312054045998",
+            "1037451286237013475",
+            "1039683821431828050",
+            "1040633074096912075",
+            "1042581232683903300",
+            "1042882926694701041",
+            "1047578073828105749",
+            "106569218926078867",
+            "1069110264874011291",
+            "1076616376339055949",
+            "1083953115955373776",
+            "1089135472417080980",
+            "1096003132450043065",
+            "1098170737088530689",
+            "1099247927332588244",
+            "1101958128290731445",
+            "1104508571422042454",
+            "1104896316141077892",
+            "1107257227772806429",
+            "1118252242801920420",
+            "1119715517712320195",
+            "1120157951438313179",
+            "11216770926041725",
+            "112676300749674495",
+            "1128391582117711992",
+            "1128878694438542491",
+            "1133666028208707131",
+            "1135997281461296467",
+            "1136705580042287163",
+            "1139717773370432743",
+            "1141993333710135475",
+            "1145718711669119820",
+            "1148193193711822658",
+            "1152886109977545435",
+            "117383223584673504",
+            "119690409689196878",
+            "122127560376270672",
+            "124470583467734882",
+            "126280207410902950",
+            "13698227415232376",
+            "144700299941973079",
+            "145471449820925335",
+            "14556114129757197",
+            "146639372573193242",
+            "149209101404250271",
+            "154787694246958247",
+            "159479669217240451",
+            "172506604651624661",
+            "179723888445251193",
+            "184954155896698894",
+            "187001531571140956",
+            "187683105660900564",
+            "200782403799405397",
+            "201661175959591427",
+            "203648306270562714",
+            "21367828098453600",
+            "214204248915913096",
+            "214820292338870148",
+            "217337884038065196",
+            "218406372066695280",
+            "220734612160088067",
+            "221040848723169476",
+            "222010989440912918",
+            "223489731780916334",
+            "227060587393674304",
+            "22906513656678826",
+            "233189665423411967",
+            "238785323839507876",
+            "242817260532849391",
+            "250618015555778910",
+            "252845012432277861",
+            "257995258404860206",
+            "258893123405622697",
+            "263470440580545501",
+            "26527342267715083",
+            "271541652423941074",
+            "272478278078438193",
+            "274182913283161824",
+            "277908412373409816",
+            "27893697355337632",
+            "281591336072523808",
+            "282586625222262119",
+            "287367877320854308",
+            "288236439289729704",
+            "291579668231200993",
+            "292531942144341277",
+            "305472410938548937",
+            "308241500991292123",
+            "313809790950811771",
+            "319449693233671007",
+            "32017049104064467",
+            "323335118726927382",
+            "324803533822634529",
+            "329261821474200437",
+            "342247754560677675",
+            "343962539479098777",
+            "345679706151556113",
+            "351812478891019936",
+            "352070480355017297",
+            "35236694394768611",
+            "353685636371040898",
+            "358282078487960651",
+            "367809761125398317",
+            "368784581101499417",
+            "369932887231879531",
+            "370412351853998799",
+            "373980305514538722",
+            "383833805320241393",
+            "387526833910121934",
+            "395005754124885796",
+            "39846923719649688",
+            "399015290409969211",
+            "404258436948279053",
+            "404606604472462818",
+            "40644482043311334",
+            "410782084757237754",
+            "416483318413645411",
+            "419756793261140579",
+            "42654543938407733",
+            "427246378643379974",
+            "436637327825736565",
+            "448497987146375190",
+            "45941741529110038",
+            "459791525961776759",
+            "46705815074361203",
+            "470898446993080544",
+            "485939835511264824",
+            "487869582447266471",
+            "493313832415681080",
+            "494437761585465342",
+            "496491162214967514",
+            "499133590037325343",
+            "500990921491854993",
+            "502221490776957978",
+            "508233778803396747",
+            "511484518106596204",
+            "53225290109588613",
+            "538554343829210633",
+            "541617558859712700",
+            "543274636793126591",
+            "551894809158706341",
+            "553972112448702494",
+            "55985294582827288",
+            "56251943382633799",
+            "565310265442083771",
+            "568764766995856111",
+            "572436205509811668",
+            "57411840384698119",
+            "576774468891329877",
+            "579519756002918974",
+            "585602588723660502",
+            "590437497895538462",
+            "598818893906299772",
+            "609731512019243817",
+            "614764004370436889",
+            "616207656933335880",
+            "622802662196915364",
+            "623190443678201852",
+            "631152957050863159",
+            "63371714929571534",
+            "636846793535425862",
+            "643640553460212683",
+            "64512338953698212",
+            "652203078943743046",
+            "652563215601597373",
+            "652994690256574128",
+            "653581521973665711",
+            "657581892454514237",
+            "661925293266930660",
+            "666213757158531660",
+            "669049502204944902",
+            "675540632474526608",
+            "680554584098113739",
+            "685051823089653812",
+            "685580789639317612",
+            "690655536850013765",
+            "691512578821020311",
+            "694575590377385878",
+            "696702663051800713",
+            "697608626643031114",
+            "709117510027464757",
+            "710093988276319303",
+            "711458655922744689",
+            "718098875444344211",
+            "718843729232494238",
+            "727654521122872319",
+            "728713302281578325",
+            "736706163712731141",
+            "739571744881917717",
+            "739770619759153468",
+            "740994347344182084",
+            "74286179754649606",
+            "747992771333504975",
+            "752616570720626425",
+            "753766528550783100",
+            "760379920259343544",
+            "761661185408036266",
+            "762697226200284243",
+            "765856696925416500",
+            "766320971625686200",
+            "768059737903560958",
+            "778230543970543483",
+            "78644325593115762",
+            "788900523736619527",
+            "793410471315351029",
+            "794026657301614010",
+            "810272368527364966",
+            "813497482627689409",
+            "816819956840135126",
+            "818427207626286294",
+            "819475645860203151",
+            "819913765374669526",
+            "82170842208443514",
+            "823234404046056619",
+            "831371468261077058",
+            "835968569385277275",
+            "837082428109450568",
+            "839010673456829190",
+            "840588175708298328",
+            "842263253948569686",
+            "847000870107412483",
+            "873597173719555178",
+            "875803280520331787",
+            "875828366730604655",
+            "877943324759167080",
+            "88378928586164151",
+            "886679880782512347",
+            "888056120539582187",
+            "888374992042785616",
+            "88944870845330515",
+            "902581431598383667",
+            "904773215650004084",
+            "907989354920106752",
+            "908793440963430061",
+            "909161371475655803",
+            "913289373016644680",
+            "913893647957981163",
+            "926606325962570555",
+            "931093969002672286",
+            "932160252748025368",
+            "935924025138960001",
+            "937288233487556127",
+            "941818860792490502",
+            "944174442226145604",
+            "944308282808791062",
+            "947676634579175833",
+            "948158838435799545",
+            "950956618868470019",
+            "953174271952728833",
+            "957008674074369745",
+            "957588719521684763",
+            "970964168784417941",
+            "98300450827989858",
+            "986236113377626689",
+            "988542438072308803",
+            "990484726740043660",
+            "998128448828099808",
+            "999229911941348239",
+            "999251670528237766"
+          ],
+          "phase": "before_actions",
+          "right_count": 837,
+          "right_first_30": [
+            "247195603529201713",
+            "1034005275914348244",
+            "440033579184807244",
+            "610608780185649068",
+            "379492518508907652",
+            "21037131285426558",
+            "172417666029195463",
+            "889150038220957596",
+            "1047996635297042917",
+            "530017738984364812",
+            "70004177131076678",
+            "608388447607862249",
+            "647949771662877522",
+            "728424009236554971",
+            "357327402876032356",
+            "40196728613332525",
+            "486996261836773554",
+            "1141372739113607068",
+            "757624306032622561",
+            "834167427414703878",
+            "226714775113304174",
+            "1140502487323287787",
+            "669905279120491866",
+            "1088993338163580568",
+            "61757183973803179",
+            "126827330787355169",
+            "1063480615396155280",
+            "372976266553349491",
+            "43902875209253344",
+            "586750746546450762"
+          ],
+          "right_only": [],
+          "session": "2006-07-05"
+        }
+      },
+      "first_different_fill_session": {
+        "left": [
+          {
+            "cash_flow": "-4077980.266360",
+            "quantity": 205028.0,
+            "raw_open": 19.87,
+            "security_id": "1035638340512403010",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 0,
+            "ticker": "MED"
+          },
+          {
+            "cash_flow": "-4001312.335020",
+            "quantity": 66722.0,
+            "raw_open": 59.91,
+            "security_id": "70004177131076678",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 1,
+            "ticker": "ACLI"
+          },
+          {
+            "cash_flow": "-3970697.090360",
+            "quantity": 75028.0,
+            "raw_open": 52.87,
+            "security_id": "1040633074096912075",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 2,
+            "ticker": "FALB"
+          },
+          {
+            "cash_flow": "-4003940.74080",
+            "quantity": 131577.0,
+            "raw_open": 30.4,
+            "security_id": "720308907044255892",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 3,
+            "ticker": "TTI"
+          },
+          {
+            "cash_flow": "-4028115.59150",
+            "quantity": 56281.0,
+            "raw_open": 71.5,
+            "security_id": "214820292338870148",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 4,
+            "ticker": "CHAP1"
+          },
+          {
+            "cash_flow": "-4087439.9545929950",
+            "quantity": 64817.0,
+            "raw_open": 62.998235,
+            "security_id": "788900523736619527",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 5,
+            "ticker": "LFCHY"
+          },
+          {
+            "cash_flow": "-4074837.76700",
+            "quantity": 94669.0,
+            "raw_open": 43.0,
+            "security_id": "40196728613332525",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 6,
+            "ticker": "ADM"
+          },
+          {
+            "cash_flow": "-3986651.268599998934335400",
+            "quantity": 53230.0,
+            "raw_open": 74.81999999999998,
+            "security_id": "927939971812641882",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 7,
+            "ticker": "LVS"
+          },
+          {
+            "cash_flow": "-4025147.352618391220861640",
+            "quantity": 19459.0,
+            "raw_open": 206.64608799999996,
+            "security_id": "530996274575880476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 8,
+            "ticker": "MNST"
+          },
+          {
+            "cash_flow": "-4050290.093850",
+            "quantity": 67947.0,
+            "raw_open": 59.55,
+            "security_id": "271029648870576069",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 9,
+            "ticker": "BFH"
+          },
+          {
+            "cash_flow": "-3998289.335040",
+            "quantity": 84339.0,
+            "raw_open": 47.36,
+            "security_id": "353685636371040898",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 10,
+            "ticker": "AVL1"
+          },
+          {
+            "cash_flow": "-3999998.042040",
+            "quantity": 65908.0,
+            "raw_open": 60.63,
+            "security_id": "555782615540001401",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 11,
+            "ticker": "LECO"
+          },
+          {
+            "cash_flow": "-4064735.67500",
+            "quantity": 137650.0,
+            "raw_open": 29.5,
+            "security_id": "244656944763341218",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 12,
+            "ticker": "DAKT"
+          },
+          {
+            "cash_flow": "-4011572.56500",
+            "quantity": 89057.0,
+            "raw_open": 45.0,
+            "security_id": "320397541735962213",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 13,
+            "ticker": "MTW"
+          },
+          {
+            "cash_flow": "-4061277.5333129994965410440",
+            "quantity": 83826.0,
+            "raw_open": 48.400499999999994,
+            "security_id": "840588175708298328",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 14,
+            "ticker": "VOLT2"
+          },
+          {
+            "cash_flow": "-3976871.7188199996277731450",
+            "quantity": 74371.0,
+            "raw_open": 53.419999999999995,
+            "security_id": "134352070820280377",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 15,
+            "ticker": "EXPD"
+          },
+          {
+            "cash_flow": "-4069935.920050",
+            "quantity": 101267.0,
+            "raw_open": 40.15,
+            "security_id": "266855227169442591",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 16,
+            "ticker": "KEX"
+          },
+          {
+            "cash_flow": "-3982612.383750",
+            "quantity": 86775.0,
+            "raw_open": 45.85,
+            "security_id": "452140482835311476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 17,
+            "ticker": "OII"
+          },
+          {
+            "cash_flow": "-4024255.43520",
+            "quantity": 57762.0,
+            "raw_open": 69.6,
+            "security_id": "1099247927332588244",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 18,
+            "ticker": "FTI1"
+          },
+          {
+            "cash_flow": "-3988799.214400",
+            "quantity": 111776.0,
+            "raw_open": 35.65,
+            "security_id": "88378928586164151",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 19,
+            "ticker": "WEBX1"
+          },
+          {
+            "cash_flow": "-4002741.042300",
+            "quantity": 46330.0,
+            "raw_open": 86.31,
+            "security_id": "8209006061861920",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 20,
+            "ticker": "JLL"
+          },
+          {
+            "cash_flow": "-4014336.526200",
+            "quantity": 130290.0,
+            "raw_open": 30.78,
+            "security_id": "43902875209253344",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 21,
+            "ticker": "AGP"
+          },
+          {
+            "cash_flow": "-3997064.591520",
+            "quantity": 58242.0,
+            "raw_open": 68.56,
+            "security_id": "1101212501432953147",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 22,
+            "ticker": "ATI"
+          },
+          {
+            "cash_flow": "-4007985.621640",
+            "quantity": 40379.0,
+            "raw_open": 99.16,
+            "security_id": "950063614365024268",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 23,
+            "ticker": "TEX"
+          },
+          {
+            "cash_flow": "-3493077.08750",
+            "quantity": 52475.0,
+            "raw_open": 66.5,
+            "security_id": "117908596615035418",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 24,
+            "ticker": "WCC"
+          }
+        ],
+        "right": [
+          {
+            "cash_flow": "-4003940.74080",
+            "quantity": 131577.0,
+            "raw_open": 30.4,
+            "security_id": "720308907044255892",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 2,
+            "ticker": "TTI"
+          },
+          {
+            "cash_flow": "-4074837.76700",
+            "quantity": 94669.0,
+            "raw_open": 43.0,
+            "security_id": "40196728613332525",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 4,
+            "ticker": "ADM"
+          },
+          {
+            "cash_flow": "-3986651.268599998934335400",
+            "quantity": 53230.0,
+            "raw_open": 74.81999999999998,
+            "security_id": "927939971812641882",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 5,
+            "ticker": "LVS"
+          },
+          {
+            "cash_flow": "-4025147.352618391220861640",
+            "quantity": 19459.0,
+            "raw_open": 206.64608799999996,
+            "security_id": "530996274575880476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 6,
+            "ticker": "MNST"
+          },
+          {
+            "cash_flow": "-4050290.093850",
+            "quantity": 67947.0,
+            "raw_open": 59.55,
+            "security_id": "271029648870576069",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 7,
+            "ticker": "BFH"
+          },
+          {
+            "cash_flow": "-4011572.56500",
+            "quantity": 89057.0,
+            "raw_open": 45.0,
+            "security_id": "320397541735962213",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 10,
+            "ticker": "MTW"
+          },
+          {
+            "cash_flow": "-3966728.1967272960",
+            "quantity": 56448.0,
+            "raw_open": 70.202052,
+            "security_id": "801778135593349062",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 11,
+            "ticker": "CSX"
+          },
+          {
+            "cash_flow": "-3976871.7188199996277731450",
+            "quantity": 74371.0,
+            "raw_open": 53.419999999999995,
+            "security_id": "134352070820280377",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 12,
+            "ticker": "EXPD"
+          },
+          {
+            "cash_flow": "-3982612.383750",
+            "quantity": 86775.0,
+            "raw_open": 45.85,
+            "security_id": "452140482835311476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 14,
+            "ticker": "OII"
+          },
+          {
+            "cash_flow": "-4002741.042300",
+            "quantity": 46330.0,
+            "raw_open": 86.31,
+            "security_id": "8209006061861920",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 15,
+            "ticker": "JLL"
+          },
+          {
+            "cash_flow": "-3997064.591520",
+            "quantity": 58242.0,
+            "raw_open": 68.56,
+            "security_id": "1101212501432953147",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 17,
+            "ticker": "ATI"
+          },
+          {
+            "cash_flow": "-4007985.621640",
+            "quantity": 40379.0,
+            "raw_open": 99.16,
+            "security_id": "950063614365024268",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 18,
+            "ticker": "TEX"
+          },
+          {
+            "cash_flow": "-3993990.00000",
+            "quantity": 60000.0,
+            "raw_open": 66.5,
+            "security_id": "117908596615035418",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 19,
+            "ticker": "WCC"
+          },
+          {
+            "cash_flow": "-4033782.632880",
+            "quantity": 33818.0,
+            "raw_open": 119.16,
+            "security_id": "635499515642261586",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 20,
+            "ticker": "CRS"
+          },
+          {
+            "cash_flow": "-4101890.22693450",
+            "quantity": 118329.0,
+            "raw_open": 34.6305,
+            "security_id": "226714775113304174",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 21,
+            "ticker": "AEO"
+          },
+          {
+            "cash_flow": "-3793461.0000307020",
+            "quantity": 71883.0,
+            "raw_open": 52.719994,
+            "security_id": "561839039720650585",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 22,
+            "ticker": "FMD"
+          },
+          {
+            "cash_flow": "-4016263.1308800",
+            "quantity": 62040.0,
+            "raw_open": 64.672,
+            "security_id": "212510547980373430",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 23,
+            "ticker": "STLD"
+          },
+          {
+            "cash_flow": "-3986903.8209000006546640100",
+            "quantity": 654010.0,
+            "raw_open": 6.090000000000001,
+            "security_id": "1094655969856693337",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 24,
+            "ticker": "BRCD"
+          }
+        ],
+        "session": "2006-07-06"
+      },
+      "held_quantities": {
+        "differing_observations": 156,
+        "first": {
+          "left": [
+            [
+              0,
+              "1035638340512403010",
+              205028.0
+            ],
+            [
+              1,
+              "70004177131076678",
+              66722.0
+            ],
+            [
+              2,
+              "1040633074096912075",
+              75028.0
+            ],
+            [
+              3,
+              "720308907044255892",
+              131577.0
+            ],
+            [
+              4,
+              "214820292338870148",
+              56281.0
+            ],
+            [
+              5,
+              "788900523736619527",
+              64817.0
+            ],
+            [
+              6,
+              "40196728613332525",
+              94669.0
+            ],
+            [
+              7,
+              "927939971812641882",
+              53230.0
+            ],
+            [
+              8,
+              "530996274575880476",
+              19459.0
+            ],
+            [
+              9,
+              "271029648870576069",
+              67947.0
+            ],
+            [
+              10,
+              "353685636371040898",
+              84339.0
+            ],
+            [
+              11,
+              "555782615540001401",
+              65908.0
+            ],
+            [
+              12,
+              "244656944763341218",
+              137650.0
+            ],
+            [
+              13,
+              "320397541735962213",
+              89057.0
+            ],
+            [
+              14,
+              "840588175708298328",
+              83826.0
+            ],
+            [
+              15,
+              "134352070820280377",
+              74371.0
+            ],
+            [
+              16,
+              "266855227169442591",
+              101267.0
+            ],
+            [
+              17,
+              "452140482835311476",
+              86775.0
+            ],
+            [
+              18,
+              "1099247927332588244",
+              57762.0
+            ],
+            [
+              19,
+              "88378928586164151",
+              111776.0
+            ],
+            [
+              20,
+              "8209006061861920",
+              46330.0
+            ],
+            [
+              21,
+              "43902875209253344",
+              130290.0
+            ],
+            [
+              22,
+              "1101212501432953147",
+              58242.0
+            ],
+            [
+              23,
+              "950063614365024268",
+              40379.0
+            ],
+            [
+              24,
+              "117908596615035418",
+              52475.0
+            ]
+          ],
+          "phase": "after_buys",
+          "right": [
+            [
+              2,
+              "720308907044255892",
+              131577.0
+            ],
+            [
+              4,
+              "40196728613332525",
+              94669.0
+            ],
+            [
+              5,
+              "927939971812641882",
+              53230.0
+            ],
+            [
+              6,
+              "530996274575880476",
+              19459.0
+            ],
+            [
+              7,
+              "271029648870576069",
+              67947.0
+            ],
+            [
+              10,
+              "320397541735962213",
+              89057.0
+            ],
+            [
+              11,
+              "801778135593349062",
+              56448.0
+            ],
+            [
+              12,
+              "134352070820280377",
+              74371.0
+            ],
+            [
+              14,
+              "452140482835311476",
+              86775.0
+            ],
+            [
+              15,
+              "8209006061861920",
+              46330.0
+            ],
+            [
+              17,
+              "1101212501432953147",
+              58242.0
+            ],
+            [
+              18,
+              "950063614365024268",
+              40379.0
+            ],
+            [
+              19,
+              "117908596615035418",
+              60000.0
+            ],
+            [
+              20,
+              "635499515642261586",
+              33818.0
+            ],
+            [
+              21,
+              "226714775113304174",
+              118329.0
+            ],
+            [
+              22,
+              "561839039720650585",
+              71883.0
+            ],
+            [
+              23,
+              "212510547980373430",
+              62040.0
+            ],
+            [
+              24,
+              "1094655969856693337",
+              654010.0
+            ]
+          ],
+          "session": "2006-07-06"
+        }
+      },
+      "normalized_strategy_nav": {
+        "differing_observations": 2,
+        "first": {
+          "left": 0.9834836198103473,
+          "phase": "session_end",
+          "right": 0.9848955557006399,
+          "session": "2006-08-01"
+        }
+      },
+      "open_nav": {
+        "differing_observations": 19,
+        "first": {
+          "left": 99661004.16183762,
+          "phase": "before_fills",
+          "right": 99442739.1623921,
+          "session": "2006-07-07"
+        }
+      },
+      "pending_orders": {
+        "differing_observations": 21,
+        "first": {
+          "left": [
+            [
+              0,
+              "BUY",
+              "1035638340512403010",
+              205028.0
+            ],
+            [
+              1,
+              "BUY",
+              "70004177131076678",
+              66722.0
+            ],
+            [
+              2,
+              "BUY",
+              "1040633074096912075",
+              75028.0
+            ],
+            [
+              3,
+              "BUY",
+              "720308907044255892",
+              131577.0
+            ],
+            [
+              4,
+              "BUY",
+              "214820292338870148",
+              56281.0
+            ],
+            [
+              5,
+              "BUY",
+              "788900523736619527",
+              64817.0
+            ],
+            [
+              6,
+              "BUY",
+              "40196728613332525",
+              94669.0
+            ],
+            [
+              7,
+              "BUY",
+              "927939971812641882",
+              53230.0
+            ],
+            [
+              8,
+              "BUY",
+              "530996274575880476",
+              19459.0
+            ],
+            [
+              9,
+              "BUY",
+              "271029648870576069",
+              67947.0
+            ],
+            [
+              10,
+              "BUY",
+              "353685636371040898",
+              84339.0
+            ],
+            [
+              11,
+              "BUY",
+              "555782615540001401",
+              65908.0
+            ],
+            [
+              12,
+              "BUY",
+              "244656944763341218",
+              137650.0
+            ],
+            [
+              13,
+              "BUY",
+              "320397541735962213",
+              89057.0
+            ],
+            [
+              14,
+              "BUY",
+              "840588175708298328",
+              83826.0
+            ],
+            [
+              15,
+              "BUY",
+              "134352070820280377",
+              74371.0
+            ],
+            [
+              16,
+              "BUY",
+              "266855227169442591",
+              101267.0
+            ],
+            [
+              17,
+              "BUY",
+              "452140482835311476",
+              86775.0
+            ],
+            [
+              18,
+              "BUY",
+              "1099247927332588244",
+              57762.0
+            ],
+            [
+              19,
+              "BUY",
+              "88378928586164151",
+              111776.0
+            ],
+            [
+              20,
+              "BUY",
+              "8209006061861920",
+              46330.0
+            ],
+            [
+              21,
+              "BUY",
+              "43902875209253344",
+              130290.0
+            ],
+            [
+              22,
+              "BUY",
+              "1101212501432953147",
+              58242.0
+            ],
+            [
+              23,
+              "BUY",
+              "950063614365024268",
+              40379.0
+            ],
+            [
+              24,
+              "BUY",
+              "117908596615035418",
+              60000.0
+            ]
+          ],
+          "phase": "session_end",
+          "right": [
+            [
+              0,
+              "BUY",
+              "1035638340512403010",
+              205028.0
+            ],
+            [
+              1,
+              "BUY",
+              "70004177131076678",
+              66722.0
+            ],
+            [
+              2,
+              "BUY",
+              "720308907044255892",
+              131577.0
+            ],
+            [
+              3,
+              "BUY",
+              "983329147315909251",
+              36586.0
+            ],
+            [
+              4,
+              "BUY",
+              "40196728613332525",
+              94669.0
+            ],
+            [
+              5,
+              "BUY",
+              "927939971812641882",
+              53230.0
+            ],
+            [
+              6,
+              "BUY",
+              "530996274575880476",
+              19459.0
+            ],
+            [
+              7,
+              "BUY",
+              "271029648870576069",
+              67947.0
+            ],
+            [
+              8,
+              "BUY",
+              "555782615540001401",
+              65908.0
+            ],
+            [
+              9,
+              "BUY",
+              "244656944763341218",
+              137650.0
+            ],
+            [
+              10,
+              "BUY",
+              "320397541735962213",
+              89057.0
+            ],
+            [
+              11,
+              "BUY",
+              "801778135593349062",
+              56448.0
+            ],
+            [
+              12,
+              "BUY",
+              "134352070820280377",
+              74371.0
+            ],
+            [
+              13,
+              "BUY",
+              "266855227169442591",
+              101267.0
+            ],
+            [
+              14,
+              "BUY",
+              "452140482835311476",
+              86775.0
+            ],
+            [
+              15,
+              "BUY",
+              "8209006061861920",
+              46330.0
+            ],
+            [
+              16,
+              "BUY",
+              "43902875209253344",
+              130290.0
+            ],
+            [
+              17,
+              "BUY",
+              "1101212501432953147",
+              58242.0
+            ],
+            [
+              18,
+              "BUY",
+              "950063614365024268",
+              40379.0
+            ],
+            [
+              19,
+              "BUY",
+              "117908596615035418",
+              60000.0
+            ],
+            [
+              20,
+              "BUY",
+              "635499515642261586",
+              33818.0
+            ],
+            [
+              21,
+              "BUY",
+              "226714775113304174",
+              118329.0
+            ],
+            [
+              22,
+              "BUY",
+              "561839039720650585",
+              71883.0
+            ],
+            [
+              23,
+              "BUY",
+              "212510547980373430",
+              62040.0
+            ],
+            [
+              24,
+              "BUY",
+              "1094655969856693337",
+              654010.0
+            ]
+          ],
+          "session": "2006-07-05"
+        }
+      },
+      "recent_leadership": {
+        "differing_observations": 21,
+        "first": {
+          "left_count": 111,
+          "left_first_30": [
+            "233957193007036874",
+            "840588175708298328",
+            "758056061571092910",
+            "324803533822634529",
+            "368784581101499417",
+            "515825968677210580",
+            "121583556373813368",
+            "1034005275914348244",
+            "289789523990727230",
+            "203687320028720832",
+            "872532685171113542",
+            "787433642710811302",
+            "244656944763341218",
+            "789980096513085464",
+            "561839039720650585",
+            "403242976148185583",
+            "1108712974566893162",
+            "785854024195674512",
+            "1120157951438313179",
+            "1021775099832014265",
+            "218406372066695280",
+            "1048096150151795960",
+            "522795427876043636",
+            "894644668160066839",
+            "453205581586027521",
+            "615574756486329759",
+            "425321506533674611",
+            "452140482835311476",
+            "486157482040479057",
+            "106021274559241848"
+          ],
+          "left_only": [
+            "1120157951438313179",
+            "21367828098453600",
+            "217337884038065196",
+            "218406372066695280",
+            "223489731780916334",
+            "324803533822634529",
+            "329261821474200437",
+            "368784581101499417",
+            "395005754124885796",
+            "427246378643379974",
+            "508233778803396747",
+            "55985294582827288",
+            "56251943382633799",
+            "576774468891329877",
+            "579519756002918974",
+            "590437497895538462",
+            "598818893906299772",
+            "697608626643031114",
+            "740994347344182084",
+            "794026657301614010",
+            "819475645860203151",
+            "819913765374669526",
+            "831371468261077058",
+            "837082428109450568",
+            "840588175708298328",
+            "88378928586164151",
+            "904773215650004084",
+            "999229911941348239"
+          ],
+          "phase": "before_actions",
+          "right_count": 84,
+          "right_first_30": [
+            "233957193007036874",
+            "758056061571092910",
+            "515825968677210580",
+            "121583556373813368",
+            "1034005275914348244",
+            "289789523990727230",
+            "203687320028720832",
+            "872532685171113542",
+            "787433642710811302",
+            "244656944763341218",
+            "789980096513085464",
+            "561839039720650585",
+            "403242976148185583",
+            "1108712974566893162",
+            "785854024195674512",
+            "1021775099832014265",
+            "1048096150151795960",
+            "522795427876043636",
+            "894644668160066839",
+            "453205581586027521",
+            "615574756486329759",
+            "425321506533674611",
+            "452140482835311476",
+            "486157482040479057",
+            "106021274559241848",
+            "750130963446756239",
+            "276044719892003870",
+            "899620172992563489",
+            "286315428635447910",
+            "1050109273937982168"
+          ],
+          "right_only": [
+            "3647390896632707"
+          ],
+          "session": "2006-07-05"
+        }
+      }
+    },
+    "certified__certified_candidate_types": {
+      "allocation": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "cash": {
+        "differing_observations": 156,
+        "first": {
+          "left": 27987265.84574911,
+          "phase": "after_buys",
+          "right": 47862039.4189016,
+          "session": "2006-07-06"
+        }
+      },
+      "close_nav": {
+        "differing_observations": 20,
+        "first": {
+          "left": 99329237.17574912,
+          "phase": "close_nav",
+          "right": 99911336.2089016,
+          "session": "2006-07-06"
+        }
+      },
+      "dividend_receivables": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "durable_ranking": {
+        "differing_observations": 21,
+        "first": {
+          "left_count": 84,
+          "left_first_30": [
+            "153285850651631106",
+            "1035638340512403010",
+            "70004177131076678",
+            "774133617828255111",
+            "1087795559108646174",
+            "76950714006927886",
+            "671156860799182295",
+            "720308907044255892",
+            "983329147315909251",
+            "420059517812568504",
+            "40196728613332525",
+            "927939971812641882",
+            "610550910758960793",
+            "1141346111756759492",
+            "530996274575880476",
+            "271029648870576069",
+            "555782615540001401",
+            "244656944763341218",
+            "320397541735962213",
+            "467726443352731838",
+            "801778135593349062",
+            "134352070820280377",
+            "71106764588941805",
+            "643216859069485864",
+            "266855227169442591",
+            "452140482835311476",
+            "631714153765036714",
+            "554888571548807090",
+            "8209006061861920",
+            "43902875209253344"
+          ],
+          "left_only": [
+            "374378422212971395",
+            "464105271038507021",
+            "586750746546450762",
+            "801778135593349062",
+            "983329147315909251"
+          ],
+          "phase": "before_actions",
+          "right_count": 111,
+          "right_first_30": [
+            "153285850651631106",
+            "1035638340512403010",
+            "70004177131076678",
+            "1040633074096912075",
+            "774133617828255111",
+            "1087795559108646174",
+            "76950714006927886",
+            "671156860799182295",
+            "720308907044255892",
+            "214820292338870148",
+            "788900523736619527",
+            "420059517812568504",
+            "40196728613332525",
+            "927939971812641882",
+            "610550910758960793",
+            "1141346111756759492",
+            "319449693233671007",
+            "530996274575880476",
+            "271029648870576069",
+            "353685636371040898",
+            "555782615540001401",
+            "244656944763341218",
+            "320397541735962213",
+            "1089135472417080980",
+            "467726443352731838",
+            "74286179754649606",
+            "840588175708298328",
+            "134352070820280377",
+            "71106764588941805",
+            "643216859069485864"
+          ],
+          "right_only": [
+            "1008312226617164966",
+            "1024163234837360095",
+            "1040633074096912075",
+            "1083953115955373776",
+            "1089135472417080980",
+            "1099247927332588244",
+            "1118252242801920420",
+            "1120157951438313179",
+            "1145718711669119820",
+            "179723888445251193",
+            "214820292338870148",
+            "319449693233671007",
+            "32017049104064467",
+            "353685636371040898",
+            "399015290409969211",
+            "496491162214967514",
+            "499133590037325343",
+            "579519756002918974",
+            "622802662196915364",
+            "74286179754649606",
+            "765856696925416500",
+            "788900523736619527",
+            "793410471315351029",
+            "819475645860203151",
+            "840588175708298328",
+            "88378928586164151",
+            "902581431598383667",
+            "913289373016644680",
+            "913893647957981163",
+            "935924025138960001",
+            "937288233487556127",
+            "988542438072308803"
+          ],
+          "session": "2006-07-05"
+        }
+      },
+      "eligible_universe": {
+        "differing_observations": 21,
+        "first": {
+          "left_count": 837,
+          "left_first_30": [
+            "247195603529201713",
+            "1034005275914348244",
+            "440033579184807244",
+            "610608780185649068",
+            "379492518508907652",
+            "21037131285426558",
+            "172417666029195463",
+            "889150038220957596",
+            "1047996635297042917",
+            "530017738984364812",
+            "70004177131076678",
+            "608388447607862249",
+            "647949771662877522",
+            "728424009236554971",
+            "357327402876032356",
+            "40196728613332525",
+            "486996261836773554",
+            "1141372739113607068",
+            "757624306032622561",
+            "834167427414703878",
+            "226714775113304174",
+            "1140502487323287787",
+            "669905279120491866",
+            "1088993338163580568",
+            "61757183973803179",
+            "126827330787355169",
+            "1063480615396155280",
+            "372976266553349491",
+            "43902875209253344",
+            "586750746546450762"
+          ],
+          "left_only": [],
+          "phase": "before_actions",
+          "right_count": 1102,
+          "right_first_30": [
+            "247195603529201713",
+            "1034005275914348244",
+            "440033579184807244",
+            "610608780185649068",
+            "379492518508907652",
+            "1069110264874011291",
+            "172506604651624661",
+            "21037131285426558",
+            "172417666029195463",
+            "258893123405622697",
+            "889150038220957596",
+            "1047996635297042917",
+            "908793440963430061",
+            "530017738984364812",
+            "70004177131076678",
+            "608388447607862249",
+            "647949771662877522",
+            "728424009236554971",
+            "144700299941973079",
+            "357327402876032356",
+            "696702663051800713",
+            "22906513656678826",
+            "40196728613332525",
+            "486996261836773554",
+            "1141372739113607068",
+            "757624306032622561",
+            "834167427414703878",
+            "913893647957981163",
+            "226714775113304174",
+            "1140502487323287787"
+          ],
+          "right_only": [
+            "1008312226617164966",
+            "1010834858905861612",
+            "1012536259009666805",
+            "1024163234837360095",
+            "1025975490253483719",
+            "1028362773411686417",
+            "1035563312054045998",
+            "1037451286237013475",
+            "1039683821431828050",
+            "1040633074096912075",
+            "1042581232683903300",
+            "1042882926694701041",
+            "1047578073828105749",
+            "106569218926078867",
+            "1069110264874011291",
+            "1076616376339055949",
+            "1083953115955373776",
+            "1089135472417080980",
+            "1096003132450043065",
+            "1098170737088530689",
+            "1099247927332588244",
+            "1101958128290731445",
+            "1104508571422042454",
+            "1104896316141077892",
+            "1107257227772806429",
+            "1118252242801920420",
+            "1119715517712320195",
+            "1120157951438313179",
+            "11216770926041725",
+            "112676300749674495",
+            "1128391582117711992",
+            "1128878694438542491",
+            "1133666028208707131",
+            "1135997281461296467",
+            "1136705580042287163",
+            "1139717773370432743",
+            "1141993333710135475",
+            "1145718711669119820",
+            "1148193193711822658",
+            "1152886109977545435",
+            "117383223584673504",
+            "119690409689196878",
+            "122127560376270672",
+            "124470583467734882",
+            "126280207410902950",
+            "13698227415232376",
+            "144700299941973079",
+            "145471449820925335",
+            "14556114129757197",
+            "146639372573193242",
+            "149209101404250271",
+            "154787694246958247",
+            "159479669217240451",
+            "172506604651624661",
+            "179723888445251193",
+            "184954155896698894",
+            "187001531571140956",
+            "187683105660900564",
+            "200782403799405397",
+            "201661175959591427",
+            "203648306270562714",
+            "21367828098453600",
+            "214204248915913096",
+            "214820292338870148",
+            "217337884038065196",
+            "218406372066695280",
+            "220734612160088067",
+            "221040848723169476",
+            "222010989440912918",
+            "223489731780916334",
+            "227060587393674304",
+            "22906513656678826",
+            "233189665423411967",
+            "238785323839507876",
+            "242817260532849391",
+            "250618015555778910",
+            "252845012432277861",
+            "257995258404860206",
+            "258893123405622697",
+            "263470440580545501",
+            "26527342267715083",
+            "271541652423941074",
+            "272478278078438193",
+            "274182913283161824",
+            "277908412373409816",
+            "27893697355337632",
+            "281591336072523808",
+            "282586625222262119",
+            "287367877320854308",
+            "288236439289729704",
+            "291579668231200993",
+            "292531942144341277",
+            "305472410938548937",
+            "308241500991292123",
+            "313809790950811771",
+            "319449693233671007",
+            "32017049104064467",
+            "323335118726927382",
+            "324803533822634529",
+            "329261821474200437",
+            "342247754560677675",
+            "343962539479098777",
+            "345679706151556113",
+            "351812478891019936",
+            "352070480355017297",
+            "35236694394768611",
+            "353685636371040898",
+            "358282078487960651",
+            "367809761125398317",
+            "368784581101499417",
+            "369932887231879531",
+            "370412351853998799",
+            "373980305514538722",
+            "383833805320241393",
+            "387526833910121934",
+            "395005754124885796",
+            "39846923719649688",
+            "399015290409969211",
+            "404258436948279053",
+            "404606604472462818",
+            "40644482043311334",
+            "410782084757237754",
+            "416483318413645411",
+            "419756793261140579",
+            "42654543938407733",
+            "427246378643379974",
+            "436637327825736565",
+            "448497987146375190",
+            "45941741529110038",
+            "459791525961776759",
+            "46705815074361203",
+            "470898446993080544",
+            "485939835511264824",
+            "487869582447266471",
+            "493313832415681080",
+            "494437761585465342",
+            "496491162214967514",
+            "499133590037325343",
+            "500990921491854993",
+            "502221490776957978",
+            "508233778803396747",
+            "511484518106596204",
+            "53225290109588613",
+            "538554343829210633",
+            "541617558859712700",
+            "543274636793126591",
+            "551894809158706341",
+            "553972112448702494",
+            "55985294582827288",
+            "56251943382633799",
+            "565310265442083771",
+            "568764766995856111",
+            "572436205509811668",
+            "57411840384698119",
+            "576774468891329877",
+            "579519756002918974",
+            "585602588723660502",
+            "590437497895538462",
+            "598818893906299772",
+            "609731512019243817",
+            "614764004370436889",
+            "616207656933335880",
+            "622802662196915364",
+            "623190443678201852",
+            "631152957050863159",
+            "63371714929571534",
+            "636846793535425862",
+            "643640553460212683",
+            "64512338953698212",
+            "652203078943743046",
+            "652563215601597373",
+            "652994690256574128",
+            "653581521973665711",
+            "657581892454514237",
+            "661925293266930660",
+            "666213757158531660",
+            "669049502204944902",
+            "675540632474526608",
+            "680554584098113739",
+            "685051823089653812",
+            "685580789639317612",
+            "690655536850013765",
+            "691512578821020311",
+            "694575590377385878",
+            "696702663051800713",
+            "697608626643031114",
+            "709117510027464757",
+            "710093988276319303",
+            "711458655922744689",
+            "718098875444344211",
+            "718843729232494238",
+            "727654521122872319",
+            "728713302281578325",
+            "736706163712731141",
+            "739571744881917717",
+            "739770619759153468",
+            "740994347344182084",
+            "74286179754649606",
+            "747992771333504975",
+            "752616570720626425",
+            "753766528550783100",
+            "760379920259343544",
+            "761661185408036266",
+            "762697226200284243",
+            "765856696925416500",
+            "766320971625686200",
+            "768059737903560958",
+            "778230543970543483",
+            "78644325593115762",
+            "788900523736619527",
+            "793410471315351029",
+            "794026657301614010",
+            "810272368527364966",
+            "813497482627689409",
+            "816819956840135126",
+            "818427207626286294",
+            "819475645860203151",
+            "819913765374669526",
+            "82170842208443514",
+            "823234404046056619",
+            "831371468261077058",
+            "835968569385277275",
+            "837082428109450568",
+            "839010673456829190",
+            "840588175708298328",
+            "842263253948569686",
+            "847000870107412483",
+            "873597173719555178",
+            "875803280520331787",
+            "875828366730604655",
+            "877943324759167080",
+            "88378928586164151",
+            "886679880782512347",
+            "888056120539582187",
+            "888374992042785616",
+            "88944870845330515",
+            "902581431598383667",
+            "904773215650004084",
+            "907989354920106752",
+            "908793440963430061",
+            "909161371475655803",
+            "913289373016644680",
+            "913893647957981163",
+            "926606325962570555",
+            "931093969002672286",
+            "932160252748025368",
+            "935924025138960001",
+            "937288233487556127",
+            "941818860792490502",
+            "944174442226145604",
+            "944308282808791062",
+            "947676634579175833",
+            "948158838435799545",
+            "950956618868470019",
+            "953174271952728833",
+            "957008674074369745",
+            "957588719521684763",
+            "970964168784417941",
+            "98300450827989858",
+            "986236113377626689",
+            "988542438072308803",
+            "990484726740043660",
+            "998128448828099808",
+            "999229911941348239",
+            "999251670528237766"
+          ],
+          "session": "2006-07-05"
+        }
+      },
+      "first_different_fill_session": {
+        "left": [
+          {
+            "cash_flow": "-4003940.74080",
+            "quantity": 131577.0,
+            "raw_open": 30.4,
+            "security_id": "720308907044255892",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 2,
+            "ticker": "TTI"
+          },
+          {
+            "cash_flow": "-4074837.76700",
+            "quantity": 94669.0,
+            "raw_open": 43.0,
+            "security_id": "40196728613332525",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 4,
+            "ticker": "ADM"
+          },
+          {
+            "cash_flow": "-3986651.268599998934335400",
+            "quantity": 53230.0,
+            "raw_open": 74.81999999999998,
+            "security_id": "927939971812641882",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 5,
+            "ticker": "LVS"
+          },
+          {
+            "cash_flow": "-4025147.352618391220861640",
+            "quantity": 19459.0,
+            "raw_open": 206.64608799999996,
+            "security_id": "530996274575880476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 6,
+            "ticker": "MNST"
+          },
+          {
+            "cash_flow": "-4050290.093850",
+            "quantity": 67947.0,
+            "raw_open": 59.55,
+            "security_id": "271029648870576069",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 7,
+            "ticker": "BFH"
+          },
+          {
+            "cash_flow": "-4011572.56500",
+            "quantity": 89057.0,
+            "raw_open": 45.0,
+            "security_id": "320397541735962213",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 10,
+            "ticker": "MTW"
+          },
+          {
+            "cash_flow": "-3966728.1967272960",
+            "quantity": 56448.0,
+            "raw_open": 70.202052,
+            "security_id": "801778135593349062",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 11,
+            "ticker": "CSX"
+          },
+          {
+            "cash_flow": "-3976871.7188199996277731450",
+            "quantity": 74371.0,
+            "raw_open": 53.419999999999995,
+            "security_id": "134352070820280377",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 12,
+            "ticker": "EXPD"
+          },
+          {
+            "cash_flow": "-3982612.383750",
+            "quantity": 86775.0,
+            "raw_open": 45.85,
+            "security_id": "452140482835311476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 14,
+            "ticker": "OII"
+          },
+          {
+            "cash_flow": "-4002741.042300",
+            "quantity": 46330.0,
+            "raw_open": 86.31,
+            "security_id": "8209006061861920",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 15,
+            "ticker": "JLL"
+          },
+          {
+            "cash_flow": "-3997064.591520",
+            "quantity": 58242.0,
+            "raw_open": 68.56,
+            "security_id": "1101212501432953147",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 17,
+            "ticker": "ATI"
+          },
+          {
+            "cash_flow": "-4007985.621640",
+            "quantity": 40379.0,
+            "raw_open": 99.16,
+            "security_id": "950063614365024268",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 18,
+            "ticker": "TEX"
+          },
+          {
+            "cash_flow": "-3993990.00000",
+            "quantity": 60000.0,
+            "raw_open": 66.5,
+            "security_id": "117908596615035418",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 19,
+            "ticker": "WCC"
+          },
+          {
+            "cash_flow": "-4033782.632880",
+            "quantity": 33818.0,
+            "raw_open": 119.16,
+            "security_id": "635499515642261586",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 20,
+            "ticker": "CRS"
+          },
+          {
+            "cash_flow": "-4101890.22693450",
+            "quantity": 118329.0,
+            "raw_open": 34.6305,
+            "security_id": "226714775113304174",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 21,
+            "ticker": "AEO"
+          },
+          {
+            "cash_flow": "-3793461.0000307020",
+            "quantity": 71883.0,
+            "raw_open": 52.719994,
+            "security_id": "561839039720650585",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 22,
+            "ticker": "FMD"
+          },
+          {
+            "cash_flow": "-4016263.1308800",
+            "quantity": 62040.0,
+            "raw_open": 64.672,
+            "security_id": "212510547980373430",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 23,
+            "ticker": "STLD"
+          },
+          {
+            "cash_flow": "-3986903.8209000006546640100",
+            "quantity": 654010.0,
+            "raw_open": 6.090000000000001,
+            "security_id": "1094655969856693337",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 24,
+            "ticker": "BRCD"
+          }
+        ],
+        "right": [
+          {
+            "cash_flow": "-4003940.74080",
+            "quantity": 131577.0,
+            "raw_open": 30.4,
+            "security_id": "720308907044255892",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 3,
+            "ticker": "TTI"
+          },
+          {
+            "cash_flow": "-4074837.76700",
+            "quantity": 94669.0,
+            "raw_open": 43.0,
+            "security_id": "40196728613332525",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 6,
+            "ticker": "ADM"
+          },
+          {
+            "cash_flow": "-3986651.268599998934335400",
+            "quantity": 53230.0,
+            "raw_open": 74.81999999999998,
+            "security_id": "927939971812641882",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 7,
+            "ticker": "LVS"
+          },
+          {
+            "cash_flow": "-4025147.352618391220861640",
+            "quantity": 19459.0,
+            "raw_open": 206.64608799999996,
+            "security_id": "530996274575880476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 8,
+            "ticker": "MNST"
+          },
+          {
+            "cash_flow": "-4050290.093850",
+            "quantity": 67947.0,
+            "raw_open": 59.55,
+            "security_id": "271029648870576069",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 9,
+            "ticker": "BFH"
+          },
+          {
+            "cash_flow": "-4011572.56500",
+            "quantity": 89057.0,
+            "raw_open": 45.0,
+            "security_id": "320397541735962213",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 13,
+            "ticker": "MTW"
+          },
+          {
+            "cash_flow": "-3976871.7188199996277731450",
+            "quantity": 74371.0,
+            "raw_open": 53.419999999999995,
+            "security_id": "134352070820280377",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 15,
+            "ticker": "EXPD"
+          },
+          {
+            "cash_flow": "-3982612.383750",
+            "quantity": 86775.0,
+            "raw_open": 45.85,
+            "security_id": "452140482835311476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 17,
+            "ticker": "OII"
+          },
+          {
+            "cash_flow": "-4024255.43520",
+            "quantity": 57762.0,
+            "raw_open": 69.6,
+            "security_id": "1099247927332588244",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 18,
+            "ticker": "FTI1"
+          },
+          {
+            "cash_flow": "-4002741.042300",
+            "quantity": 46330.0,
+            "raw_open": 86.31,
+            "security_id": "8209006061861920",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 20,
+            "ticker": "JLL"
+          },
+          {
+            "cash_flow": "-3997064.591520",
+            "quantity": 58242.0,
+            "raw_open": 68.56,
+            "security_id": "1101212501432953147",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 22,
+            "ticker": "ATI"
+          },
+          {
+            "cash_flow": "-4007985.621640",
+            "quantity": 40379.0,
+            "raw_open": 99.16,
+            "security_id": "950063614365024268",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 23,
+            "ticker": "TEX"
+          },
+          {
+            "cash_flow": "-3993990.00000",
+            "quantity": 60000.0,
+            "raw_open": 66.5,
+            "security_id": "117908596615035418",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 24,
+            "ticker": "WCC"
+          }
+        ],
+        "session": "2006-07-06"
+      },
+      "held_quantities": {
+        "differing_observations": 156,
+        "first": {
+          "left": [
+            [
+              2,
+              "720308907044255892",
+              131577.0
+            ],
+            [
+              4,
+              "40196728613332525",
+              94669.0
+            ],
+            [
+              5,
+              "927939971812641882",
+              53230.0
+            ],
+            [
+              6,
+              "530996274575880476",
+              19459.0
+            ],
+            [
+              7,
+              "271029648870576069",
+              67947.0
+            ],
+            [
+              10,
+              "320397541735962213",
+              89057.0
+            ],
+            [
+              11,
+              "801778135593349062",
+              56448.0
+            ],
+            [
+              12,
+              "134352070820280377",
+              74371.0
+            ],
+            [
+              14,
+              "452140482835311476",
+              86775.0
+            ],
+            [
+              15,
+              "8209006061861920",
+              46330.0
+            ],
+            [
+              17,
+              "1101212501432953147",
+              58242.0
+            ],
+            [
+              18,
+              "950063614365024268",
+              40379.0
+            ],
+            [
+              19,
+              "117908596615035418",
+              60000.0
+            ],
+            [
+              20,
+              "635499515642261586",
+              33818.0
+            ],
+            [
+              21,
+              "226714775113304174",
+              118329.0
+            ],
+            [
+              22,
+              "561839039720650585",
+              71883.0
+            ],
+            [
+              23,
+              "212510547980373430",
+              62040.0
+            ],
+            [
+              24,
+              "1094655969856693337",
+              654010.0
+            ]
+          ],
+          "phase": "after_buys",
+          "right": [
+            [
+              3,
+              "720308907044255892",
+              131577.0
+            ],
+            [
+              6,
+              "40196728613332525",
+              94669.0
+            ],
+            [
+              7,
+              "927939971812641882",
+              53230.0
+            ],
+            [
+              8,
+              "530996274575880476",
+              19459.0
+            ],
+            [
+              9,
+              "271029648870576069",
+              67947.0
+            ],
+            [
+              13,
+              "320397541735962213",
+              89057.0
+            ],
+            [
+              15,
+              "134352070820280377",
+              74371.0
+            ],
+            [
+              17,
+              "452140482835311476",
+              86775.0
+            ],
+            [
+              18,
+              "1099247927332588244",
+              57762.0
+            ],
+            [
+              20,
+              "8209006061861920",
+              46330.0
+            ],
+            [
+              22,
+              "1101212501432953147",
+              58242.0
+            ],
+            [
+              23,
+              "950063614365024268",
+              40379.0
+            ],
+            [
+              24,
+              "117908596615035418",
+              60000.0
+            ]
+          ],
+          "session": "2006-07-06"
+        }
+      },
+      "normalized_strategy_nav": {
+        "differing_observations": 2,
+        "first": {
+          "left": 0.9848955557006399,
+          "phase": "session_end",
+          "right": 0.990003699214243,
+          "session": "2006-08-01"
+        }
+      },
+      "open_nav": {
+        "differing_observations": 19,
+        "first": {
+          "left": 99442739.1623921,
+          "phase": "before_fills",
+          "right": 100095346.03506559,
+          "session": "2006-07-07"
+        }
+      },
+      "pending_orders": {
+        "differing_observations": 21,
+        "first": {
+          "left": [
+            [
+              0,
+              "BUY",
+              "1035638340512403010",
+              205028.0
+            ],
+            [
+              1,
+              "BUY",
+              "70004177131076678",
+              66722.0
+            ],
+            [
+              2,
+              "BUY",
+              "720308907044255892",
+              131577.0
+            ],
+            [
+              3,
+              "BUY",
+              "983329147315909251",
+              36586.0
+            ],
+            [
+              4,
+              "BUY",
+              "40196728613332525",
+              94669.0
+            ],
+            [
+              5,
+              "BUY",
+              "927939971812641882",
+              53230.0
+            ],
+            [
+              6,
+              "BUY",
+              "530996274575880476",
+              19459.0
+            ],
+            [
+              7,
+              "BUY",
+              "271029648870576069",
+              67947.0
+            ],
+            [
+              8,
+              "BUY",
+              "555782615540001401",
+              65908.0
+            ],
+            [
+              9,
+              "BUY",
+              "244656944763341218",
+              137650.0
+            ],
+            [
+              10,
+              "BUY",
+              "320397541735962213",
+              89057.0
+            ],
+            [
+              11,
+              "BUY",
+              "801778135593349062",
+              56448.0
+            ],
+            [
+              12,
+              "BUY",
+              "134352070820280377",
+              74371.0
+            ],
+            [
+              13,
+              "BUY",
+              "266855227169442591",
+              101267.0
+            ],
+            [
+              14,
+              "BUY",
+              "452140482835311476",
+              86775.0
+            ],
+            [
+              15,
+              "BUY",
+              "8209006061861920",
+              46330.0
+            ],
+            [
+              16,
+              "BUY",
+              "43902875209253344",
+              130290.0
+            ],
+            [
+              17,
+              "BUY",
+              "1101212501432953147",
+              58242.0
+            ],
+            [
+              18,
+              "BUY",
+              "950063614365024268",
+              40379.0
+            ],
+            [
+              19,
+              "BUY",
+              "117908596615035418",
+              60000.0
+            ],
+            [
+              20,
+              "BUY",
+              "635499515642261586",
+              33818.0
+            ],
+            [
+              21,
+              "BUY",
+              "226714775113304174",
+              118329.0
+            ],
+            [
+              22,
+              "BUY",
+              "561839039720650585",
+              71883.0
+            ],
+            [
+              23,
+              "BUY",
+              "212510547980373430",
+              62040.0
+            ],
+            [
+              24,
+              "BUY",
+              "1094655969856693337",
+              654010.0
+            ]
+          ],
+          "phase": "session_end",
+          "right": [
+            [
+              0,
+              "BUY",
+              "1035638340512403010",
+              205028.0
+            ],
+            [
+              1,
+              "BUY",
+              "70004177131076678",
+              66722.0
+            ],
+            [
+              2,
+              "BUY",
+              "1040633074096912075",
+              75028.0
+            ],
+            [
+              3,
+              "BUY",
+              "720308907044255892",
+              131577.0
+            ],
+            [
+              4,
+              "BUY",
+              "214820292338870148",
+              56281.0
+            ],
+            [
+              5,
+              "BUY",
+              "788900523736619527",
+              64817.0
+            ],
+            [
+              6,
+              "BUY",
+              "40196728613332525",
+              94669.0
+            ],
+            [
+              7,
+              "BUY",
+              "927939971812641882",
+              53230.0
+            ],
+            [
+              8,
+              "BUY",
+              "530996274575880476",
+              19459.0
+            ],
+            [
+              9,
+              "BUY",
+              "271029648870576069",
+              67947.0
+            ],
+            [
+              10,
+              "BUY",
+              "353685636371040898",
+              84339.0
+            ],
+            [
+              11,
+              "BUY",
+              "555782615540001401",
+              65908.0
+            ],
+            [
+              12,
+              "BUY",
+              "244656944763341218",
+              137650.0
+            ],
+            [
+              13,
+              "BUY",
+              "320397541735962213",
+              89057.0
+            ],
+            [
+              14,
+              "BUY",
+              "840588175708298328",
+              83826.0
+            ],
+            [
+              15,
+              "BUY",
+              "134352070820280377",
+              74371.0
+            ],
+            [
+              16,
+              "BUY",
+              "266855227169442591",
+              101267.0
+            ],
+            [
+              17,
+              "BUY",
+              "452140482835311476",
+              86775.0
+            ],
+            [
+              18,
+              "BUY",
+              "1099247927332588244",
+              57762.0
+            ],
+            [
+              19,
+              "BUY",
+              "88378928586164151",
+              111776.0
+            ],
+            [
+              20,
+              "BUY",
+              "8209006061861920",
+              46330.0
+            ],
+            [
+              21,
+              "BUY",
+              "43902875209253344",
+              130290.0
+            ],
+            [
+              22,
+              "BUY",
+              "1101212501432953147",
+              58242.0
+            ],
+            [
+              23,
+              "BUY",
+              "950063614365024268",
+              40379.0
+            ],
+            [
+              24,
+              "BUY",
+              "117908596615035418",
+              60000.0
+            ]
+          ],
+          "session": "2006-07-05"
+        }
+      },
+      "recent_leadership": {
+        "differing_observations": 21,
+        "first": {
+          "left_count": 84,
+          "left_first_30": [
+            "233957193007036874",
+            "758056061571092910",
+            "515825968677210580",
+            "121583556373813368",
+            "1034005275914348244",
+            "289789523990727230",
+            "203687320028720832",
+            "872532685171113542",
+            "787433642710811302",
+            "244656944763341218",
+            "789980096513085464",
+            "561839039720650585",
+            "403242976148185583",
+            "1108712974566893162",
+            "785854024195674512",
+            "1021775099832014265",
+            "1048096150151795960",
+            "522795427876043636",
+            "894644668160066839",
+            "453205581586027521",
+            "615574756486329759",
+            "425321506533674611",
+            "452140482835311476",
+            "486157482040479057",
+            "106021274559241848",
+            "750130963446756239",
+            "276044719892003870",
+            "899620172992563489",
+            "286315428635447910",
+            "1050109273937982168"
+          ],
+          "left_only": [
+            "3647390896632707"
+          ],
+          "phase": "before_actions",
+          "right_count": 111,
+          "right_first_30": [
+            "233957193007036874",
+            "840588175708298328",
+            "758056061571092910",
+            "324803533822634529",
+            "368784581101499417",
+            "515825968677210580",
+            "121583556373813368",
+            "1034005275914348244",
+            "289789523990727230",
+            "203687320028720832",
+            "872532685171113542",
+            "787433642710811302",
+            "244656944763341218",
+            "789980096513085464",
+            "561839039720650585",
+            "403242976148185583",
+            "1108712974566893162",
+            "785854024195674512",
+            "1120157951438313179",
+            "1021775099832014265",
+            "218406372066695280",
+            "1048096150151795960",
+            "522795427876043636",
+            "894644668160066839",
+            "453205581586027521",
+            "615574756486329759",
+            "425321506533674611",
+            "452140482835311476",
+            "486157482040479057",
+            "106021274559241848"
+          ],
+          "right_only": [
+            "1120157951438313179",
+            "21367828098453600",
+            "217337884038065196",
+            "218406372066695280",
+            "223489731780916334",
+            "324803533822634529",
+            "329261821474200437",
+            "368784581101499417",
+            "395005754124885796",
+            "427246378643379974",
+            "508233778803396747",
+            "55985294582827288",
+            "56251943382633799",
+            "576774468891329877",
+            "579519756002918974",
+            "590437497895538462",
+            "598818893906299772",
+            "697608626643031114",
+            "740994347344182084",
+            "794026657301614010",
+            "819475645860203151",
+            "819913765374669526",
+            "831371468261077058",
+            "837082428109450568",
+            "840588175708298328",
+            "88378928586164151",
+            "904773215650004084",
+            "999229911941348239"
+          ],
+          "session": "2006-07-05"
+        }
+      }
+    },
+    "certified__certified_capacity_off": {
+      "allocation": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "cash": {
+        "differing_observations": 156,
+        "first": {
+          "left": 27987265.84574911,
+          "phase": "after_buys",
+          "right": 4.638717982918024,
+          "session": "2006-07-06"
+        }
+      },
+      "close_nav": {
+        "differing_observations": 20,
+        "first": {
+          "left": 99329237.17574912,
+          "phase": "close_nav",
+          "right": 99000744.82871799,
+          "session": "2006-07-06"
+        }
+      },
+      "dividend_receivables": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "durable_ranking": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "eligible_universe": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "first_different_fill_session": {
+        "left": [
+          {
+            "cash_flow": "-4003940.74080",
+            "quantity": 131577.0,
+            "raw_open": 30.4,
+            "security_id": "720308907044255892",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 2,
+            "ticker": "TTI"
+          },
+          {
+            "cash_flow": "-4074837.76700",
+            "quantity": 94669.0,
+            "raw_open": 43.0,
+            "security_id": "40196728613332525",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 4,
+            "ticker": "ADM"
+          },
+          {
+            "cash_flow": "-3986651.268599998934335400",
+            "quantity": 53230.0,
+            "raw_open": 74.81999999999998,
+            "security_id": "927939971812641882",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 5,
+            "ticker": "LVS"
+          },
+          {
+            "cash_flow": "-4025147.352618391220861640",
+            "quantity": 19459.0,
+            "raw_open": 206.64608799999996,
+            "security_id": "530996274575880476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 6,
+            "ticker": "MNST"
+          },
+          {
+            "cash_flow": "-4050290.093850",
+            "quantity": 67947.0,
+            "raw_open": 59.55,
+            "security_id": "271029648870576069",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 7,
+            "ticker": "BFH"
+          },
+          {
+            "cash_flow": "-4011572.56500",
+            "quantity": 89057.0,
+            "raw_open": 45.0,
+            "security_id": "320397541735962213",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 10,
+            "ticker": "MTW"
+          },
+          {
+            "cash_flow": "-3966728.1967272960",
+            "quantity": 56448.0,
+            "raw_open": 70.202052,
+            "security_id": "801778135593349062",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 11,
+            "ticker": "CSX"
+          },
+          {
+            "cash_flow": "-3976871.7188199996277731450",
+            "quantity": 74371.0,
+            "raw_open": 53.419999999999995,
+            "security_id": "134352070820280377",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 12,
+            "ticker": "EXPD"
+          },
+          {
+            "cash_flow": "-3982612.383750",
+            "quantity": 86775.0,
+            "raw_open": 45.85,
+            "security_id": "452140482835311476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 14,
+            "ticker": "OII"
+          },
+          {
+            "cash_flow": "-4002741.042300",
+            "quantity": 46330.0,
+            "raw_open": 86.31,
+            "security_id": "8209006061861920",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 15,
+            "ticker": "JLL"
+          },
+          {
+            "cash_flow": "-3997064.591520",
+            "quantity": 58242.0,
+            "raw_open": 68.56,
+            "security_id": "1101212501432953147",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 17,
+            "ticker": "ATI"
+          },
+          {
+            "cash_flow": "-4007985.621640",
+            "quantity": 40379.0,
+            "raw_open": 99.16,
+            "security_id": "950063614365024268",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 18,
+            "ticker": "TEX"
+          },
+          {
+            "cash_flow": "-3993990.00000",
+            "quantity": 60000.0,
+            "raw_open": 66.5,
+            "security_id": "117908596615035418",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 19,
+            "ticker": "WCC"
+          },
+          {
+            "cash_flow": "-4033782.632880",
+            "quantity": 33818.0,
+            "raw_open": 119.16,
+            "security_id": "635499515642261586",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 20,
+            "ticker": "CRS"
+          },
+          {
+            "cash_flow": "-4101890.22693450",
+            "quantity": 118329.0,
+            "raw_open": 34.6305,
+            "security_id": "226714775113304174",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 21,
+            "ticker": "AEO"
+          },
+          {
+            "cash_flow": "-3793461.0000307020",
+            "quantity": 71883.0,
+            "raw_open": 52.719994,
+            "security_id": "561839039720650585",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 22,
+            "ticker": "FMD"
+          },
+          {
+            "cash_flow": "-4016263.1308800",
+            "quantity": 62040.0,
+            "raw_open": 64.672,
+            "security_id": "212510547980373430",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 23,
+            "ticker": "STLD"
+          },
+          {
+            "cash_flow": "-3986903.8209000006546640100",
+            "quantity": 654010.0,
+            "raw_open": 6.090000000000001,
+            "security_id": "1094655969856693337",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 24,
+            "ticker": "BRCD"
+          }
+        ],
+        "right": [
+          {
+            "cash_flow": "-4077980.266360",
+            "quantity": 205028.0,
+            "raw_open": 19.87,
+            "security_id": "1035638340512403010",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 0,
+            "ticker": "MED"
+          },
+          {
+            "cash_flow": "-4001312.335020",
+            "quantity": 66722.0,
+            "raw_open": 59.91,
+            "security_id": "70004177131076678",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 1,
+            "ticker": "ACLI"
+          },
+          {
+            "cash_flow": "-4003940.74080",
+            "quantity": 131577.0,
+            "raw_open": 30.4,
+            "security_id": "720308907044255892",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 2,
+            "ticker": "TTI"
+          },
+          {
+            "cash_flow": "-4010919.9381511260",
+            "quantity": 36586.0,
+            "raw_open": 109.520391,
+            "security_id": "983329147315909251",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 3,
+            "ticker": "SLG"
+          },
+          {
+            "cash_flow": "-4074837.76700",
+            "quantity": 94669.0,
+            "raw_open": 43.0,
+            "security_id": "40196728613332525",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 4,
+            "ticker": "ADM"
+          },
+          {
+            "cash_flow": "-3986651.268599998934335400",
+            "quantity": 53230.0,
+            "raw_open": 74.81999999999998,
+            "security_id": "927939971812641882",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 5,
+            "ticker": "LVS"
+          },
+          {
+            "cash_flow": "-4025147.352618391220861640",
+            "quantity": 19459.0,
+            "raw_open": 206.64608799999996,
+            "security_id": "530996274575880476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 6,
+            "ticker": "MNST"
+          },
+          {
+            "cash_flow": "-4050290.093850",
+            "quantity": 67947.0,
+            "raw_open": 59.55,
+            "security_id": "271029648870576069",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 7,
+            "ticker": "BFH"
+          },
+          {
+            "cash_flow": "-3999998.042040",
+            "quantity": 65908.0,
+            "raw_open": 60.63,
+            "security_id": "555782615540001401",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 8,
+            "ticker": "LECO"
+          },
+          {
+            "cash_flow": "-4064735.67500",
+            "quantity": 137650.0,
+            "raw_open": 29.5,
+            "security_id": "244656944763341218",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 9,
+            "ticker": "DAKT"
+          },
+          {
+            "cash_flow": "-4011572.56500",
+            "quantity": 89057.0,
+            "raw_open": 45.0,
+            "security_id": "320397541735962213",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 10,
+            "ticker": "MTW"
+          },
+          {
+            "cash_flow": "-3966728.1967272960",
+            "quantity": 56448.0,
+            "raw_open": 70.202052,
+            "security_id": "801778135593349062",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 11,
+            "ticker": "CSX"
+          },
+          {
+            "cash_flow": "-3976871.7188199996277731450",
+            "quantity": 74371.0,
+            "raw_open": 53.419999999999995,
+            "security_id": "134352070820280377",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 12,
+            "ticker": "EXPD"
+          },
+          {
+            "cash_flow": "-4069935.920050",
+            "quantity": 101267.0,
+            "raw_open": 40.15,
+            "security_id": "266855227169442591",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 13,
+            "ticker": "KEX"
+          },
+          {
+            "cash_flow": "-3982612.383750",
+            "quantity": 86775.0,
+            "raw_open": 45.85,
+            "security_id": "452140482835311476",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 14,
+            "ticker": "OII"
+          },
+          {
+            "cash_flow": "-4002741.042300",
+            "quantity": 46330.0,
+            "raw_open": 86.31,
+            "security_id": "8209006061861920",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 15,
+            "ticker": "JLL"
+          },
+          {
+            "cash_flow": "-4014336.526200",
+            "quantity": 130290.0,
+            "raw_open": 30.78,
+            "security_id": "43902875209253344",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 16,
+            "ticker": "AGP"
+          },
+          {
+            "cash_flow": "-3997064.591520",
+            "quantity": 58242.0,
+            "raw_open": 68.56,
+            "security_id": "1101212501432953147",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 17,
+            "ticker": "ATI"
+          },
+          {
+            "cash_flow": "-4007985.621640",
+            "quantity": 40379.0,
+            "raw_open": 99.16,
+            "security_id": "950063614365024268",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 18,
+            "ticker": "TEX"
+          },
+          {
+            "cash_flow": "-3993990.00000",
+            "quantity": 60000.0,
+            "raw_open": 66.5,
+            "security_id": "117908596615035418",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 19,
+            "ticker": "WCC"
+          },
+          {
+            "cash_flow": "-4033782.632880",
+            "quantity": 33818.0,
+            "raw_open": 119.16,
+            "security_id": "635499515642261586",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 20,
+            "ticker": "CRS"
+          },
+          {
+            "cash_flow": "-4101890.22693450",
+            "quantity": 118329.0,
+            "raw_open": 34.6305,
+            "security_id": "226714775113304174",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 21,
+            "ticker": "AEO"
+          },
+          {
+            "cash_flow": "-3793461.0000307020",
+            "quantity": 71883.0,
+            "raw_open": 52.719994,
+            "security_id": "561839039720650585",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 22,
+            "ticker": "FMD"
+          },
+          {
+            "cash_flow": "-4016263.1308800",
+            "quantity": 62040.0,
+            "raw_open": 64.672,
+            "security_id": "212510547980373430",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 23,
+            "ticker": "STLD"
+          },
+          {
+            "cash_flow": "-3734946.3251100006132916790",
+            "quantity": 612679.0,
+            "raw_open": 6.090000000000001,
+            "security_id": "1094655969856693337",
+            "session": "2006-07-06",
+            "side": "BUY",
+            "slot": 24,
+            "ticker": "BRCD"
+          }
+        ],
+        "session": "2006-07-06"
+      },
+      "held_quantities": {
+        "differing_observations": 156,
+        "first": {
+          "left": [
+            [
+              2,
+              "720308907044255892",
+              131577.0
+            ],
+            [
+              4,
+              "40196728613332525",
+              94669.0
+            ],
+            [
+              5,
+              "927939971812641882",
+              53230.0
+            ],
+            [
+              6,
+              "530996274575880476",
+              19459.0
+            ],
+            [
+              7,
+              "271029648870576069",
+              67947.0
+            ],
+            [
+              10,
+              "320397541735962213",
+              89057.0
+            ],
+            [
+              11,
+              "801778135593349062",
+              56448.0
+            ],
+            [
+              12,
+              "134352070820280377",
+              74371.0
+            ],
+            [
+              14,
+              "452140482835311476",
+              86775.0
+            ],
+            [
+              15,
+              "8209006061861920",
+              46330.0
+            ],
+            [
+              17,
+              "1101212501432953147",
+              58242.0
+            ],
+            [
+              18,
+              "950063614365024268",
+              40379.0
+            ],
+            [
+              19,
+              "117908596615035418",
+              60000.0
+            ],
+            [
+              20,
+              "635499515642261586",
+              33818.0
+            ],
+            [
+              21,
+              "226714775113304174",
+              118329.0
+            ],
+            [
+              22,
+              "561839039720650585",
+              71883.0
+            ],
+            [
+              23,
+              "212510547980373430",
+              62040.0
+            ],
+            [
+              24,
+              "1094655969856693337",
+              654010.0
+            ]
+          ],
+          "phase": "after_buys",
+          "right": [
+            [
+              0,
+              "1035638340512403010",
+              205028.0
+            ],
+            [
+              1,
+              "70004177131076678",
+              66722.0
+            ],
+            [
+              2,
+              "720308907044255892",
+              131577.0
+            ],
+            [
+              3,
+              "983329147315909251",
+              36586.0
+            ],
+            [
+              4,
+              "40196728613332525",
+              94669.0
+            ],
+            [
+              5,
+              "927939971812641882",
+              53230.0
+            ],
+            [
+              6,
+              "530996274575880476",
+              19459.0
+            ],
+            [
+              7,
+              "271029648870576069",
+              67947.0
+            ],
+            [
+              8,
+              "555782615540001401",
+              65908.0
+            ],
+            [
+              9,
+              "244656944763341218",
+              137650.0
+            ],
+            [
+              10,
+              "320397541735962213",
+              89057.0
+            ],
+            [
+              11,
+              "801778135593349062",
+              56448.0
+            ],
+            [
+              12,
+              "134352070820280377",
+              74371.0
+            ],
+            [
+              13,
+              "266855227169442591",
+              101267.0
+            ],
+            [
+              14,
+              "452140482835311476",
+              86775.0
+            ],
+            [
+              15,
+              "8209006061861920",
+              46330.0
+            ],
+            [
+              16,
+              "43902875209253344",
+              130290.0
+            ],
+            [
+              17,
+              "1101212501432953147",
+              58242.0
+            ],
+            [
+              18,
+              "950063614365024268",
+              40379.0
+            ],
+            [
+              19,
+              "117908596615035418",
+              60000.0
+            ],
+            [
+              20,
+              "635499515642261586",
+              33818.0
+            ],
+            [
+              21,
+              "226714775113304174",
+              118329.0
+            ],
+            [
+              22,
+              "561839039720650585",
+              71883.0
+            ],
+            [
+              23,
+              "212510547980373430",
+              62040.0
+            ],
+            [
+              24,
+              "1094655969856693337",
+              612679.0
+            ]
+          ],
+          "session": "2006-07-06"
+        }
+      },
+      "normalized_strategy_nav": {
+        "differing_observations": 2,
+        "first": {
+          "left": 0.9848955557006399,
+          "phase": "session_end",
+          "right": 0.9807826028282608,
+          "session": "2006-08-01"
+        }
+      },
+      "open_nav": {
+        "differing_observations": 19,
+        "first": {
+          "left": 99442739.1623921,
+          "phase": "before_fills",
+          "right": 99119488.02341495,
+          "session": "2006-07-07"
+        }
+      },
+      "pending_orders": {
+        "differing_observations": 20,
+        "first": {
+          "left": [
+            [
+              0,
+              "BUY",
+              "1035638340512403010",
+              205028.0
+            ],
+            [
+              1,
+              "BUY",
+              "70004177131076678",
+              66722.0
+            ],
+            [
+              3,
+              "BUY",
+              "983329147315909251",
+              36586.0
+            ],
+            [
+              8,
+              "BUY",
+              "555782615540001401",
+              65908.0
+            ],
+            [
+              9,
+              "BUY",
+              "244656944763341218",
+              137650.0
+            ],
+            [
+              13,
+              "BUY",
+              "266855227169442591",
+              101267.0
+            ],
+            [
+              16,
+              "BUY",
+              "43902875209253344",
+              130290.0
+            ]
+          ],
+          "phase": "session_end",
+          "right": [],
+          "session": "2006-07-06"
+        }
+      },
+      "recent_leadership": {
+        "differing_observations": 0,
+        "first": null
+      }
+    },
+    "certified__certified_dividend_1": {
+      "allocation": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "cash": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "close_nav": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "dividend_receivables": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "durable_ranking": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "eligible_universe": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "first_different_fill_session": null,
+      "held_quantities": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "normalized_strategy_nav": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "open_nav": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "pending_orders": {
+        "differing_observations": 0,
+        "first": null
+      },
+      "recent_leadership": {
+        "differing_observations": 0,
+        "first": null
+      }
+    }
+  },
+  "schema": "champion.economic-prefix-attribution/1",
+  "scope": "2006-01-03_THROUGH_2006-08-02_NOT_FULL_20Y_ATTRIBUTION",
+  "status": "COMPLETED_BOUNDED_DIAGNOSTIC_CERTIFICATION_BLOCKED"
+}

@@ -1,0 +1,25 @@
+{
+  "artifacts": [
+    {
+      "archive_download_url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/9985958324/zip",
+      "created_at": "2026-09-06T08:40:09Z",
+      "digest": "sha256:e20652e5d0b083590c828cfc271739e64ea6e3a91fd1329365d95ce15f076f08",
+      "expired": false,
+      "expires_at": "2026-12-05T05:27:56Z",
+      "id": 9985958324,
+      "name": "research-champion-pit-v2-34014048220-1",
+      "node_id": "MDg6QXJ0aWZhY3Q5OTg1OTU4MzI0",
+      "size_in_bytes": 1271410,
+      "updated_at": "2026-09-06T08:40:09Z",
+      "url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/9985958324",
+      "workflow_run": {
+        "head_branch": "research/research-champion",
+        "head_repository_id": 1233957439,
+        "head_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+        "id": 34014048220,
+        "repository_id": 1233957439
+      }
+    }
+  ],
+  "total_count": 1
+}

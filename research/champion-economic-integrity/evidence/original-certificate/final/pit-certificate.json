@@ -1,0 +1,173 @@
+{
+  "blockers": [],
+  "certificate_hash": "e769073eaf63573010c00785479e65e35fa397b7bb5204e79525a3519b058cf5",
+  "checks": {
+    "checkpoint_resume": "PASS",
+    "corporate_actions": "PASS",
+    "dataset_integrity": "PASS",
+    "dynamic_future_leak": "PASS",
+    "financial_semantics": "PASS",
+    "pit_metadata": "PASS",
+    "runtime_causal_read_boundary": "PASS",
+    "runtime_source_binding": "PASS",
+    "static_forward_bias": "PASS",
+    "terminal_events": "PASS",
+    "universe_resolution": "PASS"
+  },
+  "claim": "point-in-time, causality, universe, terminal/action, and forward-bias checks passed for this exact replay",
+  "configuration_identity": {
+    "configuration": {
+      "dataset_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+      "mode": "research",
+      "parameters": {
+        "FAST_damaged": 0.88,
+        "LDRC_DD": -0.1,
+        "LDRC_R20": -0.085,
+        "LDRC_REC": 8,
+        "LDRC_V": 0.11,
+        "certification_contract": "backtester.pit-certification/1",
+        "divergence_spy_floor": 0.0,
+        "entrypoint": "run_research_champion_strict_pit_20y_v2.py",
+        "full_recovery_r40_floor": 0.0,
+        "healthy_damaged_ceiling": 0.63,
+        "mode": "fullpit",
+        "profile": "strategy9-e3-research-champion-v1",
+        "runtime_main_sha": "887f479b15ad861313da666ad698034d3847121c",
+        "terminal_grace": true
+      },
+      "schema": "backtester.pit-configuration/1",
+      "source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+      "strategy_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+      "window": {
+        "end": "2026-07-31",
+        "measurement_start": "2006-07-31",
+        "warmup_start": "2006-01-03"
+      }
+    },
+    "configuration_sha256": "dfec0881ac3001bcc4fef5d2ff5585ebd0f6bd0586061fdf198fdb0ca8bdecff"
+  },
+  "dataset_identity": {
+    "dataset_id": "strict-pit-2006-01-03-2026-07-31-5bdc6b39e4a8ec4d",
+    "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+    "manifest_sha256": "cfa94043084c1cbd83230b5a7225baa45b526797db4581c192561e0fb82ab5b0",
+    "member_hash_set_sha256": "a38c97b92bcd0850c989e0b555b48756ed5957d0a9978637f0f9e6e7fda0726d",
+    "member_hashes": {
+      "actions.csv.gz": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139",
+      "benchmark.csv.gz": "87244b4a1b3be19402aa761105018d49f00ebb11ed141990968a15b6d1bbe1f7",
+      "cash.csv.gz": "744b6119894d45e5b467ec7bf3dd7b2e39d7b2d227c1ad62509d133c25d6f81e",
+      "metadata-timeline.csv.gz": "0f4e7747de0d9c5947c6123225c8870356b9bc8386b63f5ff284bbe635b1775a",
+      "observations-2006.csv.gz": "71d95c154134266425f64078cde0cde387b8267794c1c13e0abb4624ae5a3f02",
+      "observations-2007.csv.gz": "0f963ffc2571e96f8096d4215702c66433ae12e48c226334da1dc1fce31dddbd",
+      "observations-2008.csv.gz": "a90602b6e94bcfbc543933cf491f51a7049aacc2157a88fcdab03b3f57204f6b",
+      "observations-2009.csv.gz": "030704967e2f72cb5d22cd3a28c4fdf4d1e453a8cf9d5be7926be8f3bb336224",
+      "observations-2010.csv.gz": "6ff9bef75488c90cd1c070337890abfe87cf852a4513d4b1255344120b90bb23",
+      "observations-2011.csv.gz": "8347cf9dc8f99c822fa0832d28101b9e3aec8718844ed484bc6b099b9b9954cd",
+      "observations-2012.csv.gz": "fbb36d782f612dd0e2ecb13ad8212c5ce3ec5ff63771ced27299b515b2c02dba",
+      "observations-2013.csv.gz": "6c2806314b92ae7a186e92925d43d0374ea7b15016f27520276bccdd543fe22d",
+      "observations-2014.csv.gz": "d0d11cd2f20c5b238932c64145400c537653017b9cf04448e9b5c103f053f36e",
+      "observations-2015.csv.gz": "c6d081c934993b91558b4af8d25c926addff9713de65a7ed3dd8d56ab8e06df0",
+      "observations-2016.csv.gz": "53632b75b4d3ee16569aeb4ea95e460ab8aa536b849ca037f872c4b3da6e5f52",
+      "observations-2017.csv.gz": "f77c3109b9962d47de55ad608ae2750d7e9b0767074457d656d96bdac3d817b1",
+      "observations-2018.csv.gz": "8ba12d9c60fd5c1eb0d5d261486afe44ee34ceb5f59185abfd70e93a9cb3b634",
+      "observations-2019.csv.gz": "d1bf0b8254bae5273014214aa22c136870e33f40a3724b20e1c664ea84184f79",
+      "observations-2020.csv.gz": "b34e74c0983d1672e1e82cbd854727e2b752b235bfac217699e166238cac78cf",
+      "observations-2021.csv.gz": "487142c81ddb02c58f325de1e1295ff312b136966da9c2f53b9fe08b5268845a",
+      "observations-2022.csv.gz": "e2e2ecfa491b73f38ea304c539dbcd1c4331dc4a6371d12669968bdaac978acc",
+      "observations-2023.csv.gz": "fa3f6c090a4c2d77495778341626f1408ef9d03f8bcba15dd40339f2e31b60fa",
+      "observations-2024.csv.gz": "13016d332486bbdba3327835205e6c6da9d2e1363229836088ee6e2472d31e30",
+      "observations-2025.csv.gz": "470792932fa3914513fde48e4ca86b81ec7fa084496578794528270fdc0607f6",
+      "observations-2026.csv.gz": "4781bd89bb00e33a3911375f4ad907a8158aa49e9160349e53ee7d03f8a3237e",
+      "session-hashes.csv": "859483c82d643aba4a190c8de8b8e647f6a52a0747efe70db876c53a425abcbc",
+      "terminal-events.csv.gz": "c40a73505212efa9f3035ccb78d6e715319d1398f3e314d98a7d72fec84bb4de"
+    },
+    "package": "ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c",
+    "package_digest": "f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c",
+    "pointer_sha256": "be1a5a06980430e97021679f7ea875b47606268f20b994ff6da3e15322a3bae8",
+    "reconstruction_code_sha": "8bb1e499f2a96a58959bf91def1b149ba573e6a6",
+    "session_hashes_sha256": "859483c82d643aba4a190c8de8b8e647f6a52a0747efe70db876c53a425abcbc",
+    "window": {
+      "end": "2026-07-31",
+      "measurement_start": "2006-07-31",
+      "warmup_start": "2006-01-03"
+    }
+  },
+  "evidence": {
+    "annual_chain": null,
+    "dataset": {
+      "dataset_id": "strict-pit-2006-01-03-2026-07-31-5bdc6b39e4a8ec4d",
+      "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+      "manifest_sha256": "cfa94043084c1cbd83230b5a7225baa45b526797db4581c192561e0fb82ab5b0",
+      "member_hash_set_sha256": "a38c97b92bcd0850c989e0b555b48756ed5957d0a9978637f0f9e6e7fda0726d",
+      "member_hashes": {
+        "actions.csv.gz": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139",
+        "benchmark.csv.gz": "87244b4a1b3be19402aa761105018d49f00ebb11ed141990968a15b6d1bbe1f7",
+        "cash.csv.gz": "744b6119894d45e5b467ec7bf3dd7b2e39d7b2d227c1ad62509d133c25d6f81e",
+        "metadata-timeline.csv.gz": "0f4e7747de0d9c5947c6123225c8870356b9bc8386b63f5ff284bbe635b1775a",
+        "observations-2006.csv.gz": "71d95c154134266425f64078cde0cde387b8267794c1c13e0abb4624ae5a3f02",
+        "observations-2007.csv.gz": "0f963ffc2571e96f8096d4215702c66433ae12e48c226334da1dc1fce31dddbd",
+        "observations-2008.csv.gz": "a90602b6e94bcfbc543933cf491f51a7049aacc2157a88fcdab03b3f57204f6b",
+        "observations-2009.csv.gz": "030704967e2f72cb5d22cd3a28c4fdf4d1e453a8cf9d5be7926be8f3bb336224",
+        "observations-2010.csv.gz": "6ff9bef75488c90cd1c070337890abfe87cf852a4513d4b1255344120b90bb23",
+        "observations-2011.csv.gz": "8347cf9dc8f99c822fa0832d28101b9e3aec8718844ed484bc6b099b9b9954cd",
+        "observations-2012.csv.gz": "fbb36d782f612dd0e2ecb13ad8212c5ce3ec5ff63771ced27299b515b2c02dba",
+        "observations-2013.csv.gz": "6c2806314b92ae7a186e92925d43d0374ea7b15016f27520276bccdd543fe22d",
+        "observations-2014.csv.gz": "d0d11cd2f20c5b238932c64145400c537653017b9cf04448e9b5c103f053f36e",
+        "observations-2015.csv.gz": "c6d081c934993b91558b4af8d25c926addff9713de65a7ed3dd8d56ab8e06df0",
+        "observations-2016.csv.gz": "53632b75b4d3ee16569aeb4ea95e460ab8aa536b849ca037f872c4b3da6e5f52",
+        "observations-2017.csv.gz": "f77c3109b9962d47de55ad608ae2750d7e9b0767074457d656d96bdac3d817b1",
+        "observations-2018.csv.gz": "8ba12d9c60fd5c1eb0d5d261486afe44ee34ceb5f59185abfd70e93a9cb3b634",
+        "observations-2019.csv.gz": "d1bf0b8254bae5273014214aa22c136870e33f40a3724b20e1c664ea84184f79",
+        "observations-2020.csv.gz": "b34e74c0983d1672e1e82cbd854727e2b752b235bfac217699e166238cac78cf",
+        "observations-2021.csv.gz": "487142c81ddb02c58f325de1e1295ff312b136966da9c2f53b9fe08b5268845a",
+        "observations-2022.csv.gz": "e2e2ecfa491b73f38ea304c539dbcd1c4331dc4a6371d12669968bdaac978acc",
+        "observations-2023.csv.gz": "fa3f6c090a4c2d77495778341626f1408ef9d03f8bcba15dd40339f2e31b60fa",
+        "observations-2024.csv.gz": "13016d332486bbdba3327835205e6c6da9d2e1363229836088ee6e2472d31e30",
+        "observations-2025.csv.gz": "470792932fa3914513fde48e4ca86b81ec7fa084496578794528270fdc0607f6",
+        "observations-2026.csv.gz": "4781bd89bb00e33a3911375f4ad907a8158aa49e9160349e53ee7d03f8a3237e",
+        "session-hashes.csv": "859483c82d643aba4a190c8de8b8e647f6a52a0747efe70db876c53a425abcbc",
+        "terminal-events.csv.gz": "c40a73505212efa9f3035ccb78d6e715319d1398f3e314d98a7d72fec84bb4de"
+      },
+      "package": "ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c",
+      "package_digest": "f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c",
+      "pointer_sha256": "be1a5a06980430e97021679f7ea875b47606268f20b994ff6da3e15322a3bae8",
+      "reconstruction_code_sha": "8bb1e499f2a96a58959bf91def1b149ba573e6a6",
+      "session_hashes_sha256": "859483c82d643aba4a190c8de8b8e647f6a52a0747efe70db876c53a425abcbc",
+      "window": {
+        "end": "2026-07-31",
+        "measurement_start": "2006-07-31",
+        "warmup_start": "2006-01-03"
+      }
+    },
+    "replay_evidence_hash": "988e313f4ed45ec0e79e2a22dc33468f800040dd9bfadcb8ec539e92734b6184",
+    "test_evidence_hash": "814d3f5f51e5d09ca40fdb799fb635960f7b303498aa1f14ca37f5664218cd5d",
+    "universe_resolution": {
+      "examples": [],
+      "historical_candidate_observations": 31820893,
+      "historical_security_episodes": 16957,
+      "pit_ineligible_reasons": {
+        "CAUSAL_NON_COMMON_SECURITY_TYPE": 3,
+        "CAUSAL_UNKNOWN_SECURITY_TYPE_FAIL_CLOSED": 9302460
+      },
+      "resolved_eligible": 22518430,
+      "resolved_pit_ineligible": 9302463,
+      "schema": "backtester.pit-universe-resolution-audit/2",
+      "unknown_identity": 0,
+      "unknown_security_type": 9302460,
+      "unknown_security_type_explicit_fail_closed": 9302460,
+      "unknown_terminal_state": 10647,
+      "unresolved": 0,
+      "unresolved_security_classification": 0
+    }
+  },
+  "mode": "research",
+  "schema": "backtester.pit-certification/1",
+  "source_identity": {
+    "identity_sha256": "34779ee9618d864d07df20389cecb9077002c95e875a5bc3597768bcb9cd1aee",
+    "runtime_identity_sha256": "38c83c2bccb545932cd6338079744d818021ec739a4abdfaad1e7b2f83f72825",
+    "source_closure_sha256": "66fa20f021c8a2ae49d2c6fdc720ae842fb49da92361bba4113cc01935d96570",
+    "source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+    "strategy_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+    "workflow_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7"
+  },
+  "status": "PIT_CERTIFIED"
+}

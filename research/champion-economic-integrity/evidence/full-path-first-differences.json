@@ -1,0 +1,205 @@
+[
+  {
+    "differing_sessions": 575,
+    "field": "A_allocation",
+    "first_session": "2015-08-26",
+    "left": "0.0",
+    "right": "1.0"
+  },
+  {
+    "differing_sessions": 5031,
+    "field": "A_nav",
+    "first_session": "2006-08-01",
+    "left": "0.9834836198103472",
+    "right": "0.98489555570064"
+  },
+  {
+    "differing_sessions": 89,
+    "field": "A_reason",
+    "first_session": "2008-12-23",
+    "left": "NORMAL",
+    "right": "FULL_RISK_HELD"
+  },
+  {
+    "differing_sessions": 380,
+    "field": "B_allocation",
+    "first_session": "2015-08-26",
+    "left": "0.0",
+    "right": "1.0"
+  },
+  {
+    "differing_sessions": 5031,
+    "field": "B_nav",
+    "first_session": "2006-08-01",
+    "left": "0.9834836198103472",
+    "right": "0.98489555570064"
+  },
+  {
+    "differing_sessions": 85,
+    "field": "B_reason",
+    "first_session": "2008-12-23",
+    "left": "NORMAL",
+    "right": "HOLD"
+  },
+  {
+    "differing_sessions": 89,
+    "field": "control_reason",
+    "first_session": "2008-12-23",
+    "left": "NORMAL",
+    "right": "FULL_RISK_HELD"
+  },
+  {
+    "differing_sessions": 4954,
+    "field": "damaged",
+    "first_session": "2006-07-31",
+    "left": "0.68",
+    "right": "0.7777777777777778"
+  },
+  {
+    "differing_sessions": 322,
+    "field": "effective_native",
+    "first_session": "2008-12-24",
+    "left": "0.0",
+    "right": "1.0"
+  },
+  {
+    "differing_sessions": 5032,
+    "field": "eligible_count",
+    "first_session": "2006-07-31",
+    "left": "1065",
+    "right": "807"
+  },
+  {
+    "differing_sessions": 5,
+    "field": "fast_signal",
+    "first_session": "2009-02-27",
+    "left": "True",
+    "right": "False"
+  },
+  {
+    "differing_sessions": 4936,
+    "field": "green",
+    "first_session": "2006-07-31",
+    "left": "0.2",
+    "right": "0.1666666666666666"
+  },
+  {
+    "differing_sessions": 5005,
+    "field": "held_count",
+    "first_session": "2006-07-31",
+    "left": "25",
+    "right": "18"
+  },
+  {
+    "differing_sessions": 5032,
+    "field": "leadership_population",
+    "first_session": "2006-07-31",
+    "left": "107",
+    "right": "81"
+  },
+  {
+    "differing_sessions": 322,
+    "field": "native_close_target",
+    "first_session": "2008-12-23",
+    "left": "0.0",
+    "right": "1.0"
+  },
+  {
+    "differing_sessions": 5032,
+    "field": "recent_r20",
+    "first_session": "2006-07-31",
+    "left": "-0.0632312383262306",
+    "right": "-0.0676926955577102"
+  },
+  {
+    "differing_sessions": 5032,
+    "field": "recent_r40",
+    "first_session": "2006-07-31",
+    "left": "-0.0632312383262306",
+    "right": "-0.0676926955577102"
+  },
+  {
+    "differing_sessions": 575,
+    "field": "research_allocation",
+    "first_session": "2015-08-26",
+    "left": "0.0",
+    "right": "1.0"
+  },
+  {
+    "differing_sessions": 5032,
+    "field": "research_eligible_universe",
+    "first_session": "2006-07-31",
+    "left": "1065",
+    "right": "807"
+  },
+  {
+    "differing_sessions": 3307,
+    "field": "research_ldrc_state",
+    "first_session": "2006-10-11",
+    "left": "{\"concordance_releases\":0,\"episode\":false,\"episodes\":0,\"full_streak\":6,\"latched\":false,\"prev_desired\":1.0,\"prev_native\":1.0,\"recent_positive_streak\":0}",
+    "right": "{\"concordance_releases\":0,\"episode\":false,\"episodes\":0,\"full_streak\":0,\"latched\":false,\"prev_desired\":1.0,\"prev_native\":1.0,\"recent_positive_streak\":0}"
+  },
+  {
+    "differing_sessions": 5031,
+    "field": "research_nav",
+    "first_session": "2006-08-01",
+    "left": "0.9834836198103472",
+    "right": "0.98489555570064"
+  },
+  {
+    "differing_sessions": 5032,
+    "field": "research_ranking_count",
+    "first_session": "2006-07-31",
+    "left": "107",
+    "right": "81"
+  },
+  {
+    "differing_sessions": 5032,
+    "field": "research_ranking_sha256",
+    "first_session": "2006-07-31",
+    "left": "dcefdbbb0eddeabfcb71d4d6a1a2e55f5f0261b47b8d5cb45c1698f2c0beb102",
+    "right": "678b65327cbcffec00b74c9d6fd03fcad0e1b1b3a0c8999b37f2ed36218488c2"
+  },
+  {
+    "differing_sessions": 5032,
+    "field": "research_selected_positions",
+    "first_session": "2006-07-31",
+    "left": "[\"1035638340512403010\",\"1040633074096912075\",\"1099247927332588244\",\"1101212501432953147\",\"117908596615035418\",\"134352070820280377\",\"214820292338870148\",\"244656944763341218\",\"266855227169442591\",\"271029648870576069\",\"320397541735962213\",\"353685636371040898\",\"40196728613332525\",\"43902875209253344\",\"452140482835311476\",\"530996274575880476\",\"555782615540001401\",\"70004177131076678\",\"720308907044255892\",\"788900523736619527\",\"8209006061861920\",\"840588175708298328\",\"88378928586164151\",\"927939971812641882\",\"950063614365024268\"]",
+    "right": "[\"1094655969856693337\",\"1101212501432953147\",\"117908596615035418\",\"134352070820280377\",\"212510547980373430\",\"226714775113304174\",\"271029648870576069\",\"320397541735962213\",\"40196728613332525\",\"452140482835311476\",\"530996274575880476\",\"561839039720650585\",\"635499515642261586\",\"720308907044255892\",\"801778135593349062\",\"8209006061861920\",\"927939971812641882\",\"950063614365024268\"]"
+  },
+  {
+    "differing_sessions": 5032,
+    "field": "research_selected_positions_sha256",
+    "first_session": "2006-07-31",
+    "left": "e0069ae2ec3b9d642234b1e7c0ce19bb4e0f580e5f0841c9128e960c5c851acf",
+    "right": "99704e3b19baa64d60b3be2149716f912f6f3f8183aaa7329560e56fe90f9298"
+  },
+  {
+    "differing_sessions": 5032,
+    "field": "research_wealth_core_equity",
+    "first_session": "2006-07-31",
+    "left": "92410966.71752562",
+    "right": "93207107.2657491"
+  },
+  {
+    "differing_sessions": 5032,
+    "field": "research_wealth_core_open_equity",
+    "first_session": "2006-07-31",
+    "left": "91522149.87468864",
+    "right": "92678635.2706211"
+  },
+  {
+    "differing_sessions": 53,
+    "field": "slow_signal",
+    "first_session": "2008-08-28",
+    "left": "False",
+    "right": "True"
+  },
+  {
+    "differing_sessions": 4889,
+    "field": "wc_dd",
+    "first_session": "2006-07-31",
+    "left": "-0.0758903328247438",
+    "right": "-0.067928927342509"
+  }
+]

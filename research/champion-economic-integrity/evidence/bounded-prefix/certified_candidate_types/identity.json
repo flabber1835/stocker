@@ -1,0 +1,23 @@
+{
+  "audit_source_sha": "b0a3033d83584541f4d6f306ecee27e318d29a59",
+  "baseline_generated_sha256": "e20e43766ae34c82f85f572abcd50cb68978edaf39b59f699ccc5a4a78393046",
+  "baseline_normalized_ast_sha256": "7dfe469e846409dad684532b1c964d413cdbdf7d175c40cede53e8629e8858e1",
+  "baseline_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+  "case": "certified_candidate_types",
+  "certification_status": "NOT_CERTIFIED_DIAGNOSTIC",
+  "changed_dimension": "UNKNOWN_SECURITY_TYPE_CLASSIFICATION_ONLY",
+  "corpus_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "economic_generated_sha256": "d909f8bf5c995341c147bebb5c8f96e835b8a0049154c0864456aff96deade99",
+  "economic_normalized_ast_sha256": "0dc6b6f8ef84b4af2a59e14d7c767a7126c1ccfd13c51b468fbb0ed22a8fd6f9",
+  "initial_shadow_cash": 100000000,
+  "instrumented_generated_sha256": "7e4638153d3dd1dc43149eb081c9fe1c358a488e4988ccc8df247e492c727a80",
+  "measurement_start": "2006-07-31",
+  "observer_stripped_ast_matches": true,
+  "profile": "strategy9-e3-research-champion-v1",
+  "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+  "runtime_sha": "887f479b15ad861313da666ad698034d3847121c",
+  "schema": "champion.economic-prefix-audit/1",
+  "status": "PASS_BOUNDED_OBSERVATION",
+  "stop_after": "2006-08-02",
+  "warmup_start": "2006-01-03"
+}
