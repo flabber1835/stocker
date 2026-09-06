@@ -87,5 +87,8 @@ RUN python -c "from pathlib import Path; \
     assert all((Path(root) / reference / name).read_bytes() == (Path('/app') / reference / name).read_bytes() for root in ('/work', '/work/repo') for name in ('sentinel_1p1_daily.csv', 'SHA256SUMS.txt')), 'reference mirror differs from runtime'; \
     print('runtime imports and reference mirrors OK:', sentinel.__file__, wc.__file__)"
 
+# Catch image-layout and COPY-parser regressions during the build.
+RUN python -m pytest tests/sentinel/test_image_layout.py -q -ra
+
 ENTRYPOINT ["python", "-m", "pytest"]
 CMD ["tests/sentinel", "-q"]
