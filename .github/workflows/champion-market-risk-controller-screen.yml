@@ -1,0 +1,81 @@
+name: Research Champion - market-risk controller coarse screen
+run-name: RESEARCH NOT CERTIFIED - market-risk screen - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/champion-market-risk-controller-robustness]
+    paths:
+      - '.github/workflows/champion-market-risk-controller-screen.yml'
+      - 'backtester/research_champion_market_risk_screen.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  screen:
+    name: RESEARCH NOT CERTIFIED - SPY/VIX coarse plateau screen
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: '1'
+      BASELINE_RUN_ID: '34007704385'
+      BASELINE_ARTIFACT: 'champion-corrected-classification-34007704385-1'
+      BASELINE_DAILY_SHA256: 'fbc8a18d2e6f01bbc5154fe359990633bbe93e28b4dbeba57da0be149f4811a8'
+      VIX_URL: 'https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv'
+      OUT: 'market-risk-controller/coarse-screen'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/research_champion_market_risk_screen.py
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Install analysis dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.3.2' 'pandas==2.3.2'
+      - name: Fetch and authenticate corrected Champion baseline
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/baseline
+          gh run download "${BASELINE_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name "${BASELINE_ARTIFACT}" --dir /tmp/baseline
+          test -f /tmp/baseline/daily.csv.gz
+          observed=$(sha256sum /tmp/baseline/daily.csv.gz | cut -d' ' -f1)
+          test "${observed}" = "${BASELINE_DAILY_SHA256}"
+      - name: Fetch official Cboe VIX close history
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location --retry 5 --retry-all-errors \
+            "${VIX_URL}" -o /tmp/VIX_History.csv
+          test -s /tmp/VIX_History.csv
+          sha256sum /tmp/VIX_History.csv
+          head -3 /tmp/VIX_History.csv
+      - name: Run coarse classification-independent controller screen
+        run: |
+          set -euo pipefail
+          mkdir -p "${OUT}"
+          python backtester/research_champion_market_risk_screen.py \
+            --baseline-daily /tmp/baseline/daily.csv.gz \
+            --vix-csv /tmp/VIX_History.csv \
+            --output "${OUT}" | tee "${OUT}/screen.log"
+          cat "${OUT}/family-summary.csv"
+          echo '--- SHORTLIST ---'
+          cat "${OUT}/shortlist.csv"
+      - name: Upload research evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-market-risk-screen-${{ github.run_id }}-${{ github.run_attempt }}
+          path: market-risk-controller/coarse-screen/
+          retention-days: 90
+          if-no-files-found: error
