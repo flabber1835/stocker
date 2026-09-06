@@ -81,7 +81,7 @@ jobs:
       BASELINE_ARTIFACT: 'champion-corrected-classification-34007704385-1'
       BASELINE_DAILY_SHA256: 'fbc8a18d2e6f01bbc5154fe359990633bbe93e28b4dbeba57da0be149f4811a8'
       OUT: 'market-risk-controller/r3000-proxy-screen-v2'
-      IWV_URL: 'https://stooq.com/q/d/l/?s=iwv.us&i=d'
+      IWV_URL: 'https://query1.finance.yahoo.com/v8/finance/chart/IWV?period1=946684800&period2=1785542400&interval=1d&events=div%2Csplits&includeAdjustedClose=true'
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -106,17 +106,34 @@ jobs:
           mkdir -p /tmp/baseline /tmp/iwv
           gh run download "${BASELINE_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name "${BASELINE_ARTIFACT}" --dir /tmp/baseline
           test "$(sha256sum /tmp/baseline/daily.csv.gz | cut -d' ' -f1)" = "${BASELINE_DAILY_SHA256}"
-          curl --fail --location --retry 3 --retry-delay 2 --user-agent 'stocker-research/1.0' "${IWV_URL}" -o /tmp/iwv/iwv-stooq.csv
-          test -s /tmp/iwv/iwv-stooq.csv
-          head -5 /tmp/iwv/iwv-stooq.csv
-          sha256sum /tmp/iwv/iwv-stooq.csv
+          curl --fail --location --retry 3 --retry-delay 2 --user-agent 'Mozilla/5.0 stocker-research' "${IWV_URL}" -o /tmp/iwv/iwv-yahoo.json
+          python - <<'PY'
+          import csv, json
+          from datetime import datetime, timezone
+          p='/tmp/iwv/iwv-yahoo.json'
+          j=json.load(open(p))
+          r=j['chart']['result'][0]
+          ts=r['timestamp']
+          adj=r['indicators'].get('adjclose',[{}])[0].get('adjclose')
+          close=r['indicators']['quote'][0]['close']
+          vals=adj if adj is not None else close
+          with open('/tmp/iwv/iwv.csv','w',newline='') as f:
+              w=csv.writer(f); w.writerow(['Date','Close'])
+              for t,v in zip(ts,vals):
+                  if v is not None:
+                      w.writerow([datetime.fromtimestamp(t,timezone.utc).date().isoformat(),format(float(v),'.12g')])
+          PY
+          test "$(wc -l < /tmp/iwv/iwv.csv)" -gt 4000
+          head -5 /tmp/iwv/iwv.csv
+          sha256sum /tmp/iwv/iwv-yahoo.json /tmp/iwv/iwv.csv
       - name: Run Russell 3000 proxy observation screen
         run: |
           set -euo pipefail
           mkdir -p "${OUT}"
+          cp /tmp/iwv/iwv-yahoo.json "${OUT}/iwv-yahoo-source.json"
           PYTHONPATH=backtester python backtester/research_champion_r3000_proxy_screen_v2.py \
             --baseline-daily /tmp/baseline/daily.csv.gz \
-            --iwv-csv /tmp/iwv/iwv-stooq.csv \
+            --iwv-csv /tmp/iwv/iwv.csv \
             --output "${OUT}" | tee "${OUT}/screen-r3000-v2.log"
           cat "${OUT}/family-summary-r3000-v2.csv"
       - name: Upload Russell 3000 proxy evidence
