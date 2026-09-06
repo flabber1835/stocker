@@ -1,0 +1,131 @@
+name: Champion economic integrity - evidence publication v2
+run-name: Champion economic evidence publication v2 - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-certification-economic-integrity]
+    paths: ['.github/workflows/champion-economic-audit-publication-v2.yml']
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: write
+jobs:
+  publish:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: |
+            backtester
+            research/champion-economic-integrity
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Retained prefix evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34042141867
+          name: champion-economic-prefix-34042141867-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: prefix
+      - name: Original candidate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34007704385
+          name: champion-corrected-classification-34007704385-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: original-candidate
+      - name: Original certificate
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34014048220
+          name: research-champion-pit-v2-34014048220-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: original-certified
+      - name: Source evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34041287501
+          name: champion-economic-integrity-source-34041287501-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: source-evidence
+      - name: Collector fixture
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34043631885
+          name: champion-collector-claim-34043631885-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: publication-evidence/collector-fixture
+      - name: Verify and analyze retained evidence
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,pathlib,tarfile
+          source=pathlib.Path('source-evidence')
+          manifest=json.loads((source/'manifest.json').read_text())
+          for name,entry in manifest['files'].items(): assert hashlib.sha256((source/name).read_bytes()).hexdigest()==entry['sha256']
+          for case in ['candidate','certified','certified_capacity_off','certified_dividend_1','certified_candidate_types']:
+              root=pathlib.Path('prefix')/case
+              for name,expected in json.loads((root/'SHA256.json').read_text()).items(): assert hashlib.sha256((root/name).read_bytes()).hexdigest()==expected
+          for label in ['candidate','runtime']:
+              root=pathlib.Path('probe-source')/label; root.mkdir(parents=True,exist_ok=True)
+              with tarfile.open(source/f'{label}-source.tar') as archive: archive.extractall(root,filter='data')
+          PY
+          python -m pip install --require-hashes -r probe-source/runtime/sentinel/requirements.lock
+          python backtester/validate_champion_economic_prefix.py --root prefix --original-candidate original-candidate --original-certified original-certified/backtester-results/research-champion-20y
+          python backtester/champion_economic_source_probes.py --candidate prefix/candidate/economic-generated.py --certified prefix/certified/economic-generated.py --classifier probe-source/candidate/backtester/research_champion_corrected_classification.py --corrections probe-source/candidate/backtester/data/champion-historical-security-type-corrections-v1.csv --adapter probe-source/runtime/shared/stock_strategy_shared/wealth_core/adapter.py --output publication-evidence/source-probes.json
+          python backtester/summarize_champion_economic_prefix.py --root prefix
+      - name: Build durable evidence bundle
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv,hashlib,json,os,pathlib,shutil
+          dst=pathlib.Path('publication-evidence')
+          shutil.copytree('prefix',dst/'bounded-prefix',dirs_exist_ok=True)
+          for label,root in [('candidate',pathlib.Path('original-candidate')),('certified',pathlib.Path('original-certified/backtester-results/research-champion-20y'))]:
+              out=dst/'original-paths'/label; out.mkdir(parents=True,exist_ok=True)
+              for name in ['daily.csv.gz','summary.json','metrics.csv','generated-replay.py','research-champion-identity.json']:
+                  p=root/name
+                  if p.exists(): shutil.copy2(p,out/name)
+          rules=[]
+          for line in pathlib.Path('research/champion-economic-integrity/CERTIFICATION_ECONOMIC_SPEC.md').read_text().splitlines():
+              cells=[c.strip() for c in line.strip('|').split('|')]
+              if len(cells)==5 and cells[0].isdigit(): rules.append(cells)
+          assert len(rules)==60
+          with (dst/'economic-rule-inventory.csv').open('w',newline='') as f:
+              w=csv.writer(f); w.writerow(['id','rule','specification','classification','authority']); w.writerows(rules)
+          manifest={'schema':'champion.economic-integrity-durable-evidence/2','audit_source_sha':os.environ['GITHUB_SHA'],'scope':'AUDIT_EVIDENCE_NOT_CERTIFICATION','files':{}}
+          for p in sorted(dst.rglob('*')):
+              if p.is_file(): manifest['files'][str(p.relative_to(dst))]={'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'size_bytes':p.stat().st_size}
+          (dst/'MANIFEST.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          PY
+      - name: Commit evidence to isolated audit branch
+        run: |
+          set -euo pipefail
+          BRANCH=research/champion-certification-economic-integrity
+          git fetch origin "refs/heads/${BRANCH}"
+          git worktree add --detach ../publish FETCH_HEAD
+          mkdir -p ../publish/research/champion-economic-integrity/evidence
+          cp -a publication-evidence/. ../publish/research/champion-economic-integrity/evidence/
+          cd ../publish
+          git add research/champion-economic-integrity/evidence
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'audit: retain validated economic attribution evidence'
+          git push origin "HEAD:refs/heads/${BRANCH}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: champion-economic-publication-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: publication-evidence/
+          retention-days: 90
+          if-no-files-found: error
