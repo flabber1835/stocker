@@ -14,6 +14,7 @@ import subprocess
 import sys
 from typing import Any, Callable, Mapping, Optional, Sequence
 import urllib.error
+import urllib.parse
 import urllib.request
 import zipfile
 
@@ -91,11 +92,31 @@ def current_identity(root: Path = ROOT) -> Mapping[str, str]:
     return {"commit": head, "tree": tree}
 
 
+class _AuthorizationStrippingRedirect(urllib.request.HTTPRedirectHandler):
+    """Never forward a GitHub bearer token to a different redirect host."""
+
+    def redirect_request(self, req, fp, code, msg, headers, newurl):
+        redirected = super().redirect_request(req, fp, code, msg, headers, newurl)
+        if redirected is None:
+            return None
+        source = urllib.parse.urlsplit(req.full_url)
+        destination = urllib.parse.urlsplit(newurl)
+        if (source.scheme.lower(), source.hostname, source.port) != (
+                destination.scheme.lower(), destination.hostname, destination.port):
+            redirected.remove_header("Authorization")
+        return redirected
+
+
+def _safe_urlopen(request, timeout=30):
+    opener = urllib.request.build_opener(_AuthorizationStrippingRedirect())
+    return opener.open(request, timeout=timeout)
+
+
 class GitHubReadClient:
     """Minimal GET-only GitHub client. It has no mutation methods."""
 
     def __init__(self, token: Optional[str] = None,
-                 opener: Callable[..., Any] = urllib.request.urlopen) -> None:
+                 opener: Callable[..., Any] = _safe_urlopen) -> None:
         self.token = token
         self.opener = opener
 
