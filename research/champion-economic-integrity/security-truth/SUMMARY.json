@@ -1,0 +1,27 @@
+{
+  "classification_intervals": {
+    "common": 1496,
+    "non_common": 256
+  },
+  "contract": "PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md",
+  "future_outcome_information_permitted": false,
+  "historical_correction_rows": 3,
+  "manual_reviewed_security_count": 18,
+  "queue_by_priority": {
+    "P0_HELD_OR_PENDING": 27,
+    "P1_DURABLE_RANKED": 445,
+    "P2_LEADERSHIP": 182,
+    "P3_RANKING_OR_BASE": 61
+  },
+  "review_queue_count": 715,
+  "schema": "champion.production-equivalent-security-truth/1",
+  "security_count": 1751,
+  "source_sha256": {
+    "base": "1391630785c56daa2c4665abe792dd7b06d3697b47e2224edd380737fef133ab",
+    "corrections": "30f1e7223bc088714e4ee17b131f90da61bcbaf0684bfcb9c3331c9d1bc06db3",
+    "reviewed": "3440fd1007062644868fbab5a872b52e87b9892f05673f825d27a385833143b6",
+    "worklist": "da303f6a74f28dc5e47bb50ec6a0ec0d7268867154cd208242c054fc4ab29362"
+  },
+  "status": "TRUTH_HYPOTHESIS_REVIEW_QUEUE_OPEN",
+  "truth_interval_count": 1752
+}
