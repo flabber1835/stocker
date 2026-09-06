@@ -11,13 +11,13 @@ from __future__ import annotations
 from dataclasses import dataclass
 import json
 from pathlib import Path
+import re
 from typing import Iterable
 
 from backtester import champion_security_truth_overlay_v2 as prior
 
 ROOT = Path(__file__).resolve().parents[1]
 MANUAL = ROOT / "research/champion-economic-integrity/security-truth/manual-review"
-CANONICAL_KEYS = ("canonical_interval", "interval", "decision_interval", "review_interval")
 
 SOURCE_FILES = (
     "durable-shard-00.json", "durable-shard-01.json", "durable-shard-02.json",
@@ -32,6 +32,13 @@ SOURCE_FILES = (
     "durable-shard-09-cleanup.json", "leadership-shard-00-cleanup.json",
     "leadership-shard-01-cleanup.json", "ranking-shard-01-cleanup.json",
 )
+CASE_KEYS = ("cases", "reviews", "results")
+CANONICAL_KEYS = ("canonical_interval", "interval", "decision_interval", "review_interval")
+INTERVAL_RE = re.compile(
+    r"^\s*(\d{4}-\d{2}-\d{2})/(\d{4}-\d{2}-\d{2})(?::|\s+)(common|non_common)\b",
+    re.IGNORECASE,
+)
+EXPECTED_FINAL_SECURITY_COUNT = 696
 
 
 @dataclass(frozen=True)
@@ -50,13 +57,18 @@ def _canonical(case: dict) -> tuple[str, str]:
             value = case[key]
             break
     if isinstance(value, str):
-        a, b = value.replace(" — ", "/").replace("..", "/").split("/", 1)
+        normalized = value.replace(" — ", "/").replace("..", "/")
+        if "/" not in normalized:
+            raise ValueError(f"unsupported canonical interval: {value!r}")
+        a, b = normalized.split("/", 1)
         return a.strip(), b.strip()
     if isinstance(value, (list, tuple)) and len(value) == 2:
         return str(value[0]), str(value[1])
     if isinstance(value, dict):
-        a = value.get("first_session") or value.get("effective_first_session")
-        b = value.get("last_session") or value.get("effective_last_session")
+        a = (value.get("first_session") or value.get("effective_first_session")
+             or value.get("start") or value.get("first"))
+        b = (value.get("last_session") or value.get("effective_last_session")
+             or value.get("end") or value.get("last"))
         if a is not None and b is not None:
             return str(a), str(b)
     raise ValueError(f"unsupported canonical interval: {value!r}")
@@ -75,54 +87,56 @@ def _decision(case: dict) -> str:
     ).lower()
 
 
+def _parse_one(row, decision: str, source: str, ticker: str) -> Interval | None:
+    if isinstance(row, dict):
+        cls = str(row.get("classification") or row.get("decision") or "").lower()
+        a = (row.get("first_session") or row.get("effective_first_session")
+             or row.get("start") or row.get("first"))
+        b = (row.get("last_session") or row.get("effective_last_session")
+             or row.get("end") or row.get("last"))
+        if cls in {"common", "non_common"} and a is not None and b is not None:
+            return Interval(str(a), str(b), cls, source, ticker)
+        return None
+    if isinstance(row, (list, tuple)):
+        if len(row) >= 3:
+            cls = str(row[2]).lower()
+            if cls in {"common", "non_common"}:
+                return Interval(str(row[0]), str(row[1]), cls, source, ticker)
+        if len(row) == 2 and decision in {"common", "non_common"}:
+            return Interval(str(row[0]), str(row[1]), decision, source, ticker)
+        return None
+    if isinstance(row, str):
+        normalized = row.replace(" — ", "/").replace("..", "/")
+        match = INTERVAL_RE.match(normalized)
+        if match:
+            return Interval(match.group(1), match.group(2), match.group(3).lower(), source, ticker)
+    return None
+
+
 def _parsed_intervals(case: dict, source: str) -> list[Interval]:
     decision = _decision(case)
     if decision == "unresolved":
         return []
     sid = str(case["security_id"])
     ticker = str(case.get("ticker", sid))
-    rows = case.get("effective_intervals") or []
+    raw_rows = case.get("effective_intervals")
+    if raw_rows is None:
+        rows = []
+    elif isinstance(raw_rows, list):
+        rows = raw_rows
+    else:
+        raise ValueError(f"effective_intervals is not a list: {source} {sid} {ticker}")
+
     result: list[Interval] = []
-    for row in rows:
-        if isinstance(row, dict):
-            cls = str(row.get("classification") or row.get("decision") or "").lower()
-            if cls not in {"common", "non_common"}:
-                continue
-            a = row.get("first_session") or row.get("effective_first_session")
-            b = row.get("last_session") or row.get("effective_last_session")
-            if a is None or b is None:
-                continue
-            result.append(Interval(str(a), str(b), cls, source, ticker))
-        elif isinstance(row, (list, tuple)) and len(row) >= 3:
-            cls = str(row[2]).lower()
-            if cls in {"common", "non_common"}:
-                result.append(Interval(str(row[0]), str(row[1]), cls, source, ticker))
-        elif isinstance(row, str):
-            # Manual-review artifacts use both compact rows such as
-            #   "2020-01-01/2020-12-31 common"
-            # and annotated split rows such as
-            #   "2017-12-26/2019-03-12 non_common ... CUSIP ...".
-            # The date range is always the first token and the factual class is
-            # the first common/non_common token after it; trailing legal-type
-            # annotations are provenance only and must not affect execution.
-            normalized = row.replace(" — ", "/").replace("..", "/")
-            parts = normalized.split()
-            if len(parts) >= 2:
-                cls_index = next(
-                    (i for i, token in enumerate(parts[1:], start=1)
-                     if token.lower() in {"common", "non_common"}),
-                    None,
-                )
-                if cls_index is not None:
-                    date_token = parts[0]
-                    if "/" not in date_token:
-                        raise ValueError(
-                            f"string truth interval lacks date range: {source} {sid} {ticker} {row!r}"
-                        )
-                    a, b = date_token.split("/", 1)
-                    result.append(
-                        Interval(a.strip(), b.strip(), parts[cls_index].lower(), source, ticker)
-                    )
+    for index, row in enumerate(rows):
+        parsed = _parse_one(row, decision, source, ticker)
+        if parsed is None:
+            raise ValueError(
+                f"unparseable final truth interval: {source} {sid} {ticker} "
+                f"effective_intervals[{index}]={row!r}"
+            )
+        result.append(parsed)
+
     if result:
         return result
     if decision in {"common", "non_common"}:
@@ -136,29 +150,34 @@ def _parsed_intervals(case: dict, source: str) -> list[Interval]:
     raise ValueError(f"resolved case lacks executable intervals: {source} {sid} {ticker} {decision}")
 
 
-def _cases(document: dict) -> Iterable[dict]:
-    value = document.get("cases")
-    if isinstance(value, list):
-        yield from value
+def _cases(document: dict, source: str) -> Iterable[dict]:
+    found = [(key, document.get(key)) for key in CASE_KEYS if key in document]
+    usable = [(key, value) for key, value in found if isinstance(value, list)]
+    if len(usable) != 1:
+        raise ValueError(
+            f"manual-review source must expose exactly one case collection: "
+            f"{source} observed={[(key, type(value).__name__) for key, value in found]}"
+        )
+    yield from usable[0][1]
 
 
 def _load() -> tuple[dict[str, list[Interval]], list[str]]:
-    # Parent shards load first; cleanup files load last and replace the complete
-    # reviewed episode for their scoped IDs. Some cleanup artifacts are ticker-
-    # keyed and omit the canonical interval, so retain both security-id and
-    # unique-ticker bindings from the parent shards independently of whether the
-    # parent classification itself was unresolved.
     ledger: dict[str, list[Interval]] = {}
+    unresolved: set[str] = set()
     ticker_to_sid: dict[str, str] = {}
+    canonical_by_sid: dict[str, tuple[str, str]] = {}
     ticker_to_canonical: dict[str, tuple[str, str]] = {}
     sources: list[str] = []
+
     for filename in SOURCE_FILES:
         path = MANUAL / filename
         if not path.exists():
             raise FileNotFoundError(path)
         doc = json.loads(path.read_text())
         sources.append(filename)
-        for raw_case in _cases(doc):
+        for raw_case in _cases(doc, filename):
+            if not isinstance(raw_case, dict):
+                raise ValueError(f"manual-review case is not an object: {filename} {raw_case!r}")
             case = dict(raw_case)
             ticker = str(case.get("ticker", ""))
             if "security_id" in case:
@@ -174,10 +193,6 @@ def _load() -> tuple[dict[str, list[Interval]], list[str]]:
                     raise ValueError(f"cleanup case lacks security_id and parent binding: {filename} {ticker}")
                 case["security_id"] = sid
 
-            # Remember canonical intervals independently of classification.
-            # Parent unresolved rows still define the exact episode that a
-            # higher-precedence cleanup closes. Historical shards use a small
-            # number of equivalent field names, all normalized by _canonical.
             if _has_canonical(case):
                 canonical = _canonical(case)
                 canonical_by_sid[sid] = canonical
@@ -190,10 +205,6 @@ def _load() -> tuple[dict[str, list[Interval]], list[str]]:
                         )
                     ticker_to_canonical[ticker] = canonical
 
-            # Cleanup files may omit any interval field even when they carry a
-            # security_id. Recover the parent episode first by exact security ID,
-            # then by the already-validated unique ticker binding. Never invent
-            # dates from evidence or market outcomes.
             if not _has_canonical(case):
                 canonical = canonical_by_sid.get(sid)
                 if canonical is None and ticker:
@@ -202,31 +213,33 @@ def _load() -> tuple[dict[str, list[Interval]], list[str]]:
                     case["canonical_interval"] = list(canonical)
                     canonical_by_sid[sid] = canonical
 
+            decision = _decision(case)
             intervals = _parsed_intervals(case, filename)
-            # An unresolved parent record is intentionally retained until its
-            # later cleanup is read. It must never erase an earlier closure.
-            if intervals:
+            if decision == "unresolved":
+                unresolved.add(sid)
+            elif intervals:
                 ledger[sid] = intervals
+                unresolved.discard(sid)
 
-    # P0 fresh-only adjudications were generated after the held/pending
-    # integration and therefore supplement the parent classifier.
     p0 = MANUAL / "p0-fresh-path-delta.json"
     p0doc = json.loads(p0.read_text())
     sources.append(p0.name)
     for case in p0doc.get("new_adjudications", []):
         sid = str(case["security_id"])
         cls = str(case["classification"]).lower()
+        if cls not in {"common", "non_common"}:
+            raise ValueError(f"invalid P0 classification: {sid} {cls}")
         a, b = _canonical(case)
         ledger[sid] = [Interval(a, b, cls, p0.name, str(case.get("ticker", sid)))]
+        unresolved.discard(sid)
 
-    # Integration-level session-semantic override. Legal conversion completed
-    # June 1; the common NYSE line begins with the June 2 decision session.
     pds = "594891209465982980"
-    if pds in ledger:
-        ledger[pds] = [
-            Interval("2006-07-05", "2010-06-01", "non_common", "FINAL_SECURITY_TRUTH_INTEGRATION.md", "PDS"),
-            Interval("2010-06-02", "2015-06-04", "common", "FINAL_SECURITY_TRUTH_INTEGRATION.md", "PDS"),
-        ]
+    if pds not in ledger:
+        raise ValueError("PDS missing from final security truth ledger")
+    ledger[pds] = [
+        Interval("2006-07-05", "2010-06-01", "non_common", "FINAL_SECURITY_TRUTH_INTEGRATION.md", "PDS"),
+        Interval("2010-06-02", "2015-06-04", "common", "FINAL_SECURITY_TRUTH_INTEGRATION.md", "PDS"),
+    ]
 
     for sid, intervals in ledger.items():
         ordered = sorted(intervals, key=lambda x: x.first)
@@ -237,11 +250,25 @@ def _load() -> tuple[dict[str, list[Interval]], list[str]]:
             if right.first <= left.last:
                 raise ValueError(f"overlapping final truth intervals: {sid} {left} {right}")
         ledger[sid] = ordered
+
+    if unresolved:
+        raise ValueError(f"final security truth unresolved IDs remain: {sorted(unresolved, key=int)}")
+    if len(ledger) != EXPECTED_FINAL_SECURITY_COUNT:
+        raise ValueError(
+            f"final security truth count mismatch: expected={EXPECTED_FINAL_SECURITY_COUNT} actual={len(ledger)}"
+        )
+
+    expected_am = [
+        ("2017-12-26", "2019-03-12", "non_common"),
+        ("2019-03-13", "2019-03-14", "common"),
+    ]
+    actual_am = [(x.first, x.last, x.classification) for x in ledger["838821611242754318"]]
+    if actual_am != expected_am:
+        raise ValueError(f"AM transition mismatch: {actual_am}")
+
     return ledger, sources
 
 
-# Mutable only during deterministic module initialization.
-canonical_by_sid: dict[str, tuple[str, str]] = {}
 FINAL_INTERVALS, FINAL_SOURCES = _load()
 
 
