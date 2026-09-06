@@ -29,6 +29,10 @@ COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py
 COPY scripts/sentinel_reconcile_sep.py /work/scripts/sentinel_reconcile_sep.py
 COPY scripts/sentinel_ci_certification_verify.py /work/scripts/sentinel_ci_certification_verify.py
+COPY scripts/sentinel_go_validate.py /work/scripts/sentinel_go_validate.py
+COPY scripts/sentinel_go_lock.py /work/scripts/sentinel_go_lock.py
+COPY scripts/sentinel_go_ci_runtime.py /work/scripts/sentinel_go_ci_runtime.py
+COPY scripts/sentinel_go_local_full_runtime.py /work/scripts/sentinel_go_local_full_runtime.py
 COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh
 COPY scripts/ /work/repo/scripts/
 COPY tools/ /work/repo/tools/
