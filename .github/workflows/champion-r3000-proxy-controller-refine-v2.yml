@@ -7,6 +7,7 @@ on:
     paths:
       - '.github/workflows/champion-r3000-proxy-controller-refine-v2.yml'
       - 'backtester/research_champion_r3000_proxy_refine_v2.py'
+      - 'backtester/research_champion_r3000_proxy_screen_v2.py'
   workflow_dispatch:
 
 permissions:
