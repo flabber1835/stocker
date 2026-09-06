@@ -1,0 +1,1116 @@
+{
+  "assignment": {
+    "assigned_count": 45,
+    "filter": "priority == P1_DURABLE_RANKED",
+    "index": "zero-based sequential i",
+    "predicate": "i % 10 == 0",
+    "qualifying_count": 442,
+    "sort": "ascending (security_id as integer, ticker)"
+  },
+  "base_branch": "research/champion-security-truth-held-pending-integration",
+  "base_head": "5b9d9ea2e378044f49d217fe311b36b45c73124c",
+  "cases": [
+    {
+      "canonical_interval": "2020-06-01/2023-01-30",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "589584101",
+        "589602101"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2020-06-01/2023-01-30 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/794172/000093247118004089/meridianbioscienceinc.htm"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "CUSIP succession only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "219953444935140",
+      "source_documents": "SEC Schedule 13G: Meridian Bioscience common stock, CUSIP 589584101",
+      "ticker": "VIVO1"
+    },
+    {
+      "canonical_interval": "2015-04-30/2021-11-22",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "27875T101",
+        "285562500"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2015-04-30/2021-11-22 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1114357/000110465916096662/a16-4241_1sc13ga.htm"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "CUSIP/name succession only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "20237171367150132",
+      "source_documents": "SEC Schedule 13G: Echo Global Logistics common stock, CUSIP 27875T101",
+      "ticker": "ECHO2"
+    },
+    {
+      "canonical_interval": "2021-02-18/2021-07-15",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "536221104",
+        "66516T104"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2021-02-18/2021-07-15 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1834974/000110465922027172/tm226026d1_sc13g.htm",
+        "https://www.sec.gov/Archives/edgar/data/1603466/000156761921010571/xslForm13F_X01/form13fInfoTable.xml"
+      ],
+      "factual_findings": "Both sides of the business-combination identity are common equity.",
+      "identity_transition_analysis": "Business-combination identity change, no security-type change.",
+      "legal_security_type": "COMMON_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "55356489462400378",
+      "source_documents": "SEC records: Lion Electric common shares; predecessor Northern Genesis common stock",
+      "ticker": "LEVGQ"
+    },
+    {
+      "canonical_interval": "2006-11-20/2008-01-15",
+      "contradiction_search": "No contrary preferred/unit/trust/warrant/right evidence found.",
+      "cusips": [
+        "G2108N109",
+        "G2022L106",
+        "G2022L114"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-11-20/2008-01-15 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1076770/000142210712000097/cdc13ga1.htm"
+      ],
+      "factual_findings": "Class A common shares.",
+      "identity_transition_analysis": "CUSIP changes do not establish a type transition.",
+      "legal_security_type": "CLASS_A_COMMON_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "93116911439830233",
+      "source_documents": "SEC Schedule 13G: CDC Corporation Class A common shares, CUSIP G2022L106",
+      "ticker": "CDCAQ"
+    },
+    {
+      "canonical_interval": "2006-12-08/2008-06-05",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "028731404",
+        "028731107"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-12-08/2008-06-05 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1090514/000101968713004069/aob_sc13e3.htm"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "Recapitalization/CUSIP change only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "133702805808789102",
+      "source_documents": "SEC Schedule 13E-3: American Oriental Bioengineering common stock, CUSIP 028731404",
+      "ticker": "AOBI"
+    },
+    {
+      "canonical_interval": "2021-09-20/2025-08-19",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "G39637205",
+        "G39637106",
+        "G5299G106"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2021-09-20/2025-08-19 common"
+      ],
+      "evidence_urls": [
+        "https://www.nasdaqtrader.com/TraderNews.aspx?id=ETA2016-175"
+      ],
+      "factual_findings": "Ordinary corporate shares.",
+      "identity_transition_analysis": "CUSIP/reverse-split lineage only; no type transition found.",
+      "legal_security_type": "ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "169645355004035769",
+      "source_documents": "Nasdaq corporate-action notice: Golden Ocean ordinary shares and CUSIP succession",
+      "ticker": "GOGL1"
+    },
+    {
+      "canonical_interval": "2009-06-23/2017-06-30",
+      "contradiction_search": "No evidence of ordinary corporate common stock during the canonical interval.",
+      "cusips": [
+        "68268N103",
+        "664785102"
+      ],
+      "decision": "non_common",
+      "effective_intervals": [
+        "2009-06-23/2017-06-30 non_common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/909281/000119312517176922/d317629ddefm14a.htm"
+      ],
+      "factual_findings": "NYSE OKS was a Delaware master limited partnership whose listed common units represented limited partner interests.",
+      "identity_transition_analysis": "Identifier succession did not change partnership-unit form before the June 30, 2017 merger close.",
+      "legal_security_type": "LIMITED_PARTNERSHIP_COMMON_UNITS",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "193588831378973240",
+      "source_documents": "SEC merger proxy/prospectus: ONEOK Partners common units representing limited partner interests",
+      "ticker": "OKS"
+    },
+    {
+      "canonical_interval": "2020-11-19/2021-07-28",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "039587100",
+        "039587209"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2020-11-19/2021-07-28 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1558583/000110465921022079/tm216322d4_sc13ga.htm"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "CUSIP change only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "214877619014563439",
+      "source_documents": "SEC Schedule 13G: Arcimoto common stock, CUSIP 039587100",
+      "ticker": "FUVV"
+    },
+    {
+      "canonical_interval": "2006-07-05/2019-03-27",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "708160106",
+        "679535104"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-07-05/2019-03-27 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1166126/000119312513354761/d592480dsc13g.htm"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "CUSIP/name transition reviewed as identity continuity; no legal type change found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "242817260532849391",
+      "source_documents": "SEC Schedule 13G: CUSIP 708160106, title Common Stock",
+      "ticker": "CPPRQ"
+    },
+    {
+      "canonical_interval": "2006-07-05/2025-09-26",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "225447101",
+        "977852102"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-07-05/2025-09-26 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1597823/000159782321000005/xslForm13F_X01/infotable_1112211121.xml"
+      ],
+      "factual_findings": "Common corporate stock across the reviewed identity lineage.",
+      "identity_transition_analysis": "Name/CUSIP succession only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "272478278078438193",
+      "source_documents": "SEC Form 13F: Cree CUSIP 225447101 common stock",
+      "ticker": "WOLF2"
+    },
+    {
+      "canonical_interval": "2006-07-05/2026-07-31",
+      "contradiction_search": "No preferred or other non-common underlying class found.",
+      "cusips": [
+        "89151E109",
+        "F92124100"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-07-05/2026-07-31 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1086619/000156761919016050/xslForm13F_X01/form13fInfoTable.xml"
+      ],
+      "factual_findings": "Depositary security represents ordinary/common equity and is common under policy.",
+      "identity_transition_analysis": "Name/depositary identifier changes only; no underlying type transition found.",
+      "legal_security_type": "ADS_ON_ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "287367877320854308",
+      "source_documents": "SEC filing identifies Total sponsored ADR CUSIP 89151E109 representing ordinary shares",
+      "ticker": "TTE"
+    },
+    {
+      "canonical_interval": "2006-07-05/2014-04-30",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "073730103",
+        "349631101",
+        "024703100",
+        "024703407"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-07-05/2014-04-30 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1319184/000114036113030273/xslForm13F_X01/form13fInfoTable.xml"
+      ],
+      "factual_findings": "Common corporate equity through the reviewed predecessor/successor lineage.",
+      "identity_transition_analysis": "Reorganizations/CUSIP changes did not establish a type transition.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "313809790950811771",
+      "source_documents": "SEC Form 13F: Beam Inc. CUSIP 073730103 common stock",
+      "ticker": "BEAM2"
+    },
+    {
+      "canonical_interval": "2006-09-15/2026-07-31",
+      "contradiction_search": "No preferred underlying class found.",
+      "cusips": [
+        "29446M102",
+        "85771P102"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-09-15/2026-07-31 common"
+      ],
+      "evidence_urls": [
+        "https://www.adrbny.com/directory/dr-details/_jcr_content/root/drDetailsComponent.overview.overview.29446M102.html"
+      ],
+      "factual_findings": "ADR/ADS represents ordinary shares and is common under policy.",
+      "identity_transition_analysis": "Issuer-name/CUSIP changes preserve ordinary-share depositary program.",
+      "legal_security_type": "ADS_ON_ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "338428006488523117",
+      "source_documents": "BNY depositary record: EQNR ADR CUSIP 29446M102, ordinary-share ratio 1:1",
+      "ticker": "EQNR"
+    },
+    {
+      "canonical_interval": "2021-03-03/2021-03-22",
+      "contradiction_search": "No preferred or other non-common underlying class found.",
+      "cusips": [
+        "04522R101",
+        "04522R200",
+        "04522R309"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2021-03-03/2021-03-22 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/918923/000092189523000654/sc13g07422asln_03062023.htm"
+      ],
+      "factual_findings": "ADS represents ordinary shares and is common under policy.",
+      "identity_transition_analysis": "CUSIP/depositary changes only; no underlying type transition found.",
+      "legal_security_type": "ADS_ON_ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "354775206449723957",
+      "source_documents": "SEC Schedule 13G: ordinary shares represented by ADSs, CUSIP 04522R101",
+      "ticker": "ASLN"
+    },
+    {
+      "canonical_interval": "2009-12-02/2009-12-29",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "16943W105",
+        "16943W204"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2009-12-02/2009-12-29 common"
+      ],
+      "evidence_urls": [
+        "https://www.dtcc.com/-/media/Files/pdf/2009/3/9/OTC045.pdf",
+        "https://www.sec.gov/Archives/edgar/data/1764970/000176497023000003/xslForm13F_X02/kozaktripp.xml"
+      ],
+      "factual_findings": "Common corporate stock on both CUSIP forms.",
+      "identity_transition_analysis": "Recapitalization/CUSIP change only; no type transition.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "385446091142772687",
+      "source_documents": "DTCC identifies 16943W105 as China Green Agriculture common stock; SEC later identifies 16943W204 as common stock",
+      "ticker": "ENFY"
+    },
+    {
+      "canonical_interval": "2018-08-20/2022-02-08",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "49741E100",
+        "49740P106"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2018-08-20/2022-02-08 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1491714/000119312519235410/d759663dsc13da.htm"
+      ],
+      "factual_findings": "Common shares.",
+      "identity_transition_analysis": "CUSIP succession only; no type transition found.",
+      "legal_security_type": "COMMON_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "405838849220324175",
+      "source_documents": "SEC Schedule 13D: Kirkland Lake Gold common shares, CUSIP 49741E100",
+      "ticker": "KL"
+    },
+    {
+      "canonical_interval": "2006-07-12/2006-08-28",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "P8797T133",
+        "P6065Y107",
+        "P8797T109",
+        "P8797T125"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-07-12/2006-08-28 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/914444/000119312506187809/dsc13da.htm"
+      ],
+      "factual_findings": "Ordinary shares.",
+      "identity_transition_analysis": "CUSIP history does not evidence a security-type transition.",
+      "legal_security_type": "ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "426798777460435924",
+      "source_documents": "SEC Schedule 13D: Kerzner International ordinary shares, CUSIP P8797T133",
+      "ticker": "KZL"
+    },
+    {
+      "canonical_interval": "2013-08-02/2015-01-16",
+      "contradiction_search": "No preferred or other non-common underlying class found.",
+      "cusips": [
+        "64118U108",
+        "53577L105"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2013-08-02/2015-01-16 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1509986/000134100413001133/sc13g.htm"
+      ],
+      "factual_findings": "ADS represents Class A common shares and is common under policy.",
+      "identity_transition_analysis": "Ticker/name/CUSIP identity anomaly does not establish a type transition.",
+      "legal_security_type": "ADS_ON_CLASS_A_COMMON_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "453781472257660077",
+      "source_documents": "SEC Schedule 13G: NQ Mobile ADS, CUSIP 64118U108, representing Class A common shares",
+      "ticker": "LKM"
+    },
+    {
+      "canonical_interval": "2007-06-05/2017-10-02",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "01449J105",
+        "46126P106"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2007-06-05/2017-10-02 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1145460/000093247117000648/alereinc.htm"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "Name/CUSIP succession only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "477532852063999654",
+      "source_documents": "SEC filing: Alere CUSIP 01449J105 common stock",
+      "ticker": "ALR1"
+    },
+    {
+      "canonical_interval": "2025-09-25/2026-07-31",
+      "contradiction_search": "No unit/warrant class substituted for the canonical common-share CUSIPs.",
+      "cusips": [
+        "77867R100",
+        "64428N109"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2025-09-25/2026-07-31 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/11544/000089914023000649/xslForm13F_X02/informationtable.xml",
+        "https://www.sec.gov/Archives/edgar/data/2012383/000201238326003194/xslSCHEDULE_13G_X02/primary_doc.xml"
+      ],
+      "factual_findings": "Common stock on both sides of the identity transition.",
+      "identity_transition_analysis": "Business combination/name/CUSIP transition only; no security-type change.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "492909916813820707",
+      "source_documents": "SEC records: Roth CH Acquisition V CUSIP 77867R100 common stock; New ERA successor CUSIP 64428N109 common stock",
+      "ticker": "NUAI"
+    },
+    {
+      "canonical_interval": "2021-01-08/2021-11-08",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "502074404",
+        "502074503",
+        "502074305",
+        "502074107",
+        "502074206"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2021-01-08/2021-11-08 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1640384/000165495421011516/eva_sc13d.htm"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "Reverse-split/CUSIP history only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "543574442698263052",
+      "source_documents": "SEC Schedule 13D: LM Funding America common stock, CUSIP 502074404",
+      "ticker": "PWCM"
+    },
+    {
+      "canonical_interval": "2008-09-30/2026-07-31",
+      "contradiction_search": "No preferred underlying class found.",
+      "cusips": [
+        "110448107",
+        "055270508"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2008-09-30/2026-07-31 common"
+      ],
+      "evidence_urls": [
+        "https://www.bat.com/investors-and-reporting/shareholder-information/manage-your-shares/registrars"
+      ],
+      "factual_findings": "ADS represents ordinary/common equity and is common under policy.",
+      "identity_transition_analysis": "Depositary/issuer CUSIP lineage preserves ordinary-share underlying class.",
+      "legal_security_type": "ADS_ON_ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "562358948924032972",
+      "source_documents": "British American Tobacco issuer/registrar material for BTI ADS program and ordinary shares",
+      "ticker": "BTI"
+    },
+    {
+      "canonical_interval": "2015-08-24/2015-09-02",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "589499102",
+        "589981109"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2015-08-24/2015-09-02 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1584639/000158463914000002/xslForm13F_X01/yakira.xml"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "CUSIP/name succession only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "582648323211762298",
+      "source_documents": "SEC Form 13F: Merge Healthcare CUSIP 589499102 common stock",
+      "ticker": "MRGE1"
+    },
+    {
+      "canonical_interval": "2020-09-03/2026-05-20",
+      "contradiction_search": "Warrant/unit classes exist separately and are not the canonical CUSIPs reviewed here.",
+      "cusips": [
+        "83067L109",
+        "83067L208",
+        "34407Y103",
+        "34407Y202"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2020-09-03/2026-05-20 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1463559/000112329221000261/aimco13g.htm",
+        "https://investors.skillz.com/news/news-details/2023/Skillz-Announces-1-for-20-Reverse-Stock-Split/default.aspx"
+      ],
+      "factual_findings": "Predecessor Flying Eagle Class A and successor Skillz Class A are common equity.",
+      "identity_transition_analysis": "SPAC combination and reverse-split CUSIP changes did not change common-equity type.",
+      "legal_security_type": "CLASS_A_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "604744643544663608",
+      "source_documents": "SEC identifies Skillz Class A common CUSIP 83067L109; issuer confirms successor 83067L208 remains Class A common after reverse split",
+      "ticker": "FIRY"
+    },
+    {
+      "canonical_interval": "2006-07-05/2019-12-04",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "92553P201",
+        "925524308"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-07-05/2019-12-04 common"
+      ],
+      "evidence_urls": [
+        "https://www.nasdaqtrader.com/TraderNews.aspx?id=dtn2011-024"
+      ],
+      "factual_findings": "Class B common stock.",
+      "identity_transition_analysis": "CUSIP succession only; no type transition found.",
+      "legal_security_type": "CLASS_B_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "623190443678201852",
+      "source_documents": "Nasdaq notice: Viacom CUSIP 92553P201 Class B common stock",
+      "ticker": "VIAB"
+    },
+    {
+      "canonical_interval": "2006-07-05/2019-03-19",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "90130A101",
+        "65248E104",
+        "652487802"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-07-05/2019-03-19 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1308161/000093247115004197/twentyfirstcenturyfoxinc.htm"
+      ],
+      "factual_findings": "Class A/common corporate stock through issuer lineage.",
+      "identity_transition_analysis": "News Corp/Fox identity changes do not establish a non-common instrument transition.",
+      "legal_security_type": "CLASS_A_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "652563215601597373",
+      "source_documents": "SEC Schedule 13G: Twenty-First Century Fox CUSIP 90130A101 common stock",
+      "ticker": "TFCFA"
+    },
+    {
+      "canonical_interval": "2022-01-06/2022-01-07",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "683344105",
+        "630077105"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2022-01-06/2022-01-07 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/704532/000210012126000541/xslSCHEDULE_13G_X02/primary_doc.xml"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "Merger/name/CUSIP lineage only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "677962974828146176",
+      "source_documents": "SEC Schedule 13G: Onto Innovation CUSIP 683344105 common stock",
+      "ticker": "ONTO"
+    },
+    {
+      "canonical_interval": "2006-07-05/2026-07-31",
+      "contradiction_search": "No partnership/preferred/trust/warrant/right class found for canonical identity.",
+      "cusips": [
+        "G3682E192",
+        "M46528101",
+        "G3682E127",
+        "541794301"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-07-05/2026-07-31 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1529735/000114036123030435/xslForm13F_X02/informationtable.xml"
+      ],
+      "factual_findings": "Ordinary corporate shares.",
+      "identity_transition_analysis": "Reincorporation/reverse-split CUSIP lineage only; no type transition found.",
+      "legal_security_type": "ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "697608626643031114",
+      "source_documents": "SEC filing: Frontline CUSIP G3682E192 shares/new shares",
+      "ticker": "FRO"
+    },
+    {
+      "canonical_interval": "2012-04-24/2024-03-27",
+      "contradiction_search": "No preferred underlying class found.",
+      "cusips": [
+        "398438408",
+        "398438309",
+        "398438200"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2012-04-24/2024-03-27 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/909661/000090883426000240/xslForm13F_X02/informationtable.xml"
+      ],
+      "factual_findings": "ADS represents non-voting ordinary/common equity, expressly common under policy.",
+      "identity_transition_analysis": "Depositary ratio/CUSIP changes only; no underlying type transition found.",
+      "legal_security_type": "ADS_ON_NON_VOTING_COMMON_EQUITY",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "718834017621263734",
+      "source_documents": "SEC filing: Grifols sponsored ADR, non-voting Class B equity, CUSIP 398438408",
+      "ticker": "GRFS"
+    },
+    {
+      "canonical_interval": "2018-10-25/2020-12-18",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "36164V305",
+        "36164V404",
+        "36164V107",
+        "36164V206"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2018-10-25/2020-12-18 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/808461/000093247119004739/gcilibertyinc.htm"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "Share-class/CUSIP succession reviewed; no non-common transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "758943436528193872",
+      "source_documents": "SEC Schedule 13G: GCI Liberty CUSIP 36164V305 common stock",
+      "ticker": "GLIBA1"
+    },
+    {
+      "canonical_interval": "2010-05-21/2014-04-17",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "019344100",
+        "448629105"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2010-05-21/2014-04-17 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/944388/000120445908002025/allnevada101008sch13g.htm"
+      ],
+      "factual_findings": "Common shares.",
+      "identity_transition_analysis": "CUSIP/name lineage only; no type transition found.",
+      "legal_security_type": "COMMON_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "784755978994935882",
+      "source_documents": "SEC Schedule 13G: Allied Nevada Gold common shares, CUSIP 019344100",
+      "ticker": "ANVGQ"
+    },
+    {
+      "canonical_interval": "2023-01-19/2023-09-20",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "Y3005A109",
+        "Y3005A117"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2023-01-19/2023-09-20 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/913760/000091376025000168/xslForm13F_X02/infotable.xml"
+      ],
+      "factual_findings": "Ordinary shares.",
+      "identity_transition_analysis": "CUSIP change only; no type transition found.",
+      "legal_security_type": "ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "818902908814402884",
+      "source_documents": "SEC filing: Genius Group CUSIP Y3005A109 ordinary shares",
+      "ticker": "GNS"
+    },
+    {
+      "canonical_interval": "2017-12-26/2019-03-14",
+      "contradiction_search": "Primary filings expressly distinguish pre-close LP interests from post-close corporation common stock.",
+      "cusips": [
+        "03676B102",
+        "03675Y103"
+      ],
+      "decision": "split",
+      "effective_intervals": [
+        "2017-12-26/2019-03-12 non_common COMMON_SHARES_REPRESENTING_LIMITED_PARTNER_INTERESTS CUSIP 03675Y103",
+        "2019-03-13/2019-03-14 common CORPORATION_COMMON_STOCK CUSIP 03676B102"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1623925/000155837018006104/amgp-20180630x10q.htm",
+        "https://www.sec.gov/Archives/edgar/data/1623925/000110465919014276/a19-6219_48k.htm",
+        "https://www.sec.gov/Archives/edgar/data/1623925/000110465919014276/a19-6219_4ex99d1.htm"
+      ],
+      "factual_findings": "CUSIP 03675Y103 represented limited partner interests through March 12, 2019. CUSIP 03676B102 was corporation common stock beginning March 13, 2019.",
+      "identity_transition_analysis": "Actual legal security-type transition at the simplification close, requiring an interval split.",
+      "legal_security_type": "TYPE_TRANSITION",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "838821611242754318",
+      "source_documents": "SEC 10-Q and March 12, 2019 8-K/closing release: AMGP LP interests converted to Antero Midstream Corporation common stock",
+      "ticker": "AM"
+    },
+    {
+      "canonical_interval": "2006-08-18/2007-02-12",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "075571109",
+        "075571208"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-08-18/2007-02-12 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1179392/000091957416009957/xslForm13F_X01/infotable.xml"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "CUSIP change only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "872015801854314611",
+      "source_documents": "SEC filing: bebe stores CUSIP 075571109 common stock",
+      "ticker": "BEBE1"
+    },
+    {
+      "canonical_interval": "2024-09-18/2025-10-14",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "G7185A128",
+        "G7185A136",
+        "G7185A102",
+        "09852M101"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2024-09-18/2025-10-14 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1095435/000117266124001398/armistice-prtg123123.htm"
+      ],
+      "factual_findings": "Ordinary shares across reviewed issuer/CUSIP lineage.",
+      "identity_transition_analysis": "CUSIP/name/reorganization changes did not establish a non-common type.",
+      "legal_security_type": "ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "895494186251194405",
+      "source_documents": "SEC Schedule 13G: Portage Biotech ordinary shares, CUSIP G7185A128",
+      "ticker": "ALP"
+    },
+    {
+      "canonical_interval": "2006-12-05/2016-03-23",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "713291102",
+        "737679100"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-12-05/2016-03-23 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1135971/000093247116012068/pepcoholdingsinc.htm"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "CUSIP/name succession only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "924217175469612074",
+      "source_documents": "SEC filing: Pepco Holdings CUSIP 713291102 common stock",
+      "ticker": "POM1"
+    },
+    {
+      "canonical_interval": "2006-07-05/2023-12-22",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "83125X103",
+        "81616X103"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-07-05/2023-12-22 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/827187/000210012126000541/xslSCHEDULE_13G_X02/primary_doc.xml"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "Issuer-name/CUSIP succession only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "950956618868470019",
+      "source_documents": "SEC Schedule 13G: Sleep Number CUSIP 83125X103 common stock",
+      "ticker": "SNBRQ"
+    },
+    {
+      "canonical_interval": "2012-05-29/2012-06-21",
+      "contradiction_search": "No preferred/unit/trust/warrant/right class found for the canonical share CUSIPs.",
+      "cusips": [
+        "M82183126",
+        "M82183209",
+        "M82183100",
+        "M82183118"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2012-05-29/2012-06-21 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1037389/000103738914000073/xslForm13F_X01/renaissance13Fq32014_holding.xml"
+      ],
+      "factual_findings": "Ordinary shares through recapitalization lineage.",
+      "identity_transition_analysis": "Share consolidation/CUSIP changes only; no type transition found.",
+      "legal_security_type": "ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "969277775854771395",
+      "source_documents": "SEC filing: Rosetta Genomics CUSIP M82183126 shares/new shares; successor M82183209 remains shares",
+      "ticker": "ROSGQ"
+    },
+    {
+      "canonical_interval": "2007-02-26/2013-05-14",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "N20935206",
+        "N62648105",
+        "N20935107"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2007-02-26/2013-05-14 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1567094/000119312513391658/d607721dsc13e3a.htm"
+      ],
+      "factual_findings": "Common shares.",
+      "identity_transition_analysis": "CUSIP/reorganization lineage only; no non-common transition found.",
+      "legal_security_type": "COMMON_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "1001469623216439292",
+      "source_documents": "SEC Schedule 13E-3: CNH Global common shares, CUSIP N20935206",
+      "ticker": "CNH1"
+    },
+    {
+      "canonical_interval": "2006-07-05/2026-07-31",
+      "contradiction_search": "No preferred underlying class found.",
+      "cusips": [
+        "37733W105",
+        "37733W204"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2006-07-05/2026-07-31 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/200217/000119312524033404/d748864dsc13ga.htm",
+        "https://www.gsk.com/en-gb/media/press-releases/completion-of-gsk-share-consolidation/"
+      ],
+      "factual_findings": "ADS program represents ordinary shares and is common under policy.",
+      "identity_transition_analysis": "2022 share consolidation/CUSIP change preserves ordinary-share depositary program.",
+      "legal_security_type": "ADS_ON_ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "1035563312054045998",
+      "source_documents": "SEC identifies GSK ordinary shares and ADSs, CUSIP 37733W204; issuer confirms post-consolidation ADS CUSIP",
+      "ticker": "GSK"
+    },
+    {
+      "canonical_interval": "2008-02-04/2015-10-01",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "128195104",
+        "85375C101"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2008-02-04/2015-10-01 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1539994/000153999417000009/xslForm13F_X01/form13fInfoTable.xml"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "Predecessor/successor identity change only; no type transition found.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "1056985280028675237",
+      "source_documents": "SEC filing: CalAtlantic Group CUSIP 128195104 common stock",
+      "ticker": "CAA"
+    },
+    {
+      "canonical_interval": "2021-02-16/2021-07-20",
+      "contradiction_search": "No preferred/unit/trust/warrant/right class found for canonical share identity.",
+      "cusips": [
+        "G56981106",
+        "G56981205",
+        "G56981114"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2021-02-16/2021-07-20 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1037389/000103738920000322/xslForm13F_X01/renaissance13Fq32020_holding.xml"
+      ],
+      "factual_findings": "Ordinary/common shares.",
+      "identity_transition_analysis": "CUSIP changes only; no type transition found.",
+      "legal_security_type": "ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "1086213726748371489",
+      "source_documents": "SEC filing: Luokung Technology CUSIP G56981106 shares",
+      "ticker": "LKCOF"
+    },
+    {
+      "canonical_interval": "2020-11-19/2022-05-17",
+      "contradiction_search": "Separate warrants/units are not the canonical share CUSIPs reviewed here.",
+      "cusips": [
+        "L0423Q108",
+        "12559C103",
+        "L0423Q124"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2020-11-19/2022-05-17 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1835059/000114036123011184/brhc10049591_sc13g.htm"
+      ],
+      "factual_findings": "Ordinary shares across reviewed SPAC/business-combination lineage.",
+      "identity_transition_analysis": "Business-combination/CUSIP changes did not change common-equity type.",
+      "legal_security_type": "ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "1116777537423033703",
+      "source_documents": "SEC Schedule 13G: Arrival ordinary shares, CUSIP L0423Q108",
+      "ticker": "ARVLF"
+    },
+    {
+      "canonical_interval": "2010-07-08/2026-07-31",
+      "contradiction_search": "No preferred underlying class found.",
+      "cusips": [
+        "636274409",
+        "636274300",
+        "636274102"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2010-07-08/2026-07-31 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1004315/000104746905011086/a2156436zscto-c.htm",
+        "https://www.sec.gov/Archives/edgar/data/1910666/000191066626000003/xslForm13F_X02/edgarform13f06302026.xml"
+      ],
+      "factual_findings": "ADS program represents ordinary shares and is common under policy.",
+      "identity_transition_analysis": "Depositary ratio/CUSIP changes preserve ordinary-share underlying class.",
+      "legal_security_type": "ADS_ON_ORDINARY_SHARES",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "1132110208875336824",
+      "source_documents": "SEC records: National Grid ADSs represent ordinary shares; historical and current depositary CUSIPs identified",
+      "ticker": "NGG"
+    },
+    {
+      "canonical_interval": "2011-07-27/2011-08-11",
+      "contradiction_search": "No contrary instrument-class evidence found.",
+      "cusips": [
+        "723664108",
+        "723655106",
+        "840553101"
+      ],
+      "decision": "common",
+      "effective_intervals": [
+        "2011-07-27/2011-08-11 common"
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/320575/000112329220000857/pioneerenergy13g_06082020.htm"
+      ],
+      "factual_findings": "Common corporate stock.",
+      "identity_transition_analysis": "CUSIP/name/reorganization changes do not establish a type transition.",
+      "legal_security_type": "CORPORATION_COMMON_STOCK",
+      "outcome_information_used": false,
+      "review_status": "resolved",
+      "security_id": "1147890361491130219",
+      "source_documents": "SEC Schedule 13G: Pioneer Energy Services CUSIP 723664108 common stock",
+      "ticker": "PESXQ"
+    }
+  ],
+  "classification_changes": [
+    {
+      "from": "common",
+      "security_id": "193588831378973240",
+      "ticker": "OKS",
+      "to": "non_common"
+    },
+    {
+      "from": "common",
+      "security_id": "838821611242754318",
+      "ticker": "AM",
+      "to": "split"
+    }
+  ],
+  "review_date": "2026-09-06",
+  "schema": "champion.security-truth.manual-review/durable-shard-00-v1",
+  "summary": {
+    "common": 43,
+    "non_common": 1,
+    "split": 1,
+    "unresolved": 0
+  },
+  "unresolved_worklist": [],
+  "validation": {
+    "all_resolved_cases_evidence_backed": true,
+    "assignment_formula_reproduced": true,
+    "every_assigned_case_exactly_once": true,
+    "foreign_cases": 0,
+    "outcome_information_used_anywhere": false,
+    "unresolved_worklist_explicit": true
+  }
+}

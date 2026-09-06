@@ -1,0 +1,189 @@
+{
+  "review": "ranking/base shard 01 unresolved cleanup",
+  "base_head": "0a4f08207f9f8c83a2c86cb56cd4fc78805563fa",
+  "branch": "research/champion-security-truth-ranking-01-cleanup",
+  "contract": "research/champion-economic-integrity/PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md",
+  "scope_count": 7,
+  "scope": [
+    "LB",
+    "SYCRF",
+    "NCV-PA",
+    "ACR-PC",
+    "BTTGY",
+    "VNTRQ",
+    "CVOVQ"
+  ],
+  "results": [
+    {
+      "security_id": "161168179129897137",
+      "ticker": "LB",
+      "canonical_interval": "2024-12-27/2026-07-29",
+      "cusips": ["514952100"],
+      "prior_decision": "unresolved",
+      "decision": "common",
+      "legal_security_type": "Class A shares representing limited liability company interests (Class A common equity)",
+      "effective_intervals": ["2024-12-27/2026-07-29:common"],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1837343/000119312524176264/d101492dsc13g.htm",
+        "https://www.sec.gov/Archives/edgar/data/1995807/000105682326000020/xslSCHEDULE_13G_X02/primary_doc.xml",
+        "https://www.sec.gov/Archives/edgar/data/315066/000031506626002059/xslSCHEDULE_13G_X02/primary_doc.xml"
+      ],
+      "source_documents": "SEC Schedule 13G filings",
+      "factual_findings": "CUSIP 514952100 is LandBridge Company LLC Class A equity. SEC filings describe the exact security as Class A shares representing limited liability company interests and, in a separate security-specific filing, as Class A common stock. This is the issuer's publicly traded common-equity class for contract purposes.",
+      "identity_transition_analysis": "Single CUSIP in the canonical record; no identity-chain ambiguity affects the classification.",
+      "contradiction_search": "Searched for preferred, warrant, partnership-unit, trust-unit, depositary-preferred, or other non-common descriptions of CUSIP 514952100; authoritative filings consistently identify the public Class A equity and no contrary legal class was found.",
+      "outcome_information_used": false,
+      "review_status": "resolved"
+    },
+    {
+      "security_id": "202200000063691725",
+      "ticker": "SYCRF",
+      "canonical_interval": "2007-08-02/2007-11-21",
+      "cusips": ["G8649T109", "G8018D107"],
+      "prior_decision": "unresolved",
+      "decision": "common",
+      "legal_security_type": "common shares",
+      "effective_intervals": ["2007-08-02/2007-11-21:common"],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1358164/000093041308001742/c52677_10k.htm",
+        "https://www.sec.gov/Archives/edgar/data/1358164/000093041308002591/c52053_def14a.htm",
+        "https://www.sec.gov/Archives/edgar/data/1358164/000093041308004574/c54399_ex99-1.htm"
+      ],
+      "source_documents": "SEC Form 10-K; SEC proxy statement; SEC-filed issuer press release",
+      "factual_findings": "Security Capital Assurance Ltd.'s traded equity during the canonical 2007 interval was common shares. Its SEC filing separately identifies Series A Preference Shares, confirming that the common shares were a distinct legal class. The later Syncora name change preserved the common-share security type.",
+      "identity_transition_analysis": "G8018D107 belongs to the Security Capital Assurance identity in the canonical era; G8649T109 is associated with the later Syncora identity. SEC materials establish a corporate name change and continued common-share listing. The identifier/name transition is an identity-continuity issue and does not create a legal-type transition in the canonical interval.",
+      "contradiction_search": "Searched authoritative filings for preferred, depositary, warrant, unit, or other non-common treatment of the traded common-share security; the filings distinguish preference shares from common shares and no contrary class evidence was found.",
+      "outcome_information_used": false,
+      "review_status": "resolved"
+    },
+    {
+      "security_id": "397172774526346028",
+      "ticker": "NCV-PA",
+      "canonical_interval": "2024-12-20/2024-12-31",
+      "cusips": ["018828707", "92838X706"],
+      "prior_decision": "unresolved",
+      "decision": "non_common",
+      "legal_security_type": "5.625% Series A Cumulative Preferred Shares",
+      "effective_intervals": ["2024-12-20/2024-12-31:non_common"],
+      "evidence_urls": [
+        "https://www.virtus.com/assets/files/4ky/january-27-2021-allianzgi-closed-end-funds-provide-additional-information-on-fund-name-changes.pdf",
+        "https://ir.virtus.com/news/news-details/2026/Virtus-Convertible--Income-Fund-Announces-Quarterly-Distribution-5-625-Series-A-Cumulative-Preferred-Shares/default.aspx"
+      ],
+      "source_documents": "Virtus issuer/fund press release; Virtus investor-relations distribution announcement",
+      "factual_findings": "Virtus's authoritative name-change table identifies CUSIP 018828707 as AllianzGI Convertible & Income Fund Series A Cumulative Preferred Shares and successor CUSIP 92838X706 as Virtus AllianzGI Convertible & Income Fund Series A Cumulative Preferred Shares, NYSE symbol NCV PR A. Current issuer materials identify the class as 5.625% Series A Cumulative Preferred Shares.",
+      "identity_transition_analysis": "The two CUSIPs are explicitly tied by the fund sponsor to the 2021 fund-name/CUSIP change. The legal instrument remained the same Series A cumulative preferred-share class; the identifier transition does not imply a type transition.",
+      "contradiction_search": "Searched issuer materials for common-share, trust-unit, warrant, or other legal-class descriptions of NCV PR A; authoritative materials consistently identify Series A cumulative preferred shares.",
+      "outcome_information_used": false,
+      "review_status": "resolved"
+    },
+    {
+      "security_id": "726313399179454655",
+      "ticker": "ACR-PC",
+      "canonical_interval": "2025-01-07/2025-01-07",
+      "cusips": ["30068N402", "00489Q201"],
+      "prior_decision": "unresolved",
+      "decision": "non_common",
+      "legal_security_type": "8.625% Fixed-to-Floating Series C Cumulative Redeemable Preferred Stock",
+      "effective_intervals": ["2025-01-07/2025-01-07:non_common"],
+      "evidence_urls": [
+        "https://www.acresreit.com/2018-05-03-Resource-Capital-Corp-Reports-Results-for-Three-Months-Ended-March-31-2018-and-Announces-Name-Change",
+        "https://www.acresreit.com/2021-02-16-Exantas-Capital-Corp-Changes-Name-to-ACRES-Commercial-Realty-Corp-and-Begins-Trading-Under-Ticker-Symbol-ACR"
+      ],
+      "source_documents": "Issuer investor-relations press releases",
+      "factual_findings": "Issuer materials identify the security through both corporate renames as 8.625% Fixed-to-Floating Series C Cumulative Redeemable Preferred Stock. The 2018 Resource Capital-to-Exantas change assigned preferred CUSIP 30068N402; the 2021 Exantas-to-ACRES change assigned preferred CUSIP 00489Q201 and ticker ACR PrC.",
+      "identity_transition_analysis": "Both listed CUSIPs are explicitly linked by issuer announcements to successive names of the same Series C preferred class. The corporate-name/CUSIP changes preserve the legal preferred-stock type.",
+      "contradiction_search": "Searched issuer materials for common-stock or other instrument treatment of the Series C security; the issuer separately discusses common stock and the Series C cumulative redeemable preferred stock, with no contrary class evidence.",
+      "outcome_information_used": false,
+      "review_status": "resolved"
+    },
+    {
+      "security_id": "824100797961064199",
+      "ticker": "BTTGY",
+      "canonical_interval": "2008-01-04/2019-09-19",
+      "cusips": ["05577E101", "111021200", "111021408"],
+      "prior_decision": "unresolved",
+      "decision": "common",
+      "legal_security_type": "American Depositary Shares evidenced by ADRs, representing BT Group ordinary shares",
+      "effective_intervals": ["2008-01-04/2019-09-19:common"],
+      "evidence_urls": [
+        "https://www.bt.com/about/investors/financial-reporting-and-news/annual-reports/listing-history",
+        "https://www.sec.gov/Archives/edgar/data/756620/000165495419012313/batchfiling-04112019.htm",
+        "https://www.sec.gov/Archives/edgar/data/756620/000119312520147926/d873656d20f.htm",
+        "https://depositaryreceipts.citi.com/adr/guides/pgm_d.aspx?cusip=111021408&pageId=16&subpageID=104&typeDisplay=A"
+      ],
+      "source_documents": "BT issuer listing history; SEC filing; SEC Form 20-F; Citibank depositary-receipt program record",
+      "factual_findings": "BT states that its ordinary shares were also listed on the NYSE in the form of American Depositary Shares through September 2019. SEC materials identify ISIN US05577E1010 as American Depositary Shares and state that one ADS represented five BT Group ordinary shares. The predecessor British Telecommunications ADR program record for CUSIP 111021408 identifies an ADR and documents the successor BT Group NYSE CUSIP 05577E101.",
+      "identity_transition_analysis": "CUSIP 05577E101 is the decision-period BT Group ADS/ADR security. CUSIP 111021408 is a predecessor British Telecommunications ADR identifier terminated years before the canonical interval and linked by the depositary to successor CUSIP 05577E101. The remaining legacy CUSIP 111021200 is historical identity metadata; inability to fully bind that pre-canonical identifier does not create factual type uncertainty for the decision-period security. No legal-type transition is established within 2008-01-04/2019-09-19.",
+      "contradiction_search": "Searched issuer, SEC, and depositary materials for preferred, warrant, unit, or other non-common treatment of the decision-period NYSE security; all authoritative decision-period evidence identifies ADS/ADR interests in ordinary shares.",
+      "outcome_information_used": false,
+      "review_status": "resolved"
+    },
+    {
+      "security_id": "866652633497189649",
+      "ticker": "VNTRQ",
+      "canonical_interval": "2018-02-07/2018-03-06",
+      "cusips": ["G9329Z100", "G9329Z118"],
+      "prior_decision": "unresolved",
+      "decision": "common",
+      "legal_security_type": "ordinary shares",
+      "effective_intervals": ["2018-02-07/2018-03-06:common"],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1705682/000155837018001041/vntr-20171231x10k.htm",
+        "https://www.sec.gov/Archives/edgar/data/1307954/000110465921009525/tm214454d1_sc13ga.htm",
+        "https://www.sec.gov/Archives/edgar/data/312069/000031206925000143/xslSCHEDULE_13G_X01/primary_doc.xml"
+      ],
+      "source_documents": "SEC Form 10-K; SEC Schedule 13G amendments",
+      "factual_findings": "Venator's 2017 Form 10-K, filed during the canonical period, states that its publicly traded equity consisted of ordinary shares. A later CUSIP-specific SEC filing identifies G9329Z100 as Ordinary Shares, par value $0.001. Post-reorganization CUSIP G9329Z118 is separately identified in an SEC filing as common stock.",
+      "identity_transition_analysis": "G9329Z100 is the canonical 2018 ordinary-share identifier. G9329Z118 belongs to a later post-reorganization common-equity identity episode. That later identifier history is tracked separately and does not create a type transition inside the 2018 canonical interval.",
+      "contradiction_search": "Searched SEC materials for preferred shares, warrants, partnership/trust units, or depositary-preferred treatment of the canonical G9329Z100 security; authoritative filings consistently identify ordinary shares.",
+      "outcome_information_used": false,
+      "review_status": "resolved"
+    },
+    {
+      "security_id": "934304255431280640",
+      "ticker": "CVOVQ",
+      "canonical_interval": "2007-08-08/2007-09-04",
+      "cusips": ["15670S105", "15670S402", "560321200"],
+      "prior_decision": "unresolved",
+      "decision": "common",
+      "legal_security_type": "common stock",
+      "effective_intervals": ["2007-08-08/2007-09-04:common"],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/895429/000118811208002863/t63733m_n-px.htm",
+        "https://www.sec.gov/Archives/edgar/data/883422/000114036114040298/xslForm13F_X01/form13fInfoTable.xml",
+        "https://www.sec.gov/Archives/edgar/data/93751/000162828016018963/xslForm13F_X01/copy2ofcopyof13fworkbook.xml",
+        "https://www.sec.gov/edgar/browse/?CIK=920321"
+      ],
+      "source_documents": "SEC Form N-PX; SEC Form 13F information tables; SEC issuer entity history",
+      "factual_findings": "SEC records identify Cenveo ticker CVO with CUSIP 15670S105 in the 2007 issuer period, and CUSIP-specific SEC holdings filings identify 15670S105 as common stock. The later CUSIP 15670S402 is likewise identified as common equity shares/common stock. SEC issuer history confirms Cenveo's predecessor name Mail-Well Inc.",
+      "identity_transition_analysis": "CUSIP 15670S105 is the canonical-era Cenveo security and is authoritatively typed as common stock. CUSIP 15670S402 is a later identifier for the same issuer's common equity. CUSIP 560321200 is legacy predecessor identity history from the Mail-Well lineage; incomplete binding of that pre-canonical identifier does not create legal-type ambiguity for the 2007 decision-period security. No common-to-non-common transition is established in the canonical interval.",
+      "contradiction_search": "Searched SEC records for preferred, warrant, unit, trust, or other non-common treatment of the Cenveo decision-period security; CUSIP-specific evidence identifies common stock and no contrary legal class was found.",
+      "outcome_information_used": false,
+      "review_status": "resolved"
+    }
+  ],
+  "summary": {
+    "common": 5,
+    "non_common": 2,
+    "split": 0,
+    "unresolved": 0
+  },
+  "changes_from_base": [
+    "LB: unresolved -> common",
+    "SYCRF: unresolved -> common",
+    "NCV-PA: unresolved -> non_common",
+    "ACR-PC: unresolved -> non_common",
+    "BTTGY: unresolved -> common",
+    "VNTRQ: unresolved -> common",
+    "CVOVQ: unresolved -> common"
+  ],
+  "remaining_unresolved": [],
+  "validation": {
+    "scope_exactly_seven": true,
+    "only_requested_tickers_reviewed": true,
+    "fresh_authoritative_research_performed": true,
+    "multi_cusip_identity_separated_from_legal_type": true,
+    "outcome_information_used_any": false,
+    "replay_or_backtest_run": false
+  }
+}
