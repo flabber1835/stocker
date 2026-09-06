@@ -19,11 +19,12 @@ from __future__ import annotations
 import json
 import os
 import re
+import shlex
 import shutil
 import subprocess
 import sys
 import pathlib
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 import pytest
 
@@ -151,15 +152,128 @@ def _pip_installs(dockerfile: Path) -> str:
 
 
 def _copy_directives(dockerfile: Path) -> list[tuple[str, str]]:
+    """Read the static COPY forms used by runtime reconstruction."""
     out = []
-    for line in dockerfile.read_text().splitlines():
-        line = line.strip()
-        if not line.upper().startswith("COPY "):
+    text = re.sub(r"\\\r?\n", " ", dockerfile.read_text())
+    for line in text.splitlines():
+        match = re.match(r"^\s*COPY\s+(.+)$", line, re.I)
+        if match is None:
             continue
-        parts = line.split()[1:]
-        if len(parts) >= 2:
-            out.append((parts[0], parts[1]))
+        payload = match.group(1).strip()
+        # Ownership/mode flags affect metadata, not the copied path set.
+        while payload.startswith("--"):
+            flag, separator, payload = payload.partition(" ")
+            if not separator or not (
+                    flag.startswith(("--chown=", "--chmod=")) or flag == "--link"):
+                raise ValueError("unsupported COPY flag: " + flag)
+            payload = payload.lstrip()
+        parts = json.loads(payload) if payload.startswith("[") else shlex.split(payload)
+        if (not isinstance(parts, list) or len(parts) < 2
+                or any(not isinstance(item, str) or not item or item == "\\"
+                       for item in parts)):
+            raise ValueError("malformed COPY instruction: " + line)
+        out.extend((source, parts[-1]) for source in parts[:-1])
     return out
+
+
+def _reconstruct_copies(dockerfile: Path, build_root: Path, image_root: Path) -> Path:
+    """Recreate COPY contents for the runtime's fixed /app working directory."""
+    image_root.mkdir(parents=True, exist_ok=True)
+    app = image_root / "app"
+    app.mkdir(exist_ok=True)
+    for src, dst in _copy_directives(dockerfile):
+        sources = (sorted(build_root.glob(src)) if any(ch in src for ch in "*?[")
+                   else [build_root / src.rstrip("/")])
+        assert sources and all(source.exists() for source in sources), (
+            f"Dockerfile.sentinel COPYs {src!r}, which does not exist")
+        destination = PurePosixPath(dst)
+        if not destination.is_absolute():
+            destination = PurePosixPath("/app") / destination
+        target = image_root / str(destination).lstrip("/")
+        target.resolve().relative_to(image_root.resolve())
+        for source in sources:
+            source.resolve().relative_to(build_root.resolve())
+            if source.is_dir():
+                shutil.copytree(source, target, dirs_exist_ok=True,
+                                ignore=shutil.ignore_patterns("__pycache__"))
+            else:
+                file_target = target / source.name if dst.endswith("/") or target.is_dir() else target
+                file_target.parent.mkdir(parents=True, exist_ok=True)
+                shutil.copy2(source, file_target)
+    return app
+
+
+class TestCopyDirectiveReconstruction:
+    @pytest.mark.parametrize("instruction, expected", [
+        ("COPY source /app/target\n", [("source", "/app/target")]),
+        ("COPY source \\\n  /app/target\n", [("source", "/app/target")]),
+        ("COPY source \\\r\n  /app/target\r\n", [("source", "/app/target")]),
+        ("COPY one two /tmp/req/\n", [("one", "/tmp/req/"), ("two", "/tmp/req/")]),
+        ("COPY one \\\n two \\\n /tmp/req/\n", [("one", "/tmp/req/"), ("two", "/tmp/req/")]),
+        ('COPY "source file" "/app/target file"\n', [("source file", "/app/target file")]),
+        ('COPY ["source file", "/app/target file"]\n', [("source file", "/app/target file")]),
+        ("COPY --chown=10001:10001 --chmod=0444 source /app/target\n", [("source", "/app/target")]),
+        ("# COPY ignored /ignored\nRUN echo COPY ignored /ignored\n", []),
+    ])
+    def test_copy_forms(self, tmp_path, instruction, expected):
+        dockerfile = tmp_path / "Dockerfile"
+        dockerfile.write_text(instruction)
+        assert _copy_directives(dockerfile) == expected
+
+    @pytest.mark.parametrize("instruction", [
+        "COPY source\n", "COPY source \\" + "\n", "COPY --from=builder source /target\n",
+    ])
+    def test_unsupported_or_incomplete_copy_refuses(self, tmp_path, instruction):
+        dockerfile = tmp_path / "Dockerfile"
+        dockerfile.write_text(instruction)
+        with pytest.raises(ValueError):
+            _copy_directives(dockerfile)
+
+    def test_reconstruction_preserves_all_paths_and_file_bytes(self, tmp_path):
+        context = tmp_path / "context"
+        context.mkdir()
+        files = {
+            "requirements.txt": b"requirements",
+            "requirements.lock": b"locked",
+            "config/boundary.json": b"{}",
+            "docs/reference/tape.csv": b"date,nav\n",
+            "docs/rules/rule.json": b"{}\n",
+            "deploy/capability": b"capability",
+            "tools/helper.py": b"pass\n",
+        }
+        for name, data in files.items():
+            path = context / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_bytes(data)
+        dockerfile = context / "Dockerfile"
+        dockerfile.write_text(
+            "WORKDIR /app\n"
+            "COPY requirements.txt requirements.lock /tmp/req/\n"
+            "COPY config/boundary.json \\\n /app/config/boundary.json\n"
+            "COPY docs/reference/ \\\n /app/docs/reference/\n"
+            "COPY docs/rules/ ./docs/rules/\n"
+            "COPY deploy/capability \\\n /opt/sentinel/capability\n"
+            "COPY tools/*.py /app/tools/\n")
+        image = tmp_path / "image"
+        assert _reconstruct_copies(dockerfile, context, image) == image / "app"
+        destinations = {
+            "requirements.txt": "tmp/req/requirements.txt",
+            "requirements.lock": "tmp/req/requirements.lock",
+            "config/boundary.json": "app/config/boundary.json",
+            "docs/reference/tape.csv": "app/docs/reference/tape.csv",
+            "docs/rules/rule.json": "app/docs/rules/rule.json",
+            "deploy/capability": "opt/sentinel/capability",
+            "tools/helper.py": "app/tools/helper.py",
+        }
+        actual = {path.relative_to(image).as_posix(): path.read_bytes()
+                  for path in image.rglob("*") if path.is_file()}
+        assert actual == {destinations[name]: data for name, data in files.items()}
+
+    def test_reconstruction_still_refuses_missing_source(self, tmp_path):
+        dockerfile = tmp_path / "Dockerfile"
+        dockerfile.write_text("COPY missing/ /app/missing/\n")
+        with pytest.raises(AssertionError, match="does not exist"):
+            _reconstruct_copies(dockerfile, tmp_path, tmp_path / "image")
 
 
 class TestTheImageLayout:
@@ -169,33 +283,7 @@ class TestTheImageLayout:
         A fresh interpreter, not an import in this process: pytest's module cache
         would hide exactly the failure being hunted.
         """
-        app = tmp_path / "app"          # the image's /app
-        app.mkdir()
-        for src, dst in _copy_directives(DOCKERFILE):
-            # A GLOB source is resolved rather than failed on: the pin file and
-            # the lock are copied with one wildcard because the lock does not
-            # exist until the first real build.
-            if any(ch in src for ch in "*?["):
-                matches = sorted(ROOT.glob(src))
-                if not matches:
-                    pytest.fail(f"Dockerfile.sentinel COPYs {src!r}, which "
-                                f"matches nothing")
-                for m in matches:
-                    tgt = tmp_path / dst.strip("/") / m.name
-                    tgt.parent.mkdir(parents=True, exist_ok=True)
-                    shutil.copy2(m, tgt)
-                continue
-            source = ROOT / src.rstrip("/")
-            if not source.exists():
-                pytest.fail(f"Dockerfile.sentinel COPYs {src!r}, which does not exist")
-            target = (app / "sentinel") if dst.rstrip("/").endswith("sentinel") \
-                else (tmp_path / dst.strip("/"))
-            target.parent.mkdir(parents=True, exist_ok=True)
-            if source.is_dir():
-                shutil.copytree(source, target, dirs_exist_ok=True,
-                                ignore=shutil.ignore_patterns("__pycache__"))
-            else:
-                shutil.copy2(source, target)
+        app = _reconstruct_copies(DOCKERFILE, ROOT, tmp_path)
 
         state = tmp_path / "state"
         env = {
