@@ -84,10 +84,31 @@ def _parsed_intervals(case: dict, source: str) -> list[Interval]:
             if cls in {"common", "non_common"}:
                 result.append(Interval(str(row[0]), str(row[1]), cls, source, ticker))
         elif isinstance(row, str):
-            parts = row.replace(" — ", "/").split()
-            if len(parts) >= 2 and parts[-1].lower() in {"common", "non_common"}:
-                a, b = " ".join(parts[:-1]).replace("..", "/").split("/", 1)
-                result.append(Interval(a.strip(), b.strip(), parts[-1].lower(), source, ticker))
+            # Manual-review artifacts use both compact rows such as
+            #   "2020-01-01/2020-12-31 common"
+            # and annotated split rows such as
+            #   "2017-12-26/2019-03-12 non_common ... CUSIP ...".
+            # The date range is always the first token and the factual class is
+            # the first common/non_common token after it; trailing legal-type
+            # annotations are provenance only and must not affect execution.
+            normalized = row.replace(" — ", "/").replace("..", "/")
+            parts = normalized.split()
+            if len(parts) >= 2:
+                cls_index = next(
+                    (i for i, token in enumerate(parts[1:], start=1)
+                     if token.lower() in {"common", "non_common"}),
+                    None,
+                )
+                if cls_index is not None:
+                    date_token = parts[0]
+                    if "/" not in date_token:
+                        raise ValueError(
+                            f"string truth interval lacks date range: {source} {sid} {ticker} {row!r}"
+                        )
+                    a, b = date_token.split("/", 1)
+                    result.append(
+                        Interval(a.strip(), b.strip(), parts[cls_index].lower(), source, ticker)
+                    )
     if result:
         return result
     if decision in {"common", "non_common"}:
