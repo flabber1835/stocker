@@ -1,5 +1,6 @@
-# RETIRED: Sentinel now has one deployable runtime image: Dockerfile.sentinel.
+# RETIRED SECOND-RUNTIME TOMBSTONE.
+#
+# Sentinel has exactly one deployable runtime image: Dockerfile.sentinel.
 # Broker-capable code and the execution-capability marker are built into that
-# single immutable runtime. This tombstone intentionally has no FROM instruction,
-# so any stale build path that still attempts to create a second authorized
-# runtime fails closed at Dockerfile parsing/build time.
+# single immutable runtime. This file intentionally has no FROM instruction so
+# any stale build path that attempts to create a second runtime fails closed.
