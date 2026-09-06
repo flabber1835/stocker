@@ -22,7 +22,7 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
     steps:
-      - name: Audit checkout
+      - name: Audit checkout - sparse
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ github.sha }}
@@ -30,6 +30,9 @@ jobs:
           fetch-depth: 1
           filter: blob:none
           persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/champion-economic-integrity
       - name: Exact formal source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -77,6 +80,61 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
           echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" >> "${GITHUB_ENV}"
           echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
+      - name: Stage exact final classifier and economic overlays
+        run: |
+          set -euo pipefail
+          cp audit-src/backtester/champion_economic_prefix_audit.py certified-src/backtester/
+          cp audit-src/backtester/champion_full_classification_control.py certified-src/backtester/
+          cp audit-src/backtester/champion_security_truth_audit_v2.py certified-src/backtester/
+          cp audit-src/backtester/champion_security_truth_overlay_v2.py certified-src/backtester/
+          cp audit-src/backtester/champion_final_security_truth.py certified-src/backtester/
+          cp audit-src/backtester/champion_final_truth_corpus_validator.py certified-src/backtester/
+          cp audit-src/backtester/production_equivalent_economic_overlay.py certified-src/backtester/
+          cp audit-src/backtester/champion_production_equivalent_build.py certified-src/backtester/
+          cp audit-src/backtester/champion_production_equivalent_final_replay.py certified-src/backtester/
+          cp audit-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
+          cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
+          cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
+          cp candidate-src/backtester/data/champion-historical-security-type-corrections-v1.csv certified-src/backtester/data/
+          cp candidate-src/backtester/data/champion-best-effort-security-types-v1.csv certified-src/backtester/data/
+          cp candidate-src/backtester/data/champion-best-effort-security-types-v1-summary.json certified-src/backtester/data/
+          cp candidate-src/backtester/data/champion-reviewed-security-types-v1.csv certified-src/backtester/data/
+          mkdir -p certified-src/research/champion-economic-integrity/security-truth
+          cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
+      - name: Exact executable preflight before PIT download
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python backtester/champion_final_truth_corpus_validator.py \
+            --manual research/champion-economic-integrity/security-truth/manual-review \
+            --output "${GITHUB_WORKSPACE}/final-corpus-validation.json"
+          PYTHONPATH="${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" python - <<'PY'
+          from backtester import champion_final_security_truth as truth
+          from backtester import research_champion_best_effort_classification as base
+          assert len(truth.FINAL_INTERVALS) == 696, len(truth.FINAL_INTERVALS)
+          estimate = truth.SecurityTypeEstimate(base.DEFAULT_LEDGER, 'reviewed_18')
+          checked = 0
+          for sid, intervals in sorted(truth.FINAL_INTERVALS.items(), key=lambda item: int(item[0])):
+              for row in intervals:
+                  assert estimate.peek(sid, row.first) == row.classification, (sid, row, 'first')
+                  assert estimate.peek(sid, row.last) == row.classification, (sid, row, 'last')
+                  checked += 2
+          assert checked == 1404, checked
+          print(f'PASS executable final truth: 696 securities; {checked} boundary classifications')
+          PY
+          rm -rf "${GITHUB_WORKSPACE}/final-preflight-output"
+          PYTHONPATH="${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" \
+            python backtester/champion_production_equivalent_build.py \
+              --candidate-root "${GITHUB_WORKSPACE}/candidate-src" \
+              --output "${GITHUB_WORKSPACE}/final-preflight-output"
+          python - <<'PY'
+          import json, pathlib
+          d=json.loads(pathlib.Path('../final-preflight-output/SOURCE_PROBES.json').read_text())
+          assert d['status']=='PASS_SOURCE_BUILD_NO_REPLAY', d
+          assert d['generated_sha256']['production_equivalent']=='7d2a85a3335e3236ad14cf55f89146aa1f1efc1a6309a975651c8388452a0e20', d
+          assert d['corpus_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993', d
+          print('PASS exact generated source identity')
+          PY
       - name: Pull and verify exact canonical PIT package
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -94,18 +152,6 @@ jobs:
           docker rm "${cid}"
           trap - EXIT
           PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset canonical-pit > package-integrity.json
-      - name: Stage final audit overlays
-        run: |
-          set -euo pipefail
-          cp audit-src/backtester/champion_economic_prefix_audit.py certified-src/backtester/
-          cp audit-src/backtester/champion_full_classification_control.py certified-src/backtester/
-          cp audit-src/backtester/champion_security_truth_audit_v2.py certified-src/backtester/
-          cp audit-src/backtester/champion_security_truth_overlay_v2.py certified-src/backtester/
-          cp audit-src/backtester/champion_final_security_truth.py certified-src/backtester/
-          cp audit-src/backtester/production_equivalent_economic_overlay.py certified-src/backtester/
-          cp audit-src/backtester/champion_production_equivalent_final_replay.py certified-src/backtester/
-          mkdir -p certified-src/research/champion-economic-integrity/security-truth
-          cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
       - name: Run single final 20-year replay
         run: |
           set -euo pipefail
@@ -120,7 +166,8 @@ jobs:
           path: |
             final-output/
             final-replay.log
+            final-corpus-validation.json
+            final-preflight-output/
             package-integrity.json
           retention-days: 90
           if-no-files-found: warn
-# retrigger after validated split-interval parser fix
