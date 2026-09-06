@@ -10,6 +10,8 @@ import sys
 from typing import Optional, Sequence
 
 import sentinel_go_actual_deadline_guard as actual_deadline_guard
+import sentinel_go_ci_runtime as ci_runtime
+import sentinel_go_local_full_runtime as local_full_runtime
 import sentinel_go_lock as go_lock
 import sentinel_go_observability as observability
 import sentinel_go_phase_entry as phase
@@ -21,15 +23,6 @@ _ORIGINAL_PHASED = controller.run_phased_probes
 
 
 class DeploymentCompatibleDatabaseHealthView(phase.StrictDatabaseHealthView):
-    """Enforce fresh margin without silently changing the public bundle schema.
-
-    The autonomous deployment parser intentionally requires the exact v1
-    database-health field set. Fresh wall-clock margin is enforced through
-    ``complete`` and by the bundle ``valid_until`` cap in phase_entry; adding a
-    new top-level field here would make an otherwise valid GO bundle
-    undeployable.
-    """
-
     def to_dict(self) -> dict:
         return dict(self.base.to_dict())
 
@@ -132,31 +125,50 @@ def _write_run_pass(*, target: str) -> None:
 
 
 def _install_wallclock_independent_dual_overlay(*, development: bool) -> None:
-    """Add fenced installation authority without changing session verdicts."""
     if development:
         return
-    # When executed as a script, make this exact module instance importable by
-    # its canonical name before loading the overlays. They must patch the
-    # authority path executing under the public lifecycle lock, not a second
-    # imported copy of this module.
     sys.modules.setdefault("sentinel_go_verified_entry", sys.modules[__name__])
-
-    # Prepare the database through the newest session that is already causally
-    # source-final. A newer closed session remains an explicit readiness/session
-    # wait and cannot block installation of the certified software.
     import sentinel_go_24x7_entry as source_final  # noqa: PLC0415
     source_final.install()
-
-    # The installation overlay recognizes only explicitly classified temporal
-    # waiting states. SHADOW_GO, DUAL_RUN_GO and PAPER_EXECUTION_GO remain
-    # session/economic verdicts and stay NO_GO until current data and pre-open
-    # timing are re-earned.
     import sentinel_go_install_entry as install_anytime  # noqa: PLC0415
     install_anytime._install_overlay()
 
 
+def _install_software_certifier(*, local_full: bool) -> None:
+    def certify(runner, *, git, now_text, run_suite):
+        if local_full:
+            if not run_suite:
+                summary = go.TestSummary(None, None, None)
+                gate = go.make_gate(
+                    "certified_suite_no_skips", go.NOT_PROVEN, now_text,
+                    {"reason": "LOCAL_FULL_CERTIFICATION_NOT_RUN"})
+            elif not (git.commit and git.branch_is_main and git.clean
+                      and git.matches_origin_main):
+                summary = go.TestSummary(None, None, None)
+                gate = go.make_gate(
+                    "certified_suite_no_skips", go.NOT_PROVEN, now_text,
+                    {"reason": "GIT_IDENTITY_NOT_PASS_NO_LOCAL_CERTIFICATION"})
+            else:
+                summary, gate = local_full_runtime.certify_local_full(
+                    runner, commit=git.commit, now_text=now_text)
+                if gate.status == go.PASS and summary.complete:
+                    phase._write_with_ordinary(git.commit, summary)
+        else:
+            summary, gate = ci_runtime.certify_from_ci(
+                runner, git=git, now_text=now_text, run_suite=run_suite)
+
+        phase._PHASE["certified"] = bool(
+            gate.status == go.PASS and summary.complete)
+        phase._PHASE["prepared"] = False
+        return summary, gate
+
+    controller._certify_exact_artifacts = certify
+
+
 def main(argv: Optional[Sequence[str]] = None) -> int:
     raw = list(argv if argv is not None else sys.argv[1:])
+    local_full = "--local-full-certification" in raw
+    raw = [item for item in raw if item != "--local-full-certification"]
     development = (
         "--input" in raw or any(str(item).startswith("--input=") for item in raw))
     try:
@@ -176,33 +188,22 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 raise controller.PhaseRefused(str(exc)) from exc
         _install_wallclock_independent_dual_overlay(development=development)
         phase.install()
+        _install_software_certifier(local_full=local_full)
         if not development:
-            # Base-backup freshness is a host durability prerequisite. Install
-            # its self-heal only after phase.install() has established the exact
-            # artifact-certification guard around mutable preparation.
             import sentinel_go_backup_refresh as backup_refresh  # noqa: PLC0415
             backup_refresh.install()
-            # Every DB-dependent one-shot phase now shares one cold-start and
-            # typed-child-failure contract. This wrapper sits outside the backup
-            # refresh so a rebooted/stopped PostgreSQL is recovered before any
-            # durability or financial readiness command attempts a connection.
             probe_contract.install(controller=controller, phase=phase)
-            # A missing final wall-clock observation is infrastructure evidence,
-            # not proof that the following execution open has already passed.
-            # Keep the causal probe marker and refuse before the phase controller
-            # can collapse None into a timing verdict.
             actual_deadline_guard.install()
-        # Production GO is intentionally verbose: safe build/test output streams
-        # live, sensitive probes emit colored progress/heartbeat lines, suites run
-        # shortest-first, and sanitized failing pytest nodes enter the review bundle.
         observability.install(go=go, controller=controller)
         phase.StrictDatabaseHealthView = DeploymentCompatibleDatabaseHealthView
         controller.DatabaseHealthView = DeploymentCompatibleDatabaseHealthView
         controller.run_phased_probes = run_verified_probes
-        # Treat the opaque current-run promotion capability as a secret candidate
-        # for the existing bundle scanner. Only its SHA-256 is intentionally
-        # persisted in the local non-uploaded requested-target proof.
         go._SECRET_NAMES = frozenset(set(go._SECRET_NAMES) | {go_lock.RUN_TOKEN_ENV})
+        print(
+            "software certification mode: %s" % (
+                "LOCAL_FULL" if local_full else "CI_CERTIFIED_RUNTIME"),
+            flush=True,
+        )
         rc = controller.main(raw)
         if rc == 0 and not development:
             _write_run_pass(target=target)
