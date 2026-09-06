@@ -105,7 +105,7 @@ Admissible carried terminal values occupy held slots and are counted once. The o
 | Capacity off | 1,651 | 0 | 25 | 0 |
 | Dividend lag 1 | 1,518 | 0 | 18 | 0 |
 | Candidate classifier | 1,446 | 0 | 15 | 0 |
-| Total | **7,784** | **0** | **108** | **0** |
+| Total | **7,784** | **0** | **101** | **0** |
 
 These include **1,470 independent open/close NAV reconstructions**. Buy cash flows include the 10bps cost. Split checks are performed each applicable session; most sessions use a ratio of one.
 
