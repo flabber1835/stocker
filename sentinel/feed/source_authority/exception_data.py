@@ -40,4 +40,16 @@ _SEED_COVERAGE_EXCEPTION_ROWS = (
     ('2026-04-06', '6398749', 'WLIIU', 'Domestic Common Stock Secondary Class', '2026-04-06', '2026-04-07'),
 )
 
-__all__ = ["_SEED_COVERAGE_EXCEPTION_ROWS"]
+# Nasdaq Equity Corporate Actions Alert #2026-607 records APGE's last trading
+# date as 2026-09-02, a full-session halt on 2026-09-03, and suspension from
+# 2026-09-04. Sharadar TICKERS nevertheless reports lastpricedate=2026-09-03.
+# This is an exact reviewed terminal-boundary exception only; it does not create
+# or impute a synthetic SEP price row.
+_SEED_TERMINAL_COVERAGE_EXCEPTION_ROWS = (
+    ('2026-09-03', '640227', 'APGE', 'Domestic Common Stock', '2026-09-03'),
+)
+
+__all__ = [
+    "_SEED_COVERAGE_EXCEPTION_ROWS",
+    "_SEED_TERMINAL_COVERAGE_EXCEPTION_ROWS",
+]
