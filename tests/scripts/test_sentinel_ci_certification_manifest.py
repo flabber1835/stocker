@@ -10,16 +10,21 @@ from tools import sentinel_ci_certification_manifest as cert
 
 COMMIT = "a" * 40
 TREE = "b" * 40
-HEX64 = "c" * 64
-IMAGE_DIGEST = "sha256:" + "d" * 64
-IMAGE_ID = "sha256:" + "e" * 64
+ORDINARY_DIGEST = "sha256:" + "c" * 64
+AUTHORIZED_DIGEST = "sha256:" + "d" * 64
+ORDINARY_ID = "sha256:" + "e" * 64
+AUTHORIZED_ID = "sha256:" + "f" * 64
+ORDINARY_SUBJECT = "ghcr.io/flabber1835/stocker/sentinel"
+AUTHORIZED_SUBJECT = "ghcr.io/flabber1835/stocker/sentinel-authorized"
+
+
+def _suite(passed=41):
+    row = {key: 0 for key in cert._COUNT_KEYS}
+    row["passed"] = passed
+    return row
 
 
 def _input():
-    empty = {key: 0 for key in cert._COUNT_KEYS}
-    empty["passed"] = 123
-    suite = {key: 0 for key in cert._COUNT_KEYS}
-    suite["passed"] = 41
     return {
         "schema": cert.INPUT_SCHEMA,
         "repository": cert.REPOSITORY,
@@ -28,7 +33,8 @@ def _input():
         "test_workflow_path": cert.TEST_WORKFLOW_PATH,
         "test_workflow_run": 1234,
         "test_workflow_attempt": 1,
-        "authorized_image_id": IMAGE_ID,
+        "ordinary_image_id": ORDINARY_ID,
+        "authorized_image_id": AUTHORIZED_ID,
         "authorized_runtime_capability_sha256": "1" * 64,
         "dependency_lock_hashes": {
             "sentinel/requirements.lock": "2" * 64,
@@ -38,11 +44,11 @@ def _input():
         "test_counts": {
             "suites_completed": 3,
             "suite_counts": {
-                "operator_scripts": dict(suite),
-                "sentinel": dict(suite),
-                "wealth_core_boundary": dict(suite),
+                "operator_scripts": _suite(),
+                "sentinel": _suite(),
+                "wealth_core_boundary": _suite(),
             },
-            "total": empty,
+            "total": _suite(123),
         },
         "adversarial_evidence": {"status": "PASS", "sha256": "5" * 64},
         "mutation_evidence": {"status": "PASS", "sha256": "6" * 64},
@@ -64,15 +70,31 @@ def _manifest():
     return cert.finalize_manifest(
         input_evidence=_input(),
         jobs_payload=_jobs(),
-        subject_name="ghcr.io/flabber1835/stocker/sentinel-authorized",
-        image_digest=IMAGE_DIGEST,
+        ordinary_subject_name=ORDINARY_SUBJECT,
+        ordinary_image_digest=ORDINARY_DIGEST,
+        authorized_subject_name=AUTHORIZED_SUBJECT,
+        authorized_image_digest=AUTHORIZED_DIGEST,
         publication_run=5678,
         publication_attempt=1,
         certified_at="2026-09-06T06:00:00Z",
     )
 
 
-def test_final_manifest_binds_source_runtime_ci_and_hash():
+def _finalize(evidence=None, jobs=None):
+    return cert.finalize_manifest(
+        input_evidence=evidence or _input(),
+        jobs_payload=jobs or _jobs(),
+        ordinary_subject_name=ORDINARY_SUBJECT,
+        ordinary_image_digest=ORDINARY_DIGEST,
+        authorized_subject_name=AUTHORIZED_SUBJECT,
+        authorized_image_digest=AUTHORIZED_DIGEST,
+        publication_run=5678,
+        publication_attempt=1,
+        certified_at="2026-09-06T06:00:00Z",
+    )
+
+
+def test_final_manifest_binds_both_runtimes_source_ci_and_hash():
     manifest = _manifest()
     cert.verify_manifest(manifest)
     assert manifest["source"] == {
@@ -80,9 +102,15 @@ def test_final_manifest_binds_source_runtime_ci_and_hash():
         "commit": COMMIT,
         "tree": TREE,
     }
-    assert manifest["runtime"]["docker_image_digest"] == IMAGE_DIGEST
-    assert manifest["runtime"]["authorized_runtime_digest"] == IMAGE_DIGEST
-    assert manifest["runtime"]["immutable_ref"].endswith("@" + IMAGE_DIGEST)
+    ordinary = manifest["runtime"]["ordinary"]
+    authorized = manifest["runtime"]["authorized"]
+    assert ordinary["docker_image_digest"] == ORDINARY_DIGEST
+    assert ordinary["immutable_ref"] == ORDINARY_SUBJECT + "@" + ORDINARY_DIGEST
+    assert ordinary["ci_local_image_id"] == ORDINARY_ID
+    assert authorized["docker_image_digest"] == AUTHORIZED_DIGEST
+    assert authorized["immutable_ref"] == AUTHORIZED_SUBJECT + "@" + AUTHORIZED_DIGEST
+    assert authorized["ci_local_image_id"] == AUTHORIZED_ID
+    assert authorized["authorized_runtime_capability_sha256"] == "1" * 64
     assert manifest["tests"]["required_job_conclusions"] == {
         name: "success" for name in cert.REQUIRED_JOBS
     }
@@ -97,47 +125,35 @@ def test_tampered_manifest_refuses():
         cert.verify_manifest(manifest)
 
 
+def test_identical_runtime_digest_refuses():
+    with pytest.raises(cert.CertificationManifestRefused, match="distinct"):
+        cert.finalize_manifest(
+            input_evidence=_input(), jobs_payload=_jobs(),
+            ordinary_subject_name=ORDINARY_SUBJECT,
+            ordinary_image_digest=ORDINARY_DIGEST,
+            authorized_subject_name=AUTHORIZED_SUBJECT,
+            authorized_image_digest=ORDINARY_DIGEST,
+            publication_run=5678, publication_attempt=1,
+            certified_at="2026-09-06T06:00:00Z")
+
+
 def test_missing_required_ci_job_refuses():
     jobs = _jobs()
     jobs["jobs"].pop()
     with pytest.raises(cert.CertificationManifestRefused, match="missing"):
-        cert.finalize_manifest(
-            input_evidence=_input(),
-            jobs_payload=jobs,
-            subject_name="ghcr.io/flabber1835/stocker/sentinel-authorized",
-            image_digest=IMAGE_DIGEST,
-            publication_run=5678,
-            publication_attempt=1,
-            certified_at="2026-09-06T06:00:00Z",
-        )
+        _finalize(jobs=jobs)
 
 
 def test_failed_required_ci_job_refuses():
     with pytest.raises(cert.CertificationManifestRefused, match="did not succeed"):
-        cert.finalize_manifest(
-            input_evidence=_input(),
-            jobs_payload=_jobs(**{"sentinel-exact-head": "failure"}),
-            subject_name="ghcr.io/flabber1835/stocker/sentinel-authorized",
-            image_digest=IMAGE_DIGEST,
-            publication_run=5678,
-            publication_attempt=1,
-            certified_at="2026-09-06T06:00:00Z",
-        )
+        _finalize(jobs=_jobs(**{"sentinel-exact-head": "failure"}))
 
 
 def test_nonpass_test_count_refuses():
     evidence = _input()
     evidence["test_counts"]["total"]["skipped"] = 1
     with pytest.raises(cert.CertificationManifestRefused, match="non-passes"):
-        cert.finalize_manifest(
-            input_evidence=evidence,
-            jobs_payload=_jobs(),
-            subject_name="ghcr.io/flabber1835/stocker/sentinel-authorized",
-            image_digest=IMAGE_DIGEST,
-            publication_run=5678,
-            publication_attempt=1,
-            certified_at="2026-09-06T06:00:00Z",
-        )
+        _finalize(evidence=evidence)
 
 
 def test_pytest_summary_counts_three_required_suites(tmp_path: Path):
@@ -152,26 +168,11 @@ def test_pytest_summary_counts_three_required_suites(tmp_path: Path):
         paths[name] = path
     counts = cert.collect_test_counts(paths)
     assert counts["suites_completed"] == 3
-    assert counts["total"] == {
-        "passed": 60,
-        "failed": 0,
-        "errors": 0,
-        "skipped": 0,
-        "xfailed": 0,
-        "xpassed": 0,
-    }
+    assert counts["total"] == _suite(60)
 
 
 def test_duplicate_required_job_refuses():
     jobs = _jobs()
     jobs["jobs"].append(deepcopy(jobs["jobs"][0]))
     with pytest.raises(cert.CertificationManifestRefused, match="duplicated"):
-        cert.finalize_manifest(
-            input_evidence=_input(),
-            jobs_payload=jobs,
-            subject_name="ghcr.io/flabber1835/stocker/sentinel-authorized",
-            image_digest=IMAGE_DIGEST,
-            publication_run=5678,
-            publication_attempt=1,
-            certified_at="2026-09-06T06:00:00Z",
-        )
+        _finalize(jobs=jobs)
