@@ -12,12 +12,21 @@ export SENTINEL_POSTGRES_PASSWORD="sentinel-backup-e2e-password"
 export SENTINEL_PUBLICATION_RECEIPT_KEY="sentinel-backup-e2e-receipt-key"
 export SENTINEL_FORCE_CPU_LIMITS=1
 
+POSTGRES_IMAGE="postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b"
 COMPOSE=(docker compose -f docker-compose.sentinel.yml -f docker-compose.sentinel-backup.yml)
 
 cleanup() {
   local rc=$?
   "${COMPOSE[@]}" down -v --remove-orphans >/dev/null 2>&1 || true
-  rm -rf "$BACKUP_ROOT"
+  # Production intentionally creates root/postgres-owned durable artifacts.
+  # Remove them through the pinned container as root so test cleanup does not
+  # turn a successful production backup into a false CI failure.
+  if [ -d "$BACKUP_ROOT" ]; then
+    docker run --rm --network none \
+      -v "$BACKUP_ROOT:/cleanup" --entrypoint sh "$POSTGRES_IMAGE" \
+      -ceu 'find /cleanup -mindepth 1 -delete' >/dev/null 2>&1 || true
+    rm -rf "$BACKUP_ROOT" || true
+  fi
   return "$rc"
 }
 trap cleanup EXIT
