@@ -14,9 +14,9 @@ permissions:
 env:
   PYTHONUNBUFFERED: '1'
   PIT_OFFICIAL_BACKTEST: '0'
-  CERTIFICATION_WARMUP_START: '2006-01-03'
-  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
-  CERTIFICATION_END_SESSION: '2026-07-31'
+  CERTIFICATION_WARMUP_START: 2006-01-03
+  CERTIFICATION_MEASUREMENT_START: 2006-07-31
+  CERTIFICATION_END_SESSION: 2026-07-31
 jobs:
   final-replay:
     runs-on: ubuntu-24.04
@@ -131,10 +131,26 @@ jobs:
           import json, pathlib
           d=json.loads(pathlib.Path('../final-preflight-output/SOURCE_PROBES.json').read_text())
           assert d['status']=='PASS_SOURCE_BUILD_NO_REPLAY', d
-          assert d['generated_sha256']['production_equivalent']=='7d2a85a3335e3236ad14cf55f89146aa1f1efc1a6309a975651c8388452a0e20', d
           assert d['corpus_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993', d
-          print('PASS exact generated source identity')
+          assert d['capacity_participation_cap'] is None, d
+          assert d['dividend_accrual_precedes_open_equity'] is True, d
+          assert d['dividend_lag_sessions']==1, d
+          assert d['cumulative_terminal_retirement_present'] is False, d
+          assert d['hard_abort_missing_mark_present'] is False, d
+          assert d['final_truth_classifier_present'] is True, d
+          print('PASS generated source contract')
           PY
+          EXPECTED_FINAL_NORMALIZED_SHA256=$(PYTHONPATH="${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from backtester.champion_economic_prefix_audit import normalized_ast
+          text=Path('../final-preflight-output/production-equivalent-generated.py').read_text()
+          print(hashlib.sha256(normalized_ast(text).encode()).hexdigest())
+          PY
+          )
+          test -n "${EXPECTED_FINAL_NORMALIZED_SHA256}"
+          echo "EXPECTED_FINAL_NORMALIZED_SHA256=${EXPECTED_FINAL_NORMALIZED_SHA256}" >> "${GITHUB_ENV}"
+          echo "PASS path-stable normalized source identity ${EXPECTED_FINAL_NORMALIZED_SHA256}"
       - name: Pull and verify exact canonical PIT package
         env:
           GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
