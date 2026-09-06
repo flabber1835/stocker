@@ -50,6 +50,14 @@ COPY config/paper-observation-boundary.json \
      /app/config/paper-observation-boundary.json
 COPY sentinel/ /app/sentinel/
 
+# The production GO parity replay is broker-free and read-only. Carry its exact
+# helper and frozen corrected-lineage tape in this same immutable runtime so a
+# NAS validating a CI-certified commit never needs a second deployable/test
+# image. The diagnostic has no execution/broker imports and persists no state.
+COPY tools/__init__.py tools/sentinel_forward_chain.py /app/tools/
+COPY docs/sentinel-reference-implementation/ \
+     /app/docs/sentinel-reference-implementation/
+
 # Broker-capable code is intentionally present in this one runtime image.
 # shared/ already contains stock_strategy_shared.broker.alpaca and sentinel/
 # contains the authorized command routes and Alpaca execution handlers.
