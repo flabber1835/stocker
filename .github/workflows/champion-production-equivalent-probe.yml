@@ -127,6 +127,27 @@ jobs:
           mkdir -p certified-src/research/champion-economic-integrity/security-truth
           cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
 
+      - name: Execute final truth classifier initialization
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd certified-src
+          PYTHONPATH="${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" python - <<'PY'
+          from backtester import champion_final_security_truth as truth
+          assert truth.FINAL_INTERVALS, 'final truth ledger is empty'
+          am = truth.FINAL_INTERVALS['838821611242754318']
+          assert [(x.first, x.last, x.classification) for x in am] == [
+              ('2017-12-26', '2019-03-12', 'non_common'),
+              ('2019-03-13', '2019-03-14', 'common'),
+          ], am
+          pds = truth.FINAL_INTERVALS['594891209465982980']
+          assert [(x.first, x.last, x.classification) for x in pds] == [
+              ('2006-07-05', '2010-06-01', 'non_common'),
+              ('2010-06-02', '2015-06-04', 'common'),
+          ], pds
+          print(f'PASS final truth classifier initialization: {len(truth.FINAL_INTERVALS)} securities')
+          PY
+
       - name: Run synthetic/source seam tests
         shell: bash
         run: |
