@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 30
     env:
       PYTHONUNBUFFERED: '1'
+      PYTHONPATH: ${{ github.workspace }}
       BASELINE_RUN_ID: '34007704385'
       BASELINE_ARTIFACT: 'champion-corrected-classification-34007704385-1'
       BASELINE_DAILY_SHA256: 'fbc8a18d2e6f01bbc5154fe359990633bbe93e28b4dbeba57da0be149f4811a8'
