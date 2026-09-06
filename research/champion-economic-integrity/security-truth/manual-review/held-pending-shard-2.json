@@ -1,0 +1,654 @@
+{
+  "schema": "champion.security-truth-held-pending-shard/1",
+  "date": "2026-09-06",
+  "branch": "research/champion-security-truth-shard-2",
+  "parent_branch": "research/champion-certification-economic-integrity",
+  "parent_head": "428721fd4a7494df477c2c9cd3d94ded1c1f5d37",
+  "contract": "research/champion-economic-integrity/PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md",
+  "scope_tickers": [
+    "LFCHY",
+    "MTL",
+    "KUST",
+    "SGP1",
+    "FRFHF",
+    "PRE1",
+    "VRX1",
+    "CCXI1",
+    "FTI1",
+    "WCC",
+    "WIRE",
+    "GLBL1",
+    "PWRD1",
+    "TELFY",
+    "WEBX1"
+  ],
+  "outcome_information_used": false,
+  "cases": [
+    {
+      "security_id": "788900523736619527",
+      "ticker": "LFCHY",
+      "canonical_interval": [
+        "2006-07-05",
+        "2015-05-06"
+      ],
+      "cusips": [
+        "16939P106"
+      ],
+      "decision": "common",
+      "legal_security_type": "ADR/ADS_REPRESENTING_H_ORDINARY_SHARES",
+      "effective_intervals": [
+        {
+          "first_session": "2006-07-05",
+          "last_session": "2015-05-06",
+          "decision": "common",
+          "legal_security_type": "ADR/ADS_REPRESENTING_H_ORDINARY_SHARES"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1268896/000119312506121269/d20f.htm",
+        "https://www.sec.gov/Archives/edgar/data/1268896/000119312508090637/d20f.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "China Life Insurance Co. Ltd. 2005 Form 20-F",
+          "finding": "NYSE ADSs each represented H shares; the filing identifies H shares as a class of the issuer's capital/common stock."
+        },
+        {
+          "document": "China Life Insurance Co. Ltd. 2007 Form 20-F",
+          "finding": "The issuer records the December 2006 ADS ratio change from 40 H shares per ADS to 15 H shares per ADS, preserving the same H-share underlying class."
+        }
+      ],
+      "factual_findings": "CUSIP 16939P106 is the China Life ADS program representing H shares. H shares are ordinary/common equity; an ADS wrapper does not change that class under the contract.",
+      "identity_transition_analysis": "Single canonical CUSIP. The 2006 depositary ratio change altered shares-per-ADS, not the legal class of the deposited H shares.",
+      "contradiction_search": "Issuer filings distinguish H shares/ADSs from other capital descriptions and provide no evidence that CUSIP 16939P106 represented preferred stock, partnership/trust units, warrants, rights, or another non-common class during the canonical interval.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "107197818933519057",
+      "ticker": "MTL",
+      "canonical_interval": [
+        "2007-07-13",
+        "2012-10-24"
+      ],
+      "cusips": [
+        "583840103",
+        "583840608"
+      ],
+      "decision": "common",
+      "legal_security_type": "SPONSORED_ADS_REPRESENTING_COMMON_SHARES",
+      "effective_intervals": [
+        {
+          "first_session": "2007-07-13",
+          "last_session": "2012-10-24",
+          "decision": "common",
+          "legal_security_type": "SPONSORED_ADS_REPRESENTING_COMMON_SHARES"
+        }
+      ],
+      "evidence_urls": [
+        "https://depositaryreceipts.citi.com/adr/guides/pgm_d.aspx?cusip=583840103&pageId=16&subpageID=104&typeDisplay=A",
+        "https://www.sec.gov/Archives/edgar/data/1302362/000119312520278413/d93746dsc13da.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "Citi Mechel depositary-program profile for CUSIP 583840103",
+          "finding": "The predecessor ADR program was active from 2004; a 2016 reverse ADS split changed CUSIP 583840103 to 583840608."
+        },
+        {
+          "document": "Mechel Schedule 13D/A",
+          "finding": "The filing explicitly identifies Mechel common shares and American Depositary Shares, each ADS representing common shares; Mechel's preferred ADS is a distinct security."
+        }
+      ],
+      "factual_findings": "MTL was the sponsored ADS on Mechel common shares. The preferred ADS program was a distinct security/ticker and is not this canonical episode.",
+      "identity_transition_analysis": "CUSIP 583840103 identifies the common-share ADS program during the canonical interval. CUSIP 583840608 is its later successor after a reverse ADS split/ratio change; the transition preserves the common-share underlying class and does not indicate a type change.",
+      "contradiction_search": "Primary records explicitly distinguish the common-share ADS from Mechel's preferred-share ADS. No evidence ties either assigned CUSIP to the preferred program.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "954034830355046974",
+      "ticker": "KUST",
+      "canonical_interval": [
+        "2007-11-13",
+        "2026-07-22"
+      ],
+      "cusips": [
+        "25382P208",
+        "25382T200",
+        "25382T101",
+        "25382T408",
+        "25382P109",
+        "25382T507",
+        "25382T606",
+        "25382T309"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2007-11-13",
+          "last_session": "2026-07-22",
+          "decision": "common",
+          "legal_security_type": "COMMON_STOCK"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1342958/000119312508029314/dsc13d.htm",
+        "https://www.sec.gov/Archives/edgar/data/1342958/000149315223003871/form8-k.htm",
+        "https://www.sec.gov/Archives/edgar/data/1342958/000164117225008972/form8-k.htm",
+        "https://www.sec.gov/Archives/edgar/data/1342958/000164117225012184/form8-k.htm",
+        "https://nasdaqtrader.com/TraderNews.aspx?id=ECA2026-7",
+        "https://www.sec.gov/Archives/edgar/data/1342958/000175392626001525/xslSCHEDULE_13G_X02/primary_doc.xml"
+      ],
+      "source_documents": [
+        {
+          "document": "Digital Ally Schedule 13D (2008)",
+          "finding": "CUSIP 25382P109 is explicitly Common Stock."
+        },
+        {
+          "document": "Digital Ally Form 8-K (2023 reverse split)",
+          "finding": "A reverse split of common stock produced successor CUSIP 25382T200."
+        },
+        {
+          "document": "Digital Ally Form 8-K (May 2025 reverse split)",
+          "finding": "A 1-for-20 reverse split of common stock produced CUSIP 25382T309."
+        },
+        {
+          "document": "Digital Ally Form 8-K (May 2025 reverse split)",
+          "finding": "A subsequent 1-for-100 reverse split of common stock produced CUSIP 25382T408."
+        },
+        {
+          "document": "Nasdaq Equity Corporate Action Alert (January 2026)",
+          "finding": "Digital Ally changed its corporate name/ticker to Kustom Entertainment/KUST and completed a 1-for-3 reverse split of common stock, yielding CUSIP 25382T507."
+        },
+        {
+          "document": "Kustom Entertainment Schedule 13G (2026)",
+          "finding": "CUSIP 25382T606 is explicitly Common Stock."
+        }
+      ],
+      "factual_findings": "The assigned CUSIPs form a succession of Digital Ally/Kustom Entertainment common-stock identifiers associated with reverse splits and the 2026 issuer name/ticker transition. SEC-filed ownership records also identify intermediate assigned identifiers as common stock/common equity.",
+      "identity_transition_analysis": "The many CUSIP changes are corporate-action identity changes in one common-stock lineage. Reverse splits change share count/CUSIP; the Digital Ally-to-Kustom Entertainment name/ticker change preserves the equity class. No evidence establishes a legal type change anywhere in the canonical interval.",
+      "contradiction_search": "Searched SEC and Nasdaq records around the assigned CUSIPs and split/name-change events. Records consistently call the security common stock; no assigned identifier was found to be preferred, a unit, warrant, right, trust interest, partnership interest, or bundled hybrid.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "553972112448702494",
+      "ticker": "SGP1",
+      "canonical_interval": [
+        "2006-07-05",
+        "2009-11-03"
+      ],
+      "cusips": [
+        "806605101"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2006-07-05",
+          "last_session": "2009-11-03",
+          "decision": "common",
+          "legal_security_type": "COMMON_STOCK"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/49205/000004920515000005/xslForm13F_X01/2Q2009_13F_HR.XML"
+      ],
+      "source_documents": [
+        {
+          "document": "SEC-filed 2009 Form 13F information table",
+          "finding": "Schering-Plough Corporation, CUSIP 806605101, is identified as COMMON STOCK."
+        }
+      ],
+      "factual_findings": "CUSIP 806605101 is Schering-Plough corporate common stock.",
+      "identity_transition_analysis": "Single canonical CUSIP; the episode terminates in the Merck transaction with no evidence of a security-type conversion before termination.",
+      "contradiction_search": "No assigned-CUSIP evidence for preferred stock, units, warrants, rights, or hybrid securities was found.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "987448579336366373",
+      "ticker": "FRFHF",
+      "canonical_interval": [
+        "2006-07-20",
+        "2017-08-04"
+      ],
+      "cusips": [
+        "303901102"
+      ],
+      "decision": "common",
+      "legal_security_type": "SUBORDINATE_VOTING_COMMON_SHARES",
+      "effective_intervals": [
+        {
+          "first_session": "2006-07-20",
+          "last_session": "2017-08-04",
+          "decision": "common",
+          "legal_security_type": "SUBORDINATE_VOTING_COMMON_SHARES"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/915191/000110465924023587/tm246195d1_sc13ga.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "Fairfax Financial Holdings Schedule 13G/A",
+          "finding": "CUSIP 303901102 is identified as Subordinate Voting Shares."
+        }
+      ],
+      "factual_findings": "The assigned security is Fairfax subordinate voting equity. Subordinate-voting/non-voting common equity is common under the classification policy.",
+      "identity_transition_analysis": "Single canonical CUSIP. The voting-right designation is a common-share class attribute and does not create a preferred or unit security.",
+      "contradiction_search": "SEC class-title review found subordinate voting shares and no indication that the assigned CUSIP represented preferred shares, trust/partnership units, warrants, rights, or another non-common instrument.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "732428359392320882",
+      "ticker": "PRE1",
+      "canonical_interval": [
+        "2006-07-27",
+        "2016-03-17"
+      ],
+      "cusips": [
+        "G6852T105"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_SHARES",
+      "effective_intervals": [
+        {
+          "first_session": "2006-07-27",
+          "last_session": "2016-03-17",
+          "decision": "common",
+          "legal_security_type": "COMMON_SHARES"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/911421/000095014215001081/eh1500635_13d-partnerre.htm",
+        "https://www.sec.gov/Archives/edgar/data/911421/000095014215001662/eh1500957_13da1-partnerre.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "PartnerRe Schedule 13D (2015)",
+          "finding": "CUSIP G6852T105 is explicitly Common Shares, par value $1.00 per share."
+        },
+        {
+          "document": "PartnerRe Schedule 13D/A (2015)",
+          "finding": "The amendment repeats the same common-share class and CUSIP."
+        }
+      ],
+      "factual_findings": "PartnerRe CUSIP G6852T105 is corporate common shares.",
+      "identity_transition_analysis": "Single canonical CUSIP; no type transition is established within the canonical episode.",
+      "contradiction_search": "PartnerRe issued other capital instruments historically, but primary filings bind the assigned CUSIP specifically to Common Shares; no conflicting class evidence was found for this identifier.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "987873303793520110",
+      "ticker": "VRX1",
+      "canonical_interval": [
+        "2007-06-14",
+        "2010-09-27"
+      ],
+      "cusips": [
+        "91911X104",
+        "448924100"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2007-06-14",
+          "last_session": "2010-09-27",
+          "decision": "common",
+          "legal_security_type": "COMMON_STOCK"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/19617/000001961709000118/vale1231a.htm",
+        "https://www.sec.gov/Archives/edgar/data/885590/000095015710000886/sc13d.htm",
+        "https://www.sec.gov/Archives/edgar/data/919859/000091985902000042/tablejun.pdf"
+      ],
+      "source_documents": [
+        {
+          "document": "Valeant Pharmaceuticals International Schedule 13G/A (2009)",
+          "finding": "CUSIP 91911X104 is explicitly COMMON STOCK."
+        },
+        {
+          "document": "Valeant Pharmaceuticals International Schedule 13D (2010)",
+          "finding": "CUSIP 91911X104 remains common stock."
+        },
+        {
+          "document": "SEC-filed historical holdings table for ICN Pharmaceuticals",
+          "finding": "Predecessor CUSIP 448924100 is identified as ICN Pharmaceuticals common stock."
+        }
+      ],
+      "factual_findings": "Both assigned identifiers bind to corporate common stock in the ICN/Valeant historical identity lineage.",
+      "identity_transition_analysis": "CUSIP 448924100 is the historical ICN Pharmaceuticals common-stock identifier; 91911X104 identifies Valeant common stock after the corporate/name identity transition. The CUSIP transition is identity continuity in common equity, not a type change.",
+      "contradiction_search": "Primary and SEC-filed records bind both identifiers to common stock. No evidence was found that either assigned CUSIP represented preferred shares, units, warrants, rights or another non-common instrument.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "659896685009177378",
+      "ticker": "CCXI1",
+      "canonical_interval": [
+        "2019-11-26",
+        "2022-10-19"
+      ],
+      "cusips": [
+        "16383L106"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2019-11-26",
+          "last_session": "2022-10-19",
+          "decision": "common",
+          "legal_security_type": "COMMON_STOCK"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1340652/000119312521044383/d274998dsc13ga.htm",
+        "https://www.sec.gov/Archives/edgar/data/1131399/000090342318000512/glaxo-chemo_13da.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "ChemoCentryx Schedule 13G/A (2021)",
+          "finding": "CUSIP 16383L106 is explicitly Common Stock."
+        },
+        {
+          "document": "ChemoCentryx Schedule 13D/A (2018)",
+          "finding": "The same CUSIP is identified as Common Stock."
+        }
+      ],
+      "factual_findings": "ChemoCentryx CUSIP 16383L106 is corporate common stock throughout the reviewed episode.",
+      "identity_transition_analysis": "Single canonical CUSIP; acquisition termination does not establish an earlier class change.",
+      "contradiction_search": "No conflicting security-class evidence was found for CUSIP 16383L106.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "1099247927332588244",
+      "ticker": "FTI1",
+      "canonical_interval": [
+        "2006-07-05",
+        "2017-01-13"
+      ],
+      "cusips": [
+        "30249U101"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2006-07-05",
+          "last_session": "2017-01-13",
+          "decision": "common",
+          "legal_security_type": "COMMON_STOCK"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1316915/000095012315008424/xslForm13F_X01/form13fInfoTable.xml",
+        "https://www.sec.gov/Archives/edgar/data/857113/000090901216000379/xslForm13F_X01/aci_13f.xml"
+      ],
+      "source_documents": [
+        {
+          "document": "SEC-filed Form 13F information table (2015)",
+          "finding": "FMC Technologies, CUSIP 30249U101, is identified as Common Stock."
+        },
+        {
+          "document": "Independent SEC-filed Form 13F information table (2016)",
+          "finding": "The same FMC Technologies CUSIP is identified as Common Stock."
+        }
+      ],
+      "factual_findings": "FMC Technologies CUSIP 30249U101 is corporate common stock.",
+      "identity_transition_analysis": "Single canonical CUSIP; the Technip combination terminates the episode. No class conversion is established before termination.",
+      "contradiction_search": "Independent SEC-filed records agree on common stock; no contrary assigned-CUSIP class evidence was found.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "117908596615035418",
+      "ticker": "WCC",
+      "canonical_interval": [
+        "2008-07-25",
+        "2008-08-05"
+      ],
+      "cusips": [
+        "95082P105"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2008-07-25",
+          "last_session": "2008-08-05",
+          "decision": "common",
+          "legal_security_type": "COMMON_STOCK"
+        }
+      ],
+      "evidence_urls": [
+        "https://wesco.gcs-web.com/node/10561/html",
+        "https://wesco.gcs-web.com/resources/investor-faqs"
+      ],
+      "source_documents": [
+        {
+          "document": "WESCO International historical SEC filing reproduced on issuer investor site",
+          "finding": "CUSIP 95082P105 is identified as Common Stock."
+        },
+        {
+          "document": "WESCO investor FAQ",
+          "finding": "Issuer identifies CUSIP 95082P105 for WESCO shares and discusses the common-share dividend policy."
+        }
+      ],
+      "factual_findings": "WESCO International CUSIP 95082P105 is corporate common stock.",
+      "identity_transition_analysis": "Single canonical CUSIP; no type transition within the short canonical interval.",
+      "contradiction_search": "Issuer/security records bind the assigned CUSIP to common stock; no contrary class evidence was found.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "298004721797953203",
+      "ticker": "WIRE",
+      "canonical_interval": [
+        "2006-10-27",
+        "2006-12-28"
+      ],
+      "cusips": [
+        "292562105"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2006-10-27",
+          "last_session": "2006-12-28",
+          "decision": "common",
+          "legal_security_type": "COMMON_STOCK"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/850460/000117266120000719/frontier-wire123119a1.htm",
+        "https://ir.capitalsouthwest.com/node/10901/html"
+      ],
+      "source_documents": [
+        {
+          "document": "Encore Wire Schedule 13G/A",
+          "finding": "CUSIP 292562105 is explicitly Common Stock, par value $0.01 per share."
+        },
+        {
+          "document": "SEC filing reproduced on issuer investor site",
+          "finding": "Encore Wire CUSIP 292562105 is identified as common stock."
+        }
+      ],
+      "factual_findings": "Encore Wire CUSIP 292562105 is corporate common stock.",
+      "identity_transition_analysis": "Single canonical CUSIP; no type transition in the canonical interval.",
+      "contradiction_search": "Primary/issuer records agree on common stock and no contradictory class evidence was found for the assigned identifier.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "74286179754649606",
+      "ticker": "GLBL1",
+      "canonical_interval": [
+        "2006-07-05",
+        "2011-11-01"
+      ],
+      "cusips": [
+        "379336100"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2006-07-05",
+          "last_session": "2011-11-01",
+          "decision": "common",
+          "legal_security_type": "COMMON_STOCK"
+        }
+      ],
+      "evidence_urls": [
+        "https://financialreports.eu/filings/wells-fargo-company/major-shareholding-notification/2007/14758652/",
+        "https://www.sec.gov/Archives/edgar/data/93843/000114420406036281/v051671_npx.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "Filed Schedule 13G text for Global Industries",
+          "finding": "CUSIP 379336100 is identified as Common Stock."
+        },
+        {
+          "document": "SEC-filed Form N-PX (2006)",
+          "finding": "The filing binds Global Industries/GLBL to security identifier 379336100 in the historical period."
+        }
+      ],
+      "factual_findings": "Global Industries CUSIP 379336100 is corporate common stock.",
+      "identity_transition_analysis": "Single canonical CUSIP; acquisition ends the episode with no evidence of a prior type change.",
+      "contradiction_search": "Historical filed records bind the assigned CUSIP to common stock; no contradictory non-common class evidence was found.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "975954328887066480",
+      "ticker": "PWRD1",
+      "canonical_interval": [
+        "2008-05-09",
+        "2015-07-28"
+      ],
+      "cusips": [
+        "71372U104"
+      ],
+      "decision": "common",
+      "legal_security_type": "SPONSORED_ADR_REPRESENTING_CLASS_B_ORDINARY_SHARES",
+      "effective_intervals": [
+        {
+          "first_session": "2008-05-09",
+          "last_session": "2015-07-28",
+          "decision": "common",
+          "legal_security_type": "SPONSORED_ADR_REPRESENTING_CLASS_B_ORDINARY_SHARES"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1403849/000090266415002968/p15-1518sc13d.htm",
+        "https://www.sec.gov/Archives/edgar/data/1468395/000146839514000003/xslForm13F_X01/Form13FInfoTable.xml"
+      ],
+      "source_documents": [
+        {
+          "document": "Perfect World Schedule 13D (2015)",
+          "finding": "The filing binds CUSIP 71372U104 to the issuer and describes beneficial ownership in Class B Ordinary Shares."
+        },
+        {
+          "document": "SEC-filed Form 13F information table",
+          "finding": "CUSIP 71372U104 is identified as Perfect World sponsored ADR representing Class B equity."
+        }
+      ],
+      "factual_findings": "PWRD CUSIP 71372U104 is the sponsored ADR on Perfect World Class B ordinary shares; ordinary shares are common equity under the policy.",
+      "identity_transition_analysis": "Single canonical CUSIP and one ADR/common-equity program; no security-type transition identified.",
+      "contradiction_search": "The source record ties the ADR to Class B ordinary shares and provides no evidence that the assigned CUSIP represented preferred shares or another non-common instrument.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "716103535463544764",
+      "ticker": "TELFY",
+      "canonical_interval": [
+        "2007-03-26",
+        "2020-03-20"
+      ],
+      "cusips": [
+        "879382208"
+      ],
+      "decision": "common",
+      "legal_security_type": "SPONSORED_ADR_REPRESENTING_ORDINARY_SHARES",
+      "effective_intervals": [
+        {
+          "first_session": "2007-03-26",
+          "last_session": "2020-03-20",
+          "decision": "common",
+          "legal_security_type": "SPONSORED_ADR_REPRESENTING_ORDINARY_SHARES"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1472033/000119380526000044/e665107_ex99-ai.htm",
+        "https://depositaryreceipts.citi.com/adr/guides/pgm_d.aspx?cusip=879382208&pageId=23&subpageID=104&typeDisplay=A"
+      ],
+      "source_documents": [
+        {
+          "document": "Telefónica depositary notice filed with SEC",
+          "finding": "CUSIP 879382208 is the Telefónica ADS, with deposited securities identified as ordinary shares."
+        },
+        {
+          "document": "Citi Telefónica depositary-program profile",
+          "finding": "Citi binds CUSIP 879382208 to the sponsored ADR program and documents ratio/ticker continuity."
+        }
+      ],
+      "factual_findings": "Telefónica CUSIP 879382208 is a sponsored ADR/ADS representing ordinary shares, qualifying as common under the contract.",
+      "identity_transition_analysis": "Single canonical CUSIP. Depositary-ratio and later ticker/listing changes do not change the underlying ordinary-share legal class.",
+      "contradiction_search": "Depositary and SEC-filed records identify ordinary shares as the deposited security; no preferred/unit/hybrid class is tied to the assigned CUSIP.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "88378928586164151",
+      "ticker": "WEBX1",
+      "canonical_interval": [
+        "2006-07-05",
+        "2007-05-25"
+      ],
+      "cusips": [
+        "94767L109"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2006-07-05",
+          "last_session": "2007-05-25",
+          "decision": "common",
+          "legal_security_type": "COMMON_STOCK"
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/858877/000119312507056014/dsctoc.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "Cisco/WebEx Schedule TO communications (2007)",
+          "finding": "WebEx Communications CUSIP 94767L109 is explicitly Common Stock, par value $0.001 per share."
+        }
+      ],
+      "factual_findings": "WebEx CUSIP 94767L109 is corporate common stock.",
+      "identity_transition_analysis": "Single CUSIP; Cisco acquisition terminated the episode with no class change.",
+      "contradiction_search": "No assigned-CUSIP evidence for preferred stock, units, warrants, rights or hybrid securities.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    }
+  ],
+  "validation": {
+    "assigned_count": 15,
+    "case_count": 15,
+    "extra_tickers": [],
+    "resolved_count": 15,
+    "unresolved_count": 0
+  }
+}
