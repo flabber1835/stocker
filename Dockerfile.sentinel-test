@@ -90,6 +90,8 @@ RUN python -c "from pathlib import Path; \
 
 # Catch image-layout and COPY-parser regressions during the build.
 RUN python -m pytest tests/sentinel/test_image_layout.py -q -ra
+# Catch operator/certification regressions before the long Sentinel suite.
+RUN python -m pytest tests/scripts -q -ra
 
 ENTRYPOINT ["python", "-m", "pytest"]
 CMD ["tests/sentinel", "-q"]
