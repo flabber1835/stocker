@@ -1,0 +1,148 @@
+{
+  "schema": "champion.economic-attribution-register/1",
+  "date": "2026-09-06",
+  "outcome_category": "E",
+  "certification_readiness": "HOLD",
+  "scope": "SEMANTIC_AUDIT_AND_BOUNDED_CAUSAL_PROOF",
+  "full_20y_cagr_decomposition": "NOT_ESTABLISHED",
+  "approved_cagr": null,
+  "common_replay_identity": {
+    "audit_source_sha": "b0a3033d83584541f4d6f306ecee27e318d29a59",
+    "run_id": 34042141867,
+    "run_attempt": 1,
+    "runtime_sha": "887f479b15ad861313da666ad698034d3847121c",
+    "python_version": "3.12.14",
+    "profile": "strategy9-e3-research-champion-v1",
+    "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+    "corpus_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+    "initial_shadow_cash_usd": 100000000,
+    "warmup_start": "2006-01-03",
+    "measurement_start": "2006-07-31",
+    "stop_after_session": "2006-08-02",
+    "observed_sessions_per_case": 147,
+    "measured_sessions_per_case": 3,
+    "observer_stripped_asts_match": true,
+    "canonical_package": "ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c"
+  },
+  "cases": [
+    {
+      "case": "candidate",
+      "baseline_source_sha": "ba74e79490beb8950611b1d17f5d124833b3d91e",
+      "original_run_id": 34007704385,
+      "dimension": "NONE_OBSERVATION_ONLY",
+      "economic_generated_sha256": "3e793d7d7484f2ede15fcc9cf70d43c62d0fd90c8e06eba2689af6c8d7975189",
+      "expected": "Reproduce the retained original measured prefix and recover preceding warmup state.",
+      "actual": {"original_columns_reproduced": 30, "original_sessions_reproduced": 3, "held_positions_at_stop": 25, "cash_at_stop_usd": "34.847525626886636"},
+      "interpretation": "BASELINE_REPRODUCED; candidate classification remains provisional/non-PIT.",
+      "evidence": "evidence/bounded-prefix/candidate/identity.json"
+    },
+    {
+      "case": "certified",
+      "baseline_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+      "original_run_id": 34014048220,
+      "dimension": "NONE_OBSERVATION_ONLY",
+      "economic_generated_sha256": "2e94936de1b550fd500202a7b8d4322f892fb1bc69213af12b3c392d7a220803",
+      "expected": "Reproduce the retained original measured prefix and recover preceding warmup state.",
+      "actual": {"original_columns_reproduced": 30, "original_sessions_reproduced": 3, "held_positions_at_stop": 18, "cash_at_stop_usd": "27987265.84574911"},
+      "interpretation": "BASELINE_REPRODUCED; the prior PIT_CERTIFIED label does not resolve intended economics or the demonstrated proof gaps.",
+      "evidence": "evidence/bounded-prefix/certified/identity.json"
+    },
+    {
+      "case": "certified_capacity_off",
+      "baseline_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+      "dimension": "EXECUTION_PARTICIPATION_CAP_ONLY",
+      "economic_generated_sha256": "8394401940a74d65e7cda2b4d2240ad5a0aada947bde8b87e3a07650102ecff6",
+      "expected": "Oversized whole orders can execute; eligibility, classification, capital and dividend lag remain unchanged.",
+      "actual": {"eligible_and_ranking_paths_equal_to_certified": true, "first_fill_difference": "2006-07-06", "held_positions_at_stop": 25, "cash_at_stop_usd": "4.638717982918024"},
+      "interpretation": "CAPACITY_CAUSE_IDENTIFIED_IN_PREFIX; this control does not quantify the full CAGR effect.",
+      "evidence": "evidence/bounded-prefix/certified_capacity_off/identity.json"
+    },
+    {
+      "case": "certified_dividend_1",
+      "baseline_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+      "dimension": "DIVIDEND_SETTLEMENT_LAG_ONLY",
+      "economic_generated_sha256": "80f41037826b7d0d55e3a17270e192d2e460103612031a5c381373b463795872",
+      "expected": "Ex-date entitlement is unchanged; spendable cash arrives earlier when a held dividend occurs.",
+      "actual": {"observed_economic_state_equal_to_certified": true, "held_dividend_events": 0, "held_positions_at_stop": 18, "cash_at_stop_usd": "27987265.84574911"},
+      "interpretation": "UNEXERCISED_DIMENSION; historical dividend-lag attribution is not identified by this prefix.",
+      "evidence": "evidence/bounded-prefix/certified_dividend_1/identity.json"
+    },
+    {
+      "case": "certified_candidate_types",
+      "baseline_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+      "dimension": "UNKNOWN_SECURITY_TYPE_CLASSIFICATION_ONLY",
+      "economic_generated_sha256": "d909f8bf5c995341c147bebb5c8f96e835b8a0049154c0864456aff96deade99",
+      "expected": "Unknown-type classification may change eligibility, ranking and admissions; execution, terminal policy, capital and dividend lag stay fixed.",
+      "actual": {"first_universe_and_order_difference": "2006-07-05", "eligible_count_on_first_difference": 1102, "certified_eligible_count_same_session": 837, "held_positions_at_stop": 15, "cash_at_stop_usd": "39912446.2473816"},
+      "interpretation": "CLASSIFICATION_CAUSE_IDENTIFIED_IN_PREFIX; the control inherits candidate evidence limitations and interacts with the unchanged capacity guard.",
+      "evidence": "evidence/bounded-prefix/certified_candidate_types/identity.json"
+    }
+  ],
+  "first_candidate_vs_certified_divergence": {
+    "eligible_universe": "2006-07-05",
+    "ranking_and_selected_admission": "2006-07-05",
+    "pending_order": "2006-07-05",
+    "fill": "2006-07-06",
+    "held_quantity": "2006-07-06",
+    "cash": "2006-07-06",
+    "closing_shadow_nav": "2006-07-06",
+    "opening_shadow_nav": "2006-07-07",
+    "rebased_reported_strategy_nav": "2006-08-01",
+    "dividend_or_corporate_action_outcome": null,
+    "dividend_or_corporate_action_outcome_status": "NOT_ESTABLISHED_IN_PREFIX",
+    "first_capacity_example": {
+      "canonical_display_ticker": "MED",
+      "execution_session": "2006-07-06",
+      "requested_shares": 205028,
+      "raw_open_usd": "19.87",
+      "prior_20_mean_share_volume": "1324405",
+      "capacity_limit_shares": "132440.5",
+      "candidate_result": "FILLED",
+      "certificate_result": "WHOLE_ORDER_DEFERRED"
+    }
+  },
+  "independent_accounting": {
+    "recorded_state_checks": 7784,
+    "failed_recorded_state_checks": 0,
+    "independent_open_close_nav_checks": 1470,
+    "buy_fills_across_cases": 101,
+    "sell_fills_across_cases": 0,
+    "actual_held_split_events_per_case": 2,
+    "held_dividend_events_per_case": 0,
+    "held_terminal_events_per_case": 0,
+    "full_horizon_realized_unrealized_pnl_proof": "NOT_ESTABLISHED",
+    "full_horizon_entitlement_completeness": "NOT_ESTABLISHED"
+  },
+  "source_fixtures": {
+    "shared_open_dividend_boundary": {"status": "DEFECT_REPRODUCED", "fixture_type": "EXACT_EXTRACTED_FUNCTION_SYNTHETIC", "historical_cagr_effect": "NOT_MEASURED", "evidence": "evidence/source-probes.json"},
+    "PDS_classification_availability": {"status": "DEFECT_REPRODUCED", "decision_session": "2006-07-05", "evidence_available_from": "2010-06-01", "evidence": "evidence/source-probes.json"},
+    "collector_claim_coverage": {"status": "GAP_REPRODUCED", "run_id": 34043631885, "python": "3.12.14", "scope": "COLLECTOR_UNIT_FIXTURE_NOT_COMPLETE_FINALIZER", "evidence": "evidence/collector-fixture/collector-claim-probe.json"}
+  },
+  "economic_contract_blockers": [
+    "Resolve formal-freeze 15-session versus production/research-parity 1-session dividend settlement intent.",
+    "Establish causal unknown-security-type evidence and repair availability enforcement.",
+    "Resolve terminal retirement, leadership, unresolved-mark and C1 proxy-recovery contract applicability.",
+    "Specify shadow versus deployable capital and defensive-cash convention.",
+    "Repair the unintended capacity rule and shared open-dividend boundary with negative controls.",
+    "Prove accounting, causality and complete-state resume for the exact generated Champion program."
+  ],
+  "publication": {
+    "complete_run_id": 34044202728,
+    "complete_evidence_commit": "ede62f51d2047394b8b1fa089a6cb848beffa2c7",
+    "complete_manifest_sha256": "1368456ce1603c16241d65ba0ecd11a6c47333fdad693f62627a5602dbde047d",
+    "complete_manifest_file_count": 142,
+    "core_run_id": 34044212525,
+    "core_evidence_commit": "14ba19b7ec26201d65de271a7b35556b2c6bb95b",
+    "core_manifest_sha256": "b1c0f06a586c2b91a6af4c8e56cc6f49983887ac8929e7c5183533a8060b940a",
+    "core_manifest_file_count": 89,
+    "common_payload_hash_differences": 0
+  },
+  "guardrails": {
+    "champion_parameters_changed": false,
+    "initial_capital_changed": false,
+    "historical_observations_repeated_for_postprocessor_repair": false,
+    "new_final_certificate_issued": false,
+    "production_promotion_performed": false,
+    "merge_into_main_performed": false
+  }
+}
