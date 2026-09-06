@@ -23,13 +23,6 @@
 # loudly instead of quietly producing a second answer.
 FROM python:3.12-slim@sha256:229a2c5bfa27522db7815ea81f9bed70af17ccb9de9fc7ad142b1877b5830d36
 
-ARG SOURCE_GIT_SHA=unknown
-LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
-# The OCI label is host-observable; this baked value gives the process an
-# independent copy to compare with the feed gate's injected clean HEAD.  It is
-# not authorization on its own: an old image truthfully reports its old source.
-ENV SENTINEL_IMAGE_SOURCE_REVISION=${SOURCE_GIT_SHA}
-
 WORKDIR /app
 ENV PYTHONUNBUFFERED=1 \
     PYTHONDONTWRITEBYTECODE=1
@@ -74,6 +67,17 @@ RUN groupadd --system --gid 10001 sentinel \
          --home-dir /var/lib/sentinel --shell /usr/sbin/nologin sentinel \
     && mkdir -p /var/lib/sentinel \
     && chown -R 10001:10001 /var/lib/sentinel
+
+# Source identity is deliberately consumed only after all stable runtime layers.
+# The final image still carries an exact commit label and independent in-process
+# copy, while a source-only commit no longer poisons the build cache for the
+# base/dependency/shared/uid layers below this boundary.
+ARG SOURCE_GIT_SHA=unknown
+LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
+# The OCI label is host-observable; this baked value gives the process an
+# independent copy to compare with the feed gate's injected clean HEAD.  It is
+# not authorization on its own: an old image truthfully reports its old source.
+ENV SENTINEL_IMAGE_SOURCE_REVISION=${SOURCE_GIT_SHA}
 
 # The Postgres driver. NOT a transitive dependency of `shared/`, which declares
 # only pydantic and pyyaml — every Stocker service installed its own driver, so
