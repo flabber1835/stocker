@@ -1,0 +1,55 @@
+name: Research Champion - Wayback security-type evidence
+run-name: Champion Wayback conflict evidence - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/champion-pit-metadata-closure]
+    paths:
+      - '.github/workflows/champion-wayback-security-type-evidence.yml'
+      - 'backtester/research_champion_wayback_security_types.py'
+      - 'tests/backtester/test_research_champion_wayback_security_types.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+jobs:
+  wayback:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/champion-wayback-security-type-evidence.yml
+            /backtester/research_champion_wayback_security_types.py
+            /backtester/data/champion-best-effort-security-types-v1.csv
+            /tests/backtester/test_research_champion_wayback_security_types.py
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Test evidence parser
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          python -m unittest tests.backtester.test_research_champion_wayback_security_types -v
+      - name: Query and inspect dated Wayback captures
+        run: |
+          set -euo pipefail
+          python backtester/research_champion_wayback_security_types.py --output wayback-evidence | tee wayback-evidence.log
+          (cd wayback-evidence && sha256sum -c SHA256SUMS.txt)
+          cat wayback-evidence/summary.json >> "${GITHUB_STEP_SUMMARY}"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: champion-wayback-security-type-evidence-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            wayback-evidence/
+            wayback-evidence.log
+          if-no-files-found: warn
+          retention-days: 90

@@ -140,3 +140,16 @@ Both arms otherwise retain the corrected frozen Champion economics and
 Production terminal behavior. They are sensitivity estimates, not PIT
 certificates, and every result must carry `BEST_EFFORT_NOT_PIT_CERTIFIED` and
 `certification_status: NOT_CERTIFIED`.
+
+## Wayback corroboration pass
+
+The 18 rejected conflicts receive a targeted Internet Archive pass. The pass
+queries issuer domains only for captures dated within each disputed Champion
+interval, searches archived investor/security pages for exact instrument-title
+language, and retains the capture timestamp, original URL, replay URL, matched
+text, and resulting implication. Archived references to common units, limited
+partner interests, or partnership units corroborate `non_common`; references to
+shares of common stock or ordinary shares corroborate `common`. Mixed wording
+remains conflicted and absence of a usable capture remains unresolved. Wayback
+evidence is corroborating evidence and does not override stronger contradictory
+contemporaneous SEC authority automatically.
