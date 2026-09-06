@@ -1,0 +1,164 @@
+name: Research Champion - targeted classification-to-controller perturbations
+run-name: RESEARCH NOT CERTIFIED - targeted classification perturbations - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/champion-market-risk-controller-robustness]
+    paths:
+      - '.github/workflows/champion-targeted-classification-perturbation.yml'
+      - 'backtester/research_champion_targeted_classification_perturbation.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+  packages: read
+
+jobs:
+  targeted:
+    name: RESEARCH NOT CERTIFIED - ${{ matrix.label }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        include:
+          - label: current-reintroduce-eqm
+            family: current
+            params: '{}'
+            scenario: reintroduce_eqm
+          - label: current-reintroduce-pds-trust
+            family: current
+            params: '{}'
+            scenario: reintroduce_pds_trust
+          - label: current-drop-audit-top1
+            family: current
+            params: '{}'
+            scenario: drop_audit_top1
+          - label: current-drop-audit-top5
+            family: current
+            params: '{}'
+            scenario: drop_audit_top5
+          - label: spy-vol-reintroduce-eqm
+            family: spy_vol
+            params: '{"ratio_healthy":1.0,"ratio_stress":1.2,"rv20_healthy":0.21,"rv20_stress":0.26}'
+            scenario: reintroduce_eqm
+          - label: spy-vol-drop-audit-top5
+            family: spy_vol
+            params: '{"ratio_healthy":1.0,"ratio_stress":1.2,"rv20_healthy":0.21,"rv20_stress":0.26}'
+            scenario: drop_audit_top5
+    env:
+      PYTHONUNBUFFERED: '1'
+      PIT_OFFICIAL_BACKTEST: '0'
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2026-07-31'
+      FAMILY: ${{ matrix.family }}
+      PARAMS: ${{ matrix.params }}
+      SCENARIO: ${{ matrix.scenario }}
+      LABEL: ${{ matrix.label }}
+      VIX_CUTOFF_SHA256: '9bf13a7d758cd0727e3fb68d50a32715d6201ed7f0cd220841ecfe2a4901ee4b'
+      COARSE_RUN_ID: '34010233044'
+      COARSE_ARTIFACT: 'champion-market-risk-screen-34010233044-1'
+      OUT: 'market-risk-controller/targeted-classification-perturbations'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/**
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/strategy9-e3-broad-stability/**
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Bind frozen research authorities
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          (cd backtester/data && sha256sum -c champion-best-effort-security-types-v1.SHA256)
+          test "$(sha256sum backtester/data/champion-historical-security-type-corrections-v1.csv | cut -d' ' -f1)" = 30f1e7223bc088714e4ee17b131f90da61bcbaf0684bfcb9c3331c9d1bc06db3
+          mkdir -p "${OUT}/${LABEL}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
+      - name: Install frozen replay dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+      - name: Authenticate immutable canonical package
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "${cid}:/canonical-pit/." canonical-pit/
+          python backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset canonical-pit > "${OUT}/${LABEL}/package-integrity.json"
+      - name: Fetch pinned VIX cutoff witness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/coarse
+          gh run download "${COARSE_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name "${COARSE_ARTIFACT}" --dir /tmp/coarse
+          VIX=/tmp/coarse/vix-cboe-cutoff-through-2026-07-31.csv
+          test -f "${VIX}"
+          test "$(sha256sum "${VIX}" | cut -d' ' -f1)" = "${VIX_CUTOFF_SHA256}"
+      - name: Compile targeted exact source
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          from backtester import research_champion_corrected_classification as corrected
+          from backtester import research_champion_market_risk_full_replay as market
+          from backtester import research_champion_targeted_classification_perturbation as target
+          from backtester import run_research_champion_pit_closure_20y as closure
+          out=Path(os.environ['OUT'])/os.environ['LABEL']/'assembly'; out.mkdir(parents=True,exist_ok=True)
+          source=target.install(closure.build_source(out),os.environ['SCENARIO'])
+          source=corrected.install(source)
+          source=market.install_market_observations(source,os.environ['FAMILY'],json.loads(os.environ['PARAMS']))
+          compile(source,'<targeted-perturb-matrix>','exec')
+          print('PASS source compile')
+          PY
+      - name: Run targeted leadership-only replay
+        run: |
+          set -euo pipefail
+          python backtester/research_champion_targeted_classification_perturbation.py \
+            --output "${OUT}/${LABEL}" \
+            --family "${FAMILY}" --params-json "${PARAMS}" \
+            --vix-csv /tmp/coarse/vix-cboe-cutoff-through-2026-07-31.csv \
+            --scenario "${SCENARIO}" 2>&1 | tee "${OUT}/${LABEL}/replay.log"
+          cat "${OUT}/${LABEL}/metrics.csv"
+      - name: Upload targeted perturbation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-targeted-classification-${{ matrix.label }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: market-risk-controller/targeted-classification-perturbations/${{ matrix.label }}/
+          retention-days: 90
+          if-no-files-found: error
