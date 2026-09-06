@@ -18,18 +18,7 @@ Broker activity still requires explicit command invocation plus the existing run
 
 ## Layer contract
 
-The production image keeps this order:
-
-1. pinned Python base
-2. stable TLS configuration
-3. pinned dependency closure
-4. shared package
-5. fixed uid/gid and state directory
-6. exact source-SHA identity boundary
-7. frozen reviewed configuration
-8. Sentinel application and broker code
-9. baked execution-capability marker/program
-10. final non-root user
+The production image keeps this order: pinned Python base; stable TLS configuration; pinned dependency closure; shared package; fixed uid/gid and state directory; exact source-SHA identity boundary; frozen reviewed configuration; Sentinel application and broker code; baked execution-capability marker/program; final non-root user.
 
 The exact source SHA changes the final immutable image identity while normal source-only changes can reuse the stable dependency/shared/user layers below it.
 
