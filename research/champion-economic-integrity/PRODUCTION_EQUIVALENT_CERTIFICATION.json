@@ -1,0 +1,122 @@
+{
+  "schema": "champion.production-equivalent-certification/1",
+  "status": "PRODUCTION_EQUIVALENT_CERTIFIED",
+  "certified_at": "2026-09-06",
+  "claim": "If the frozen system had been switched on in 2006, and its live security classifier had correctly identified every security's type each day, this is how the system would have behaved through 2026.",
+  "scope": {
+    "certification_kind": "production-equivalent perfect-classification backtest",
+    "strict_archival_source_availability_certification": false,
+    "warmup_start": "2006-01-03",
+    "measurement_start": "2006-07-31",
+    "end_session": "2026-07-31",
+    "sessions": 5032
+  },
+  "frozen_identity": {
+    "formal_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+    "candidate_source_sha": "ba74e79490beb8950611b1d17f5d124833b3d91e",
+    "runtime_sha": "887f479b15ad861313da666ad698034d3847121c",
+    "profile": "strategy9-e3-research-champion-v1",
+    "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+    "corpus_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+    "canonical_pit_package": "ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c"
+  },
+  "security_truth": {
+    "status": "CLOSED",
+    "parent_unique_security_count": 685,
+    "p0_new_adjudication_count": 11,
+    "final_effective_security_count": 696,
+    "final_unresolved_count": 0,
+    "validator_issue_count": 0,
+    "family_counts": {
+      "durable": 442,
+      "leadership": 182,
+      "ranking": 61
+    },
+    "confirmed_boundaries": {
+      "AM": "non_common through 2019-03-12; common from 2019-03-13",
+      "CBDBY": "non_common through 2020-03-04; common from 2020-03-05",
+      "ERF": "non_common through 2010-12-31; common from 2011-01-03",
+      "OBE": "non_common through 2010-12-31; common from 2011-01-03",
+      "PVX": "non_common through 2010-12-31; common from 2011-01-03",
+      "PDS": "non_common through 2010-06-01; common from 2010-06-02 through canonical end 2015-06-04"
+    }
+  },
+  "economic_semantics": {
+    "capacity_participation_cap": null,
+    "dividend_lag_sessions": 1,
+    "dividend_entitlement": "prior-close post-split shares; ex-date receivable accrued before open equity",
+    "terminal_security_admission": "post-ranking same-session veto; no cumulative permanent retirement set",
+    "pending_entry_terminal_event": "cancel on event session",
+    "missing_held_mark": "carry last trustworthy raw mark; unresolved state blocks admissions; no immediate hard abort",
+    "leadership_terminal_handling": "rank normal cross-section then filter current-session terminal IDs; exact terminal consideration else observed signal close else zero contribution",
+    "performance_target_used": false
+  },
+  "preflight": {
+    "corpus_validation_status": "PASS_FINAL_TRUTH_CORPUS_EXECUTABLE",
+    "source_build_status": "PASS_SOURCE_BUILD_NO_REPLAY",
+    "generated_source_normalized_ast_sha256": "3cba94dd8389decd99f893a023260c50bc5b0c3472b3fc63d824be045dcbf9a7",
+    "replay_generated_source_normalized_ast_sha256": "3cba94dd8389decd99f893a023260c50bc5b0c3472b3fc63d824be045dcbf9a7",
+    "generated_source_sha256": "bb89658e769adcdfd3a2f91238f60a7ee152a9c51add1b0ba383580e38a9488a"
+  },
+  "certifying_replay": {
+    "run_id": 34064302990,
+    "run_url": "https://github.com/flabber1835/stocker/actions/runs/34064302990",
+    "head_sha": "5b4b4681fa46b3f867557c7ad8be9829a4e1be62",
+    "conclusion": "success",
+    "replay_mode": "fullpit",
+    "artifact_id": 9999003664,
+    "artifact_name": "champion-production-equivalent-final-34064302990-1",
+    "artifact_digest": "sha256:b1970671c05aa205da560a7890d421691408a7ecdec17c49d05bd37aeed9d0d8",
+    "certificate_sha256": "6473b67629abd39404b4c5b2a4ed861fb02115e3dd76efb86d1a82b0d7e4335b",
+    "daily_csv_sha256": "85d95eb403376bcfc6de0cb2632512bf306aca46487ee627c25198dbc2f8b77d"
+  },
+  "results": {
+    "20y": {
+      "strategy_cagr": 0.18724642939430325,
+      "strategy_ending_multiple": 30.96335809593077,
+      "strategy_max_drawdown": -0.228800592167545,
+      "strategy_sharpe_daily_252": 1.0511410292336048,
+      "spy_cagr": 0.1125631644567402,
+      "spy_ending_multiple": 8.44330665943228,
+      "spy_max_drawdown": -0.5520185564591154,
+      "spy_sharpe_daily_252": 0.6473414847918394
+    },
+    "15y": {
+      "strategy_cagr": 0.17923152798928532,
+      "strategy_ending_multiple": 11.853900012603924,
+      "strategy_max_drawdown": -0.228800592167545,
+      "strategy_sharpe_daily_252": 1.0452814242712245,
+      "spy_cagr": 0.14438189269771118
+    },
+    "10y": {
+      "strategy_cagr": 0.2145889452514389,
+      "strategy_ending_multiple": 6.981742668599429,
+      "strategy_max_drawdown": -0.228800592167545,
+      "strategy_sharpe_daily_252": 1.1201238416784525,
+      "spy_cagr": 0.15005861607939774
+    },
+    "5y": {
+      "strategy_cagr": 0.20705181225434033,
+      "strategy_ending_multiple": 2.5593783840974305,
+      "strategy_max_drawdown": -0.2014340284784032,
+      "strategy_sharpe_daily_252": 1.0771736464731938,
+      "spy_cagr": 0.1282555199477502
+    }
+  },
+  "diagnostic_mode_crosscheck": {
+    "prior_run_id": 34063672162,
+    "prior_run_certification_accepted": false,
+    "reason_rejected": "runtime mode was not explicitly forced to fullpit",
+    "daily_csv_sha256": "85d95eb403376bcfc6de0cb2632512bf306aca46487ee627c25198dbc2f8b77d",
+    "economics_identical_to_certifying_fullpit_run": true
+  },
+  "certification_basis": [
+    "classification truth scrub closed with zero unresolved factual security-type cases",
+    "economic semantics aligned to the pinned Production behavior under the frozen contract",
+    "source-only probes passed before replay",
+    "preflight and replay generated-source normalized AST identities match",
+    "canonical PIT package identity and integrity were verified before replay",
+    "exact fullpit replay completed successfully over 5032 measurement sessions",
+    "performance outcomes were not used to choose classifications or semantic corrections"
+  ]
+}
