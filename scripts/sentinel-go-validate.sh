@@ -1,5 +1,7 @@
 #!/usr/bin/env bash
 # One-command NAS financial validation with reusable CI software certification.
+# scripts/sentinel_go_validate.py remains the core financial probe engine; the
+# verified entry below installs the reviewed lifecycle overlays around it.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
