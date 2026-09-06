@@ -1,0 +1,164 @@
+{
+  "schema": "champion.security-truth-confirmation-batch/1",
+  "date": "2026-09-06",
+  "status": "FACTUAL_COMMON_CONFIRMATIONS_NOT_YET_APPLIED_TO_QUEUE",
+  "scope": "HELD_OR_PENDING_PRIORITY_REVIEW",
+  "future_outcome_information_used": false,
+  "classification_policy": "Existing Champion semantics: ordinary/common equity and ADRs/ADSs representing ordinary/common equity are common; preferred, partnership units, warrants and other non-common instruments are excluded.",
+  "cases": [
+    {
+      "security_id": "65658733308249266",
+      "ticker": "VAL1",
+      "cusip": "920355104",
+      "canonical_interval": ["2007-04-10", "2017-05-31"],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1422848/000073281215000066/xslForm13F_X01/crgi.xml",
+          "finding": "SEC-filed holdings table identifies Valspar Corporation, CUSIP 920355104, as COMMON STOCK."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/93751/000095012315001420/xslForm13F_X01/form13fInfoTable.xml",
+          "finding": "Independent SEC-filed holdings table identifies Valspar Corporation, CUSIP 920355104, as common equity shares."
+        }
+      ],
+      "review_note": "No contrary class evidence found for the canonical episode."
+    },
+    {
+      "security_id": "1095161666219760763",
+      "ticker": "EV1",
+      "cusip": "278265103",
+      "canonical_interval": ["2006-07-07", "2021-02-26"],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK_NON_VOTING",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1074272/000107427219000001/xslForm13F_X01/extract-13f-hr.xml",
+          "finding": "SEC-filed holdings table identifies Eaton Vance Corp, CUSIP 278265103, as COMMON STOCK."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1055964/000119380519000172/xslForm13F_X01/infotable.xml",
+          "finding": "Independent SEC-filed holdings table identifies CUSIP 278265103 as Eaton Vance Corp COM NON VTG."
+        }
+      ],
+      "review_note": "Non-voting common remains common equity under the existing Champion common-equity semantics."
+    },
+    {
+      "security_id": "675540632474526608",
+      "ticker": "UST1",
+      "cusip": "902911106",
+      "canonical_interval": ["2006-07-05", "2009-01-05"],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1358253/000135825309000015/tigadvisors13f-hr20081231.pdf",
+          "finding": "SEC-filed 2008 year-end holdings table identifies UST Inc, CUSIP 902911106, as COM."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/919859/000091985903000018/table.pdf",
+          "finding": "Earlier SEC-filed holdings table identifies the same CUSIP as UST INC COM, supporting class continuity."
+        }
+      ],
+      "review_note": "Evidence brackets the canonical episode with the same CUSIP/common class; no contrary class evidence found."
+    },
+    {
+      "security_id": "536212536103247696",
+      "ticker": "NVO",
+      "cusip": "670100205",
+      "canonical_interval": ["2008-04-24", "2026-07-31"],
+      "decision": "common",
+      "legal_security_type": "ADR_REPRESENTING_B_COMMON_SHARES",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/353278/000120864611000052/c104213.htm",
+          "finding": "Novo Nordisk Form 20-F states that NVO ADRs represent B shares and that each ADR represents one deposited B share; the filing identifies A and B as classes of capital/common stock."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/353278/000162828023001868/R1.htm",
+          "finding": "Later SEC filing continues to identify NVO as American Depositary Receipts, each representing one B Share."
+        }
+      ],
+      "review_note": "ADR wrapper does not change the underlying common-equity class under existing Champion ADR-common semantics."
+    },
+    {
+      "security_id": "1101212501432953147",
+      "ticker": "ATI",
+      "cusips": ["01741R102", "017415100", "879335107"],
+      "canonical_interval": ["2021-06-22", "2022-01-06"],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1009268/000110465920106505/tm2031287d2_sc13g.htm",
+          "finding": "SEC Schedule 13G identifies Allegheny Technologies common stock, CUSIP 01741R102."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1018963/000153215523000023/SEC13G_Filing.htm",
+          "finding": "SEC Schedule 13G identifies ATI Inc common stock, CUSIP 01741R102, after the name transition."
+        }
+      ],
+      "review_note": "The canonical row contains historical predecessor CUSIPs; the decision-relevant 2021-2022 interval is bound to the continuing ATI common-stock class. Historical identity chaining remains separately auditable."
+    },
+    {
+      "security_id": "703152369925327464",
+      "ticker": "RACE",
+      "cusips": ["N3167Y103", "N3167J106"],
+      "canonical_interval": ["2016-04-22", "2026-07-31"],
+      "decision": "common",
+      "legal_security_type": "COMMON_SHARES",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1589122/000119312526004642/xslSCHEDULE_13D_X01/primary_doc.xml",
+          "finding": "SEC Schedule 13D identifies Ferrari N.V. CUSIP N3167Y103 as common shares, par value EUR 0.01 per share."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1589122/000205211325001841/xslSCHEDULE_13G_X01/primary_doc.xml",
+          "finding": "Independent SEC Schedule 13G identifies the same Ferrari CUSIP as Common Stock."
+        }
+      ],
+      "review_note": "No contrary security-class evidence found; predecessor CUSIP is an identity-history matter, not evidence of a non-common class."
+    },
+    {
+      "security_id": "450783074872735055",
+      "ticker": "KNX1",
+      "cusip": "499064103",
+      "canonical_interval": ["2006-10-23", "2017-09-08"],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/810265/000081026515000002/xslForm13F_X01/nys0315.xml",
+          "finding": "SEC-filed holdings table identifies Knight Transportation Inc, CUSIP 499064103, as Common Stock."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1641864/000164186416000010/xslForm13F_X01/13F20160930.xml",
+          "finding": "Independent 2016 SEC-filed holdings table identifies the same CUSIP as COM."
+        }
+      ],
+      "review_note": "Evidence covers the late portion of the same CUSIP episode; no contrary class evidence found."
+    },
+    {
+      "security_id": "895750335155060927",
+      "ticker": "ESLT",
+      "cusip": "M3760D101",
+      "canonical_interval": ["2025-03-18", "2026-03-18"],
+      "decision": "common",
+      "legal_security_type": "ORDINARY_SHARES",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1027664/000199937125009090/xslSCHEDULE_13D_X01/primary_doc.xml",
+          "finding": "SEC Schedule 13D identifies Elbit Systems CUSIP M3760D101 as ordinary shares, nominal value NIS 1.00 per share."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1027664/000117891323003087/zk2330272.htm",
+          "finding": "Earlier SEC Schedule 13G identifies the same CUSIP as ordinary shares."
+        }
+      ],
+      "review_note": "Ordinary shares are common-equity equivalents under the existing Champion foreign-common semantics."
+    }
+  ],
+  "open_policy_note": "FMX remains open in this batch because its ADS represents BD Units composed of multiple Mexican share series; classification requires explicit confirmation that this unit structure is within the existing ADR-common policy rather than silently broadening it.",
+  "next_priority": "Continue held/pending review in descending historical held-session count, then apply same-class confirmations to the immutable truth ledger with provenance while preserving economic output."
+}
