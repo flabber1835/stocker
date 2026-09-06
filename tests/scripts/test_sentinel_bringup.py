@@ -158,7 +158,8 @@ def test_liveness_probe_cannot_drift_into_certification_scale_source_work():
     )
     for token in forbidden:
         assert token not in source
-    assert "'ticker': 'SPY'" in source
+    assert "'ticker': 'AAPL'" in source
+    assert "'ticker': 'SPY'" not in source
     assert "dt.timedelta(days=14)" in source
 
 

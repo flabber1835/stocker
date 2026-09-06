@@ -41,14 +41,20 @@ def test_safe_detail_suppresses_credentials_and_urls():
     assert liveness.safe_detail("bounded source timeout") == "bounded source timeout"
 
 
-def test_probe_uses_read_only_database_and_small_single_ticker_source_window():
+def test_probe_uses_read_only_database_and_small_sep_equity_window():
     source = MODULE.read_text(encoding="utf-8")
     assert "BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY" in source
     assert "SHOW transaction_read_only" in source
-    assert "'ticker': 'SPY'" in source
+    assert "'ticker': 'AAPL'" in source
+    assert "'ticker': 'SPY'" not in source
     assert "dt.timedelta(days=14)" in source
     assert "sharadar.SEP" in source
     assert "source_rows" in source
+
+
+def test_probe_documents_that_fund_symbols_are_not_valid_sep_liveness_authority():
+    source = MODULE.read_text(encoding="utf-8")
+    assert "fund/ETF symbols such as SPY belong to SFP" in source
 
 
 def test_probe_has_no_source_stability_identity_or_mutation_authority():
