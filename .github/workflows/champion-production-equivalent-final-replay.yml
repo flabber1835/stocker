@@ -123,3 +123,4 @@ jobs:
             package-integrity.json
           retention-days: 90
           if-no-files-found: warn
+# retrigger after validated split-interval parser fix
