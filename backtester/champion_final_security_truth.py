@@ -2,7 +2,7 @@
 """Closed production-equivalent security-type truth overlay.
 
 The manual-review corpus is authoritative for reviewed decision-relevant unknown
-security episodes. Cleanup artifacts supersede their parent shard.  This module
+security episodes. Cleanup artifacts supersede their parent shard. This module
 never consumes returns, ranks, portfolio outcomes, survival or future index
 membership.
 """
@@ -54,8 +54,17 @@ def _canonical(case: dict) -> tuple[str, str]:
     raise ValueError(f"unsupported canonical interval: {value!r}")
 
 
+def _decision(case: dict) -> str:
+    return str(
+        case.get("final_decision")
+        or case.get("decision")
+        or case.get("classification")
+        or ""
+    ).lower()
+
+
 def _parsed_intervals(case: dict, source: str) -> list[Interval]:
-    decision = str(case.get("decision") or case.get("classification") or "").lower()
+    decision = _decision(case)
     if decision == "unresolved":
         return []
     sid = str(case["security_id"])
@@ -95,8 +104,10 @@ def _cases(document: dict) -> Iterable[dict]:
 
 def _load() -> tuple[dict[str, list[Interval]], list[str]]:
     # Parent shards load first; cleanup files load last and replace the complete
-    # reviewed episode for their scoped IDs.
+    # reviewed episode for their scoped IDs. Keep ticker->security_id bindings
+    # even for unresolved parent rows because some cleanup JSON is ticker-keyed.
     ledger: dict[str, list[Interval]] = {}
+    ticker_to_sid: dict[str, str] = {}
     sources: list[str] = []
     for filename in SOURCE_FILES:
         path = MANUAL / filename
@@ -104,11 +115,40 @@ def _load() -> tuple[dict[str, list[Interval]], list[str]]:
             raise FileNotFoundError(path)
         doc = json.loads(path.read_text())
         sources.append(filename)
-        for case in _cases(doc):
-            sid = str(case["security_id"])
+        for raw_case in _cases(doc):
+            case = dict(raw_case)
+            ticker = str(case.get("ticker", ""))
+            if "security_id" in case:
+                sid = str(case["security_id"])
+                if ticker:
+                    previous = ticker_to_sid.get(ticker)
+                    if previous is not None and previous != sid:
+                        raise ValueError(f"ambiguous ticker/security binding: {ticker} {previous} {sid}")
+                    ticker_to_sid[ticker] = sid
+            else:
+                sid = ticker_to_sid.get(ticker, "")
+                if not sid:
+                    raise ValueError(f"cleanup case lacks security_id and parent binding: {filename} {ticker}")
+                case["security_id"] = sid
+                # Cleanup files may omit the interval because the parent row
+                # already defines it. Recover exactly that parent episode.
+                if "canonical_interval" not in case:
+                    parent = ledger.get(sid)
+                    if not parent:
+                        # The unresolved parent produced no executable interval;
+                        # recover its canonical interval from a second scan below.
+                        pass
+                    else:
+                        case["canonical_interval"] = [parent[0].first, parent[-1].last]
+            # Remember canonical intervals independently of classification so
+            # ticker-keyed cleanup rows can close previously unresolved parents.
+            if "canonical_interval" in case:
+                canonical_by_sid[sid] = _canonical(case)
+            if "canonical_interval" not in case and sid in canonical_by_sid:
+                case["canonical_interval"] = list(canonical_by_sid[sid])
             intervals = _parsed_intervals(case, filename)
             # An unresolved parent record is intentionally retained until its
-            # later cleanup is read.  It must never erase an earlier closure.
+            # later cleanup is read. It must never erase an earlier closure.
             if intervals:
                 ledger[sid] = intervals
 
@@ -123,7 +163,7 @@ def _load() -> tuple[dict[str, list[Interval]], list[str]]:
         a, b = _canonical(case)
         ledger[sid] = [Interval(a, b, cls, p0.name, str(case.get("ticker", sid)))]
 
-    # Integration-level session-semantic override.  Legal conversion completed
+    # Integration-level session-semantic override. Legal conversion completed
     # June 1; the common NYSE line begins with the June 2 decision session.
     pds = "594891209465982980"
     if pds in ledger:
@@ -144,6 +184,8 @@ def _load() -> tuple[dict[str, list[Interval]], list[str]]:
     return ledger, sources
 
 
+# Mutable only during deterministic module initialization.
+canonical_by_sid: dict[str, tuple[str, str]] = {}
 FINAL_INTERVALS, FINAL_SOURCES = _load()
 
 
