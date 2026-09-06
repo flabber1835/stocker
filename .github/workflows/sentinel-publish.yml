@@ -59,7 +59,11 @@ jobs:
           from pathlib import Path
 
           rows = Path("SHA256SUMS").read_text(encoding="utf-8").splitlines()
-          expected = {"sentinel-authorized.tar", "COMMIT"}
+          expected = {
+              "sentinel-authorized.tar",
+              "COMMIT",
+              "software-certification-input.json",
+          }
           found = set()
           for row in rows:
               match = re.fullmatch(r"[0-9a-f]{64}  ([A-Za-z0-9._-]+)", row)
@@ -109,6 +113,42 @@ jobs:
             echo "digest=$digest"
           } >> "$GITHUB_OUTPUT"
 
+      - name: Verify required exact-head CI job conclusions
+        shell: bash
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TEST_RUN_ID: ${{ github.event.workflow_run.id }}
+        run: |
+          set -euo pipefail
+          curl --fail --silent --show-error --location \
+            --header "Authorization: Bearer ${GITHUB_TOKEN}" \
+            --header 'Accept: application/vnd.github+json' \
+            --header 'X-GitHub-Api-Version: 2022-11-28' \
+            "${GITHUB_API_URL}/repos/${GITHUB_REPOSITORY}/actions/runs/${TEST_RUN_ID}/jobs?per_page=100" \
+            > /tmp/sentinel-safety-jobs.json
+          test -s /tmp/sentinel-safety-jobs.json
+
+      - name: Finalize reusable software certification manifest
+        shell: bash
+        env:
+          SUBJECT_NAME: ${{ steps.subject.outputs.subject_name }}
+          SUBJECT_DIGEST: ${{ steps.subject.outputs.digest }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sentinel-provenance
+          certified_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
+          python tools/sentinel_ci_certification_manifest.py finalize \
+            --input /tmp/sentinel-tested-image/software-certification-input.json \
+            --jobs /tmp/sentinel-safety-jobs.json \
+            --subject-name "$SUBJECT_NAME" \
+            --image-digest "$SUBJECT_DIGEST" \
+            --publication-run "$GITHUB_RUN_ID" \
+            --publication-attempt "$GITHUB_RUN_ATTEMPT" \
+            --certified-at "$certified_at" \
+            --output /tmp/sentinel-provenance/certification.json
+          python tools/sentinel_ci_certification_manifest.py verify \
+            /tmp/sentinel-provenance/certification.json
+
       - name: Create durable Sigstore build provenance
         id: attestation
         uses: actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be # v2.4.0
@@ -135,7 +175,7 @@ jobs:
           test -s "$ATTESTATION_BUNDLE"
           test -n "$ATTESTATION_ID"
           test -n "$ATTESTATION_URL"
-          mkdir -p /tmp/sentinel-provenance
+          test -s /tmp/sentinel-provenance/certification.json
           cp "$ATTESTATION_BUNDLE" \
             /tmp/sentinel-provenance/attestation.sigstore.json
           python - <<'PY'
@@ -165,7 +205,7 @@ jobs:
               raise SystemExit(
                   "REFUSED: Sigstore payload does not bind the promoted subject")
           evidence = {
-              "schema": "sentinel.exact-sha-provenance/3",
+              "schema": "sentinel.exact-sha-provenance/4",
               "state": "EVIDENCE_DURABLE_BEFORE_AUTHORIZED_TAG",
               "commit": os.environ["TESTED_SHA"],
               "test_workflow_run": os.environ["TEST_RUN_ID"],
@@ -175,11 +215,16 @@ jobs:
               "publication_workflow_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
               "subject_name": os.environ["SUBJECT_NAME"],
               "authorized_image": os.environ["FINAL_REF"],
+              "immutable_authorized_image": (
+                  os.environ["SUBJECT_NAME"] + "@" + os.environ["SUBJECT_DIGEST"]),
               "digest_source": "RUNNER_LOOPBACK_REGISTRY",
               "loopback_registry_image": (
                   "registry@sha256:"
                   "a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"),
               "tested_image_digest": os.environ["SUBJECT_DIGEST"],
+              "certification_manifest_sha256": __import__("hashlib").sha256(
+                  open("/tmp/sentinel-provenance/certification.json", "rb").read()
+              ).hexdigest(),
               "attestation_id": os.environ["ATTESTATION_ID"],
               "attestation_url": os.environ["ATTESTATION_URL"],
           }
@@ -188,7 +233,8 @@ jobs:
               out.write("\n")
           PY
           cd /tmp/sentinel-provenance
-          sha256sum provenance.json attestation.sigstore.json > SHA256SUMS
+          sha256sum certification.json provenance.json \
+            attestation.sigstore.json > SHA256SUMS
           sha256sum --strict --check SHA256SUMS
 
       - name: Retain signed promotion evidence
@@ -205,10 +251,11 @@ jobs:
         with:
           version: 1.3.3
 
-      - name: Publish the provenance-authorized commit tag
+      - name: Publish exact runtime and durable certification referrer
         shell: bash
         env:
           FINAL_REF: ${{ steps.subject.outputs.final_ref }}
+          SUBJECT_NAME: ${{ steps.subject.outputs.subject_name }}
           LOCAL_REPOSITORY: ${{ steps.subject.outputs.local_repository }}
           SUBJECT_DIGEST: ${{ steps.subject.outputs.digest }}
           EVIDENCE_URL: ${{ steps.evidence.outputs.artifact-url }}
@@ -223,11 +270,49 @@ jobs:
             "${LOCAL_REPOSITORY}@${SUBJECT_DIGEST}" "$FINAL_REF"
           final_digest="$(oras resolve "$FINAL_REF")"
           test "$final_digest" = "$SUBJECT_DIGEST"
+
+          oras attach \
+            --artifact-type application/vnd.stocker.sentinel.software-certification.v1 \
+            --annotation "org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}" \
+            --format json \
+            "${SUBJECT_NAME}@${SUBJECT_DIGEST}" \
+            certification.json:application/vnd.stocker.sentinel.software-certification.v1+json \
+            provenance.json:application/vnd.stocker.sentinel.provenance.v4+json \
+            attestation.sigstore.json:application/vnd.dev.sigstore.bundle.v0.3+json \
+            SHA256SUMS:text/plain \
+            > /tmp/sentinel-certification-referrer.json
+          certification_digest="$(python - <<'PY'
+          import json
+          with open('/tmp/sentinel-certification-referrer.json', encoding='utf-8') as source:
+              value = json.load(source)
+          digest = value.get('digest')
+          if not isinstance(digest, str) or not digest.startswith('sha256:') or len(digest) != 71:
+              raise SystemExit('REFUSED: certification referrer has no immutable digest')
+          print(digest)
+          PY
+          )"
+          oras discover \
+            --artifact-type application/vnd.stocker.sentinel.software-certification.v1 \
+            --format json \
+            "${SUBJECT_NAME}@${SUBJECT_DIGEST}" \
+            > /tmp/sentinel-certification-discovery.json
+          CERTIFICATION_DIGEST="$certification_digest" python - <<'PY'
+          import json, os
+          with open('/tmp/sentinel-certification-discovery.json', encoding='utf-8') as source:
+              value = json.load(source)
+          expected = os.environ['CERTIFICATION_DIGEST']
+          refs = value.get('referrers') if isinstance(value, dict) else None
+          if not isinstance(refs, list) or expected not in {
+              item.get('digest') for item in refs if isinstance(item, dict)
+          }:
+              raise SystemExit('REFUSED: certification referrer is not discoverable from exact runtime digest')
+          PY
           {
             echo '### Protected Sentinel publication'
             echo
-            printf -- '- image: `%s`\n' "$FINAL_REF"
-            printf -- '- digest: `%s`\n' "$SUBJECT_DIGEST"
+            printf -- '- image tag: `%s`\n' "$FINAL_REF"
+            printf -- '- trusted runtime digest: `%s`\n' "$SUBJECT_DIGEST"
+            printf -- '- certification referrer digest: `%s`\n' "$certification_digest"
             printf -- '- retained evidence: %s\n' "$EVIDENCE_URL"
           } >> "$GITHUB_STEP_SUMMARY"
 
