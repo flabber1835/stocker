@@ -132,8 +132,22 @@ jobs:
         run: |
           set -euo pipefail
           cd audit-src
-          PYTHONPATH="${GITHUB_WORKSPACE}/audit-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" \
-            python -m pytest -q backtester/test_production_equivalent_economic_overlay.py
+          PYTHONPATH="${GITHUB_WORKSPACE}/audit-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" python - <<'PY'
+          import importlib.util
+          from pathlib import Path
+          path = Path('backtester/test_production_equivalent_economic_overlay.py')
+          spec = importlib.util.spec_from_file_location('production_equivalent_probe_tests', path)
+          module = importlib.util.module_from_spec(spec)
+          assert spec.loader is not None
+          spec.loader.exec_module(module)
+          tests = [(name, value) for name, value in vars(module).items() if name.startswith('test_') and callable(value)]
+          if not tests:
+              raise RuntimeError('no production-equivalent probe tests discovered')
+          for name, test in sorted(tests):
+              test()
+              print(f'PASS {name}')
+          print(f'PASS {len(tests)} synthetic/source seam tests')
+          PY
 
       - name: Build exact final generated source and probes - no replay
         shell: bash
