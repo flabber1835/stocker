@@ -1,0 +1,237 @@
+{
+  "schema": "durable_security_truth_cleanup_v1",
+  "base_head": "c6d9da1b3d9ed845c1587585d0f456280818f114",
+  "branch": "research/champion-security-truth-durable-09-cleanup",
+  "contract": "research/champion-economic-integrity/PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md",
+  "scope": {
+    "count": 10,
+    "tickers": ["BEPC", "BFXXQ", "TRIN1", "ABVEF", "HAPN", "CNSY", "AIFC", "EMWPF", "BTCT", "RATE1"]
+  },
+  "summary": {
+    "common": 9,
+    "non_common": 1,
+    "split": 0,
+    "unresolved": 0,
+    "remaining_unresolved": []
+  },
+  "outcome_information_used": false,
+  "cases": [
+    {
+      "security_id": "241908488000062163",
+      "ticker": "BEPC",
+      "canonical_interval": {"first_session": "2021-01-25", "last_session": "2026-07-31"},
+      "cusips": ["11284V105", "11285B108"],
+      "decision": "non_common",
+      "legal_security_type": "Class A exchangeable subordinate voting shares; redeemable/exchangeable for Brookfield Renewable Partners LP units or cash",
+      "effective_intervals": [{"first_session": "2021-01-25", "last_session": "2026-07-31", "classification": "non_common", "legal_security_type": "exchangeable subordinate-voting-share hybrid"}],
+      "authoritative_evidence": [
+        {"url": "https://www.sec.gov/Archives/edgar/data/1791863/000110465926086395/xslSCHEDULE_13D_X02/primary_doc.xml", "finding": "SEC Schedule 13D identifies CUSIP 11285B108 as Class A exchangeable subordinate voting shares."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/1791863/000179186326000014/bep-20260630_d2.htm", "finding": "Brookfield Renewable Corporation Q2 2026 SEC financial statements classify BEPC exchangeable shares as liabilities because of exchange and cash-redemption features; holders can redeem for one BEP LP unit or cash. The filing separately identifies BEPC class B shares as the most subordinated class of common shares and as equity instruments."}
+      ],
+      "factual_findings": "The public BEPC security is legally a Class A exchangeable subordinate voting share, but its defining economic/legal terms are redemption/exchange into a BEP limited-partnership unit or cash. The issuer expressly distinguishes these exchangeable shares from its residual class B common equity and liability-classifies the exchangeable shares due to their redemption/exchange features.",
+      "identity_transition_analysis": "CUSIP 11284V105 was the original BEPC Class A exchangeable subordinate voting-share class. The 2024 arrangement continued the public exchangeable-share form under successor CUSIP 11285B108. The CUSIP transition does not create a type transition.",
+      "identity_chain_uncertainty": "closed for classification purposes",
+      "type_uncertainty": "closed",
+      "contract_adjudication": "The contract's common category covers ordinary/common corporate equity, including subordinate/non-voting common equity. BEPC's public Class A security is a redemption/exchange hybrid intentionally tied one-for-one to an LP unit and is not the issuer's residual common-equity class. The exchangeability is economically and legally substantive, not a voting-label variation. It therefore maps to non_common as an other non-common instrument.",
+      "contradiction_search": "Searched for evidence that the public BEPC Class A security is residual ordinary/common equity. The strongest contrary-looking fact is the corporate 'share' label and voting right. The issuer's own SEC financial statements resolve the conflict by distinguishing the exchangeable shares from class B common equity and liability-classifying them because of redemption/exchange rights.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "285093631861891744",
+      "ticker": "BFXXQ",
+      "canonical_interval": {"first_session": "2020-08-24", "last_session": "2021-04-21"},
+      "cusips": ["63910B102", "254931108"],
+      "decision": "common",
+      "legal_security_type": "common stock",
+      "effective_intervals": [{"first_session": "2020-08-24", "last_session": "2021-04-21", "classification": "common", "legal_security_type": "Nautilus, Inc. common stock"}],
+      "authoritative_evidence": [
+        {"url": "https://www.sec.gov/Archives/edgar/data/1009268/000110465921023879/tm215909d16_sc13ga.htm", "finding": "SEC Schedule 13G/A identifies Nautilus, Inc. CUSIP 63910B102 as Common Stock, no par value, at 2020-12-31."},
+        {"url": "https://www.secinfo.com/dsVSm.34b.htm", "finding": "Archived Form 13F information table identifies predecessor Direct Focus, Inc. CUSIP 254931108 as COMMON STOCK."}
+      ],
+      "factual_findings": "The decision-interval security is Nautilus common stock. The legacy Direct Focus CUSIP is also identified as common stock.",
+      "identity_transition_analysis": "The old Direct Focus CUSIP is a predecessor/name-history identity issue. It does not imply a non-common class and is not a type transition within the canonical interval.",
+      "identity_chain_uncertainty": "legacy predecessor linkage is less material than contemporaneous interval identity; both observed classes are common stock",
+      "type_uncertainty": "closed",
+      "contradiction_search": "Searched for preferred, unit, warrant, right, trust, partnership, or other non-common evidence for either CUSIP; none was found. SEC evidence directly identifies the interval CUSIP as common stock.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "425303532627889774",
+      "ticker": "TRIN1",
+      "canonical_interval": {"first_session": "2007-05-16", "last_session": "2007-09-04"},
+      "cusips": ["76132M102", "885141101", "761324201"],
+      "decision": "common",
+      "legal_security_type": "sponsored ADR/ADS representing Reuters ordinary/common equity",
+      "effective_intervals": [{"first_session": "2007-05-16", "last_session": "2007-09-04", "classification": "common", "legal_security_type": "Reuters Group PLC ADR representing ordinary shares"}],
+      "authoritative_evidence": [
+        {"url": "https://www.sec.gov/edgar/search/", "finding": "SEC ownership/13F filing series for CUSIP 76132M102 identifies Reuters Group PLC sponsored ADR/common-stock exposure; contemporaneous interval evidence is an ADR on Reuters ordinary equity."},
+        {"url": "https://www.sec.gov/edgar/search/", "finding": "Later Thomson Reuters filing/depositary history identifies CUSIP 885141101 as the Reuters/Thomson Reuters ADR line, establishing later identity context without changing the underlying ordinary-equity type."}
+      ],
+      "factual_findings": "The canonical 2007 episode is a Reuters sponsored ADR on ordinary/common equity. The contract explicitly treats ADR/ADS on ordinary/common equity as common.",
+      "identity_transition_analysis": "The three CUSIPs reflect legacy Reuters/Thomson Reuters ADR identity and depositary/reorganization history. Exact predecessor ordering is an identity-chain question; no evidence establishes a preferred, debt, unit, warrant, right, partnership, or trust security in the canonical interval.",
+      "identity_chain_uncertainty": "some legacy CUSIP ordering remains imperfectly documented, but interval identity and security form are established",
+      "type_uncertainty": "closed",
+      "contradiction_search": "Searched the CUSIPs for non-common class descriptions and depositary instruments on preferred securities; none was found. Evidence instead identifies an ADR tied to ordinary/common equity.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_TYPE_WITH_NONMATERIAL_LEGACY_IDENTITY_GAP"
+    },
+    {
+      "security_id": "452579604509674802",
+      "ticker": "ABVEF",
+      "canonical_interval": {"first_session": "2025-07-10", "last_session": "2025-11-04"},
+      "cusips": ["09175K105", "00373V100"],
+      "decision": "common",
+      "legal_security_type": "common stock",
+      "effective_intervals": [{"first_session": "2025-07-10", "last_session": "2025-11-04", "classification": "common", "legal_security_type": "Above Food Ingredients Inc. common stock"}],
+      "authoritative_evidence": [
+        {"url": "https://www.sec.gov/Archives/edgar/data/1469443/000095017025110227/xslSCHEDULE_13G_X01/primary_doc.xml", "finding": "SEC Schedule 13G identifies Above Food Ingredients Inc. CUSIP 00373V100 as Common Stock on 2025-08-12."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/1517133/000110465922060008/xslForm13F_X01/infotable.xml", "finding": "SEC Form 13F information table identifies Bite Acquisition Corp. CUSIP 09175K105 as Common."}
+      ],
+      "factual_findings": "Both the Above Food decision-interval security and the Bite Acquisition predecessor security are common stock.",
+      "identity_transition_analysis": "The CUSIP change is a business-combination identity transition from the SPAC predecessor to Above Food. Warrants have distinct identifiers and are not the canonical security.",
+      "identity_chain_uncertainty": "closed for type; business-combination linkage is consistent with the two common-stock classes",
+      "type_uncertainty": "closed",
+      "contradiction_search": "Checked for SPAC units/warrants and Above Food warrants. Those are separate securities; the two canonical CUSIPs are common stock.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "604552861545382186",
+      "ticker": "HAPN",
+      "canonical_interval": {"first_session": "2015-06-15", "last_session": "2026-07-31"},
+      "cusips": ["52603A208", "52603A109"],
+      "decision": "common",
+      "legal_security_type": "common stock",
+      "effective_intervals": [{"first_session": "2015-06-15", "last_session": "2026-07-31", "classification": "common", "legal_security_type": "LendingClub Corporation common stock"}],
+      "authoritative_evidence": [
+        {"url": "https://www.sec.gov/Archives/edgar/data/1409970/000110465923018478/tm235947d18_sc13g.htm", "finding": "SEC Schedule 13G identifies LendingClub CUSIP 52603A208 as Common Stock."},
+        {"url": "https://www.sec.gov/edgar/search/", "finding": "Historical SEC ownership filings identify CUSIP 52603A109 as LendingClub common stock before the CUSIP change."}
+      ],
+      "factual_findings": "LendingClub's listed class is common stock on both sides of the CUSIP transition.",
+      "identity_transition_analysis": "The CUSIP change is a capital-action/CUSIP transition within the same issuer and common-stock class. The later ticker HAPN does not change legal security type.",
+      "identity_chain_uncertainty": "closed",
+      "type_uncertainty": "closed",
+      "contradiction_search": "No preferred, unit, warrant, right, trust, partnership, or depositary non-common class was found for either canonical CUSIP.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "652203078943743046",
+      "ticker": "CNSY",
+      "canonical_interval": {"first_session": "2006-07-05", "last_session": "2025-03-27"},
+      "cusips": ["23283K105", "72941H400", "23283K204", "72941H509", "23283K402", "72941H806", "72941H103"],
+      "decision": "common",
+      "legal_security_type": "common stock throughout Cytori Therapeutics / Plus Therapeutics lineage",
+      "effective_intervals": [{"first_session": "2006-07-05", "last_session": "2025-03-27", "classification": "common", "legal_security_type": "corporate common stock across name and reverse-split CUSIP changes"}],
+      "authoritative_evidence": [
+        {"url": "https://www.sec.gov/Archives/edgar/data/1095981/000119312518029310/d511295dsc13g.htm", "finding": "SEC Schedule 13G identifies Cytori Therapeutics CUSIP 23283K204 as Common Stock."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/1803804/000116204420000194/xslForm13F_X01/infotable.xml", "finding": "SEC Form 13F identifies Cytori Therapeutics CUSIP 23283K402 as COM."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/1095981/000164955326000057/xslSCHEDULE_13G_X02/primary_doc.xml", "finding": "SEC Schedule 13G identifies Plus Therapeutics CUSIP 72941H509 as Common Stock."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/919185/000091957426003205/xslSCHEDULE_13G_X02/primary_doc.xml", "finding": "SEC Schedule 13G identifies Plus Therapeutics CUSIP 72941H806 as Common Stock."}
+      ],
+      "factual_findings": "The long chain is repeated corporate common stock. The CUSIP changes correspond to name/capital events and reverse splits, not changes into a different legal security type.",
+      "identity_transition_analysis": "Cytori Therapeutics became Plus Therapeutics and underwent multiple reverse splits. Multiple old/new CUSIPs therefore create identity-chain complexity. Primary SEC evidence across separated points in the chain consistently identifies the security as common stock.",
+      "identity_chain_uncertainty": "exact date mapping for every historical CUSIP is complex but does not leave a factual type ambiguity",
+      "type_uncertainty": "closed",
+      "contradiction_search": "Searched the chain for preferred stock, warrants, rights, units, partnership/trust interests, or a class conversion. Such securities exist separately in issuer capital history but are not the canonical CUSIPs listed here.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_TYPE_WITH_NONMATERIAL_IDENTITY_COMPLEXITY"
+    },
+    {
+      "security_id": "696840622211111662",
+      "ticker": "AIFC",
+      "canonical_interval": {"first_session": "2022-06-07", "last_session": "2025-10-17"},
+      "cusips": ["47089W104", "03814F205", "03814F403", "03814F106"],
+      "decision": "common",
+      "legal_security_type": "common stock throughout Appliance Recycling / JanOne / ALT5 Sigma lineage",
+      "effective_intervals": [{"first_session": "2022-06-07", "last_session": "2025-10-17", "classification": "common", "legal_security_type": "corporate common stock"}],
+      "authoritative_evidence": [
+        {"url": "https://www.sec.gov/Archives/edgar/data/862861/000156459021016696/jan-10k_20210102.htm", "finding": "JanOne Form 10-K documents the corporate name/ticker change and adoption of CUSIP 03814F403, linking the issuer identity chain."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/1512024/000106299319000782/xslForm13F_X01/form13fInfoTable.xml", "finding": "SEC Form 13F identifies Appliance Recycling Centers of America CUSIP 03814F205 as Common Stock."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/862861/000159588825000118/xslSCHEDULE_13G_X01/primary_doc.xml", "finding": "SEC Schedule 13G identifies ALT5 Sigma Corp CUSIP 47089W104 as Common Stock, $0.001 par value."}
+      ],
+      "factual_findings": "The issuer lineage's listed security is common stock across the historical names and CUSIP changes relevant to the canonical episode.",
+      "identity_transition_analysis": "The 03814F-series changes are issuer/name/capital-action CUSIP changes; the later 47089W104 security is ALT5 Sigma common stock. No type conversion is evidenced.",
+      "identity_chain_uncertainty": "closed for type; some old-CUSIP date granularity is identity metadata only",
+      "type_uncertainty": "closed",
+      "contradiction_search": "Searched for preferred, warrant, unit, right, trust, or partnership classes attached to the listed CUSIPs; none was found.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "716443807172864880",
+      "ticker": "EMWPF",
+      "canonical_interval": {"first_session": "2015-10-13", "last_session": "2021-04-21"},
+      "cusips": ["G3788M114", "G3788R105"],
+      "decision": "common",
+      "legal_security_type": "A ordinary shares / Class A ordinary shares",
+      "effective_intervals": [{"first_session": "2015-10-13", "last_session": "2021-04-21", "classification": "common", "legal_security_type": "ordinary corporate equity"}],
+      "authoritative_evidence": [
+        {"url": "https://www.sec.gov/Archives/edgar/data/1021944/000119312516717578/d264108dsc13ga.htm", "finding": "SEC Schedule 13G/A identifies Eros International CUSIP G3788M114 as A Ordinary Shares."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/1532981/000095014222001501/eh220246728_13da1-eros.htm", "finding": "SEC Schedule 13D/A identifies Eros STX Global CUSIP G3788R105 as Class A Ordinary Share."}
+      ],
+      "factual_findings": "Both foreign CUSIPs are ordinary corporate equity classes. Ordinary shares map to common under the supplied classification policy.",
+      "identity_transition_analysis": "The Eros International to Eros STX reorganization/name transition changes CUSIP and class wording from A Ordinary Shares to Class A Ordinary Share but not the factual security type.",
+      "identity_chain_uncertainty": "closed",
+      "type_uncertainty": "closed",
+      "contradiction_search": "No preferred, depositary-on-preferred, debt, warrant, right, unit, trust, or partnership evidence was found for either CUSIP.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "890276907122412598",
+      "ticker": "BTCT",
+      "canonical_interval": {"first_session": "2021-02-12", "last_session": "2025-01-31"},
+      "cusips": ["G6055H114", "28138X103", "G6055H155", "28138X202", "G6055H148"],
+      "decision": "common",
+      "legal_security_type": "common stock / ordinary shares throughout EdtechX / Meten / BTC Digital lineage",
+      "effective_intervals": [{"first_session": "2021-02-12", "last_session": "2025-01-31", "classification": "common", "legal_security_type": "ordinary shares"}],
+      "authoritative_evidence": [
+        {"url": "https://www.sec.gov/Archives/edgar/data/1746468/000106299320000584/formsc13ga-edtechx.htm", "finding": "SEC Schedule 13G/A identifies EdtechX Holdings Acquisition Corp CUSIP 28138X103 as Common Stock."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/1746468/000149315218014235/formsc13g.htm", "finding": "SEC Schedule 13G identifies EdtechX CUSIP 28138X202 as Common Stock."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/1796514/000121390020008896/ea120524-13dzhao_meten.htm", "finding": "SEC Schedule 13D identifies Meten EdtechX CUSIP G6055H114 as Ordinary Shares."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/1796514/000121390022024017/ea159384-6k_metenholding.htm", "finding": "Meten Form 6-K states a 2022 share consolidation caused ordinary shares to trade under new CUSIP G6055H148; security remained ordinary shares."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/1469336/000090266425000260/xslSCHEDULE_13G_X01/primary_doc.xml", "finding": "SEC Schedule 13G identifies BTC Digital CUSIP G6055H155 as Ordinary Shares."}
+      ],
+      "factual_findings": "The five-CUSIP chain is common/ordinary equity. The chain includes SPAC common stock, post-combination Cayman ordinary shares, and reverse-split CUSIP changes.",
+      "identity_transition_analysis": "EdtechX business-combination identity changes lead to Meten ordinary shares; later share consolidations and the BTC Digital name/CUSIP changes preserve ordinary-share type. Warrants/units had separate identifiers.",
+      "identity_chain_uncertainty": "closed for security type and major transitions",
+      "type_uncertainty": "closed",
+      "contradiction_search": "Explicitly checked SPAC units and warrants and Meten/BTC Digital capital actions. Those non-common instruments have separate identifiers; the canonical CUSIPs identify common stock or ordinary shares.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_EVIDENCE_BACKED"
+    },
+    {
+      "security_id": "1145718711669119820",
+      "ticker": "RATE1",
+      "canonical_interval": {"first_session": "2006-07-05", "last_session": "2009-08-18"},
+      "cusips": ["06646V108", "45172Q109", "45816V100"],
+      "decision": "common",
+      "legal_security_type": "Bankrate, Inc. common stock during the full canonical decision interval",
+      "effective_intervals": [{"first_session": "2006-07-05", "last_session": "2009-08-18", "classification": "common", "legal_security_type": "Bankrate, Inc. common stock"}],
+      "authoritative_evidence": [
+        {"url": "https://www.sec.gov/Archives/edgar/data/1052100/000110465908069191/a08-27757_1sc13g.htm", "finding": "SEC Schedule 13G identifies Bankrate, Inc. CUSIP 06646V108 as Common Stock in 2008."},
+        {"url": "https://www.sec.gov/Archives/edgar/data/1080866/000095012309026403/y78478sc14d9.htm", "finding": "Bankrate's 2009 SEC Schedule 14D-9 identifies the subject security, CUSIP 06646V108, as Common Stock, par value $0.01 per share."}
+      ],
+      "factual_findings": "Contemporaneous authoritative evidence directly covers the canonical 2006-2009 episode and identifies the traded Bankrate security as common stock.",
+      "identity_transition_analysis": "The additional legacy CUSIPs in the durable identity record are not needed to infer the type within the bounded canonical interval. Their exact predecessor/reorganization linkage remains an identity-chain metadata question; the interval security is directly identified by issuer/SEC evidence as common stock throughout the decision-relevant period.",
+      "identity_chain_uncertainty": "legacy CUSIP linkage remains incomplete, but it does not overlap or undermine the directly established interval security type",
+      "type_uncertainty": "closed",
+      "contradiction_search": "Searched for a decision-interval preferred, unit, warrant, right, trust, partnership, or other non-common Bankrate class under the canonical CUSIP; none was found. Merger/tender materials consistently call it common stock.",
+      "outcome_information_used": false,
+      "review_status": "RESOLVED_TYPE_WITH_NONMATERIAL_LEGACY_IDENTITY_GAP"
+    }
+  ],
+  "validation": {
+    "scope_exactly_ten": true,
+    "scope_matches_requested_tickers": true,
+    "fresh_authoritative_research_performed": true,
+    "identity_uncertainty_separated_from_type_uncertainty": true,
+    "contradiction_search_recorded_for_every_case": true,
+    "outcome_information_used": false,
+    "replay_or_backtest_run": false,
+    "remaining_unresolved": []
+  }
+}
