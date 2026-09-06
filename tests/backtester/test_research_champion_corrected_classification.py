@@ -22,7 +22,7 @@ class CorrectedClassificationTests(unittest.TestCase):
         value = corrected.SecurityTypeEstimate(base.DEFAULT_LEDGER, "reviewed_18")
         self.assertEqual(value.peek("594891209465982980", "2009-01-02"), "non_common")
         self.assertEqual(value.peek("192545371416014112", "2019-01-02"), "non_common")
-        self.assertEqual(value.peek("804009952146469650", "2019-01-02"), "common")
+        self.assertEqual(value.peek("804009952146469650", "2010-01-04"), "common")
 
     def test_provenance_distinguishes_authority_from_inference(self):
         value = corrected.SecurityTypeEstimate(base.DEFAULT_LEDGER, "reviewed_18")
@@ -30,7 +30,7 @@ class CorrectedClassificationTests(unittest.TestCase):
         self.assertEqual(pds["source_status"], "AUTHORITATIVE_HISTORICAL")
         self.assertEqual(pds["evidence_published_date"], "2010-06-01")
         self.assertEqual(pds["evidence_available_from"], "2010-06-01")
-        inferred = value.provenance("804009952146469650", "2019-01-02")
+        inferred = value.provenance("804009952146469650", "2010-01-04")
         self.assertNotEqual(inferred["source_status"], "AUTHORITATIVE_HISTORICAL")
 
     def test_outside_admitted_interval_fails_closed(self):
@@ -48,10 +48,18 @@ class CorrectedClassificationTests(unittest.TestCase):
             ]
             rows = [
                 {
+                    "security_id": "594891209465982980", "ticker": "PDS", "classification": "non_common",
+                    "effective_first_session": "2006-07-05", "effective_last_session": "2010-05-31",
+                    "evidence_published_date": "2010-06-01", "evidence_available_from": "2010-06-01",
+                    "evidence_kind": "TEST", "evidence_url": "https://example.invalid/pds-pre",
+                    "evidence_summary": "test", "authority_status": "AUTHORITATIVE_HISTORICAL",
+                    "correction_reason": "test",
+                },
+                {
                     "security_id": "594891209465982980", "ticker": "PDS", "classification": "common",
                     "effective_first_session": "2010-06-02", "effective_last_session": "2015-06-04",
                     "evidence_published_date": "2010-06-01", "evidence_available_from": "2010-06-01",
-                    "evidence_kind": "TEST", "evidence_url": "https://example.invalid/pds",
+                    "evidence_kind": "TEST", "evidence_url": "https://example.invalid/pds-post",
                     "evidence_summary": "test", "authority_status": "AUTHORITATIVE_HISTORICAL",
                     "correction_reason": "test",
                 },
@@ -63,22 +71,15 @@ class CorrectedClassificationTests(unittest.TestCase):
                     "evidence_summary": "test", "authority_status": "AUTHORITATIVE_HISTORICAL",
                     "correction_reason": "test",
                 },
-                {
-                    "security_id": "594891209465982980", "ticker": "PDS", "classification": "common",
-                    "effective_first_session": "2015-06-04", "effective_last_session": "2015-06-04",
-                    "evidence_published_date": "2010-06-01", "evidence_available_from": "2010-06-01",
-                    "evidence_kind": "TEST", "evidence_url": "https://example.invalid/pds2",
-                    "evidence_summary": "test", "authority_status": "AUTHORITATIVE_HISTORICAL",
-                    "correction_reason": "test",
-                },
             ]
             with path.open("w", encoding="utf-8", newline="") as handle:
                 writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
                 writer.writeheader(); writer.writerows(rows)
             digest = base._sha256(path)
             with patch.object(corrected, "CORRECTION_LEDGER_SHA256", digest):
-                with self.assertRaisesRegex(RuntimeError, "does not cover full admitted interval"):
-                    corrected.SecurityTypeEstimate(base.DEFAULT_LEDGER, "reviewed_18", correction_ledger=path)
+                value = corrected.SecurityTypeEstimate(base.DEFAULT_LEDGER, "reviewed_18", correction_ledger=path)
+                with self.assertRaisesRegex(RuntimeError, "unsupported historical extrapolation"):
+                    value.classify("594891209465982980", "2010-06-01")
 
     def test_summary_records_correction_authority_and_calls(self):
         value = corrected.SecurityTypeEstimate(base.DEFAULT_LEDGER, "reviewed_18")
