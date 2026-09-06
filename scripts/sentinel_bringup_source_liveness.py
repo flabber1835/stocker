@@ -16,9 +16,10 @@ MARKER = "SENTINEL_BRINGUP_SOURCE_LIVENESS="
 
 # Keep this probe intentionally small and bounded. It checks that the production
 # database can be opened READ ONLY, that durable cursor rows are at least
-# structurally sane, and that a tiny settled SPY SEP window can be read from the
-# configured Sharadar source. It never asks for TICKERS and never runs the
-# mutation/identity authority machinery.
+# structurally sane, and that a tiny settled AAPL SEP window can be read from the
+# configured Sharadar source. AAPL is a long-lived common equity present in SEP;
+# fund/ETF symbols such as SPY belong to SFP and are invalid SEP liveness probes.
+# It never asks for TICKERS and never runs mutation/identity authority machinery.
 _CODE = r'''
 import datetime as dt
 import hashlib
@@ -140,13 +141,13 @@ def execute():
         target = dt.date.fromisoformat(str(target_raw))
         source_final = dt.datetime.now(dt.timezone.utc) >= publication_not_before(target_raw)
 
-        # A small, settled, single-ticker window proves transport/protocol
+        # A small, settled, single-equity window proves transport/protocol
         # liveness without doing CDC reconciliation or identity work.
         state['phase'] = 'SOURCE_LIVENESS'
         lo = target - dt.timedelta(days=14)
         rows = list(sharadar.fetch_table(
             sharadar.SEP,
-            {'ticker': 'SPY', 'date.gte': lo.isoformat(), 'date.lte': target.isoformat()},
+            {'ticker': 'AAPL', 'date.gte': lo.isoformat(), 'date.lte': target.isoformat()},
         ))
         if not rows:
             refuse('SHARADAR_LIVENESS_EMPTY')
