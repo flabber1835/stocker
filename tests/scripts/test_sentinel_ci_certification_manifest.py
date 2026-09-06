@@ -10,12 +10,9 @@ from tools import sentinel_ci_certification_manifest as cert
 
 COMMIT = "a" * 40
 TREE = "b" * 40
-ORDINARY_DIGEST = "sha256:" + "c" * 64
-AUTHORIZED_DIGEST = "sha256:" + "d" * 64
-ORDINARY_ID = "sha256:" + "e" * 64
-AUTHORIZED_ID = "sha256:" + "f" * 64
-ORDINARY_SUBJECT = "ghcr.io/flabber1835/stocker/sentinel"
-AUTHORIZED_SUBJECT = "ghcr.io/flabber1835/stocker/sentinel-authorized"
+RUNTIME_DIGEST = "sha256:" + "c" * 64
+RUNTIME_ID = "sha256:" + "d" * 64
+RUNTIME_SUBJECT = cert.RUNTIME_SUBJECT
 
 
 def _suite(passed=41):
@@ -33,9 +30,8 @@ def _input():
         "test_workflow_path": cert.TEST_WORKFLOW_PATH,
         "test_workflow_run": 1234,
         "test_workflow_attempt": 1,
-        "ordinary_image_id": ORDINARY_ID,
-        "authorized_image_id": AUTHORIZED_ID,
-        "authorized_runtime_capability_sha256": "1" * 64,
+        "runtime_image_id": RUNTIME_ID,
+        "runtime_capability_sha256": "1" * 64,
         "dependency_lock_hashes": {
             "sentinel/requirements.lock": "2" * 64,
             "tests/requirements.lock": "3" * 64,
@@ -66,51 +62,33 @@ def _jobs(**overrides):
     ]}
 
 
-def _manifest():
-    return cert.finalize_manifest(
-        input_evidence=_input(),
-        jobs_payload=_jobs(),
-        ordinary_subject_name=ORDINARY_SUBJECT,
-        ordinary_image_digest=ORDINARY_DIGEST,
-        authorized_subject_name=AUTHORIZED_SUBJECT,
-        authorized_image_digest=AUTHORIZED_DIGEST,
-        publication_run=5678,
-        publication_attempt=1,
-        certified_at="2026-09-06T06:00:00Z",
-    )
-
-
-def _finalize(evidence=None, jobs=None):
+def _finalize(evidence=None, jobs=None, subject=RUNTIME_SUBJECT):
     return cert.finalize_manifest(
         input_evidence=evidence or _input(),
         jobs_payload=jobs or _jobs(),
-        ordinary_subject_name=ORDINARY_SUBJECT,
-        ordinary_image_digest=ORDINARY_DIGEST,
-        authorized_subject_name=AUTHORIZED_SUBJECT,
-        authorized_image_digest=AUTHORIZED_DIGEST,
+        subject_name=subject,
+        image_digest=RUNTIME_DIGEST,
         publication_run=5678,
         publication_attempt=1,
         certified_at="2026-09-06T06:00:00Z",
     )
 
 
-def test_final_manifest_binds_both_runtimes_source_ci_and_hash():
-    manifest = _manifest()
+def test_final_manifest_binds_one_broker_capable_runtime_source_ci_and_hash():
+    manifest = _finalize()
     cert.verify_manifest(manifest)
     assert manifest["source"] == {
         "repository": cert.REPOSITORY,
         "commit": COMMIT,
         "tree": TREE,
     }
-    ordinary = manifest["runtime"]["ordinary"]
-    authorized = manifest["runtime"]["authorized"]
-    assert ordinary["docker_image_digest"] == ORDINARY_DIGEST
-    assert ordinary["immutable_ref"] == ORDINARY_SUBJECT + "@" + ORDINARY_DIGEST
-    assert ordinary["ci_local_image_id"] == ORDINARY_ID
-    assert authorized["docker_image_digest"] == AUTHORIZED_DIGEST
-    assert authorized["immutable_ref"] == AUTHORIZED_SUBJECT + "@" + AUTHORIZED_DIGEST
-    assert authorized["ci_local_image_id"] == AUTHORIZED_ID
-    assert authorized["authorized_runtime_capability_sha256"] == "1" * 64
+    runtime = manifest["runtime"]
+    assert runtime["subject_name"] == RUNTIME_SUBJECT
+    assert runtime["docker_image_digest"] == RUNTIME_DIGEST
+    assert runtime["immutable_ref"] == RUNTIME_SUBJECT + "@" + RUNTIME_DIGEST
+    assert runtime["ci_local_image_id"] == RUNTIME_ID
+    assert runtime["runtime_capability_sha256"] == "1" * 64
+    assert runtime["broker_capable"] is True
     assert manifest["tests"]["required_job_conclusions"] == {
         name: "success" for name in cert.REQUIRED_JOBS
     }
@@ -119,22 +97,24 @@ def test_final_manifest_binds_both_runtimes_source_ci_and_hash():
 
 
 def test_tampered_manifest_refuses():
-    manifest = _manifest()
+    manifest = _finalize()
     manifest["source"]["commit"] = "f" * 40
     with pytest.raises(cert.CertificationManifestRefused, match="integrity"):
         cert.verify_manifest(manifest)
 
 
-def test_identical_runtime_digest_refuses():
-    with pytest.raises(cert.CertificationManifestRefused, match="distinct"):
-        cert.finalize_manifest(
-            input_evidence=_input(), jobs_payload=_jobs(),
-            ordinary_subject_name=ORDINARY_SUBJECT,
-            ordinary_image_digest=ORDINARY_DIGEST,
-            authorized_subject_name=AUTHORIZED_SUBJECT,
-            authorized_image_digest=ORDINARY_DIGEST,
-            publication_run=5678, publication_attempt=1,
-            certified_at="2026-09-06T06:00:00Z")
+def test_wrong_runtime_subject_refuses():
+    with pytest.raises(cert.CertificationManifestRefused, match="subject"):
+        _finalize(subject="ghcr.io/flabber1835/stocker/sentinel-authorized")
+
+
+def test_manifest_cannot_claim_runtime_is_not_broker_capable():
+    manifest = _finalize()
+    manifest["runtime"]["broker_capable"] = False
+    manifest.pop("manifest_sha256")
+    manifest["manifest_sha256"] = cert.sha256_bytes(cert.canonical_bytes(manifest))
+    with pytest.raises(cert.CertificationManifestRefused, match="runtime authority"):
+        cert.verify_manifest(manifest)
 
 
 def test_missing_required_ci_job_refuses():
