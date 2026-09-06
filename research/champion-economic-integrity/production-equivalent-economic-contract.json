@@ -1,0 +1,71 @@
+{
+  "schema": "champion.production-equivalent-economic-contract/1",
+  "date": "2026-09-06",
+  "status": "FROZEN_FOR_IMPLEMENTATION_NO_REPLAY",
+  "base_head": "023dda5f63ea64fea0e846c619604b49206204db",
+  "target_question": "If the frozen Research Champion had been switched on in 2006, and the live Production security classifier had correctly identified every security's factual type on every decision day, how would the system have behaved through 2026?",
+  "identities": {
+    "profile": "strategy9-e3-research-champion-v1",
+    "profile_sha256": "1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26",
+    "runtime_main_sha": "887f479b15ad861313da666ad698034d3847121c",
+    "canonical_corpus_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+    "warmup_start": "2006-01-03",
+    "measurement_start": "2006-07-31",
+    "end_session": "2026-07-31",
+    "initial_shadow_cash": 100000000.0
+  },
+  "security_truth": {
+    "integration_head": "023dda5f63ea64fea0e846c619604b49206204db",
+    "unresolved_type_cases": 0,
+    "mode": "FACTUAL_DECISION_DAY_TRUTH_ORACLE",
+    "outcome_information_allowed": false
+  },
+  "rules": {
+    "capacity_participation_cap": null,
+    "cash_limited_fill": "AFFORDABLE_WHOLE_SHARES_THEN_CLEAR_PENDING_REQUEST",
+    "dividend_entitlement": "PRIOR_CLOSE_QTY_AFTER_SAME_SESSION_SPLIT",
+    "dividend_accrual_before_open_equity": true,
+    "dividend_settlement_lag_sessions": 1,
+    "terminal_settlement": "PINNED_PRODUCTION_WATERFALL",
+    "terminal_c1_grace_sessions": 10,
+    "terminal_mark_recency_sessions": 10,
+    "terminal_orphan_timeout_sessions": 20,
+    "permanent_terminal_retirement_set": false,
+    "terminal_event_admission_veto": "POST_RANKING_SAME_SESSION",
+    "pending_terminal_entry": "CANCEL_ON_EVENT_SESSION",
+    "next_leadership_witness": "RANK_NORMAL_CROSS_SECTION_THEN_FILTER_CURRENT_TERMINAL_IDS",
+    "leadership_terminal_return_precedence": [
+      "EXACT_AUTHENTICATED_TERMINAL_CONSIDERATION",
+      "OBSERVED_SIGNAL_CLOSE",
+      "ZERO_CONTRIBUTION_IF_STILL_MISSING"
+    ],
+    "missing_held_mark": "CARRY_LAST_TRUSTWORTHY_RAW_MARK_FLAG_UNRESOLVED_BLOCK_NEW_ADMISSIONS",
+    "missing_held_mark_hard_abort": false,
+    "structural_wealth_core_cash_yield": 0.0,
+    "transaction_cost_fraction_per_side": 0.001,
+    "slots": 25,
+    "entry_weight": 0.04,
+    "post_initialization_max_admissions_per_session": 1,
+    "cooldown_sessions": 21,
+    "review_age_sessions": 119,
+    "peak_stop_multiplier": 0.70
+  },
+  "required_exact_source_probes": [
+    "NO_CAPACITY_GUARD",
+    "TRUTH_CLASSIFIER_COMPLETE",
+    "DIVIDEND_ACCRUAL_PRECEDES_OPEN_EQUITY",
+    "DIVIDEND_LAG_IS_ONE_SESSION",
+    "NO_CUMULATIVE_RETIRED_SET",
+    "NEXT_WITNESS_FILTER_ONLY_AFTER_RANKING",
+    "LEADERSHIP_EXACT_THEN_OBSERVED_THEN_ZERO",
+    "MISSING_MARK_CARRY_AND_ADMISSION_BLOCK",
+    "FROZEN_IDENTITIES_MATCH",
+    "NO_RETURN_CONDITIONED_RULE_CHANGE"
+  ],
+  "replay_gate": {
+    "allowed": false,
+    "condition": "IMPLEMENTATION_AND_SOURCE_PROBES_GREEN",
+    "final_replay_count": 1,
+    "final_label_if_all_gates_pass": "PRODUCTION_EQUIVALENT_CERTIFIED"
+  }
+}
