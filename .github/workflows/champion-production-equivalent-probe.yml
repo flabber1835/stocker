@@ -91,41 +91,16 @@ jobs:
           persist-credentials: false
           sparse-checkout: backtester
 
-      - name: Pinned runtime
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: 887f479b15ad861313da666ad698034d3847121c
-          path: main-src
-          fetch-depth: 1
-          filter: blob:none
-          persist-credentials: false
-          sparse-checkout: |
-            sentinel
-            shared
-
-      - name: Install frozen runtime
+      - name: Stage classifier dependencies before runtime install
         shell: bash
         run: |
           set -euo pipefail
           test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
           test "$(git -C candidate-src rev-parse HEAD)" = ba74e79490beb8950611b1d17f5d124833b3d91e
-          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
-          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
-          python -m pip install --no-build-isolation --no-deps -e main-src/shared
-          echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/audit-src" >> "${GITHUB_ENV}"
-
-      - name: Stage audit-only overlays into exact formal source tree
-        shell: bash
-        run: |
-          set -euo pipefail
-          cp audit-src/backtester/champion_economic_prefix_audit.py certified-src/backtester/
-          cp audit-src/backtester/champion_full_classification_control.py certified-src/backtester/
           cp audit-src/backtester/champion_security_truth_audit_v2.py certified-src/backtester/
           cp audit-src/backtester/champion_security_truth_overlay_v2.py certified-src/backtester/
           cp audit-src/backtester/champion_final_security_truth.py certified-src/backtester/
-          cp audit-src/backtester/champion_final_truth_corpus_validator.py certified-src/backtester/
-          cp audit-src/backtester/production_equivalent_economic_overlay.py certified-src/backtester/
-          cp audit-src/backtester/champion_production_equivalent_build.py certified-src/backtester/
+          cp audit-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
           cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
           cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
           cp candidate-src/backtester/data/champion-historical-security-type-corrections-v1.csv certified-src/backtester/data/
@@ -140,8 +115,7 @@ jobs:
         run: |
           set -euo pipefail
           cd certified-src
-          PYTHONPATH="${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" python - <<'PY'
-          from pathlib import Path
+          PYTHONPATH="${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/audit-src" python - <<'PY'
           from backtester import champion_final_security_truth as truth
           from backtester import research_champion_best_effort_classification as base
           assert len(truth.FINAL_INTERVALS) == 696, len(truth.FINAL_INTERVALS)
@@ -164,6 +138,37 @@ jobs:
           ], pds
           print(f'PASS executable final truth: {len(truth.FINAL_INTERVALS)} securities; {checked} boundary classifications')
           PY
+
+      - name: Pinned runtime
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - name: Install frozen runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/audit-src" >> "${GITHUB_ENV}"
+
+      - name: Stage remaining source-probe overlays
+        shell: bash
+        run: |
+          set -euo pipefail
+          cp audit-src/backtester/champion_economic_prefix_audit.py certified-src/backtester/
+          cp audit-src/backtester/champion_full_classification_control.py certified-src/backtester/
+          cp audit-src/backtester/champion_final_truth_corpus_validator.py certified-src/backtester/
+          cp audit-src/backtester/production_equivalent_economic_overlay.py certified-src/backtester/
+          cp audit-src/backtester/champion_production_equivalent_build.py certified-src/backtester/
 
       - name: Run synthetic/source seam tests
         shell: bash
