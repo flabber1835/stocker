@@ -1,0 +1,202 @@
+name: Champion factual security truth audit V2
+run-name: Champion factual type audit + seven-correction replay - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-certification-economic-integrity]
+    paths:
+      - '.github/workflows/champion-security-truth-audit-v2.yml'
+      - 'backtester/champion_security_truth_*_v2.py'
+      - 'backtester/publish_champion_truth_checkpoint_v2.py'
+      - 'backtester/tests/test_champion_security_truth_audit_v2.py'
+      - 'backtester/data/champion-security-truth-factual-batch-v2.json'
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+  packages: read
+concurrency:
+  group: champion-security-truth-audit-v2-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+jobs:
+  audit-and-controlled-replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Exact audit source and retained truth checkpoint
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: audit-src
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/champion_security_truth_audit_v2.py
+            /backtester/champion_security_truth_overlay_v2.py
+            /backtester/champion_security_truth_replay_v2.py
+            /backtester/publish_champion_truth_checkpoint_v2.py
+            /backtester/champion_full_classification_control.py
+            /backtester/champion_economic_prefix_audit.py
+            /backtester/tests/test_champion_security_truth_audit_v2.py
+            /backtester/data/champion-security-truth-factual-batch-v2.json
+            /research/champion-economic-integrity/security-truth/production-equivalent-security-truth-v1.csv
+            /research/champion-economic-integrity/security-truth/production-equivalent-security-truth-review-queue.csv
+            /research/champion-economic-integrity/PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md
+      - name: Exact previous classifier and input ledgers
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ba74e79490beb8950611b1d17f5d124833b3d91e
+          path: candidate-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/__init__.py
+            /backtester/research_champion_corrected_classification.py
+            /backtester/research_champion_best_effort_classification.py
+            /backtester/data/champion-best-effort-security-types-v1.csv
+            /backtester/data/champion-historical-security-type-corrections-v1.csv
+            /backtester/data/champion-reviewed-security-types-v1.csv
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Retained original path for review priorities
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34007704385
+          name: champion-corrected-classification-34007704385-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: original-path
+      - name: Regression tests and complete coverage audit
+        run: |
+          set -euo pipefail
+          test "$(git -C audit-src rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C candidate-src rev-parse HEAD)" = ba74e79490beb8950611b1d17f5d124833b3d91e
+          export PYTHONPATH="${GITHUB_WORKSPACE}/candidate-src:${GITHUB_WORKSPACE}/audit-src"
+          python -m unittest discover -s audit-src/backtester/tests -p test_champion_security_truth_audit_v2.py -v 2>&1 | tee audit-tests.log
+          python audit-src/backtester/champion_security_truth_audit_v2.py \
+            --base candidate-src/backtester/data/champion-best-effort-security-types-v1.csv \
+            --truth audit-src/research/champion-economic-integrity/security-truth/production-equivalent-security-truth-v1.csv \
+            --queue audit-src/research/champion-economic-integrity/security-truth/production-equivalent-security-truth-review-queue.csv \
+            --worklist original-path/strategy-path-worklist.csv \
+            --output factual-audit --capture-sources 2>&1 | tee audit-build.log
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s = json.loads(Path('factual-audit/SUMMARY.json').read_text())
+          assert s['factual_type_corrections'] == 7
+          assert s['corrections_omitted_from_original_queue'] == 5
+          assert s['held_or_pending_count'] == 83
+          assert s['held_or_pending_omitted_from_original_queue'] == 56
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+              f.write('# Factual type audit V2\n\n31 regression tests passed. Seven type corrections validated.\n\n')
+              f.write(f"Original queue: {s['original_queue_count']}; original cases still open: {s['original_queue_cases_still_open']}.\n\n")
+              f.write(f"Held/pending inventory: {s['held_or_pending_count']}; omitted by the old heuristic queue: {s['held_or_pending_omitted_from_original_queue']}.\n\n")
+              f.write('Status: PARTIAL_FACTUAL_AUDIT_NOT_CERTIFIED.\n')
+          PY
+      - name: Retain immutable factual audit and evidence on branch
+        run: python audit-src/backtester/publish_champion_truth_checkpoint_v2.py --input factual-audit --kind audit
+      - name: Exact formal-certificate economic program
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/strategy9-e3-broad-stability
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+      - name: Frozen runtime
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: runtime-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+      - name: Retained previous classification-control result
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34047029680
+          name: champion-full-classification-control-34047029680-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: previous-control
+      - name: Bind frozen runtime and dependency identities
+        run: |
+          set -euo pipefail
+          test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
+          test "$(git -C runtime-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          python -m pip install --require-hashes -r runtime-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e runtime-src/shared
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
+          echo "AUDIT_SOURCE_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+      - name: Pull and verify exact canonical PIT package
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=certified-src/backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "${PACKAGE}" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "${cid}:/canonical-pit/." canonical-pit/
+          PYTHONPATH="${GITHUB_WORKSPACE}/runtime-src:${GITHUB_WORKSPACE}/runtime-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset canonical-pit > package-integrity.json
+      - name: Run seven-correction control and refresh complete path priorities
+        run: |
+          set -euo pipefail
+          mkdir -p factual-replay
+          (cd certified-src && \
+            PYTHONPATH="${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/audit-src:${GITHUB_WORKSPACE}/runtime-src:${GITHUB_WORKSPACE}/runtime-src/shared" \
+            python "${GITHUB_WORKSPACE}/audit-src/backtester/champion_security_truth_replay_v2.py" \
+              --candidate-root "${GITHUB_WORKSPACE}/candidate-src" \
+              --original-queue "${GITHUB_WORKSPACE}/audit-src/research/champion-economic-integrity/security-truth/production-equivalent-security-truth-review-queue.csv" \
+              --baseline-directory "${GITHUB_WORKSPACE}/previous-control/classification-control" \
+              --output "${GITHUB_WORKSPACE}/factual-replay/controlled") \
+            2>&1 | tee factual-replay/replay.log
+      - name: Write actual replay result and remaining audit status
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s = json.loads(Path('factual-replay/controlled/RESULT.json').read_text())
+          m = s['strategy']
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as f:
+              f.write(f"\n## Completed diagnostic replay\n\nCAGR: {m['cagr_actual_elapsed']:.4%}; MDD: {m['max_drawdown']:.4%}; multiple: {m['ending_multiple']:.6f}.\n\n")
+              f.write(f"CAGR change from previous classification control: {s['cagr_change_percentage_points']:+.6f} percentage points.\n\n")
+              f.write(f"Fresh-path held/pending type cases: {s['fresh_held_or_pending_type_cases']}; open: {s['fresh_held_or_pending_open_cases']}.\n\n")
+              f.write('Status: DIAGNOSTIC_NOT_CERTIFIED. Broader factual and identity review remains open.\n')
+          PY
+      - name: Retain immutable replay, fresh worklist and reproduction evidence
+        run: python audit-src/backtester/publish_champion_truth_checkpoint_v2.py --input factual-replay --kind replay
+      - name: Preserve audit and replay artifacts
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-security-truth-audit-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            factual-audit/
+            factual-replay/
+            audit-tests.log
+            audit-build.log
+            package-integrity.json
+          retention-days: 90
+          if-no-files-found: error
