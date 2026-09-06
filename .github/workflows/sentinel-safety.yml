@@ -83,18 +83,22 @@ jobs:
           fi
           echo "TESTED_SHA=$TESTED_SHA" >> "$GITHUB_ENV"
 
-      - name: Build the pinned Sentinel runtime and test images
+      - name: Build one final broker-capable Sentinel runtime and CI test lens
         run: |
+          set -euo pipefail
+          # Current main still expresses the broker-capable filesystem as a
+          # layer over Dockerfile.sentinel. Only the final sentinel:ci image is
+          # a runtime/certification subject. PR #322 collapses these source
+          # layers into Dockerfile.sentinel itself.
           docker build \
             --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
-            -f Dockerfile.sentinel -t sentinel:latest .
+            -f Dockerfile.sentinel -t sentinel-build-base:ci .
           docker build \
-            --build-arg SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest \
+            --build-arg SENTINEL_RUNTIME_BASE_IMAGE=sentinel-build-base:ci \
             --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
-            -f Dockerfile.sentinel-authorized \
-            -t sentinel-authorized:ci .
+            -f Dockerfile.sentinel-authorized -t sentinel:ci .
           docker build \
-            --build-arg SENTINEL_IMAGE=sentinel-authorized:ci \
+            --build-arg SENTINEL_IMAGE=sentinel:ci \
             --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
             -f Dockerfile.sentinel-test -t sentinel-test:ci .
 
@@ -102,7 +106,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/test-pr301-runtime-boundaries.sh sentinel-authorized:ci
+          bash scripts/test-pr301-runtime-boundaries.sh sentinel:ci
 
       - name: Falsify exact-XID PostgreSQL physical recovery
         shell: bash
@@ -120,8 +124,7 @@ jobs:
             | sha256sum | awk '{print $1}')"
           test_manifest_hash="$(git ls-files -z tests \
             | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
-          ordinary_id="$(docker image inspect sentinel:latest --format '{{.Id}}')"
-          authorized_id="$(docker image inspect sentinel-authorized:ci --format '{{.Id}}')"
+          runtime_digest="$(docker image inspect sentinel:ci --format '{{.Id}}')"
           {
             echo '### Exact-SHA safety evidence'
             echo
@@ -129,8 +132,7 @@ jobs:
             printf -- '- source tree: `%s`\n' "$tree_hash"
             printf -- '- workflow run: `%s`\n' "$GITHUB_RUN_ID"
             printf -- '- dependency locks: `%s`\n' "$dependency_lock_hash"
-            printf -- '- ordinary image id: `%s`\n' "$ordinary_id"
-            printf -- '- authorized image id: `%s`\n' "$authorized_id"
+            printf -- '- runtime image: `%s`\n' "$runtime_digest"
             printf -- '- test manifest: `%s`\n' "$test_manifest_hash"
             echo '- schema epoch: `sentinel.behavioral_schema/current`'
             echo '- semantic epoch: `sentinel.automation_cycle/1`'
@@ -162,8 +164,7 @@ jobs:
             tail -n 240 /tmp/sentinel-complete.txt >&2
             exit "$test_status"
           fi
-          if grep -Eq '(^|, )[0-9]+ skipped(,| in |$)' \
-              /tmp/sentinel-complete.txt; then
+          if grep -Eq '(^|, )[0-9]+ skipped(,| in |$)' /tmp/sentinel-complete.txt; then
             echo 'REFUSED: the complete Sentinel run skipped tests' >&2
             exit 1
           fi
@@ -199,8 +200,7 @@ jobs:
             tail -n 240 /tmp/sentinel-scripts.txt >&2
             exit "$test_status"
           fi
-          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
-              /tmp/sentinel-scripts.txt; then
+          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' /tmp/sentinel-scripts.txt; then
             echo 'REFUSED: the script/control suite had non-passes' >&2
             exit 1
           fi
@@ -230,8 +230,7 @@ jobs:
             --deselect tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER \
             --deselect tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash \
             -q -ra 2>&1 | tee /tmp/wealth-core-prospective.txt
-          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
-              /tmp/wealth-core-prospective.txt; then
+          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' /tmp/wealth-core-prospective.txt; then
             echo 'REFUSED: the prospective Wealth Core run had non-passes' >&2
             exit 1
           fi
@@ -254,22 +253,10 @@ jobs:
             exit 1
           fi
           bash -n "${shell_scripts[@]}"
-          mkdir -p "$SENTINEL_BACKUP_DIR/wal" "$SENTINEL_BACKUP_DIR/base" \
-            "$SENTINEL_AUTHORITY_ARTIFACTS_DIR"
-          docker compose \
-            -f docker-compose.sentinel.yml \
-            -f docker-compose.sentinel-backup.yml \
-            config --quiet
-          docker compose \
-            -f docker-compose.sentinel.yml \
-            -f docker-compose.sentinel-backup.yml \
-            -f docker-compose.sentinel-automation.yml \
-            --profile automation config --quiet
-          docker compose \
-            -f docker-compose.sentinel.yml \
-            -f docker-compose.sentinel-backup.yml \
-            -f docker-compose.sentinel-automation.yml \
-            --profile authorized-cli config --quiet
+          mkdir -p "$SENTINEL_BACKUP_DIR/wal" "$SENTINEL_BACKUP_DIR/base" "$SENTINEL_AUTHORITY_ARTIFACTS_DIR"
+          docker compose -f docker-compose.sentinel.yml -f docker-compose.sentinel-backup.yml config --quiet
+          docker compose -f docker-compose.sentinel.yml -f docker-compose.sentinel-backup.yml -f docker-compose.sentinel-automation.yml --profile automation config --quiet
+          docker compose -f docker-compose.sentinel.yml -f docker-compose.sentinel-backup.yml -f docker-compose.sentinel-automation.yml --profile authorized-cli config --quiet
           if [ '${{ matrix.scope }}' = 'synthetic-merge' ]; then
             git diff --check HEAD^1 HEAD
           else
@@ -306,8 +293,7 @@ jobs:
             --commit "$TESTED_SHA" \
             --workflow-run "$GITHUB_RUN_ID" \
             --workflow-attempt "$GITHUB_RUN_ATTEMPT" \
-            --ordinary-image-ref sentinel:latest \
-            --authorized-image-ref sentinel-authorized:ci \
+            --image-ref sentinel:ci \
             --sentinel-summary /tmp/sentinel-complete.txt \
             --operator-summary /tmp/sentinel-scripts.txt \
             --wealth-summary /tmp/wealth-core-prospective.txt \
@@ -315,23 +301,18 @@ jobs:
             --mutation-report /tmp/sentinel-mutation-evidence/report.json \
             --output /tmp/sentinel-tested-image/software-certification-input.json
 
-      - name: Export the exact tested OCI images for protected publication
+      - name: Export the exact tested OCI runtime for protected publication
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/sentinel-tested-image
-          docker save sentinel:latest \
-            > /tmp/sentinel-tested-image/sentinel-runtime.tar
-          docker save sentinel-authorized:ci \
-            > /tmp/sentinel-tested-image/sentinel-authorized.tar
-          printf '%s\n' "$TESTED_SHA" \
-            > /tmp/sentinel-tested-image/COMMIT
+          docker save sentinel:ci > /tmp/sentinel-tested-image/sentinel-runtime.tar
+          printf '%s\n' "$TESTED_SHA" > /tmp/sentinel-tested-image/COMMIT
           cd /tmp/sentinel-tested-image
-          sha256sum sentinel-runtime.tar sentinel-authorized.tar COMMIT \
-            software-certification-input.json > SHA256SUMS
+          sha256sum sentinel-runtime.tar COMMIT software-certification-input.json > SHA256SUMS
 
-      - name: Retain the exact tested images
+      - name: Retain the exact tested runtime
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
