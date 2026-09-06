@@ -1,0 +1,31 @@
+{
+  "calls": {
+    "common": 1053821,
+    "conflict_common": 0,
+    "non_common": 29157
+  },
+  "certification_eligible": false,
+  "factual_batch_sha256": "b08d6e4b92bb0a0e106927e15c6ea7ef5f8f0ffec3174c4aacc93bbd60cde517",
+  "factual_correction_calls": {
+    "1007376678094268707": 292,
+    "1084515552110962948": 61,
+    "223489731780916334": 589,
+    "234830040312163466": 152,
+    "572943415348500978": 2041,
+    "818952807605506774": 64,
+    "931093969002672286": 5037
+  },
+  "historical_correction_calls": {
+    "common": 442,
+    "non_common": 1367
+  },
+  "historical_correction_ledger_sha256": "30f1e7223bc088714e4ee17b131f90da61bcbaf0684bfcb9c3331c9d1bc06db3",
+  "historical_correction_security_ids": [
+    "192545371416014112",
+    "594891209465982980"
+  ],
+  "label": "PARTIAL_FACTUAL_AUDIT_NOT_CERTIFIED",
+  "ledger_sha256": "1391630785c56daa2c4665abe792dd7b06d3697b47e2224edd380737fef133ab",
+  "reviewed_ledger_sha256": "3440fd1007062644868fbab5a872b52e87b9892f05673f825d27a385833143b6",
+  "scenario": "reviewed_18_plus_historical_corrections"
+}

@@ -1,0 +1,135 @@
+{
+  "cagr_change_percentage_points": 0.802065160493215,
+  "changed_dimension": "SEVEN_FACTUAL_UNKNOWN_SECURITY_TYPE_CORRECTIONS",
+  "corrected_tickers": [
+    "CIG",
+    "CVRR",
+    "GOLLQ",
+    "NGL",
+    "NTI",
+    "PBR.A",
+    "UAN"
+  ],
+  "factual_batch_sha256": "b08d6e4b92bb0a0e106927e15c6ea7ef5f8f0ffec3174c4aacc93bbd60cde517",
+  "first_differences": {
+    "A_nav": "2009-10-23",
+    "research_eligible_universe": "2006-07-31",
+    "research_ranking_sha256": "2006-08-01",
+    "research_selected_positions_sha256": "2009-10-23"
+  },
+  "fresh_held_or_pending_open_cases": 84,
+  "fresh_held_or_pending_type_cases": 84,
+  "fresh_observer_first_session": "2006-01-03",
+  "fresh_observer_last_session": "2026-07-31",
+  "fresh_observer_sessions": 5176,
+  "previous_classification": {
+    "cagr_actual_elapsed": 0.17919720403889183,
+    "end": "2026-07-31",
+    "ending_multiple": 27.02453406943875,
+    "max_drawdown": -0.2025060396734678,
+    "sessions": 5032,
+    "sharpe_daily_252": 1.0379904303438605,
+    "start": "2006-07-31"
+  },
+  "spy": {
+    "cagr_actual_elapsed": 0.1125631644567402,
+    "end": "2026-07-31",
+    "ending_multiple": 8.44330665943228,
+    "max_drawdown": -0.5520185564591154,
+    "sessions": 5032,
+    "sharpe_daily_252": 0.6473414847918394,
+    "start": "2006-07-31"
+  },
+  "status": "DIAGNOSTIC_NOT_CERTIFIED",
+  "strategy": {
+    "cagr_actual_elapsed": 0.18721785564382398,
+    "end": "2026-07-31",
+    "ending_multiple": 30.94845714278784,
+    "max_drawdown": -0.22880059216754534,
+    "sessions": 5032,
+    "sharpe_daily_252": 1.0510148712891876,
+    "start": "2006-07-31"
+  },
+  "trailing_years": {
+    "10": {
+      "spy": {
+        "cagr_actual_elapsed": 0.15005861607939774,
+        "end": "2026-07-31",
+        "ending_multiple": 4.045412945884457,
+        "max_drawdown": -0.3370006748514036,
+        "sessions": 2514,
+        "sharpe_daily_252": 0.8710470203683797,
+        "start": "2016-08-01"
+      },
+      "strategy": {
+        "cagr_actual_elapsed": 0.21456798098836827,
+        "end": "2026-07-31",
+        "ending_multiple": 6.980538157176071,
+        "max_drawdown": -0.22880059216754534,
+        "sessions": 2514,
+        "sharpe_daily_252": 1.1200342976406414,
+        "start": "2016-08-01"
+      }
+    },
+    "15": {
+      "spy": {
+        "cagr_actual_elapsed": 0.14438189269771118,
+        "end": "2026-07-31",
+        "ending_multiple": 7.558966679145911,
+        "max_drawdown": -0.3370006748514036,
+        "sessions": 3772,
+        "sharpe_daily_252": 0.8727698301421554,
+        "start": "2011-08-01"
+      },
+      "strategy": {
+        "cagr_actual_elapsed": 0.179197558334508,
+        "end": "2026-07-31",
+        "ending_multiple": 11.848779582157082,
+        "max_drawdown": -0.22880059216754534,
+        "sessions": 3772,
+        "sharpe_daily_252": 1.0451255308054959,
+        "start": "2011-08-01"
+      }
+    },
+    "20": {
+      "spy": {
+        "cagr_actual_elapsed": 0.1125631644567402,
+        "end": "2026-07-31",
+        "ending_multiple": 8.44330665943228,
+        "max_drawdown": -0.5520185564591154,
+        "sessions": 5032,
+        "sharpe_daily_252": 0.6473414847918394,
+        "start": "2006-07-31"
+      },
+      "strategy": {
+        "cagr_actual_elapsed": 0.18721785564382398,
+        "end": "2026-07-31",
+        "ending_multiple": 30.94845714278784,
+        "max_drawdown": -0.22880059216754534,
+        "sessions": 5032,
+        "sharpe_daily_252": 1.0510148712891876,
+        "start": "2006-07-31"
+      }
+    },
+    "5": {
+      "spy": {
+        "cagr_actual_elapsed": 0.1282555199477502,
+        "end": "2026-07-31",
+        "ending_multiple": 1.8269214308597481,
+        "max_drawdown": -0.2449730210824983,
+        "sessions": 1255,
+        "sharpe_daily_252": 0.790612663988006,
+        "start": "2021-08-02"
+      },
+      "strategy": {
+        "cagr_actual_elapsed": 0.2070105386058767,
+        "end": "2026-07-31",
+        "ending_multiple": 2.558941370129703,
+        "max_drawdown": -0.20143402847840342,
+        "sessions": 1255,
+        "sharpe_daily_252": 1.0769982274597911,
+        "start": "2021-08-02"
+      }
+    }
+  }
+}
