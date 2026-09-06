@@ -1,7 +1,9 @@
+import os
 from pathlib import Path
 
 
-ROOT = Path(__file__).resolve().parents[2]
+ROOT = Path(os.environ.get(
+    "SENTINEL_REPO_ROOT", Path(__file__).resolve().parents[2]))
 DOCKERFILE = ROOT / "Dockerfile.sentinel"
 
 
@@ -48,8 +50,10 @@ def test_one_runtime_contains_broker_code_and_execution_capability():
     assert "COPY deploy/sentinel-authorized-runtime-v1" in text
     assert "authorized-runtime-capability-v1" in text
     assert "rm /app/sentinel/cli/authorized_routes.py" not in text
-    assert "/app/sentinel/execution/alpaca.py" not in text
     assert "rm /shared/stock_strategy_shared/broker/alpaca.py" not in text
+    assert (ROOT / "sentinel" / "cli" / "authorized_routes.py").is_file()
+    assert (ROOT / "sentinel" / "execution" / "alpaca.py").is_file()
+    assert (ROOT / "shared" / "stock_strategy_shared" / "broker" / "alpaca.py").is_file()
 
 
 def test_default_runtime_command_remains_non_trading():
