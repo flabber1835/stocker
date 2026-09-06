@@ -14,7 +14,7 @@ concurrency:
 jobs:
   publish:
     runs-on: ubuntu-24.04
-    timeout-minutes: 90
+    timeout-minutes: 30
     steps:
       - name: Exact audit source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -29,28 +29,35 @@ jobs:
         with:
           python-version: '3.12.14'
           check-latest: false
-      - name: Wait for the already-running preregistered prefix evidence
+      - name: Bind completed observations and preserve postprocessing failure
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           mkdir -p publication-evidence
           python - <<'PY'
-          import json, os, pathlib, time, urllib.request
+          import json,os,pathlib,urllib.request
           out=pathlib.Path('publication-evidence')
-          for attempt in range(180):
-              req=urllib.request.Request('https://api.github.com/repos/flabber1835/stocker/actions/runs/34042141867',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
-              with urllib.request.urlopen(req,timeout=60) as response: data=json.load(response)
-              assert data['head_sha']=='b0a3033d83584541f4d6f306ecee27e318d29a59'
-              if data['status']=='completed':
-                  (out/'bounded-run.json').write_text(json.dumps(data,indent=2)+'\n')
-                  assert data['conclusion']=='success', data['conclusion']
-                  break
-              print('Existing bounded run status:',data['status'],flush=True)
-              time.sleep(20)
-          else: raise RuntimeError('Existing prefix run did not complete inside bounded wait')
+          def api(suffix):
+              req=urllib.request.Request('https://api.github.com/repos/flabber1835/stocker/actions/runs/34042141867'+suffix,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(req,timeout=60) as response: return json.load(response)
+          run=api(''); jobs=api('/jobs'); artifacts=api('/artifacts')
+          assert run['head_sha']=='b0a3033d83584541f4d6f306ecee27e318d29a59'
+          assert run['status']=='completed' and run['conclusion']=='failure'
+          steps={s['name']:s for s in jobs['jobs'][0]['steps']}
+          assert steps['Recover exact prefixes and three one-factor controls']['conclusion']=='success'
+          assert steps['Independently validate baseline reproduction and preregistered identities']['conclusion']=='failure'
+          assert steps['Preserve all diagnostic evidence']['conclusion']=='success'
+          assert len(artifacts['artifacts'])==1
+          assert artifacts['artifacts'][0]['digest']=='sha256:25f80f5378348f6c500513f3c9ff0bf959909910c26a8c3789b1bd25bf948b5c'
+          for name,data in [('bounded-run.json',run),('bounded-run-jobs.json',jobs),('artifacts-34042141867.json',artifacts)]:
+              (out/name).write_text(json.dumps(data,indent=2,sort_keys=True)+'\n')
+          req=urllib.request.Request('https://api.github.com/repos/flabber1835/stocker/actions/jobs/101510713999/logs',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
+          with urllib.request.urlopen(req,timeout=60) as response: logs=response.read()
+          assert b"KeyError:" in logs and b"['shadow_equity', 'open_equity'] not in index" in logs
+          (out/'bounded-run-original-job.log').write_bytes(logs)
           PY
-      - name: Download completed prefix evidence
+      - name: Retained completed prefix evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           repository: flabber1835/stocker
@@ -82,6 +89,14 @@ jobs:
           name: research-champion-pit-v2-34014048220-1
           github-token: ${{ secrets.GITHUB_TOKEN }}
           path: original-certified
+      - name: Pinned-runtime collector fixture
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34043631885
+          name: champion-collector-claim-34043631885-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: publication-evidence/collector-fixture
       - name: Verify retained bytes and expose exact probe sources
         run: |
           set -euo pipefail
@@ -93,15 +108,18 @@ jobs:
               assert hashlib.sha256((source/name).read_bytes()).hexdigest()==entry['sha256'],name
           for label in ['candidate','runtime']:
               root=pathlib.Path('probe-source')/label; root.mkdir(parents=True,exist_ok=True)
-              with tarfile.open(source/f'{label}-source.tar') as archive:
-                  archive.extractall(root,filter='data')
-          for case in ['candidate','certified','certified_capacity_off','certified_dividend_1','certified_candidate_types']:
-              root=pathlib.Path('prefix')/case
-              for name,expected in json.loads((root/'SHA256.json').read_text()).items():
-                  assert hashlib.sha256((root/name).read_bytes()).hexdigest()==expected,(case,name)
+              with tarfile.open(source/f'{label}-source.tar') as archive: archive.extractall(root,filter='data')
+          root=pathlib.Path('publication-evidence/collector-fixture')
+          for name,expected in json.loads((root/'manifest.json').read_text())['files'].items():
+              assert hashlib.sha256((root/name).read_bytes()).hexdigest()==expected
+          assert json.loads((root/'collector-claim-probe.json').read_text())['execution_python']=='3.12.14'
           PY
           python -m pip install --require-hashes -r probe-source/runtime/sentinel/requirements.lock
-          python -m py_compile backtester/champion_economic_source_probes.py backtester/summarize_champion_economic_prefix.py
+          python -m py_compile backtester/champion_economic_source_probes.py backtester/summarize_champion_economic_prefix.py backtester/validate_champion_economic_prefix.py
+      - name: Validate original-prefix reproduction from retained bytes
+        run: |
+          set -euo pipefail
+          python backtester/validate_champion_economic_prefix.py --root prefix --original-candidate original-candidate --original-certified original-certified/backtester-results/research-champion-20y
       - name: Exact-source defect fixtures and independent prefix attribution
         run: |
           set -euo pipefail
@@ -172,7 +190,7 @@ jobs:
               if len(indices):
                   i=int(indices[0]); chronology.append({'field':col,'first_session':a.date.iloc[i],'left':str(aa.iloc[i]),'right':str(bb.iloc[i]),'differing_sessions':len(indices)})
           (dst/'full-path-first-differences.json').write_text(json.dumps(chronology,indent=2,sort_keys=True)+'\n')
-          for run in [34007704385,34014048220,34041287501,34042141867]:
+          for run in [34007704385,34014048220,34041287501,34042141867,34043631885]:
               req=urllib.request.Request(f'https://api.github.com/repos/flabber1835/stocker/actions/runs/{run}/artifacts',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
               with urllib.request.urlopen(req,timeout=60) as r: data=json.load(r)
               (dst/f'artifacts-{run}.json').write_text(json.dumps(data,indent=2,sort_keys=True)+'\n')
@@ -200,7 +218,7 @@ jobs:
           git commit -m 'audit: retain exact-prefix attribution, source probes and original paths'
           git push origin "HEAD:refs/heads/${BRANCH}"
           echo "# Economic integrity evidence retained" >> "${GITHUB_STEP_SUMMARY}"
-          echo "Publication commit: $(git rev-parse HEAD). Scope: bounded diagnostic; economic certification remains blocked." >> "${GITHUB_STEP_SUMMARY}"
+          echo "Publication commit: $(git rev-parse HEAD). All five original observations reused; offline validation and attribution completed. Economic certification remains blocked." >> "${GITHUB_STEP_SUMMARY}"
       - name: Preserve offline-analysis artifact
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
