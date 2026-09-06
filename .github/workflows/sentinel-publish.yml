@@ -49,7 +49,7 @@ jobs:
           TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
           TEST_RUN_ID: ${{ github.event.workflow_run.id }}
           REGISTRY: ghcr.io
-          IMAGE_NAME: ${{ github.repository }}/sentinel-authorized
+          IMAGE_NAME: ${{ github.repository }}/sentinel
           LOOPBACK_REGISTRY_IMAGE: registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373
         run: |
           set -euo pipefail
@@ -57,9 +57,8 @@ jobs:
           python - <<'PY'
           import re
           from pathlib import Path
-
           rows = Path("SHA256SUMS").read_text(encoding="utf-8").splitlines()
-          expected = {"sentinel-authorized.tar", "COMMIT"}
+          expected = {"sentinel-runtime.tar", "COMMIT"}
           found = set()
           for row in rows:
               match = re.fullmatch(r"[0-9a-f]{64}  ([A-Za-z0-9._-]+)", row)
@@ -71,37 +70,33 @@ jobs:
           PY
           sha256sum --strict --check SHA256SUMS
           test "$(cat COMMIT)" = "$TESTED_SHA"
-          docker load --input sentinel-authorized.tar
-          test "$(docker image inspect sentinel-authorized:ci \
+          docker load --input sentinel-runtime.tar
+          test "$(docker image inspect sentinel:ci \
             --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" \
             = "$TESTED_SHA"
           subject_name="${REGISTRY}/${IMAGE_NAME}"
           final_ref="${subject_name}:${TESTED_SHA}"
-          local_repository="127.0.0.1:5000/sentinel-authorized"
+          local_repository="127.0.0.1:5000/sentinel"
           local_tag="${local_repository}:${TESTED_SHA}"
           docker run --detach --name sentinel-promotion-registry \
             --publish 127.0.0.1:5000:5000 \
             "$LOOPBACK_REGISTRY_IMAGE"
           registry_ready=false
           for _attempt in $(seq 1 30); do
-            if curl --fail --silent --show-error \
-                http://127.0.0.1:5000/v2/ >/dev/null; then
+            if curl --fail --silent --show-error http://127.0.0.1:5000/v2/ >/dev/null; then
               registry_ready=true
               break
             fi
             sleep 1
           done
           test "$registry_ready" = true
-          docker tag sentinel-authorized:ci "$local_tag"
+          docker tag sentinel:ci "$local_tag"
           docker push "$local_tag" 2>&1 | tee /tmp/loopback-push.log
-          digest="$(sed -nE \
-            's/^.*digest: (sha256:[0-9a-f]{64}).*$/\1/p' \
-            /tmp/loopback-push.log | tail -n 1)"
+          digest="$(sed -nE 's/^.*digest: (sha256:[0-9a-f]{64}).*$/\1/p' /tmp/loopback-push.log | tail -n 1)"
           case "$digest" in
             sha256:????????????????????????????????????????????????????????????????) ;;
             *) exit 1 ;;
           esac
-
           {
             echo "subject_name=$subject_name"
             echo "final_ref=$final_ref"
@@ -136,37 +131,28 @@ jobs:
           test -n "$ATTESTATION_ID"
           test -n "$ATTESTATION_URL"
           mkdir -p /tmp/sentinel-provenance
-          cp "$ATTESTATION_BUNDLE" \
-            /tmp/sentinel-provenance/attestation.sigstore.json
+          cp "$ATTESTATION_BUNDLE" /tmp/sentinel-provenance/attestation.sigstore.json
           python - <<'PY'
           import base64, json, os
-
           with open(os.environ["ATTESTATION_BUNDLE"], encoding="utf-8") as source:
               bundle = json.load(source)
           envelope = bundle.get("dsseEnvelope") if isinstance(bundle, dict) else None
           if not isinstance(envelope, dict) or not envelope.get("signatures"):
               raise SystemExit("REFUSED: incomplete Sigstore attestation bundle")
           try:
-              statement = json.loads(base64.b64decode(
-                  envelope["payload"], validate=True))
+              statement = json.loads(base64.b64decode(envelope["payload"], validate=True))
           except (KeyError, TypeError, ValueError) as exc:
-              raise SystemExit(
-                  "REFUSED: malformed Sigstore DSSE payload") from exc
+              raise SystemExit("REFUSED: malformed Sigstore DSSE payload") from exc
           algorithm, separator, digest = os.environ["SUBJECT_DIGEST"].partition(":")
-          expected_subject = [{
-              "name": os.environ["SUBJECT_NAME"],
-              "digest": {algorithm: digest},
-          }]
+          expected_subject = [{"name": os.environ["SUBJECT_NAME"], "digest": {algorithm: digest}}]
           if (separator != ":" or algorithm != "sha256" or not digest
                   or statement.get("_type") != "https://in-toto.io/Statement/v1"
-                  or statement.get("predicateType")
-                  != "https://slsa.dev/provenance/v1"
+                  or statement.get("predicateType") != "https://slsa.dev/provenance/v1"
                   or statement.get("subject") != expected_subject):
-              raise SystemExit(
-                  "REFUSED: Sigstore payload does not bind the promoted subject")
+              raise SystemExit("REFUSED: Sigstore payload does not bind the runtime subject")
           evidence = {
               "schema": "sentinel.exact-sha-provenance/3",
-              "state": "EVIDENCE_DURABLE_BEFORE_AUTHORIZED_TAG",
+              "state": "EVIDENCE_DURABLE_BEFORE_RUNTIME_TAG",
               "commit": os.environ["TESTED_SHA"],
               "test_workflow_run": os.environ["TEST_RUN_ID"],
               "test_workflow_id": os.environ["TEST_WORKFLOW_ID"],
@@ -174,11 +160,9 @@ jobs:
               "publication_workflow_run": os.environ["GITHUB_RUN_ID"],
               "publication_workflow_attempt": os.environ["GITHUB_RUN_ATTEMPT"],
               "subject_name": os.environ["SUBJECT_NAME"],
-              "authorized_image": os.environ["FINAL_REF"],
+              "runtime_image": os.environ["FINAL_REF"],
               "digest_source": "RUNNER_LOOPBACK_REGISTRY",
-              "loopback_registry_image": (
-                  "registry@sha256:"
-                  "a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373"),
+              "loopback_registry_image": "registry@sha256:a3d8aaa63ed8681a604f1dea0aa03f100d5895b6a58ace528858a7b332415373",
               "tested_image_digest": os.environ["SUBJECT_DIGEST"],
               "attestation_id": os.environ["ATTESTATION_ID"],
               "attestation_url": os.environ["ATTESTATION_URL"],
@@ -217,10 +201,8 @@ jobs:
           set -euo pipefail
           cd /tmp/sentinel-provenance
           sha256sum --strict --check SHA256SUMS
-          echo "$GITHUB_TOKEN" | oras login ghcr.io \
-            --username "$GITHUB_ACTOR" --password-stdin
-          oras cp --from-plain-http \
-            "${LOCAL_REPOSITORY}@${SUBJECT_DIGEST}" "$FINAL_REF"
+          echo "$GITHUB_TOKEN" | oras login ghcr.io --username "$GITHUB_ACTOR" --password-stdin
+          oras cp --from-plain-http "${LOCAL_REPOSITORY}@${SUBJECT_DIGEST}" "$FINAL_REF"
           final_digest="$(oras resolve "$FINAL_REF")"
           test "$final_digest" = "$SUBJECT_DIGEST"
           {
