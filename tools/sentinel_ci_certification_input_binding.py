@@ -7,6 +7,13 @@ from pathlib import Path
 import sys
 from typing import Mapping, Sequence
 
+# This tool is intentionally executable both as a module and by repository path
+# from GitHub Actions. When invoked as ``python tools/<file>.py``, Python places
+# ``tools/`` rather than the repository root on sys.path, so the package import
+# below would otherwise fail before any certification checks can run.
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
 from tools import sentinel_ci_certification_manifest as cert
 
 
