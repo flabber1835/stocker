@@ -1,5 +1,5 @@
-name: Research Champion - best-effort classification sensitivity
-run-name: Champion non-PIT common-stock sensitivity - ${{ github.sha }}
+name: Research Champion - reviewed classification replay
+run-name: Champion reviewed common-stock reconstruction - ${{ github.sha }}
 
 on:
   push:
@@ -8,6 +8,7 @@ on:
       - '.github/workflows/champion-best-effort-classification-20y.yml'
       - 'backtester/research_champion_best_effort_classification.py'
       - 'backtester/data/champion-best-effort-security-types-v1*'
+      - 'backtester/data/champion-reviewed-security-types-v1.csv'
       - 'tests/backtester/test_research_champion_best_effort_classification.py'
   workflow_dispatch:
 
@@ -17,13 +18,13 @@ permissions:
 
 jobs:
   replay:
-    name: NOT CERTIFIED - ${{ matrix.scenario }}
+    name: NOT YET CERTIFIED - ${{ matrix.scenario }}
     runs-on: ubuntu-24.04
     timeout-minutes: 240
     strategy:
       fail-fast: false
       matrix:
-        scenario: [conflicts_excluded, conflicts_common]
+        scenario: [reviewed_18]
     env:
       PYTHONUNBUFFERED: '1'
       PIT_OFFICIAL_BACKTEST: '0'

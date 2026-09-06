@@ -206,6 +206,7 @@ class PathAudit:
         sid,
         tick,
         metadata_fn,
+        classification_fn=None,
         base_elig,
         elig,
         pool,
@@ -239,7 +240,15 @@ class PathAudit:
             tid = int(tid0)
             security_id = _sid(sid, tid)
             ticker = _ticker(tick, tid)
-            cls = self._classification(metadata_fn, tid, session)
+            cls = (
+                str(classification_fn(tid, session))
+                if classification_fn is not None
+                else self._classification(metadata_fn, tid, session)
+            )
+            if cls not in {"common", "non_common", "unknown"}:
+                raise RuntimeError(
+                    f"invalid effective security classification {cls!r} for {security_id} on {session}"
+                )
             rec = self._record(security_id, ticker, session)
             rec["base_candidate_sessions"] += 1
             rec["required_for_strategy_certificate"] = True

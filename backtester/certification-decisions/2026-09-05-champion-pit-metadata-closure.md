@@ -153,3 +153,20 @@ shares of common stock or ordinary shares corroborate `common`. Mixed wording
 remains conflicted and absence of a usable capture remains unresolved. Wayback
 evidence is corroborating evidence and does not override stronger contradictory
 contemporaneous SEC authority automatically.
+
+## Reviewed conflict reconstruction
+
+The completed Wayback run `34001859807` and targeted manual searches support a
+reviewed classification for all 18 rejected conflicts. The reconstruction
+admits PCG, PDS, TFC, and TRP as common shares. It excludes AB, BEP, BIP, BPY,
+EMESQ, EPD, ETP, LB, MMP, RTLR, SHLX, USAC, WES, and WPZ as partnership units
+or limited-liability-company interests.
+
+The evidence is retained in
+`backtester/data/champion-reviewed-security-types-v1.csv`. Each row is bound to
+the Champion security ID and disputed session interval and retains the source
+date, source class, URL, and reviewed conclusion. The ledger is a historical
+reconstruction input. It removes the 18-name economic sensitivity but does not
+by itself certify the complete path; the resulting replay remains explicitly
+not certified until its effective classification path, decision frontier, and
+encountered terminal events pass the scoped causality gate.
