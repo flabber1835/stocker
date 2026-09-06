@@ -1,0 +1,176 @@
+name: Champion economic integrity - bounded attribution
+run-name: Champion bounded economic attribution - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-certification-economic-integrity]
+    paths: ['.github/workflows/champion-economic-prefix-audit.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+  packages: read
+concurrency:
+  group: champion-economic-prefix-audit-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  RESEARCH_REPLAY_MODE: fullpit
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+jobs:
+  observe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Audit source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: audit-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester/champion_economic_prefix_audit.py
+            research/champion-economic-integrity
+      - name: Frozen certificate source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/strategy9-e3-broad-stability
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+      - name: Frozen candidate source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ba74e79490beb8950611b1d17f5d124833b3d91e
+          path: candidate-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/strategy9-e3-broad-stability
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+      - name: Frozen runtime
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Bind source identities and dependencies
+        run: |
+          set -euo pipefail
+          test "$(git -C audit-src rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C candidate-src rev-parse HEAD)" = ba74e79490beb8950611b1d17f5d124833b3d91e
+          test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m py_compile audit-src/backtester/champion_economic_prefix_audit.py
+          mkdir -p economic-prefix-audit
+          python -m pip freeze > economic-prefix-audit/python-environment.txt
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
+      - name: Original candidate evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34007704385
+          name: champion-corrected-classification-34007704385-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: original-candidate
+      - name: Original certificate evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34014048220
+          name: research-champion-pit-v2-34014048220-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: original-certified
+      - name: Verify pinned corpus
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=certified-src/backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "${PACKAGE}" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "${cid}:/canonical-pit/." canonical-pit/
+          PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset canonical-pit > economic-prefix-audit/package-integrity.json
+      - name: Recover exact prefixes and three one-factor controls
+        run: |
+          set -euo pipefail
+          for CASE in candidate certified certified_capacity_off certified_dividend_1 certified_candidate_types; do
+            if [ "${CASE}" = candidate ]; then ROOT="${GITHUB_WORKSPACE}/candidate-src"; else ROOT="${GITHUB_WORKSPACE}/certified-src"; fi
+            mkdir -p "${GITHUB_WORKSPACE}/economic-prefix-audit/${CASE}"
+            (cd "${ROOT}" && PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${ROOT}" python "${GITHUB_WORKSPACE}/audit-src/backtester/champion_economic_prefix_audit.py" --case "${CASE}" --candidate-root "${GITHUB_WORKSPACE}/candidate-src" --output "${GITHUB_WORKSPACE}/economic-prefix-audit/${CASE}" --stop 2006-08-02) 2>&1 | tee "economic-prefix-audit/${CASE}.log"
+          done
+      - name: Independently validate baseline reproduction and preregistered identities
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, importlib.util, json, pathlib
+          import pandas as pd
+          from pandas.testing import assert_frame_equal
+          spec=importlib.util.spec_from_file_location('audit', 'audit-src/backtester/champion_economic_prefix_audit.py')
+          audit=importlib.util.module_from_spec(spec); spec.loader.exec_module(audit)
+          out=pathlib.Path('economic-prefix-audit')
+          originals={'candidate':pathlib.Path('original-candidate/daily.csv.gz'), 'certified':pathlib.Path('original-certified/backtester-results/research-champion-20y/daily.csv.gz')}
+          cols=['date','shadow_equity','open_equity','eligible_count','held_count','A_nav','A_allocation','research_ranking_sha256','research_selected_positions_sha256']
+          result={}
+          for case,path in originals.items():
+              expected=pd.read_csv(path); expected=expected[expected.date<='2006-08-02'][cols].reset_index(drop=True)
+              actual=pd.read_csv(out/case/'observed-daily.csv')[cols].reset_index(drop=True)
+              assert len(expected)==3
+              assert_frame_equal(expected,actual,check_dtype=False,rtol=1e-12,atol=1e-7)
+              result[case]={'status':'PASS','sessions':len(actual),'first':str(actual.date.iloc[0]),'last':str(actual.date.iloc[-1]),'original_daily_sha256':hashlib.sha256(path.read_bytes()).hexdigest()}
+          retained=pathlib.Path('original-candidate/generated-replay.py').read_text()
+          rebuilt=(out/'candidate/economic-generated.py').read_text()
+          assert audit.normalized_ast(retained)==audit.normalized_ast(rebuilt)
+          result['candidate_source_ast_matches_retained']=True
+          expected_dims={'candidate':'NONE_OBSERVATION_ONLY','certified':'NONE_OBSERVATION_ONLY','certified_capacity_off':'EXECUTION_PARTICIPATION_CAP_ONLY','certified_dividend_1':'DIVIDEND_SETTLEMENT_LAG_ONLY','certified_candidate_types':'UNKNOWN_SECURITY_TYPE_CLASSIFICATION_ONLY'}
+          identities={}
+          for case,dim in expected_dims.items():
+              identity=json.loads((out/case/'identity.json').read_text())
+              assert identity['changed_dimension']==dim
+              assert identity['status']=='PASS_BOUNDED_OBSERVATION'
+              assert identity['initial_shadow_cash']==100000000
+              assert identity['corpus_hash']==audit.EXPECTED_CORPUS
+              assert identity['observer_stripped_ast_matches']
+              identities[case]=identity
+          result['scope']='BOUNDED_PREFIX_ONLY_NOT_CERTIFICATION'
+          (out/'baseline-reproduction.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          (out/'controlled-replay-identities.json').write_text(json.dumps(identities,indent=2,sort_keys=True)+'\n')
+          with open(__import__('os').environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('# Bounded economic-attribution evidence\n\nBoth original measured prefixes reproduced. All five observer-stripped economic ASTs match their specified case. Starting shadow capital remains $100M. Three one-factor controls and independent prefix accounting checks retained. No final CAGR or certificate issued.\n')
+          print(json.dumps(result,sort_keys=True))
+          PY
+      - name: Preserve all diagnostic evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-economic-prefix-${{ github.run_id }}-${{ github.run_attempt }}
+          path: economic-prefix-audit/
+          retention-days: 90
+          if-no-files-found: error
