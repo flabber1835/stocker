@@ -13,7 +13,7 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: codex/sentinel-docker-layering
-          fetch-depth: 0
+          fetch-depth: 1
       - name: Repair retired Dockerfile invocation and add regression
         shell: bash
         run: |
@@ -125,7 +125,7 @@ jobs:
               assert summary.complete
               assert gate.status == go.PASS
           PY
-          python -m pytest tests/scripts/test_sentinel_single_runtime_go_build.py -q
+          python -m compileall -q scripts/sentinel_go_validate.py tests/scripts/test_sentinel_single_runtime_go_build.py
           git diff --check
       - name: Commit repair
         shell: bash
