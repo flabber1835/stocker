@@ -65,6 +65,7 @@ jobs:
           test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
           test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
           (cd backtester/data && sha256sum -c champion-best-effort-security-types-v1.SHA256)
+          mkdir -p "${OUT}"
           echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
           echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
       - name: Install frozen replay dependencies
