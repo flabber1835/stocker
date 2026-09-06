@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import hashlib
 import json
 import os
 from pathlib import Path
@@ -151,6 +150,18 @@ def test_verifier_refusal_fails_software_certification_gate(monkeypatch):
 
     assert not summary.complete
     assert gate.status == ci.go.FAIL
+
+
+def test_test_count_read_is_pinned_to_already_verified_publication():
+    source = (REPO_ROOT / "scripts" / "sentinel_go_ci_runtime.py").read_text()
+    body = source[source.index("def _certified_pass_count"):source.index("def _write_binding")]
+    assert 'result["publication_workflow_run"]' in body
+    assert 'result["publication_workflow_attempt"]' in body
+    assert "_publication_run(" not in body
+    assert "_publication_artifact(client, publication, commit)" in body
+    assert "verifier._verify_sums(members)" in body
+    assert "verifier._verify_manifest(manifest, commit, tree, publication)" in body
+    assert 'binding.get("digest") != result.get("image_digest")' in body
 
 
 def test_local_full_build_graph_has_one_runtime_and_one_test_lens_only():
