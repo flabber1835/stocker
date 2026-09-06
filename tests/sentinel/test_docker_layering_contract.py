@@ -3,7 +3,6 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[2]
 DOCKERFILE = ROOT / "Dockerfile.sentinel"
-AUTHORIZED = ROOT / "Dockerfile.sentinel-authorized"
 
 
 def _position(text: str, needle: str) -> int:
@@ -42,10 +41,25 @@ def test_exact_source_identity_is_still_baked_into_the_final_image():
     assert text.count("ENV SENTINEL_IMAGE_SOURCE_REVISION=${SOURCE_GIT_SHA}") == 1
 
 
-def test_authorized_runtime_inherits_the_complete_ordinary_layer_graph():
-    text = AUTHORIZED.read_text(encoding="utf-8")
-    assert "ARG SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest" in text
-    assert "FROM ${SENTINEL_RUNTIME_BASE_IMAGE}" in text
+def test_one_runtime_contains_broker_code_and_execution_capability():
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    assert "COPY sentinel/ /app/sentinel/" in text
+    assert "COPY shared/ /shared/" in text
+    assert "COPY deploy/sentinel-authorized-runtime-v1" in text
+    assert "authorized-runtime-capability-v1" in text
+    assert "rm /app/sentinel/cli/authorized_routes.py" not in text
+    assert "/app/sentinel/execution/alpaca.py" not in text
+    assert "rm /shared/stock_strategy_shared/broker/alpaca.py" not in text
+
+
+def test_default_runtime_command_remains_non_trading():
+    text = DOCKERFILE.read_text(encoding="utf-8")
+    directives = [
+        line.strip() for line in text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    assert 'ENTRYPOINT ["python", "-m", "sentinel"]' in directives
+    assert 'CMD ["status"]' in directives
 
 
 def test_dependency_layer_changes_only_after_lock_copy_boundary():
