@@ -124,6 +124,12 @@ jobs:
           cp audit-src/backtester/champion_final_security_truth.py certified-src/backtester/
           cp audit-src/backtester/production_equivalent_economic_overlay.py certified-src/backtester/
           cp audit-src/backtester/champion_production_equivalent_build.py certified-src/backtester/
+          cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
+          cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
+          cp candidate-src/backtester/data/champion-historical-security-type-corrections-v1.csv certified-src/backtester/data/
+          cp candidate-src/backtester/data/champion-best-effort-security-types-v1.csv certified-src/backtester/data/
+          cp candidate-src/backtester/data/champion-best-effort-security-types-v1-summary.json certified-src/backtester/data/
+          cp candidate-src/backtester/data/champion-reviewed-security-types-v1.csv certified-src/backtester/data/
           mkdir -p certified-src/research/champion-economic-integrity/security-truth
           cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
 
