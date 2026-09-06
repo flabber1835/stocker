@@ -14,7 +14,7 @@ from scripts import sentinel_ci_certification_verify as verify
 COMMIT = "a" * 40
 TREE = "b" * 40
 DIGEST = "sha256:" + "c" * 64
-SUBJECT = "ghcr.io/flabber1835/stocker/sentinel-authorized"
+SUBJECT = verify.EXPECTED_SUBJECT
 PUBLICATION = {
     "id": 9001,
     "run_attempt": 1,
@@ -25,6 +25,23 @@ def _canonical(value):
     return json.dumps(
         value, sort_keys=True, separators=(",", ":"), ensure_ascii=False
     ).encode("utf-8")
+
+
+def _suite(passed):
+    return {
+        "passed": passed,
+        "failed": 0,
+        "errors": 0,
+        "skipped": 0,
+        "xfailed": 0,
+        "xpassed": 0,
+    }
+
+
+def _rehash(manifest):
+    manifest.pop("manifest_sha256", None)
+    manifest["manifest_sha256"] = hashlib.sha256(_canonical(manifest)).hexdigest()
+    return manifest
 
 
 def _manifest():
@@ -61,7 +78,11 @@ def _manifest():
                 "xfailed": 0,
                 "xpassed": 0,
             },
-            "suite_counts": {},
+            "suite_counts": {
+                "operator_scripts": _suite(34),
+                "sentinel": _suite(33),
+                "wealth_core_boundary": _suite(33),
+            },
             "required_job_conclusions": {
                 name: "success" for name in verify.REQUIRED_JOBS
             },
@@ -76,13 +97,12 @@ def _manifest():
             "publication_workflow_attempt": PUBLICATION["run_attempt"],
         },
         "epochs": {
-            "runtime_schema": "sentinel.behavioral_schema/current",
-            "semantic": "sentinel.automation_cycle/1",
+            "runtime_schema": verify.RUNTIME_SCHEMA_EPOCH,
+            "semantic": verify.SEMANTIC_EPOCH,
         },
         "certified_at": "2026-09-06T06:00:00Z",
     }
-    value["manifest_sha256"] = hashlib.sha256(_canonical(value)).hexdigest()
-    return value
+    return _rehash(value)
 
 
 def _attestation():
@@ -163,8 +183,7 @@ def test_wrong_source_tree_refuses():
 def test_unknown_manifest_schema_refuses_after_valid_integrity_hash():
     manifest = _manifest()
     manifest["schema"] = "sentinel.software-certification/999"
-    manifest.pop("manifest_sha256")
-    manifest["manifest_sha256"] = hashlib.sha256(_canonical(manifest)).hexdigest()
+    _rehash(manifest)
     with pytest.raises(verify.CertificationVerificationRefused) as caught:
         verify.verify_bundle(
             _archive(manifest=manifest), commit=COMMIT, tree=TREE,
@@ -175,13 +194,47 @@ def test_unknown_manifest_schema_refuses_after_valid_integrity_hash():
 def test_wrong_authorized_runtime_digest_refuses():
     manifest = _manifest()
     manifest["runtime"]["authorized_runtime_digest"] = "sha256:" + "9" * 64
-    manifest.pop("manifest_sha256")
-    manifest["manifest_sha256"] = hashlib.sha256(_canonical(manifest)).hexdigest()
+    _rehash(manifest)
     with pytest.raises(verify.CertificationVerificationRefused) as caught:
         verify.verify_bundle(
             _archive(manifest=manifest), commit=COMMIT, tree=TREE,
             publication_run=PUBLICATION)
     assert caught.value.code == "CERT_AUTHORIZED_RUNTIME_MISMATCH"
+
+
+def test_wrong_runtime_subject_refuses():
+    manifest = _manifest()
+    manifest["runtime"]["subject_name"] = "ghcr.io/flabber1835/stocker/other"
+    manifest["runtime"]["immutable_ref"] = (
+        manifest["runtime"]["subject_name"] + "@" + DIGEST)
+    _rehash(manifest)
+    with pytest.raises(verify.CertificationVerificationRefused) as caught:
+        verify.verify_bundle(
+            _archive(manifest=manifest), commit=COMMIT, tree=TREE,
+            publication_run=PUBLICATION)
+    assert caught.value.code == "CERT_RUNTIME_SUBJECT_INVALID"
+
+
+def test_unknown_epoch_refuses():
+    manifest = _manifest()
+    manifest["epochs"]["semantic"] = "sentinel.automation_cycle/999"
+    _rehash(manifest)
+    with pytest.raises(verify.CertificationVerificationRefused) as caught:
+        verify.verify_bundle(
+            _archive(manifest=manifest), commit=COMMIT, tree=TREE,
+            publication_run=PUBLICATION)
+    assert caught.value.code == "CERT_EPOCH_UNSUPPORTED"
+
+
+def test_nonpass_suite_count_refuses():
+    manifest = _manifest()
+    manifest["tests"]["suite_counts"]["sentinel"]["skipped"] = 1
+    _rehash(manifest)
+    with pytest.raises(verify.CertificationVerificationRefused) as caught:
+        verify.verify_bundle(
+            _archive(manifest=manifest), commit=COMMIT, tree=TREE,
+            publication_run=PUBLICATION)
+    assert caught.value.code == "CERT_TEST_COUNTS_INVALID"
 
 
 def test_provenance_digest_substitution_refuses():
@@ -214,6 +267,7 @@ class _SafetyClient:
     def json(self, path):
         if path.endswith("/jobs?per_page=100"):
             return {"jobs": self.jobs}
+        repository = {"id": verify.REPOSITORY_ID, "full_name": verify.REPOSITORY}
         return {
             "workflow_id": verify.SAFETY_WORKFLOW_ID,
             "path": verify.SAFETY_WORKFLOW_PATH,
@@ -223,6 +277,8 @@ class _SafetyClient:
             "status": "completed",
             "conclusion": "success",
             "run_attempt": 1,
+            "repository": repository,
+            "head_repository": dict(repository),
         }
 
 
