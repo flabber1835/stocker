@@ -1,0 +1,70 @@
+{
+  "category_counts": {
+    "ADR Common Stock": 336,
+    "ADR Common Stock Primary Class": 68,
+    "ADR Common Stock Secondary Class": 7,
+    "ADR Preferred Stock": 17,
+    "Canadian Common Stock": 130,
+    "Canadian Common Stock Primary Class": 8,
+    "Canadian Common Stock Warrant": 1,
+    "Domestic Common Stock": 780,
+    "Domestic Common Stock Primary Class": 156,
+    "Domestic Common Stock Secondary Class": 26,
+    "Domestic Common Stock Warrant": 2,
+    "Domestic Preferred Stock": 220
+  },
+  "certification_eligible": false,
+  "contract": {
+    "common_categories": [
+      "ADR Common Stock",
+      "ADR Common Stock Primary Class",
+      "ADR Common Stock Secondary Class",
+      "Canadian Common Stock",
+      "Canadian Common Stock Primary Class",
+      "Canadian Common Stock Secondary Class",
+      "Domestic Common Stock",
+      "Domestic Common Stock Primary Class",
+      "Domestic Common Stock Secondary Class"
+    ],
+    "excluded_category_tokens": [
+      "Preferred Stock",
+      "Warrant"
+    ],
+    "historical_availability_proven": false,
+    "permitted_use": "best-effort sensitivity replay only"
+  },
+  "counts": {
+    "classification": {
+      "common": 1493,
+      "non_common": 240,
+      "unknown": 18
+    },
+    "disposition": {
+      "INFERRED_COMMON": 1493,
+      "INFERRED_NON_COMMON": 240,
+      "REJECTED_KNOWN_PATH_CONFLICT": 2,
+      "REJECTED_V4_CONFLICT": 16
+    },
+    "inferred_observations": {
+      "common": 1055613,
+      "non_common": 4500,
+      "unknown": 0
+    },
+    "remaining_uncertain_observations": 22865,
+    "security_count": 1751,
+    "unknown_candidate_observations": 1082978
+  },
+  "coverage": {
+    "observation_fraction": 0.9788869210639551,
+    "security_fraction": 0.9897201599086236
+  },
+  "label": "BEST_EFFORT_NOT_PIT_CERTIFIED",
+  "schema": "backtester.champion-best-effort-security-types/1",
+  "source_hashes": {
+    "session_ledger": "2116177eb72436dc1c6fe5d59e57d739ff46a751cf5917748f3dd482dc604369",
+    "stage1_priority": "d7a94b293eb9014843039684f0c892781a2e7ad80fb3e3e656ff46de8fbac3ef",
+    "tickers": "308bcc46f4efaffe6f6fc4f7236af82df5c57a9f2be07c677089f0e6fba2eebf",
+    "worklist": "0c891b2e4f505cb7b21c857c373a12df4dcb766c430812678d9200e69b165c5b"
+  },
+  "status": "PASS"
+}

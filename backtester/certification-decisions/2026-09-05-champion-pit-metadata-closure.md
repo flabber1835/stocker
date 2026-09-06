@@ -109,3 +109,34 @@ the evidence-only corpus pointer or produce the project's PIT-certified banner.
 The Champion profile, parameters, execution, ranking, and portfolio economics
 remain frozen.  Comparative replays must generate their own chronological
 decisions and report sensitivity to unresolved/rejected cases.
+
+## Best-effort replay boundary
+
+The completed inference ledger from coverage run `34000584483` is retained as
+the branch-owned input `backtester/data/champion-best-effort-security-types-v1.csv`.
+Its SHA-256 is
+`1391630785c56daa2c4665abe792dd7b06d3697b47e2224edd380737fef133ab`.
+The retained summary has SHA-256
+`c483ccb077014eacdb742d3a74dcbce9fd68c41b0f77cc0ebbd6f6b64549cdf6`.
+The ledger resolves 1,493 securities as common and 240 as non-common. Eighteen
+conflicting securities remain unknown.
+
+The economic estimate consumes this frozen ledger as an overlay at the
+candidate/session security-type boundary; it does not rewrite or replace the
+canonical PIT package. A classification is used only when the canonical
+metadata row is unknown and the decision session lies within the ledger's
+recorded inference interval. Canonically known common and non-common rows are
+never overridden. A missing ledger row, an out-of-interval request, or an
+unexpected class fails the replay.
+
+Two chronological replay arms isolate the remaining classification uncertainty:
+
+1. `conflicts_excluded` admits inferred common securities, excludes inferred
+   non-common securities, and leaves all 18 conflicts ineligible;
+2. `conflicts_common` makes the same changes but admits the 18 conflicts as
+   common-stock stress cases because their current vendor category says common.
+
+Both arms otherwise retain the corrected frozen Champion economics and
+Production terminal behavior. They are sensitivity estimates, not PIT
+certificates, and every result must carry `BEST_EFFORT_NOT_PIT_CERTIFIED` and
+`certification_status: NOT_CERTIFIED`.
