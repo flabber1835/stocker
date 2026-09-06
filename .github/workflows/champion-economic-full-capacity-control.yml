@@ -1,0 +1,151 @@
+name: Champion economic integrity - full capacity-off control
+run-name: Champion full 20y capacity-off control - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-certification-economic-integrity]
+    paths:
+      - '.github/workflows/champion-economic-full-capacity-control.yml'
+      - 'backtester/champion_economic_full_capacity_control.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+  actions: read
+concurrency:
+  group: champion-economic-full-capacity-control-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  capacity-off:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    env:
+      PYTHONUNBUFFERED: '1'
+      PIT_OFFICIAL_BACKTEST: '0'
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2026-07-31'
+    steps:
+      - name: Audit source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: audit-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester/champion_economic_full_capacity_control.py
+            backtester/champion_economic_prefix_audit.py
+      - name: Exact formal certificate source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/strategy9-e3-broad-stability
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+      - name: Pinned runtime
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Bind exact identities and install frozen runtime
+        run: |
+          set -euo pipefail
+          test "$(git -C audit-src rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m py_compile audit-src/backtester/champion_economic_full_capacity_control.py audit-src/backtester/champion_economic_prefix_audit.py
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/audit-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" >> "${GITHUB_ENV}"
+          echo "AUDIT_SOURCE_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
+      - name: Pull and verify exact canonical PIT package
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=certified-src/backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "${PACKAGE}" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "${cid}:/canonical-pit/." canonical-pit/
+          docker rm "${cid}"
+          trap - EXIT
+          PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset canonical-pit > package-integrity.json
+      - name: Original certificate evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34014048220
+          name: research-champion-pit-v2-34014048220-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: original-certified
+      - name: Run full-horizon one-factor capacity-off control
+        run: |
+          set -euo pipefail
+          mkdir -p controlled
+          cp audit-src/backtester/champion_economic_full_capacity_control.py certified-src/backtester/champion_economic_full_capacity_control.py
+          cp audit-src/backtester/champion_economic_prefix_audit.py certified-src/backtester/champion_economic_prefix_audit.py
+          (cd certified-src && PYTHONPATH="${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" python backtester/champion_economic_full_capacity_control.py --output "${GITHUB_WORKSPACE}/controlled") 2>&1 | tee controlled-run.log
+      - name: Compare to original 9.20% certificate
+        if: success()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, pathlib, pandas as pd
+          root=pathlib.Path('controlled')
+          candidates=list((root/'engine').rglob('metrics.csv')) + list(root.rglob('metrics.csv'))
+          candidates=[p for p in candidates if p.is_file()]
+          if not candidates:
+              raise RuntimeError('controlled metrics.csv not found')
+          controlled_metrics=max(candidates,key=lambda p:p.stat().st_size)
+          orig=pathlib.Path('original-certified/backtester-results/research-champion-20y/metrics.csv')
+          a=pd.read_csv(orig); b=pd.read_csv(controlled_metrics)
+          def row(frame,years,variant='research'):
+              q=frame[(frame.window_years.astype(str)==str(years)) & (frame.variant.astype(str)==variant)]
+              if q.empty and years==20:
+                  q=frame[(frame.window_years.astype(str)=='max') & (frame.variant.astype(str)==variant)]
+              if q.empty: raise RuntimeError(f'missing metrics {years} {variant}')
+              return q.iloc[0]
+          out={'schema':'champion.capacity-off-full-attribution/1','status':'DIAGNOSTIC_NOT_CERTIFIED','changed_dimension':'EXECUTION_PARTICIPATION_CAP_ONLY','original_run':34014048220,'controlled_source':'27bb992087182c42c3c051e62bf837895f5d2ab7','initial_shadow_cash':100000000,'windows':{}}
+          for y in [5,10,15,20]:
+              x=row(a,y); z=row(b,y)
+              out['windows'][str(y)]={'original_cagr':float(x.cagr),'capacity_off_cagr':float(z.cagr),'cagr_delta':float(z.cagr-x.cagr),'original_max_drawdown':float(x.max_drawdown),'capacity_off_max_drawdown':float(z.max_drawdown),'original_ending_multiple':float(x.ending_multiple),'capacity_off_ending_multiple':float(z.ending_multiple)}
+          summary_candidates=list(root.rglob('summary.json'))
+          if summary_candidates:
+              out['controlled_summary']=json.loads(max(summary_candidates,key=lambda p:p.stat().st_size).read_text())
+          pathlib.Path('capacity-off-attribution.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(out,sort_keys=True))
+          PY
+      - name: Preserve controlled attribution evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-full-capacity-off-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            controlled/
+            controlled-run.log
+            capacity-off-attribution.json
+            package-integrity.json
+          retention-days: 90
+          if-no-files-found: warn
