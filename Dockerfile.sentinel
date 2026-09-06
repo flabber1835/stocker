@@ -57,6 +57,24 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
 COPY shared/ /shared/
 RUN pip install --no-cache-dir --no-build-isolation --no-deps /shared/
 
+# `ownership.jsonl` lives HERE as retained audit evidence — see
+# docker-compose.sentinel.yml. The canonical ownership authority is the account
+# binding in PostgreSQL, beside the behavioral state it protects. Losing this
+# file cannot re-arm a liquidation: ordinary startup has no legacy-book
+# liquidation path, and only the explicit `migrate-account` operation may enter
+# that administrative state machine. The directory still exists in the image so
+# a configured audit-volume mount has a stable, writable target.
+#
+# Keep this stable runtime-identity layer below mutable application source. A
+# normal Sentinel source-only change can then reuse the base, dependency,
+# shared-package, uid/gid, and state-directory layers unchanged.
+ENV SENTINEL_STATE_DIR=/var/lib/sentinel
+RUN groupadd --system --gid 10001 sentinel \
+    && useradd --system --uid 10001 --gid 10001 \
+         --home-dir /var/lib/sentinel --shell /usr/sbin/nologin sentinel \
+    && mkdir -p /var/lib/sentinel \
+    && chown -R 10001:10001 /var/lib/sentinel
+
 # The Postgres driver. NOT a transitive dependency of `shared/`, which declares
 # only pydantic and pyyaml — every Stocker service installed its own driver, so
 # nothing in `shared/` ever pulled one in and Sentinel inherited that gap.
@@ -107,20 +125,6 @@ RUN rm /app/sentinel/cli/authorized_routes.py \
     && rm "$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"/stock_strategy_shared/broker/alpaca.py \
     && find "$(python -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')"/stock_strategy_shared/broker \
          -type f -path '*/__pycache__/alpaca*.pyc' -delete
-
-# `ownership.jsonl` lives HERE as retained audit evidence — see
-# docker-compose.sentinel.yml. The canonical ownership authority is the account
-# binding in PostgreSQL, beside the behavioral state it protects. Losing this
-# file cannot re-arm a liquidation: ordinary startup has no legacy-book
-# liquidation path, and only the explicit `migrate-account` operation may enter
-# that administrative state machine. The directory still exists in the image so
-# a configured audit-volume mount has a stable, writable target.
-ENV SENTINEL_STATE_DIR=/var/lib/sentinel
-RUN groupadd --system --gid 10001 sentinel \
-    && useradd --system --uid 10001 --gid 10001 \
-         --home-dir /var/lib/sentinel --shell /usr/sbin/nologin sentinel \
-    && mkdir -p /var/lib/sentinel \
-    && chown -R 10001:10001 /var/lib/sentinel
 
 # Financial runtime processes do not require host-root authority. The fixed uid
 # is part of the image and therefore part of the immutable deployment artifact.
