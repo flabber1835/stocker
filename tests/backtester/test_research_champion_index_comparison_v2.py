@@ -20,7 +20,11 @@ class IndexComparisonTests(unittest.TestCase):
     @classmethod
     def setUpClass(cls):
         cls.tmp = tempfile.TemporaryDirectory()
-        cls.source = comparison.corrected.install(comparison.closure.build_source(Path(cls.tmp.name)))
+        # Select the canonical source transform for compile-only assembly.
+        # The dataset is opened only by the later full replay execution.
+        selector = os.environ.get('CANONICAL_PIT_DATASET') or str(Path(cls.tmp.name)/'canonical-pit')
+        with patch.dict(os.environ, {'CANONICAL_PIT_DATASET': selector}):
+            cls.source = comparison.corrected.install(comparison.closure.build_source(Path(cls.tmp.name)))
         cls.trees = {}
         for proxy in ('SPY', 'IWV'):
             for key, params in comparison.PARAMETERS.items():
