@@ -34,8 +34,9 @@ note() { [ "$EXPLAIN" -eq 1 ] && printf '%s\n' "$*" >&2 || true; }
 
 # Successful GO validation atomically writes one non-secret immutable runtime
 # selector. Prefer it over shell/.env state so an old operator export cannot
-# silently resurrect a stale image. This is selection only; feed writers still
-# pass sentinel_feed_gate.py against clean HEAD below on every mutation.
+# silently resurrect a stale image. The selector may be a local immutable image
+# ID from explicit local-full certification or the exact GHCR digest reference
+# from reusable CI certification. Feed writers still bind it to clean HEAD.
 if [ -f "$RUNTIME_POINTER" ]; then
   VALIDATED_RUNTIME_REF="$(
     "$PYTHON" - "$RUNTIME_POINTER" <<'PY'
@@ -51,7 +52,10 @@ prefix='SENTINEL_RUNTIME_IMAGE_REF='
 if not lines[0].startswith(prefix):
     raise SystemExit(2)
 value=lines[0][len(prefix):]
-if re.fullmatch(r'sha256:[0-9a-f]{64}', value) is None:
+local_id = re.fullmatch(r'sha256:[0-9a-f]{64}', value)
+registry_ref = re.fullmatch(
+    r'ghcr\.io/[A-Za-z0-9._/-]+@sha256:[0-9a-f]{64}', value)
+if local_id is None and registry_ref is None:
     raise SystemExit(2)
 print(value)
 PY
@@ -121,11 +125,9 @@ if [ "$RUN" -eq 1 ]; then
   . scripts/sentinel-backup-lib.sh
   sentinel_backup_root >/dev/null
 
-  # A digest makes an image immutable; it does not authorize that image to
-  # mutate the CURRENT checkout's corpus.  Resolve the image exactly as Compose
-  # will, then bind feed writers to clean HEAD before the container or database
-  # is touched.  Dedicated feed variables are never inherited accidentally by
-  # a non-feed command.
+  # An immutable image identity is not authorization to mutate the CURRENT
+  # checkout's corpus. Resolve the image exactly as Compose will, then bind feed
+  # writers to clean HEAD before the container or database is touched.
   unset SENTINEL_FEED_AUTHORIZED SENTINEL_FEED_SERVICE_MODE \
     SENTINEL_FEED_GIT_COMMIT \
     SENTINEL_FEED_RUNTIME_IMAGE_DIGEST
@@ -164,9 +166,6 @@ print(image.strip())')" || exit 2
     export SENTINEL_GIT_COMMIT SENTINEL_RUNTIME_IMAGE_DIGEST
     export SENTINEL_FEED_AUTHORIZED SENTINEL_FEED_GIT_COMMIT
     export SENTINEL_FEED_RUNTIME_IMAGE_DIGEST
-    # Keep the ordinary Compose service free of standing artifact authority.
-    # These five values cross the membrane only on this already-classified,
-    # host-authorized `compose run` invocation.
     RUN_ARGS=(
       run
       --env SENTINEL_GIT_COMMIT
