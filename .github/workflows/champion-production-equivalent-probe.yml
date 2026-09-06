@@ -9,6 +9,7 @@ on:
       - 'backtester/champion_production_equivalent_build.py'
       - 'backtester/production_equivalent_economic_overlay.py'
       - 'backtester/champion_final_security_truth.py'
+      - 'backtester/champion_final_truth_corpus_validator.py'
       - 'backtester/test_production_equivalent_economic_overlay.py'
       - 'research/champion-economic-integrity/PRODUCTION_EQUIVALENT_ECONOMIC_CONTRACT.md'
       - 'research/champion-economic-integrity/security-truth/manual-review/**'
@@ -21,9 +22,9 @@ permissions:
 env:
   PYTHONUNBUFFERED: '1'
   PIT_OFFICIAL_BACKTEST: '0'
-  CERTIFICATION_WARMUP_START: '2006-01-03'
-  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
-  CERTIFICATION_END_SESSION: '2026-07-31'
+  CERTIFICATION_WARMUP_START: 2006-01-03
+  CERTIFICATION_MEASUREMENT_START: 2006-07-31
+  CERTIFICATION_END_SESSION: 2026-07-31
 
 jobs:
   probe:
@@ -122,6 +123,7 @@ jobs:
           cp audit-src/backtester/champion_security_truth_audit_v2.py certified-src/backtester/
           cp audit-src/backtester/champion_security_truth_overlay_v2.py certified-src/backtester/
           cp audit-src/backtester/champion_final_security_truth.py certified-src/backtester/
+          cp audit-src/backtester/champion_final_truth_corpus_validator.py certified-src/backtester/
           cp audit-src/backtester/production_equivalent_economic_overlay.py certified-src/backtester/
           cp audit-src/backtester/champion_production_equivalent_build.py certified-src/backtester/
           cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
@@ -133,14 +135,45 @@ jobs:
           mkdir -p certified-src/research/champion-economic-integrity/security-truth
           cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
 
-      - name: Execute final truth classifier initialization
+      - name: Validate entire final truth corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd certified-src
+          PYTHONPATH="${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" \
+            python backtester/champion_final_truth_corpus_validator.py \
+              --output "${GITHUB_WORKSPACE}/corpus-validation.json"
+          python - <<'PY'
+          import json, pathlib
+          report = json.loads(pathlib.Path('../corpus-validation.json').read_text())
+          assert report['status'] == 'PASS_FINAL_TRUTH_CORPUS_EXECUTABLE', report
+          assert report['issue_count'] == 0, report
+          assert report['final_unresolved_count'] == 0, report
+          assert report['parent_family_counts'] == {'durable': 442, 'leadership': 182, 'ranking': 61}, report
+          assert report['performance_replay_executed'] is False, report
+          print(json.dumps(report, sort_keys=True))
+          PY
+
+      - name: Execute final truth classifier initialization and all interval boundaries
         shell: bash
         run: |
           set -euo pipefail
           cd certified-src
           PYTHONPATH="${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" python - <<'PY'
+          import json
+          from pathlib import Path
           from backtester import champion_final_security_truth as truth
+          from backtester import research_champion_best_effort_classification as base
+          report = json.loads(Path('../corpus-validation.json').read_text())
           assert truth.FINAL_INTERVALS, 'final truth ledger is empty'
+          assert len(truth.FINAL_INTERVALS) == report['final_effective_security_count'], (len(truth.FINAL_INTERVALS), report)
+          estimate = truth.SecurityTypeEstimate(base.DEFAULT_LEDGER, 'reviewed_18')
+          boundary_checks = 0
+          for sid, rows in sorted(truth.FINAL_INTERVALS.items(), key=lambda item: int(item[0])):
+              for row in rows:
+                  assert estimate.peek(sid, row.first) == row.classification, (sid, row, 'first')
+                  assert estimate.peek(sid, row.last) == row.classification, (sid, row, 'last')
+                  boundary_checks += 2
           am = truth.FINAL_INTERVALS['838821611242754318']
           assert [(x.first, x.last, x.classification) for x in am] == [
               ('2017-12-26', '2019-03-12', 'non_common'),
@@ -151,7 +184,7 @@ jobs:
               ('2006-07-05', '2010-06-01', 'non_common'),
               ('2010-06-02', '2015-06-04', 'common'),
           ], pds
-          print(f'PASS final truth classifier initialization: {len(truth.FINAL_INTERVALS)} securities')
+          print(f'PASS final truth classifier initialization: {len(truth.FINAL_INTERVALS)} securities; {boundary_checks} boundary checks')
           PY
 
       - name: Run synthetic/source seam tests
@@ -209,6 +242,7 @@ jobs:
           path: |
             probe-output/
             probe.log
+            corpus-validation.json
             package-integrity.json
           retention-days: 90
           if-no-files-found: warn
