@@ -16,8 +16,7 @@ class InputBindingRefused(ValueError):
 
 def verify_binding(*, root: Path, evidence: Mapping[str, object],
                    expected_commit: str, expected_workflow_run: int,
-                   expected_workflow_attempt: int, ordinary_image_ref: str,
-                   authorized_image_ref: str) -> None:
+                   expected_workflow_attempt: int, image_ref: str) -> None:
     cert._validate_input(evidence)
     if evidence.get("source_commit") != expected_commit:
         raise InputBindingRefused("source commit differs from publication trigger")
@@ -33,22 +32,15 @@ def verify_binding(*, root: Path, evidence: Mapping[str, object],
     if evidence.get("source_tree") != tree:
         raise InputBindingRefused("source tree differs from publication checkout")
 
-    ordinary_id, ordinary_revision = cert._docker_image_identity(
-        root, ordinary_image_ref)
-    authorized_id, authorized_revision = cert._docker_image_identity(
-        root, authorized_image_ref)
-    if ordinary_revision != expected_commit or authorized_revision != expected_commit:
+    image_id, revision = cert._docker_image_identity(root, image_ref)
+    if revision != expected_commit:
         raise InputBindingRefused("loaded runtime revision differs from trigger commit")
-    if evidence.get("ordinary_image_id") != ordinary_id:
-        raise InputBindingRefused("loaded ordinary image ID differs from tested image ID")
-    if evidence.get("authorized_image_id") != authorized_id:
-        raise InputBindingRefused("loaded authorized image ID differs from tested image ID")
-    if ordinary_id == authorized_id:
-        raise InputBindingRefused("ordinary and authorized runtime images are not distinct")
+    if evidence.get("runtime_image_id") != image_id:
+        raise InputBindingRefused("loaded runtime image ID differs from tested image ID")
 
     capability = root / "deploy" / "sentinel-authorized-runtime-v1"
-    if evidence.get("authorized_runtime_capability_sha256") != cert.sha256_file(capability):
-        raise InputBindingRefused("authorized runtime capability hash differs")
+    if evidence.get("runtime_capability_sha256") != cert.sha256_file(capability):
+        raise InputBindingRefused("runtime capability hash differs")
     if evidence.get("dependency_lock_hashes") != cert._dependency_hashes(root):
         raise InputBindingRefused("dependency lock hashes differ from checkout")
     if evidence.get("test_manifest_sha256") != cert._test_manifest_hash(root):
@@ -62,8 +54,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     parser.add_argument("--expected-commit", required=True)
     parser.add_argument("--expected-workflow-run", type=int, required=True)
     parser.add_argument("--expected-workflow-attempt", type=int, required=True)
-    parser.add_argument("--ordinary-image-ref", required=True)
-    parser.add_argument("--authorized-image-ref", required=True)
+    parser.add_argument("--image-ref", required=True)
     args = parser.parse_args(argv)
     try:
         evidence = cert._read_json(args.input, label="software certification input")
@@ -72,8 +63,7 @@ def main(argv: Sequence[str] | None = None) -> int:
             expected_commit=args.expected_commit,
             expected_workflow_run=args.expected_workflow_run,
             expected_workflow_attempt=args.expected_workflow_attempt,
-            ordinary_image_ref=args.ordinary_image_ref,
-            authorized_image_ref=args.authorized_image_ref,
+            image_ref=args.image_ref,
         )
     except (cert.CertificationManifestRefused, InputBindingRefused) as exc:
         print("REFUSED: %s" % exc, file=sys.stderr)
