@@ -56,7 +56,7 @@ def _targeted_leadership_universe(ds,tids,base_elig,et):
     if TARGET_CLASS_ACTION=='drop':
         remove=set(targets); out=[t for t in out if t not in remove]
     elif TARGET_CLASS_ACTION=='add':
-        present={int(t):i for i,t in enumerate(tids)}
+        present={{int(t):i for i,t in enumerate(tids)}}
         for t in targets:
             j=present.get(t)
             if j is not None and bool(base_elig[j]) and t not in _retired_tids and t not in out:
