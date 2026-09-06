@@ -41,8 +41,11 @@ def main():
     if normalized_source_sha != expected_normalized:
         raise RuntimeError(f'normalized generated source identity mismatch: {normalized_source_sha} != {expected_normalized}')
     (out/'production-equivalent-generated.py').write_text(final)
+    os.environ['RESEARCH_REPLAY_MODE']='fullpit'
     module=types.ModuleType('champion_production_equivalent_final'); sys.modules[module.__name__]=module
     exec(compile(final,str(out/'production-equivalent-generated.py'),'exec'),module.__dict__)
+    if getattr(module,'MODE',None) != 'fullpit' or getattr(module,'PIT_MODE',None) is not True:
+        raise RuntimeError(f'generated replay runtime mode is not fullpit: MODE={getattr(module,"MODE",None)!r} PIT_MODE={getattr(module,"PIT_MODE",None)!r}')
     module.run()
     daily=engine/'daily.csv'
     if not daily.exists():
@@ -60,7 +63,7 @@ def main():
             'formal_source_sha':SOURCE['certified'],'candidate_source_sha':cand,'runtime_sha':RUNTIME,
             'profile':PROFILE,'profile_sha256':PROFILE_HASH,'corpus_hash':EXPECTED_CORPUS,
             'measurement_start':'2006-07-31','end_session':'2026-07-31','sessions':len(frame),
-            'capacity_participation_cap':None,'dividend_lag_sessions':1,
+            'replay_mode':'fullpit','capacity_participation_cap':None,'dividend_lag_sessions':1,
             'final_truth_classifier':'champion_final_security_truth','performance_target_used':False,
             'generated_source_sha256':raw_source_sha,
             'generated_source_normalized_ast_sha256':normalized_source_sha,
