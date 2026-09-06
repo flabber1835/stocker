@@ -54,7 +54,7 @@ def test_runtime_preflight_missing_prior_image_is_nonfatal(monkeypatch, capsys):
 
     monkeypatch.setattr(selection, "_inspect", unavailable)
     assert selection.preflight() == 0
-    assert "validation may build a fresh current candidate" in capsys.readouterr().out
+    assert "validation may acquire the current certified runtime" in capsys.readouterr().out
 
 
 def test_runtime_preflight_invalid_selector_configuration_fails_immediately(monkeypatch, capsys):

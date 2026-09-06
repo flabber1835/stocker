@@ -297,6 +297,24 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Assemble reusable software certification input
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sentinel-tested-image
+          python tools/sentinel_ci_certification_manifest.py build-input \
+            --root . \
+            --commit "$TESTED_SHA" \
+            --workflow-run "$GITHUB_RUN_ID" \
+            --workflow-attempt "$GITHUB_RUN_ATTEMPT" \
+            --image-ref sentinel:ci \
+            --sentinel-summary /tmp/sentinel-complete.txt \
+            --operator-summary /tmp/sentinel-scripts.txt \
+            --wealth-summary /tmp/wealth-core-prospective.txt \
+            --adversarial-report /tmp/sentinel-system-evidence/report.json \
+            --mutation-report /tmp/sentinel-mutation-evidence/report.json \
+            --output /tmp/sentinel-tested-image/software-certification-input.json
+
       - name: Export the exact tested OCI runtime for protected publication
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
@@ -309,6 +327,7 @@ jobs:
             > /tmp/sentinel-tested-image/COMMIT
           cd /tmp/sentinel-tested-image
           sha256sum sentinel-runtime.tar COMMIT > SHA256SUMS
+          sha256sum software-certification-input.json >> SHA256SUMS
 
       - name: Retain the exact tested runtime
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'

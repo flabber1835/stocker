@@ -153,20 +153,29 @@ def test_stable_certification_reuse_is_exact_same_boot_and_time_bounded():
     assert "_load_with_ordinary" in entry_text
 
 
-def test_promotion_requires_current_run_go_and_exact_certified_ordinary_image_id():
+def test_promotion_requires_current_run_go_and_exact_certified_runtime_for_each_mode():
     text = (ROOT / "scripts" / "sentinel_go_promote.py").read_text(
         encoding="utf-8")
     run_pass = text.index("_current_run_target_pass(head)")
-    certification = text.index("phase._load_with_ordinary", run_pass)
-    exact = text.index("_certified_ordinary(head)", certification)
-    pointer = text.index("runtime._write_pointer(expected)", exact)
-    verify = text.index("validated runtime pointer verification failed", pointer)
+    select = text.index("selected = (", run_pass)
+    local_full = text.index("_promote_local_full(head=head, runner=runner)", select)
+    ci = text.index("_promote_ci(head=head, runner=runner)", select)
+    verify = text.index("validated runtime pointer verification failed", ci)
     consume = text.index("_consume_run_pass()", verify)
-    assert run_pass < certification < exact < pointer < verify < consume
+    assert run_pass < select < local_full < verify < consume
+    assert run_pass < select < ci < verify < consume
+    assert "phase._load_with_ordinary" in text
+    assert "_certified_local_runtime(head)" in text
+    assert "local-full runtime changed after certification" in text
+    assert "runtime._write_pointer(expected)" in text
+    assert "ci_runtime.load_binding(" in text
+    assert "require_current_run=True" in text
+    assert "verifier.verify_current(" in text
+    assert "promotion-time CI certificate differs from validation binding" in text
+    assert "local CI-certified runtime changed after financial validation" in text
+    assert "runtime._write_pointer(certified_image)" in text
     assert "requested-target GO proof belongs to a different lifecycle invocation" in text
-    assert "ordinary candidate image id changed after certification" in text
     assert "_refresh_origin_main()" in text
-
 
 def test_actual_wall_clock_deadline_requires_reviewed_margin():
     class Base:
@@ -242,7 +251,7 @@ def test_early_paper_account_preflight_is_get_only_and_target_aware():
     assert "probe_alpaca_account" in text
     assert 'target == "SHADOW"' in text
     assert "parse_known_args" in text
-    assert 'scripts/sentinel_go_account_preflight.py "$@"' in launcher
+    assert 'scripts/sentinel_go_account_preflight.py "${FORWARDED_ARGS[@]}"' in launcher
     assert launcher.index("sentinel_go_account_preflight.py") < launcher.index(
         "sentinel_go_verified_entry.py")
 
@@ -260,7 +269,7 @@ def test_runtime_preflight_uses_same_validated_pointer_precedence_as_compose():
     assert "def _pointer_digest" in text
     assert 'values["SENTINEL_RUNTIME_IMAGE_REF"] = pointer' in text
     assert "REFUSED: runtime preflight configuration" in text
-    assert "validation may build a fresh current candidate" in text
+    assert "validation may acquire the current certified runtime" in text
     assert "generic runtime promotion is disabled" in text
 
 
@@ -271,25 +280,30 @@ def test_runtime_promotion_refreshes_origin_main_at_final_boundary():
     assert '["git", "fetch", "--quiet", "origin", "main"]' in text
 
 
-def test_post_validation_recreates_panel_then_publishes_registry_handoff():
+def test_post_validation_recreates_panel_then_publishes_single_runtime_handoff():
     text = (ROOT / "scripts" / "sentinel_go_post_validate.py").read_text(
         encoding="utf-8")
-    assert 'env = phase.controller.go.merged_environment()' in text
+    assert 'env = runtime._merged_environment()' in text
     assert '"scripts/sentinel-compose.sh", "--run"' in text
     assert '"--force-recreate", "sentinel-panel"' in text
     assert '"ps", "-q", "sentinel-panel"' in text
     assert '"docker", "container", "inspect", "--format", "{{.Image}}"' in text
     assert "observed != expected_image_id" in text
-    assert '"schema": "sentinel.validated-artifact-handoff/2"' in text
-    assert '"output_identity_domain": "REGISTRY_REPODIGEST"' in text
-    assert '"authorized_compose_requires_repo_digest": True' in text
-    assert "Local Docker image IDs are *not* authorized-service RepoDigests" in text
-    assert "no automatic image deletion" in text
-    assert 'docker", "image", "rm"' not in text
+    assert '"schema": "sentinel.validated-artifact-handoff/3"' in text
+    assert '"mode": "CI_CERTIFIED_RUNTIME"' in text
+    assert '"mode": "LOCAL_FULL_CERTIFICATION"' in text
+    assert '"runtime_registry_ref": certified_ref' in text
+    assert '"runtime_local_image_id": local_id' in text
+    assert '"test_lens_local_image_id": test_id' in text
+    assert '"registry_promotion_required": False' in text
+    assert '"broker_authority_granted": False' in text
+    assert "ci_runtime.load_binding(" in text
     assert "phase._load_with_ordinary" in text
-    assert text.index("recreate_panel(env, expected_image_id=ordinary)") < text.index(
-        "atomic_json(OUT, handoff)")
-
+    assert 'docker", "image", "rm"' not in text
+    choose = text.index("expected_image_id, handoff = (")
+    recreate = text.index("recreate_panel(env, expected_image_id=expected_image_id)", choose)
+    publish = text.index("atomic_json(OUT, handoff)", recreate)
+    assert choose < recreate < publish
 
 def test_autonomous_deploy_promotes_exact_reviewed_local_ids_to_repo_digests():
     text = (ROOT / "scripts" / "sentinel_autonomous_deploy.py").read_text(
