@@ -10,14 +10,17 @@ from tools import sentinel_ci_certification_manifest as cert
 
 COMMIT = "a" * 40
 TREE = "b" * 40
-IMAGE_ID = "sha256:" + "c" * 64
+ORDINARY_ID = "sha256:" + "c" * 64
+AUTHORIZED_ID = "sha256:" + "d" * 64
+
+
+def _suite(passed=1):
+    row = {key: 0 for key in cert._COUNT_KEYS}
+    row["passed"] = passed
+    return row
 
 
 def _evidence():
-    total = {key: 0 for key in cert._COUNT_KEYS}
-    total["passed"] = 3
-    suite = {key: 0 for key in cert._COUNT_KEYS}
-    suite["passed"] = 1
     return {
         "schema": cert.INPUT_SCHEMA,
         "repository": cert.REPOSITORY,
@@ -26,7 +29,8 @@ def _evidence():
         "test_workflow_path": cert.TEST_WORKFLOW_PATH,
         "test_workflow_run": 101,
         "test_workflow_attempt": 2,
-        "authorized_image_id": IMAGE_ID,
+        "ordinary_image_id": ORDINARY_ID,
+        "authorized_image_id": AUTHORIZED_ID,
         "authorized_runtime_capability_sha256": "1" * 64,
         "dependency_lock_hashes": {
             "sentinel/requirements.lock": "2" * 64,
@@ -36,11 +40,11 @@ def _evidence():
         "test_counts": {
             "suites_completed": 3,
             "suite_counts": {
-                "operator_scripts": dict(suite),
-                "sentinel": dict(suite),
-                "wealth_core_boundary": dict(suite),
+                "operator_scripts": _suite(),
+                "sentinel": _suite(),
+                "wealth_core_boundary": _suite(),
             },
-            "total": total,
+            "total": _suite(3),
         },
         "adversarial_evidence": {"status": "PASS", "sha256": "5" * 64},
         "mutation_evidence": {"status": "PASS", "sha256": "6" * 64},
@@ -64,9 +68,15 @@ def _patch_observations(monkeypatch, root: Path):
             return TREE + "\n"
         raise AssertionError(argv)
 
+    def image_identity(_root, ref):
+        if ref == "sentinel:latest":
+            return ORDINARY_ID, COMMIT
+        if ref == "sentinel-authorized:ci":
+            return AUTHORIZED_ID, COMMIT
+        raise AssertionError(ref)
+
     monkeypatch.setattr(cert, "_run", run)
-    monkeypatch.setattr(
-        cert, "_docker_image_identity", lambda _root, _ref: (IMAGE_ID, COMMIT))
+    monkeypatch.setattr(cert, "_docker_image_identity", image_identity)
     monkeypatch.setattr(
         cert, "_dependency_hashes", lambda _root: evidence["dependency_lock_hashes"])
     monkeypatch.setattr(
@@ -74,16 +84,21 @@ def _patch_observations(monkeypatch, root: Path):
     return evidence
 
 
-def test_binding_reobserves_exact_trigger_checkout_and_image(monkeypatch, tmp_path):
-    evidence = _patch_observations(monkeypatch, tmp_path)
+def _verify(root, evidence):
     binding.verify_binding(
-        root=tmp_path,
+        root=root,
         evidence=evidence,
         expected_commit=COMMIT,
         expected_workflow_run=101,
         expected_workflow_attempt=2,
-        image_ref="sentinel-authorized:ci",
+        ordinary_image_ref="sentinel:latest",
+        authorized_image_ref="sentinel-authorized:ci",
     )
+
+
+def test_binding_reobserves_exact_trigger_checkout_and_both_images(monkeypatch, tmp_path):
+    evidence = _patch_observations(monkeypatch, tmp_path)
+    _verify(tmp_path, evidence)
 
 
 @pytest.mark.parametrize(
@@ -93,7 +108,8 @@ def test_binding_reobserves_exact_trigger_checkout_and_image(monkeypatch, tmp_pa
         ("source_tree", "f" * 40, "source tree"),
         ("test_workflow_run", 999, "workflow run"),
         ("test_workflow_attempt", 999, "workflow attempt"),
-        ("authorized_image_id", "sha256:" + "f" * 64, "image ID"),
+        ("ordinary_image_id", "sha256:" + "e" * 64, "ordinary image ID"),
+        ("authorized_image_id", "sha256:" + "e" * 64, "authorized image ID"),
         ("test_manifest_sha256", "f" * 64, "test manifest"),
     ],
 )
@@ -102,11 +118,4 @@ def test_binding_refuses_substituted_authority(
     evidence = _patch_observations(monkeypatch, tmp_path)
     evidence[field] = value
     with pytest.raises(binding.InputBindingRefused, match=match):
-        binding.verify_binding(
-            root=tmp_path,
-            evidence=evidence,
-            expected_commit=COMMIT,
-            expected_workflow_run=101,
-            expected_workflow_attempt=2,
-            image_ref="sentinel-authorized:ci",
-        )
+        _verify(tmp_path, evidence)
