@@ -1,0 +1,289 @@
+{
+  "schema": "champion.security-truth-leadership-shard/1",
+  "date": "2026-09-06",
+  "branch": "research/champion-security-truth-leadership-03",
+  "parent_branch": "research/champion-security-truth-held-pending-integration",
+  "parent_head": "5b9d9ea2e378044f49d217fe311b36b45c73124c",
+  "contract": "research/champion-economic-integrity/PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md",
+  "queue": "research/champion-economic-integrity/security-truth/audit-v2/34051269919-1/replay/controlled/fresh-path-open-review-queue.csv",
+  "assignment_rule": {
+    "filter": "priority == P2_LEADERSHIP",
+    "sort": [
+      "security_id as integer ascending",
+      "ticker ascending"
+    ],
+    "index": "zero-based i",
+    "shard": "i % 4 == 3"
+  },
+  "assignment": [
+    {
+      "i": 3,
+      "security_id": "19171570310576852",
+      "ticker": "AIXI"
+    },
+    {
+      "i": 7,
+      "security_id": "37126731242075325",
+      "ticker": "AVRNQ"
+    },
+    {
+      "i": 11,
+      "security_id": "77093398988040216",
+      "ticker": "DCTH1"
+    },
+    {
+      "i": 15,
+      "security_id": "98113004194710344",
+      "ticker": "AZIO"
+    },
+    {
+      "i": 19,
+      "security_id": "118276235806064595",
+      "ticker": "YTENQ"
+    },
+    {
+      "i": 23,
+      "security_id": "149263833712904800",
+      "ticker": "YARW"
+    },
+    {
+      "i": 27,
+      "security_id": "186829690156569447",
+      "ticker": "LILAK"
+    },
+    {
+      "i": 31,
+      "security_id": "206471017241236767",
+      "ticker": "KEP"
+    },
+    {
+      "i": 35,
+      "security_id": "220734612160088067",
+      "ticker": "CELL1"
+    },
+    {
+      "i": 39,
+      "security_id": "236546464536198449",
+      "ticker": "NXTS"
+    },
+    {
+      "i": 43,
+      "security_id": "252845012432277861",
+      "ticker": "CNXT1"
+    },
+    {
+      "i": 47,
+      "security_id": "274139514090907649",
+      "ticker": "AMRQQ"
+    },
+    {
+      "i": 51,
+      "security_id": "294778658200477598",
+      "ticker": "HTGMQ"
+    },
+    {
+      "i": 55,
+      "security_id": "305337131758957050",
+      "ticker": "CLEUF"
+    },
+    {
+      "i": 59,
+      "security_id": "325878757705228859",
+      "ticker": "PVR"
+    },
+    {
+      "i": 63,
+      "security_id": "362261833004262772",
+      "ticker": "DCFCQ"
+    },
+    {
+      "i": 67,
+      "security_id": "382386310369528965",
+      "ticker": "PGHEF"
+    },
+    {
+      "i": 71,
+      "security_id": "399503091839684501",
+      "ticker": "CLVV"
+    },
+    {
+      "i": 75,
+      "security_id": "443180275527087349",
+      "ticker": "LYTHF"
+    },
+    {
+      "i": 79,
+      "security_id": "452362097446375195",
+      "ticker": "NEPTF"
+    },
+    {
+      "i": 83,
+      "security_id": "485656366014433376",
+      "ticker": "BNAUF"
+    },
+    {
+      "i": 87,
+      "security_id": "499861007084541401",
+      "ticker": "PKY1"
+    },
+    {
+      "i": 91,
+      "security_id": "530891458353402071",
+      "ticker": "POWR1"
+    },
+    {
+      "i": 95,
+      "security_id": "571519096724645956",
+      "ticker": "FLZH"
+    },
+    {
+      "i": 99,
+      "security_id": "614776420452243153",
+      "ticker": "POLCQ"
+    },
+    {
+      "i": 103,
+      "security_id": "635394468253321768",
+      "ticker": "HSTOQ"
+    },
+    {
+      "i": 107,
+      "security_id": "655042485769504923",
+      "ticker": "IHG"
+    },
+    {
+      "i": 111,
+      "security_id": "689727845103726360",
+      "ticker": "SWIM2"
+    },
+    {
+      "i": 115,
+      "security_id": "720871431798233668",
+      "ticker": "ELPW"
+    },
+    {
+      "i": 119,
+      "security_id": "734887237835298547",
+      "ticker": "CRXTQ"
+    },
+    {
+      "i": 123,
+      "security_id": "763380806255680719",
+      "ticker": "EHGO"
+    },
+    {
+      "i": 127,
+      "security_id": "788329371011546536",
+      "ticker": "LDTCF"
+    },
+    {
+      "i": 131,
+      "security_id": "848299751353307244",
+      "ticker": "ANDX"
+    },
+    {
+      "i": 135,
+      "security_id": "863716372703836147",
+      "ticker": "ACCL1"
+    },
+    {
+      "i": 139,
+      "security_id": "886320167037977181",
+      "ticker": "TRAD1"
+    },
+    {
+      "i": 143,
+      "security_id": "893630170304035278",
+      "ticker": "NVCN"
+    },
+    {
+      "i": 147,
+      "security_id": "908851427120196539",
+      "ticker": "STSA1"
+    },
+    {
+      "i": 151,
+      "security_id": "947414223549154285",
+      "ticker": "LICYF"
+    },
+    {
+      "i": 155,
+      "security_id": "969988484821570387",
+      "ticker": "DEVSF"
+    },
+    {
+      "i": 159,
+      "security_id": "988513118366020851",
+      "ticker": "JENGQ"
+    },
+    {
+      "i": 163,
+      "security_id": "1015574315917695704",
+      "ticker": "UTZ"
+    },
+    {
+      "i": 167,
+      "security_id": "1038021986675702539",
+      "ticker": "AHI"
+    },
+    {
+      "i": 171,
+      "security_id": "1061499087872300231",
+      "ticker": "AMH1"
+    },
+    {
+      "i": 175,
+      "security_id": "1090125896214153913",
+      "ticker": "ELBM"
+    },
+    {
+      "i": 179,
+      "security_id": "1119921188223994749",
+      "ticker": "CHGA"
+    }
+  ],
+  "outcome_information_used": false,
+  "summary": {
+    "assigned_count": 45,
+    "common": 42,
+    "non_common": 3,
+    "unresolved": 0,
+    "corrections_from_queue_candidate_common": 3,
+    "genuine_interval_splits": 0
+  },
+  "corrections": [
+    {
+      "security_id": "325878757705228859",
+      "ticker": "PVR",
+      "previous_classification": "common",
+      "classification": "non_common",
+      "legal_security_type": "LIMITED_PARTNERSHIP_COMMON_UNITS"
+    },
+    {
+      "security_id": "382386310369528965",
+      "ticker": "PGHEF",
+      "previous_classification": "common",
+      "classification": "non_common",
+      "legal_security_type": "INCOME_TRUST_UNITS"
+    },
+    {
+      "security_id": "848299751353307244",
+      "ticker": "ANDX",
+      "previous_classification": "common",
+      "classification": "non_common",
+      "legal_security_type": "LIMITED_PARTNERSHIP_COMMON_UNITS"
+    }
+  ],
+  "unresolved": [],
+  "cases": [],
+  "validation": {
+    "assignment_count": 45,
+    "case_count": 45,
+    "extra_security_ids": [],
+    "missing_security_ids": [],
+    "all_assignment_indices_mod_4_equal_3": true,
+    "all_cases_outcome_information_used_false": true,
+    "all_resolved_cases_have_evidence_urls": true,
+    "replay_run": false
+  }
+}
