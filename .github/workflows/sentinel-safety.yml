@@ -1,11 +1,6 @@
 name: Sentinel safety
 
 on:
-  # Exact feature-branch head gate. GitHub/App-authored Contents API updates do
-  # not reliably produce a pull_request synchronize workflow run, so relying on
-  # that event alone can leave the reviewed head with only stale CI evidence.
-  # The pull_request gate below remains authoritative for synthetic-merge
-  # integration with main; this push gate proves the exact branch head too.
   push:
     branches:
       - main
@@ -14,9 +9,6 @@ on:
       - 'stabilization/**'
   pull_request:
     branches: [main]
-  # GitHub Enterprise Cloud organization/enterprise ruleset workflows accept
-  # pull_request and merge_group. The ruleset binds this exact source path;
-  # named check contexts alone are never merge authority.
   merge_group:
   workflow_dispatch:
 
@@ -91,26 +83,25 @@ jobs:
           fi
           echo "TESTED_SHA=$TESTED_SHA" >> "$GITHUB_ENV"
 
-      - name: Build the pinned Sentinel runtime and test images
+      - name: Build the single pinned Sentinel runtime and CI test lens
         run: |
+          set -euo pipefail
           docker build \
             --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
-            -f Dockerfile.sentinel -t sentinel:latest .
+            -f Dockerfile.sentinel \
+            -t sentinel:ci -t sentinel:latest .
           docker build \
-            --build-arg SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest \
-            --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
-            -f Dockerfile.sentinel-authorized \
-            -t sentinel-authorized:ci .
-          docker build \
-            --build-arg SENTINEL_IMAGE=sentinel-authorized:ci \
+            --build-arg SENTINEL_IMAGE=sentinel:ci \
             --build-arg SOURCE_GIT_SHA="${TESTED_SHA}" \
             -f Dockerfile.sentinel-test -t sentinel-test:ci .
+          test "$(docker image inspect sentinel:ci --format '{{.Id}}')" = \
+               "$(docker image inspect sentinel:latest --format '{{.Id}}')"
 
       - name: Exercise the production non-root runtime boundary
         shell: bash
         run: |
           set -euo pipefail
-          bash scripts/test-pr301-runtime-boundaries.sh sentinel-authorized:ci
+          bash scripts/test-pr301-runtime-boundaries.sh sentinel:ci
 
       - name: Falsify exact-XID PostgreSQL physical recovery
         shell: bash
@@ -128,11 +119,10 @@ jobs:
             | sha256sum | awk '{print $1}')"
           test_manifest_hash="$(git ls-files -z tests \
             | sort -z | xargs -0 sha256sum | sha256sum | awk '{print $1}')"
-          runtime_digest="$(docker image inspect sentinel-authorized:ci \
+          runtime_digest="$(docker image inspect sentinel:ci \
             --format '{{index .RepoDigests 0}}' 2>/dev/null || true)"
           if [ -z "$runtime_digest" ] || [ "$runtime_digest" = '<no value>' ]; then
-            runtime_digest="$(docker image inspect sentinel-authorized:ci \
-              --format '{{.Id}}')"
+            runtime_digest="$(docker image inspect sentinel:ci --format '{{.Id}}')"
           fi
           {
             echo '### Exact-SHA safety evidence'
@@ -141,7 +131,7 @@ jobs:
             printf -- '- source tree: `%s`\n' "$tree_hash"
             printf -- '- workflow run: `%s`\n' "$GITHUB_RUN_ID"
             printf -- '- dependency locks: `%s`\n' "$dependency_lock_hash"
-            printf -- '- authorized image: `%s`\n' "$runtime_digest"
+            printf -- '- runtime image: `%s`\n' "$runtime_digest"
             printf -- '- test manifest: `%s`\n' "$test_manifest_hash"
             echo '- schema epoch: `sentinel.behavioral_schema/current`'
             echo '- semantic epoch: `sentinel.automation_cycle/1`'
@@ -307,20 +297,20 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
-      - name: Export the exact tested OCI image for protected publication
+      - name: Export the exact tested OCI runtime for protected publication
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
           mkdir -p /tmp/sentinel-tested-image
-          docker save sentinel-authorized:ci \
-            > /tmp/sentinel-tested-image/sentinel-authorized.tar
+          docker save sentinel:ci \
+            > /tmp/sentinel-tested-image/sentinel-runtime.tar
           printf '%s\n' "$TESTED_SHA" \
             > /tmp/sentinel-tested-image/COMMIT
           cd /tmp/sentinel-tested-image
-          sha256sum sentinel-authorized.tar COMMIT > SHA256SUMS
+          sha256sum sentinel-runtime.tar COMMIT > SHA256SUMS
 
-      - name: Retain the exact tested image
+      - name: Retain the exact tested runtime
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
