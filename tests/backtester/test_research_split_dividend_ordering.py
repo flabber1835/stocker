@@ -9,20 +9,27 @@ from backtester.research_terminal_grace_overlay import _move_prior_qty_after_spl
 
 class ResearchSplitDividendOrderingTest(unittest.TestCase):
     def test_prior_close_entitlement_is_captured_after_split_before_open_trades(self) -> None:
-        # Terminal grace and the split/dividend repair are now part of the
-        # canonical 20-year transform. Applying the overlay a second time would
-        # correctly fail because its source seams have already been consumed.
+        # Terminal grace and the split/dividend repair are part of the canonical
+        # 20-year transform.  Under canonical replay the authenticated split
+        # vector replaces the raw factor-detection tail, so accept either exact
+        # split-domain witness and require identical entitlement ordering.
         text = base.corrected.transformed_source(
             "fullpit", Path("/tmp/research-split-dividend-ordering-selftest")
         )
-        split_tail = "if finite(factor) and factor>0: last_factor[tid]=factor"
+        raw_split_tail = "if finite(factor) and factor>0: last_factor[tid]=factor"
+        canonical_split = "for tid0,ratio0 in zip(tids,canonicalsplit[tids]):"
         entitlement = "prior_qty={s.tid:s.qty for s in book.slots if s.held()}"
         dayact = "dayact=actions.get(date,{})"
         exits = "for s in book.slots:\n                if not(s.held() and s.pending_sell): continue"
         buys = "for s in book.slots:\n                if not(s.reserved() and not s.held()): continue"
 
         self.assertIn("terminal_pending", text)
-        self.assertLess(text.index(split_tail), text.index(entitlement))
+        if raw_split_tail in text:
+            split_witness = raw_split_tail
+        else:
+            self.assertIn(canonical_split, text)
+            split_witness = canonical_split
+        self.assertLess(text.index(split_witness), text.index(entitlement))
         self.assertLess(text.index(entitlement), text.index(dayact))
         self.assertLess(text.index(entitlement), text.index(exits))
         self.assertLess(text.index(entitlement), text.index(buys))
