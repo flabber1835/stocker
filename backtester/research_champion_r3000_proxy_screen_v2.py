@@ -42,7 +42,7 @@ def load_iwv(path: Path) -> pd.DataFrame:
     raw = pd.read_csv(path)
     names = {str(c).strip().upper(): c for c in raw.columns}
     dc = names.get("DATE")
-    cc = names.get("CLOSE")
+    cc = names.get("CLOSE") or names.get("IWV_CLOSE")
     if dc is None or cc is None:
         raise RuntimeError(f"unsupported IWV columns {list(raw.columns)}")
     d = raw[[dc, cc]].copy()
@@ -63,8 +63,6 @@ def enrich_iwv(baseline: pd.DataFrame, iwv: pd.DataFrame) -> pd.DataFrame:
     if d.iloc[0].date != MEASUREMENT_START or d.iloc[-1].date != MEASUREMENT_END:
         raise RuntimeError("baseline measurement window changed")
 
-    # Compute IWV features on the longer source history before joining the
-    # measurement window so early-window lookbacks remain genuinely trailing.
     m = iwv.copy().set_index("date")
     px = m.iwv_close.astype(float)
     ret = px.pct_change()
@@ -76,18 +74,13 @@ def enrich_iwv(baseline: pd.DataFrame, iwv: pd.DataFrame) -> pd.DataFrame:
     m["iwv_vol_ratio"] = m.iwv_rv20 / m.iwv_rv40
 
     d = d.join(m[["iwv_close", "iwv_r20", "iwv_r40", "iwv_dd", "iwv_rv20", "iwv_rv40", "iwv_vol_ratio"]], on="date")
-    missing = int(d.iwv_close.isna().sum())
-    if missing:
-        # Only tolerate isolated market-calendar mismatches; no long fill.
+    if int(d.iwv_close.isna().sum()):
         d["iwv_close"] = d.iwv_close.ffill(limit=1)
         for c in ["iwv_r20", "iwv_r40", "iwv_dd", "iwv_rv20", "iwv_rv40", "iwv_vol_ratio"]:
             d[c] = d[c].ffill(limit=1)
     if d.iwv_close.isna().any():
         raise RuntimeError("unresolved IWV dates in baseline window")
 
-    # Map broad-index observations into the already-reviewed V2 slots. This is
-    # the only experimental substitution; state mechanics/threshold semantics
-    # are unchanged.
     d["spy_r20"] = d.iwv_r20
     d["spy_r40"] = d.iwv_r40
     d["spy_dd"] = d.iwv_dd
