@@ -886,18 +886,13 @@ def probe_certified_suite(runner: CommandRunner, *, commit: Optional[str],
             {"reason": "GIT_COMMIT_UNAVAILABLE"})
 
     runtime_ref = "sentinel-go-runtime:%s" % commit
-    authorized_ref = "sentinel-go-authorized:%s" % commit
     test_ref = "sentinel-go-test:%s" % commit
     commands = (
         ["docker", "build", "--network", "host", "--build-arg",
          "SOURCE_GIT_SHA=" + commit, "-t", runtime_ref,
          "-f", "Dockerfile.sentinel", "."],
         ["docker", "build", "--network", "host", "--build-arg",
-         "SENTINEL_RUNTIME_BASE_IMAGE=" + runtime_ref, "--build-arg",
-         "SOURCE_GIT_SHA=" + commit, "-t", authorized_ref,
-         "-f", "Dockerfile.sentinel-authorized", "."],
-        ["docker", "build", "--network", "host", "--build-arg",
-         "SENTINEL_IMAGE=" + authorized_ref, "--build-arg",
+         "SENTINEL_IMAGE=" + runtime_ref, "--build-arg",
          "SOURCE_GIT_SHA=" + commit, "-t", test_ref,
          "-f", "Dockerfile.sentinel-test", "."],
     )
@@ -908,7 +903,7 @@ def probe_certified_suite(runner: CommandRunner, *, commit: Optional[str],
                 "certified_suite_no_skips", FAIL, now_text,
                 {"reason": "CANDIDATE_IMAGE_BUILD_FAILED"})
 
-    runtime_digest = _inspect_image_id(runner, authorized_ref)
+    runtime_digest = _inspect_image_id(runner, runtime_ref)
     candidate_digest = _inspect_image_id(runner, test_ref)
     if not all((runtime_digest, candidate_digest)):
         summary = TestSummary(
@@ -1831,7 +1826,7 @@ def run_production_probes(*, runner: Optional[CommandRunner] = None,
         candidate_image_digest=tests.candidate_image_digest,
         now_text=now_text, subject_values=subjects,
         timing_values=timing_values)
-    # Readiness is executed by the exact deployable authorized runtime digest
+    # Readiness is executed by the exact deployable runtime digest
     # recorded in TestSummary, never by a mutable tag or build-stage image.
     readiness = probe_sharadar_readiness(
         runner, env=resolved_env, runtime_ref=tests.runtime_image_digest,
