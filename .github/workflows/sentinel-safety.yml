@@ -308,7 +308,6 @@ jobs:
           retention-days: 30
 
       - name: Assemble reusable software certification input
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
         run: |
           set -euo pipefail
