@@ -90,6 +90,20 @@ class IndexComparisonTests(unittest.TestCase):
                 self.assertEqual(exact.episode, proxy.episode)
                 self.assertEqual(exact.latched, proxy.latched)
 
+    def test_recovery_routes_and_concordance_counter(self):
+        for route, vol, market_return, expected in [
+            ('persistence', .10, .03, 'FULL_RISK_CERTIFIED_PERSISTENCE'),
+            ('concordance', .21, .03, 'FULL_RISK_CERTIFIED_CROSS_SURFACE'),
+            ('rebound', .30, .12, 'FULL_RISK_CERTIFIED_SPY_V_REBOUND'),
+        ]:
+            ca = self.candidate('iwv-center')
+            for i in range(8):
+                target, reason = ca.step(.55 if i < 7 else 1., .55, -.05, market_return, .04, -.03,
+                                         vol, .90, 20., -.01, 0., .5, .02)
+            self.assertEqual(target, 1., route)
+            self.assertIn(expected, reason, route)
+            self.assertEqual(ca.concordance_releases, 1 if route == 'concordance' else 0)
+
     def test_summary_attributes_exist_and_serialize(self):
         for key in comparison.PARAMETERS:
             ca = self.candidate(key)
@@ -131,7 +145,8 @@ class IndexComparisonTests(unittest.TestCase):
         comparison.validate_frozen_path(daily, daily.copy())
         for col in ['native_close_target', 'research_ranking_sha256', 'research_wealth_core_equity', 'spy_nav']:
             changed = daily.copy()
-            changed.loc[2, col] = 'mutation' if changed[col].dtype == object else float(changed.loc[2, col])+1.
+            value = changed.loc[2, col]
+            changed.loc[2, col] = 'mutation' if isinstance(value, str) else float(value)+1.
             with self.assertRaises(RuntimeError, msg=col):
                 comparison.validate_frozen_path(changed, daily)
 
