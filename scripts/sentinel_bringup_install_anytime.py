@@ -1,14 +1,9 @@
 #!/usr/bin/env python3
 """Wall-clock-independent control overlay for non-authoritative bring-up.
 
-Sharadar source-final timing determines only the newest causally usable market
-session. It is not an installation authority. The underlying 24x7 preparation
-already catches up through the newest source-final predecessor, so a DEFERRED
-read-only source result is safe to continue through build/recovery/certification
-bring-up. The raw source status remains visible in operator output.
-
-This module creates no deployment authority. The final supported GO lifecycle is
-still required before promotion or any broker-capable deployment.
+Bring-up now performs only lightweight read-only liveness. A source-final wait is
+therefore diagnostic context, not installation authority. Full source observation,
+recovery, and certification remain exclusively in GO.
 """
 from __future__ import annotations
 
@@ -20,30 +15,31 @@ import sentinel_bringup as base
 
 def source_decision(report: Mapping[str, object]) -> base.SourceDecision:
     status = str(report.get("status") or "")
-    reason = str(report.get("reason_code") or "READONLY_PREFLIGHT_UNAVAILABLE")
+    reason = str(report.get("reason_code") or "BRINGUP_LIVENESS_UNAVAILABLE")
     if status in {"PASS", "RECOVERY_REQUIRED"}:
         return base.SourceDecision(True, status, reason)
     if status == "DEFERRED":
-        # Workflow-control normalization only. The public/operator-facing source
-        # report remains DEFERRED via _print_source_report below. Treating it as
-        # PASS here prevents wall-clock state from blocking software installation
-        # or bounded catch-up to the newest already-source-final predecessor.
+        # Workflow-control normalization only. The raw DEFERRED status remains
+        # visible to the operator, while GO later applies the authoritative
+        # source-final rule at its actual source/preparation boundary.
         return base.SourceDecision(True, "PASS", reason)
     if status == "REFUSED":
         return base.SourceDecision(False, status, reason)
-    raise base.BringupRefused(
-        "read-only Sharadar preflight returned an unknown state")
+    raise base.BringupRefused("source liveness probe returned an unknown state")
 
 
 def _print_source_report(report: Mapping[str, object], *, prefix: str) -> None:
     raw_status = str(report.get("status") or "")
-    reason = str(report.get("reason_code") or "READONLY_PREFLIGHT_UNAVAILABLE")
-    detail = base.readonly._safe_detail(report.get("detail"))
+    reason = str(report.get("reason_code") or "BRINGUP_LIVENESS_UNAVAILABLE")
+    detail = base.liveness.safe_detail(report.get("detail"))
     text = "%s: %s - %s" % (prefix, raw_status, reason)
     if detail:
         text += " - " + detail
     if report.get("detail_sha256"):
         text += " [detail_sha256=%s]" % str(report["detail_sha256"])
+    followup = report.get("local_followup")
+    if isinstance(followup, list) and followup:
+        text += " [local_followup=%s]" % ",".join(str(item) for item in followup)
     print(text, flush=True)
 
 
