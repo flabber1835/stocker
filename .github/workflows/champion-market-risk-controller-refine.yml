@@ -1,0 +1,78 @@
+name: Research Champion - refined market-risk controller plateaus
+run-name: RESEARCH NOT CERTIFIED - market-risk refinement - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/champion-market-risk-controller-robustness]
+    paths:
+      - '.github/workflows/champion-market-risk-controller-refine.yml'
+      - 'backtester/research_champion_market_risk_refine.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  actions: read
+
+jobs:
+  refine:
+    name: RESEARCH NOT CERTIFIED - refine stable independent controller regions
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: '1'
+      BASELINE_RUN_ID: '34007704385'
+      BASELINE_ARTIFACT: 'champion-corrected-classification-34007704385-1'
+      BASELINE_DAILY_SHA256: 'fbc8a18d2e6f01bbc5154fe359990633bbe93e28b4dbeba57da0be149f4811a8'
+      COARSE_RUN_ID: '34010233044'
+      COARSE_ARTIFACT: 'champion-market-risk-screen-34010233044-1'
+      VIX_CUTOFF_SHA256: '9bf13a7d758cd0727e3fb68d50a32715d6201ed7f0cd220841ecfe2a4901ee4b'
+      OUT: 'market-risk-controller/refined-screen'
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/research_champion_market_risk_screen.py
+            /backtester/research_champion_market_risk_refine.py
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Install analysis dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.3.2' 'pandas==2.3.2'
+      - name: Fetch pinned baseline and Cboe VIX cutoff witness
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/baseline /tmp/coarse
+          gh run download "${BASELINE_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name "${BASELINE_ARTIFACT}" --dir /tmp/baseline
+          gh run download "${COARSE_RUN_ID}" --repo "${GITHUB_REPOSITORY}" --name "${COARSE_ARTIFACT}" --dir /tmp/coarse
+          test "$(sha256sum /tmp/baseline/daily.csv.gz | cut -d' ' -f1)" = "${BASELINE_DAILY_SHA256}"
+          VIX=/tmp/coarse/vix-cboe-cutoff-through-2026-07-31.csv
+          test -f "${VIX}"
+          test "$(sha256sum "${VIX}" | cut -d' ' -f1)" = "${VIX_CUTOFF_SHA256}"
+      - name: Refine stable plateau regions
+        run: |
+          set -euo pipefail
+          mkdir -p "${OUT}"
+          python backtester/research_champion_market_risk_refine.py \
+            --baseline-daily /tmp/baseline/daily.csv.gz \
+            --vix-cutoff /tmp/coarse/vix-cboe-cutoff-through-2026-07-31.csv \
+            --output "${OUT}" | tee "${OUT}/refine.log"
+          cat "${OUT}/refined-family-summary.csv"
+          echo '--- FULL-REPLAY SHORTLIST ---'
+          cat "${OUT}/full-replay-shortlist.csv"
+      - name: Upload refined research evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-market-risk-refine-${{ github.run_id }}-${{ github.run_attempt }}
+          path: market-risk-controller/refined-screen/
+          retention-days: 90
+          if-no-files-found: error
