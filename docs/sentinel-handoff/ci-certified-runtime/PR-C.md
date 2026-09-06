@@ -4,7 +4,7 @@
 
 Normal production GO reuses the exact immutable Sentinel runtime already certified and published by GitHub CI for the current clean `main` commit. It does not rebuild the deployable runtime or rerun the full deterministic software suite on the NAS.
 
-There is exactly one deployable Sentinel image. It contains broker-capable code. A CI-only test lens exists only for software certification and for the explicit local-full fallback mode; normal GO never deploys or requires that lens.
+There is exactly one deployable Sentinel image. It contains broker-capable code. A CI-only test lens exists only for software certification and for the explicit local-full mode; normal GO never deploys or requires that lens.
 
 ## Default production flow
 
@@ -27,7 +27,7 @@ There is exactly one deployable Sentinel image. It contains broker-capable code.
 
 Normal GO refuses on missing or wrong certification evidence, source SHA/tree mismatch, unsupported schema, failed required CI jobs, manifest/provenance/attestation tampering, missing immutable digest, wrong local `RepoDigest`, source-revision mismatch, image-pull failure, incompatible runtime identity, GO-invocation/host-boot binding mismatch, current-HEAD race, or promotion-time certificate drift.
 
-No automatic fallback from failed CI certification to local-full certification exists. Local-full requires the explicit command-line flag.
+There is no implicit switch from failed CI certification to local-full certification. Local-full requires the explicit command-line flag.
 
 ## Scope guard
 
