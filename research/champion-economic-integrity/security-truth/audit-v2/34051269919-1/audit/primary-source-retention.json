@@ -1,0 +1,197 @@
+[
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "20fe479df61b3a747c18c063e339287e61a66c1c21d1896a8adf860523603713",
+    "raw_size_bytes": 1090655,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "gol_2006",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/gol_2006.html.gz",
+    "stored_sha256": "7d59666838c2664ade0102d1ae66b07224b8ce76680d5271511f165ef01fcc83",
+    "url": "https://www.sec.gov/Archives/edgar/data/1291733/000129281407000433/gol_form20f2006.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "0dcd0e08b733b6e685fa96bc76ca0f2c3aa3e0d1008aa6a248db2d1136e8d141",
+    "raw_size_bytes": 4997975,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "gol_2022",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/gol_2022.html.gz",
+    "stored_sha256": "7d6690f567afce7f349675983d2f0ed761c9c45d5dc1cfc6bbf45570d543a7b0",
+    "url": "https://www.sec.gov/Archives/edgar/data/1291733/000129281423001052/golform20f_2022.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "d87094f02e2b4f4c943183167b0c57bd861b08f5088466823b824de690af1f93",
+    "raw_size_bytes": 13114,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "gol_cusip",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/gol_cusip.html.gz",
+    "stored_sha256": "6d3a92aa210b5a7e1d36a28ecfed5bda827ec63a03c34b15190c4ab899167989",
+    "url": "https://depositaryreceipts.citi.com/adr/guides/pgm_d.aspx?cusip=38045R107&pageId=16&subPageId=151&typeDisplay=A"
+  },
+  {
+    "raw_bytes_retained": false,
+    "reason": "ValueError: source exceeds 16 MiB retention limit",
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "cig_2025",
+    "status": "FETCH_FAILED",
+    "url": "https://www.sec.gov/Archives/edgar/data/1157557/000155485526000648/cig-20251231.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "92e7dd9a208cb2534d6ee601c7d439e9653cf190a51a92f5f6e96b2715bef3c5",
+    "raw_size_bytes": 13979,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "cig_cusip",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/cig_cusip.html.gz",
+    "stored_sha256": "1eaa2563225312d39bf3ca7c27a23f721c14015392c6a29e28c345f8d2079c7b",
+    "url": "https://depositaryreceipts.citi.com/adr/guides/pgm_d.aspx?cusip=204409601&pageId=15&subpageid=106&typeDisplay=T"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "9dba4bb3037037c1378484d0f60eb07118d6777c70c15118d8911a0567f014c2",
+    "raw_size_bytes": 4532407,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "pbra_2009",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/pbra_2009.html.gz",
+    "stored_sha256": "bad9cad3d5745deb29933a2d4a0bc91a2267589daec98d8f38ebac900fcd1659",
+    "url": "https://www.sec.gov/Archives/edgar/data/1119639/000129281410001665/pbraform20f2009.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "5ebec16a9f841e81da6421f0454dc1093b7cb8f04a61db3bf82d474c8dd8c026",
+    "raw_size_bytes": 147771,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "pbra_2020",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/pbra_2020.html.gz",
+    "stored_sha256": "7d73d901d5005dfeeb128525cce4922a4e033ab3c3886806271d57ff24c35c8b",
+    "url": "https://www.sec.gov/Archives/edgar/data/1119639/000110465920035489/a20-11319_1sc13da.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "6deaeee91407ccddb375e61d478dbbe77658db31777993c7761d833be48a2387",
+    "raw_size_bytes": 38910,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "pbra_2026",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/pbra_2026.html.gz",
+    "stored_sha256": "c93838897de83c752630b0977cc0916ee7539d4b14ed9186d1acb1db19e94ecc",
+    "url": "https://www.sec.gov/Archives/edgar/data/1119639/000114036126029018/xslSCHEDULE_13D_X02/primary_doc.xml"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "3e4a07b0e5592c6ec49526127b61260e50b307a0abffc35c627273a5bc195e03",
+    "raw_size_bytes": 49560,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "nti_2016",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/nti_2016.html.gz",
+    "stored_sha256": "ec365811f3966362382e7fd1243f47e82fa534928419185fa5daaf5907416d65",
+    "url": "https://www.sec.gov/Archives/edgar/data/1339048/000119312516638431/d155613dsc13e3a.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "1e6e046d17744c82e87b20d90e075507b06594856802824efd33a8d7a6a40ba6",
+    "raw_size_bytes": 4828505,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "ngl_2014",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/ngl_2014.html.gz",
+    "stored_sha256": "e6e8cd2550aeec5c966f99d730d3644a06c51b19919783400a8c4941bf57859f",
+    "url": "https://www.sec.gov/Archives/edgar/data/1504461/000110465914042788/a14-6956_110k.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "ce90ebc32b30a77f7e987f08899a9c36a5216cda4eb1287b12997fac19405193",
+    "raw_size_bytes": 181096,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "ngl_cusip",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/ngl_cusip.html.gz",
+    "stored_sha256": "5f327a6828efe5c3f4f255f6d3d9ff8e4b725782bcca56c7121bf44e64c33191",
+    "url": "https://www.sec.gov/Archives/edgar/data/1504461/000110465914001893/a14-3340_1sc13ga.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "b826bf4df7ee874681645ad1ce39b866b393a221c8d00d9e49eedd9121c8b48f",
+    "raw_size_bytes": 8115080,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "ngl_2020",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/ngl_2020.html.gz",
+    "stored_sha256": "92545f33204996edeb609d3d8fea56b6c9338311fe66aee461c5c21506c2029f",
+    "url": "https://www.sec.gov/Archives/edgar/data/1504461/000150446120000022/ngl03312010k.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "d63d099e996c0f450361fe72fa850d93ff8f91f8d194725563c5704f949c4e3a",
+    "raw_size_bytes": 1801866,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "cvrr_2012",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/cvrr_2012.html.gz",
+    "stored_sha256": "8272e46be827b3aadf518d4e58af0cb926111cb9c439958b8f5c57f6ddb45ea4",
+    "url": "https://www.sec.gov/Archives/edgar/data/1558785/000104746913002749/a2213645z10-k.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "85ad8f67e2ad35ef66e9bb916dffb820c373c0bb96b01c05bc9ae1c3b6544ca9",
+    "raw_size_bytes": 320838,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "cvrr_2018",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/cvrr_2018.html.gz",
+    "stored_sha256": "996670240ecdf4d39a9aa958d919b0522773975a290594fa7b5c654de915e891",
+    "url": "https://www.sec.gov/Archives/edgar/data/921669/000110465918048754/a18-18082_1sc13da.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "6104a5544fe8e5c3c69faf7b6640fe057b0fbb923236288c039e06678713df6b",
+    "raw_size_bytes": 3017126,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "uan_2014",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/uan_2014.html.gz",
+    "stored_sha256": "aa44809e07c896710d69a1f91205ee0b25e9c7c1a197d48009c6192d689ccaba",
+    "url": "https://www.sec.gov/Archives/edgar/data/1425292/000142529215000014/uan2014form10-k123114.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "00364716dd62119b751f78844bf09ecea9886ff50c3c1a3c3660284ceacad294",
+    "raw_size_bytes": 401336,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "uan_2018",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/uan_2018.html.gz",
+    "stored_sha256": "8245f182cc56b0d976d52ec647546cd84b7953cbca1e224ae056f2be7334ea92",
+    "url": "https://www.sec.gov/Archives/edgar/data/1425292/000119312518010101/d524641dsc13da.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "eae67d4bfe00458faa8aaf42ce09f9ace9cdd111956c4c97e463e73fc942e08c",
+    "raw_size_bytes": 2092094,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "uan_2020",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/uan_2020.html.gz",
+    "stored_sha256": "91598a24ff7a0c0a3745f1e0788cf73289d99539367a3b3cb13934723cf23ca3",
+    "url": "https://www.sec.gov/Archives/edgar/data/1425292/000142529221000007/cvi-20201231.htm"
+  },
+  {
+    "raw_bytes_retained": true,
+    "raw_sha256": "858d648b88121dc36890bbefc4ddfac0e1147f60a273261dbcc1237d6f3651bd",
+    "raw_size_bytes": 2364744,
+    "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+    "source_id": "uan_2022",
+    "status": "RAW_BYTES_RETAINED",
+    "stored_path": "primary-sources/uan_2022.html.gz",
+    "stored_sha256": "7626d8fd88a397532b035ba54c9b7c92d51503307c8dd84ef6c689848d86ef7b",
+    "url": "https://www.sec.gov/Archives/edgar/data/1425292/000142529223000008/cvi-20221231.htm"
+  }
+]

@@ -1,0 +1,22 @@
+{
+  "base": {
+    "name": "champion-best-effort-security-types-v1.csv",
+    "sha256": "1391630785c56daa2c4665abe792dd7b06d3697b47e2224edd380737fef133ab"
+  },
+  "facts": {
+    "name": "champion-security-truth-factual-batch-v2.json",
+    "sha256": "b08d6e4b92bb0a0e106927e15c6ea7ef5f8f0ffec3174c4aacc93bbd60cde517"
+  },
+  "queue": {
+    "name": "production-equivalent-security-truth-review-queue.csv",
+    "sha256": "290a2f48b6a299139f70f699818dfef61a5f5f86cf38691697e03a33fee972ea"
+  },
+  "truth": {
+    "name": "production-equivalent-security-truth-v1.csv",
+    "sha256": "a356cc2776eb95baf56d410943f60a6aa425c9e9b7749d028d151560e2bdcb33"
+  },
+  "worklist": {
+    "name": "strategy-path-worklist.csv",
+    "sha256": "da303f6a74f28dc5e47bb50ec6a0ec0d7268867154cd208242c054fc4ab29362"
+  }
+}

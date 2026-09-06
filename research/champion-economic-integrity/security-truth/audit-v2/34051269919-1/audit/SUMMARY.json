@@ -1,0 +1,47 @@
+{
+  "corrected_tickers": [
+    "CIG",
+    "CVRR",
+    "GOLLQ",
+    "NGL",
+    "NTI",
+    "PBR.A",
+    "UAN"
+  ],
+  "corrections_omitted_from_original_queue": 5,
+  "evidence_source_count": 18,
+  "expanded_frontier_count": 775,
+  "factual_batch_sha256": "b08d6e4b92bb0a0e106927e15c6ea7ef5f8f0ffec3174c4aacc93bbd60cde517",
+  "factual_type_corrections": 7,
+  "future_outcome_information_permitted": false,
+  "held_or_pending_count": 83,
+  "held_or_pending_omitted_from_original_queue": 56,
+  "held_or_pending_still_open": 81,
+  "later_authority_for_earlier_legal_facts_permitted": true,
+  "limitations": [
+    "The 715-case queue was a heuristic subset; the complete candidate inventory contains 1751 securities.",
+    "This batch reviews seven demonstrated type defects. Other factual and historical-identity cases remain open.",
+    "Priority counts come from run 34007704385 and must be recomputed after the changed execution path.",
+    "The UAN new-CUSIP event document remains an identity-retention follow-up; LP-unit type is established by issuer filings.",
+    "The overlay applies only at canonical unknown-type seams; known metadata and all economic controls remain unchanged."
+  ],
+  "original_path_worklist_sha256": "da303f6a74f28dc5e47bb50ec6a0ec0d7268867154cd208242c054fc4ab29362",
+  "original_queue_cases_still_open": 713,
+  "original_queue_cases_type_corrected": 2,
+  "original_queue_count": 715,
+  "primary_source_bytes_complete": false,
+  "primary_sources_raw_retained": 17,
+  "primary_sources_raw_unavailable": 1,
+  "remaining_expanded_frontier_count": 768,
+  "remaining_priority_counts": {
+    "P0_HELD_OR_PENDING": 81,
+    "P1_DURABLE_RANKED": 444,
+    "P2_LEADERSHIP": 182,
+    "P3_RANKING_OR_BASE": 61
+  },
+  "schema": "champion.security-truth-audit/2",
+  "security_count": 1751,
+  "source_classification_does_not_depend_on_path": true,
+  "status": "PARTIAL_FACTUAL_AUDIT_NOT_CERTIFIED",
+  "truth_interval_count": 1752
+}

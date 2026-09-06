@@ -1,0 +1,325 @@
+{
+  "classification_rules": {
+    "ADS_ON_PREFERRED_SHARES": "non_common",
+    "LIMITED_PARTNERSHIP_COMMON_UNITS": "non_common"
+  },
+  "contract": "PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md",
+  "corrections": [
+    {
+      "adjudication": "REVIEWED_TYPE_CORRECTION",
+      "classification": "non_common",
+      "cusips": [
+        "665826103"
+      ],
+      "decision_basis": "LEGAL_SECURITY_CLASS_ONLY",
+      "effective_first_session": "2013-01-29",
+      "effective_last_session": "2016-05-23",
+      "interval_reason": "The subject-issuer legal title and exact CUSIP identify the Northern Tier LP common-unit episode ending in 2016.",
+      "legal_security_type": "LIMITED_PARTNERSHIP_COMMON_UNITS",
+      "outcome_information_used": false,
+      "previous_classification": "common",
+      "security_id": "1007376678094268707",
+      "source_ids": [
+        "nti_2016"
+      ],
+      "ticker": "NTI"
+    },
+    {
+      "adjudication": "REVIEWED_TYPE_CORRECTION",
+      "classification": "non_common",
+      "cusips": [
+        "126633106",
+        "126633205"
+      ],
+      "decision_basis": "LEGAL_SECURITY_CLASS_ONLY",
+      "effective_first_session": "2013-06-10",
+      "effective_last_session": "2022-05-19",
+      "interval_reason": "The IPO/common-unit history, exact old CUSIP, reverse-unit-split continuity, and later issuer cover page establish the partnership-unit type on both sides of the split. Exact new-CUSIP event text remains a separate identity-retention follow-up.",
+      "legal_security_type": "LIMITED_PARTNERSHIP_COMMON_UNITS",
+      "outcome_information_used": false,
+      "previous_classification": "common",
+      "security_id": "1084515552110962948",
+      "source_ids": [
+        "uan_2014",
+        "uan_2018",
+        "uan_2020",
+        "uan_2022"
+      ],
+      "ticker": "UAN"
+    },
+    {
+      "adjudication": "REVIEWED_TYPE_CORRECTION",
+      "classification": "non_common",
+      "cusips": [
+        "38045R107",
+        "38045R206"
+      ],
+      "decision_basis": "LEGAL_SECURITY_CLASS_ONLY",
+      "effective_first_session": "2006-07-05",
+      "effective_last_session": "2021-06-30",
+      "interval_reason": "The admitted GOL ADS episode spans a depositary-ratio/CUSIP change; its underlying class remains preferred stock.",
+      "legal_security_type": "ADS_ON_PREFERRED_SHARES",
+      "outcome_information_used": false,
+      "previous_classification": "common",
+      "security_id": "223489731780916334",
+      "source_ids": [
+        "gol_2006",
+        "gol_2022",
+        "gol_cusip"
+      ],
+      "ticker": "GOLLQ"
+    },
+    {
+      "adjudication": "REVIEWED_TYPE_CORRECTION",
+      "classification": "non_common",
+      "cusips": [
+        "62913M107"
+      ],
+      "decision_basis": "LEGAL_SECURITY_CLASS_ONLY",
+      "effective_first_session": "2014-06-18",
+      "effective_last_session": "2019-03-11",
+      "interval_reason": "Issuer filings before and after the admitted interval plus an exact class/CUSIP filing bind this LP common-unit episode.",
+      "legal_security_type": "LIMITED_PARTNERSHIP_COMMON_UNITS",
+      "outcome_information_used": false,
+      "previous_classification": "common",
+      "security_id": "234830040312163466",
+      "source_ids": [
+        "ngl_2014",
+        "ngl_cusip",
+        "ngl_2020"
+      ],
+      "ticker": "NGL"
+    },
+    {
+      "adjudication": "REVIEWED_TYPE_CORRECTION",
+      "classification": "non_common",
+      "cusips": [
+        "204409601"
+      ],
+      "decision_basis": "LEGAL_SECURITY_CLASS_ONLY",
+      "effective_first_session": "2006-10-05",
+      "effective_last_session": "2022-11-17",
+      "interval_reason": "The issuer explicitly dates the CIG preferred ADS program to 2001 and distinguishes the CIG.C common ADS program.",
+      "legal_security_type": "ADS_ON_PREFERRED_SHARES",
+      "outcome_information_used": false,
+      "previous_classification": "common",
+      "security_id": "572943415348500978",
+      "source_ids": [
+        "cig_2025",
+        "cig_cusip"
+      ],
+      "ticker": "CIG"
+    },
+    {
+      "adjudication": "REVIEWED_TYPE_CORRECTION",
+      "classification": "non_common",
+      "cusips": [
+        "12663P107"
+      ],
+      "decision_basis": "LEGAL_SECURITY_CLASS_ONLY",
+      "effective_first_session": "2013-07-19",
+      "effective_last_session": "2018-08-21",
+      "interval_reason": "The IPO legal form and the 2018 exact class/CUSIP filing identify the same partnership common-unit episode.",
+      "legal_security_type": "LIMITED_PARTNERSHIP_COMMON_UNITS",
+      "outcome_information_used": false,
+      "previous_classification": "common",
+      "security_id": "818952807605506774",
+      "source_ids": [
+        "cvrr_2012",
+        "cvrr_2018"
+      ],
+      "ticker": "CVRR"
+    },
+    {
+      "adjudication": "REVIEWED_TYPE_CORRECTION",
+      "classification": "non_common",
+      "cusips": [
+        "71654V101"
+      ],
+      "decision_basis": "LEGAL_SECURITY_CLASS_ONLY",
+      "effective_first_session": "2006-07-05",
+      "effective_last_session": "2026-07-31",
+      "interval_reason": "The preferred ADS program is distinct from PBR throughout the reviewed historical disclosures. The patch targets only canonical PBR.A.",
+      "legal_security_type": "ADS_ON_PREFERRED_SHARES",
+      "outcome_information_used": false,
+      "previous_classification": "common",
+      "security_id": "931093969002672286",
+      "source_ids": [
+        "pbra_2009",
+        "pbra_2020",
+        "pbra_2026"
+      ],
+      "ticker": "PBR.A"
+    }
+  ],
+  "evidence_timing_policy": "LATER_AUTHORITY_MAY_ESTABLISH_EARLIER_FACT",
+  "future_outcome_information_permitted": false,
+  "reviewed_on": "2026-09-06",
+  "schema": "champion.security-truth-factual-batch/2",
+  "scope": "CANONICAL_UNKNOWN_SECURITY_TYPE_SEAM_ONLY",
+  "sources": [
+    {
+      "document": "GOL 2006 Form 20-F filed February 28, 2007",
+      "finding": "The NYSE ADS represents preferred shares; the issuer distinguishes these securities from its common shares.",
+      "locator": "Cover page; Introduction; Item 9",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "gol_2006",
+      "url": "https://www.sec.gov/Archives/edgar/data/1291733/000129281407000433/gol_form20f2006.htm"
+    },
+    {
+      "document": "GOL 2022 Form 20-F",
+      "finding": "The GOL ADS represents preferred shares. This later issuer filing corroborates the preferred-share depositary program; it is not a pre-2006 availability claim.",
+      "locator": "Cover page and ADS description",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "gol_2022",
+      "url": "https://www.sec.gov/Archives/edgar/data/1291733/000129281423001052/golform20f_2022.htm"
+    },
+    {
+      "document": "Citi GOL depositary program and corporate-action history",
+      "finding": "The old GOL program uses CUSIP 38045R107. The 2016 depositary ratio change identifies successor CUSIP 38045R206 and the same underlying preferred-share program.",
+      "locator": "CUSIP 38045R107; February 26, 2016 ratio change",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "gol_cusip",
+      "url": "https://depositaryreceipts.citi.com/adr/guides/pgm_d.aspx?cusip=38045R107&pageId=16&subPageId=151&typeDisplay=A"
+    },
+    {
+      "document": "Cemig 2025 Form 20-F",
+      "finding": "CIG is the preferred-share ADS program listed on NYSE since September 18, 2001. The common-share ADS program is separately identified as CIG.C.",
+      "locator": "Definitions; Item 9.C Markets",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "cig_2025",
+      "url": "https://www.sec.gov/Archives/edgar/data/1157557/000155485526000648/cig-20251231.htm"
+    },
+    {
+      "document": "Citi CEMIG depositary program",
+      "finding": "Citi binds CUSIP 204409601 to NYSE ticker CIG. Trading-volume figures on the page are excluded from the classification basis.",
+      "locator": "Security identification header",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "cig_cusip",
+      "url": "https://depositaryreceipts.citi.com/adr/guides/pgm_d.aspx?cusip=204409601&pageId=15&subpageid=106&typeDisplay=T"
+    },
+    {
+      "document": "Petrobras 2009 Form 20-F",
+      "finding": "The issuer separately identifies PBR common ADSs and PBRA preferred ADSs, including the historical depositary programs and the 2007 ratio change. Only security-class and identity disclosures are used.",
+      "locator": "Cover; Item 9 Trading Markets; capital-stock and depositary-ratio history",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "pbra_2009",
+      "url": "https://www.sec.gov/Archives/edgar/data/1119639/000129281410001665/pbraform20f2009.htm"
+    },
+    {
+      "document": "Petrobras Schedule 13D amendment, February 2020",
+      "finding": "The filing distinguishes preferred-share CUSIP 71654V101 from common-share CUSIP 71654V408.",
+      "locator": "Cover and class/CUSIP identification",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "pbra_2020",
+      "url": "https://www.sec.gov/Archives/edgar/data/1119639/000110465920035489/a20-11319_1sc13da.htm"
+    },
+    {
+      "document": "Petrobras Schedule 13D, July 16, 2026 event",
+      "finding": "The filing identifies Petrobras preferred shares and CUSIP 71654V101. Ownership amounts and transaction results are excluded from the classification basis.",
+      "locator": "Issuer, security class and CUSIP fields",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "pbra_2026",
+      "url": "https://www.sec.gov/Archives/edgar/data/1119639/000114036126029018/xslSCHEDULE_13D_X02/primary_doc.xml"
+    },
+    {
+      "document": "Northern Tier Energy LP Schedule 13E-3 amendment, 2016",
+      "finding": "Northern Tier Energy LP common units represent limited partner interests, identified by CUSIP 665826103.",
+      "locator": "Subject issuer, class title and CUSIP",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "nti_2016",
+      "url": "https://www.sec.gov/Archives/edgar/data/1339048/000119312516638431/d155613dsc13e3a.htm"
+    },
+    {
+      "document": "NGL Energy Partners 2014 Form 10-K",
+      "finding": "The listed NGL securities are partnership common units; the issuer records NYSE trading since May 12, 2011.",
+      "locator": "Cover and market for common units",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "ngl_2014",
+      "url": "https://www.sec.gov/Archives/edgar/data/1504461/000110465914042788/a14-6956_110k.htm"
+    },
+    {
+      "document": "NGL Energy Partners Schedule 13G amendment, 2014",
+      "finding": "CUSIP 62913M107 identifies common units representing limited partnership interests in NGL Energy Partners LP.",
+      "locator": "Cover class/CUSIP identification",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "ngl_cusip",
+      "url": "https://www.sec.gov/Archives/edgar/data/1504461/000110465914001893/a14-3340_1sc13ga.htm"
+    },
+    {
+      "document": "NGL Energy Partners 2020 Form 10-K",
+      "finding": "The issuer continues to identify NYSE NGL as partnership common units.",
+      "locator": "Cover and market for common units",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "ngl_2020",
+      "url": "https://www.sec.gov/Archives/edgar/data/1504461/000150446120000022/ngl03312010k.htm"
+    },
+    {
+      "document": "CVR Refining 2012 Form 10-K filed in 2013",
+      "finding": "CVR Refining LP issued common units representing limited partner interests; NYSE CVRR trading began January 17, 2013.",
+      "locator": "Cover; initial public offering; listed common units",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "cvrr_2012",
+      "url": "https://www.sec.gov/Archives/edgar/data/1558785/000104746913002749/a2213645z10-k.htm"
+    },
+    {
+      "document": "CVR Refining Schedule 13D amendment, August 1, 2018 event",
+      "finding": "CVR Refining LP common units are identified by CUSIP 12663P107.",
+      "locator": "Cover class/CUSIP identification",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "cvrr_2018",
+      "url": "https://www.sec.gov/Archives/edgar/data/921669/000110465918048754/a18-18082_1sc13da.htm"
+    },
+    {
+      "document": "CVR Partners 2014 Form 10-K",
+      "finding": "CVR Partners LP common units began NYSE UAN trading in April 2011; the issuer identifies the publicly held interests as partnership common units.",
+      "locator": "Initial public offering; partners capital",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "uan_2014",
+      "url": "https://www.sec.gov/Archives/edgar/data/1425292/000142529215000014/uan2014form10-k123114.htm"
+    },
+    {
+      "document": "CVR Partners Schedule 13D amendment, January 10, 2018 event",
+      "finding": "CUSIP 126633106 identifies common units representing limited partner interests in CVR Partners LP.",
+      "locator": "Cover class/CUSIP identification",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "uan_2018",
+      "url": "https://www.sec.gov/Archives/edgar/data/1425292/000119312518010101/d524641dsc13da.htm"
+    },
+    {
+      "document": "CVR Partners 2020 Form 10-K",
+      "finding": "The November 23, 2020 reverse unit split converted partnership common units into partnership common units; split-adjusted trading retained UAN and used a new CUSIP.",
+      "locator": "Reverse Unit Split and listed common units",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "uan_2020",
+      "url": "https://www.sec.gov/Archives/edgar/data/1425292/000142529221000007/cvi-20201231.htm"
+    },
+    {
+      "document": "CVR Partners 2022 Form 10-K",
+      "finding": "NYSE UAN is the common-unit interest in CVR Partners LP after the 2020 reverse unit split.",
+      "locator": "Cover; organization; reverse-unit-split history",
+      "review_method": "MANUAL_PRIMARY_SOURCE_WEB_REVIEW",
+      "reviewed_on": "2026-09-06",
+      "source_id": "uan_2022",
+      "url": "https://www.sec.gov/Archives/edgar/data/1425292/000142529223000008/cvi-20221231.htm"
+    }
+  ],
+  "status": "PARTIAL_FACTUAL_AUDIT_NOT_CERTIFIED"
+}
