@@ -1,0 +1,106 @@
+name: one-shot GO contract test repair
+on:
+  push:
+    branches:
+      - codex/sentinel-go-ci-certified-single-runtime
+permissions:
+  contents: write
+jobs:
+  repair:
+    if: github.actor != 'github-actions[bot]'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: codex/sentinel-go-ci-certified-single-runtime
+          fetch-depth: 1
+      - name: Repair legacy GO contract assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+
+          p = Path('tests/sentinel/test_go_validation_liveness.py')
+          s = p.read_text()
+          start = s.index('def test_promotion_requires_current_run_go_and_exact_certified_ordinary_image_id():')
+          end = s.index('\n\ndef test_actual_wall_clock_deadline_requires_reviewed_margin():', start)
+          replacement = '''def test_promotion_requires_current_run_go_and_exact_certified_runtime_for_each_mode():
+              text = (ROOT / "scripts" / "sentinel_go_promote.py").read_text(
+                  encoding="utf-8")
+              run_pass = text.index("_current_run_target_pass(head)")
+              select = text.index("selected = (", run_pass)
+              local_full = text.index("_promote_local_full(head=head, runner=runner)", select)
+              ci = text.index("_promote_ci(head=head, runner=runner)", select)
+              verify = text.index("validated runtime pointer verification failed", ci)
+              consume = text.index("_consume_run_pass()", verify)
+              assert run_pass < select < local_full < verify < consume
+              assert run_pass < select < ci < verify < consume
+              assert "phase._load_with_ordinary" in text
+              assert "_certified_local_runtime(head)" in text
+              assert "local-full runtime changed after certification" in text
+              assert "runtime._write_pointer(expected)" in text
+              assert "ci_runtime.load_binding(" in text
+              assert "require_current_run=True" in text
+              assert "verifier.verify_current(" in text
+              assert "promotion-time CI certificate differs from validation binding" in text
+              assert "local CI-certified runtime changed after financial validation" in text
+              assert "runtime._write_pointer(certified_image)" in text
+              assert "requested-target GO proof belongs to a different lifecycle invocation" in text
+              assert "_refresh_origin_main()" in text
+          '''.replace('          ', '')
+          s = s[:start] + replacement.rstrip() + s[end:]
+          s = s.replace(
+              'assert \'scripts/sentinel_go_account_preflight.py "$@"\' in launcher',
+              'assert \'scripts/sentinel_go_account_preflight.py "${FORWARDED_ARGS[@]}"\' in launcher')
+          s = s.replace(
+              'assert "validation may build a fresh current candidate" in text',
+              'assert "validation may acquire the current certified runtime" in text')
+          start = s.index('def test_post_validation_recreates_panel_then_publishes_registry_handoff():')
+          end = s.index('\n\ndef test_autonomous_deploy_promotes_exact_reviewed_local_ids_to_repo_digests():', start)
+          replacement = '''def test_post_validation_recreates_panel_then_publishes_single_runtime_handoff():
+              text = (ROOT / "scripts" / "sentinel_go_post_validate.py").read_text(
+                  encoding="utf-8")
+              assert 'env = runtime._merged_environment()' in text
+              assert '"scripts/sentinel-compose.sh", "--run"' in text
+              assert '"--force-recreate", "sentinel-panel"' in text
+              assert '"ps", "-q", "sentinel-panel"' in text
+              assert '"docker", "container", "inspect", "--format", "{{.Image}}"' in text
+              assert "observed != expected_image_id" in text
+              assert '"schema": "sentinel.validated-artifact-handoff/3"' in text
+              assert '"mode": "CI_CERTIFIED_RUNTIME"' in text
+              assert '"mode": "LOCAL_FULL_CERTIFICATION"' in text
+              assert '"runtime_registry_ref": certified_ref' in text
+              assert '"runtime_local_image_id": local_id' in text
+              assert '"test_lens_local_image_id": test_id' in text
+              assert '"registry_promotion_required": False' in text
+              assert '"broker_authority_granted": False' in text
+              assert "ci_runtime.load_binding(" in text
+              assert "phase._load_with_ordinary" in text
+              assert 'docker", "image", "rm"' not in text
+              choose = text.index("expected_image_id, handoff = (")
+              recreate = text.index("recreate_panel(env, expected_image_id=expected_image_id)", choose)
+              publish = text.index("atomic_json(OUT, handoff)", recreate)
+              assert choose < recreate < publish
+          '''.replace('          ', '')
+          s = s[:start] + replacement.rstrip() + s[end:]
+          p.write_text(s)
+
+          q = Path('tests/sentinel/test_runtime_selection_contract.py')
+          t = q.read_text().replace(
+              'assert "validation may build a fresh current candidate" in capsys.readouterr().out',
+              'assert "validation may acquire the current certified runtime" in capsys.readouterr().out')
+          q.write_text(t)
+          PY
+          python -m compileall -q tests/sentinel/test_go_validation_liveness.py tests/sentinel/test_runtime_selection_contract.py
+          git diff --check
+          git diff -- tests/sentinel/test_go_validation_liveness.py tests/sentinel/test_runtime_selection_contract.py
+      - name: Commit repaired assertions
+        shell: bash
+        run: |
+          set -euo pipefail
+          git config user.name github-actions[bot]
+          git config user.email 41898282+github-actions[bot]@users.noreply.github.com
+          git add tests/sentinel/test_go_validation_liveness.py tests/sentinel/test_runtime_selection_contract.py
+          git commit -m 'test: align GO contracts with CI and local-full runtime paths'
+          git push origin HEAD:codex/sentinel-go-ci-certified-single-runtime
