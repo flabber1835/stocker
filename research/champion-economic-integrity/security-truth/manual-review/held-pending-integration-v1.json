@@ -1,0 +1,52 @@
+{
+  "schema": "champion.security-truth-held-pending-integration/1",
+  "reviewed_on": "2026-09-06",
+  "status": "HELD_PENDING_TYPE_CLASSIFICATION_CLOSED_IDENTITY_HYGIENE_OPEN",
+  "integration_branch": "research/champion-security-truth-held-pending-integration",
+  "integration_base": "ab96ca68d6e546cc88b9801878ae7848108a9f7b",
+  "classification_contract": "research/champion-economic-integrity/PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md",
+  "future_outcome_information_used": false,
+  "economic_replay_run_by_integration": false,
+  "shards": [
+    {"shard":1,"head":"e278b020240a04ca8fcdf2be28c1c2c58c43ab8b","assigned":15,"first_pass_common":13,"first_pass_non_common":0,"first_pass_unresolved":["FMX","HCR1"]},
+    {"shard":2,"head":"b9dde98f123ed94e04ff7540b00c5125938b9121","assigned":15,"first_pass_common":15,"first_pass_non_common":0,"first_pass_unresolved":[]},
+    {"shard":3,"head":"1e234e386303a9bb7d25e43fffa7aab6466a0703","assigned":15,"first_pass_common":14,"first_pass_non_common":0,"first_pass_unresolved":["THOR1"]},
+    {"shard":4,"head":"08024c92781690744d02e3ee05b3527c86cc423f","assigned":14,"first_pass_common":14,"first_pass_non_common":0,"first_pass_unresolved":[]},
+    {"shard":5,"head":"6b56e57b8d2ceb1f3f3bc573f860b6dd6a1dfdad","assigned":14,"first_pass_common":12,"first_pass_non_common":0,"first_pass_unresolved":["UNTCQ","VTNRQ"]}
+  ],
+  "parallel_shard_totals": {"assigned":73,"first_pass_common":68,"first_pass_non_common":0,"first_pass_interval_splits":0,"first_pass_unresolved":5},
+  "integration_rule": "Classification is the factual legal security type on the canonical decision interval. Aggregate stale, predecessor, successor, or erroneous CUSIPs outside that interval remain identity-hygiene defects but do not force type unresolved when the decision-period security is independently and continuously bound to an unambiguous legal class.",
+  "adversarial_resolutions": [
+    {
+      "security_id":"63371714929571534","ticker":"FMX","canonical_interval":["2006-07-05","2026-07-31"],"classification":"common","legal_security_type":"ADS_REPRESENTING_BD_UNIT_COMPOSED_OF_COMMON_SHARE_SERIES","type_classification_status":"RESOLVED","identity_hygiene_status":"CLOSED_FOR_TYPE_PURPOSE",
+      "basis":"SEC filing identifies CUSIP 344419106 as ADSs representing BD Units, each consisting solely of Series B, D-B and D-L equity shares; the structure is a bundle of common-equity series and not preferred, partnership, trust, warrant or right.",
+      "evidence_urls":["https://www.sec.gov/Archives/edgar/data/1061736/000090342306000386/femsa13da6_0410.htm"]
+    },
+    {
+      "security_id":"718098875444344211","ticker":"HCR1","canonical_interval":["2006-07-05","2007-12-21"],"classification":"common","legal_security_type":"COMMON_STOCK","type_classification_status":"RESOLVED","identity_hygiene_status":"PREDECESSOR_CUSIP_FOLLOWUP",
+      "basis":"Target-period SEC records identify Manor Care ticker HCR, CUSIP 564055101, as common stock. Older aggregate CUSIPs do not alter the target-period class.",
+      "evidence_urls":["https://www.sec.gov/Archives/edgar/data/819978/000118811208002862/t63733l_n-px.htm"]
+    },
+    {
+      "security_id":"852684403524489499","ticker":"THOR1","canonical_interval":["2008-08-05","2015-10-07"],"classification":"common","legal_security_type":"COMMON_STOCK","type_classification_status":"RESOLVED","identity_hygiene_status":"PREDECESSOR_CUSIP_FOLLOWUP",
+      "basis":"SEC-filed holdings repeatedly identify Thoratec Corp CUSIP 885175307 as common stock during the canonical interval; predecessor 885175109 is outside the class proof required for that interval.",
+      "evidence_urls":["https://www.sec.gov/Archives/edgar/data/1218710/000095012314009393/xslForm13F_X01/form13fInfoTable.xml"]
+    },
+    {
+      "security_id":"1025975490253483719","ticker":"UNTCQ","canonical_interval":["2006-07-05","2016-12-28"],"classification":"common","legal_security_type":"COMMON_STOCK","type_classification_status":"RESOLVED","identity_hygiene_status":"UNBOUND_AGGREGATE_CUSIP_OPEN",
+      "basis":"SEC and issuer evidence bind Unit Corporation common stock to CUSIP 909218109 throughout the decision interval. Aggregate CUSIP 909218208 remains unbound and is retained as an identity-metadata anomaly, not treated as evidence of a different decision-period security class.",
+      "evidence_urls":["https://www.sec.gov/Archives/edgar/data/1265376/000119312504187815/dsc13ga.htm","https://unitcorp.com/wp-content/uploads/2021/04/UnitForm8937Final.pdf"]
+    },
+    {
+      "security_id":"895182212221004918","ticker":"VTNRQ","canonical_interval":["2021-05-27","2023-04-25"],"classification":"common","legal_security_type":"COMMON_STOCK","type_classification_status":"RESOLVED","identity_hygiene_status":"STALE_UNRELATED_CUSIP_PROVEN",
+      "basis":"Vertex target-period CUSIP 92534K107 is common stock and DTCC binds predecessor World Waste 981517105 to Vertex. SEC evidence proves aggregate CUSIP 92861H107 belonged to Voice Powered Technology International in 2003 and is unrelated stale identity contamination.",
+      "evidence_urls":["https://www.sec.gov/Archives/edgar/data/890447/000101738603000090/vpt_2003nt10q.htm","https://www.dtcc.com/-/media/Files/pdf/2009/5/4/OTC084.pdf"]
+    }
+  ],
+  "parallel_shard_integrated_totals": {"common":73,"non_common":0,"interval_splits":0,"type_unresolved":0},
+  "previous_held_pending_confirmations": {"common":8,"tickers":["VAL1","EV1","UST1","NVO","ATI","RACE","KNX1","ESLT"]},
+  "previous_held_pending_non_common_corrections": {"count":2,"tickers":["GOLLQ","CIG"]},
+  "retained_pre_correction_held_pending_inventory": {"count":83,"type_classification_resolved":83,"type_unresolved":0},
+  "identity_hygiene_followup": ["HCR1","THOR1","UNTCQ","VTNRQ"],
+  "certification_effect": "Held/pending security-type layer is closed for production-equivalent classification. Broader decision-relevant security-type review and production-economic semantics remain open; no final backtest is authorized by this checkpoint."
+}
