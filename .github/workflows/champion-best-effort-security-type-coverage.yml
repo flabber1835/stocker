@@ -1,0 +1,120 @@
+name: Research Champion - best-effort security-type coverage
+run-name: Champion best-effort common-stock coverage - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/champion-pit-metadata-closure]
+    paths:
+      - '.github/workflows/champion-best-effort-security-type-coverage.yml'
+      - 'backtester/build_champion_best_effort_security_types.py'
+      - 'backtester/certification-decisions/2026-09-05-champion-pit-metadata-closure.md'
+      - 'tests/backtester/test_build_champion_best_effort_security_types.py'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+concurrency:
+  group: champion-best-effort-security-type-coverage
+  cancel-in-progress: false
+
+jobs:
+  coverage:
+    name: Build non-certifying common-stock inference ledger
+    runs-on: ubuntu-24.04
+    timeout-minutes: 45
+    steps:
+      - name: Check out exact inference source and frozen vendor snapshot
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/champion-best-effort-security-type-coverage.yml
+            /backtester/build_champion_best_effort_security_types.py
+            /backtester/certification-decisions/2026-09-05-champion-pit-metadata-closure.md
+            /tests/backtester/test_build_champion_best_effort_security_types.py
+            /sharadar/SHARADAR_TICKERS.zip
+
+      - name: Set up Python
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+
+      - name: Test inference contract
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          python -m py_compile backtester/build_champion_best_effort_security_types.py
+          python -m unittest tests.backtester.test_build_champion_best_effort_security_types -v
+
+      - name: Download exact Champion closure artifacts
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: champion-pit-closure-*
+          path: inputs/champion
+          merge-multiple: true
+          repository: ${{ github.repository }}
+          run-id: '33994291853'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Download strict-prior stage-one allocation
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: champion-pit-metadata-closure-stage1-33997143142-1
+          path: inputs/stage1
+          repository: ${{ github.repository }}
+          run-id: '33997143142'
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Verify frozen inputs
+        run: |
+          set -euo pipefail
+          test "$(sha256sum inputs/champion/strategy-path-worklist.csv | cut -d' ' -f1)" = 0c891b2e4f505cb7b21c857c373a12df4dcb766c430812678d9200e69b165c5b
+          test "$(sha256sum inputs/champion/strategy-path-session-ledger.jsonl.gz | cut -d' ' -f1)" = 2116177eb72436dc1c6fe5d59e57d739ff46a751cf5917748f3dd482dc604369
+          test "$(sha256sum inputs/stage1/closure-stage1/security-type-priority.csv | cut -d' ' -f1)" = d7a94b293eb9014843039684f0c892781a2e7ad80fb3e3e656ff46de8fbac3ef
+          test "$(sha256sum sharadar/SHARADAR_TICKERS.zip | cut -d' ' -f1)" = 308bcc46f4efaffe6f6fc4f7236af82df5c57a9f2be07c677089f0e6fba2eebf
+
+      - name: Build coverage ledger
+        run: |
+          set -euo pipefail
+          python backtester/build_champion_best_effort_security_types.py \
+            --worklist inputs/champion/strategy-path-worklist.csv \
+            --session-ledger inputs/champion/strategy-path-session-ledger.jsonl.gz \
+            --stage1-priority inputs/stage1/closure-stage1/security-type-priority.csv \
+            --tickers sharadar/SHARADAR_TICKERS.zip \
+            --output best-effort-coverage | tee best-effort-coverage.log
+          (cd best-effort-coverage && sha256sum -c SHA256SUMS.txt)
+
+      - name: Enforce non-certifying coverage contract
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          value=json.loads(Path('best-effort-coverage/summary.json').read_text())
+          assert value['status']=='PASS'
+          assert value['label']=='BEST_EFFORT_NOT_PIT_CERTIFIED'
+          assert value['certification_eligible'] is False
+          assert value['counts']['security_count']==1751
+          assert value['counts']['unknown_candidate_observations']==1082978
+          assert value['contract']['historical_availability_proven'] is False
+          print(json.dumps(value,indent=2,sort_keys=True))
+          PY
+          cat best-effort-coverage/summary.json >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload immutable coverage evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-best-effort-security-type-coverage-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            best-effort-coverage/
+            best-effort-coverage.log
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6

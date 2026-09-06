@@ -78,3 +78,34 @@ and same-session successor price witness.  Cash mergers require the target
 identity at its last executable session.  Conversions and mixed mergers also
 require a delivered security on the effective session.  Election mergers stay
 blocked until the shareholder no-election allocation is established.
+
+## Time-boxed best-effort security-type estimate
+
+The exhaustive certification closure is supplemented by a separate research
+estimate.  It answers the narrower economic question: whether the frozen
+Champion remains attractive when a reproducible, vendor-corroborated estimate
+of common-stock eligibility fills missing historical security-type evidence.
+
+The estimate uses the frozen Sharadar TICKERS snapshot already retained on the
+research branch.  An unresolved Champion security may be classified only when:
+
+- its ticker has exactly one `SEP` securities-master row;
+- that row's price bounds cover every candidate session requiring inference;
+- its category maps unambiguously to common equity or an excluded instrument;
+- existing strict-prior V4 evidence does not contradict the inferred class;
+- already-known classification on the same strategy-path security does not
+  contradict the inferred class.
+
+Categories containing `Common Stock` are estimated common except categories
+that also contain `Warrant` or `Preferred`.  Preferred stock and warrants are
+estimated non-common.  Any other category remains uncertain.  Matching is bound
+to the Champion security ID and its candidate-session interval; ticker-only
+classification without interval coverage is rejected.
+
+This is current-snapshot corroboration, not proof that the classification was
+historically available.  The generated ledger and every replay consuming it
+must therefore be labelled `BEST_EFFORT_NOT_PIT_CERTIFIED`.  It may not replace
+the evidence-only corpus pointer or produce the project's PIT-certified banner.
+The Champion profile, parameters, execution, ranking, and portfolio economics
+remain frozen.  Comparative replays must generate their own chronological
+decisions and report sensitivity to unresolved/rejected cases.
