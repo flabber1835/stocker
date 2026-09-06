@@ -1,0 +1,13 @@
+{
+  "files": {
+    "iwm-sfp.csv.gz": "8fcd8021bd3c46afc1818f724241c10d38ea68cf5047d7b16086a7bb4e491ea4",
+    "spy-sfp.csv.gz": "bc313ed582b3c81d352ca19bdbab10d9d69f7381b47ded80e9c9085be9814d4e",
+    "vix-cboe.csv.gz": "a9813a8664169b9d5e784e4d14b76948f4bbedfe851fb3ed4750095f759311f6"
+  },
+  "manifest_sha256": "42295d3bf2cd89212493712693d0906cde2871e9752e94df16c9b4546e802de7",
+  "package": "ghcr.io/flabber1835/stocker-spy-iwm-observer-inputs@sha256:3d2a2d9c50147ff21c3fdc48c3c837c482ea0f7a88d2e9c2cc8bf3b4a48c439b",
+  "schema": "stocker.spy-iwm-observer-pointer/1",
+  "source_run": "https://github.com/flabber1835/stocker/actions/runs/34011985844",
+  "source_sha": "3b138b63b2e24616f883cf4ae7f594e082f3e327",
+  "status": "FROZEN_RESEARCH_INPUTS_NOT_PIT_CERTIFIED"
+}
