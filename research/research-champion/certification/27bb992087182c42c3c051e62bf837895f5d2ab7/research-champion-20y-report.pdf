@@ -1,0 +1,121 @@
+%PDF-1.4
+%‚„œ”
+1 0 obj
+<< /Type /Catalog /Pages 2 0 R >>
+endobj
+2 0 obj
+<< /Type /Pages /Kids [4 0 R] /Count 1 >>
+endobj
+3 0 obj
+<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>
+endobj
+4 0 obj
+<< /Type /Page /Parent 2 0 R /MediaBox [0 0 612 792] /Resources << /Font << /F1 3 0 R >> >> /Contents 5 0 R >>
+endobj
+5 0 obj
+<< /Length 2368 >>
+stream
+BT
+/F1 9 Tf
+54 756 Td
+12 TL
+(RESEARCH CHAMPION - FORMAL PIT CERTIFICATION AND 20-YEAR BACKTEST) Tj
+T*
+() Tj
+T*
+(Certification: PIT CERTIFIED) Tj
+T*
+(Certificate SHA256: e769073eaf63573010c00785479e65e35fa397b7bb5204e79525a3519b058cf5) Tj
+T*
+(Source SHA: 27bb992087182c42c3c051e62bf837895f5d2ab7) Tj
+T*
+(Pinned runtime SHA: 887f479b15ad861313da666ad698034d3847121c) Tj
+T*
+(Canonical dataset: strict-pit-2006-01-03-2026-07-31-5bdc6b39e4a8ec4d) Tj
+T*
+(Dataset SHA256: 5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993) Tj
+T*
+(Window: 2006-07-31 through 2026-07-31) Tj
+T*
+() Tj
+T*
+(Champion profile: strategy9-e3-research-champion-v1) Tj
+T*
+(Champion profile SHA256: 1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26) Tj
+T*
+(LDRC_REC: 8) Tj
+T*
+(LDRC_R20: -0.085) Tj
+T*
+(LDRC_V: 0.11) Tj
+T*
+(LDRC_DD: -0.1) Tj
+T*
+(divergence_spy_floor: 0.0) Tj
+T*
+(full_recovery_r40_floor: 0.0) Tj
+T*
+(FAST_damaged: 0.88) Tj
+T*
+(healthy_damaged_ceiling: 0.63) Tj
+T*
+() Tj
+T*
+(BACKTEST METRICS) Tj
+T*
+(Window  Variant      CAGR       Max DD     Sharpe    Ending Multiple) Tj
+T*
+(     5  RESEARCH        0.32%    -12.67%     0.08             1.02) Tj
+T*
+(     5  SPY            12.76%    -24.50%     0.79             1.82) Tj
+T*
+(    10  RESEARCH        4.89%    -25.60%     0.51             1.61) Tj
+T*
+(    10  SPY            14.99%    -33.70%     0.87             4.04) Tj
+T*
+(    15  RESEARCH        6.70%    -25.60%     0.65             2.64) Tj
+T*
+(    15  SPY            14.40%    -33.70%     0.87             7.53) Tj
+T*
+(    20  RESEARCH        9.20%    -25.60%     0.74             5.82) Tj
+T*
+(    20  SPY            11.26%    -55.20%     0.65             8.44) Tj
+T*
+(   max  RESEARCH        9.20%    -25.60%     0.74             5.82) Tj
+T*
+(   max  SPY            11.26%    -55.20%     0.65             8.44) Tj
+T*
+() Tj
+T*
+(CERTIFICATION EVIDENCE) Tj
+T*
+(Candidate observations: 7226407) Tj
+T*
+(Unknown candidate classifications: 1082978) Tj
+T*
+(Unknown corpus security types are admitted only as explicit fail-closed ineligible rows.) Tj
+T*
+(Incomplete terminal terms are retained as explicit fail-closed terminal ledger events.) Tj
+T*
+(Held-terminal accounting, resolved NAV, causality, and future-leak checks passed.) Tj
+T*
+() Tj
+T*
+(This certificate covers the defined PIT/causality/universe/execution contract for this exact replay.) Tj
+T*
+ET
+endstream
+endobj
+xref
+0 6
+0000000000 65535 f 
+0000000015 00000 n 
+0000000064 00000 n 
+0000000121 00000 n 
+0000000191 00000 n 
+0000000317 00000 n 
+trailer
+<< /Size 6 /Root 1 0 R >>
+startxref
+2737
+%%EOF

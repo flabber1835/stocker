@@ -1,0 +1,12 @@
+======================================================================
+PIT CERTIFIED
+Point-in-time, causality, universe, terminal/action, and forward-bias
+checks passed for this exact replay.
+Mode: Research
+Backtester SHA: 27bb992087182c42c3c051e62bf837895f5d2ab7
+Strategy SHA: 27bb992087182c42c3c051e62bf837895f5d2ab7
+Canonical PIT dataset: strict-pit-2006-01-03-2026-07-31-5bdc6b39e4a8ec4d
+Dataset SHA256: 5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993
+Configuration SHA256: dfec0881ac3001bcc4fef5d2ff5585ebd0f6bd0586061fdf198fdb0ca8bdecff
+Certificate SHA256: e769073eaf63573010c00785479e65e35fa397b7bb5204e79525a3519b058cf5
+======================================================================
