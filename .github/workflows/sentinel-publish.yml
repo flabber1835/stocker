@@ -133,9 +133,19 @@ jobs:
         env:
           SUBJECT_NAME: ${{ steps.subject.outputs.subject_name }}
           SUBJECT_DIGEST: ${{ steps.subject.outputs.digest }}
+          TESTED_SHA: ${{ github.event.workflow_run.head_sha }}
+          TEST_RUN_ID: ${{ github.event.workflow_run.id }}
+          TEST_RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/sentinel-provenance
+          python tools/sentinel_ci_certification_input_binding.py \
+            --root . \
+            --input /tmp/sentinel-tested-image/software-certification-input.json \
+            --expected-commit "$TESTED_SHA" \
+            --expected-workflow-run "$TEST_RUN_ID" \
+            --expected-workflow-attempt "$TEST_RUN_ATTEMPT" \
+            --image-ref sentinel-authorized:ci
           certified_at="$(date -u +'%Y-%m-%dT%H:%M:%SZ')"
           python tools/sentinel_ci_certification_manifest.py finalize \
             --input /tmp/sentinel-tested-image/software-certification-input.json \
