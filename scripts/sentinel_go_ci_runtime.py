@@ -173,18 +173,38 @@ def _runtime_identity(runner: go.CommandRunner, local_id: str) -> str:
     return identity
 
 
-def _certified_pass_count(client: verifier.GitHubReadClient, *, commit: str) -> int:
-    publication = verifier._publication_run(client, commit)
+def _certified_pass_count(client: verifier.GitHubReadClient, *,
+                          result: Mapping[str, Any]) -> int:
+    """Read the count only from the exact publication already verified above."""
+    try:
+        commit = str(result["source_commit"])
+        tree = str(result["source_tree"])
+        publication = {
+            "id": int(result["publication_workflow_run"]),
+            "run_attempt": int(result["publication_workflow_attempt"]),
+        }
+    except (KeyError, TypeError, ValueError) as exc:
+        raise CIRuntimeRefused("verified CI result has incomplete publication identity") from exc
+
     artifact = verifier._publication_artifact(client, publication, commit)
     archive = verifier._download_artifact(client, artifact)
     members = verifier._bundle_members(archive)
+    verifier._verify_sums(members)
     manifest = verifier._json_bytes(
-        members["certification.json"], code="CERT_MANIFEST_SCHEMA_UNKNOWN",
-        label="certification manifest")
+        members["certification.json"], "CERT_MANIFEST_SCHEMA_UNKNOWN",
+        "certification manifest")
+    binding = verifier._verify_manifest(manifest, commit, tree, publication)
+    ci = binding.get("ci") if isinstance(binding, dict) else None
+    if (binding.get("digest") != result.get("image_digest")
+            or not isinstance(ci, dict)
+            or ci.get("test_workflow_run") != result.get("test_workflow_run")
+            or ci.get("test_workflow_attempt") != result.get("test_workflow_attempt")):
+        raise CIRuntimeRefused(
+            "test-count artifact differs from the verified CI certification")
     tests = manifest.get("tests") if isinstance(manifest, dict) else None
     counts = tests.get("required_counts") if isinstance(tests, dict) else None
     value = counts.get("passed") if isinstance(counts, dict) else None
-    if not isinstance(value, int) or value <= 0:
+    if type(value) is not int or value <= 0:
         raise CIRuntimeRefused("verified CI certificate has no positive test count")
     return value
 
@@ -239,7 +259,7 @@ def certify_from_ci(runner: go.CommandRunner, *, git: go.GitIdentity,
     try:
         result = verifier.verify_current(
             root=go.ROOT, commit=git.commit, client=client)
-        passed_tests = _certified_pass_count(client, commit=git.commit)
+        passed_tests = _certified_pass_count(client, result=result)
         immutable_ref = str(result.get("certified_image") or "")
         registry_digest = str(result.get("image_digest") or "")
         local_id = _ensure_exact_image(
