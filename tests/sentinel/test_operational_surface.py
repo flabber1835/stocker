@@ -79,12 +79,13 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "permissions:\n  contents: read" in workflow
     assert "actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683" \
         in workflow
-    assert "-f Dockerfile.sentinel -t sentinel:latest ." in workflow
-    assert "Dockerfile.sentinel-authorized" in workflow
-    assert "sentinel-authorized:ci" in workflow
+    assert "Dockerfile.sentinel" in workflow
+    assert "-t sentinel:ci -t sentinel:latest" in workflow
+    assert "Dockerfile.sentinel-authorized" not in workflow
+    assert "sentinel-authorized:ci" not in workflow
     assert "-f Dockerfile.sentinel-test -t sentinel-test:ci" in workflow
-    assert "SENTINEL_IMAGE=sentinel-authorized:ci" in workflow
-    assert workflow.count('--build-arg SOURCE_GIT_SHA="${TESTED_SHA}"') == 3
+    assert "SENTINEL_IMAGE=sentinel:ci" in workflow
+    assert workflow.count('--build-arg SOURCE_GIT_SHA="${TESTED_SHA}"') == 2
     assert 'TESTED_SHA="$(git rev-parse HEAD)"' in workflow
     assert "tests/sentinel -q -ra" in workflow
     assert "tee /tmp/sentinel-complete.txt" in workflow
@@ -136,7 +137,7 @@ def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
     for variable in ("tree_hash", "GITHUB_RUN_ID", "dependency_lock_hash",
                      "runtime_digest", "test_manifest_hash"):
         assert f'"${variable}"' in workflow
-    assert 'printf \'%s\\n\' "$TESTED_SHA"' in workflow
+    assert "printf '%s\\n' \"$TESTED_SHA\"" in workflow
     assert "git rev-list --parents -n 1 HEAD" in workflow
     assert 'if [ "$parent_count" -ne 2 ]' in workflow
     assert "pull-request checkout is not a synthetic merge commit" in workflow
@@ -155,16 +156,17 @@ def test_main_push_runs_exact_sha_safety_and_branch_coverage():
     assert "coverage report --precision=2 --fail-under=80.00" in workflow
     for evidence in (
             "source tree", "workflow run", "dependency locks",
-            "authorized image", "test manifest", "schema epoch",
+            "runtime image", "test manifest", "schema epoch",
             "semantic epoch"):
         assert evidence in workflow
 
 
-def test_publication_persists_verifiable_provenance_before_authorized_tag():
+def test_publication_persists_verifiable_provenance_before_runtime_tag():
     safety = _read(".github/workflows/sentinel-safety.yml")
     publication = _read(".github/workflows/sentinel-publish.yml")
 
-    assert "sha256sum sentinel-authorized.tar COMMIT > SHA256SUMS" in safety
+    assert "sha256sum sentinel-runtime.tar COMMIT > SHA256SUMS" in safety
+    assert "sentinel-authorized.tar" not in safety
     assert "sha256sum /tmp/sentinel-tested-image" not in safety
     assert "actions/attest-build-provenance@e8998f949152b193b063cb0ec769d69d929409be" \
         in publication
@@ -193,6 +195,7 @@ def test_publication_persists_verifiable_provenance_before_authorized_tag():
         in publication
     assert "sha256sum /tmp/sentinel-provenance" not in publication
     assert "ACTIONS_ID_TOKEN_REQUEST" not in publication
+    assert "sentinel-authorized" not in publication
 
     local = publication.index('docker push "$local_tag"')
     attested = publication.index("uses: actions/attest-build-provenance@")
@@ -245,9 +248,6 @@ def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
         assert f"-q -ra 2>&1 | tee {log}" in workflow
     assert workflow.count("[0-9]+ skipped") == 1
 
-    # The gate is intentionally specific to ordinary skips. Strict xfails are
-    # reported by pytest's -ra summary and remain visible certification debt;
-    # the word "xfailed" must not be misclassified as an ordinary skip.
     skip_summary = re.compile(r"(^|, )[0-9]+ skipped(,| in |$)")
     assert skip_summary.search("1865 passed, 1 skipped in 10.0s")
     assert skip_summary.search("1 skipped in 1.0s")
