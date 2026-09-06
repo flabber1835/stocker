@@ -1,0 +1,164 @@
+name: Champion full-capacity offline report
+run-name: Champion full-capacity offline evidence - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-certification-economic-integrity]
+    paths: ['.github/workflows/champion-full-capacity-offline-report.yml']
+  workflow_dispatch:
+permissions:
+  contents: write
+  actions: read
+concurrency:
+  group: champion-full-capacity-offline-report-${{ github.ref }}
+  cancel-in-progress: false
+jobs:
+  report:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    steps:
+      - name: Exact audit reporter
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: audit-src
+          fetch-depth: 1
+          filter: blob:none
+          sparse-checkout: backtester/champion_full_capacity_report.py
+      - name: Immutable validated prefix and original paths
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 14ba19b7ec26201d65de271a7b35556b2c6bb95b
+          path: evidence-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/champion-economic-integrity/evidence
+      - name: Exact historical reporting function
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: backtester/run_research_ldrc_nonpit_vs_fullpit.py
+      - name: Pinned runtime dependency lock
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: runtime-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: sentinel/requirements.lock
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Verify baseline bytes and reproduce all original metric rows
+        run: |
+          set -euo pipefail
+          test "$(git -C audit-src rev-parse HEAD)" = "${GITHUB_SHA}"
+          python -m pip install --require-hashes -r runtime-src/sentinel/requirements.lock
+          mkdir -p full-capacity-publication/report
+          python - <<'PY'
+          import hashlib,json,pathlib
+          root=pathlib.Path('evidence-src/research/champion-economic-integrity/evidence')
+          data=(root/'MANIFEST.json').read_bytes()
+          assert hashlib.sha256(data).hexdigest()=='b1c0f06a586c2b91a6af4c8e56cc6f49983887ac8929e7c5183533a8060b940a'
+          for name,item in json.loads(data)['files'].items():
+              assert hashlib.sha256((root/name).read_bytes()).hexdigest()==item['sha256'],name
+          PY
+          python audit-src/backtester/champion_full_capacity_report.py \
+            --original evidence-src/research/champion-economic-integrity/evidence/original-paths/certified \
+            --metrics-source certified-src/backtester/run_research_ldrc_nonpit_vs_fullpit.py \
+            --output full-capacity-publication/report
+      - name: Observe the already-running full control; do not rerun it
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json,os,pathlib,time,urllib.request
+          root=pathlib.Path('full-capacity-publication')
+          def api(suffix):
+              req=urllib.request.Request('https://api.github.com/repos/flabber1835/stocker/actions/runs/34044640055'+suffix,headers={'Authorization':'Bearer '+os.environ['GH_TOKEN'],'Accept':'application/vnd.github+json'})
+              with urllib.request.urlopen(req,timeout=60) as response: return json.load(response)
+          for attempt in range(360):
+              run=api('')
+              assert run['head_sha']=='9924bfa5b36322a5bf78296f42544eaa175299d8' and run['run_attempt']==1
+              if run['status']=='completed': break
+              if attempt%6==0: print('Existing control status:',run['status'],flush=True)
+              time.sleep(20)
+          else: raise RuntimeError('Bounded wait ended; existing control remains unmodified')
+          jobs=api('/jobs'); artifacts=api('/artifacts')
+          for name,data in [('run.json',run),('jobs.json',jobs),('artifacts.json',artifacts)]:
+              (root/name).write_text(json.dumps(data,indent=2,sort_keys=True)+'\n')
+          step=next(s for j in jobs['jobs'] for s in j['steps'] if s['name']=='Run full-horizon one-factor capacity-off control')
+          matches=[a for a in artifacts['artifacts'] if a['name']=='champion-full-capacity-off-34044640055-1']
+          assert len(matches)==1 and not matches[0]['expired']
+          ready=step['conclusion']=='success'
+          (root/'observation-status.json').write_text(json.dumps({'control_run_id':34044640055,'raw_replay_step_conclusion':step['conclusion'],'overall_workflow_conclusion':run['conclusion'],'economic_replay_restarted':False,'ready_for_offline_validation':ready},indent=2)+'\n')
+          with open(os.environ['GITHUB_ENV'],'a') as env: env.write('CONTROL_READY='+('1' if ready else '0')+'\n')
+          PY
+      - name: Retain original full-control outputs
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34044640055
+          name: champion-full-capacity-off-34044640055-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: full-capacity-publication/raw
+      - name: Validate and report the retained one-factor result
+        if: env.CONTROL_READY == '1'
+        run: |
+          set -euo pipefail
+          python audit-src/backtester/champion_full_capacity_report.py \
+            --original evidence-src/research/champion-economic-integrity/evidence/original-paths/certified \
+            --metrics-source certified-src/backtester/run_research_ldrc_nonpit_vs_fullpit.py \
+            --prefix evidence-src/research/champion-economic-integrity/evidence/bounded-prefix \
+            --control full-capacity-publication/raw/controlled \
+            --output full-capacity-publication/report
+      - name: Record result or preserved failure and bind bytes
+        if: always()
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json,os,pathlib,shutil
+          root=pathlib.Path('full-capacity-publication');root.mkdir(exist_ok=True)
+          shutil.copy2('audit-src/backtester/champion_full_capacity_report.py',root/'champion_full_capacity_report.py')
+          report=root/'report/FULL_CAPACITY_ATTRIBUTION.json'
+          status=json.loads(report.read_text())['status'] if report.exists() else 'FULL_CAPACITY_RESULT_NOT_VALIDATED_SEE_RETAINED_FAILURE'
+          (root/'STATUS.md').write_text('# Full-capacity diagnostic checkpoint\n\nStatus: '+status+'\n\nOriginal controlled run: https://github.com/flabber1835/stocker/actions/runs/34044640055\n\nOffline report run: https://github.com/flabber1835/stocker/actions/runs/'+os.environ['GITHUB_RUN_ID']+'\n\nCertification remains HOLD / outcome E. No historical replay was started or repeated by this reporting workflow.\n')
+          manifest={'schema':'champion.full-capacity-publication/1','report_source_sha':os.environ['GITHUB_SHA'],'report_run_id':os.environ['GITHUB_RUN_ID'],'control_run_id':34044640055,'status':status,'files':{}}
+          for p in sorted(root.rglob('*')):
+              if p.is_file() and p.name!='MANIFEST.json': manifest['files'][str(p.relative_to(root))]={'sha256':hashlib.sha256(p.read_bytes()).hexdigest(),'size_bytes':p.stat().st_size}
+          (root/'MANIFEST.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f: f.write('# Full-capacity offline attribution\n\n'+status+'\n\nEconomic certification remains on hold.\n')
+          PY
+      - name: Persist isolated diagnostic evidence
+        if: always()
+        run: |
+          set -euo pipefail
+          BRANCH=research/champion-certification-economic-integrity
+          test "${GITHUB_REF_NAME}" = "${BRANCH}"
+          git -C audit-src fetch origin "refs/heads/${BRANCH}"
+          git -C audit-src worktree add --detach "${GITHUB_WORKSPACE}/publish-src" FETCH_HEAD
+          DEST=publish-src/research/champion-economic-integrity/full-capacity-control
+          mkdir -p "${DEST}"
+          cp -a full-capacity-publication/. "${DEST}/"
+          cd publish-src
+          git add research/champion-economic-integrity/full-capacity-control
+          test "$(git diff --cached --name-only | grep -vc '^research/champion-economic-integrity/full-capacity-control/' || true)" = 0
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git commit -m 'audit: retain full-capacity raw evidence and independent reporting status'
+          git push origin "HEAD:refs/heads/${BRANCH}"
+      - name: Preserve publication artifact
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-full-capacity-report-${{ github.run_id }}-${{ github.run_attempt }}
+          path: full-capacity-publication/
+          retention-days: 90
+          if-no-files-found: error
