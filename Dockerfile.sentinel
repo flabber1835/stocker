@@ -54,7 +54,8 @@ COPY sentinel/ /app/sentinel/
 # helper and frozen corrected-lineage tape in this same immutable runtime so a
 # NAS validating a CI-certified commit never needs a second deployable/test
 # image. The diagnostic has no execution/broker imports and persists no state.
-COPY tools/__init__.py tools/sentinel_forward_chain.py /app/tools/
+COPY tools/__init__.py /app/tools/__init__.py
+COPY tools/sentinel_forward_chain.py /app/tools/sentinel_forward_chain.py
 COPY docs/sentinel-reference-implementation/ \
      /app/docs/sentinel-reference-implementation/
 
