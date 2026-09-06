@@ -1,0 +1,123 @@
+name: Research Champion - SPY IWM independent five-year launch
+run-name: RESEARCH NOT CERTIFIED - SPY IWM lifecycle-correct fresh5 - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-spy-iwm-risk-observers]
+    paths:
+      - '.github/workflows/champion-spy-iwm-fresh-launch.yml'
+      - 'backtester/research_champion_spy_iwm_fresh_launch.py'
+      - 'tests/backtester/test_research_champion_spy_iwm_fresh_launch.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+jobs:
+  fresh5:
+    name: RESEARCH NOT CERTIFIED - fresh5 with prior lifecycle - 83 arms
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    env:
+      PYTHONUNBUFFERED: '1'
+      PIT_OFFICIAL_BACKTEST: '0'
+      CERTIFICATION_WARMUP_START: '2006-01-03'
+      CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+      CERTIFICATION_END_SESSION: '2026-07-31'
+      OUT: observer-fresh-launch/fresh5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/**
+            /tests/backtester/test_research_champion_best_effort_classification.py
+            /tests/backtester/test_research_champion_corrected_classification.py
+            /tests/backtester/test_research_terminal_lifecycle.py
+            /tests/backtester/test_research_champion_spy_iwm_observers.py
+            /tests/backtester/test_research_champion_spy_iwm_fresh_launch.py
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/strategy9-e3-broad-stability/**
+            /research/champion-spy-iwm-risk-observers/**
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Bind source runtime and immutable ledgers
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = refs/heads/research/champion-spy-iwm-risk-observers
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          (cd backtester/data && sha256sum -c champion-best-effort-security-types-v1.SHA256)
+          test "$(sha256sum backtester/data/champion-historical-security-type-corrections-v1.csv | cut -d' ' -f1)" = 30f1e7223bc088714e4ee17b131f90da61bcbaf0684bfcb9c3331c9d1bc06db3
+          mkdir -p "${OUT}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
+          git rev-parse HEAD > "${OUT}/experiment-source-sha.txt"
+          git -C main-src rev-parse HEAD > "${OUT}/runtime-source-sha.txt"
+          cp backtester/data/champion-spy-iwm-observer-inputs-v1.json "${OUT}/observer-input-pointer.json"
+          cp backtester/data/canonical-pit-20y.json "${OUT}/canonical-input-pointer.json"
+      - name: Install frozen dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip freeze > "${OUT}/runtime-packages.txt"
+      - name: Regression falsifiers and fresh launch assembly
+        run: |
+          set -euo pipefail
+          test -z "${OBSERVER_ASSEMBLY_WITNESS:-}"
+          python -m unittest tests.backtester.test_research_champion_best_effort_classification tests.backtester.test_research_champion_corrected_classification tests.backtester.test_research_terminal_lifecycle -v 2>&1 | tee "${OUT}/baseline-tests.log"
+          python -m unittest tests.backtester.test_research_champion_spy_iwm_observers tests.backtester.test_research_champion_spy_iwm_fresh_launch -v 2>&1 | tee "${OUT}/observer-lifecycle-tests.log"
+          python backtester/research_champion_spy_iwm_fresh_launch.py --output "${OUT}/assembly" --mode fresh5 --self-test | tee "${OUT}/assembly.json"
+      - name: Authenticate canonical and observer packages
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          PACKAGE=$(python -c "import json; print(json.load(open('backtester/data/canonical-pit-20y.json'))['package'])")
+          test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "${cid}:/canonical-pit/." canonical-pit/
+          docker rm "${cid}"; trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer backtester/data/canonical-pit-20y.json --dataset canonical-pit > "${OUT}/canonical-package-integrity.json"
+          PACKAGE=$(python -c "import json; print(json.load(open('backtester/data/champion-spy-iwm-observer-inputs-v1.json'))['package'])")
+          test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p observer-data
+          docker cp "${cid}:/observer-data/." observer-data/
+          python -c "from pathlib import Path; from backtester.research_champion_spy_iwm_observers import verify_inputs; print(verify_inputs(Path('observer-data')))"
+      - name: Run independent five-year chronological experiment
+        run: |
+          set -euo pipefail
+          python backtester/research_champion_spy_iwm_fresh_launch.py --output "${OUT}" --mode fresh5 --input-root observer-data 2>&1 | tee "${OUT}/replay.log"
+          cat "${OUT}/OBSERVER_REPORT.md" >> "${GITHUB_STEP_SUMMARY}"
+          cat "${OUT}/fresh-launch-state.json"
+          cat "${OUT}/prewarm-lifecycle-state.json"
+      - name: Upload independently initialized replay evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-spy-iwm-fresh-launch-${{ github.run_id }}-${{ github.run_attempt }}
+          path: observer-fresh-launch/fresh5/
+          retention-days: 90
+          if-no-files-found: error
