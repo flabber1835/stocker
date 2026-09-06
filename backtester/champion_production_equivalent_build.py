@@ -1,16 +1,17 @@
 #!/usr/bin/env python3
 """Build and probe the final Production-equivalent Champion program.
 
-This command deliberately does **not** execute the 20-year replay.  It produces
+This command deliberately does **not** execute the 20-year replay. It produces
 an exact generated source artifact and a machine-readable source-probe report.
-The performance runner remains gated until this build is independently green.
+Because no market rows are consumed here, corpus identity is verified from the
+immutable formal package pointer; the full GHCR package is pulled and verified
+only by the actual replay workflow.
 """
 from __future__ import annotations
 
 import argparse
 import hashlib
 import json
-import os
 from pathlib import Path
 import subprocess
 
@@ -19,6 +20,9 @@ from backtester.production_equivalent_economic_overlay import install, assert_co
 from backtester.champion_economic_prefix_audit import (
     EXPECTED_CORPUS, PROFILE, PROFILE_HASH, RUNTIME, SOURCE,
 )
+
+EXPECTED_PACKAGE = "ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c"
+DEFAULT_POINTER = Path(__file__).resolve().parent / "data/canonical-pit-20y.json"
 
 
 def digest(data: bytes) -> str:
@@ -29,6 +33,7 @@ def main() -> int:
     p = argparse.ArgumentParser(description=__doc__)
     p.add_argument("--candidate-root", required=True, type=Path)
     p.add_argument("--output", required=True, type=Path)
+    p.add_argument("--pointer", type=Path, default=DEFAULT_POINTER)
     args = p.parse_args()
 
     out = args.output.resolve()
@@ -36,19 +41,19 @@ def main() -> int:
     engine = out / "engine-build"
     engine.mkdir()
 
-    # The source builder is an audit branch layered on the frozen formal and
-    # candidate source identities.  We verify the candidate checkout exactly;
-    # the current audit head is separately recorded rather than pretending to
-    # equal the old formal source commit.
     candidate = subprocess.check_output(
         ["git", "-C", str(args.candidate_root), "rev-parse", "HEAD"], text=True
     ).strip()
     if candidate != SOURCE["candidate"]:
         raise RuntimeError(f"candidate source pin mismatch: {candidate}")
 
-    manifest = json.loads((Path(os.environ["CANONICAL_PIT_DATASET"]) / "manifest.json").read_text())
-    if manifest.get("dataset_hash") != EXPECTED_CORPUS:
+    pointer = json.loads(args.pointer.read_text())
+    if pointer.get("status") != "PASS":
+        raise RuntimeError("canonical PIT pointer is not PASS")
+    if pointer.get("dataset_hash") != EXPECTED_CORPUS:
         raise RuntimeError("canonical corpus identity mismatch")
+    if pointer.get("package") != EXPECTED_PACKAGE:
+        raise RuntimeError("canonical PIT package identity mismatch")
 
     baseline, capacity_off, prior = control.build_source(engine, args.candidate_root)
     if "_research_capacity_guard(" in capacity_off:
@@ -63,7 +68,7 @@ def main() -> int:
 
     audit_head = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip()
     report = {
-        "schema": "champion.production-equivalent-source-build/1",
+        "schema": "champion.production-equivalent-source-build/2",
         "status": "PASS_SOURCE_BUILD_NO_REPLAY",
         "audit_head": audit_head,
         "formal_source_sha": SOURCE["certified"],
@@ -72,6 +77,8 @@ def main() -> int:
         "profile": PROFILE,
         "profile_sha256": PROFILE_HASH,
         "corpus_hash": EXPECTED_CORPUS,
+        "corpus_package": EXPECTED_PACKAGE,
+        "corpus_identity_source": "IMMUTABLE_FORMAL_PACKAGE_POINTER_NO_DATA_ROWS_CONSUMED",
         "capacity_participation_cap": None,
         "dividend_accrual_precedes_open_equity": final.index("receivables.append") < final.index("open_eq,_=book.equity(opraw)"),
         "dividend_lag_sessions": 1,
@@ -86,11 +93,15 @@ def main() -> int:
             "production_equivalent": digest(final.encode()),
         },
     }
-    if not report["dividend_accrual_precedes_open_equity"] or report["cumulative_terminal_retirement_present"] or report["hard_abort_missing_mark_present"] or not report["final_truth_classifier_present"]:
+    if (not report["dividend_accrual_precedes_open_equity"]
+            or report["cumulative_terminal_retirement_present"]
+            or report["hard_abort_missing_mark_present"]
+            or not report["final_truth_classifier_present"]):
         raise RuntimeError(f"source probe mismatch: {report}")
     (out / "SOURCE_PROBES.json").write_text(json.dumps(report, indent=2, sort_keys=True) + "\n")
     (out / "SHA256.json").write_text(json.dumps({
-        p.name: digest(p.read_bytes()) for p in sorted(out.iterdir()) if p.is_file() and p.name != "SHA256.json"
+        p.name: digest(p.read_bytes()) for p in sorted(out.iterdir())
+        if p.is_file() and p.name != "SHA256.json"
     }, indent=2, sort_keys=True) + "\n")
     print(json.dumps(report, sort_keys=True), flush=True)
     return 0
