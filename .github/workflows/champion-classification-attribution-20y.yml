@@ -94,7 +94,7 @@ jobs:
           POINTER=backtester/data/canonical-pit-20y.json
           PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
           test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
-          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           docker pull "${PACKAGE}"
           cid=$(docker create "${PACKAGE}" /bin/true)
           trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
