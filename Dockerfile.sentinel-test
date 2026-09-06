@@ -9,9 +9,6 @@ FROM ${SENTINEL_IMAGE}
 ARG SOURCE_GIT_SHA=unknown
 LABEL org.opencontainers.image.revision=${SOURCE_GIT_SHA}
 
-# The deployable parent intentionally drops root. This derivative needs root
-# only to install PostgreSQL/git/test tooling; the production runtime remains
-# non-root.
 USER root
 
 RUN apt-get update \
@@ -27,8 +24,6 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
 WORKDIR /work
 COPY tests/ /work/tests/
 COPY tools/ /work/tools/
-# Selected invocation producers are importable by tests. The complete scripts
-# tree remains inspection-only below /work/repo.
 COPY scripts/sentinel_feed_gate.py /work/scripts/sentinel_feed_gate.py
 COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py
@@ -37,9 +32,6 @@ COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh
 COPY scripts/ /work/repo/scripts/
 COPY tools/ /work/repo/tools/
 
-# Inspection-only repository surfaces. /work/repo is deliberately absent from
-# PYTHONPATH so tests execute /app/sentinel and installed shared code from the
-# actual runtime image.
 COPY docs/sentinel-handoff/00_README/ /work/docs/sentinel-handoff/00_README/
 COPY docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/ /work/docs/sentinel-handoff/02_SENTINEL_1P1_FROZEN_ORACLE/
 COPY docs/sentinel-handoff/04_BREADTH_ORACLES/ /work/docs/sentinel-handoff/04_BREADTH_ORACLES/
@@ -49,6 +41,7 @@ COPY docs/sentinel-reference-implementation/ /work/docs/sentinel-reference-imple
 COPY sentinel/ /work/repo/sentinel/
 COPY shared/ /work/repo/shared/
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
+COPY Dockerfile.sentinel-authorized /work/repo/Dockerfile.sentinel-authorized
 COPY deploy/sentinel-authorized-runtime-v1 /work/repo/deploy/sentinel-authorized-runtime-v1
 COPY docker-compose.sentinel.yml /work/repo/docker-compose.sentinel.yml
 COPY docker-compose.sentinel-automation.yml /work/repo/docker-compose.sentinel-automation.yml
