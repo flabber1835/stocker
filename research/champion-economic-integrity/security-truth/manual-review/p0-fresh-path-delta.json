@@ -1,0 +1,537 @@
+{
+  "schema": "champion.security-truth-p0-fresh-path-delta/1",
+  "reviewed_on": "2026-09-06",
+  "branch": "research/champion-security-truth-p0-fresh-delta",
+  "base_branch": "research/champion-security-truth-held-pending-integration",
+  "base_head": "5b9d9ea2e378044f49d217fe311b36b45c73124c",
+  "classification_contract": "research/champion-economic-integrity/PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md",
+  "fresh_queue": "research/champion-economic-integrity/security-truth/audit-v2/34051269919-1/replay/controlled/fresh-path-open-review-queue.csv",
+  "fresh_p0_count": 84,
+  "prior_integrated_p0_count": 83,
+  "unchanged_supported_count": 73,
+  "new_review_required_count": 11,
+  "dropped_old_path_count": 10,
+  "fresh_full_coverage_count": 84,
+  "fresh_common_count": 84,
+  "fresh_non_common_count": 0,
+  "fresh_unresolved_type_count": 0,
+  "identity_hygiene_only_count": 5,
+  "outcome_information_used": false,
+  "economic_replay_run": false,
+  "new_security_ids": [
+    "752127607694153326",
+    "1112840042710916617",
+    "899932545079148879",
+    "902973650148541485",
+    "598818893906299772",
+    "141650404222899262",
+    "326864109633904206",
+    "619188589572857157",
+    "756342866994377362",
+    "53502595376597645",
+    "549611630133257860"
+  ],
+  "new_tickers": [
+    "ING",
+    "COR2",
+    "MRK",
+    "PIRRQ",
+    "INFY",
+    "SQM",
+    "COF",
+    "BPZRQ",
+    "KGC",
+    "JRCCQ",
+    "EAC1"
+  ],
+  "dropped_old_path_security_ids": [
+    "906755109876599247",
+    "110098224381990417",
+    "659896685009177378",
+    "430031587961498330",
+    "345679706151556113",
+    "803323372359949049",
+    "481857333199692347",
+    "450783074872735055",
+    "223489731780916334",
+    "572943415348500978"
+  ],
+  "dropped_old_path_tickers": [
+    "QIHU",
+    "SHOP",
+    "CCXI1",
+    "MMI1",
+    "SU",
+    "GPRO1",
+    "NBEVQ",
+    "KNX1",
+    "GOLLQ",
+    "CIG"
+  ],
+  "fresh_security_ids": [
+    "65658733308249266",
+    "752127607694153326",
+    "1095161666219760763",
+    "1112840042710916617",
+    "899932545079148879",
+    "675540632474526608",
+    "902973650148541485",
+    "154896406978425602",
+    "536212536103247696",
+    "63371714929571534",
+    "1101212501432953147",
+    "703152369925327464",
+    "598818893906299772",
+    "895750335155060927",
+    "718098875444344211",
+    "477008601146089039",
+    "214820292338870148",
+    "1101958128290731445",
+    "195747320659443536",
+    "957872957798018388",
+    "336647136488669274",
+    "141650404222899262",
+    "852684403524489499",
+    "875803280520331787",
+    "941818860792490502",
+    "912220778513772854",
+    "788900523736619527",
+    "107197818933519057",
+    "954034830355046974",
+    "553972112448702494",
+    "987448579336366373",
+    "732428359392320882",
+    "1146479794355908667",
+    "987873303793520110",
+    "1099247927332588244",
+    "117908596615035418",
+    "298004721797953203",
+    "326864109633904206",
+    "74286179754649606",
+    "975954328887066480",
+    "716103535463544764",
+    "88378928586164151",
+    "1010636880544461391",
+    "118126593247876789",
+    "701739764192581803",
+    "437971714747413090",
+    "442251450194648145",
+    "907989354920106752",
+    "449719108232849215",
+    "530359455120985610",
+    "502221490776957978",
+    "813289731723060566",
+    "1040633074096912075",
+    "955633408933081375",
+    "295827892474952163",
+    "1101721561863743358",
+    "5689365313597871",
+    "551861565064769073",
+    "951444737711757802",
+    "816819956840135126",
+    "1025975490253483719",
+    "693180408510627827",
+    "619188589572857157",
+    "234488913323173693",
+    "416483318413645411",
+    "353685636371040898",
+    "301606049357818446",
+    "242312827585388125",
+    "522079657918750480",
+    "840588175708298328",
+    "985915492195814773",
+    "756342866994377362",
+    "304762952062850296",
+    "229177174933045805",
+    "794026657301614010",
+    "327333102048036914",
+    "53502595376597645",
+    "558144031790701315",
+    "549611630133257860",
+    "275516769506070811",
+    "36666266239592614",
+    "175647085019960977",
+    "117268708159146582",
+    "895182212221004918"
+  ],
+  "unchanged_supported_security_ids": [
+    "65658733308249266",
+    "1095161666219760763",
+    "675540632474526608",
+    "154896406978425602",
+    "536212536103247696",
+    "63371714929571534",
+    "1101212501432953147",
+    "703152369925327464",
+    "895750335155060927",
+    "718098875444344211",
+    "477008601146089039",
+    "214820292338870148",
+    "1101958128290731445",
+    "195747320659443536",
+    "957872957798018388",
+    "336647136488669274",
+    "852684403524489499",
+    "875803280520331787",
+    "941818860792490502",
+    "912220778513772854",
+    "788900523736619527",
+    "107197818933519057",
+    "954034830355046974",
+    "553972112448702494",
+    "987448579336366373",
+    "732428359392320882",
+    "1146479794355908667",
+    "987873303793520110",
+    "1099247927332588244",
+    "117908596615035418",
+    "298004721797953203",
+    "74286179754649606",
+    "975954328887066480",
+    "716103535463544764",
+    "88378928586164151",
+    "1010636880544461391",
+    "118126593247876789",
+    "701739764192581803",
+    "437971714747413090",
+    "442251450194648145",
+    "907989354920106752",
+    "449719108232849215",
+    "530359455120985610",
+    "502221490776957978",
+    "813289731723060566",
+    "1040633074096912075",
+    "955633408933081375",
+    "295827892474952163",
+    "1101721561863743358",
+    "5689365313597871",
+    "551861565064769073",
+    "951444737711757802",
+    "816819956840135126",
+    "1025975490253483719",
+    "693180408510627827",
+    "234488913323173693",
+    "416483318413645411",
+    "353685636371040898",
+    "301606049357818446",
+    "242312827585388125",
+    "522079657918750480",
+    "840588175708298328",
+    "985915492195814773",
+    "304762952062850296",
+    "229177174933045805",
+    "794026657301614010",
+    "327333102048036914",
+    "558144031790701315",
+    "275516769506070811",
+    "36666266239592614",
+    "175647085019960977",
+    "117268708159146582",
+    "895182212221004918"
+  ],
+  "invalidated_prior_closure_security_ids": [],
+  "previously_unresolved_now_type_closed_security_ids": [
+    "63371714929571534",
+    "718098875444344211",
+    "852684403524489499",
+    "1025975490253483719",
+    "895182212221004918"
+  ],
+  "previously_unresolved_now_type_closed_tickers": [
+    "FMX",
+    "HCR1",
+    "THOR1",
+    "UNTCQ",
+    "VTNRQ"
+  ],
+  "identity_hygiene_only_security_ids": [
+    "718098875444344211",
+    "852684403524489499",
+    "1025975490253483719",
+    "895182212221004918",
+    "619188589572857157"
+  ],
+  "identity_hygiene_only_tickers": [
+    "HCR1",
+    "THOR1",
+    "UNTCQ",
+    "VTNRQ",
+    "BPZRQ"
+  ],
+  "new_adjudications": [
+    {
+      "security_id": "752127607694153326",
+      "ticker": "ING",
+      "canonical_interval": [
+        "2006-10-17",
+        "2026-07-31"
+      ],
+      "cusips": [
+        "456837103"
+      ],
+      "classification": "common",
+      "legal_security_type": "ADS_REPRESENTING_ORDINARY_SHARES",
+      "identity_hygiene_status": "CLOSED_FOR_TYPE_PURPOSE",
+      "finding": "ING's NYSE security is an American Depositary Share/Receipt representing ING Groep ordinary shares; exact CUSIP 456837103 is reported as ING equity/ADR.",
+      "evidence": [
+        {
+          "url": "https://www.ing.com/MediaEditPage/US456837AK90-US456837AM56-US456837AL73-Prospectus-Supplement-to-Prospectus-dated-September-18-2018.htm",
+          "finding": "ING prospectus states its ADSs represent ordinary shares and trade on NYSE under ING."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1464332/000146433220000002/xslForm13F_X01/13f3-31-20.xml",
+          "finding": "SEC-filed 13F identifies ING Groep NV, CUSIP 456837103, as Common Stock."
+        }
+      ]
+    },
+    {
+      "security_id": "1112840042710916617",
+      "ticker": "COR2",
+      "canonical_interval": [
+        "2015-10-29",
+        "2021-12-27"
+      ],
+      "cusips": [
+        "21870Q105"
+      ],
+      "classification": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "identity_hygiene_status": "CLOSED",
+      "finding": "CoreSite Realty Corporation CUSIP 21870Q105 is explicitly common stock.",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1490892/000110465921153784/tm2136323d1_sc14d9a.htm",
+          "finding": "SEC Schedule 14D-9/A identifies CoreSite Realty Corporation COMMON STOCK, par value $0.01 per share, CUSIP 21870Q105."
+        }
+      ]
+    },
+    {
+      "security_id": "899932545079148879",
+      "ticker": "MRK",
+      "canonical_interval": [
+        "2016-06-29",
+        "2016-07-01"
+      ],
+      "cusips": [
+        "58933Y105",
+        "589331107"
+      ],
+      "classification": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "identity_hygiene_status": "HISTORICAL_PREDECESSOR_CUSIP_RETAINED",
+      "finding": "Both Merck identifiers in the aggregate history are independently reported as common stock; the short 2016 decision interval is therefore common.",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1014315/000114036126002617/xslForm13F_X02/informationtable.xml",
+          "finding": "SEC-filed 13F identifies MERCK & CO INC NEW, CUSIP 58933Y105, as com."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1608531/000160853119000001/xslForm13F_X01/inftable.xml",
+          "finding": "SEC-filed 13F identifies MERCK & CO INC, CUSIP 589331107, as COM."
+        }
+      ]
+    },
+    {
+      "security_id": "902973650148541485",
+      "ticker": "PIRRQ",
+      "canonical_interval": [
+        "2008-04-10",
+        "2017-05-11"
+      ],
+      "cusips": [
+        "720279108",
+        "720279504"
+      ],
+      "classification": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "identity_hygiene_status": "SUCCESSOR_CUSIP_PRESERVES_TYPE",
+      "finding": "Pier 1 CUSIP 720279108 is common stock during the canonical interval; successor CUSIP 720279504 is also explicitly common stock.",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1406585/000140658516000028/xslForm13F_X01/infoTable.xml",
+          "finding": "SEC-filed 13F identifies PIER 1 IMPORTS INC, CUSIP 720279108, as COM."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1512024/000106299319003337/xslForm13F_X01/form13fInfoTable.xml",
+          "finding": "SEC-filed 13F identifies PIER 1 IMPORTS INC COM NEW, CUSIP 720279504, as Common Stock."
+        }
+      ]
+    },
+    {
+      "security_id": "598818893906299772",
+      "ticker": "INFY",
+      "canonical_interval": [
+        "2006-07-05",
+        "2026-07-31"
+      ],
+      "cusips": [
+        "456788108"
+      ],
+      "classification": "common",
+      "legal_security_type": "SPONSORED_ADR_ON_EQUITY_SHARES",
+      "identity_hygiene_status": "CLOSED_FOR_TYPE_PURPOSE",
+      "finding": "CUSIP 456788108 is the Infosys sponsored ADR/ADS line; issuer voting records identify the underlying company shares as equity shares. The ADR is therefore common-equity equivalent under the contract.",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1054587/000119312526051460/xslForm13F_X02/50678.xml",
+          "finding": "SEC-filed 13F identifies INFOSYS LTD, CUSIP 456788108, as SPONSORED ADR."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1584433/000005193123000838/dwgi_npx.htm",
+          "finding": "SEC-filed proxy-voting record binds security ID 456788108 to Infosys Limited and an issuer proposal concerning Equity Shares."
+        }
+      ]
+    },
+    {
+      "security_id": "141650404222899262",
+      "ticker": "SQM",
+      "canonical_interval": [
+        "2008-04-14",
+        "2026-07-31"
+      ],
+      "cusips": [
+        "833635105"
+      ],
+      "classification": "common",
+      "legal_security_type": "ADS_REPRESENTING_SERIES_B_COMMON_STOCK",
+      "identity_hygiene_status": "CLOSED",
+      "finding": "SQM ADSs under CUSIP 833635105 represent Series B common stock. Issuer filings explicitly call both Series A and Series B shares common stock.",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/909037/000157587222000320/chm001_ex2-1.htm",
+          "finding": "Issuer Exhibit 2.1 states share capital consists of Series A common stock and Series B common stock."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/909037/000110465921041459/tm2110919d1_6k.htm",
+          "finding": "Issuer Form 6-K states each SQM ADS represents one share of Series B common stock."
+        }
+      ]
+    },
+    {
+      "security_id": "326864109633904206",
+      "ticker": "COF",
+      "canonical_interval": [
+        "2006-08-31",
+        "2006-09-14"
+      ],
+      "cusips": [
+        "14040H105"
+      ],
+      "classification": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "identity_hygiene_status": "CLOSED",
+      "finding": "Capital One Financial Corporation CUSIP 14040H105 is explicitly common stock.",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/200217/000119312524256964/d793801dsc13ga.htm",
+          "finding": "SEC Schedule 13G/A identifies Capital One Financial Corporation Common Stock, CUSIP 14040H105."
+        }
+      ]
+    },
+    {
+      "security_id": "619188589572857157",
+      "ticker": "BPZRQ",
+      "canonical_interval": [
+        "2008-03-26",
+        "2008-10-14"
+      ],
+      "cusips": [
+        "055639108",
+        "63934Q101",
+        "63934Q309"
+      ],
+      "classification": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "identity_hygiene_status": "STALE_UNRELATED_AND_UNBOUND_AGGREGATE_CUSIPS",
+      "finding": "Decision-period BPZ Resources CUSIP 055639108 is common stock. Aggregate CUSIP 63934Q101 is authoritatively tied to unrelated Navidec, Inc.; 63934Q309 remains unbound in this review. These are identity-hygiene defects and do not alter the type of the bound decision-period BPZ security.",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1081019/000108101913000013/xslForm13F_X01/13f_0913formatted.xml",
+          "finding": "SEC-filed 13F identifies BPZ RESOURCES INC, CUSIP 055639108, as COMMON STOCK."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/1012084/000093583601500101/nvdi13g.htm",
+          "finding": "SEC Schedule 13G identifies CUSIP 63934Q101 as Navidec, Inc. Common Stock, proving that aggregate identifier is unrelated to BPZ."
+        }
+      ]
+    },
+    {
+      "security_id": "756342866994377362",
+      "ticker": "KGC",
+      "canonical_interval": [
+        "2006-08-11",
+        "2026-07-31"
+      ],
+      "cusips": [
+        "496902404",
+        "496902107",
+        "496902206"
+      ],
+      "classification": "common",
+      "legal_security_type": "COMMON_SHARES",
+      "identity_hygiene_status": "HISTORICAL_PREDECESSOR_CUSIPS_RETAINED",
+      "finding": "Kinross Gold's continuing listed equity is common shares; exact current CUSIP 496902404 is explicitly common shares. No security-class transition was found across the canonical episode; older aggregate identifiers are retained as identity history.",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/701818/000086917819000086/schedule13g.htm",
+          "finding": "SEC Schedule 13G identifies Kinross Gold Corp COMMON SHARES, CUSIP 496902404."
+        },
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/701818/000205211325001414/xslSCHEDULE_13G_X01/primary_doc.xml",
+          "finding": "Later SEC Schedule 13G independently identifies Kinross Gold Corp Common Stock, CUSIP 496902404."
+        }
+      ]
+    },
+    {
+      "security_id": "53502595376597645",
+      "ticker": "JRCCQ",
+      "canonical_interval": [
+        "2008-03-10",
+        "2012-11-12"
+      ],
+      "cusips": [
+        "470355207"
+      ],
+      "classification": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "identity_hygiene_status": "CLOSED",
+      "finding": "James River Coal Company CUSIP 470355207 is explicitly common stock.",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/80255/000008025513000607/xslForm13F_X01/infotable.xml",
+          "finding": "SEC-filed 13F identifies JAMES RIVER COAL COMPANY, CUSIP 470355207, as COMM STK."
+        }
+      ]
+    },
+    {
+      "security_id": "549611630133257860",
+      "ticker": "EAC1",
+      "canonical_interval": [
+        "2007-01-26",
+        "2010-03-09"
+      ],
+      "cusips": [
+        "29255W100"
+      ],
+      "classification": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "identity_hygiene_status": "CLOSED",
+      "finding": "Encore Acquisition Co CUSIP 29255W100 is explicitly common stock.",
+      "evidence": [
+        {
+          "url": "https://www.sec.gov/Archives/edgar/data/49205/000004920518000004/xslForm13F_X01/QTR32018_13F_HR.xml",
+          "finding": "SEC-filed 13F identifies ENCORE ACQUISITION CO, CUSIP 29255W100, as COMMON STOCK."
+        }
+      ]
+    }
+  ],
+  "coverage_validation": {
+    "fresh_p0_rows": 84,
+    "covered_by_retained_factual_evidence": 73,
+    "covered_by_new_delta_evidence": 11,
+    "uncovered_security_ids": [],
+    "all_fresh_p0_rows_covered": true,
+    "all_new_adjudications_have_evidence": true,
+    "all_new_adjudications_outcome_information_used": false
+  }
+}
