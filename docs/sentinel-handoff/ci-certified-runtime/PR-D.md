@@ -14,7 +14,7 @@ Broker activity still requires explicit command invocation plus the existing run
 
 `Dockerfile.sentinel-authorized` is retained only as a fail-closed tombstone with no build stage so stale automation cannot silently create a second runtime. It is not a runtime image definition.
 
-`Dockerfile.sentinel-test` is a CI-only test lens layered on the one production image. It is not deployable.
+`Dockerfile.sentinel-test` is a CI-only test lens layered on the one production image. It is not deployable and does not represent a second runtime architecture.
 
 ## Layer contract
 
