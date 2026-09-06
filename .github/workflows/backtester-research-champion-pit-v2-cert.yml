@@ -79,6 +79,7 @@ jobs:
           sparse-checkout: |
             sentinel
             shared
+            docs/sentinel-handoff/00_README
 
       - name: Verify pinned runtime identity
         shell: bash
@@ -86,6 +87,7 @@ jobs:
           set -euo pipefail
           test "$(git -C main-src rev-parse HEAD)" = "${PIT_RUNTIME_MAIN_SHA}"
           test -z "$(git -C main-src status --porcelain)"
+          test -f main-src/docs/sentinel-handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json
           test -f services/backtester/app/__init__.py
           test -f tools/corpus_parity.py
           echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/services/backtester:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
