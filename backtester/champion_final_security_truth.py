@@ -112,6 +112,11 @@ def _parsed_intervals(case: dict, source: str) -> list[Interval]:
     if result:
         return result
     if decision in {"common", "non_common"}:
+        if case.get("canonical_interval") is None:
+            raise ValueError(
+                f"resolved case lacks canonical interval after parent recovery: "
+                f"{source} {sid} {ticker} {decision}"
+            )
         a, b = _canonical(case)
         return [Interval(a, b, decision, source, ticker)]
     raise ValueError(f"resolved case lacks executable intervals: {source} {sid} {ticker} {decision}")
@@ -125,10 +130,13 @@ def _cases(document: dict) -> Iterable[dict]:
 
 def _load() -> tuple[dict[str, list[Interval]], list[str]]:
     # Parent shards load first; cleanup files load last and replace the complete
-    # reviewed episode for their scoped IDs. Keep ticker->security_id bindings
-    # even for unresolved parent rows because some cleanup JSON is ticker-keyed.
+    # reviewed episode for their scoped IDs. Some cleanup artifacts are ticker-
+    # keyed and omit the canonical interval, so retain both security-id and
+    # unique-ticker bindings from the parent shards independently of whether the
+    # parent classification itself was unresolved.
     ledger: dict[str, list[Interval]] = {}
     ticker_to_sid: dict[str, str] = {}
+    ticker_to_canonical: dict[str, tuple[str, str]] = {}
     sources: list[str] = []
     for filename in SOURCE_FILES:
         path = MANUAL / filename
@@ -151,22 +159,34 @@ def _load() -> tuple[dict[str, list[Interval]], list[str]]:
                 if not sid:
                     raise ValueError(f"cleanup case lacks security_id and parent binding: {filename} {ticker}")
                 case["security_id"] = sid
-                # Cleanup files may omit the interval because the parent row
-                # already defines it. Recover exactly that parent episode.
-                if "canonical_interval" not in case:
-                    parent = ledger.get(sid)
-                    if not parent:
-                        # The unresolved parent produced no executable interval;
-                        # recover its canonical interval from a second scan below.
-                        pass
-                    else:
-                        case["canonical_interval"] = [parent[0].first, parent[-1].last]
-            # Remember canonical intervals independently of classification so
-            # ticker-keyed cleanup rows can close previously unresolved parents.
-            if "canonical_interval" in case:
-                canonical_by_sid[sid] = _canonical(case)
-            if "canonical_interval" not in case and sid in canonical_by_sid:
-                case["canonical_interval"] = list(canonical_by_sid[sid])
+
+            # Remember canonical intervals independently of classification.
+            # Parent unresolved rows still define the exact episode that a
+            # higher-precedence cleanup closes.
+            if case.get("canonical_interval") is not None:
+                canonical = _canonical(case)
+                canonical_by_sid[sid] = canonical
+                if ticker:
+                    previous_canonical = ticker_to_canonical.get(ticker)
+                    if previous_canonical is not None and previous_canonical != canonical:
+                        raise ValueError(
+                            f"ambiguous ticker/canonical binding: {ticker} "
+                            f"{previous_canonical} {canonical}"
+                        )
+                    ticker_to_canonical[ticker] = canonical
+
+            # Cleanup files may omit canonical_interval even when they carry a
+            # security_id. Recover the parent episode first by exact security ID,
+            # then by the already-validated unique ticker binding. Never invent
+            # dates from evidence or market outcomes.
+            if case.get("canonical_interval") is None:
+                canonical = canonical_by_sid.get(sid)
+                if canonical is None and ticker:
+                    canonical = ticker_to_canonical.get(ticker)
+                if canonical is not None:
+                    case["canonical_interval"] = list(canonical)
+                    canonical_by_sid[sid] = canonical
+
             intervals = _parsed_intervals(case, filename)
             # An unresolved parent record is intentionally retained until its
             # later cleanup is read. It must never erase an earlier closure.
