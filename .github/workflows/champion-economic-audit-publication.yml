@@ -52,7 +52,8 @@ jobs:
           assert artifacts['artifacts'][0]['digest']=='sha256:25f80f5378348f6c500513f3c9ff0bf959909910c26a8c3789b1bd25bf948b5c'
           for name,data in [('bounded-run.json',run),('bounded-run-jobs.json',jobs),('artifacts-34042141867.json',artifacts)]:
               (out/name).write_text(json.dumps(data,indent=2,sort_keys=True)+'\n')
-          req=urllib.request.Request('https://api.github.com/repos/flabber1835/stocker/actions/jobs/101510713999/logs',headers={'Authorization':'Bearer '+os.environ['GH_TOKEN']})
+          req=urllib.request.Request('https://api.github.com/repos/flabber1835/stocker/actions/jobs/101510713999/logs')
+          req.add_unredirected_header('Authorization','Bearer '+os.environ['GH_TOKEN'])
           with urllib.request.urlopen(req,timeout=60) as response: logs=response.read()
           assert b"KeyError:" in logs and b"['shadow_equity', 'open_equity'] not in index" in logs
           (out/'bounded-run-original-job.log').write_bytes(logs)
