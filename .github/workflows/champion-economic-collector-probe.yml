@@ -1,0 +1,70 @@
+name: Champion economic integrity - collector claim fixture
+run-name: Champion collector claim fixture - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-certification-economic-integrity]
+    paths: ['.github/workflows/champion-economic-collector-probe.yml']
+  workflow_dispatch:
+permissions:
+  actions: read
+  contents: read
+jobs:
+  probe:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Audit reproducer
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: audit
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: backtester/champion_certification_claim_probe.py
+      - name: Exact certified collector
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: backtester/certify_backtest_result.py
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Original certificate identity
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          repository: flabber1835/stocker
+          run-id: 34014048220
+          name: research-champion-pit-v2-34014048220-1
+          github-token: ${{ secrets.GITHUB_TOKEN }}
+          path: original
+      - name: Reproduce assertion-only collector flags
+        run: |
+          set -euo pipefail
+          test "$(git -C audit rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C certified rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
+          python audit/backtester/champion_certification_claim_probe.py \
+            --source-file certified/backtester/certify_backtest_result.py \
+            --replay-evidence original/backtester-results/pit-v2/pit-replay-evidence.json \
+            --output collector-evidence/collector-claim-probe.json
+          python - <<'PY'
+          import hashlib,json,os,pathlib,sys
+          p=pathlib.Path('collector-evidence/collector-claim-probe.json')
+          data=json.loads(p.read_text()); assert data['execution_python']=='3.12.14'
+          manifest={'audit_source_sha':os.environ['GITHUB_SHA'],'run_id':os.environ['GITHUB_RUN_ID'],'scope':'COLLECTOR_UNIT_FIXTURE_NOT_FINALIZER_CERTIFICATION','files':{'collector-claim-probe.json':hashlib.sha256(p.read_bytes()).hexdigest()}}
+          (p.parent/'manifest.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('# Collector claim gap reproduced\n\nExact certified source and Python 3.12.14 returned financial/checkpoint PASS labels from two declaration files. No replay, checkpoint, ledger or final certification was executed. This passing fixture records the demonstrated evidence-coverage gap.\n')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: champion-collector-claim-${{ github.run_id }}-${{ github.run_attempt }}
+          path: collector-evidence/
+          retention-days: 90
+          if-no-files-found: error
