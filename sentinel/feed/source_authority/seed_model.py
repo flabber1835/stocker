@@ -6,7 +6,10 @@ from types import MappingProxyType
 from typing import Iterable, Mapping, Optional
 
 from stock_strategy_shared.wealth_core.eligibility import is_common_equity
-from .exception_data import _SEED_COVERAGE_EXCEPTION_ROWS
+from .exception_data import (
+    _SEED_COVERAGE_EXCEPTION_ROWS,
+    _SEED_TERMINAL_COVERAGE_EXCEPTION_ROWS,
+)
 from .dates import SourceAuthorityRefused
 
 
@@ -37,9 +40,23 @@ class SeedCoverageException:
     reason: str
 
 
+@dataclass(frozen=True)
+class SeedTerminalCoverageException:
+    session: str
+    permaticker: str
+    ticker: str
+    category: str
+    last_session: str
+    reason: str
+
+
 _EXCEPTION_REASON = (
     "reviewed Sharadar secondary-class unit source-onset sparsity around "
     "TICKERS firstpricedate"
+)
+_TERMINAL_EXCEPTION_REASON = (
+    "reviewed exchange-confirmed terminal no-trade session despite Sharadar "
+    "TICKERS lastpricedate"
 )
 
 
@@ -51,8 +68,17 @@ def _exception(session, permaticker, ticker, category, first_session,
         first_observed=first_observed, reason=_EXCEPTION_REASON)
 
 
-_SEED_COVERAGE_EXCEPTIONS = tuple(
-    _exception(*row) for row in _SEED_COVERAGE_EXCEPTION_ROWS
+def _terminal_exception(session, permaticker, ticker, category, last_session):
+    return SeedTerminalCoverageException(
+        session=session, permaticker=str(permaticker), ticker=ticker,
+        category=category, last_session=last_session,
+        reason=_TERMINAL_EXCEPTION_REASON)
+
+
+_SEED_COVERAGE_EXCEPTIONS = (
+    tuple(_exception(*row) for row in _SEED_COVERAGE_EXCEPTION_ROWS)
+    + tuple(_terminal_exception(*row)
+            for row in _SEED_TERMINAL_COVERAGE_EXCEPTION_ROWS)
 )
 SEED_COVERAGE_EXCEPTIONS = MappingProxyType({
     (item.session, item.permaticker): item
@@ -131,9 +157,20 @@ class SeedListingProjection:
                    for item in self.by_ticker.get(ticker.upper(), ()))
 
 
-def _exception_matches(exception: SeedCoverageException, *, session: str,
+def _exception_matches(exception, *, session: str,
                        listing: SeedListing,
                        first_observed: Optional[str]) -> bool:
+    if isinstance(exception, SeedTerminalCoverageException):
+        return (
+            exception.session == session
+            and exception.permaticker == listing.permaticker
+            and exception.ticker == listing.ticker
+            and exception.category == listing.category
+            and exception.last_session == listing.last_session
+            and exception.reason == _TERMINAL_EXCEPTION_REASON
+        )
+    if not isinstance(exception, SeedCoverageException):
+        return False
     return (
         exception.session == session
         and exception.permaticker == listing.permaticker
@@ -147,5 +184,6 @@ def _exception_matches(exception: SeedCoverageException, *, session: str,
 
 __all__ = [
     "SEED_COVERAGE_EXCEPTIONS", "SeedCoverageException", "SeedListing",
-    "SeedListingProjection", "_exception_matches",
+    "SeedListingProjection", "SeedTerminalCoverageException",
+    "_exception_matches",
 ]
