@@ -1,11 +1,5 @@
 #!/usr/bin/env python3
-"""Preflight the ordinary Sentinel runtime selected by Compose.
-
-Runtime promotion is intentionally *not* implemented in this generic selector.
-The only supported promotion path is ``scripts/sentinel_go_promote.py`` inside
-the locked GO lifecycle, because promotion is authority-bearing selection and
-must prove the exact ordinary image recorded by successful certification.
-"""
+"""Preflight the immutable Sentinel runtime selected by Compose."""
 from __future__ import annotations
 
 import argparse
@@ -22,6 +16,8 @@ from typing import Mapping, Sequence
 ROOT = Path(__file__).resolve().parents[1]
 POINTER = ROOT / "artifacts" / "sentinel" / "deployment" / "validated-runtime.env"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
+_IMMUTABLE_REF = re.compile(
+    r"^ghcr\.io/[A-Za-z0-9._/-]+@sha256:[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
 _ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
@@ -30,7 +26,7 @@ class RuntimeSelectionRefused(RuntimeError):
     pass
 
 
-def _run(argv: Sequence[str], *, env: Mapping[str, str] | None = None) -> subprocess.CompletedProcess:
+def _run(argv: Sequence[str], *, env: Mapping[str, str] = None) -> subprocess.CompletedProcess:
     return subprocess.run(
         [str(item) for item in argv], cwd=str(ROOT),
         env=dict(env) if env is not None else None,
@@ -40,21 +36,19 @@ def _run(argv: Sequence[str], *, env: Mapping[str, str] | None = None) -> subpro
 def _git(*args: str) -> str:
     result = _run(["git", *args])
     if result.returncode != 0:
-        raise RuntimeSelectionRefused(
-            "git %s failed" % " ".join(args))
+        raise RuntimeSelectionRefused("git %s failed" % " ".join(args))
     return (result.stdout or "").strip()
 
 
 def _refresh_origin_main() -> None:
-    """Refresh upstream immediately before promotion, closing the long-run TOCTOU."""
     result = _run(["git", "fetch", "--quiet", "origin", "main"])
     if result.returncode != 0:
         raise RuntimeSelectionRefused(
             "could not refresh origin/main immediately before runtime promotion")
 
 
-def _load_dotenv_literal(path: Path = ROOT / ".env") -> dict[str, str]:
-    values: dict[str, str] = {}
+def _load_dotenv_literal(path: Path = ROOT / ".env") -> dict:
+    values = {}
     if not path.is_file():
         return values
     try:
@@ -83,8 +77,12 @@ def _load_dotenv_literal(path: Path = ROOT / ".env") -> dict[str, str]:
     return values
 
 
-def _pointer_digest(path: Path = POINTER) -> str | None:
-    """Read the exact selector with the same strict one-line contract as Compose."""
+def _valid_reference(value: str) -> bool:
+    return bool(_DIGEST.fullmatch(value) or _IMMUTABLE_REF.fullmatch(value))
+
+
+def _pointer_digest(path: Path = POINTER):
+    """Read the exact one-line validated runtime selector."""
     if not path.is_file():
         return None
     try:
@@ -96,14 +94,14 @@ def _pointer_digest(path: Path = POINTER) -> str | None:
     if len(lines) != 1 or not lines[0].startswith(prefix):
         raise RuntimeSelectionRefused(
             "validated Sentinel runtime pointer is malformed")
-    digest = lines[0][len(prefix):]
-    if _DIGEST.fullmatch(digest) is None:
+    reference = lines[0][len(prefix):]
+    if not _valid_reference(reference):
         raise RuntimeSelectionRefused(
-            "validated Sentinel runtime pointer has no immutable sha256 image id")
-    return digest
+            "validated Sentinel runtime pointer has no immutable image reference")
+    return reference
 
 
-def _merged_environment() -> dict[str, str]:
+def _merged_environment() -> dict:
     values = _load_dotenv_literal()
     values.update(os.environ)
     pointer = _pointer_digest()
@@ -129,7 +127,7 @@ def _clean_main_head() -> str:
     return head
 
 
-def _inspect(reference: str) -> tuple[str, str]:
+def _inspect(reference: str):
     result = _run(["docker", "image", "inspect", reference])
     if result.returncode != 0:
         raise RuntimeSelectionRefused(
@@ -164,22 +162,18 @@ def _compose_selected_image(env: Mapping[str, str]) -> str:
         "docker", "compose", *compose_args, "--profile", "cli",
         "config", "--format", "json"], env=env)
     if result.returncode != 0:
-        raise RuntimeSelectionRefused("Compose could not resolve the ordinary Sentinel image")
+        raise RuntimeSelectionRefused("Compose could not resolve the Sentinel image")
     try:
         model = json.loads(result.stdout or "")
         image = ((model.get("services") or {}).get("sentinel") or {}).get("image")
     except (AttributeError, json.JSONDecodeError) as exc:
         raise RuntimeSelectionRefused("Compose model was malformed") from exc
     if not isinstance(image, str) or not image.strip():
-        raise RuntimeSelectionRefused("Compose model has no ordinary Sentinel image")
+        raise RuntimeSelectionRefused("Compose model has no Sentinel image")
     return image.strip()
 
 
 def preflight() -> int:
-    # Configuration and pointer errors are deterministic prerequisites: do not
-    # spend the certification budget when Compose cannot later consume the
-    # promoted runtime. The absence of an *existing image* is different—a first
-    # deployment can legitimately build the candidate from scratch.
     try:
         head = _git("rev-parse", "HEAD")
         if not _COMMIT.fullmatch(head):
@@ -193,25 +187,27 @@ def preflight() -> int:
         digest, revision = _inspect(selected)
     except RuntimeSelectionRefused as exc:
         print(
-            "runtime preflight: UNAVAILABLE - %s; validation may build a fresh current candidate"
+            "runtime preflight: UNAVAILABLE - %s; validation may acquire the current certified runtime"
             % exc, flush=True)
         return 0
     if revision == head:
         print(
-            "runtime preflight: MATCH - ordinary image %s is built from current HEAD %s"
+            "runtime preflight: MATCH - image %s is built from current HEAD %s"
             % (digest[:19] + "...", head[:12]), flush=True)
     else:
         print(
-            "runtime preflight: STALE - ordinary image is built from %s, current HEAD is %s; "
+            "runtime preflight: STALE - image is built from %s, current HEAD is %s; "
             "validation will not promote it and will replace the selector only after a successful run"
             % (revision[:12], head[:12]), flush=True)
     return 0
 
 
-def _write_pointer(digest: str) -> None:
-    """Internal primitive used only by the exact-certification promoter."""
+def _write_pointer(reference: str) -> None:
+    if not _valid_reference(reference):
+        raise RuntimeSelectionRefused(
+            "runtime promotion attempted to write a non-immutable selector")
     POINTER.parent.mkdir(parents=True, exist_ok=True)
-    payload = "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % digest
+    payload = "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % reference
     fd, tmp_name = tempfile.mkstemp(prefix=".validated-runtime-", dir=str(POINTER.parent))
     try:
         os.fchmod(fd, 0o600)
@@ -234,13 +230,6 @@ def _write_pointer(digest: str) -> None:
 
 
 def promote(extra_args: Sequence[str]) -> int:
-    """Refuse the legacy generic promotion seam.
-
-    A source-revision label is not certification. Keeping this function callable
-    but fail-closed preserves import compatibility while preventing an operator,
-    old script, or accidental caller from selecting an untested same-revision
-    image. ``sentinel_go_promote.py`` owns the exact certified promotion path.
-    """
     if "--input" in extra_args or any(str(arg).startswith("--input=") for arg in extra_args):
         print("runtime promotion: SKIPPED for development-input validation", flush=True)
         return 0
@@ -251,7 +240,7 @@ def promote(extra_args: Sequence[str]) -> int:
     return 2
 
 
-def main(argv: Sequence[str] | None = None) -> int:
+def main(argv: Sequence[str] = None) -> int:
     parser = argparse.ArgumentParser()
     sub = parser.add_subparsers(dest="action", required=True)
     sub.add_parser("preflight")

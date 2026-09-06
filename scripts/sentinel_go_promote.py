@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Promote exactly the ordinary runtime from this invocation's requested-target GO."""
+"""Promote exactly the runtime proven by this GO invocation."""
 from __future__ import annotations
 
 import hashlib
@@ -11,6 +11,7 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 if str(SCRIPT_DIR) not in sys.path:
     sys.path.insert(0, str(SCRIPT_DIR))
 
+import sentinel_go_ci_runtime as ci_runtime  # noqa: E402
 import sentinel_go_lock as go_lock  # noqa: E402
 import sentinel_go_phase_entry as phase  # noqa: E402
 import sentinel_runtime_selection as runtime  # noqa: E402
@@ -21,24 +22,24 @@ def _sha(value: dict) -> str:
         value, sort_keys=True, separators=(",", ":")).encode("utf-8")).hexdigest()
 
 
-def _certified_ordinary(commit: str) -> str:
+def _certified_local_runtime(commit: str) -> str:
     try:
         payload = json.loads(phase.ORDINARY_PATH.read_text(encoding="utf-8"))
     except (OSError, ValueError, TypeError) as exc:
         raise runtime.RuntimeSelectionRefused(
-            "ordinary-runtime certification binding is unavailable") from exc
+            "local-full runtime certification binding is unavailable") from exc
     if not isinstance(payload, dict) or payload.get("schema") != phase.ORDINARY_SCHEMA:
         raise runtime.RuntimeSelectionRefused(
-            "ordinary-runtime certification binding schema is invalid")
+            "local-full runtime certification binding schema is invalid")
     supplied = str(payload.get("evidence_sha256") or "")
     evidence = {k: v for k, v in payload.items() if k != "evidence_sha256"}
     if supplied != _sha(evidence) or payload.get("git_commit") != commit:
         raise runtime.RuntimeSelectionRefused(
-            "ordinary-runtime certification binding does not match current commit")
+            "local-full runtime certification binding does not match current commit")
     digest = str(payload.get("ordinary_runtime_image_digest") or "")
     if runtime._DIGEST.fullmatch(digest) is None:
         raise runtime.RuntimeSelectionRefused(
-            "ordinary-runtime certification binding has no immutable image id")
+            "local-full runtime binding has no immutable image id")
     return digest
 
 
@@ -95,11 +96,51 @@ def _consume_run_pass() -> None:
             "requested-target GO proof could not be consumed after promotion") from exc
 
 
+def _promote_local_full(*, head: str, runner) -> str:
+    summary = phase._load_with_ordinary(runner, commit=head)
+    if summary is None or not summary.complete:
+        raise runtime.RuntimeSelectionRefused(
+            "complete local-full certification evidence is unavailable at promotion")
+    expected = _certified_local_runtime(head)
+    candidate = "sentinel-go-runtime:%s" % head
+    observed, revision = runtime._inspect(candidate)
+    if revision != head or observed != expected:
+        raise runtime.RuntimeSelectionRefused(
+            "local-full runtime changed after certification")
+    runtime._write_pointer(expected)
+    return expected
+
+
+def _promote_ci(*, head: str, runner) -> str:
+    try:
+        binding = ci_runtime.load_binding(
+            commit=head, runner=runner, require_current_run=True)
+        result = ci_runtime.verifier.verify_current(
+            root=phase.controller.go.ROOT, commit=head)
+    except (ci_runtime.CIRuntimeRefused,
+            ci_runtime.verifier.CertificationVerificationRefused) as exc:
+        raise runtime.RuntimeSelectionRefused(
+            "CI-certified runtime could not be reverified at promotion") from exc
+
+    certified_image = str(binding["certified_image"])
+    if (result.get("certified_image") != certified_image
+            or result.get("image_digest") != binding["registry_digest"]):
+        raise runtime.RuntimeSelectionRefused(
+            "promotion-time CI certificate differs from validation binding")
+    observed, revision = runtime._inspect(certified_image)
+    if revision != head or observed != binding["local_image_id"]:
+        raise runtime.RuntimeSelectionRefused(
+            "local CI-certified runtime changed after financial validation")
+    runtime._write_pointer(certified_image)
+    return certified_image
+
+
 def main(argv=None) -> int:
     extra_args = list(argv if argv is not None else sys.argv[1:])
     if "--input" in extra_args or any(str(arg).startswith("--input=") for arg in extra_args):
         print("runtime promotion: SKIPPED for development-input validation", flush=True)
         return 0
+    local_full = "--local-full-certification" in extra_args
     try:
         if not go_lock.lifecycle_lock_is_held():
             raise runtime.RuntimeSelectionRefused(
@@ -107,28 +148,13 @@ def main(argv=None) -> int:
         runtime._refresh_origin_main()
         head = runtime._clean_main_head()
         run_pass = _current_run_target_pass(head)
-
-        # Require the complete retained suite record and all exact image IDs,
-        # not only the companion ordinary-runtime sidecar. This prevents a
-        # hand-edited/stale sidecar from becoming runtime-selection authority.
         runner = phase.controller.DiagnosticRunner()
-        summary = phase._load_with_ordinary(runner, commit=head)
-        if summary is None or not summary.complete:
-            raise runtime.RuntimeSelectionRefused(
-                "complete exact certification evidence is unavailable at promotion")
-
-        expected = _certified_ordinary(head)
-        candidate = "sentinel-go-runtime:%s" % head
-        observed, revision = runtime._inspect(candidate)
-        if revision != head:
-            raise runtime.RuntimeSelectionRefused(
-                "ordinary candidate revision disagrees with current HEAD")
-        if observed != expected:
-            raise runtime.RuntimeSelectionRefused(
-                "ordinary candidate image id changed after certification")
-        runtime._write_pointer(expected)
+        selected = (
+            _promote_local_full(head=head, runner=runner)
+            if local_full else _promote_ci(head=head, runner=runner)
+        )
         text = runtime.POINTER.read_text(encoding="ascii")
-        if text != "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % expected:
+        if text != "SENTINEL_RUNTIME_IMAGE_REF=%s\n" % selected:
             raise runtime.RuntimeSelectionRefused(
                 "validated runtime pointer verification failed")
         _consume_run_pass()
@@ -136,8 +162,10 @@ def main(argv=None) -> int:
         print("REFUSED: runtime promotion failed: %s" % exc, file=sys.stderr)
         return 2
     print(
-        "runtime promotion: BOUND - requested %s GO selected exact certified ordinary image %s from %s"
-        % (run_pass["requested_target"], expected[:19] + "...", head[:12]),
+        "runtime promotion: BOUND - requested %s GO selected %s from %s"
+        % (run_pass["requested_target"],
+           "local-full certified image" if local_full else "CI-certified registry digest",
+           head[:12]),
         flush=True,
     )
     return 0

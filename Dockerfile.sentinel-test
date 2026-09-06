@@ -28,6 +28,7 @@ COPY scripts/sentinel_feed_gate.py /work/scripts/sentinel_feed_gate.py
 COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py
 COPY scripts/sentinel_reconcile_sep.py /work/scripts/sentinel_reconcile_sep.py
+COPY scripts/sentinel_ci_certification_verify.py /work/scripts/sentinel_ci_certification_verify.py
 COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh
 COPY scripts/ /work/repo/scripts/
 COPY tools/ /work/repo/tools/
@@ -89,6 +90,8 @@ RUN python -c "from pathlib import Path; \
 
 # Catch image-layout and COPY-parser regressions during the build.
 RUN python -m pytest tests/sentinel/test_image_layout.py -q -ra
+# Catch operator/certification regressions before the long Sentinel suite.
+RUN python -m pytest tests/scripts -q -ra
 
 ENTRYPOINT ["python", "-m", "pytest"]
 CMD ["tests/sentinel", "-q"]
