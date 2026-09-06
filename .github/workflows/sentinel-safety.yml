@@ -307,6 +307,25 @@ jobs:
           if-no-files-found: error
           retention-days: 30
 
+      - name: Assemble reusable software certification input
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p /tmp/sentinel-tested-image
+          python tools/sentinel_ci_certification_manifest.py build-input \
+            --root . \
+            --commit "$TESTED_SHA" \
+            --workflow-run "$GITHUB_RUN_ID" \
+            --workflow-attempt "$GITHUB_RUN_ATTEMPT" \
+            --image-ref sentinel-authorized:ci \
+            --sentinel-summary /tmp/sentinel-complete.txt \
+            --operator-summary /tmp/sentinel-scripts.txt \
+            --wealth-summary /tmp/wealth-core-prospective.txt \
+            --adversarial-report /tmp/sentinel-system-evidence/report.json \
+            --mutation-report /tmp/sentinel-mutation-evidence/report.json \
+            --output /tmp/sentinel-tested-image/software-certification-input.json
+
       - name: Export the exact tested OCI image for protected publication
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
         shell: bash
@@ -318,7 +337,8 @@ jobs:
           printf '%s\n' "$TESTED_SHA" \
             > /tmp/sentinel-tested-image/COMMIT
           cd /tmp/sentinel-tested-image
-          sha256sum sentinel-authorized.tar COMMIT > SHA256SUMS
+          sha256sum sentinel-authorized.tar COMMIT \
+            software-certification-input.json > SHA256SUMS
 
       - name: Retain the exact tested image
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
