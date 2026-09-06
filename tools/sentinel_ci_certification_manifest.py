@@ -17,6 +17,7 @@ MANIFEST_SCHEMA = "sentinel.software-certification/1"
 REPOSITORY = "flabber1835/stocker"
 TEST_WORKFLOW_PATH = ".github/workflows/sentinel-safety.yml"
 REQUIRED_JOBS = ("host-python-38-exact-head", "sentinel-exact-head")
+RUNTIME_SUBJECT = "ghcr.io/flabber1835/stocker/sentinel"
 RUNTIME_SCHEMA_EPOCH = "sentinel.behavioral_schema/current"
 SEMANTIC_EPOCH = "sentinel.automation_cycle/1"
 
@@ -87,13 +88,6 @@ def _require_image_digest(value: object, *, label: str) -> str:
     return value
 
 
-def _require_subject(value: object, *, label: str) -> str:
-    if (not isinstance(value, str) or not value.startswith("ghcr.io/")
-            or "@" in value or ":" in value.split("/", 1)[-1]):
-        raise CertificationManifestRefused("%s is invalid" % label)
-    return value
-
-
 def _run(argv: Sequence[str], *, cwd: Path) -> str:
     completed = subprocess.run(
         [str(item) for item in argv], cwd=str(cwd), text=True,
@@ -106,8 +100,7 @@ def _run(argv: Sequence[str], *, cwd: Path) -> str:
 
 def _summary_counts(path: Path) -> dict[str, int]:
     try:
-        lines = Path(path).read_text(
-            encoding="utf-8", errors="replace").splitlines()
+        lines = Path(path).read_text(encoding="utf-8", errors="replace").splitlines()
     except OSError as exc:
         raise CertificationManifestRefused("test summary is unreadable") from exc
     for line in reversed(lines):
@@ -128,14 +121,11 @@ def _summary_counts(path: Path) -> dict[str, int]:
 def collect_test_counts(suites: Mapping[str, Path]) -> dict[str, Any]:
     required = {"sentinel", "operator_scripts", "wealth_core_boundary"}
     if set(suites) != required:
-        raise CertificationManifestRefused(
-            "test suite set is not the certification contract")
+        raise CertificationManifestRefused("test suite set is not the certification contract")
     rows = {name: _summary_counts(path) for name, path in sorted(suites.items())}
     total = {key: sum(row[key] for row in rows.values()) for key in _COUNT_KEYS}
-    if total["passed"] <= 0 or any(
-            total[key] for key in _COUNT_KEYS if key != "passed"):
-        raise CertificationManifestRefused(
-            "software suite contains a non-pass result")
+    if total["passed"] <= 0 or any(total[key] for key in _COUNT_KEYS if key != "passed"):
+        raise CertificationManifestRefused("software suite contains a non-pass result")
     return {"suites_completed": 3, "suite_counts": rows, "total": total}
 
 
@@ -146,8 +136,7 @@ def _test_manifest_hash(root: Path) -> str:
         raise CertificationManifestRefused("tracked test manifest is empty")
     digest = hashlib.sha256()
     for name in names:
-        digest.update(("%s  %s\n" % (
-            sha256_file(root / name), name)).encode("utf-8"))
+        digest.update(("%s  %s\n" % (sha256_file(root / name), name)).encode("utf-8"))
     return digest.hexdigest()
 
 
@@ -160,44 +149,35 @@ def _dependency_hashes(root: Path) -> dict[str, str]:
 
 def _docker_image_identity(root: Path, reference: str) -> tuple[str, str]:
     try:
-        payload = json.loads(_run(
-            ["docker", "image", "inspect", reference], cwd=root))
+        payload = json.loads(_run(["docker", "image", "inspect", reference], cwd=root))
         image = payload[0]
         image_id = str(image["Id"])
         revision = str((image.get("Config") or {}).get("Labels", {}).get(
             "org.opencontainers.image.revision", ""))
     except (IndexError, KeyError, TypeError, json.JSONDecodeError) as exc:
-        raise CertificationManifestRefused(
-            "Docker image identity is malformed") from exc
-    _require_image_digest(image_id, label="image id")
-    _require_git_object(revision, label="image source revision")
+        raise CertificationManifestRefused("Docker image identity is malformed") from exc
+    _require_image_digest(image_id, label="runtime image id")
+    _require_git_object(revision, label="runtime source revision")
     return image_id, revision
 
 
 def build_input(*, root: Path, commit: str, workflow_run: int,
-                workflow_attempt: int, ordinary_image_ref: str,
-                authorized_image_ref: str, suites: Mapping[str, Path],
-                adversarial_report: Path, mutation_report: Path) -> dict[str, Any]:
+                workflow_attempt: int, image_ref: str,
+                suites: Mapping[str, Path], adversarial_report: Path,
+                mutation_report: Path) -> dict[str, Any]:
     commit = _require_git_object(commit, label="source commit")
     if workflow_run <= 0 or workflow_attempt <= 0:
         raise CertificationManifestRefused("workflow identity is invalid")
     if _run(["git", "rev-parse", "HEAD"], cwd=root).strip() != commit:
-        raise CertificationManifestRefused(
-            "checked-out HEAD differs from source commit")
+        raise CertificationManifestRefused("checked-out HEAD differs from source commit")
     tree = _run(["git", "rev-parse", "HEAD^{tree}"], cwd=root).strip()
     _require_git_object(tree, label="source tree")
-    ordinary_id, ordinary_revision = _docker_image_identity(root, ordinary_image_ref)
-    authorized_id, authorized_revision = _docker_image_identity(root, authorized_image_ref)
-    if ordinary_revision != commit or authorized_revision != commit:
-        raise CertificationManifestRefused(
-            "runtime image revision differs from source commit")
-    if ordinary_id == authorized_id:
-        raise CertificationManifestRefused(
-            "ordinary and authorized runtime images are not distinct")
+    image_id, revision = _docker_image_identity(root, image_ref)
+    if revision != commit:
+        raise CertificationManifestRefused("runtime image revision differs from source commit")
     capability = root / "deploy" / "sentinel-authorized-runtime-v1"
     if not capability.is_file():
-        raise CertificationManifestRefused(
-            "authorized runtime capability marker is missing")
+        raise CertificationManifestRefused("runtime capability marker is missing")
     return {
         "schema": INPUT_SCHEMA,
         "repository": REPOSITORY,
@@ -206,16 +186,13 @@ def build_input(*, root: Path, commit: str, workflow_run: int,
         "test_workflow_path": TEST_WORKFLOW_PATH,
         "test_workflow_run": workflow_run,
         "test_workflow_attempt": workflow_attempt,
-        "ordinary_image_id": ordinary_id,
-        "authorized_image_id": authorized_id,
-        "authorized_runtime_capability_sha256": sha256_file(capability),
+        "runtime_image_id": image_id,
+        "runtime_capability_sha256": sha256_file(capability),
         "dependency_lock_hashes": _dependency_hashes(root),
         "test_manifest_sha256": _test_manifest_hash(root),
         "test_counts": collect_test_counts(suites),
-        "adversarial_evidence": {
-            "status": "PASS", "sha256": sha256_file(adversarial_report)},
-        "mutation_evidence": {
-            "status": "PASS", "sha256": sha256_file(mutation_report)},
+        "adversarial_evidence": {"status": "PASS", "sha256": sha256_file(adversarial_report)},
+        "mutation_evidence": {"status": "PASS", "sha256": sha256_file(mutation_report)},
         "runtime_schema_epoch": RUNTIME_SCHEMA_EPOCH,
         "semantic_epoch": SEMANTIC_EPOCH,
     }
@@ -225,27 +202,18 @@ def _validate_input(value: Mapping[str, Any]) -> None:
     fields = {
         "schema", "repository", "source_commit", "source_tree",
         "test_workflow_path", "test_workflow_run", "test_workflow_attempt",
-        "ordinary_image_id", "authorized_image_id",
-        "authorized_runtime_capability_sha256", "dependency_lock_hashes",
+        "runtime_image_id", "runtime_capability_sha256", "dependency_lock_hashes",
         "test_manifest_sha256", "test_counts", "adversarial_evidence",
         "mutation_evidence", "runtime_schema_epoch", "semantic_epoch",
     }
     if set(value) != fields or value.get("schema") != INPUT_SCHEMA:
-        raise CertificationManifestRefused(
-            "software certification input schema is invalid")
-    if value.get("repository") != REPOSITORY or \
-            value.get("test_workflow_path") != TEST_WORKFLOW_PATH:
-        raise CertificationManifestRefused(
-            "software certification input authority is invalid")
+        raise CertificationManifestRefused("software certification input schema is invalid")
+    if value.get("repository") != REPOSITORY or value.get("test_workflow_path") != TEST_WORKFLOW_PATH:
+        raise CertificationManifestRefused("software certification input authority is invalid")
     _require_git_object(value.get("source_commit"), label="source commit")
     _require_git_object(value.get("source_tree"), label="source tree")
-    ordinary = _require_image_digest(
-        value.get("ordinary_image_id"), label="ordinary image id")
-    authorized = _require_image_digest(
-        value.get("authorized_image_id"), label="authorized image id")
-    if ordinary == authorized:
-        raise CertificationManifestRefused("runtime image IDs must be distinct")
-    _require_hex64(value.get("authorized_runtime_capability_sha256"), label="capability hash")
+    _require_image_digest(value.get("runtime_image_id"), label="runtime image id")
+    _require_hex64(value.get("runtime_capability_sha256"), label="runtime capability hash")
     _require_hex64(value.get("test_manifest_sha256"), label="test manifest hash")
     locks = value.get("dependency_lock_hashes")
     if not isinstance(locks, dict) or set(locks) != {
@@ -263,8 +231,7 @@ def _validate_input(value: Mapping[str, Any]) -> None:
     if not isinstance(suite_counts, dict) or set(suite_counts) != {
             "sentinel", "operator_scripts", "wealth_core_boundary"}:
         raise CertificationManifestRefused("software suite counts are invalid")
-    if total.get("passed", 0) <= 0 or any(
-            total.get(key) for key in _COUNT_KEYS if key != "passed"):
+    if total.get("passed", 0) <= 0 or any(total.get(key) for key in _COUNT_KEYS if key != "passed"):
         raise CertificationManifestRefused("software test totals contain non-passes")
     for row in suite_counts.values():
         if not isinstance(row, dict) or set(row) != set(_COUNT_KEYS) \
@@ -275,8 +242,7 @@ def _validate_input(value: Mapping[str, Any]) -> None:
         raise CertificationManifestRefused("software suite totals do not add up")
     for name in ("adversarial_evidence", "mutation_evidence"):
         row = value.get(name)
-        if not isinstance(row, dict) or set(row) != {"status", "sha256"} \
-                or row.get("status") != "PASS":
+        if not isinstance(row, dict) or set(row) != {"status", "sha256"} or row.get("status") != "PASS":
             raise CertificationManifestRefused("%s status is not PASS" % name)
         _require_hex64(row.get("sha256"), label=name + " hash")
     if value.get("runtime_schema_epoch") != RUNTIME_SCHEMA_EPOCH or \
@@ -294,8 +260,7 @@ def _required_jobs(payload: Mapping[str, Any]) -> dict[str, str]:
             continue
         name = str(row["name"])
         if name in found:
-            raise CertificationManifestRefused(
-                "required CI job is duplicated: %s" % name)
+            raise CertificationManifestRefused("required CI job is duplicated: %s" % name)
         found[name] = str(row.get("conclusion") or "")
     if set(found) != set(REQUIRED_JOBS):
         raise CertificationManifestRefused("required CI jobs are missing")
@@ -304,32 +269,14 @@ def _required_jobs(payload: Mapping[str, Any]) -> dict[str, str]:
     return {name: found[name] for name in REQUIRED_JOBS}
 
 
-def _runtime_entry(*, subject: str, digest: str, local_id: str,
-                   capability_sha256: str | None = None) -> dict[str, str]:
-    result = {
-        "subject_name": _require_subject(subject, label="registry subject name"),
-        "docker_image_digest": _require_image_digest(
-            digest, label="registry image digest"),
-        "immutable_ref": "%s@%s" % (subject, digest),
-        "ci_local_image_id": _require_image_digest(local_id, label="CI local image id"),
-    }
-    if capability_sha256 is not None:
-        result["authorized_runtime_capability_sha256"] = _require_hex64(
-            capability_sha256, label="authorized runtime capability hash")
-    return result
-
-
 def finalize_manifest(*, input_evidence: Mapping[str, Any],
-                      jobs_payload: Mapping[str, Any],
-                      ordinary_subject_name: str, ordinary_image_digest: str,
-                      authorized_subject_name: str, authorized_image_digest: str,
-                      publication_run: int, publication_attempt: int,
-                      certified_at: str) -> dict[str, Any]:
+                      jobs_payload: Mapping[str, Any], subject_name: str,
+                      image_digest: str, publication_run: int,
+                      publication_attempt: int, certified_at: str) -> dict[str, Any]:
     _validate_input(input_evidence)
-    if ordinary_subject_name == authorized_subject_name:
-        raise CertificationManifestRefused("runtime registry subjects must be distinct")
-    if ordinary_image_digest == authorized_image_digest:
-        raise CertificationManifestRefused("runtime registry digests must be distinct")
+    if subject_name != RUNTIME_SUBJECT:
+        raise CertificationManifestRefused("runtime registry subject is invalid")
+    image_digest = _require_image_digest(image_digest, label="registry image digest")
     if publication_run <= 0 or publication_attempt <= 0:
         raise CertificationManifestRefused("publication workflow identity is invalid")
     try:
@@ -348,14 +295,12 @@ def finalize_manifest(*, input_evidence: Mapping[str, Any],
             "tree": input_evidence["source_tree"],
         },
         "runtime": {
-            "ordinary": _runtime_entry(
-                subject=ordinary_subject_name, digest=ordinary_image_digest,
-                local_id=input_evidence["ordinary_image_id"]),
-            "authorized": _runtime_entry(
-                subject=authorized_subject_name, digest=authorized_image_digest,
-                local_id=input_evidence["authorized_image_id"],
-                capability_sha256=input_evidence[
-                    "authorized_runtime_capability_sha256"]),
+            "subject_name": subject_name,
+            "docker_image_digest": image_digest,
+            "immutable_ref": "%s@%s" % (subject_name, image_digest),
+            "ci_local_image_id": input_evidence["runtime_image_id"],
+            "runtime_capability_sha256": input_evidence["runtime_capability_sha256"],
+            "broker_capable": True,
         },
         "dependencies": {"lock_hashes": input_evidence["dependency_lock_hashes"]},
         "tests": {
@@ -382,15 +327,19 @@ def finalize_manifest(*, input_evidence: Mapping[str, Any],
             "runtime_schema": input_evidence["runtime_schema_epoch"],
             "semantic": input_evidence["semantic_epoch"],
         },
-        "certified_at": parsed.astimezone(timezone.utc).isoformat().replace(
-            "+00:00", "Z"),
+        "certified_at": parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
     manifest["manifest_sha256"] = sha256_bytes(canonical_bytes(manifest))
     return manifest
 
 
 def verify_manifest(value: Mapping[str, Any]) -> None:
-    if value.get("schema") != MANIFEST_SCHEMA or value.get("certification_version") != 1:
+    expected_top = {
+        "schema", "certification_version", "source", "runtime", "dependencies",
+        "tests", "ci", "epochs", "certified_at", "manifest_sha256",
+    }
+    if set(value) != expected_top or value.get("schema") != MANIFEST_SCHEMA \
+            or value.get("certification_version") != 1:
         raise CertificationManifestRefused("certification manifest schema is unsupported")
     supplied = value.get("manifest_sha256")
     _require_hex64(supplied, label="certification manifest hash")
@@ -403,39 +352,44 @@ def verify_manifest(value: Mapping[str, Any]) -> None:
     ci = value.get("ci")
     epochs = value.get("epochs")
     dependencies = value.get("dependencies")
-    if not all(isinstance(item, dict) for item in (
-            source, runtime, tests, ci, epochs, dependencies)):
+    if not all(isinstance(item, dict) for item in (source, runtime, tests, ci, epochs, dependencies)):
         raise CertificationManifestRefused("certification binding is incomplete")
     if source.get("repository") != REPOSITORY:
         raise CertificationManifestRefused("manifest repository authority is invalid")
     _require_git_object(source.get("commit"), label="manifest source commit")
     _require_git_object(source.get("tree"), label="manifest source tree")
-    if set(runtime) != {"ordinary", "authorized"}:
-        raise CertificationManifestRefused("runtime certification set is invalid")
-    for role in ("ordinary", "authorized"):
-        row = runtime.get(role)
-        if not isinstance(row, dict):
-            raise CertificationManifestRefused("runtime certification entry is missing")
-        subject = _require_subject(row.get("subject_name"), label=role + " subject")
-        digest = _require_image_digest(row.get("docker_image_digest"), label=role + " digest")
-        if row.get("immutable_ref") != "%s@%s" % (subject, digest):
-            raise CertificationManifestRefused("runtime immutable reference is inconsistent")
-        _require_image_digest(row.get("ci_local_image_id"), label=role + " local image id")
-    if runtime["ordinary"]["subject_name"] == runtime["authorized"]["subject_name"] \
-            or runtime["ordinary"]["docker_image_digest"] == runtime["authorized"]["docker_image_digest"]:
-        raise CertificationManifestRefused("ordinary and authorized runtime identities are not distinct")
-    _require_hex64(
-        runtime["authorized"].get("authorized_runtime_capability_sha256"),
-        label="authorized runtime capability hash")
-    if tests.get("required_job_conclusions") != {
-            name: "success" for name in REQUIRED_JOBS}:
+    if set(runtime) != {
+            "subject_name", "docker_image_digest", "immutable_ref",
+            "ci_local_image_id", "runtime_capability_sha256", "broker_capable"}:
+        raise CertificationManifestRefused("runtime certification shape is invalid")
+    if runtime.get("subject_name") != RUNTIME_SUBJECT or runtime.get("broker_capable") is not True:
+        raise CertificationManifestRefused("runtime authority is invalid")
+    digest = _require_image_digest(runtime.get("docker_image_digest"), label="runtime digest")
+    if runtime.get("immutable_ref") != "%s@%s" % (RUNTIME_SUBJECT, digest):
+        raise CertificationManifestRefused("runtime immutable reference is inconsistent")
+    _require_image_digest(runtime.get("ci_local_image_id"), label="runtime local image id")
+    _require_hex64(runtime.get("runtime_capability_sha256"), label="runtime capability hash")
+    locks = dependencies.get("lock_hashes")
+    if not isinstance(locks, dict) or set(locks) != {
+            "sentinel/requirements.lock", "tests/requirements.lock"}:
+        raise CertificationManifestRefused("manifest dependency locks are invalid")
+    for item in locks.values():
+        _require_hex64(item, label="manifest dependency hash")
+    if tests.get("required_job_conclusions") != {name: "success" for name in REQUIRED_JOBS}:
         raise CertificationManifestRefused("required CI job conclusions are invalid")
     required = tests.get("required_counts")
-    if not isinstance(required, dict) or required.get("passed", 0) <= 0 \
-            or required.get("suites_completed") != 3 or any(
-                required.get(key) for key in (
-                    "failed", "errors", "skipped", "xfailed", "xpassed")):
+    if not isinstance(required, dict) or required.get("passed", 0) <= 0 or \
+            required.get("suites_completed") != 3 or any(
+                required.get(key) for key in ("failed", "errors", "skipped", "xfailed", "xpassed")):
         raise CertificationManifestRefused("required test counts are invalid")
+    _require_hex64(tests.get("manifest_sha256"), label="manifest test hash")
+    for name in ("adversarial_evidence", "mutation_evidence"):
+        row = tests.get(name)
+        if not isinstance(row, dict) or row.get("status") != "PASS":
+            raise CertificationManifestRefused("manifest evidence status is invalid")
+        _require_hex64(row.get("sha256"), label="manifest evidence hash")
+    if ci.get("test_workflow_path") != TEST_WORKFLOW_PATH:
+        raise CertificationManifestRefused("certification workflow binding is invalid")
     if epochs != {"runtime_schema": RUNTIME_SCHEMA_EPOCH, "semantic": SEMANTIC_EPOCH}:
         raise CertificationManifestRefused("certification epoch is unsupported")
 
@@ -453,8 +407,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     build.add_argument("--commit", required=True)
     build.add_argument("--workflow-run", type=int, required=True)
     build.add_argument("--workflow-attempt", type=int, required=True)
-    build.add_argument("--ordinary-image-ref", required=True)
-    build.add_argument("--authorized-image-ref", required=True)
+    build.add_argument("--image-ref", required=True)
     build.add_argument("--sentinel-summary", type=Path, required=True)
     build.add_argument("--operator-summary", type=Path, required=True)
     build.add_argument("--wealth-summary", type=Path, required=True)
@@ -464,50 +417,43 @@ def main(argv: Sequence[str] | None = None) -> int:
     final = sub.add_parser("finalize")
     final.add_argument("--input", type=Path, required=True)
     final.add_argument("--jobs", type=Path, required=True)
-    final.add_argument("--ordinary-subject-name", required=True)
-    final.add_argument("--ordinary-image-digest", required=True)
-    final.add_argument("--authorized-subject-name", required=True)
-    final.add_argument("--authorized-image-digest", required=True)
+    final.add_argument("--subject-name", required=True)
+    final.add_argument("--image-digest", required=True)
     final.add_argument("--publication-run", type=int, required=True)
     final.add_argument("--publication-attempt", type=int, required=True)
     final.add_argument("--certified-at", required=True)
     final.add_argument("--output", type=Path, required=True)
     verify = sub.add_parser("verify")
-    verify.add_argument("path", type=Path)
+    verify.add_argument("manifest", type=Path)
     args = parser.parse_args(argv)
     try:
         if args.command == "build-input":
             value = build_input(
                 root=args.root.resolve(), commit=args.commit,
-                workflow_run=args.workflow_run,
-                workflow_attempt=args.workflow_attempt,
-                ordinary_image_ref=args.ordinary_image_ref,
-                authorized_image_ref=args.authorized_image_ref,
+                workflow_run=args.workflow_run, workflow_attempt=args.workflow_attempt,
+                image_ref=args.image_ref,
                 suites={
                     "sentinel": args.sentinel_summary,
                     "operator_scripts": args.operator_summary,
                     "wealth_core_boundary": args.wealth_summary,
                 },
                 adversarial_report=args.adversarial_report,
-                mutation_report=args.mutation_report)
+                mutation_report=args.mutation_report,
+            )
             _write(args.output, value)
         elif args.command == "finalize":
             value = finalize_manifest(
-                input_evidence=_read_json(
-                    args.input, label="software certification input"),
+                input_evidence=_read_json(args.input, label="software certification input"),
                 jobs_payload=_read_json(args.jobs, label="GitHub jobs response"),
-                ordinary_subject_name=args.ordinary_subject_name,
-                ordinary_image_digest=args.ordinary_image_digest,
-                authorized_subject_name=args.authorized_subject_name,
-                authorized_image_digest=args.authorized_image_digest,
+                subject_name=args.subject_name, image_digest=args.image_digest,
                 publication_run=args.publication_run,
                 publication_attempt=args.publication_attempt,
-                certified_at=args.certified_at)
+                certified_at=args.certified_at,
+            )
             verify_manifest(value)
             _write(args.output, value)
         else:
-            verify_manifest(_read_json(
-                args.path, label="software certification manifest"))
+            verify_manifest(_read_json(args.manifest, label="certification manifest"))
     except CertificationManifestRefused as exc:
         print("REFUSED: %s" % exc, file=sys.stderr)
         return 2
