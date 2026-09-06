@@ -1,0 +1,142 @@
+name: Research Champion - SPY IWM observer data freeze
+run-name: DATA ONLY - SPY IWM observer freeze - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-spy-iwm-risk-observers]
+    paths: ['.github/workflows/champion-spy-iwm-observer-data.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: write
+jobs:
+  freeze:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    env:
+      PYTHONUNBUFFERED: '1'
+      BASE_SHA: 1e7875d2b83fc549e316a97d573633b060461eda
+      OUT: observer-preparation
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /AGENTS.md
+            /backtester/**
+            /tests/backtester/**
+            /docs/**
+            /research/strategy9-e3-broad-stability/**
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /sharadar/SFP/*
+            /research/champion-spy-iwm-risk-observers/**
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Verify isolated research source
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = refs/heads/research/champion-spy-iwm-risk-observers
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          mkdir -p "${OUT}/data" "${OUT}/provenance"
+          git ls-tree -r HEAD sharadar/SFP > "${OUT}/provenance/sfp-git-blobs.txt"
+          sha256sum sharadar/SFP/* > "${OUT}/provenance/sfp-source-SHA256SUMS.txt"
+          find backtester tests/backtester docs research -name AGENTS.md -print > "${OUT}/provenance/nested-agents.txt"
+      - name: Install extraction dependencies
+        run: python -m pip install 'numpy==2.3.2' 'pandas==2.3.2'
+      - name: Extract retained SPY and IWM history
+        run: |
+          set -euo pipefail
+          cat sharadar/SFP/SHARADAR_SFP.zip.0* > /tmp/sfp.zip
+          python - <<'PY'
+          import gzip, hashlib, json, os, subprocess, tarfile, zipfile
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT']); pieces=[]
+          with zipfile.ZipFile('/tmp/sfp.zip') as z:
+              members=[n for n in z.namelist() if n.lower().endswith('.csv')]
+              if len(members)!=1: raise RuntimeError(f'Expected one SFP CSV: {members}')
+              with z.open(members[0]) as f:
+                  for chunk in pd.read_csv(f,dtype=str,keep_default_na=False,chunksize=250000):
+                      if not {'ticker','date','closeadj'}.issubset(chunk.columns): raise RuntimeError(str(list(chunk.columns)))
+                      pieces.append(chunk[chunk.ticker.isin(['SPY','IWM'])])
+          d=pd.concat(pieces,ignore_index=True)
+          if d.empty: raise RuntimeError('SPY/IWM source rows absent')
+          original=len(d); d=d.drop_duplicates()
+          if d.duplicated(['ticker','date']).any(): raise RuntimeError('Conflicting SFP symbol/date rows')
+          d=d[d.date.le('2026-07-31')].sort_values(['ticker','date'],kind='stable')
+          coverage={}
+          for symbol in ['SPY','IWM']:
+              q=d[d.ticker.eq(symbol)].copy()
+              if q.empty or q.date.min()>'2005-01-03' or q.date.max()<'2026-07-31': raise RuntimeError(f'{symbol}: insufficient history')
+              if (pd.to_numeric(q.closeadj,errors='raise')<=0).any(): raise RuntimeError('Invalid adjusted close')
+              p=out/'data'/f'{symbol.lower()}-sfp.csv.gz'
+              q.to_csv(p,index=False,compression={'method':'gzip','mtime':0})
+              coverage[symbol]={'start':q.date.min(),'end':q.date.max(),'rows':len(q),'sha256':hashlib.sha256(p.read_bytes()).hexdigest()}
+          (out/'provenance/sfp-extraction.json').write_text(json.dumps({'source_base_sha':os.environ['BASE_SHA'],'extraction_sha':os.environ['GITHUB_SHA'],'exact_duplicate_rows':original-len(pd.concat(pieces).drop_duplicates()),'coverage':coverage,'price_domain':'SFP closeadj: retrospective splits/dividends/spinoffs adjusted; vendor-vintage PIT not established'},indent=2)+'\n')
+          print(json.dumps(coverage,indent=2))
+          paths=[]
+          for root in ['backtester','tests/backtester','docs','research/strategy9-e3-broad-stability']:
+              for p in Path(root).rglob('*'):
+                  if p.is_file() and p.stat().st_size<5000000 and p.suffix in ['.py','.md','.json','.csv','.txt','.lock','.yml']: paths.append(p)
+          paths += [Path('AGENTS.md'),Path('research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py')]
+          with tarfile.open(out/'pinned-source.tar.gz','w:gz') as t:
+              for p in sorted(set(paths)): t.add(p,arcname=str(p))
+          PY
+      - name: Retain official Cboe VIX source in separate data phase
+        run: |
+          set -euo pipefail
+          curl --fail --location --retry 3 --retry-delay 2 --max-time 120 \
+            --dump-header "${OUT}/provenance/vix-response-headers.txt" \
+            'https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv' \
+            -o "${OUT}/provenance/VIX_History.csv"
+          python - <<'PY'
+          import hashlib,json,os,datetime
+          from pathlib import Path
+          import pandas as pd
+          out=Path(os.environ['OUT']); raw=out/'provenance/VIX_History.csv'
+          d=pd.read_csv(raw); d.columns=[c.strip().lower() for c in d.columns]
+          d['date']=pd.to_datetime(d['date'],errors='raise').dt.strftime('%Y-%m-%d')
+          if d.date.duplicated().any(): raise RuntimeError('Duplicate VIX dates')
+          d=d[d.date.le('2026-07-31')].sort_values('date')
+          if d.date.min()>'2005-01-03' or d.date.max()<'2026-07-31': raise RuntimeError('VIX coverage short')
+          if (pd.to_numeric(d.close,errors='raise')<=0).any(): raise RuntimeError('Invalid VIX')
+          d.to_csv(out/'data/vix-cboe.csv.gz',index=False,compression={'method':'gzip','mtime':0})
+          manifest={'schema':'stocker.spy-iwm-observer-inputs/1','status':'FROZEN_RESEARCH_INPUTS_NOT_PIT_CERTIFIED','source_sha':os.environ['GITHUB_SHA'],'source_base_sha':os.environ['BASE_SHA'],'source_run':f'https://github.com/{os.environ["GITHUB_REPOSITORY"]}/actions/runs/{os.environ["GITHUB_RUN_ID"]}','cutoff':'2026-07-31','vix_source_url':'https://cdn.cboe.com/api/global/us_indices/daily_prices/VIX_History.csv','vix_source_sha256':hashlib.sha256(raw.read_bytes()).hexdigest(),'acquired_at_utc':datetime.datetime.now(datetime.timezone.utc).isoformat(),'files':{p.name:hashlib.sha256(p.read_bytes()).hexdigest() for p in sorted((out/'data').glob('*.csv.gz'))},'pit_limitations':['Retrospective vendor adjusted ETF series; revision vintages not established','Cboe historical daily snapshot; original publication vintages not established'],'vix_timing':'Previous aligned SPY session VIX is used for current-close decisions, executed at following open'}
+          (out/'data/MANIFEST.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(manifest,indent=2))
+          PY
+      - name: Publish content-addressed research input package
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF}" = refs/heads/research/champion-spy-iwm-risk-observers
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          printf 'FROM scratch\nCOPY . /observer-data/\n' > "${OUT}/data/Dockerfile"
+          IMAGE="ghcr.io/${GITHUB_REPOSITORY_OWNER}/stocker-spy-iwm-observer-inputs:${GITHUB_SHA}"
+          docker build --label "org.opencontainers.image.source=https://github.com/${GITHUB_REPOSITORY}" -t "${IMAGE}" "${OUT}/data"
+          docker push "${IMAGE}"
+          docker inspect --format='{{index .RepoDigests 0}}' "${IMAGE}" > "${OUT}/package.txt"
+          python - <<'PY'
+          import hashlib,json,os
+          from pathlib import Path
+          out=Path(os.environ['OUT']); package=(out/'package.txt').read_text().strip()
+          if '@sha256:' not in package: raise RuntimeError('Immutable package digest missing')
+          manifest=json.loads((out/'data/MANIFEST.json').read_text())
+          pointer={'schema':'stocker.spy-iwm-observer-pointer/1','package':package,'manifest_sha256':hashlib.sha256((out/'data/MANIFEST.json').read_bytes()).hexdigest(),'files':manifest['files'],'source_run':manifest['source_run'],'source_sha':os.environ['GITHUB_SHA'],'status':manifest['status']}
+          (out/'observer-input-pointer.json').write_text(json.dumps(pointer,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(pointer,indent=2))
+          PY
+      - name: Upload data and provenance evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-spy-iwm-observer-data-${{ github.run_id }}-${{ github.run_attempt }}
+          path: observer-preparation/
+          retention-days: 90
+          if-no-files-found: error
