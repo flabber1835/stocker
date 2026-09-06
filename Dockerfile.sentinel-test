@@ -43,6 +43,8 @@ COPY docs/sentinel-handoff/04_BREADTH_ORACLES/ /work/docs/sentinel-handoff/04_BR
 COPY docs/sentinel-handoff/00_README/ /work/repo/docs/sentinel-handoff/00_README/
 COPY docs/sentinel-breadth-reconstruction/ /work/docs/sentinel-breadth-reconstruction/
 COPY docs/sentinel-reference-implementation/ /work/docs/sentinel-reference-implementation/
+# Runtime reconstruction reads COPY sources from the inspection-only repo root.
+COPY docs/sentinel-reference-implementation/ /work/repo/docs/sentinel-reference-implementation/
 COPY sentinel/ /work/repo/sentinel/
 COPY shared/ /work/repo/shared/
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
@@ -86,7 +88,9 @@ RUN python -c "from pathlib import Path; \
     assert str(forward_run.DEFAULT_RUNNER).startswith('/work/tools/'), forward_run.DEFAULT_RUNNER; \
     assert feed_gate.__file__.startswith('/work/scripts/'), feed_gate.__file__; \
     assert Path('/work/scripts/sentinel-measure.sh').is_file(); \
-    print('runtime imports OK:', sentinel.__file__, wc.__file__)"
+    reference = 'docs/sentinel-reference-implementation'; \
+    assert all((Path(root) / reference / name).read_bytes() == (Path('/app') / reference / name).read_bytes() for root in ('/work', '/work/repo') for name in ('sentinel_1p1_daily.csv', 'SHA256SUMS.txt')), 'reference mirror differs from runtime'; \
+    print('runtime imports and reference mirrors OK:', sentinel.__file__, wc.__file__)"
 
 ENTRYPOINT ["python", "-m", "pytest"]
 CMD ["tests/sentinel", "-q"]
