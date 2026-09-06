@@ -1,71 +1,87 @@
 # Reproduction and evidence retention
 
-Date: 2026-09-06. Investigation branch: `research/champion-certification-economic-integrity`.
+Date: 2026-09-06. Branch: `research/champion-certification-economic-integrity`. Readiness: **HOLD / outcome E**. Scope: original-output comparison, source/intent audit, bounded state recovery, three preregistered one-factor controls, and independent offline probes.
 
-Scope: source inspection, original-output comparison, bounded exact-prefix recovery, three preregistered one-factor controls, and offline accounting/causality probes. Final certification is on hold under `CERTIFICATION_ECONOMIC_SPEC.md`.
+## Exact archives and checkpoints
 
-## Exact source and artifact identities
+All listed attempts are attempt 1. Digests apply to the downloaded ZIP bytes.
 
-| Evidence | Run / source | Archive SHA256 |
+| Evidence | Run; source; artifact | ZIP SHA256 |
 |---|---|---|
-| Corrected candidate | run 34007704385; source ba74e79490beb8950611b1d17f5d124833b3d91e; artifact 9981966560 | 4860751ea45f7480f785e927bc4cebba1c8be23b3783b354d186ce059d6fb09a841 |
-| Formal certificate | run 34014048220; source 27bb992087182c42c3c051e62bf837895f5d2ab7; artifact 9985958324 | e20652e5d0b083590c828cfc271739e64ea6e3a91fd1329365d95ce15f076f08 |
-| Earlier capacity diagnostic | run 33993610034; source 372e2e40a8f65e6992de36dfabe8a98e5c3417ad; artifact 9977902550 | 5543ac25ac4696198a3e2e4c30ec45f594a08f9504dc8edcee7e0e63850a37a2 |
-| Source/history collection | run 34041287501; source a50a78357ee477f34329dceba5ccc2fce6ad4196; artifact 9991751468 | 2d1ba513508755b9ad2c378dcec5b6c3012e9f71d87fb4e8b16576a087e756fa |
-| Bounded attribution | run 34042141867; source b0a3033d83584541f4d6f306ecee27e318d29a59 | Exact archive identity recorded by publication in evidence/artifacts-34042141867.json |
-| Offline publication | run 34042966069; source ca70d61ac363e34a1c5019f0c814a21c3408ff62 | Publication result and durable file hashes are recorded in evidence/MANIFEST.json |
+| Original candidate | 34007704385; ba74e79490beb8950611b1d17f5d124833b3d91e; 9981966560 | 4860751ea45f7480f785e927bc4cebba1c8be3783b354d186ce059d6fb09a841 |
+| Original certificate | 34014048220; 27bb992087182c42c3c051e62bf837895f5d2ab7; 9985958324 | e20652e5d0b083590c828cfc271739e64ea6e3a91fd1329365d95ce15f076f08 |
+| Older capacity comparison | 33993610034; 372e2e40a8f65e6992de36dfabe8a98e5c3417ad; 9977902550 | 5543ac25ac4696198a3e2e4c30ec45f594a08f9504dc8edcee7e0e63850a37a2 |
+| Six-source/history collection | 34041287501; a50a78357ee477f34329dceba5ccc2fce6ad4196; 9991751468 | 2d1ba513508755b9ad2c378dcec5b6c3012e9f71d87fb4e8b16576a087e756fa |
+| Five bounded observations | 34042141867; b0a3033d83584541f4d6f306ecee27e318d29a59; 9992417046 | 25f80f5378348f6c500513f3c9ff0bf959909910c26a8c3789b1bd25bf948b5c |
+| Pinned collector fixture | 34043631885; 8ff8343d67c54dd4df758c5e7f42a45f671f25e7; 9992424691 | 6a8c81f0e8ce01103d79ba8b1f064857f5e10a25f93e3e7d7f09f2c633ca8b57 |
+| Complete offline publication | 34044202728; d342842550e177cc8e4f006956da8f987a970bbf; 9992592953 | 7928b4f5e0bcb249e7c1f56172866d5601d80f3afdbb90e7eae3b9ea37c97f67 |
+| Additional core publication | 34044212525; 33aacbf8c27a9c7c4c0248653b51ec0a62238fed; 9992595534 | ff32a8edb4da639f01076cc8b199df13e413818a9e6c8e0fbe8c9702215cda35 |
 
-The authoritative artifact digests are also retained in the API metadata under `evidence/artifacts-*.json`. Verify the actual archive digest on retrieval; do not derive a download path from an artifact title.
+Runtime: `887f479b15ad861313da666ad698034d3847121c`. Replay and offline Actions validation use Python **3.12.14** and the runtime's hash-locked requirements. Installed packages are retained in `evidence/bounded-prefix/python-environment.txt`.
 
-Runtime: `887f479b15ad861313da666ad698034d3847121c`; Python 3.12.14 for the Actions replay. Dependencies are installed from the runtime's hash-locked requirements; `evidence/bounded-prefix/python-environment.txt` records installed packages.
-
-Profile: `strategy9-e3-research-champion-v1`; hash `1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26`.
+Profile: `strategy9-e3-research-champion-v1`; SHA256 `1101e99ae9ca327278d79d5334556ca01bbc167e2cb3410ab4902b89550e5c26`.
 
 Corpus: `5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993`.
 
+Canonical manifest: `cfa94043084c1cbd83230b5a7225baa45b526797db4581c192561e0fb82ab5b0`.
+
 Package: `ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c`.
 
-Manifest hash: `cfa94043084c1cbd83230b5a7225baa45b526797db4581c192561e0fb82ab5b0`.
+## Durable evidence and the two manifests
 
-## Existing evidence first
+Complete publication commit **ede62f51d2047394b8b1fa089a6cb848beffa2c7** contains **142 hash-listed evidence files**, including original complete measured daily paths, original certificate JSON, source histories, executable-rule enumeration, full-path first differences, run/artifact metadata and logs, all five bounded state streams, generated programs, independent checks, source probes and collector fixture.
 
-The publication workflow commits selected raw evidence and all derived audit data under `research/champion-economic-integrity/evidence/`. This includes the original complete daily paths, original summaries, original candidate generated source, certificate JSON evidence, five bounded state-stage streams, generated/instrumented programs, baseline-reproduction proof, fills, accounting checks, source-lineage histories, and machine-readable comparisons.
+Its `research/champion-economic-integrity/evidence/MANIFEST.json` has SHA256 **1368456ce1603c16241d65ba0ecd11a6c47333fdad693f62627a5602dbde047d**.
 
-GitHub Actions artifacts have 90-day retention. The committed evidence bundle preserves the audit's cited facts beyond that artifact window. The full original candidate role/path journal is larger than this bundle; its original artifact hash and source/corpus identities remain recorded for deliberate regeneration. The canonical market dataset remains identified by its GHCR digest.
+Core publication commit **14ba19b7ec26201d65de271a7b35556b2c6bb95b** supplies a second manifest covering **89 core evidence files**. Its manifest SHA256 is **b1c0f06a586c2b91a6af4c8e56cc6f49983887ac8929e7c5183533a8060b940a**. All 89 common payload files have the same size and digest in both publications. The 53 additional full-publication files remain in Git history and in the branch tree. The newer 89-file manifest does not enumerate those extra files.
 
-After cloning the investigation branch, verify the durable bundle:
+Use the complete publication's immutable manifest to verify all 142 files. This command verifies the bytes directly from that Git commit:
 
 ```bash
 python - <<'PY'
-import hashlib, json
-from pathlib import Path
-root = Path('research/champion-economic-integrity/evidence')
-manifest = json.loads((root / 'MANIFEST.json').read_text())
+import hashlib, json, subprocess
+commit = 'ede62f51d2047394b8b1fa089a6cb848beffa2c7'
+base = 'research/champion-economic-integrity/evidence/'
+def read(name):
+    return subprocess.check_output(['git', 'show', f'{commit}:{base}{name}'])
+raw = read('MANIFEST.json')
+assert hashlib.sha256(raw).hexdigest() == '1368456ce1603c16241d65ba0ecd11a6c47333fdad693f62627a5602dbde047d'
+manifest = json.loads(raw)
 for name, item in manifest['files'].items():
-    path = root / name
-    assert path.stat().st_size == item['size_bytes'], name
-    assert hashlib.sha256(path.read_bytes()).hexdigest() == item['sha256'], name
-print('Durable audit evidence verified:', len(manifest['files']), 'files')
+    data = read(name)
+    assert len(data) == item['size_bytes'], name
+    assert hashlib.sha256(data).hexdigest() == item['sha256'], name
+print('Verified', len(manifest['files']), 'immutable evidence files')
 PY
 ```
 
-## Offline first-divergence and accounting analysis
+Actions artifacts have 90-day retention. Committed evidence preserves the cited audit findings beyond that window. The larger full original candidate role/path journal remains identified by its original artifact and source/corpus hashes; it is not included in the 142-file audit bundle. The canonical market dataset remains identified by its GHCR digest.
 
-Copy the retained bounded evidence into a scratch directory, then run the versioned analyzer:
+## Re-run the offline analysis using existing evidence
+
+Use an environment with the pinned runtime's dependencies and Python 3.12.14. The following commands reuse the committed observation files:
 
 ```bash
-cp -a research/champion-economic-integrity/evidence/bounded-prefix /tmp/champion-economic-prefix-review
-python backtester/summarize_champion_economic_prefix.py \
-  --root /tmp/champion-economic-prefix-review
+E=research/champion-economic-integrity/evidence
+WORK=$(mktemp -d)
+cp -a "$E/bounded-prefix" "$WORK/prefix"
+python backtester/validate_champion_economic_prefix.py \
+  --root "$WORK/prefix" \
+  --original-candidate "$E/original-paths/candidate" \
+  --original-certified "$E/original-paths/certified"
+python backtester/summarize_champion_economic_prefix.py --root "$WORK/prefix"
+echo "Offline results: $WORK/prefix"
 ```
 
-Outputs include `economic-attribution.json`, `controlled-replays.csv`, per-case open-entitlement and over-capacity observations, and file hashes. These operations do not fetch a new corpus or execute a historical replay.
+Outputs include `baseline-reproduction.json`, `controlled-replay-identities.json`, `economic-attribution.json`, `controlled-replays.csv`, per-case entitlement/capacity observations and file hashes.
 
-The analyzer compares chronological eligible sets, durable rankings, recent-leadership selections, pending orders, fills, held quantities, cash, dividend receivables, open/close NAV and allocation. Its numerical comparison tolerances are explicit in source. Full-precision state streams remain available for stricter independent comparisons.
+The validator maps the two promoted original-report columns explicitly, verifies all retained case payload hashes, requires 147 observed sessions and zero failed arithmetic checks per case, rechecks observer-stripped AST equality and compares 30 original daily columns across the three measured dates. Tolerances are recorded in its result.
 
-## Exact-source defect probes
+The analyzer finds the first eligible/ranking/order/fill/share/cash/NAV differences, distinguishes unexercised dividend checks and records over-capacity observations separately from interpretation of actual deferrals.
 
-Expose the candidate and pinned runtime source trees, using existing Git objects or the retained source archive:
+## Exact-source synthetic and collector fixtures
+
+Expose the exact source trees:
 
 ```bash
 git worktree add --detach ../champion-candidate-source ba74e79490beb8950611b1d17f5d124833b3d91e
@@ -85,25 +101,28 @@ python backtester/champion_certification_claim_probe.py \
   --output /tmp/champion-collector-claim-probe.json
 ```
 
-The first probe uses exact extracted functions and synthetic fixtures for the shared open-dividend boundary and PDS evidence availability. Its success means the defects were reproduced. The second tests the evidence collector only and never invokes a finalizer or issues a certificate.
+The first fixture extracts the exact functions and reproduces dividend/open-equity and PDS evidence-availability defects. The second calls the exact evidence collector only. A passing fixture records that the defective behavior was reproduced; it issues no final certificate.
 
-## Deliberate bounded-replay reproduction
+## Exact historical observation workflow
 
-The exact pinned workflow is `.github/workflows/champion-economic-prefix-audit.yml` at `b0a3033d83584541f4d6f306ecee27e318d29a59`. Re-running its existing run reproduces the original workflow commit:
+The observation workflow is `.github/workflows/champion-economic-prefix-audit.yml` at **b0a3033d83584541f4d6f306ecee27e318d29a59**. Its original run **34042141867** completed all five observations and failed in the original report-column postprocessor. Successful offline publication **34044202728** repaired that postprocessor using the same observation bytes. No historical replay was repeated for the repair.
+
+The workflow pins the two source checkouts, runtime, dependencies and corpus package. It executes `backtester/champion_economic_prefix_audit.py` in each exact source tree for cases `candidate`, `certified`, `certified_capacity_off`, `certified_dividend_1` and `certified_candidate_types`. Its fixed endpoint is 2006-08-02, capital is $100M, warmup starts 2006-01-03 and measurement starts 2006-07-31. Each case records the exact changed dimension and generated/normalized-AST hashes.
+
+For a deliberate reproduction of the historical observation itself, GitHub can rerun the exact original workflow commit:
 
 ```bash
 gh run rerun 34042141867 --repo flabber1835/stocker
-gh run watch 34042141867 --repo flabber1835/stocker
 ```
 
-This is a deliberate reproduction command, not a request to repeat completed work during the current investigation. Its attempt number changes, so artifact retrieval must use the actual attempt-specific name. The publication workflow currently references original attempt 1; preserve that identity when analyzing the original audit.
+That exact historical workflow also reproduces its known postprocessing KeyError. Retrieve the new attempt's observation artifact and run the corrected offline validator above. Original attempt 1 remains the evidence authority for this investigation. Ordinary continuation should consume the retained evidence.
 
-The workflow sets the original full dataset end to 2026-07-31, warmup to 2006-01-03, measurement start to 2006-07-31, and capital to the original $100M. A read-only observer stops after 2006-08-02. The two baseline cases recover evidence; the three controls alter only execution participation, dividend settlement lag, or unknown-security-type classification respectively.
+## Failure and recovery history
 
-Each case records source/runtime/profile/corpus identities, exact generated-source digest, normalized economic AST digest and observer-stripped AST equality. The original candidate program is compared with the retained generated source; both baseline measured prefixes must reproduce the three original daily records through 2006-08-02.
+Run 34042141867: all economic observations succeeded; report-column postprocessor failed. Run 34042966069: publication stopped on the predecessor's overall failure flag. Run 34044013414: log download failed at the signed redirect. The authenticated request was scoped to the GitHub origin; publication 34044202728 then passed baseline validation, source probes, attribution and durable commit. Additional core publication 34044212525 also passed. No failure in this sequence required an economic-code change or another historical replay.
 
-## Interpretation and resumption
+## Interpretation and continuation
 
-No control is a replacement certified result. The short prefix identifies mechanisms and first events; it does not provide a full 20-year CAGR decomposition or a full-horizon terminal/P&L proof. The classification control inherits candidate evidence limitations. The open-entitlement probe is an independent completeness test in addition to recorded-ledger arithmetic.
+The prefix proves two exercised causal mechanisms and one unexercised dividend-lag control. It does not quantify the full CAGR gap or prove full-horizon terminal/dividend/P&L accounting. The source fixtures expose separate correctness defects. The 60-rule economic inventory still contains explicit F-class contract decisions.
 
-Resume future work from the latest audit branch checkpoint and its durable manifest. Resolve the explicitly recorded F-class contract questions, repair demonstrated defects with mutation-sensitive tests, and complete exact-Champion accounting/causality proof before any new final certification. Champion parameters and initial capital remain frozen throughout this investigation.
+Continue from the latest audit branch. Resolve those intended-contract decisions, repair the demonstrated defects, test the exact generated Champion for accounting/causality/resume correctness, then execute a newly specified full certification replay. Parameters, initial capital and production/main remain frozen during this investigation.
