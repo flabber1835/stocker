@@ -9,6 +9,7 @@ import unittest
 
 from backtester import certify_backtest_result_v2 as certv2
 from backtester import research_champion_terminal_leadership_overlay as leadership
+from backtester import run_research_champion_strict_pit_20y_v2 as champion_v2
 
 
 def write_gzip(path: Path, fieldnames, rows):
@@ -36,6 +37,18 @@ class ChampionPitV2FixTests(unittest.TestCase):
         self.assertNotIn(leadership._OLD, out)
         self.assertIn("_leadership_terminal_tids.update(_exact_terminal_by_session.get(ds,{}))", out)
         self.assertIn("int(t) not in _leadership_terminal_tids", out)
+
+    def test_financial_nav_gate_allows_only_bounded_c1_terminal_carry(self):
+        out = champion_v2._patch_bounded_terminal_nav(champion_v2._OLD_NAV_GATE)
+        self.assertNotIn(champion_v2._OLD_NAV_GATE, out)
+        self.assertIn("_tid not in book.terminal_pending", out)
+        self.assertIn("book.last_raw.get(_tid,np.nan)", out)
+        self.assertIn("if _unapproved or _uncarryable", out)
+        self.assertIn("financial-grade NAV unresolved", out)
+
+    def test_financial_nav_patch_fails_closed_when_seam_drifts(self):
+        with self.assertRaisesRegex(RuntimeError, "expected one seam, found 0"):
+            champion_v2._patch_bounded_terminal_nav("eq,unresolved=book.equity(clraw)\n")
 
     def test_explicit_schema_v2_unknown_is_resolved_fail_closed_ineligible(self):
         row = {
