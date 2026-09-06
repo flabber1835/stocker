@@ -2,16 +2,20 @@
 
 RESEARCH / NOT CERTIFIED
 
-## Checkpoint and run
+## Checkpoint and active run
 
 - Continuation checkpoint: `c59fe2007496515b933160eef99bb482441fbebf`.
-- Executable workflow head: `988cb2cc51b0f61d7c5ed9351b04378f1106ba84`.
-- Run: https://github.com/flabber1835/stocker/actions/runs/34013246755
+- Active executable head: `9e2c36efeaf557858cf07e76421221c2fa8c041c`.
+- Active run: https://github.com/flabber1835/stocker/actions/runs/34013459440
+- Preflight: **13 tests passed, 0 failures, 0 errors, 0 skipped**.
 - Workflow: `.github/workflows/champion-index-comparison-v2.yml`.
 - Source: `backtester/research_champion_index_comparison_v2.py`.
 - Regression suite: `tests/backtester/test_research_champion_index_comparison_v2.py`.
+- Retained preflight evidence: `exact-index-v2-preflight-34013459440.json` in this directory.
 
-This continuation adds a dedicated V2 exact comparison workflow. The completed screens and refinements remain retained. The frozen Champion and production branches are unchanged by these commits.
+All four replay jobs started after the passing preflight. At this publication checkpoint they are authenticating the pinned canonical package; final replay metrics are pending. The completed screens and refinements remain retained. These commits affect the dedicated research branch. The frozen Champion and production branches remain unchanged.
+
+The initial workflow run https://github.com/flabber1835/stocker/actions/runs/34013246755 at head `988cb2cc51b0f61d7c5ed9351b04378f1106ba84` stopped during preflight source assembly. Its compile-only test setup omitted `CANONICAL_PIT_DATASET`, selecting the noncanonical source loader. The test now explicitly selects the canonical source transform during assembly. No exact replay started in that failed run. No economic parameters changed in the correction.
 
 ## Preselected experiment
 
@@ -27,7 +31,7 @@ Sources:
 - IWV refinement: https://github.com/flabber1835/stocker/actions/runs/34011426678
 - IWV selected candidate: `v2r-r3000-vol-0075`.
 
-Run all four fixed cells: SPY/SPY-center, IWV/IWV-center, SPY/IWV-center, IWV/SPY-center. Index contrasts hold the settings fixed. Parameter contrasts hold the index fixed. This supports controlled attribution of an apparent improvement to index choice, threshold choice, or their interaction. The baseline completed run is reused as the frozen-path witness.
+Run all four fixed cells: SPY/SPY-center, IWV/IWV-center, SPY/IWV-center, IWV/SPY-center. Index contrasts hold the settings fixed. Parameter contrasts hold the index fixed. This supports controlled attribution of an apparent improvement to index choice, threshold choice, or their interaction. The completed baseline run is reused as the frozen-path witness.
 
 ## Exact experiment boundary
 
@@ -59,19 +63,21 @@ The comparison fetches these retained artifacts. IWV features require an exact d
 
 The previous superseded V1 alternatives reached the final date and the inspected SPY-vol job failed while serializing `ca.concordance_releases`. V2 already retains that counter. This workflow exercises the actual V2 generated class and the final output-marking/report/checksum path before launching full replays.
 
-The 13-test preflight covers four-cell source assembly, unchanged frozen classes/cash functions, unchanged Native/other-controller inputs, 5,000 exact-versus-screen state transitions, persistence/concordance/rebound routes, final-summary attribute serialization, pinned input coverage, source-tampering rejection, deliberate frozen-path mutations, finalization on the retained baseline fixture for both index labels, next-session execution assignments, causal feature-prefix invariance, and wrapper restoration after an injected failure. All tests must pass and none may be skipped before replay jobs start.
+The passing 13-test preflight covered four-cell source assembly, unchanged frozen classes/cash functions, unchanged Native/other-controller inputs, 5,000 exact-versus-screen state transitions, persistence/concordance/rebound routes, final-summary attribute serialization, pinned input coverage, source-tampering rejection, deliberate frozen-path mutations, finalization on the retained baseline fixture for both index labels, next-session execution assignments, causal feature-prefix invariance, and wrapper restoration after an injected failure. Every test passed and none was skipped.
 
-Preflight fixture outputs are regression-test products. They are not performance results of a new index replay.
+Preflight artifact: `champion-index-v2-preflight-34013459440-1`, ID `9983178496`, SHA-256 `bba6a8397603388bf543e53ffbef2b21541773686b7921110c39098747266834`.
+
+Preflight fixture outputs are regression-test products. They are not performance results of a new index replay. Completed-path invariance remains pending until the full replay validates against the baseline.
 
 ## Evidence and reporting
 
 Each full replay uploads generated source, full daily output, 5/10/15/20-year metrics, strategy-path worklists, identity manifests, log, immutable-file checksums and frozen-path validation. Live log output retains chronological quarterly/year-end progress. Each successful job publishes its metric table to the GitHub Actions step summary.
 
-A final workflow job consumes compact evidence from all four successful replays and produces `exact-index-comparison-metrics.csv`, `controlled-attribution.json` and `REPORT.md`. Actions artifacts use 90-day retention. The workflow, source, tests and this reproduction note are committed to Git history.
+A final workflow job consumes compact evidence from all four successful replays and produces `exact-index-comparison-metrics.csv`, `controlled-attribution.json` and `REPORT.md`. Actions artifacts use 90-day retention. The workflow, source, tests, preflight result record and this reproduction note are committed to Git history.
 
 ## Reproduction
 
-Check out the executable workflow head. Retrieve and authenticate the named artifacts and canonical package; install the runtime pinned above. Run the regression suite with the three witness environment variables set as in the workflow. Then execute each cell:
+Check out the active executable head. Retrieve and authenticate the named artifacts and canonical package; install the runtime pinned above. Run the regression suite with the three witness environment variables set as in the workflow. Then execute each cell:
 
 ```bash
 python backtester/research_champion_index_comparison_v2.py \
