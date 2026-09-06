@@ -10,8 +10,7 @@ from tools import sentinel_ci_certification_manifest as cert
 
 COMMIT = "a" * 40
 TREE = "b" * 40
-ORDINARY_ID = "sha256:" + "c" * 64
-AUTHORIZED_ID = "sha256:" + "d" * 64
+RUNTIME_ID = "sha256:" + "c" * 64
 
 
 def _suite(passed=1):
@@ -29,9 +28,8 @@ def _evidence():
         "test_workflow_path": cert.TEST_WORKFLOW_PATH,
         "test_workflow_run": 101,
         "test_workflow_attempt": 2,
-        "ordinary_image_id": ORDINARY_ID,
-        "authorized_image_id": AUTHORIZED_ID,
-        "authorized_runtime_capability_sha256": "1" * 64,
+        "runtime_image_id": RUNTIME_ID,
+        "runtime_capability_sha256": "1" * 64,
         "dependency_lock_hashes": {
             "sentinel/requirements.lock": "2" * 64,
             "tests/requirements.lock": "3" * 64,
@@ -58,7 +56,7 @@ def _patch_observations(monkeypatch, root: Path):
     capability.parent.mkdir(parents=True)
     capability.write_bytes(b"capability")
     evidence = _evidence()
-    evidence["authorized_runtime_capability_sha256"] = cert.sha256_file(capability)
+    evidence["runtime_capability_sha256"] = cert.sha256_file(capability)
 
     def run(argv, *, cwd):
         assert cwd == root
@@ -69,11 +67,8 @@ def _patch_observations(monkeypatch, root: Path):
         raise AssertionError(argv)
 
     def image_identity(_root, ref):
-        if ref == "sentinel:latest":
-            return ORDINARY_ID, COMMIT
-        if ref == "sentinel-authorized:ci":
-            return AUTHORIZED_ID, COMMIT
-        raise AssertionError(ref)
+        assert ref == "sentinel:ci"
+        return RUNTIME_ID, COMMIT
 
     monkeypatch.setattr(cert, "_run", run)
     monkeypatch.setattr(cert, "_docker_image_identity", image_identity)
@@ -91,12 +86,11 @@ def _verify(root, evidence):
         expected_commit=COMMIT,
         expected_workflow_run=101,
         expected_workflow_attempt=2,
-        ordinary_image_ref="sentinel:latest",
-        authorized_image_ref="sentinel-authorized:ci",
+        image_ref="sentinel:ci",
     )
 
 
-def test_binding_reobserves_exact_trigger_checkout_and_both_images(monkeypatch, tmp_path):
+def test_binding_reobserves_exact_trigger_checkout_and_runtime(monkeypatch, tmp_path):
     evidence = _patch_observations(monkeypatch, tmp_path)
     _verify(tmp_path, evidence)
 
@@ -108,8 +102,7 @@ def test_binding_reobserves_exact_trigger_checkout_and_both_images(monkeypatch, 
         ("source_tree", "f" * 40, "source tree"),
         ("test_workflow_run", 999, "workflow run"),
         ("test_workflow_attempt", 999, "workflow attempt"),
-        ("ordinary_image_id", "sha256:" + "e" * 64, "ordinary image ID"),
-        ("authorized_image_id", "sha256:" + "e" * 64, "authorized image ID"),
+        ("runtime_image_id", "sha256:" + "e" * 64, "runtime image ID"),
         ("test_manifest_sha256", "f" * 64, "test manifest"),
     ],
 )
