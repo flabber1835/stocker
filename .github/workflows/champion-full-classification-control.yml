@@ -1,0 +1,149 @@
+name: Champion full classification-only control
+run-name: Champion capacity-corrected + historical classification - ${{ github.sha }}
+on:
+  push:
+    branches: [research/champion-certification-economic-integrity]
+    paths:
+      - '.github/workflows/champion-full-classification-control.yml'
+      - 'backtester/champion_full_classification_control.py'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+  actions: read
+concurrency:
+  group: champion-full-classification-control-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+jobs:
+  classification-control:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 180
+    steps:
+      - name: Audit runner
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: audit-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester/champion_full_classification_control.py
+            backtester/champion_economic_prefix_audit.py
+      - name: Exact formal certificate source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/strategy9-e3-broad-stability
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+      - name: Exact candidate classifier source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ba74e79490beb8950611b1d17f5d124833b3d91e
+          path: candidate-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester/research_champion_corrected_classification.py
+            backtester/research_champion_best_effort_classification.py
+            backtester/data/champion-best-effort-security-types-v1.csv
+            backtester/data/champion-best-effort-security-types-v1.SHA256
+            backtester/data/champion-historical-security-type-corrections-v1.csv
+            backtester/data/champion-reviewed-security-types-v1.csv
+      - name: Pinned runtime
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: runtime-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Bind identities and dependencies
+        run: |
+          set -euo pipefail
+          test "$(git -C audit-src rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
+          test "$(git -C candidate-src rev-parse HEAD)" = ba74e79490beb8950611b1d17f5d124833b3d91e
+          test "$(git -C runtime-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          python -m pip install --require-hashes -r runtime-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e runtime-src/shared
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "${GITHUB_ENV}"
+          echo "AUDIT_SOURCE_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+      - name: Pull and verify exact canonical PIT package
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=certified-src/backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "${PACKAGE}" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "${cid}:/canonical-pit/." canonical-pit/
+          PYTHONPATH="${GITHUB_WORKSPACE}/runtime-src:${GITHUB_WORKSPACE}/runtime-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "${POINTER}" --dataset canonical-pit > package-integrity.json
+      - name: Run full-horizon classification-only control
+        run: |
+          set -euo pipefail
+          mkdir -p classification-control
+          (cd certified-src && \
+            PYTHONPATH="${GITHUB_WORKSPACE}/audit-src:${GITHUB_WORKSPACE}/runtime-src:${GITHUB_WORKSPACE}/runtime-src/shared:${GITHUB_WORKSPACE}/certified-src" \
+            python "${GITHUB_WORKSPACE}/audit-src/backtester/champion_full_classification_control.py" \
+              --candidate-root "${GITHUB_WORKSPACE}/candidate-src" \
+              --output "${GITHUB_WORKSPACE}/classification-control/controlled") \
+            2>&1 | tee classification-control/replay.log
+      - name: Compute diagnostic CAGR directly from retained path
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, math, pathlib
+          import pandas as pd
+          root=pathlib.Path('classification-control/controlled')
+          d=pd.read_csv(root/'engine/daily.csv')
+          assert len(d)==5032
+          nav=d['A_nav'].astype(float)
+          years=(pd.Timestamp(d.date.iloc[-1])-pd.Timestamp(d.date.iloc[0])).days/365.2425
+          cagr=(nav.iloc[-1]/nav.iloc[0])**(1/years)-1
+          peak=nav.cummax(); mdd=float((nav/peak-1).min())
+          r=nav.pct_change().dropna(); sharpe=float(r.mean()/r.std(ddof=1)*math.sqrt(252))
+          result={'status':'DIAGNOSTIC_NOT_CERTIFIED','sessions':len(d),'start':d.date.iloc[0],'end':d.date.iloc[-1],
+                  'starting_nav':float(nav.iloc[0]),'ending_multiple':float(nav.iloc[-1]/nav.iloc[0]),
+                  'cagr_actual_elapsed':float(cagr),'max_drawdown':mdd,'sharpe_daily_252':sharpe,
+                  'changed_dimension':'UNKNOWN_SECURITY_TYPE_CLASSIFICATION_ONLY',
+                  'base_case':'capacity-corrected formal certificate path',
+                  'known_limitation':'candidate classifier contains unresolved PIT evidence-availability defect'}
+          (pathlib.Path('classification-control')/'RESULT.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,sort_keys=True))
+          PY
+      - name: Preserve controlled evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-full-classification-control-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            classification-control/
+            package-integrity.json
+          retention-days: 90
+          if-no-files-found: error
