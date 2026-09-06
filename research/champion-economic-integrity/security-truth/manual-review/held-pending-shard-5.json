@@ -1,0 +1,767 @@
+{
+  "schema": "champion.security-truth-held-pending-shard/1",
+  "reviewed_on": "2026-09-06",
+  "branch": "research/champion-security-truth-shard-5",
+  "parent_branch": "research/champion-certification-economic-integrity",
+  "parent_sha": "428721fd4a7494df477c2c9cd3d94ded1c1f5d37",
+  "contract": "research/champion-economic-integrity/PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md",
+  "canonical_inventory": "research/champion-economic-integrity/security-truth/audit-v2/34051269919-1/audit/all-held-or-pending-type-cases-v2.csv",
+  "scope_tickers": [
+    "UNTCQ",
+    "GPRO1",
+    "STEC1",
+    "PCXCQ",
+    "ADPTQ",
+    "HMY",
+    "SICPQ",
+    "HMIN",
+    "NBEVQ",
+    "ATHN1",
+    "ALO1",
+    "SWI1",
+    "GLDN1",
+    "VTNRQ"
+  ],
+  "classification_policy": "ordinary/common corporate equity, non-voting common, and ADR/ADS on ordinary/common equity are common; preferred/preferred ADS, partnership units, trust units, warrants, rights and other non-common instruments are non_common; unresolved identity or hybrid ambiguity remains unresolved",
+  "outcome_information_used": false,
+  "validation": {
+    "expected_case_count": 14,
+    "actual_case_count": 14,
+    "exact_ticker_coverage": true,
+    "extras": [],
+    "missing": [],
+    "all_cases_have_evidence": true,
+    "all_case_outcome_information_used_false": true,
+    "decision_counts": {
+      "common": 12,
+      "non_common": 0,
+      "unresolved": 2
+    },
+    "candidate_common_to_non_common": [],
+    "candidate_common_to_unresolved": [
+      "UNTCQ",
+      "VTNRQ"
+    ]
+  },
+  "cases": [
+    {
+      "security_id": "1025975490253483719",
+      "ticker": "UNTCQ",
+      "canonical_interval": [
+        "2006-07-05",
+        "2016-12-28"
+      ],
+      "cusips": [
+        "909218109",
+        "909218208"
+      ],
+      "decision": "unresolved",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2006-07-05",
+          "last_session": "2016-12-28",
+          "classification": "unresolved",
+          "reason": "Unit Corporation common stock is authoritatively bound to CUSIP 909218109 throughout the target episode, but canonical CUSIP 909218208 could not be bound to Unit Corporation and conflicts with issuer-published CUSIP history. Full canonical identity certification is therefore unresolved."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1265376/000119312504187815/dsc13ga.htm",
+        "https://www.sec.gov/Archives/edgar/data/798949/000125889720001384/dfs637.htm",
+        "https://unitcorp.com/wp-content/uploads/2021/04/UnitForm8937Final.pdf"
+      ],
+      "source_documents": [
+        {
+          "document": "Unit Corporation Schedule 13G/A",
+          "locator": "Class title and CUSIP",
+          "finding": "Identifies Unit Corporation common stock, par value $0.10 per share, CUSIP 909218109."
+        },
+        {
+          "document": "Unit Corporation Schedule 13G/A (2020)",
+          "locator": "Class title and CUSIP",
+          "finding": "Continues to identify Unit Corporation common stock as CUSIP 909218109."
+        },
+        {
+          "document": "Unit Corporation Form 8937",
+          "locator": "Security identifiers before and after 2020 restructuring",
+          "finding": "Identifies old Unit stock CUSIP 909218109 and post-restructuring Unit stock CUSIPs 909218406/909218505; it does not identify 909218208 as Unit stock."
+        }
+      ],
+      "factual_findings": [
+        "Unit Corporation's target equity is ordinary corporate common stock.",
+        "CUSIP 909218109 is directly bound to Unit Corporation common stock by SEC filings.",
+        "The canonical interval predates the 2020 restructuring described by the issuer.",
+        "CUSIP 909218208 remains unbound and is inconsistent with the issuer's published old/new Unit stock CUSIP history."
+      ],
+      "identity_transition_analysis": "No security-class transition is evidenced during 2006-07-05 through 2016-12-28 for the bound Unit Corporation security. The unresolved issue is canonical identity metadata: 909218208 cannot be reconciled to the Unit lineage using authoritative sources.",
+      "contradiction_search": {
+        "result": "IDENTITY_CONTRADICTION_FOUND",
+        "details": "Searched the exact canonical CUSIPs against SEC/issuer identity history. Authoritative sources repeatedly bind 909218109 to Unit common stock and later identify 909218406/909218505 after restructuring; no authoritative Unit binding for 909218208 was found."
+      },
+      "outcome_information_used": false,
+      "review_status": "UNRESOLVED_CANONICAL_CUSIP_IDENTITY"
+    },
+    {
+      "security_id": "803323372359949049",
+      "ticker": "GPRO1",
+      "canonical_interval": [
+        "2006-08-01",
+        "2012-07-31"
+      ],
+      "cusips": [
+        "36866T103"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2006-08-01",
+          "last_session": "2012-07-31",
+          "classification": "common",
+          "reason": "Gen-Probe Incorporated common stock, CUSIP 36866T103."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/820237/000119312512026965/d290491dsc13ga.htm",
+        "https://www.sec.gov/Archives/edgar/data/820237/000126967811000109/genprobe13g.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "Gen-Probe Schedule 13G/A",
+          "locator": "Item 2(d)-(e)",
+          "finding": "Identifies the class as Common Stock and CUSIP 36866T103."
+        },
+        {
+          "document": "Independent Gen-Probe Schedule 13G",
+          "locator": "Class title/CUSIP",
+          "finding": "Independently identifies Gen-Probe common stock, CUSIP 36866T103."
+        }
+      ],
+      "factual_findings": [
+        "CUSIP 36866T103 is Gen-Probe Incorporated common stock.",
+        "No preferred, unit, warrant, right, or trust structure was found for the reviewed security episode."
+      ],
+      "identity_transition_analysis": "Single-CUSIP target episode. The later acquisition terminates the episode and does not evidence a security-class change within the canonical interval.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "SEC class/CUSIP searches returned common-stock descriptions and no contradictory security-class filing for the canonical episode."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "304762952062850296",
+      "ticker": "STEC1",
+      "canonical_interval": [
+        "2009-05-20",
+        "2011-08-26"
+      ],
+      "cusips": [
+        "784774101",
+        "828820100",
+        "828823104"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2009-05-20",
+          "last_session": "2011-08-26",
+          "classification": "common",
+          "reason": "STEC, Inc. common stock; target-period CUSIP 784774101. Predecessor SimpleTech CUSIPs in the canonical identity chain are also common equity."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1135730/000091957410002100/d1077311_13g-a.htm",
+        "https://www.sec.gov/Archives/edgar/data/93751/000095012313005634/xslForm13F_X01/form13fInfoTable.xml",
+        "https://www.fidelity.com/products/stocksbonds/content/previous.html",
+        "https://investor.bankofamerica.com/regulatory-and-other-filings/subsidiary-and-country-disclosures/merrill-lynch-all-sec-filings/content/0000728612-04-000045/0000728612-04-000045.pdf"
+      ],
+      "source_documents": [
+        {
+          "document": "STEC, Inc. Schedule 13G/A",
+          "locator": "Class title and CUSIP",
+          "finding": "Identifies STEC, Inc. Common Stock, CUSIP 784774101."
+        },
+        {
+          "document": "SEC-filed Form 13F information table",
+          "locator": "STEC entry",
+          "finding": "Identifies STEC CUSIP 784774101 as common stock."
+        },
+        {
+          "document": "Historical IPO/security identifier record for Simple Technology",
+          "locator": "Simple Technology/STEC entry",
+          "finding": "Binds predecessor CUSIP 828820100 to the Simple Technology predecessor identity."
+        },
+        {
+          "document": "SEC-filed Merrill Lynch holdings report",
+          "locator": "SimpleTech entry",
+          "finding": "Binds CUSIP 828823104 to SimpleTech common equity."
+        }
+      ],
+      "factual_findings": [
+        "The target-period STEC security is common stock under CUSIP 784774101.",
+        "The predecessor SimpleTech identity/CUSIP records reflect ordinary common equity and no class conversion is evidenced."
+      ],
+      "identity_transition_analysis": "The canonical CUSIP set spans the Simple Technology/SimpleTech/STEC identity history. The target interval is directly bound to 784774101 common stock. Historical predecessor CUSIPs 828820100 and 828823104 do not indicate a preferred/unit/warrant transition.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "Searches across STEC and predecessor SimpleTech identifiers found common-equity references and no contradictory non-common instrument for the canonical security chain."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "229177174933045805",
+      "ticker": "PCXCQ",
+      "canonical_interval": [
+        "2008-05-05",
+        "2012-07-06"
+      ],
+      "cusips": [
+        "70336T104",
+        "70336T500"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2008-05-05",
+          "last_session": "2012-07-06",
+          "classification": "common",
+          "reason": "Patriot Coal Corporation common stock. CUSIP 70336T104 covers the pre-reorganization target episode; successor 70336T500 is also explicitly described as common."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1360710/000114420413060383/xslForm13F_X01/infotable.xml",
+        "https://www.sec.gov/Archives/edgar/data/902367/000114420415045872/xslForm13F_X01/infotable.xml"
+      ],
+      "source_documents": [
+        {
+          "document": "SEC-filed Form 13F information table",
+          "locator": "Patriot Coal 70336T104 entry",
+          "finding": "Identifies Patriot Coal CUSIP 70336T104 as common stock."
+        },
+        {
+          "document": "SEC-filed Form 13F information table",
+          "locator": "Patriot Coal 70336T500 entry",
+          "finding": "Identifies successor Patriot Coal CUSIP 70336T500 as common stock."
+        }
+      ],
+      "factual_findings": [
+        "CUSIP 70336T104 is Patriot Coal common stock.",
+        "CUSIP 70336T500 is a successor Patriot Coal common-stock identifier; it does not establish a non-common class.",
+        "No class change is evidenced within the canonical interval."
+      ],
+      "identity_transition_analysis": "The two CUSIPs bracket a restructuring/successor-security transition. Both are identified as common equity. The canonical interval ends before the later successor episode becomes relevant to classification, so no dated type split is required.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "Exact-CUSIP searches found common-stock descriptions for both Patriot Coal identifiers and no preferred/unit/warrant class evidence."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "985915492195814773",
+      "ticker": "ADPTQ",
+      "canonical_interval": [
+        "2015-06-25",
+        "2016-11-30"
+      ],
+      "cusips": [
+        "006855100"
+      ],
+      "decision": "common",
+      "legal_security_type": "CLASS_A_COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2015-06-25",
+          "last_session": "2016-11-30",
+          "classification": "common",
+          "reason": "Adeptus Health Inc. Class A common stock, CUSIP 006855100."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1602367/000089914016001309/a032116a.htm",
+        "https://www.sec.gov/Archives/edgar/data/102909/000093247116010654/adeptushealthinc.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "Adeptus Health Schedule 13G/A",
+          "locator": "Class title/CUSIP",
+          "finding": "Identifies Class A Common Stock, CUSIP 006855100."
+        },
+        {
+          "document": "Independent Adeptus Health Schedule 13G",
+          "locator": "Class title/CUSIP",
+          "finding": "Identifies Adeptus Health common stock with CUSIP 006855100."
+        }
+      ],
+      "factual_findings": [
+        "The reviewed security is Class A common stock.",
+        "No class change is evidenced during the canonical interval."
+      ],
+      "identity_transition_analysis": "Single-CUSIP episode. Subsequent bankruptcy/delisting events do not establish a different legal security class during the reviewed interval.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "Exact issuer/CUSIP searches found common-stock filings and no contradictory class evidence."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "794026657301614010",
+      "ticker": "HMY",
+      "canonical_interval": [
+        "2006-07-05",
+        "2026-07-31"
+      ],
+      "cusips": [
+        "413216300"
+      ],
+      "decision": "common",
+      "legal_security_type": "ADR_ADS_REPRESENTING_ORDINARY_COMMON_SHARES",
+      "effective_intervals": [
+        {
+          "first_session": "2006-07-05",
+          "last_session": "2026-07-31",
+          "classification": "common",
+          "reason": "Harmony Gold ADS/ADR program represents ordinary shares; CUSIP 413216300."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/869178/000086917815000010/schedule13g.htm",
+        "https://www.sec.gov/Archives/edgar/data/1023514/000119312522248671/d374135dsc13g.htm",
+        "https://www.harmony.co.za/investors/share-information/adr-faqs/"
+      ],
+      "source_documents": [
+        {
+          "document": "Harmony Gold Schedule 13G",
+          "locator": "Class title/CUSIP",
+          "finding": "Binds CUSIP 413216300 to Harmony Gold ADRs/common shares."
+        },
+        {
+          "document": "Harmony Gold Schedule 13G (2022)",
+          "locator": "Item 2(d)-(e)",
+          "finding": "Describes ordinary shares including ordinary shares underlying ADSs and binds CUSIP 413216300 to the ADSs."
+        },
+        {
+          "document": "Harmony Gold issuer ADR FAQ",
+          "locator": "ADR ratio and CUSIP",
+          "finding": "States one ADR represents one ordinary share and identifies CUSIP 413216300."
+        }
+      ],
+      "factual_findings": [
+        "HMY is a depositary receipt program over Harmony Gold ordinary shares.",
+        "Under Champion semantics an ADR/ADS over ordinary/common equity is common.",
+        "No preferred-share or unit structure was found for CUSIP 413216300."
+      ],
+      "identity_transition_analysis": "Single-CUSIP depositary program across the canonical interval. Later issuer and SEC documents corroborate the same underlying ordinary-share class; no class transition is evidenced.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "Issuer and SEC sources consistently describe ordinary shares/ADSs; no preferred or other non-common underlying class was found."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "327333102048036914",
+      "ticker": "SICPQ",
+      "canonical_interval": [
+        "2020-12-14",
+        "2023-04-19"
+      ],
+      "cusips": [
+        "82837P408"
+      ],
+      "decision": "common",
+      "legal_security_type": "CLASS_A_COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2020-12-14",
+          "last_session": "2023-04-19",
+          "classification": "common",
+          "reason": "Silvergate Capital Corporation Class A common stock, CUSIP 82837P408."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1312109/000119312520110631/d917645dsc13g.htm",
+        "https://www.sec.gov/Archives/edgar/data/1353254/000089534521000522/ff-287910_13g-silvergate.htm",
+        "https://www.sec.gov/Archives/edgar/data/1312109/000095010323002158/dp188680_sc13ga-1blumer.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "Silvergate Capital Schedule 13G",
+          "locator": "Class title/CUSIP",
+          "finding": "Identifies Class A Common Stock, CUSIP 82837P408."
+        },
+        {
+          "document": "Independent Silvergate Schedule 13G",
+          "locator": "Class title/CUSIP",
+          "finding": "Independently identifies the same class and CUSIP."
+        },
+        {
+          "document": "Silvergate Schedule 13G/A (2023)",
+          "locator": "Class title/CUSIP",
+          "finding": "Continues to identify CUSIP 82837P408 as Class A Common Stock."
+        }
+      ],
+      "factual_findings": [
+        "CUSIP 82837P408 is Silvergate Capital Class A common stock.",
+        "The Q suffix/ticker transition does not itself change the legal security class.",
+        "No preferred/unit/warrant conversion is evidenced in the canonical interval."
+      ],
+      "identity_transition_analysis": "The ticker suffix reflects a trading-status transition. SEC filings before and during 2023 retain the same CUSIP and Class A common-stock title, supporting class continuity through the reviewed interval.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "Exact CUSIP searches across SEC filings consistently identify Class A common stock."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "558144031790701315",
+      "ticker": "HMIN",
+      "canonical_interval": [
+        "2007-06-07",
+        "2016-03-30"
+      ],
+      "cusips": [
+        "43713W107",
+        "43742E102"
+      ],
+      "decision": "common",
+      "legal_security_type": "ADS_REPRESENTING_ORDINARY_SHARES",
+      "effective_intervals": [
+        {
+          "first_session": "2007-06-07",
+          "last_session": "2016-03-30",
+          "classification": "common",
+          "reason": "Home Inns & Hotels Management ADSs represent ordinary shares under both canonical CUSIPs."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1376972/000072888914000760/homeinnhotels.htm",
+        "https://www.sec.gov/Archives/edgar/data/1376972/000072888915000757/homeinnshotels.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "Home Inns Schedule 13G/A",
+          "locator": "Class title/CUSIP",
+          "finding": "Identifies CUSIP 43713W107 as American Depositary Shares, each representing two ordinary shares."
+        },
+        {
+          "document": "Home Inns Schedule 13G/A",
+          "locator": "Class title/CUSIP",
+          "finding": "Identifies successor CUSIP 43742E102 as American Depositary Shares, each representing two ordinary shares."
+        }
+      ],
+      "factual_findings": [
+        "Both canonical CUSIPs are directly bound to Home Inns ADSs over ordinary shares.",
+        "The CUSIP transition did not change the underlying ordinary-share class.",
+        "Champion ADR/ADS-on-ordinary semantics classify the episode as common."
+      ],
+      "identity_transition_analysis": "The depositary identifier changed from 43713W107 to 43742E102. SEC filings explicitly describe the same ADS-to-ordinary-share structure on both sides. Exact transition timing is immaterial to type because both identifiers carry the same common-equity classification.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "Exact-CUSIP SEC searches found the same ordinary-share ADS structure for both identifiers and no preferred underlying class."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "481857333199692347",
+      "ticker": "NBEVQ",
+      "canonical_interval": [
+        "2018-09-19",
+        "2019-05-22"
+      ],
+      "cusips": [
+        "64157V108",
+        "650194103",
+        "024718108"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2018-09-19",
+          "last_session": "2019-05-22",
+          "classification": "common",
+          "reason": "New Age Beverages Corporation common stock; target-period CUSIP 64157V108. The canonical identity chain also contains predecessor American Brewing CUSIP 024718108 and later NewAge CUSIP 650194103."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1484021/000149315217004953/sch13g.htm",
+        "https://www.sec.gov/Archives/edgar/data/1425930/000121390020036399/xslForm13F_X01/infotable.xml",
+        "https://www.dtcc.com/globals/pdfs/2014/july/21/otc-138"
+      ],
+      "source_documents": [
+        {
+          "document": "New Age Beverages Schedule 13G",
+          "locator": "Class title/CUSIP",
+          "finding": "Identifies New Age Beverages common stock, CUSIP 64157V108."
+        },
+        {
+          "document": "SEC-filed Form 13F information table",
+          "locator": "NewAge entry",
+          "finding": "Identifies NewAge Inc. CUSIP 650194103 as common stock."
+        },
+        {
+          "document": "DTCC OTC corporate-action notice",
+          "locator": "American Brewing entry",
+          "finding": "Binds predecessor issuer American Brewing Co. to CUSIP 024718108."
+        }
+      ],
+      "factual_findings": [
+        "The target-period security CUSIP 64157V108 is common stock.",
+        "Later NewAge CUSIP 650194103 is also common stock.",
+        "CUSIP 024718108 is bound to the American Brewing predecessor identity in the corporate-action record; no evidence of a preferred/unit/warrant class transition was found in the lineage."
+      ],
+      "identity_transition_analysis": "The three CUSIPs span predecessor/name-change/successor identity history around American Brewing, New Age Beverages, and NewAge. The canonical target interval is directly covered by 64157V108 common stock. The lineage evidence does not indicate a security-class conversion.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "Issuer/CUSIP and corporate-action searches found common-equity target/successor records and no contrary non-common instrument in the reviewed chain."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "275516769506070811",
+      "ticker": "ATHN1",
+      "canonical_interval": [
+        "2009-01-28",
+        "2019-02-11"
+      ],
+      "cusips": [
+        "04685W103"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2009-01-28",
+          "last_session": "2019-02-11",
+          "classification": "common",
+          "reason": "athenahealth, Inc. common stock, CUSIP 04685W103."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1131096/000093247117000912/athenahealthinc.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "athenahealth Schedule 13G/A",
+          "locator": "Class title/CUSIP",
+          "finding": "Identifies athenahealth, Inc. Common Stock, CUSIP 04685W103."
+        }
+      ],
+      "factual_findings": [
+        "CUSIP 04685W103 is athenahealth common stock.",
+        "No class transition is evidenced during the canonical interval."
+      ],
+      "identity_transition_analysis": "Single-CUSIP common-stock episode. The transaction ending the public-company episode does not establish a different security class before the canonical interval ends.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "Exact issuer/CUSIP search found common-stock filings and no contradictory class evidence."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "36666266239592614",
+      "ticker": "ALO1",
+      "canonical_interval": [
+        "2006-12-13",
+        "2008-12-26"
+      ],
+      "cusips": [
+        "020813101"
+      ],
+      "decision": "common",
+      "legal_security_type": "CLASS_A_COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2006-12-13",
+          "last_session": "2008-12-26",
+          "classification": "common",
+          "reason": "Alpharma Inc. Class A common stock, CUSIP 020813101."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/730469/000095012308011426/y00194sc14d9.htm",
+        "https://www.sec.gov/Archives/edgar/data/0000730469/000080724908000307/alo_00.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "Alpharma Schedule 14D-9",
+          "locator": "Security title/CUSIP",
+          "finding": "Identifies Alpharma Class A common stock, CUSIP 020813101."
+        },
+        {
+          "document": "Alpharma SEC transaction filing",
+          "locator": "Class title/CUSIP",
+          "finding": "Independently binds CUSIP 020813101 to Alpharma Class A common stock."
+        }
+      ],
+      "factual_findings": [
+        "The reviewed Alpharma security is Class A common stock.",
+        "No security-class change is evidenced during the canonical interval."
+      ],
+      "identity_transition_analysis": "Single-CUSIP Class A common-stock episode through the terminal acquisition period.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "SEC searches consistently identify Class A common stock and no preferred/unit/warrant class."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "175647085019960977",
+      "ticker": "SWI1",
+      "canonical_interval": [
+        "2009-11-17",
+        "2016-02-04"
+      ],
+      "cusips": [
+        "83416B109"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2009-11-17",
+          "last_session": "2016-02-04",
+          "classification": "common",
+          "reason": "SolarWinds, Inc. common stock, CUSIP 83416B109."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1061165/000090266411001395/p11-1527sc13g.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "SolarWinds Schedule 13G",
+          "locator": "Class title/CUSIP",
+          "finding": "Identifies SolarWinds, Inc. Common Stock, par value $0.001, CUSIP 83416B109."
+        }
+      ],
+      "factual_findings": [
+        "CUSIP 83416B109 is SolarWinds common stock.",
+        "No class transition is evidenced during the canonical interval."
+      ],
+      "identity_transition_analysis": "Single-CUSIP common-stock episode. The later take-private transaction ends the episode and does not alter the factual type before termination.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "Exact issuer/CUSIP searches found common-stock descriptions and no contradictory security class."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "117268708159146582",
+      "ticker": "GLDN1",
+      "canonical_interval": [
+        "2007-06-18",
+        "2008-02-28"
+      ],
+      "cusips": [
+        "38122G107"
+      ],
+      "decision": "common",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2007-06-18",
+          "last_session": "2008-02-28",
+          "classification": "common",
+          "reason": "Golden Telecom, Inc. common stock, CUSIP 38122G107."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/1089874/000095013306005212/w27706sc13dza.htm",
+        "https://www.sec.gov/Archives/edgar/data/0001089874/000119312508043935/dsc13e3a.htm"
+      ],
+      "source_documents": [
+        {
+          "document": "Golden Telecom Schedule 13D/A",
+          "locator": "Class title/CUSIP",
+          "finding": "Identifies Golden Telecom common stock, CUSIP 38122G107."
+        },
+        {
+          "document": "Golden Telecom Schedule 13E-3/A",
+          "locator": "Subject security/CUSIP",
+          "finding": "Continues to identify the target security as common stock, CUSIP 38122G107."
+        }
+      ],
+      "factual_findings": [
+        "CUSIP 38122G107 is Golden Telecom common stock throughout the reviewed episode.",
+        "No security-class change is evidenced before the canonical endpoint."
+      ],
+      "identity_transition_analysis": "Single-CUSIP common-stock episode ending with the acquisition process.",
+      "contradiction_search": {
+        "result": "NO_CONTRARY_CLASS_EVIDENCE_FOUND",
+        "details": "SEC searches at both ends of the canonical episode identify common stock and no contrary class."
+      },
+      "outcome_information_used": false,
+      "review_status": "RESOLVED"
+    },
+    {
+      "security_id": "895182212221004918",
+      "ticker": "VTNRQ",
+      "canonical_interval": [
+        "2021-05-27",
+        "2023-04-25"
+      ],
+      "cusips": [
+        "92534K107",
+        "92861H107",
+        "981517105"
+      ],
+      "decision": "unresolved",
+      "legal_security_type": "COMMON_STOCK",
+      "effective_intervals": [
+        {
+          "first_session": "2021-05-27",
+          "last_session": "2023-04-25",
+          "classification": "unresolved",
+          "reason": "Vertex Energy target-period security CUSIP 92534K107 is conclusively common stock, and predecessor World Waste CUSIP 981517105 is linked to Vertex by DTCC. Canonical CUSIP 92861H107 cannot be bound to the Vertex lineage and appears to identify a different historical issuer."
+        }
+      ],
+      "evidence_urls": [
+        "https://www.sec.gov/Archives/edgar/data/890447/000093583622000192/vertexenergy13ga.htm",
+        "https://www.sec.gov/Archives/edgar/data/890447/000158069522000089/vtnr-13da_071222.htm",
+        "https://www.dtcc.com/-/media/Files/pdf/2009/5/4/OTC084.pdf"
+      ],
+      "source_documents": [
+        {
+          "document": "Vertex Energy Schedule 13G/A",
+          "locator": "Class title/CUSIP",
+          "finding": "Identifies Vertex Energy, Inc. Common Stock, CUSIP 92534K107."
+        },
+        {
+          "document": "Vertex Energy Schedule 13D/A",
+          "locator": "Class title/CUSIP",
+          "finding": "Independently identifies CUSIP 92534K107 as Vertex Energy common stock."
+        },
+        {
+          "document": "DTCC OTC corporate-action notice dated 2009-05-04",
+          "locator": "World Waste/Vertex reorganization entries",
+          "finding": "Deletes World Waste Technologies CUSIP 981517105 and adds Vertex Energy CUSIP 92534K107, binding predecessor and successor identities."
+        }
+      ],
+      "factual_findings": [
+        "CUSIP 92534K107 is Vertex Energy common stock during the full target interval.",
+        "CUSIP 981517105 is authoritatively connected to the World Waste Technologies predecessor in the Vertex reorganization chain.",
+        "CUSIP 92861H107 could not be reconciled to Vertex Energy or World Waste Technologies using authoritative sources; available identifier traces point outside the lineage."
+      ],
+      "identity_transition_analysis": "DTCC binds World Waste Technologies 981517105 to successor Vertex Energy 92534K107. The canonical inclusion of 92861H107 is an unresolved identity anomaly. Because the task requires every canonical CUSIP to be bound, the case remains unresolved despite conclusive common-stock evidence for the target-period Vertex security.",
+      "contradiction_search": {
+        "result": "IDENTITY_CONTRADICTION_FOUND",
+        "details": "Exact-CUSIP searches for 92861H107 did not produce an authoritative Vertex/World Waste binding, while the authoritative DTCC lineage connects 981517105 directly to 92534K107."
+      },
+      "outcome_information_used": false,
+      "review_status": "UNRESOLVED_CANONICAL_CUSIP_IDENTITY"
+    }
+  ]
+}
