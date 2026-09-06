@@ -12,7 +12,8 @@ ROOT = Path(os.environ.get(
     "SENTINEL_REPO_ROOT", Path(__file__).resolve().parents[2]))
 COMPOSE = ROOT / "docker-compose.sentinel.yml"
 AUTOMATION_COMPOSE = ROOT / "docker-compose.sentinel-automation.yml"
-AUTHORIZED_DOCKERFILE = ROOT / "Dockerfile.sentinel-authorized"
+RUNTIME_DOCKERFILE = ROOT / "Dockerfile.sentinel"
+RETIRED_AUTHORIZED_DOCKERFILE = ROOT / "Dockerfile.sentinel-authorized"
 AUTHORIZED_MARKER = ROOT / "deploy" / "sentinel-authorized-runtime-v1"
 TEST_DOCKERFILE = ROOT / "Dockerfile.sentinel-test"
 AUTOMATION = ROOT / "sentinel" / "automation"
@@ -35,7 +36,7 @@ def test_automation_is_profile_gated_and_uses_immutable_runtime_image():
     assert automated["profiles"] == ["automation"]
     assert manual["image"] == "${SENTINEL_RUNTIME_IMAGE_REF:-sentinel:latest}"
     assert automated["image"].startswith(
-        "${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@")
+        "${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel}@")
     assert "@${SENTINEL_RUNTIME_IMAGE_DIGEST:?" in automated["image"]
     assert "build" not in automated
     assert "command" not in automated
@@ -69,7 +70,7 @@ def test_automation_health_is_select_only_and_policy_inert_is_healthy():
     assert "control.kill_switch_engaged" in source
 
 
-def test_only_authorized_services_receive_broker_and_artifact_authority():
+def test_only_authority_profiles_receive_broker_and_artifact_authority():
     services = compose()["services"]
     manual_environment = services["sentinel"]["environment"]
     panel_environment = services["sentinel-panel"]["environment"]
@@ -103,7 +104,9 @@ def test_only_authorized_services_receive_broker_and_artifact_authority():
     assert authorized_environment["SENTINEL_AUTHORIZED_RUNTIME"] == (
         "SIGNED_DIGEST_SERVICE_V1")
     assert services["sentinel-authorized-cli"]["image"].startswith(
-        "${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel-authorized}@")
+        "${SENTINEL_RUNTIME_IMAGE_REPOSITORY:-sentinel}@")
+    assert services["sentinel-authorized-cli"]["image"] == services[
+        "sentinel-automation"]["image"]
     assert "sentinel_state:/var/lib/sentinel" in (
         ROOT / "docker-compose.sentinel-automation.yml").read_text()
     artifact_mount = next(
@@ -119,32 +122,36 @@ def test_only_authorized_services_receive_broker_and_artifact_authority():
         assert f"SENTINEL_AUTOMATION_{name}" in automated_environment
 
 
-def test_authorized_runtime_is_a_distinct_marker_bearing_image():
-    dockerfile = AUTHORIZED_DOCKERFILE.read_text(encoding="utf-8")
+def test_single_runtime_carries_execution_capability_and_second_image_is_retired():
+    runtime = RUNTIME_DOCKERFILE.read_text(encoding="utf-8")
+    retired = RETIRED_AUTHORIZED_DOCKERFILE.read_text(encoding="utf-8")
     marker = AUTHORIZED_MARKER.read_bytes()
     dispatch_source = (ROOT / "sentinel" / "cli" / "_shared.py").read_text(
         encoding="utf-8")
 
-    assert "ARG SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest" in dockerfile
-    assert "FROM ${SENTINEL_RUNTIME_BASE_IMAGE}" in dockerfile
-    assert "deploy/sentinel-authorized-runtime-v1" in dockerfile
-    assert "/opt/sentinel/authorized-runtime-v1" in dockerfile
+    assert "COPY deploy/sentinel-authorized-runtime-v1" in runtime
+    assert "/opt/sentinel/authorized-runtime-v1" in runtime
+    assert "authorized-runtime-capability-v1" in runtime
+    assert "FROM " not in "\n".join(
+        line for line in retired.splitlines()
+        if line.strip() and not line.lstrip().startswith("#"))
+    assert "RETIRED SECOND-RUNTIME TOMBSTONE" in retired
     assert marker == b"sentinel-authorized-runtime/1\n"
     assert "AUTHORIZED_RUNTIME_COMMANDS" in dispatch_source
     assert "AUTHORIZED_RUNTIME_MARKER.read_bytes()" in dispatch_source
 
 
-def test_test_lens_inherits_authorized_runtime_without_transport_intent():
+def test_test_lens_inherits_single_runtime_without_transport_intent():
     dockerfile = TEST_DOCKERFILE.read_text(encoding="utf-8")
     certify = (ROOT / "scripts" / "sentinel-certify.sh").read_text(
         encoding="utf-8")
     workflow = WORKFLOW.read_text(encoding="utf-8")
 
-    assert "ARG SENTINEL_IMAGE=sentinel-authorized:latest" in dockerfile
+    assert "ARG SENTINEL_IMAGE=sentinel:latest" in dockerfile
     assert "FROM ${SENTINEL_IMAGE}" in dockerfile
     assert "standalone historical certification system is not installed" in certify
     assert "SENTINEL_IMAGE=" not in certify
-    assert "SENTINEL_IMAGE=sentinel-authorized:ci" in workflow
+    assert "SENTINEL_IMAGE=sentinel:ci" in workflow
     assert "SENTINEL_AUTHORIZED_RUNTIME" not in dockerfile
     assert "ALPACA_API_KEY" not in dockerfile
     assert "ALPACA_SECRET_KEY" not in dockerfile
