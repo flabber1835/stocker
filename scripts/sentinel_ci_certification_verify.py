@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 import base64
+from datetime import datetime
 import hashlib
 import io
 import json
@@ -27,7 +28,13 @@ PUBLICATION_WORKFLOW_ID = 346316730
 PUBLICATION_WORKFLOW_PATH = ".github/workflows/sentinel-publish.yml"
 CERTIFICATION_SCHEMA = "sentinel.software-certification/1"
 PROVENANCE_SCHEMA = "sentinel.exact-sha-provenance/4"
+RUNTIME_SCHEMA_EPOCH = "sentinel.behavioral_schema/current"
+SEMANTIC_EPOCH = "sentinel.automation_cycle/1"
+EXPECTED_SUBJECT = "ghcr.io/flabber1835/stocker/sentinel-authorized"
 REQUIRED_JOBS = ("host-python-38-exact-head", "sentinel-exact-head")
+REQUIRED_LOCKS = ("sentinel/requirements.lock", "tests/requirements.lock")
+REQUIRED_SUITES = ("operator_scripts", "sentinel", "wealth_core_boundary")
+COUNT_KEYS = ("passed", "failed", "errors", "skipped", "xfailed", "xpassed")
 API_ROOT = "https://api.github.com"
 
 _GIT = re.compile(r"^[0-9a-f]{40}$")
@@ -160,13 +167,21 @@ def _publication_run(client: GitHubReadClient, commit: str) -> Mapping[str, Any]
     for row in rows:
         if not isinstance(row, dict):
             continue
+        repository = row.get("repository")
+        head_repository = row.get("head_repository")
         if (row.get("workflow_id") == PUBLICATION_WORKFLOW_ID
                 and _run_path(row) == PUBLICATION_WORKFLOW_PATH
                 and row.get("head_sha") == commit
                 and row.get("head_branch") == "main"
                 and row.get("event") == "workflow_run"
                 and row.get("status") == "completed"
-                and row.get("conclusion") == "success"):
+                and row.get("conclusion") == "success"
+                and isinstance(repository, dict)
+                and repository.get("id") == REPOSITORY_ID
+                and repository.get("full_name") == REPOSITORY
+                and isinstance(head_repository, dict)
+                and head_repository.get("id") == REPOSITORY_ID
+                and head_repository.get("full_name") == REPOSITORY):
             candidates.append(row)
     if not candidates:
         _refuse("CERT_NO_PUBLICATION", "no successful exact-SHA publication run exists")
@@ -193,6 +208,9 @@ def _publication_artifact(client: GitHubReadClient, run: Mapping[str, Any],
         _refuse("CERT_ARTIFACT_DIGEST_INVALID", "artifact has no sha256 digest")
     workflow = artifact.get("workflow_run")
     if not isinstance(workflow, dict) or workflow.get("id") != run_id \
+            or workflow.get("repository_id") != REPOSITORY_ID \
+            or workflow.get("head_repository_id") != REPOSITORY_ID \
+            or workflow.get("head_branch") != "main" \
             or workflow.get("head_sha") != commit:
         _refuse("CERT_ARTIFACT_BINDING_INVALID", "artifact workflow binding is invalid")
     return artifact
@@ -247,50 +265,155 @@ def _verify_sums(members: Mapping[str, bytes]) -> None:
         _refuse("CERT_BUNDLE_INTEGRITY_INVALID", "bundle checksum set is incomplete")
 
 
+def _require_hex64(value: object, code: str, label: str) -> str:
+    if not isinstance(value, str) or _HEX64.fullmatch(value) is None:
+        _refuse(code, "%s is not a canonical SHA-256" % label)
+    return value
+
+
+def _verify_suite_counts(tests: Mapping[str, Any]) -> None:
+    required = tests.get("required_counts")
+    suites = tests.get("suite_counts")
+    if not isinstance(required, dict) or set(required) != {
+            "passed", "suites_completed", "failed", "errors", "skipped",
+            "xfailed", "xpassed"}:
+        _refuse("CERT_TEST_COUNTS_INVALID", "required test counts are malformed")
+    if required.get("suites_completed") != 3 or not isinstance(required.get("passed"), int) \
+            or required["passed"] <= 0:
+        _refuse("CERT_TEST_COUNTS_INVALID", "required test counts are incomplete")
+    if any(required.get(name) != 0 for name in COUNT_KEYS if name != "passed"):
+        _refuse("CERT_TEST_COUNTS_INVALID", "required test counts contain non-passes")
+    if not isinstance(suites, dict) or set(suites) != set(REQUIRED_SUITES):
+        _refuse("CERT_TEST_COUNTS_INVALID", "suite count set is invalid")
+    passed = 0
+    for name in REQUIRED_SUITES:
+        row = suites[name]
+        if not isinstance(row, dict) or set(row) != set(COUNT_KEYS):
+            _refuse("CERT_TEST_COUNTS_INVALID", "suite count row is malformed")
+        if not isinstance(row.get("passed"), int) or row["passed"] <= 0:
+            _refuse("CERT_TEST_COUNTS_INVALID", "suite has no passed tests")
+        if any(row.get(key) != 0 for key in COUNT_KEYS if key != "passed"):
+            _refuse("CERT_TEST_COUNTS_INVALID", "suite contains non-passes")
+        passed += row["passed"]
+    if passed != required["passed"]:
+        _refuse("CERT_TEST_COUNTS_INVALID", "suite totals differ from required total")
+
+
 def _verify_manifest(manifest: Mapping[str, Any], *, commit: str,
                      tree: str, publication_run: Mapping[str, Any]) -> Mapping[str, Any]:
-    if manifest.get("schema") != CERTIFICATION_SCHEMA:
+    expected_top = {
+        "schema", "certification_version", "source", "runtime", "dependencies",
+        "tests", "ci", "epochs", "certified_at", "manifest_sha256",
+    }
+    if set(manifest) != expected_top or manifest.get("schema") != CERTIFICATION_SCHEMA \
+            or manifest.get("certification_version") != 1:
         _refuse("CERT_MANIFEST_SCHEMA_UNKNOWN", "certification schema is unsupported")
     supplied = manifest.get("manifest_sha256")
-    if not isinstance(supplied, str) or _HEX64.fullmatch(supplied) is None:
-        _refuse("CERT_MANIFEST_TAMPERED", "manifest hash is malformed")
+    _require_hex64(supplied, "CERT_MANIFEST_TAMPERED", "manifest hash")
     unsigned = {key: value for key, value in manifest.items()
                 if key != "manifest_sha256"}
     if _sha256(_canonical(unsigned)) != supplied:
         _refuse("CERT_MANIFEST_TAMPERED", "manifest hash check failed")
+
     source = manifest.get("source")
     runtime = manifest.get("runtime")
+    dependencies = manifest.get("dependencies")
     tests = manifest.get("tests")
     ci = manifest.get("ci")
-    if not all(isinstance(value, dict) for value in (source, runtime, tests, ci)):
+    epochs = manifest.get("epochs")
+    if not all(isinstance(value, dict) for value in (
+            source, runtime, dependencies, tests, ci, epochs)):
         _refuse("CERT_MANIFEST_SCHEMA_UNKNOWN", "manifest binding sections are missing")
-    if source.get("repository") != REPOSITORY or source.get("commit") != commit:
+
+    if set(source) != {"repository", "commit", "tree"} \
+            or source.get("repository") != REPOSITORY \
+            or source.get("commit") != commit:
         _refuse("CERT_SOURCE_SHA_MISMATCH", "manifest source commit differs")
+    if _GIT.fullmatch(str(source.get("commit") or "")) is None \
+            or _GIT.fullmatch(str(source.get("tree") or "")) is None:
+        _refuse("CERT_MANIFEST_SCHEMA_UNKNOWN", "manifest Git identity is malformed")
     if source.get("tree") != tree:
         _refuse("CERT_SOURCE_TREE_MISMATCH", "manifest source tree differs")
+
+    expected_runtime_fields = {
+        "subject_name", "docker_image_digest", "authorized_runtime_digest",
+        "immutable_ref", "ci_local_image_id", "authorized_runtime_capability_sha256",
+    }
+    if set(runtime) != expected_runtime_fields or runtime.get("subject_name") != EXPECTED_SUBJECT:
+        _refuse("CERT_RUNTIME_SUBJECT_INVALID", "runtime subject is unsupported")
     digest = str(runtime.get("docker_image_digest") or "")
     if _DIGEST.fullmatch(digest) is None:
         _refuse("CERT_IMAGE_DIGEST_MISSING", "runtime digest is missing")
+    if _DIGEST.fullmatch(str(runtime.get("ci_local_image_id") or "")) is None:
+        _refuse("CERT_IMAGE_BINDING_INVALID", "CI image ID is malformed")
+    _require_hex64(
+        runtime.get("authorized_runtime_capability_sha256"),
+        "CERT_IMAGE_BINDING_INVALID", "authorized runtime capability hash")
     if runtime.get("authorized_runtime_digest") != digest:
         _refuse("CERT_AUTHORIZED_RUNTIME_MISMATCH", "authorized runtime digest differs")
-    subject = str(runtime.get("subject_name") or "")
-    if runtime.get("immutable_ref") != "%s@%s" % (subject, digest):
+    if runtime.get("immutable_ref") != "%s@%s" % (EXPECTED_SUBJECT, digest):
         _refuse("CERT_IMAGE_BINDING_INVALID", "immutable runtime reference differs")
-    required_jobs = tests.get("required_job_conclusions")
-    if required_jobs != {name: "success" for name in REQUIRED_JOBS}:
+
+    if set(dependencies) != {"lock_hashes"} or not isinstance(
+            dependencies.get("lock_hashes"), dict):
+        _refuse("CERT_DEPENDENCY_HASHES_INVALID", "dependency lock hashes are malformed")
+    locks = dependencies["lock_hashes"]
+    if set(locks) != set(REQUIRED_LOCKS):
+        _refuse("CERT_DEPENDENCY_HASHES_INVALID", "dependency lock set is invalid")
+    for name in REQUIRED_LOCKS:
+        _require_hex64(
+            locks[name], "CERT_DEPENDENCY_HASHES_INVALID", "dependency lock hash")
+
+    expected_test_fields = {
+        "manifest_sha256", "required_counts", "suite_counts",
+        "required_job_conclusions", "adversarial_evidence", "mutation_evidence",
+    }
+    if set(tests) != expected_test_fields:
+        _refuse("CERT_MANIFEST_SCHEMA_UNKNOWN", "test evidence schema is malformed")
+    _require_hex64(tests.get("manifest_sha256"), "CERT_TEST_MANIFEST_INVALID", "test manifest hash")
+    if tests.get("required_job_conclusions") != {
+            name: "success" for name in REQUIRED_JOBS}:
         _refuse("CERT_REQUIRED_JOB_FAILED", "manifest required-job conclusions differ")
-    counts = tests.get("required_counts")
-    if not isinstance(counts, dict) or int(counts.get("passed") or 0) <= 0 \
-            or int(counts.get("suites_completed") or 0) != 3:
-        _refuse("CERT_TEST_COUNTS_INVALID", "required test counts are incomplete")
-    for name in ("failed", "errors", "skipped", "xfailed", "xpassed"):
-        if counts.get(name) != 0:
-            _refuse("CERT_TEST_COUNTS_INVALID", "required test counts contain non-passes")
-    if int(ci.get("publication_workflow_run") or 0) != int(publication_run.get("id") or 0):
-        _refuse("CERT_PUBLICATION_BINDING_INVALID", "publication run differs")
-    if int(ci.get("publication_workflow_attempt") or 0) != int(publication_run.get("run_attempt") or 0):
-        _refuse("CERT_PUBLICATION_BINDING_INVALID", "publication attempt differs")
-    return {"digest": digest, "subject": subject, "ci": ci}
+    _verify_suite_counts(tests)
+    for evidence_name in ("adversarial_evidence", "mutation_evidence"):
+        evidence = tests.get(evidence_name)
+        if not isinstance(evidence, dict) or set(evidence) != {"status", "sha256"} \
+                or evidence.get("status") != "PASS":
+            _refuse("CERT_EVIDENCE_INVALID", "%s status is invalid" % evidence_name)
+        _require_hex64(
+            evidence.get("sha256"), "CERT_EVIDENCE_INVALID", evidence_name + " hash")
+
+    expected_ci_fields = {
+        "test_workflow_path", "test_workflow_run", "test_workflow_attempt",
+        "publication_workflow_run", "publication_workflow_attempt",
+    }
+    if set(ci) != expected_ci_fields or ci.get("test_workflow_path") != SAFETY_WORKFLOW_PATH:
+        _refuse("CERT_SAFETY_BINDING_INVALID", "certification workflow binding is invalid")
+    for field in (
+            "test_workflow_run", "test_workflow_attempt",
+            "publication_workflow_run", "publication_workflow_attempt"):
+        if not isinstance(ci.get(field), int) or ci[field] <= 0:
+            _refuse("CERT_SAFETY_BINDING_INVALID", "workflow identity is invalid")
+    if ci["publication_workflow_run"] != int(publication_run.get("id") or 0) \
+            or ci["publication_workflow_attempt"] != int(publication_run.get("run_attempt") or 0):
+        _refuse("CERT_PUBLICATION_BINDING_INVALID", "publication workflow identity differs")
+
+    if set(epochs) != {"runtime_schema", "semantic"} \
+            or epochs.get("runtime_schema") != RUNTIME_SCHEMA_EPOCH \
+            or epochs.get("semantic") != SEMANTIC_EPOCH:
+        _refuse("CERT_EPOCH_UNSUPPORTED", "certification epoch is unsupported")
+    certified_at = manifest.get("certified_at")
+    if not isinstance(certified_at, str) or not certified_at.endswith("Z"):
+        _refuse("CERT_CERTIFIED_AT_INVALID", "certification timestamp is malformed")
+    try:
+        parsed = datetime.fromisoformat(certified_at[:-1] + "+00:00")
+    except ValueError as exc:
+        _refuse("CERT_CERTIFIED_AT_INVALID", "certification timestamp is malformed")
+        raise AssertionError from exc
+    if parsed.utcoffset() is None:
+        _refuse("CERT_CERTIFIED_AT_INVALID", "certification timestamp has no timezone")
+
+    return {"digest": digest, "subject": EXPECTED_SUBJECT, "ci": ci}
 
 
 def _verify_provenance(provenance: Mapping[str, Any], members: Mapping[str, bytes],
@@ -337,9 +460,7 @@ def verify_bundle(archive: bytes, *, commit: str, tree: str,
     binding = _verify_manifest(
         manifest, commit=commit, tree=tree, publication_run=publication_run)
     ci = binding["ci"]
-    test_run_id = int(ci.get("test_workflow_run") or 0)
-    if test_run_id <= 0:
-        _refuse("CERT_SAFETY_BINDING_INVALID", "safety run is missing")
+    test_run_id = int(ci["test_workflow_run"])
     provenance = _json_bytes(
         members["provenance.json"], code="CERT_PROVENANCE_SCHEMA_INVALID",
         label="provenance")
@@ -360,7 +481,7 @@ def verify_bundle(archive: bytes, *, commit: str, tree: str,
         "certified_image": "%s@%s" % (binding["subject"], binding["digest"]),
         "image_digest": binding["digest"],
         "test_workflow_run": test_run_id,
-        "test_workflow_attempt": int(ci.get("test_workflow_attempt") or 0),
+        "test_workflow_attempt": int(ci["test_workflow_attempt"]),
         "publication_workflow_run": int(publication_run["id"]),
         "publication_workflow_attempt": int(publication_run.get("run_attempt") or 0),
         "required_ci_jobs": "PASS",
@@ -371,6 +492,8 @@ def verify_bundle(archive: bytes, *, commit: str, tree: str,
 def _verify_safety_run(client: GitHubReadClient, result: Mapping[str, Any]) -> None:
     run_id = int(result["test_workflow_run"])
     run = client.json("/repos/%s/actions/runs/%d" % (REPOSITORY, run_id))
+    repository = run.get("repository")
+    head_repository = run.get("head_repository")
     if (run.get("workflow_id") != SAFETY_WORKFLOW_ID
             or _run_path(run) != SAFETY_WORKFLOW_PATH
             or run.get("head_sha") != result["source_commit"]
@@ -378,7 +501,13 @@ def _verify_safety_run(client: GitHubReadClient, result: Mapping[str, Any]) -> N
             or run.get("event") != "push"
             or run.get("status") != "completed"
             or run.get("conclusion") != "success"
-            or int(run.get("run_attempt") or 0) != int(result["test_workflow_attempt"])):
+            or int(run.get("run_attempt") or 0) != int(result["test_workflow_attempt"])
+            or not isinstance(repository, dict)
+            or repository.get("id") != REPOSITORY_ID
+            or repository.get("full_name") != REPOSITORY
+            or not isinstance(head_repository, dict)
+            or head_repository.get("id") != REPOSITORY_ID
+            or head_repository.get("full_name") != REPOSITORY):
         _refuse("CERT_SAFETY_BINDING_INVALID", "safety workflow binding is invalid")
     jobs = client.json(
         "/repos/%s/actions/runs/%d/jobs?per_page=100" % (REPOSITORY, run_id))
