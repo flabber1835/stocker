@@ -25,9 +25,10 @@ jobs:
           path: audit-src
           fetch-depth: 1
           filter: blob:none
+          sparse-checkout-cone-mode: false
           sparse-checkout: |
-            backtester/build_production_equivalent_security_truth.py
-            research/champion-economic-integrity/PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md
+            /backtester/build_production_equivalent_security_truth.py
+            /research/champion-economic-integrity/PRODUCTION_EQUIVALENT_CLASSIFICATION_CONTRACT.md
       - name: Exact candidate classification authorities
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -36,10 +37,11 @@ jobs:
           fetch-depth: 1
           filter: blob:none
           persist-credentials: false
+          sparse-checkout-cone-mode: false
           sparse-checkout: |
-            backtester/data/champion-best-effort-security-types-v1.csv
-            backtester/data/champion-reviewed-security-types-v1.csv
-            backtester/data/champion-historical-security-type-corrections-v1.csv
+            /backtester/data/champion-best-effort-security-types-v1.csv
+            /backtester/data/champion-reviewed-security-types-v1.csv
+            /backtester/data/champion-historical-security-type-corrections-v1.csv
       - name: Original corrected-candidate path evidence
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
@@ -80,21 +82,34 @@ jobs:
           BRANCH=research/champion-certification-economic-integrity
           git -C audit-src fetch origin "refs/heads/${BRANCH}"
           git -C audit-src worktree add --detach "${GITHUB_WORKSPACE}/publish-src" FETCH_HEAD
+          git -C publish-src sparse-checkout set --no-cone '/research/champion-economic-integrity/security-truth/'
           DEST=publish-src/research/champion-economic-integrity/security-truth
           mkdir -p "${DEST}"
           cp -a security-truth/. "${DEST}/"
           cd publish-src
-          git sparse-checkout disable || true
           git add research/champion-economic-integrity/security-truth
           git config user.name 'github-actions[bot]'
           git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git commit -m 'audit: retain production-equivalent security truth hypothesis and review queue'
-          git push origin "HEAD:refs/heads/${BRANCH}"
-          echo "# Security truth ledger built" >> "${GITHUB_STEP_SUMMARY}"
-          python - <<'PY' >> "${GITHUB_STEP_SUMMARY}"
-          import json
-          s=json.load(open('${GITHUB_WORKSPACE}/security-truth/SUMMARY.json'))
-          print(f"\nSecurities: {s['security_count']}  \nTruth intervals: {s['truth_interval_count']}  \nReview queue: {s['review_queue_count']}  \nStatus: {s['status']}")
+          if git diff --cached --quiet; then
+            echo 'Truth-worklist checkpoint already retained.'
+          else
+            git commit -m 'audit: retain production-equivalent security truth hypothesis and review queue'
+            git push origin "HEAD:refs/heads/${BRANCH}"
+          fi
+      - name: Write security-truth summary
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          source = Path(os.environ['GITHUB_WORKSPACE']) / 'security-truth' / 'SUMMARY.json'
+          s = json.loads(source.read_text())
+          text = (f"# Security truth ledger built\n\nSecurities: {s['security_count']}  \n"
+                  f"Truth intervals: {s['truth_interval_count']}  \n"
+                  f"Review queue: {s['review_queue_count']}  \nStatus: {s['status']}\n")
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a', encoding='utf-8') as handle:
+              handle.write(text)
+          print(text)
           PY
       - name: Preserve security-truth artifact
         if: always()
