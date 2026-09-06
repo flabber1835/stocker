@@ -8,6 +8,7 @@ on:
       - '.github/workflows/champion-corrected-classification-20y.yml'
       - 'backtester/research_champion_corrected_classification.py'
       - 'backtester/research_champion_best_effort_classification.py'
+      - 'backtester/audit_champion_decision_relevant_inferred_common.py'
       - 'backtester/data/champion-historical-security-type-corrections-v1.csv'
       - 'backtester/data/champion-best-effort-security-types-v1*'
       - 'backtester/data/champion-reviewed-security-types-v1.csv'
@@ -101,6 +102,17 @@ jobs:
         run: |
           set -euo pipefail
           python backtester/research_champion_corrected_classification.py --output "${OUT}" 2>&1 | tee "${OUT}/replay.log"
+      - name: Build decision-relevant inferred-common audit worklist
+        run: |
+          set -euo pipefail
+          python backtester/audit_champion_decision_relevant_inferred_common.py \
+            --replay "${OUT}" \
+            --ledger backtester/data/champion-best-effort-security-types-v1.csv \
+            --output "${OUT}/decision-relevant-inferred-common-audit.csv" \
+            | tee "${OUT}/decision-relevant-inferred-common-audit.log"
+          sha256sum "${OUT}/decision-relevant-inferred-common-audit.csv" \
+            "${OUT}/decision-relevant-inferred-common-audit.json" \
+            > "${OUT}/decision-relevant-inferred-common-audit.SHA256"
       - name: Upload corrected replay evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
