@@ -1,0 +1,257 @@
+#!/usr/bin/env python3
+"""Replay the frozen Research Champion with authoritative historical type corrections.
+
+This layer preserves the reviewed-18 baseline and applies dated historical authority
+for demonstrated security-type defects. Results remain research/provisional.
+"""
+from __future__ import annotations
+
+import argparse
+import csv
+import hashlib
+import json
+import os
+from pathlib import Path
+
+from backtester import research_champion_best_effort_classification as base
+
+ROOT = Path(__file__).resolve().parents[1]
+CORRECTION_LEDGER = ROOT / "backtester/data/champion-historical-security-type-corrections-v1.csv"
+CORRECTION_LEDGER_SHA256 = "30f1e7223bc088714e4ee17b131f90da61bcbaf0684bfcb9c3331c9d1bc06db3"
+CORRECTED_LABEL = "CORRECTED_RECONSTRUCTED_PATH_NOT_YET_CERTIFIED"
+CORRECTED_SCENARIO = "reviewed_18_plus_historical_corrections"
+
+
+def _load_corrections(path: Path) -> dict[str, list[dict[str, str]]]:
+    if base._sha256(path) != CORRECTION_LEDGER_SHA256:
+        raise RuntimeError("historical security-type correction ledger hash mismatch")
+    with path.open(encoding="utf-8", newline="") as handle:
+        rows = list(csv.DictReader(handle))
+    if len(rows) != 3:
+        raise RuntimeError("historical correction ledger must contain exactly three dated rows")
+    grouped: dict[str, list[dict[str, str]]] = {}
+    for row in rows:
+        if row["classification"] not in {"common", "non_common"}:
+            raise RuntimeError("historical correction classification must be common or non_common")
+        if row["authority_status"] != "AUTHORITATIVE_HISTORICAL":
+            raise RuntimeError("historical correction must retain authoritative provenance status")
+        if not row["evidence_published_date"] or not row["evidence_available_from"]:
+            raise RuntimeError("historical correction must distinguish publication and availability dates")
+        if row["effective_first_session"] > row["effective_last_session"]:
+            raise RuntimeError("historical correction interval is reversed")
+        grouped.setdefault(str(row["security_id"]), []).append(row)
+    for sid, values in grouped.items():
+        values.sort(key=lambda row: row["effective_first_session"])
+        for previous, current in zip(values, values[1:]):
+            if previous["effective_last_session"] >= current["effective_first_session"]:
+                raise RuntimeError(f"overlapping historical correction intervals: {sid}")
+    return grouped
+
+
+class SecurityTypeEstimate(base.SecurityTypeEstimate):
+    """Reviewed estimate with authoritative, time-sliced corrections taking precedence."""
+
+    def __init__(self, ledger: Path, scenario: str, reviewed_ledger: Path = base.DEFAULT_REVIEWED_LEDGER,
+                 correction_ledger: Path = CORRECTION_LEDGER):
+        if scenario != "reviewed_18":
+            raise RuntimeError("corrected Champion replay requires reviewed_18 baseline")
+        super().__init__(ledger, scenario, reviewed_ledger)
+        self.corrections = _load_corrections(correction_ledger)
+        self.correction_calls = {"common": 0, "non_common": 0}
+        expected = {"594891209465982980", "192545371416014112"}
+        if set(self.corrections) != expected:
+            raise RuntimeError("historical correction ledger must cover exactly PDS and EQM")
+        for sid, values in self.corrections.items():
+            if sid not in self.rows:
+                raise RuntimeError(f"historical correction references unknown security: {sid}")
+            admitted_first = str(self.rows[sid]["unknown_first_session"])
+            admitted_last = str(self.rows[sid]["unknown_last_session"])
+            if values[0]["effective_first_session"] != admitted_first or values[-1]["effective_last_session"] != admitted_last:
+                raise RuntimeError(f"historical correction does not cover full admitted interval: {sid}")
+
+    def _historical_correction(self, sid: str, session: str) -> dict[str, str] | None:
+        matches = [row for row in self.corrections.get(sid, ())
+                   if row["effective_first_session"] <= session <= row["effective_last_session"]]
+        if len(matches) > 1:
+            raise RuntimeError(f"multiple historical corrections apply: {sid} {session}")
+        if sid in self.corrections and not matches:
+            raise RuntimeError(f"unsupported historical extrapolation: {sid} {session}")
+        return matches[0] if matches else None
+
+    def _classify(self, security_id: str, session: str, *, count: bool) -> str:
+        sid = str(security_id)
+        try:
+            base_row = self.rows[sid]
+        except KeyError as exc:
+            raise RuntimeError(f"unknown canonical candidate absent from estimate ledger: {sid}") from exc
+        if not (str(base_row["unknown_first_session"]) <= str(session) <= str(base_row["unknown_last_session"])):
+            raise RuntimeError(f"estimate requested outside admitted interval: {sid} {session}")
+        correction = self._historical_correction(sid, str(session))
+        if correction is not None:
+            result = correction["classification"]
+            if count:
+                self.calls[result] += 1
+                self.correction_calls[result] += 1
+            return result
+        return super()._classify(sid, session, count=count)
+
+    def provenance(self, security_id: str, session: str) -> dict[str, str]:
+        sid = str(security_id)
+        correction = self._historical_correction(sid, str(session))
+        if correction is not None:
+            return {
+                "source_status": correction["authority_status"],
+                "evidence_published_date": correction["evidence_published_date"],
+                "evidence_available_from": correction["evidence_available_from"],
+                "effective_first_session": correction["effective_first_session"],
+                "effective_last_session": correction["effective_last_session"],
+                "evidence_kind": correction["evidence_kind"],
+                "evidence_url": correction["evidence_url"],
+            }
+        row = self.rows[sid]
+        return {
+            "source_status": str(row["disposition"]),
+            "evidence_published_date": "",
+            "evidence_available_from": "",
+            "effective_first_session": str(row["unknown_first_session"]),
+            "effective_last_session": str(row["unknown_last_session"]),
+            "evidence_kind": "BEST_EFFORT_BASE_OR_REVIEWED_OVERLAY",
+            "evidence_url": "",
+        }
+
+    def summary(self) -> dict:
+        result = super().summary()
+        result.update(
+            label=CORRECTED_LABEL,
+            scenario=CORRECTED_SCENARIO,
+            historical_correction_ledger_sha256=CORRECTION_LEDGER_SHA256,
+            historical_correction_security_ids=sorted(self.corrections),
+            historical_correction_calls=dict(self.correction_calls),
+            certification_eligible=False,
+        )
+        return result
+
+
+def install(text: str) -> str:
+    text = base.install(text)
+    old = "from backtester import research_champion_best_effort_classification as _bestclass"
+    new = "from backtester import research_champion_corrected_classification as _bestclass"
+    if text.count(old) != 1:
+        raise RuntimeError("corrected overlay import seam is not unique")
+    text = text.replace(old, new, 1)
+    compile(text, "<Champion-corrected-classification>", "exec")
+    return text
+
+
+def build_source(output: Path) -> str:
+    from backtester import run_research_champion_pit_closure_20y as closure
+    return install(closure.build_source(output))
+
+
+def _decision_role(observed: dict[str, str]) -> str:
+    numeric = lambda key: int(observed.get(key) or 0)
+    if any(numeric(key) for key in ("durable_ranked_sessions", "recent_leadership_sessions", "pending_sessions", "held_sessions")):
+        return "ECONOMIC_PATH_CONTACT"
+    if numeric("eligible_sessions") or numeric("momentum_pool_sessions"):
+        return "RANKING_INPUT"
+    if numeric("base_candidate_sessions"):
+        return "BASE_CANDIDATE_ONLY"
+    return "NO_REPLAY_CONTACT"
+
+
+def _write_correction_frontier(output: Path) -> None:
+    with CORRECTION_LEDGER.open(encoding="utf-8", newline="") as handle:
+        corrections = list(csv.DictReader(handle))
+    with (output / "strategy-path-worklist.csv").open(encoding="utf-8", newline="") as handle:
+        path = {row["security_id"]: row for row in csv.DictReader(handle)}
+    fields = list(corrections[0]) + [
+        "decision_role", "base_candidate_sessions", "eligible_sessions", "momentum_pool_sessions",
+        "durable_ranked_sessions", "recent_leadership_sessions", "pending_sessions", "held_sessions",
+    ]
+    rows = []
+    for correction in corrections:
+        observed = path.get(correction["security_id"], {})
+        row = dict(correction)
+        row["decision_role"] = _decision_role(observed)
+        for key in fields[-7:]:
+            row[key] = int(observed.get(key) or 0)
+        rows.append(row)
+    with (output / "corrected-security-decision-frontier.csv").open("w", encoding="utf-8", newline="") as handle:
+        writer = csv.DictWriter(handle, fieldnames=fields, lineterminator="\n")
+        writer.writeheader(); writer.writerows(rows)
+
+
+def _mark_corrected_outputs(output: Path) -> None:
+    import pandas as pd
+
+    for name in ("summary.json", "pit-closure-replay-identity.json"):
+        path = output / name
+        doc = json.loads(path.read_text(encoding="utf-8"))
+        doc.update(
+            status=CORRECTED_LABEL,
+            certification_status="NOT_CERTIFIED",
+            classification_scenario=CORRECTED_SCENARIO,
+            historical_correction_ledger_sha256=CORRECTION_LEDGER_SHA256,
+        )
+        path.write_text(json.dumps(doc, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+    for name in ("metrics.csv", "daily.csv.gz"):
+        path = output / name
+        frame = pd.read_csv(path)
+        frame["classification_scenario"] = CORRECTED_SCENARIO
+        frame["certification_status"] = "NOT_CERTIFIED"
+        if name.endswith(".gz"):
+            frame.to_csv(path, index=False, compression={"method": "gzip", "mtime": 0})
+        else:
+            frame.to_csv(path, index=False)
+    _write_correction_frontier(output)
+    evidence = sorted(path for path in output.iterdir() if path.is_file() and path.name != "SHA256SUMS.txt")
+    (output / "SHA256SUMS.txt").write_text(
+        "".join(f"{base._sha256(path)}  {path.name}\n" for path in evidence), encoding="utf-8"
+    )
+
+
+def run(output: Path, ledger: Path = base.DEFAULT_LEDGER) -> int:
+    from backtester import run_research_champion_pit_closure_20y as closure
+
+    if os.environ.get("PIT_OFFICIAL_BACKTEST", "0") not in ("", "0"):
+        raise RuntimeError("corrected research replay requires PIT_OFFICIAL_BACKTEST=0")
+    if base._sha256(base.DEFAULT_SUMMARY) != base.SUMMARY_SHA256:
+        raise RuntimeError("best-effort classification summary hash mismatch")
+    original = closure.build_source
+    closure.build_source = lambda destination: install(original(destination))
+    os.environ["BEST_EFFORT_SECURITY_TYPES"] = str(ledger.resolve())
+    os.environ["BEST_EFFORT_CLASSIFICATION_SCENARIO"] = "reviewed_18"
+    try:
+        rc = closure.run(output)
+    finally:
+        closure.build_source = original
+    if rc:
+        return rc
+    base._rewrite_outputs(output.resolve(), "reviewed_18")
+    _mark_corrected_outputs(output.resolve())
+    print("[CLASSIFICATION REPLAY] corrected historical security types completed; NOT YET PIT certified", flush=True)
+    return 0
+
+
+def main() -> int:
+    parser = argparse.ArgumentParser()
+    parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--ledger", type=Path, default=base.DEFAULT_LEDGER)
+    parser.add_argument("--self-test", action="store_true")
+    args = parser.parse_args()
+    if args.self_test:
+        os.environ["BEST_EFFORT_SECURITY_TYPES"] = str(args.ledger.resolve())
+        os.environ["BEST_EFFORT_CLASSIFICATION_SCENARIO"] = "reviewed_18"
+        source = build_source(args.output)
+        print(json.dumps({
+            "status": "PASS",
+            "label": CORRECTED_LABEL,
+            "generated_source_sha256": hashlib.sha256(source.encode()).hexdigest(),
+            "correction_ledger_sha256": CORRECTION_LEDGER_SHA256,
+        }, sort_keys=True))
+        return 0
+    return run(args.output, args.ledger)
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
