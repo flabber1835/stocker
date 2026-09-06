@@ -17,6 +17,7 @@ from backtester import champion_security_truth_overlay_v2 as prior
 
 ROOT = Path(__file__).resolve().parents[1]
 MANUAL = ROOT / "research/champion-economic-integrity/security-truth/manual-review"
+CANONICAL_KEYS = ("canonical_interval", "interval", "decision_interval", "review_interval")
 
 SOURCE_FILES = (
     "durable-shard-00.json", "durable-shard-01.json", "durable-shard-02.json",
@@ -43,15 +44,26 @@ class Interval:
 
 
 def _canonical(case: dict) -> tuple[str, str]:
-    value = case.get("canonical_interval")
+    value = None
+    for key in CANONICAL_KEYS:
+        if case.get(key) is not None:
+            value = case[key]
+            break
     if isinstance(value, str):
         a, b = value.replace(" — ", "/").replace("..", "/").split("/", 1)
         return a.strip(), b.strip()
     if isinstance(value, (list, tuple)) and len(value) == 2:
         return str(value[0]), str(value[1])
     if isinstance(value, dict):
-        return str(value["first_session"]), str(value["last_session"])
+        a = value.get("first_session") or value.get("effective_first_session")
+        b = value.get("last_session") or value.get("effective_last_session")
+        if a is not None and b is not None:
+            return str(a), str(b)
     raise ValueError(f"unsupported canonical interval: {value!r}")
+
+
+def _has_canonical(case: dict) -> bool:
+    return any(case.get(key) is not None for key in CANONICAL_KEYS)
 
 
 def _decision(case: dict) -> str:
@@ -76,9 +88,11 @@ def _parsed_intervals(case: dict, source: str) -> list[Interval]:
             cls = str(row.get("classification") or row.get("decision") or "").lower()
             if cls not in {"common", "non_common"}:
                 continue
-            a = str(row.get("first_session") or row.get("effective_first_session"))
-            b = str(row.get("last_session") or row.get("effective_last_session"))
-            result.append(Interval(a, b, cls, source, ticker))
+            a = row.get("first_session") or row.get("effective_first_session")
+            b = row.get("last_session") or row.get("effective_last_session")
+            if a is None or b is None:
+                continue
+            result.append(Interval(str(a), str(b), cls, source, ticker))
         elif isinstance(row, (list, tuple)) and len(row) >= 3:
             cls = str(row[2]).lower()
             if cls in {"common", "non_common"}:
@@ -112,7 +126,7 @@ def _parsed_intervals(case: dict, source: str) -> list[Interval]:
     if result:
         return result
     if decision in {"common", "non_common"}:
-        if case.get("canonical_interval") is None:
+        if not _has_canonical(case):
             raise ValueError(
                 f"resolved case lacks canonical interval after parent recovery: "
                 f"{source} {sid} {ticker} {decision}"
@@ -162,8 +176,9 @@ def _load() -> tuple[dict[str, list[Interval]], list[str]]:
 
             # Remember canonical intervals independently of classification.
             # Parent unresolved rows still define the exact episode that a
-            # higher-precedence cleanup closes.
-            if case.get("canonical_interval") is not None:
+            # higher-precedence cleanup closes. Historical shards use a small
+            # number of equivalent field names, all normalized by _canonical.
+            if _has_canonical(case):
                 canonical = _canonical(case)
                 canonical_by_sid[sid] = canonical
                 if ticker:
@@ -175,11 +190,11 @@ def _load() -> tuple[dict[str, list[Interval]], list[str]]:
                         )
                     ticker_to_canonical[ticker] = canonical
 
-            # Cleanup files may omit canonical_interval even when they carry a
+            # Cleanup files may omit any interval field even when they carry a
             # security_id. Recover the parent episode first by exact security ID,
             # then by the already-validated unique ticker binding. Never invent
             # dates from evidence or market outcomes.
-            if case.get("canonical_interval") is None:
+            if not _has_canonical(case):
                 canonical = canonical_by_sid.get(sid)
                 if canonical is None and ticker:
                     canonical = ticker_to_canonical.get(ticker)
