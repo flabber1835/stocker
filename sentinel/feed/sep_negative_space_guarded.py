@@ -1,7 +1,7 @@
 """Economic safety membrane for SEP negative-space retirement.
 
 The underlying negative-space module proves exact source absence, key/value
-stability, bounded cardinality, durability, and atomic publication.  This module
+stability, bounded cardinality, durability, and atomic publication. This module
 adds the remaining economic proof before any row is retired: a disappearing SEP
 bar may not carry a split or dividend, and removing event-free bars may not
 change the split edge observed by the next surviving bar.
@@ -12,8 +12,11 @@ import datetime as dt
 
 from sentinel.feed import domains, publication, sep_negative_space as core
 from stock_strategy_shared.split_reconciliation import (
+    SPLIT_UNRESOLVED,
+    raw_prices_refute_listed_split,
+    resolve_split_orientation,
+    split_price_evidence,
     split_ratio_bounds,
-    split_ratio_matches,
 )
 
 KIND = core.KIND
@@ -53,7 +56,7 @@ def _assert_retired_rows_have_no_economic_events(conn, keys: list[dict]) -> None
 
 
 def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
-    """Verify the next surviving split edge with unsnapped price evidence."""
+    """Resolve the next surviving edge with canonical ingest split semantics."""
     effective = publication.effective_split_ratio("b")
     visible = publication.visible_predicate("b")
     for key in keys:
@@ -80,24 +83,48 @@ def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
             next_row = cur.fetchone()
         if next_row is None or prev_row is None:
             continue
+
         required = domains.unsnapped_split_ratio(
             prev_row[0], prev_row[1], next_row[0], next_row[1])
         effective_next = float(next_row[2] or 1.0)
         bounds = split_ratio_bounds(
             prev_row[0], prev_row[1], next_row[0], next_row[1])
-        matches, _quantized = split_ratio_matches(
-            effective_next, required, bounds)
-        if not matches:
+        price_event = split_price_evidence(required)
+
+        # A unit effective edge follows the canonical price-only discovery rule.
+        # Bridge movement inside the 2% no-event band remains ordinary noise;
+        # material bridge evidence would require a split and therefore changes
+        # the surviving economics.
+        if abs(effective_next - 1.0) <= 1e-12:
+            if price_event is None:
+                continue
             raise SepNegativeSpaceRefused(
                 "SEP retirement would change the effective split chain for "
-                f"{sid} after {session}: surviving successor price evidence "
-                f"implies {required!r}, published ratio is {effective_next:g}")
+                f"{sid} after {session}: bridge price evidence implies material "
+                f"split ratio {required!r}, published ratio is 1")
+
+        # A non-unit published edge is treated as the stated surviving economic
+        # event and passed through the same resolver used by canonical ingest.
+        # This preserves the stronger mill-rounded precision interval for small
+        # explicit splits and refuses the canonical UNRESOLVED state.
+        resolved, disposition = resolve_split_orientation(
+            effective_next, required, bounds=bounds,
+            explicit_no_event=(required is not None and price_event is None),
+            raw_refutes_event=raw_prices_refute_listed_split(
+                effective_next, prev_row[1], next_row[1]))
+        if (disposition == SPLIT_UNRESOLVED
+                or abs(float(resolved) - effective_next) > 1e-12):
+            raise SepNegativeSpaceRefused(
+                "SEP retirement would change the effective split chain for "
+                f"{sid} after {session}: canonical bridge resolution is "
+                f"{disposition}/{resolved:g} from price evidence {required!r}, "
+                f"published ratio is {effective_next:g}")
 
 
 def repair_local_only(
         conn, *, fetch, start: str, end: str, observation_ceiling,
-        expected_source):
-    """Retire exact negative space only after the complete economic proof."""
+        expected_source, source_authority_evidence=None):
+    """Retire exact negative space only after source and economic proof."""
     # Existing adversarial tests patch the original repair function as a static
     # seam. Preserve that seam while production keeps the guarded implementation.
     if core.repair_local_only is not _ORIGINAL_REPAIR:
@@ -143,6 +170,8 @@ def repair_local_only(
         plan = core._plan(
             start=start, end=end, source=source,
             expected_source=expected_source, keys=keys)
+        if source_authority_evidence is not None:
+            plan["source_authority"] = dict(source_authority_evidence)
         run = core.store.IngestRun(
             conn, KIND, date_from=start, date_to=end, chunks_total=1)
         run_id = str(run.progress.run_id)
