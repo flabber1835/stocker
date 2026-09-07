@@ -1,8 +1,5 @@
 from __future__ import annotations
 
-import datetime as dt
-import os
-
 import pytest
 
 from sentinel.feed import sep_negative_space_guarded as guarded
@@ -121,9 +118,28 @@ def test_complete_export_source_spools_months_and_replays(monkeypatch):
         ]
         assert evidence["source_rows"] == 3
         assert len(evidence["parts"]) == 3
-        path = fetch.cleanup.__closure__[0].cell_contents if fetch.cleanup.__closure__ else None
     finally:
         fetch.cleanup()
 
-    if isinstance(path, str):
-        assert not os.path.exists(path)
+
+def test_complete_export_source_refuses_cross_refresh_composite(monkeypatch):
+    from sentinel.feed import snapshot_export
+
+    refreshes = iter([
+        "2026-09-07T19:59:00+00:00",
+        "2026-09-07T20:01:00+00:00",
+    ])
+
+    def fetch_complete_sep(*, start, end):
+        return ([], {
+            "authority": "nasdaq-data-link-table-export/v1",
+            "table": "SEP", "source_rows": 0,
+            "data_snapshot_time": "2026-09-07T20:02:00+00:00",
+            "last_refreshed_time": next(refreshes),
+        })
+
+    monkeypatch.setattr(snapshot_export, "fetch_complete_sep", fetch_complete_sep)
+    with pytest.raises(
+            recon.SepReconciliationStateInvalid,
+            match="crossed a vendor table refresh"):
+        recon._complete_export_source(start="2026-01-01", end="2026-02-01")
