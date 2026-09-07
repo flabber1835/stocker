@@ -1,0 +1,166 @@
+name: Median-5 certified end-book extraction v15
+run-name: Median-5 end-book extraction - ${{ github.sha }}
+on:
+  push:
+    branches: [research/median5-endbook-extraction-v15]
+    paths:
+      - '.github/workflows/median5-endbook-extraction-v15.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+  actions: read
+concurrency:
+  group: median5-endbook-extraction-v15-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+
+jobs:
+  extract:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    defaults: {run: {shell: bash}}
+    steps:
+      - name: Isolated research checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: audit-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/champion-economic-integrity
+            research/champion-alpha-five-run-validation-v2
+            research/median5-fullpit-recertification-v13
+
+      - name: Exact formal source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/strategy9-e3-broad-stability
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+
+      - name: Exact classifier source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ba74e79490beb8950611b1d17f5d124833b3d91e
+          path: candidate-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: backtester
+
+      - name: Exact runtime source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.12.14', check-latest: false}
+
+      - name: Install frozen runtime and stage certified overlays
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" >> "$GITHUB_ENV"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "$GITHUB_ENV"
+          for f in champion_economic_prefix_audit.py champion_full_classification_control.py champion_security_truth_audit_v2.py champion_security_truth_overlay_v2.py champion_final_security_truth.py champion_final_truth_corpus_validator.py production_equivalent_economic_overlay.py champion_production_equivalent_build.py champion_production_equivalent_final_replay.py; do cp "audit-src/backtester/$f" certified-src/backtester/; done
+          cp audit-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
+          cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
+          cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
+          for f in champion-best-effort-security-types-v1.csv champion-best-effort-security-types-v1-summary.json champion-reviewed-security-types-v1.csv champion-historical-security-type-corrections-v1.csv; do cp "candidate-src/backtester/data/$f" certified-src/backtester/data/; done
+          mkdir -p certified-src/research/champion-economic-integrity/security-truth
+          cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
+
+      - name: Pull and verify immutable canonical PIT package
+        env: {GHCR_TOKEN: '${{ secrets.GITHUB_TOKEN }}'}
+        run: |
+          set -euo pipefail
+          POINTER=certified-src/backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "$PACKAGE" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$PACKAGE"
+          cid=$(docker create "$PACKAGE" /bin/true); trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "$cid:/canonical-pit/." canonical-pit/
+          docker rm "$cid"; trap - EXIT
+          PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "$POINTER" --dataset canonical-pit > package-integrity.json
+
+      - name: Instrument end-book witness only
+        run: |
+          set -euo pipefail
+          cp audit-src/research/median5-fullpit-recertification-v13/experiment_overlay.py audit-src/research/champion-alpha-five-run-validation-v2/experiment_overlay.py
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('audit-src/research/champion-alpha-five-run-validation-v2/experiment_runner.py')
+          s=p.read_text()
+          needle='    (out / "experiment-generated.py").write_text(variant)\n'
+          injection=r'''    marker="    (OUT/'summary.json').write_text(json.dumps(summary,indent=2))"
+    witness="""    _end_eq,_end_unresolved=book.equity(raw)\n    _end_cash=float(book.cash+sum(x[1] for x in book.receivables))\n    _end_alloc=float(eff['A'])\n    _end_positions=[]\n    for _slot in book.slots:\n        if not _slot.held(): continue\n        _tid=int(_slot.tid); _px=float(raw[_tid])\n        if not (finite(_px) and _px>0): _px=float(book.last_raw.get(_tid,float('nan')))\n        if not (finite(_px) and _px>0): raise RuntimeError(f'end-book unresolved price tid={_tid}')\n        _mv=float(_slot.qty*_px); _wcw=float(_mv/_end_eq); _effw=float(_end_alloc*_wcw)\n        _end_positions.append({'ticker':str(tick[_tid]),'security_id':str(sid[_tid]),'shares':float(_slot.qty),'price':_px,'market_value':_mv,'wealth_core_weight':_wcw,'effective_portfolio_weight':_effw})\n    _end_positions.sort(key=lambda z:(-z['effective_portfolio_weight'],z['ticker'],z['security_id']))\n    _wc_cash_weight=float(_end_cash/_end_eq)\n    _defensive_cash_weight=float(1.0-_end_alloc)\n    _effective_wc_cash_weight=float(_end_alloc*_wc_cash_weight)\n    _combined_cash_weight=float(_defensive_cash_weight+_effective_wc_cash_weight)\n    _endbook={'date':str(date.date()),'full_pit':bool(PIT_MODE),'replay_mode':str(MODE),'book_equity':float(_end_eq),'book_cash_and_receivables':_end_cash,'book_unresolved':bool(_end_unresolved),'overlay_allocation':_end_alloc,'wealth_core_cash_weight':_wc_cash_weight,'effective_wealth_core_cash_weight':_effective_wc_cash_weight,'defensive_cash_weight':_defensive_cash_weight,'combined_cash_weight':_combined_cash_weight,'positions':_end_positions,'position_weight_sum':float(sum(z['effective_portfolio_weight'] for z in _end_positions)),'total_weight_sum':float(sum(z['effective_portfolio_weight'] for z in _end_positions)+_combined_cash_weight)}\n    (OUT/'endbook.json').write_text(json.dumps(_endbook,indent=2,sort_keys=True))\n"""
+    if marker not in variant: raise RuntimeError('end-book injection marker missing')
+    variant=variant.replace(marker,witness+marker,1)
+    (out / "experiment-generated.py").write_text(variant)
+'''
+          if needle not in s: raise RuntimeError('runner injection point missing')
+          p.write_text(s.replace(needle,injection,1))
+          PY
+
+      - name: Run exact fresh full-PIT Median-5 replay with end-book witness
+        run: |
+          set -euo pipefail
+          cd certified-src
+          RESEARCH_REPLAY_MODE=fullpit python "${GITHUB_WORKSPACE}/audit-src/research/champion-alpha-five-run-validation-v2/experiment_runner.py" --arm MEDIAN5_CANONICAL --candidate-root "${GITHUB_WORKSPACE}/candidate-src" --output "${GITHUB_WORKSPACE}/median5-endbook-output" 2>&1 | tee "${GITHUB_WORKSPACE}/median5-endbook.log"
+
+      - name: Verify end-book witness
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, math
+          from pathlib import Path
+          r=json.loads(Path('median5-endbook-output/RESULT.json').read_text())
+          b=json.loads(Path('median5-endbook-output/engine/endbook.json').read_text())
+          assert r['status']=='PASS_FRESH_CAUSAL_PIT_REPLAY'
+          assert r['data']['pit'] is True and r['data']['prerecorded_decisions_used'] is False
+          assert r['data']['sessions']==5032 and r['dividend_lag_sessions']==1
+          assert b['date']=='2026-07-31' and b['full_pit'] is True and b['replay_mode']=='fullpit'
+          assert b['book_unresolved'] is False and len(b['positions'])==17
+          assert math.isclose(b['overlay_allocation'],0.55,abs_tol=1e-12)
+          assert math.isclose(b['total_weight_sum'],1.0,abs_tol=1e-10)
+          Path('END_BOOK.json').write_text(json.dumps(b,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(b,sort_keys=True))
+          PY
+
+      - name: Preserve exact end-book evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: median5-endbook-v15-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            END_BOOK.json
+            median5-endbook-output/
+            median5-endbook.log
+            package-integrity.json
+          retention-days: 90
+          if-no-files-found: error
