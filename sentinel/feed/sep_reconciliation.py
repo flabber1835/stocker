@@ -182,6 +182,8 @@ def _complete_export_source(
             pass
 
     export_fetch.cleanup = cleanup
+    export_fetch._sentinel_sep_retirement_capability = (
+        sep_negative_space_guarded._SEP_RETIREMENT_CAPABILITY)
     authority = {
         "authority": "nasdaq-data-link-table-export-composite/v1",
         "table": sharadar.SEP,
