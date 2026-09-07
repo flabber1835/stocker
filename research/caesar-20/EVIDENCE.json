@@ -1,0 +1,97 @@
+{
+  "schema": "champion.caesar20.evidence/1",
+  "name": "Caesar 20",
+  "status": "FROZEN_RESEARCH_CHALLENGER",
+  "production_replacement_certified": false,
+  "definition": {
+    "slots": 20,
+    "entry_weight": 0.05,
+    "only_intended_delta_from_corrected_25_baseline": [
+      "N_SLOTS 25 -> 20",
+      "ENTRY_W 0.04 -> 0.05"
+    ]
+  },
+  "corrected_baseline": {
+    "workflow_run_id": 34071569702,
+    "artifact_id": 10001317230,
+    "source_head": "1d3ab06a0b6c1ef5db4939bbecfe24953ae2195d",
+    "status": "PRODUCTION_EQUIVALENT_CERTIFIED",
+    "dividend_lag_sessions": 1,
+    "measurement_start": "2006-07-31",
+    "measurement_end": "2026-07-31",
+    "sessions": 5032,
+    "strategy_20y": {
+      "cagr": 0.18800888800126314,
+      "ending_multiple": 31.363500124285768,
+      "max_drawdown": -0.2491366167248561,
+      "sharpe_daily_252": 1.0363365863293037
+    }
+  },
+  "caesar20": {
+    "strategy_20y": {
+      "cagr": 0.19935541369014653,
+      "ending_multiple": 37.93066169012345,
+      "max_drawdown": -0.2381689917362837,
+      "sharpe_daily_252": 1.0817582840435795,
+      "sessions": 5032
+    },
+    "independent_reproductions": [
+      {
+        "workflow_run_id": 34076988256,
+        "artifact_id": 10002797174,
+        "arm": "CONCENTRATED_20"
+      },
+      {
+        "workflow_run_id": 34079759743,
+        "artifact_id": 10003871840,
+        "arm": "SIZE_20"
+      }
+    ]
+  },
+  "first_adversarial_round": {
+    "workflow_run_id": 34074276212,
+    "arms": {
+      "FRESH_REPLACEMENT": {"artifact_id": 10002234618, "cagr": 0.1766987600461789, "ending_multiple": 25.902097721636203, "max_drawdown": -0.23832036037890347, "sharpe_daily_252": 1.0025714583311216},
+      "MULTI_REFILL": {"artifact_id": 10002066286, "cagr": 0.1743224107625927, "ending_multiple": 24.875718946333738, "max_drawdown": -0.2969873006272855, "sharpe_daily_252": 0.986743775818526},
+      "EARLY_WEAK_REVIEW": {"artifact_id": 10002002592, "cagr": 0.14919006704056437, "ending_multiple": 16.138459356096778, "max_drawdown": -0.2661494183986757, "sharpe_daily_252": 0.9009183147375196},
+      "STAGED_RECOVERY": {"artifact_id": 10001817215, "cagr": 0.18755284422963037, "ending_multiple": 31.123579699140876, "max_drawdown": -0.2502595851946635, "sharpe_daily_252": 1.0341884379392754},
+      "COMBINED": {"artifact_id": 10002235079, "cagr": 0.12950938011525515, "ending_multiple": 11.424009598345677, "max_drawdown": -0.2545001680375426, "sharpe_daily_252": 0.7826631098669492}
+    }
+  },
+  "second_adversarial_round": {
+    "workflow_run_id": 34076988256,
+    "arms": {
+      "CONCENTRATED_20": {"artifact_id": 10002797174, "cagr": 0.19935541369014653, "ending_multiple": 37.93066169012345, "max_drawdown": -0.2381689917362837, "sharpe_daily_252": 1.0817582840435795},
+      "DIVERSIFIED_30": {"artifact_id": 10003185663, "cagr": 0.1798413049218892, "ending_multiple": 27.32130390851905, "max_drawdown": -0.24202558985971168, "sharpe_daily_252": 1.0498800494884728},
+      "LATE_REVIEW_159": {"artifact_id": 10003097312, "cagr": 0.15090942812814312, "ending_multiple": 16.6283066220487, "max_drawdown": -0.25230600221839605, "sharpe_daily_252": 0.8852962734183316},
+      "LONGER_SLOT_COOLDOWN_42": {"artifact_id": 10003072540, "cagr": 0.15208755487612735, "ending_multiple": 16.972075583514858, "max_drawdown": -0.22740668026742172, "sharpe_daily_252": 0.9184781427568081},
+      "TIGHTER_STOP_25": {"artifact_id": 10002856616, "cagr": 0.13488552987807023, "ending_multiple": 12.562143246478378, "max_drawdown": -0.2535989286733452, "sharpe_daily_252": 0.8606947444963956}
+    }
+  },
+  "portfolio_size_sweep": {
+    "workflow_run_id": 34079759743,
+    "source_head": "b27ea672349e5cae9d666e2bf335bfe385a668f7",
+    "arms": {
+      "SIZE_16": {"artifact_id": 10003653246, "cagr": 0.16062317610483356, "ending_multiple": 19.672127919943605, "max_drawdown": -0.2495869268073737, "sharpe_daily_252": 0.881569131263107},
+      "SIZE_18": {"artifact_id": 10003780329, "cagr": 0.17210724631809393, "ending_multiple": 23.95385088787727, "max_drawdown": -0.290753759799411, "sharpe_daily_252": 0.9446834075557122},
+      "SIZE_20": {"artifact_id": 10003871840, "cagr": 0.19935541369014653, "ending_multiple": 37.93066169012345, "max_drawdown": -0.2381689917362837, "sharpe_daily_252": 1.0817582840435795},
+      "SIZE_22": {"artifact_id": 10003625665, "cagr": 0.18288285176940033, "ending_multiple": 28.765019564335805, "max_drawdown": -0.25602850120854725, "sharpe_daily_252": 1.0094120395197235},
+      "SIZE_24": {"artifact_id": 10003941078, "cagr": 0.18419302296902407, "ending_multiple": 29.4089902329101, "max_drawdown": -0.22702039562291576, "sharpe_daily_252": 1.034607901199961}
+    }
+  },
+  "integrity": {
+    "pit": true,
+    "measurement_sessions": 5032,
+    "dividend_lag_sessions": 1,
+    "classification_expansion_required": false,
+    "prerecorded_decisions_used": false,
+    "canonical_dataset_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+    "canonical_package_digest": "sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c"
+  },
+  "interpretation": {
+    "historical_best_size": 20,
+    "broad_plateau_confirmed": false,
+    "reason": "The 20-stock result is a sharp local historical optimum; neighboring 18 and 22 are materially weaker.",
+    "recommended_status": "freeze Caesar 20 for prospective comparison against the certified 25-stock baseline"
+  }
+}
