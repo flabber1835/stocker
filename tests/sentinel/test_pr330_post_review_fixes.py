@@ -9,13 +9,19 @@ from sentinel.feed import sep_negative_space_guarded as guarded
 from sentinel.feed import sep_reconciliation as recon
 
 
-def _source_authority(*, ceiling="2026-09-07", refresh="2026-09-07T23:59:00+00:00"):
-    return {
+def _source_authority(*, ceiling="2026-09-07", refresh="2026-09-07T23:59:00+00:00",
+                      window=None, source_rows=None):
+    evidence = {
         "authority": "nasdaq-data-link-table-export-composite/v1",
         "table": "SEP",
         "observation_ceiling": ceiling,
         "last_refreshed_time": refresh,
     }
+    if window is not None:
+        evidence["window"] = list(window)
+    if source_rows is not None:
+        evidence["source_rows"] = int(source_rows)
+    return evidence
 
 
 def _actions_authority():
@@ -54,6 +60,21 @@ def test_destructive_boundary_requires_exact_frozen_ceiling_binding():
             source_authority_evidence=_source_authority(ceiling="2026-09-06"),
             actions_authority_evidence=_actions_authority(),
             observation_ceiling=dt.date(2026, 9, 7))
+
+
+def test_destructive_boundary_rejects_forged_evidence_on_injected_fetch():
+    def injected(*_args, **_kwargs):
+        return iter(())
+
+    with pytest.raises(
+            guarded.SepNegativeSpaceRefused,
+            match="not backed by the canonical Exporter replay capability"):
+        guarded._require_production_retirement_authority(
+            source_authority_evidence=_source_authority(
+                window=["2026-01-01", "2026-01-31"], source_rows=0),
+            actions_authority_evidence=_actions_authority(),
+            observation_ceiling=dt.date(2026, 9, 7), fetch=injected,
+            start="2026-01-01", end="2026-01-31", source_rows=0)
 
 
 def test_complete_export_refuses_generation_after_frozen_ceiling(monkeypatch):
@@ -96,6 +117,8 @@ def test_complete_export_persists_frozen_ceiling_in_authority(monkeypatch):
     try:
         assert evidence["observation_ceiling"] == "2026-09-07"
         assert evidence["last_refreshed_time"] == "2026-09-07T19:59:00+00:00"
+        assert fetch._sentinel_sep_retirement_capability is \
+            guarded._SEP_RETIREMENT_CAPABILITY
     finally:
         fetch.cleanup()
 
