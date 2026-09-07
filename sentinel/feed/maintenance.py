@@ -59,6 +59,12 @@ def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
             "watermark; a moving price-date window cannot prove old rows current.")
     hi = dt.date.fromisoformat(str(through))
     if cursor.processed_through > hi:
+        if reobserve_equal:
+            # A production operation may freeze its source date, then an earlier
+            # phase can legitimately establish stronger authority before this
+            # call executes. No source traversal is needed to satisfy the older
+            # frozen boundary; return the already stronger durable cursor.
+            return cursor
         raise _core.SharadarMutationRefused(
             f"SEP mutation cursor {cursor.processed_through} is ahead of "
             f"requested reconciliation through {hi}; refusing to treat future "
