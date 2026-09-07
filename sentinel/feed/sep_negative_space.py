@@ -9,9 +9,9 @@ This module repairs only that narrow negative-space case.  It independently
 re-observes the exact source partition through the same normalization path,
 requires every current source key/value to match the published corpus, bounds the
 local-only set, proves removal cannot change the effective split chain, durably
-records the exact keys, and retires them in the same transaction that publishes a
-dedicated repair generation.  Missing local source rows, value drift, identity
-drift, source instability, split-chain drift, or large key-set changes remain
+records the exact keys, and retires them through an append-only publication
+tombstone generation. Missing local source rows, value drift, identity drift,
+source instability, split-chain drift, or large key-set changes remain
 fail-closed.
 """
 from __future__ import annotations
@@ -233,14 +233,7 @@ def _bridge_split_ratio(prev_row, next_row) -> float:
 
 
 def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
-    """Refuse deletion when it would change any next surviving split edge.
-
-    Split ratios are path-dependent: removing B from A->B->C can change the
-    ratio that C must carry even when every persisted price/volume field on A/C
-    still matches source.  Inspect the nearest surviving predecessor and
-    successor across the complete published corpus, so a successor just beyond
-    the reconciliation partition cannot escape this proof.
-    """
+    """Refuse retirement when it would change any next surviving split edge."""
     effective = publication.effective_split_ratio("b")
     visible = publication.visible_predicate("b")
     for key in keys:
@@ -307,7 +300,11 @@ def _persist_plan(conn, *, run_id: str, plan: dict) -> None:
 
 
 def _retire_and_publish(conn, *, run, plan: dict):
+    """Publish the exact key set as an append-only retirement generation."""
     keys = list(plan["keys"])
+    if _keys_digest(keys) != str(plan.get("keys_sha256") or ""):
+        raise SepNegativeSpaceRefused(
+            "SEP retirement durable key set failed its tombstone digest")
     _load_retire_table(conn, keys)
     with conn.cursor() as cur:
         cur.execute(
@@ -319,13 +316,6 @@ def _retire_and_publish(conn, *, run, plan: dict):
             raise SepNegativeSpaceRefused(
                 "SEP retirement target changed after durable source proof; "
                 f"expected {len(keys)} rows, found {matched}")
-        cur.execute(
-            f"DELETE FROM sentinel_bars b USING {_TEMP_RETIRE_KEYS} r"
-            " WHERE b.security_id=r.security_id AND b.session=r.session"
-            "   AND b.ticker=r.ticker")
-        if int(cur.rowcount) != len(keys):
-            raise SepNegativeSpaceRefused(
-                "SEP retirement delete was not exact; refusing publication")
         cur.execute(
             "UPDATE feed_ingest_runs SET status='success',chunks_done=1,"
             " rows_dropped=%s,current_chunk='retire-local-only',"
