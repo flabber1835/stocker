@@ -75,7 +75,7 @@ def _production_source_ceiling(fetch, market_ceiling: dt.date) -> dt.date:
 
 
 def _production_source_boundary(fetch, source_ceiling: dt.date):
-    """Freeze the UTC instant that all production deletion authority must predate."""
+    """Freeze the UTC instant the observed production SEP mismatch cannot exceed."""
     from sentinel.feed import snapshot_source
 
     if fetch is not snapshot_source.fetch_table:
@@ -83,8 +83,8 @@ def _production_source_boundary(fetch, source_ceiling: dt.date):
     boundary = dt.datetime.now(dt.timezone.utc)
     if boundary.date() != source_ceiling:
         raise SepReconciliationStateInvalid(
-            "production SEP source observation date and frozen UTC observation "
-            f"instant disagree: date={source_ceiling}, instant={boundary.isoformat()}")
+            "production SEP mismatch observation crossed its frozen source day: "
+            f"date={source_ceiling}, instant={boundary.isoformat()}")
     return boundary
 
 
@@ -341,9 +341,6 @@ def reconcile_year(
         fetch = snapshot_source.fetch_table
     if require_complete_export is None:
         require_complete_export = production or fetch is snapshot_source.fetch_table
-    if require_complete_export and source_observation_boundary is None:
-        source_observation_boundary = _production_source_boundary(
-            fetch, _strict_ceiling(observation_ceiling))
 
     _core.store._assert_corpus_locked(conn)
     if not (str(start).startswith(f"{int(year):04d}-")
@@ -354,6 +351,14 @@ def reconcile_year(
         observation_ceiling=observation_ceiling)
     local = _local_fingerprint(conn, start=start, end=end)
     repair_candidate = int(local.rows) > int(source.rows)
+    if (repair_candidate and require_complete_export
+            and source_observation_boundary is None):
+        # Capture the exact instant immediately after the canonical SEP
+        # fingerprint has observed the local-only mismatch. The Exporter
+        # generation and post-retirement proof must both predate this same
+        # observation, so later vendor refreshes cannot authorize deletion.
+        source_observation_boundary = _production_source_boundary(
+            fetch, _strict_ceiling(observation_ceiling))
     if source.rows != local.rows or source.key_digest != local.key_digest:
         local = _repair_local_only_if_proved(
             conn, fetch=fetch, start=start, end=end,
@@ -409,9 +414,6 @@ def reconcile_all(conn, *, fetch=None, through: str, observation_ceiling=None):
             f"current source observation date {source_ceiling} is behind market "
             f"reconciliation boundary {market_through}")
     require_complete_export = production or fetch is snapshot_source.fetch_table
-    source_boundary = (
-        _production_source_boundary(fetch, source_ceiling)
-        if require_complete_export else None)
     if require_complete_export:
         maintenance.reconcile_actions_if_due(
             conn, through=market_through.isoformat())
@@ -425,8 +427,7 @@ def reconcile_all(conn, *, fetch=None, through: str, observation_ceiling=None):
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
             observation_ceiling=source_ceiling,
-            require_complete_export=require_complete_export,
-            source_observation_boundary=source_boundary)
+            require_complete_export=require_complete_export)
         _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
@@ -453,9 +454,6 @@ def reconcile_next(conn, *, fetch=None, through: str, observation_ceiling=None):
             f"reconciliation boundary {market_through}")
     production = production or fetch is snapshot_source.fetch_table
     require_complete_export = production
-    source_boundary = (
-        _production_source_boundary(fetch, source_ceiling)
-        if require_complete_export else None)
 
     if production:
         maintenance.reconcile_actions_if_due(
@@ -474,8 +472,7 @@ def reconcile_next(conn, *, fetch=None, through: str, observation_ceiling=None):
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
             observation_ceiling=source_ceiling,
-            require_complete_export=require_complete_export,
-            source_observation_boundary=source_boundary)
+            require_complete_export=require_complete_export)
         _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
