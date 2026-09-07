@@ -77,32 +77,58 @@ def _source_fingerprint(
         conn, fetch=guarded, start=start, end=end)
 
 
+def _complete_export_source(*, start: str, end: str):
+    """Return one fresh bounded Exporter snapshot plus its durable authority."""
+    from sentinel.feed import sharadar, snapshot_export
+
+    rows, evidence = snapshot_export.fetch_complete_sep(start=start, end=end)
+    frozen = tuple(dict(row) for row in rows)
+    expected = sharadar.date_params(start, end)
+
+    def export_fetch(table, params=None, **_kwargs):
+        if table != sharadar.SEP or dict(params or {}) != expected:
+            raise ValueError(
+                "SEP retirement export may be replayed only for its exact bounded "
+                "partition")
+        return iter(dict(row) for row in frozen)
+
+    return export_fetch, dict(evidence)
+
+
 def _repair_local_only_if_proved(
         conn, *, fetch, start: str, end: str, observation_ceiling,
-        source, local):
+        source, local, require_complete_export: bool = False):
     """Repair only a bounded source-stable local-only key set.
 
-    A source row absent locally, same-count key substitution, or any value drift
-    is not negative space and never enters the automatic path.
+    Production deletion authority is stronger than stable pagination: a fresh
+    bounded Exporter snapshot must independently corroborate the exact source
+    partition before absence may delete a published row.
     """
     if int(local.rows) <= int(source.rows):
         return local
+    repair_fetch = fetch
+    source_authority_evidence = None
+    if require_complete_export:
+        repair_fetch, source_authority_evidence = _complete_export_source(
+            start=start, end=end)
     sep_negative_space_guarded.repair_local_only(
-        conn, fetch=fetch, start=start, end=end,
+        conn, fetch=repair_fetch, start=start, end=end,
         observation_ceiling=_strict_ceiling(observation_ceiling),
-        expected_source=source)
+        expected_source=source,
+        source_authority_evidence=source_authority_evidence)
     return _local_fingerprint(conn, start=start, end=end)
 
 
 def reconcile_year(
         conn, *, fetch=_core.sharadar.fetch_table,
         year: int, start: str, end: str,
-        observation_ceiling):
+        observation_ceiling, require_complete_export: bool = False):
     """Prove one stable source year equals published keys and strategy values.
 
     The only automatic repair is a bounded set of published local-only rows that
-    an independent stable source re-observation proves Sharadar has retracted.
-    Every other key/value mismatch remains fail-closed.
+    current source proves absent. Production retirement additionally requires a
+    fresh bounded whole-export proof for the exact partition. Every other
+    key/value mismatch remains fail-closed.
     """
     _core.store._assert_corpus_locked(conn)
     if not (str(start).startswith(f"{int(year):04d}-")
@@ -116,7 +142,8 @@ def reconcile_year(
         local = _repair_local_only_if_proved(
             conn, fetch=fetch, start=start, end=end,
             observation_ceiling=observation_ceiling,
-            source=source, local=local)
+            source=source, local=local,
+            require_complete_export=require_complete_export)
     if source.rows != local.rows or source.key_digest != local.key_digest:
         raise _core.SepKeysetDrift(
             f"stable Sharadar SEP {year} normalized key set disagrees with "
@@ -143,16 +170,20 @@ def reconcile_year(
 def reconcile_all(conn, *, fetch=_core.sharadar.fetch_table,
                   through: str):
     """Prove every published SEP partition through one market boundary."""
+    from sentinel.feed import snapshot_source
+
     _core.store._assert_corpus_locked(conn)
     market_through = _strict_ceiling(through)
     source_ceiling = _production_source_ceiling(fetch, market_through)
+    require_complete_export = fetch is snapshot_source.fetch_table
     lo, hi = _visible_bounds(conn)
     results = []
     for year, start, end in _bounded_years(lo, hi, market_through):
         result = reconcile_year(
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
-            observation_ceiling=source_ceiling)
+            observation_ceiling=source_ceiling,
+            require_complete_export=require_complete_export)
         _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
@@ -161,11 +192,14 @@ def reconcile_all(conn, *, fetch=_core.sharadar.fetch_table,
 def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
                    through: str):
     """Advance rotating proof on the market clock under current source authority."""
+    from sentinel.feed import snapshot_source
+
     _core.store._assert_corpus_locked(conn)
     if YEARS_PER_RUN < 1:
         raise ValueError("SHARADAR_SEP_RECONCILE_YEARS_PER_RUN must be >= 1")
     market_through = _strict_ceiling(through)
     source_ceiling = _production_source_ceiling(fetch, market_through)
+    require_complete_export = fetch is snapshot_source.fetch_table
     results = []
     for _ in range(YEARS_PER_RUN):
         year, start, end = _next_year(conn)
@@ -175,7 +209,8 @@ def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
         result = reconcile_year(
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
-            observation_ceiling=source_ceiling)
+            observation_ceiling=source_ceiling,
+            require_complete_export=require_complete_export)
         _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
