@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from types import SimpleNamespace
 
 import pytest
 
@@ -36,8 +37,40 @@ class _RowsConn:
         return _RowsCursor(self.rows)
 
 
+class _SequenceCursor:
+    def __init__(self, conn):
+        self.conn = conn
+        self._row = None
+
+    def __enter__(self):
+        return self
+
+    def __exit__(self, *args):
+        return False
+
+    def execute(self, _sql, _params=()):
+        self._row = self.conn.responses.pop(0)
+
+    def fetchone(self):
+        return self._row
+
+
+class _SequenceConn:
+    def __init__(self, responses):
+        self.responses = list(responses)
+
+    def cursor(self):
+        return _SequenceCursor(self)
+
+
 def _key():
     return [{"security_id": "P:1", "session": "2026-04-02", "ticker": "AAA"}]
+
+
+def _proof(rows, key="a", value="b"):
+    return recon._PartitionProof(
+        rows=rows, key_digest=key * 64, value_digest=value * 64,
+        max_lastupdated=dt.date(2026, 9, 4))
 
 
 def test_retirement_refuses_fractional_split_event(monkeypatch):
@@ -79,13 +112,126 @@ def test_retirement_allows_economically_empty_row(monkeypatch):
     guarded._assert_retired_rows_have_no_economic_events(conn, _key())
 
 
-def test_fractional_bridge_uses_unsnapped_price_evidence():
-    prev = (10.0, 15.0)
-    successor = (10.0, 10.0, 1.5)
-    required = guarded.domains.unsnapped_split_ratio(
-        prev[0], prev[1], successor[0], successor[1])
-    assert required == pytest.approx(1.5)
-    assert guarded.split_ratio_matches(successor[2], required)[0]
+def _patch_bridge_sql(monkeypatch):
+    monkeypatch.setattr(
+        guarded.publication, "effective_split_ratio", lambda alias: "b.split_ratio")
+    monkeypatch.setattr(
+        guarded.publication, "visible_predicate", lambda alias: "TRUE")
+
+
+def test_small_published_split_must_survive_canonical_bridge_resolution(monkeypatch):
+    """A loose 1% match cannot preserve a split canonical ingest would refuse."""
+    _patch_bridge_sql(monkeypatch)
+    conn = _SequenceConn([
+        (100.0, 100.500),
+        (100.0, 100.503, 0.995),
+    ])
+
+    with pytest.raises(
+            guarded.SepNegativeSpaceRefused,
+            match="canonical bridge resolution is unresolved"):
+        guarded._assert_retirement_preserves_split_chain(conn, _key())
+
+
+def test_unit_split_edge_accepts_bridge_inside_canonical_no_event_band(monkeypatch):
+    """A 1.5% bridge remains no-event under the canonical 2% discovery rule."""
+    _patch_bridge_sql(monkeypatch)
+    conn = _SequenceConn([
+        (100.0, 101.500),
+        (100.0, 100.000, 1.0),
+    ])
+
+    guarded._assert_retirement_preserves_split_chain(conn, _key())
+
+
+def test_complete_export_disagreement_refuses_before_retirement(monkeypatch):
+    detected = _proof(10, "a", "b")
+    exported = _proof(11, "c", "b")
+    monkeypatch.setattr(guarded.core.store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(guarded.core, "_create_source_table", lambda conn: None)
+    monkeypatch.setattr(guarded.core, "_drop_temp", lambda conn, table: None)
+    monkeypatch.setattr(
+        guarded.core, "_source_proof_and_keys", lambda *a, **k: exported)
+
+    with pytest.raises(
+            guarded.SepNegativeSpaceRefused,
+            match="source changed between mismatch detection"):
+        guarded.repair_local_only(
+            object(), fetch="complete-export", start="2026-03-06",
+            end="2026-09-04", observation_ceiling="2026-09-06",
+            expected_source=detected,
+            source_authority_evidence={"authority": "export"})
+
+
+def test_production_repair_uses_fresh_complete_export_and_persists_evidence(
+        monkeypatch):
+    source = _proof(10, "a", "b")
+    local = _proof(11, "c", "d")
+    export_fetch = object()
+    evidence = {
+        "authority": "nasdaq-data-link-table-export/v1",
+        "table": "SEP",
+        "data_snapshot_time": "2026-09-06T20:00:00+00:00",
+        "last_refreshed_time": "2026-09-06T19:59:00+00:00",
+        "source_rows": 10,
+    }
+    captured = {}
+
+    monkeypatch.setattr(
+        recon, "_complete_export_source",
+        lambda **kwargs: (export_fetch, evidence))
+    monkeypatch.setattr(
+        recon.sep_negative_space_guarded, "repair_local_only",
+        lambda conn, **kwargs: captured.update(kwargs))
+    monkeypatch.setattr(recon, "_local_fingerprint", lambda *a, **k: source)
+
+    result = recon._repair_local_only_if_proved(
+        object(), fetch="paged", start="2026-03-06", end="2026-09-04",
+        observation_ceiling="2026-09-06", source=source, local=local,
+        require_complete_export=True)
+
+    assert result is source
+    assert captured["fetch"] is export_fetch
+    assert captured["source_authority_evidence"] == evidence
+    assert captured["expected_source"] is source
+
+
+def test_guarded_plan_persists_complete_export_authority(monkeypatch):
+    source = _proof(10, "a", "b")
+    keys = [{"security_id": "P:OLD", "session": "2026-04-01", "ticker": "OLD"}]
+    evidence = {"authority": "nasdaq-data-link-table-export/v1", "table": "SEP"}
+    saved = {}
+
+    class Run:
+        progress = SimpleNamespace(run_id="33333333-3333-3333-3333-333333333333")
+
+    monkeypatch.setattr(guarded.core.store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(guarded.core, "_create_source_table", lambda conn: None)
+    monkeypatch.setattr(guarded.core, "_drop_temp", lambda conn, table: None)
+    monkeypatch.setattr(guarded.core, "_source_proof_and_keys", lambda *a, **k: source)
+    monkeypatch.setattr(guarded.core, "_source_only_local_proof", lambda *a, **k: source)
+    monkeypatch.setattr(guarded.core, "_local_only_keys", lambda *a, **k: keys)
+    monkeypatch.setattr(
+        guarded.core.recon, "_local_fingerprint", lambda *a, **k: _proof(11, "c", "d"))
+    monkeypatch.setattr(guarded.core, "_load_retire_table", lambda *a, **k: None)
+    monkeypatch.setattr(
+        guarded, "_assert_retired_rows_have_no_economic_events", lambda *a, **k: None)
+    monkeypatch.setattr(
+        guarded, "_assert_retirement_preserves_split_chain", lambda *a, **k: None)
+    monkeypatch.setattr(guarded.core.store, "IngestRun", lambda *a, **k: Run())
+    monkeypatch.setattr(
+        guarded.core, "_persist_plan",
+        lambda conn, *, run_id, plan: saved.update(plan))
+    monkeypatch.setattr(
+        guarded.core, "_retire_and_publish", lambda *a, **k: "published")
+
+    result = guarded.repair_local_only(
+        object(), fetch="complete-export", start="2026-03-06",
+        end="2026-09-04", observation_ceiling="2026-09-06",
+        expected_source=source, source_authority_evidence=evidence)
+
+    assert result["publication"] == "published"
+    assert saved["source_authority"] == evidence
 
 
 def test_production_rotating_reconciliation_uses_source_day(monkeypatch):
