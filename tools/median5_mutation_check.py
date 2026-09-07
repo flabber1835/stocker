@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove the Median-5 promotion regressions reject five reviewed mutations.
+"""Prove the Median-5 promotion regressions reject nine reviewed mutations.
 
 Only in-memory functions are changed. This never edits production source or
 imports a broker client into a test flow.
@@ -11,17 +11,22 @@ import inspect
 import json
 from pathlib import Path
 import sys
+from types import FunctionType
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
+from pytest import MonkeyPatch
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 
 from _pytest.outcomes import Failed
-from tests.median5 import test_book, test_components, test_features
+from tests.median5 import test_book, test_components, test_features, test_equivalence_gate
 from sentinel.core import session, kernel
-from sentinel.breadth import median5 as breadth
+from sentinel.controller import median5_breadth as breadth
 from sentinel.cli import authority
 from sentinel.controller.frozen_rule import load as frozen
+from sentinel.controller import median5 as controller
+from sentinel import strategy, empty_account_authority
 from sentinel.core.decision import runtime_strategy_identity
 from stock_strategy_shared.wealth_core import adapter
 
@@ -39,10 +44,22 @@ def rewritten(function, old, new, *, last=False):
         source = source.replace(old, new, 1)
     scope = dict(function.__globals__)
     exec(compile(source, "reviewed_median5_mutant", "exec"), scope)
-    return scope[function.__name__]
+    compiled = scope[function.__name__]
+    # Preserve the real module's globals so dependency fixtures still exercise
+    # the same boundaries around the changed code object.
+    mutant = FunctionType(compiled.__code__, function.__globals__,
+                          function.__name__, function.__defaults__)
+    mutant.__kwdefaults__ = function.__kwdefaults__
+    return mutant
 
 
 def run():
+    def with_monkeypatch(test):
+        with MonkeyPatch.context() as fixture:
+            test(fixture)
+    def with_tmp_path(test):
+        with TemporaryDirectory(prefix="median5-falsifier-") as directory:
+            test(Path(directory))
     cases = (
         ("stale_current_bar", test_features.test_missing_current_bar_cannot_supply_stale_breadth,
          session, "holdings_from_shadow", rewritten(session.holdings_from_shadow,
@@ -59,6 +76,18 @@ def run():
         ("rounded_current_breadth_close", test_features.test_breadth_return_preserves_double_current_close_at_zero_boundary,
          breadth, "breadth", rewritten(breadth.breadth,
              "np.float64(close)/np.float32(previous)", "close/np.float32(previous)")),
+        ("peer_order_rewritten_by_rename", test_features.test_peer_ties_keep_first_identity_across_rename_and_restart,
+         controller, "remember_peer_keys", rewritten(controller.remember_peer_keys,
+             '.setdefault(sid,', '.__setitem__(sid,')),
+        ("controller_rule_digest_unbound", test_components.test_authority_controller_configuration_matches_named_strategy,
+         strategy, "controller_for_identity", rewritten(strategy.controller_for_identity,
+             'if controller.digest != identity.get("controller_rule_sha256"):', 'if False:')),
+        ("signed_controller_claim_reused", lambda: with_monkeypatch(test_components.test_empty_binding_recomputes_controller_claim),
+         empty_account_authority, "current_bindings", rewritten(empty_account_authority.current_bindings,
+             '    seed["controller"] = {\n        "rule_sha256": controller.digest,\n        "config_sha256": authority.canonical_sha256(controller.to_dict()),\n    }\n', '')),
+        ("previous_gate_pass_reused", lambda: with_tmp_path(test_equivalence_gate.test_previous_pass_cannot_survive_into_a_new_gate_run),
+         test_equivalence_gate, "prepare_output", rewritten(test_equivalence_gate.prepare_output,
+             'if output.exists() and any(output.iterdir()):', 'if False:')),
     )
     results = []
     for name, falsifier, module, attribute, mutant in cases:

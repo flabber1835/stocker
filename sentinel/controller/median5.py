@@ -43,7 +43,13 @@ def fresh():
             "previous_native": 1., "previous_desired": 1.,
             "effective_native": 1., "last_session": None,
             "witness_nav": [1.], "selected": [], "selected_closes": {},
-            "spy_history": []}
+            "spy_history": [], "peer_keys": {}}
+
+
+def remember_peer_keys(state, metadata):
+    """Freeze the first observed metadata ordering across ticker renames."""
+    for sid, item in metadata.items():
+        state["peer_keys"].setdefault(sid, [item.ticker, item.first_session or "", sid])
 
 
 def finite(value):
@@ -74,6 +80,10 @@ def validate(raw):
         raise ValueError("Median-5 witness membership and marks disagree")
     if any(not finite(x) or x <= 0 for x in raw["selected_closes"].values()):
         raise ValueError("invalid Median-5 witness mark")
+    for sid, key in raw["peer_keys"].items():
+        if (not isinstance(sid, str) or not isinstance(key, list) or len(key) != 3
+                or any(not isinstance(x, str) for x in key) or not key[0] or key[2] != sid):
+            raise ValueError("invalid Median-5 immutable peer ordering key")
     json.dumps(raw, allow_nan=False)
     return raw
 

@@ -2,7 +2,7 @@ import math
 
 import pytest
 
-from tools.median5_equivalence import Comparison
+from tools.median5_equivalence import Comparison, prepare_output
 
 
 def test_split_roundoff_tolerance_cannot_hide_integer_or_material_quantity_changes(tmp_path):
@@ -16,3 +16,11 @@ def test_split_roundoff_tolerance_cannot_hide_integer_or_material_quantity_chang
                              (216058., 216059.)):
         with pytest.raises(AssertionError):
             gate.shares("must_fail", actual, expected)
+
+
+def test_previous_pass_cannot_survive_into_a_new_gate_run(tmp_path):
+    old = tmp_path/"RESULT.json"
+    old.write_text('{"status":"PASS_FULL_PIT_EQUIVALENCE"}')
+    with pytest.raises(ValueError, match="output must be empty"):
+        prepare_output(tmp_path)
+    assert old.read_text() == '{"status":"PASS_FULL_PIT_EQUIVALENCE"}'

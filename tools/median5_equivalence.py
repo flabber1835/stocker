@@ -20,6 +20,7 @@ import types
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
+HARNESS_SHA = hashlib.sha256(Path(__file__).read_bytes()).hexdigest()
 
 from tools.median5_reference import verify as verify_dependencies
 
@@ -39,6 +40,12 @@ ABS_TOL = 0.0001
 RATIO_ABS_TOL = 1e-12
 REL_TOL = 1e-12
 FRACTIONAL_SHARE_ULPS = 4
+
+
+def prepare_output(output):
+    if output.exists() and any(output.iterdir()):
+        raise ValueError("equivalence output must be empty; preserve each run separately")
+    output.mkdir(parents=True, exist_ok=True)
 
 
 def normalized_sha(source):
@@ -171,6 +178,18 @@ class Comparison:
             self.restarts += 1
         wealth, ref = after.wealth_core, research["book"]
         sid = research["sid"]
+        self.diagnostics = {
+            "session_index": research["gday"],
+            "production_slots": wealth["slots"],
+            "reference_slots": [vars(s) for s in ref.slots],
+            "production_blocked": after.last_evidence["wealth_core"]["blocked"],
+            "reference_unresolved": bool(research["unresolved"]),
+            "reference_terminal_pending": {str(sid[k]): v for k, v in ref.terminal_pending.items()},
+            "production_terminal_pending": wealth["terminal_pending_sessions"],
+            "reference_missing_held_prices": [str(sid[s.tid]) for s in ref.slots
+                if s.held() and not np.isfinite(research["clraw"][s.tid])],
+            "reference_holding_features": research["held"],
+        }
         ref_order = [str(sid[int(t)]) for t in research["durable"]]
         self.equal("durable_order", wealth["median5"]["rank_history"][-1], ref_order)
         self.equal("eligible_population", after.last_evidence["median5_eligible_population"], len(research["et"]))
@@ -190,18 +209,6 @@ class Comparison:
             if slot.reserved():
                 expected_pending.append((i, str(sid[slot.pending_tid]), "OPEN_SLOT_POSITION", slot.pending_shares))
         actual_pending = [(p["slot_id"], p["security_id"], p["operation"], p["shares"]) for p in after.pending]
-        self.diagnostics = {
-            "session_index": research["gday"],
-            "production_slots": wealth["slots"],
-            "reference_slots": [vars(s) for s in ref.slots],
-            "production_blocked": after.last_evidence["wealth_core"]["blocked"],
-            "reference_unresolved": bool(research["unresolved"]),
-            "reference_terminal_pending": {str(sid[k]): v for k, v in ref.terminal_pending.items()},
-            "production_terminal_pending": wealth["terminal_pending_sessions"],
-            "reference_missing_held_prices": [str(sid[s.tid]) for s in ref.slots
-                if s.held() and not np.isfinite(research["clraw"][s.tid])],
-            "reference_holding_features": research["held"],
-        }
         actual_pending, expected_pending = sorted(actual_pending), sorted(expected_pending)
         self.equal("pending_order_identities", [p[:3] for p in actual_pending], [p[:3] for p in expected_pending])
         for actual, expected in zip(actual_pending, expected_pending):
@@ -265,8 +272,8 @@ def main():
     parser.add_argument("--verified-cache", type=Path)
     args = parser.parse_args()
     root, dataset_path, output = args.research_root.resolve(), args.dataset.resolve(), args.output.resolve()
+    prepare_output(output)
     dependency_sha = verify_dependencies(root)
-    output.mkdir(parents=True, exist_ok=True)
     sys.path.append(str(root))
     from backtester.canonical_pit_dataset import CanonicalPITDataset
     from backtester import champion_final_security_truth as classifier
@@ -352,6 +359,10 @@ def main():
     result = {"status": "PASS_FULL_PIT_EQUIVALENCE" if complete else "PASS_PARTIAL_EQUIVALENCE",
               "dataset_sha256": DATA_SHA, "reference_normalized_ast_sha256": AST_SHA,
               "reference_dependency_sha256": dependency_sha,
+              "harness_source_sha256": HARNESS_SHA,
+              "runtime": {"python": sys.version, "numpy": np.__version__, "pandas": pd.__version__},
+              "dependency_locks": {name: hashlib.sha256((REPO/name).read_bytes()).hexdigest()
+                                   for name in ("sentinel/requirements.lock", "tests/requirements.lock")},
               "research_metrics": research_summary["metrics"]["A"],
               "sessions": comparison.count, "measured_sessions": comparison.measured,
               "restart_comparisons": comparison.restarts,

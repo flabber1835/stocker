@@ -1,4 +1,4 @@
-"""Causal residual-correlation breadth for the certified Median-5 profile."""
+"""Controller-specific residual-peer breadth for the certified Median-5 profile."""
 from __future__ import annotations
 
 import numpy as np
@@ -47,7 +47,7 @@ def _correlation(left, right):
     return result if np.isfinite(result) else None
 
 
-def breadth(state, feed, spy_history, meta):
+def breadth(state, feed, spy_history, peer_keys):
     market = {int(row[0]): row[2] for row in spy_history}
     index = feed._session_index
     held, identities, residuals = [], [], []
@@ -60,9 +60,7 @@ def breadth(state, feed, spy_history, meta):
             previous = at(series, index-lag)
             return float(np.float64(close)/np.float32(previous)-1) if _finite(close) and _finite(previous) and previous > 0 else None
         held.append(Holding(ep.ticker, None, own, ret(21), ret(63), ep.market_sessions_held))
-        item = meta.get(ep.security_id)
-        identities.append((item.ticker if item else ep.ticker,
-                           item.first_session or "" if item else "", ep.security_id))
+        identities.append(tuple(peer_keys[ep.security_id]))
         residuals.append(_residuals(series, index, market))
     greens, reds = [is_green(h) for h in held], [is_red(h) for h in held]
     labels = []

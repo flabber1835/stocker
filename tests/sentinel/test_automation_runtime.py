@@ -1112,10 +1112,8 @@ def test_composition_requires_exact_signed_automation_authority(
     monkeypatch.setattr(
         automation_runtime.publication, "require_current",
         lambda _conn: SimpleNamespace(version=81))
-    monkeypatch.setattr(automation_runtime, "load_controller", lambda: object())
-    monkeypatch.setattr(
-        automation_runtime, "runtime_strategy_identity",
-        lambda _value: {"strategy": "sentinel-runtime-test"})
+    monkeypatch.setattr("sentinel.strategy.production_strategy",
+                        lambda: (object(), {"strategy": "sentinel-runtime-test"}))
     monkeypatch.setattr(
         automation_runtime.system_identity, "rehearsal_identity",
         lambda: {"runtime": "certified-image"})

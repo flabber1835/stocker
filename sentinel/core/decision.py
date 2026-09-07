@@ -36,7 +36,7 @@ DEFENSIVE_SECURITY_ID = "SENTINEL:BIL"
 DATA_SEMANTICS_IDENTITY_SCHEMA = "sentinel-sharadar-book-semantics/v1"
 _DATA_SEMANTICS_MODULES = (
     "sentinel.breadth.classifier",
-    "sentinel.breadth.median5",
+    "sentinel.controller.median5_breadth",
     "sentinel.breadth.returns",
     "sentinel.controller.concordance",
     "sentinel.controller.concordance_parent",

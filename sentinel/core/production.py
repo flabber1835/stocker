@@ -162,6 +162,8 @@ def _warm_median5(env, window, sessions, publication_version, prospective, elig)
         raise ValueError("Median-5 historical witness requires causal terminal evidence")
     for index, session in enumerate(sessions):
         norm = feed.advance(session, window.bars_by_session.get(session, ()))
+        median5_controller.remember_peer_keys(controller_state,
+            window.meta if prospective else timeline.session_map(session))
         close = float(spy[session])
         if not math.isfinite(close) or close <= 0:
             raise ValueError("invalid Median-5 warmup SPY close")

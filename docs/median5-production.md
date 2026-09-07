@@ -68,7 +68,14 @@ test oracle and is never imported by production.
 * Sentinel breadth uses residual returns against SPY over the previous 252
   sessions, excludes the current return, requires 120 joint observations, and
   selects at most three peers at correlation >= 0.145. The security itself is
-  included. Correlation ties follow the frozen security ordering.
+  included. Correlation ties follow the frozen security ordering. Sentinel
+  retains the first observed metadata tuple (ticker, listing start, security
+  identity) as the peer ordering key. Subsequent ticker renames cannot reorder
+  otherwise identical correlations. These keys are formed during feature
+  warm-up, persist across restart, and carry no holdings or exposure decision.
+  The NumPy peer calculations live in the controller-specific
+  `sentinel/controller/median5_breadth.py`; the shared recovered classifier in
+  `sentinel/breadth/` retains its standard-library-only contract.
 * The native parent uses damaged breadth 0.88, healthy damaged breadth 0.63,
   and a five-session damaged breadth increase of 0.30, with six healthy sessions
   for slow recovery. Candidate A uses the
@@ -97,6 +104,14 @@ checks. Existing frozen profile identities and certification
 artifacts retain their historical meaning. Sharadar remains production input;
 execution remains the sole broker-facing membrane. Median-5 certification does
 not establish paper execution performance.
+
+Observation and empty-account authority candidates must bind the controller
+configuration named by their supplied strategy identity. A resolver recognizes
+the frozen Sentinel 1.1, Concordance parent, and Median-5 identities and checks
+the corresponding rule digest. Unknown or mismatched identities are refused.
+Empty-account revalidation recomputes that controller binding instead of
+copying the signed claim. This is evidence preparation only; it grants no
+authority and does not enroll an account.
 
 ## Equivalence gate and review
 
@@ -131,7 +146,9 @@ test image with network disabled. The full immutable-tape comparison is a
 separate, retained promotion gate; the short CI suite does not substitute for
 it. A reference staging helper reconstructs the isolated research dependency
 tree from the three frozen source commits and verifies its aggregate digest
-before the replay can start.
+before the replay can start. Every replay requires an empty output directory
+so a previous PASS cannot survive into a failed attempt. Results bind the
+executed harness, dependency locks and scientific runtime versions.
 
 ## Bug register
 
@@ -151,8 +168,11 @@ before the replay can start.
    The authority CLI and automation control check constructed frozen Sentinel
    1.1 identities, while the paper/shadow defaults already selected Concordance.
    This could issue/check authority for a different strategy and refuse the
-   intended paper path. All four defaults now use the shared Median-5 selector;
-   the equality regression protects that composition.
+   intended paper path. The runtime defaults now use the shared selector.
+   Empty-account and observation candidate builders also recorded the frozen
+   controller configuration; they now resolve and bind the named profile.
+   Empty-account revalidation recomputes that field. Equality and stale-claim
+   regressions protect the composition.
 
 Both falsifiers are in `tests/median5/test_features.py`. The mutation checks
 were executed against in-memory copies; both mutants were killed. No production
@@ -160,7 +180,11 @@ activation or broker operation was used to demonstrate either defect.
 The legacy authority-default mutant was also killed by the shared-identity
 regression in `tests/median5/test_components.py`.
 `python tools/median5_mutation_check.py` reproduces those three kills and the
-terminal-admission and breadth-precision falsifiers, entirely in memory.
+terminal-admission, breadth-precision and immutable peer-order falsifiers,
+entirely in memory. The rename review fixture uses identical residual series:
+replacing one red peer's ticker C with ZZ must leave the original tie order
+intact. Rewriting that key changed a target's stress from 0.50 to 0.25 and its
+amber label; the corrected profile preserves the first key through JSON restart.
 
 The full-PIT comparison fixes monetary tolerances at absolute 0.0001 and
 relative 1e-12. Development exposed a scalar NumPy promotion that rounded a

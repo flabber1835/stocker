@@ -165,7 +165,7 @@ def advance_session(
     breadth = session_breadth(held)
     median5_state = deepcopy(env.median5)
     if median5:
-        from sentinel.breadth.median5 import breadth as peer_breadth
+        from sentinel.controller.median5_breadth import breadth as peer_breadth
         if median5_state is None:
             raise ValueError("Median-5 controller state is absent")
         if not published.spy_sessions or published.spy_sessions[-1] != published.session:
@@ -176,7 +176,8 @@ def advance_session(
         mv = close/previous-1 if previous is not None and previous > 0 else None
         median5_state["spy_history"] = (median5_state["spy_history"] + [
             [feed._session_index, close, mv]])[-254:]
-        breadth, held = peer_breadth(state, feed, median5_state["spy_history"], published.meta)
+        median5_controller.remember_peer_keys(median5_state, published.meta)
+        breadth, held = peer_breadth(state, feed, median5_state["spy_history"], median5_state["peer_keys"])
     navs = list(env.shadow_nav_history)
     nav = float(plan.estimated_equity)
     navs.append(nav)

@@ -90,3 +90,34 @@ def test_authority_and_execution_use_one_production_strategy():
     from sentinel.shadow_runtime import _strategy
     _runtime, authority = _current_system_identities()
     assert authority == _default_paper_strategy()[1] == _strategy()[1]
+
+
+def test_authority_controller_configuration_matches_named_strategy():
+    from sentinel.strategy import controller_for_identity
+    from sentinel.controller.frozen_rule import load as frozen
+    from sentinel.controller.concordance_parent import load as concordance
+    for factory in (median5.load, concordance, frozen):
+        expected = factory()
+        identity = {"strategy": expected.strategy_id, "controller_rule_sha256": expected.digest}
+        assert controller_for_identity(identity) == expected
+        with pytest.raises(ValueError, match="digest"):
+            controller_for_identity({**identity, "controller_rule_sha256": "0"*64})
+    with pytest.raises(ValueError, match="unsupported"):
+        controller_for_identity({"strategy": "unknown"})
+
+
+def test_empty_binding_recomputes_controller_claim(monkeypatch):
+    from sentinel import empty_account_authority as empty, authority
+    from sentinel.strategy import production_strategy
+    from tests.sentinel.test_empty_account_binding import runtime_identity
+    monkeypatch.setattr(empty, "current_corpus_root_identity", lambda _: {"publication_chain_root_sha256": "a"*64})
+    monkeypatch.setattr(empty, "current_metadata_snapshot_identity", lambda _: {})
+    monkeypatch.setattr(authority, "bind_current_immutable_identities", lambda seed, **_: dict(seed))
+    monkeypatch.setattr(empty, "validate_observation_bindings", lambda _: None)
+    cfg, identity = production_strategy()
+    result = empty.current_bindings(None,
+        claimed_bindings={"controller": {"rule_sha256": "0"*64, "config_sha256": "0"*64}},
+        runtime_identity=runtime_identity(), strategy_identity=identity,
+        automation_config_sha256="a"*64, paper_base_url=authority.PAPER_BASE_URL)
+    assert result["controller"] == {"rule_sha256": cfg.digest,
+                                    "config_sha256": authority.canonical_sha256(cfg.to_dict())}

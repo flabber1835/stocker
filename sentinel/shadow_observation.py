@@ -1203,7 +1203,7 @@ class ShadowObserver:
                     or features.get("formation_started") is not False):
                 raise ShadowObservationRefused("Median-5 seed feature history is not a cold formation")
             cold_wealth["median5"] = baseline.wealth_core["median5"]
-            feature_fields = {"witness_nav", "selected", "selected_closes", "spy_history", "last_session"}
+            feature_fields = {"witness_nav", "selected", "selected_closes", "spy_history", "last_session", "peer_keys"}
             if any(state.median5[k] != baseline.median5[k]
                    for k in baseline.median5 if k not in feature_fields):
                 raise ShadowObservationRefused("Median-5 seed has pre-existing recovery state")

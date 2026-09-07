@@ -97,7 +97,7 @@ def test_unbound_economic_override_is_rejected_before_transition():
 def test_peer_residuals_match_reference_and_exclude_current_return():
     import pandas as pd
     from stock_strategy_shared.wealth_core.feed import SecuritySeries
-    from sentinel.breadth.median5 import _residuals, _correlation
+    from sentinel.controller.median5_breadth import _residuals, _correlation
     scope = namespace()
     rng = np.random.default_rng(776)
     market = rng.normal(.0003, .012, 300)
@@ -143,7 +143,7 @@ def test_declared_split_preserves_owned_basis_across_vendor_rebase_and_restart()
 
 def test_breadth_return_preserves_double_current_close_at_zero_boundary():
     from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
-    from sentinel.breadth.median5 import breadth
+    from sentinel.controller.median5_breadth import breadth
     meta = {"a": SecurityMeta("a", "A", "Common Stock", "a", first_session="0000")}
     feed = Feed(meta)
     for day in range(64):
@@ -152,7 +152,54 @@ def test_breadth_return_preserves_double_current_close_at_zero_boundary():
     state = PortfolioState.fresh(1000)
     state.episodes[0] = HoldingEpisode("a", "A", "SID:a", 0, "0000", "0000", 100., 100., 1, 1,
         market_sessions_held=63, episode_peak_split_adjusted_close=100.000001)
-    result, holdings = breadth(state, feed, [], meta)
+    result, holdings = breadth(state, feed, [], {"a": ["A", "0000", "a"]})
     expected = float(np.float64(100.000001)/np.float32(100.)-1)
     assert holdings[0].r21 == holdings[0].r63 == expected > 0
     assert result.green_breadth == 1.
+
+
+def test_peer_ties_keep_first_identity_across_rename_and_restart():
+    from dataclasses import replace
+    import pandas as pd
+    from sentinel.breadth.classifier import is_green, is_red
+    from sentinel.controller.median5_breadth import breadth
+    from sentinel.controller import median5 as controller
+    from stock_strategy_shared.wealth_core.feed import SecuritySeries
+    from stock_strategy_shared.wealth_core.state import PortfolioState, HoldingEpisode
+    rng = np.random.default_rng(776)
+    n = 160
+    prices = 50*np.exp(np.cumsum(rng.normal(0, .005, n)))
+    prices[-1] = prices[-22]*.99
+    meta = {str(i): SecurityMeta(str(i), ticker, "Common Stock", str(i), first_session="0000")
+            for i, ticker in enumerate(("A", "C", "D", "Y", "Z"))}
+    feed = Feed(meta)
+    feed._session_index = n-1
+    book = PortfolioState.fresh(1000, 20)
+    state = controller.fresh()
+    controller.remember_peer_keys(state, meta)
+    for i, item in enumerate(meta.values()):
+        feed.series[item.security_id] = SecuritySeries(item.security_id, item.ticker,
+            "SID:"+item.security_id, session_indices=list(range(n)), signal_closes=prices.tolist())
+        book.episodes[i] = HoldingEpisode(item.security_id, item.ticker, "SID:"+item.security_id,
+            i, "0000", "0000", 50., 50., 1, 1, market_sessions_held=159,
+            episode_peak_split_adjusted_close=float(prices[-1])/(.88 if i in (1, 2) else .92))
+    market = rng.normal(0, .003, n)
+    spy_history = [[i, 100., float(value)] for i, value in enumerate(market)]
+    baseline, held = breadth(book, feed, spy_history, state["peer_keys"])
+    dates = list(pd.bdate_range("2006-01-03", periods=n))
+    spy = pd.DataFrame({"ret": market}, index=dates)
+    ring = np.full((260, 5), np.nan, np.float32)
+    ring[:n] = prices[:, None]
+    oracle_held = [(i, None, h.own_dd, h.r21, h.r63, h.age_sessions, is_green(h), is_red(h))
+                   for i, h in enumerate(held)]
+    expected = namespace()["dynamic_peer_breadth"](oracle_held, n-1, ring, spy, dates[:-1])
+    assert (baseline.green_breadth, baseline.damaged_breadth) == expected
+    assert baseline.labels[0].amber
+    state = controller.validate(json.loads(json.dumps(state)))
+    meta["1"] = replace(meta["1"], ticker="ZZ")
+    feed.series["1"].ticker = "ZZ"
+    book.episodes[1].ticker = "ZZ"
+    controller.remember_peer_keys(state, meta)
+    after, _ = breadth(book, feed, spy_history, state["peer_keys"])
+    assert (after.green_breadth, after.damaged_breadth) == expected
+    assert after.labels[0].amber
