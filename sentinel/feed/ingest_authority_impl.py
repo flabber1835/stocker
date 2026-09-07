@@ -92,7 +92,7 @@ def _require_failed_owner_cleared(conn, *, context: str) -> None:
             f"{candidate.run_id}/{candidate.kind}; refusing to open another run")
 
 
-def _prove_recent_frontier(conn, *, fetch) -> None:
+def _prove_recent_frontier(conn, *, fetch, observation_ceiling=None) -> None:
     if fetch is not snapshot_source.fetch_table:
         return
     frontier = _impl.feed_store.latest_visible_session(conn)
@@ -100,4 +100,5 @@ def _prove_recent_frontier(conn, *, fetch) -> None:
         raise sep_reconciliation.SepReconciliationStateInvalid(
             "published corpus has no SEP frontier for recent complete proof")
     recent_reconciliation.reconcile_recent(
-        conn, through=frontier, fetch=_recent_reconciliation_source(fetch))
+        conn, through=frontier, fetch=_recent_reconciliation_source(fetch),
+        observation_ceiling=observation_ceiling)
