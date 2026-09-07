@@ -64,10 +64,6 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                  corroborate_reference=None,
                  after_session: str | None = None,
                  seed_mode: bool = False):
-        # Only the production snapshot membrane is entitled to claim complete
-        # TICKERS structural authority. Injected deterministic fetch seams remain
-        # usable for narrow financial/adversarial tests without pretending to be
-        # a complete Sharadar TICKERS export.
         self._canonical_fetch = CanonicalSourceFetch(
             fetch, validate_tickers=(fetch is snapshot_source.fetch_table))
         self._seed_projection: Optional[SeedListingProjection] = None
@@ -172,25 +168,20 @@ class _CdcThenReplayFetch:
         if _is_matching_update_request(request, self._envelope):
             self._cdc_observations += 1
             return self._cdc(table, params, **kwargs)
-        # maintenance._stable_rows earns source stability from two complete
-        # observations before any affected date can be replayed. A date request
-        # before that point is therefore request-shape drift, not replay.
         if (self._cdc_observations >= 2
                 and self._is_exact_date_replay_request(request)):
             return self._replay(table, params, **kwargs)
-        # Delegate every unrecognized SEP shape to the envelope-bound wrapper;
-        # it refuses before touching the underlying source.
         return self._cdc(table, params, **kwargs)
 
 
 def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
                             through: str, reobserve_equal: bool = False):
-    """Run SEP CDC behind exact pre-fingerprint guards.
+    """Run SEP CDC behind the exact frozen through-date boundary.
 
     Equal cursors remain a terminal fast path unless the production caller
-    explicitly requests same-date re-observation. That exception is required for
-    Sharadar's date-granularity ``lastupdated`` field: later rows can still appear
-    with the same vendor date after an earlier observation.
+    explicitly requests same-date re-observation. A cursor beyond ``through`` is
+    never admissible: it represents vendor authority observed outside the source
+    boundary this reconciliation pass froze.
     """
     from sentinel.feed import maintenance
 
@@ -203,8 +194,6 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
             conn, fetch=fetch, through=through)
     hi = _strict_date(through, field="SEP reconciliation through")
     if cursor.processed_through > hi:
-        if reobserve_equal:
-            return cursor
         raise maintenance.SharadarMutationRefused(
             f"SEP mutation cursor {cursor.processed_through} is ahead of "
             f"requested reconciliation through {hi}; refusing to treat future "
