@@ -961,7 +961,7 @@ def published_spy_total_return(conn, start: str, end: str) -> list[tuple]:
         cur.execute(
             "SELECT session, closeadj FROM sentinel_spy_total_return r"
             " WHERE session BETWEEN %s AND %s"
-            f" AND {visible_predicate('r')} ORDER BY session", (start, end))
+            f" AND {visible_predicate('r', sep_retirements=False)} ORDER BY session", (start, end))
         return [(str(session), value) for session, value in cur.fetchall()]
 
 

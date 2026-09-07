@@ -17,7 +17,7 @@ def _proof(rows, key="a", value="b"):
         max_lastupdated=dt.date(2026, 9, 7))
 
 
-def test_public_sep_wrapper_accepts_stronger_cursor_for_frozen_ceiling(monkeypatch):
+def test_public_sep_wrapper_refuses_cursor_after_frozen_ceiling(monkeypatch):
     cursor = maintenance.SourceCursor(
         kind="sharadar-sep-lastupdated/v1",
         processed_through=dt.date(2026, 9, 7),
@@ -28,10 +28,9 @@ def test_public_sep_wrapper_accepts_stronger_cursor_for_frozen_ceiling(monkeypat
         lambda *a, **k: (_ for _ in ()).throw(
             AssertionError("stronger cursor must terminate in public wrapper")))
 
-    result = source_authority.reconcile_sep_mutations(
-        object(), fetch=object(), through="2026-09-06", reobserve_equal=True)
-
-    assert result is cursor
+    with pytest.raises(maintenance.SharadarMutationRefused, match="ahead of"):
+        source_authority.reconcile_sep_mutations(
+            object(), fetch=object(), through="2026-09-06", reobserve_equal=True)
 
 
 def test_daily_reuses_one_frozen_source_ceiling_for_rotation_and_sep(monkeypatch):

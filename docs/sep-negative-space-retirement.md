@@ -24,10 +24,14 @@ For a surviving effective split of 1.0, bridge price evidence inside the canonic
 
 A production reconciliation operation uses one explicit source-observation date for SEP CDC and complete SEP proofs. Complete SEP negative-space authority must come from a vendor `last_refreshed_time` whose UTC date is on or before that frozen observation date. The durable Exporter evidence records the same `observation_ceiling`. A later vendor refresh refuses retirement before mutation.
 
-If an earlier phase establishes a stronger SEP cursor before a later phase consumes the frozen boundary, the stronger durable cursor satisfies that older boundary without another source traversal. Recent-window proof reuses the established SEP observation ceiling.
+A SEP cursor newer than the frozen observation date refuses the pass. Equal cursors can be re-observed explicitly. Recent-window proof reuses the established SEP observation ceiling.
 
 ## Publication
 
-The exact retirement keys, complete SEP Exporter authority, fresh ACTIONS authority, normalized source digests, and key digest are persisted before mutation. Published target bars and any published split-repair children first transfer ownership to the running `sep_source_retirement` ingest generation through the existing governed restatement transition. Split-repair children are then retired, followed by the exact bars. This transition satisfies the published-strategy-evidence mutation guard while keeping the entire retirement and publication atomic.
+The exact retirement keys, complete SEP Exporter authority, fresh ACTIONS authority, normalized source digests, and key digest are persisted before mutation. The `sep_source_retirement` publication appends its exact keys as tombstones. The physical bars and split-repair children retain their original contents and generation ownership. SEP visibility excludes a key only when its retirement publication is newer than the bar generation. A later published bar generation restores visibility. Unpublished or rolled-back retirement evidence has no effect.
+
+SPY total-return, defensive SFP prices, and universe snapshots use generation-only visibility (`sep_retirements=False`); SEP tombstones apply only to equity bars. Callers identify the relation explicitly, independently of SQL alias spelling.
+
+Every concrete retirement mutation entry point requires the validated SEP and ACTIONS capability, including calls with absent evidence. Injected source tests may replace the mutation with a test double; they cannot publish a real retirement. Publication validates the capability before making tombstones visible.
 
 Reconciliation re-runs after publication before any cursor or readiness authority is granted.

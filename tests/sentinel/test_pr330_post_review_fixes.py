@@ -217,7 +217,12 @@ def test_published_retirement_is_append_only_tombstone(monkeypatch):
 
     monkeypatch.setattr(guarded.publication, "publish", publish)
 
-    result = guarded._retire_and_publish_authorized(conn, run=run, plan=plan)
+    from tests.support.sep_retirement import authorized_plan
+    plan, token = authorized_plan(keys, publication_version=1)
+    monkeypatch.setattr(
+        guarded.publication, "require_current", lambda conn: SimpleNamespace(version=1))
+    result = guarded._retire_and_publish_authorized(
+        conn, run=run, plan=plan, validated_authority=token)
 
     assert result == "published"
     assert published == {"kind": guarded.KIND, "source_retirement": plan}
@@ -226,3 +231,12 @@ def test_published_retirement_is_append_only_tombstone(monkeypatch):
     assert not any("DELETE FROM sentinel_bars" in row for row in sql)
     assert not any("UPDATE sentinel_bar_split_repairs" in row for row in sql)
     assert not any("DELETE FROM sentinel_bar_split_repairs" in row for row in sql)
+
+
+@pytest.mark.parametrize("entry", [
+    guarded._retire_and_publish_authorized, guarded.core._retire_and_publish,
+])
+@pytest.mark.parametrize("evidence", [{}, {"source_authority": {}}, {"actions_authority": {}}])
+def test_retirement_entry_points_refuse_absent_authority_before_database_access(entry, evidence):
+    with pytest.raises(guarded.SepNegativeSpaceRefused, match="lacks validated dual-source authority"):
+        entry(object(), run=object(), plan=evidence)

@@ -70,8 +70,8 @@ def _published_bar(conn):
     return run
 
 
-def test_retirement_uses_governed_restatement_before_delete(conn):
-    _published_bar(conn)
+def test_retirement_publishes_tombstone_and_preserves_evidence(conn):
+    base = _published_bar(conn)
 
     with pytest.raises(Exception, match="published strategy evidence is append-only"):
         with conn.cursor() as cur:
@@ -92,21 +92,32 @@ def test_retirement_uses_governed_restatement_before_delete(conn):
         }],
     }
 
+    from tests.support.sep_retirement import authorized_plan
+    plan, token = authorized_plan(plan["keys"], publication_version=1)
     with store.corpus_write_lock(conn):
         result = guarded._retire_and_publish_authorized(
-            conn, run=retirement, plan=plan)
+            conn, run=retirement, plan=plan, validated_authority=token)
 
     assert result.version == 2
     with conn.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) FROM sentinel_bars"
             " WHERE security_id='P:1' AND session='2026-04-02'")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == 1
         cur.execute(
             "SELECT COUNT(*) FROM sentinel_bar_split_repairs"
             " WHERE security_id='P:1' AND session='2026-04-02'")
-        assert cur.fetchone()[0] == 0
+        assert cur.fetchone()[0] == 1
         cur.execute(
             "SELECT status FROM feed_ingest_runs WHERE run_id=%s",
             (str(retirement.progress.run_id),))
         assert cur.fetchone()[0] == "success"
+
+        cur.execute(
+            "SELECT last_written_run_id FROM sentinel_bars"
+            " WHERE security_id='P:1' AND session='2026-04-02'")
+        assert str(cur.fetchone()[0]) == str(base.progress.run_id)
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_bars b WHERE "
+            + publication.visible_predicate("b"))
+        assert cur.fetchone()[0] == 0

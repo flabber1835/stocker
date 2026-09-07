@@ -102,13 +102,13 @@ MUTANTS = (
             '            "  MAX(snapshot_date) snapshot_date"\n'
             '            " FROM sentinel_universe u"\n'
             '            " WHERE permaticker IS NOT NULL AND ticker IS NOT NULL"\n'
-            '            "   AND snapshot_date<=%s AND " + visible_predicate("u") +\n'
+            '            "   AND snapshot_date<=%s AND " + visible_predicate("u", sep_retirements=False) +\n'
         ),
         replacement=(
             '            "  MAX(snapshot_date) snapshot_date"\n'
             '            " FROM sentinel_universe u"\n'
             '            " WHERE permaticker IS NOT NULL AND ticker IS NOT NULL"\n'
-            '            "   AND snapshot_date<%s AND " + visible_predicate("u") +\n'
+            '            "   AND snapshot_date<%s AND " + visible_predicate("u", sep_retirements=False) +\n'
         ),
         test=(
             "tests/sentinel/test_issue209_session_effective_metadata.py::"

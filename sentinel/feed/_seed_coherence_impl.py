@@ -160,6 +160,14 @@ def _strict_date(value, *, label: str) -> dt.date:
     return parsed
 
 
+def capture_observation_instant(now_utc: dt.datetime | None = None) -> dt.datetime:
+    """Capture a production vendor observation at the explicit clock seam."""
+    now = now_utc or dt.datetime.now(dt.timezone.utc)
+    if now.tzinfo is None:
+        raise ValueError("source observation instant must be timezone-aware")
+    return now.astimezone(dt.timezone.utc)
+
+
 def capture_update_boundary(now_utc: dt.datetime | None = None) -> str:
     """Capture a causal vendor-update boundary before the first seed request."""
     now = now_utc or dt.datetime.now(dt.timezone.utc)

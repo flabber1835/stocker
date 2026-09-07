@@ -12,14 +12,18 @@ password="pr330-ci-postgres"
 # frozen-source authority behavior and must not depend on live vendor state.
 docker run --rm --network none \
   "$TEST_IMAGE" \
-  tests/sentinel/test_sep_append_only_repairs.py \
-  tests/sentinel/test_sep_negative_space_repair.py \
-  tests/sentinel/test_sep_reconciliation.py \
-  tests/sentinel/test_sep_semantic_reearn.py \
-  tests/sentinel/test_sep_value_reconciliation.py \
-  tests/sentinel/test_pr330_post_review_fixes.py \
-  tests/sentinel/test_pr330_review_regressions.py \
+  tests/sentinel/test_issue_185_sep_reconciliation.py \
   tests/sentinel/test_maintenance_future_cursor_refusal.py \
+  tests/sentinel/test_pr330_authority_regressions.py \
+  tests/sentinel/test_pr330_final_review_fixes.py \
+  tests/sentinel/test_pr330_post_review_fixes.py \
+  tests/sentinel/test_pr330_retirement_postgres.py \
+  tests/sentinel/test_pr330_review_regressions.py \
+  tests/sentinel/test_recent_sep_reconciliation.py \
+  tests/sentinel/test_sep_negative_space_economic_guards.py \
+  tests/sentinel/test_sep_negative_space_p1_regressions.py \
+  tests/sentinel/test_sep_negative_space_self_heal.py \
+  tests/sentinel/test_sep_reconciliation_action_order.py \
   -q -ra
 
 echo "PR330_TARGETED_PASS"

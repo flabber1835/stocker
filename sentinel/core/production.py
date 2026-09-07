@@ -182,7 +182,7 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
                 for sid, ticker, close, op, volume, split, div in cur.fetchall()]
         cur.execute(
             "SELECT session,closeadj FROM sentinel_spy_total_return r"
-            f" WHERE session<=%s AND {visible_predicate('r')}"
+            f" WHERE session<=%s AND {visible_predicate('r', sep_retirements=False)}"
             " ORDER BY session DESC LIMIT %s", (session, spy_sessions))
         spy_rows = list(reversed(cur.fetchall()))
         actual_spy_sessions = [str(row[0]) for row in spy_rows]
@@ -192,7 +192,7 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
             "SELECT session,security_id,ticker,open_signal,close_signal,"
             " close_adjusted,close_unadjusted"
             " FROM sentinel_defensive_bars d WHERE session=ANY(%s::date[]) AND "
-            f"{visible_predicate('d')} ORDER BY session",
+            f"{visible_predicate('d', sep_retirements=False)} ORDER BY session",
             ([defensive_previous_session, session],))
         defensive_rows = cur.fetchall()
         sectors = load_sectors(conn, as_of=session)

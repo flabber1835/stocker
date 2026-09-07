@@ -31,6 +31,18 @@ _save_result = _core._save_result
 _bounded_years = _core._bounded_years
 
 
+def _next_year(conn) -> tuple[int, dt.date, dt.date]:
+    """Select the next rotation year through canonical public dependencies."""
+    lo, hi = _visible_bounds(conn)
+    state = _load_state(conn)
+    year = lo.year if state is None else int(state["last_completed_year"]) + 1
+    if year > hi.year or year < lo.year:
+        year = lo.year
+    start = max(lo, dt.date(year, 1, 1))
+    end = min(hi, dt.date(year, 12, 31))
+    return year, start, end
+
+
 def _strict_ceiling(value) -> dt.date:
     if isinstance(value, dt.datetime):
         raise ValueError("SEP reconciliation observation ceiling must be a date")
@@ -80,7 +92,7 @@ def _production_source_boundary(fetch, source_ceiling: dt.date):
 
     if fetch is not snapshot_source.fetch_table:
         return None
-    boundary = dt.datetime.now(dt.timezone.utc)
+    boundary = seed_coherence.capture_observation_instant()
     if boundary.date() != source_ceiling:
         raise SepReconciliationStateInvalid(
             "production SEP mismatch observation crossed its frozen source day: "

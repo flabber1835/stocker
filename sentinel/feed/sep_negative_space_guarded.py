@@ -354,9 +354,8 @@ def _retire_and_publish_authorized(
     if core._retire_and_publish is not _ORIGINAL_RETIRE:
         return core._retire_and_publish(conn, run=run, plan=plan)
 
-    if plan.get("source_authority") is not None or plan.get("actions_authority") is not None:
-        _validate_retirement_authority_at_boundary(
-            conn, plan=plan, validated_authority=validated_authority)
+    _validate_retirement_authority_at_boundary(
+        conn, plan=plan, validated_authority=validated_authority)
 
     keys = list(plan["keys"])
     if core._keys_digest(keys) != str(plan.get("keys_sha256") or ""):
@@ -386,7 +385,8 @@ def _retire_and_publish_authorized(
     return publication.publish(
         conn, run_id=run_id,
         window_start=plan["interval"][0], window_end=plan["interval"][1],
-        evidence={"kind": KIND, "source_retirement": plan})
+        evidence={"kind": KIND, "source_retirement": plan},
+        retirement_authority=validated_authority)
 
 
 def repair_local_only(

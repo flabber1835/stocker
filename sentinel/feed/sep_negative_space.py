@@ -299,36 +299,12 @@ def _persist_plan(conn, *, run_id: str, plan: dict) -> None:
     conn.commit()
 
 
-def _retire_and_publish(conn, *, run, plan: dict):
-    """Publish the exact key set as an append-only retirement generation."""
-    keys = list(plan["keys"])
-    if _keys_digest(keys) != str(plan.get("keys_sha256") or ""):
-        raise SepNegativeSpaceRefused(
-            "SEP retirement durable key set failed its tombstone digest")
-    _load_retire_table(conn, keys)
-    with conn.cursor() as cur:
-        cur.execute(
-            f"SELECT COUNT(*) FROM sentinel_bars b JOIN {_TEMP_RETIRE_KEYS} r"
-            " ON r.security_id=b.security_id AND r.session=b.session"
-            " AND r.ticker=b.ticker WHERE " + publication.visible_predicate("b"))
-        matched = int(cur.fetchone()[0])
-        if matched != len(keys):
-            raise SepNegativeSpaceRefused(
-                "SEP retirement target changed after durable source proof; "
-                f"expected {len(keys)} rows, found {matched}")
-        cur.execute(
-            "UPDATE feed_ingest_runs SET status='success',chunks_done=1,"
-            " rows_dropped=%s,current_chunk='retire-local-only',"
-            " completed_at=NOW(),updated_at=NOW() WHERE run_id=%s"
-            " AND kind=%s AND status='running'",
-            (len(keys), str(run.progress.run_id), KIND))
-        if int(cur.rowcount) != 1:
-            raise SepNegativeSpaceRefused(
-                "SEP retirement run lost RUNNING state before publication")
-    return publication.publish(
-        conn, run_id=str(run.progress.run_id),
-        window_start=plan["interval"][0], window_end=plan["interval"][1],
-        evidence={"kind": KIND, "source_retirement": plan})
+def _retire_and_publish(conn, *, run, plan: dict, validated_authority=None):
+    """Use the same validated mutation boundary for the legacy entry point."""
+    from sentinel.feed import sep_negative_space_guarded
+
+    return sep_negative_space_guarded._retire_and_publish_authorized(
+        conn, run=run, plan=plan, validated_authority=validated_authority)
 
 
 def repair_local_only(

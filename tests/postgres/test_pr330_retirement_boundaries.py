@@ -94,7 +94,8 @@ def test_append_only_retirement_hides_bar_and_preserves_physical_evidence(
     }
     run = SimpleNamespace(progress=SimpleNamespace(run_id=str(retirement_run)))
 
-    def publish_tombstone(conn, *, run_id, window_start, window_end, evidence):
+    def publish_tombstone(conn, *, run_id, window_start, window_end, evidence,
+                          retirement_authority):
         assert str(run_id) == str(retirement_run)
         _insert_publication(
             conn, version=2, previous=1, run_id=retirement_run,
@@ -102,8 +103,10 @@ def test_append_only_retirement_hides_bar_and_preserves_physical_evidence(
         return SimpleNamespace(version=2)
 
     monkeypatch.setattr(guarded.publication, "publish", publish_tombstone)
+    from tests.support.sep_retirement import authorized_plan
+    plan, token = authorized_plan(keys, publication_version=1)
     result = guarded._retire_and_publish_authorized(
-        pg_conn, run=run, plan=plan)
+        pg_conn, run=run, plan=plan, validated_authority=token)
     assert result.version == 2
 
     with pg_conn.cursor() as cur:
@@ -127,6 +130,74 @@ def test_append_only_retirement_hides_bar_and_preserves_physical_evidence(
     assert int(repair_count) == 1
     assert repair_owner == str(base_run)
     assert visible_count == 0
+
+    # An aborted transaction cannot make a retirement visible to readers.
+    pg_conn.rollback()
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM sentinel_corpus_publications")
+        assert cur.fetchone()[0] == 0
+
+
+def test_sep_tombstones_do_not_change_other_feed_relations(pg_conn):
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_spy_total_return(session,closeadj)"
+            " VALUES ('2026-04-02',500)")
+        cur.execute(
+            "INSERT INTO sentinel_defensive_bars(session,close_signal,close_unadjusted)"
+            " VALUES ('2026-04-02',90,90)")
+        # A legacy generation needs no publication. The universe has no session
+        # column and SPY has no security_id/ticker columns; both must remain valid.
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_universe u WHERE "
+            + publication.visible_predicate("u", sep_retirements=False))
+        assert cur.fetchone()[0] == 0
+    _insert_publication(
+        pg_conn, version=1, previous=None, run_id=None,
+        evidence={"kind": guarded.KIND, "source_retirement": {"keys": [{
+            "security_id": "SENTINEL:BIL", "ticker": "BIL", "session": "2026-04-02",
+        }]}})
+    with pg_conn.cursor() as cur:
+        for table in ("sentinel_spy_total_return", "sentinel_defensive_bars"):
+            # Use the same alias as a bar query: relation semantics, not alias
+            # spelling, determine whether SEP retirement applies.
+            cur.execute(
+                f"SELECT COUNT(*) FROM {table} b WHERE "
+                + publication.visible_predicate("b", sep_retirements=False))
+            assert cur.fetchone()[0] == 1
+
+
+@pytest.mark.parametrize("entry", [
+    guarded._retire_and_publish_authorized, guarded.core._retire_and_publish,
+])
+def test_real_database_mutation_refuses_missing_dual_authority(pg_conn, entry):
+    run_id = uuid.uuid4()
+    _insert_run(pg_conn, run_id, kind=guarded.KIND, status="running")
+    run = SimpleNamespace(progress=SimpleNamespace(run_id=str(run_id)))
+    keys = [{"security_id": "P:1", "session": "2026-04-02", "ticker": "AAA"}]
+    plan = {
+        "interval": ["2026-04-02", "2026-04-02"], "keys": keys,
+        "keys_sha256": guarded.core._keys_digest(keys), "source_rows": 0,
+    }
+    with pytest.raises(guarded.SepNegativeSpaceRefused, match="lacks validated dual-source authority"):
+        entry(pg_conn, run=run, plan=plan)
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT status FROM feed_ingest_runs WHERE run_id=%s", (str(run_id),))
+        assert cur.fetchone()[0] == "running"
+        cur.execute("SELECT COUNT(*) FROM sentinel_corpus_publications")
+        assert cur.fetchone()[0] == 0
+
+
+def test_generic_publication_cannot_publish_unvalidated_sep_tombstones(pg_conn):
+    with pytest.raises(guarded.SepNegativeSpaceRefused, match="lacks validated dual-source authority"):
+        publication.publish(pg_conn, evidence={
+            "kind": guarded.KIND, "source_retirement": {"keys": [{
+                "security_id": "P:1", "session": "2026-04-02", "ticker": "AAA",
+            }]},
+        })
+    with pg_conn.cursor() as cur:
+        cur.execute("SELECT COUNT(*) FROM sentinel_corpus_publications")
+        assert cur.fetchone()[0] == 0
 
 
 def _source_authority(*, refresh="2026-09-07T19:59:00+00:00"):

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 
-def visible_predicate(alias: str = "b") -> str:
+def visible_predicate(alias: str = "b", *, sep_retirements: bool = True) -> str:
     """Return the canonical SQL predicate for a publication-visible bar row.
 
     Physical presence is insufficient: a bar must belong to a published ingest
@@ -19,6 +19,8 @@ def visible_predicate(alias: str = "b") -> str:
         f" OR EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
         f"            WHERE p.run_id = {alias}.last_written_run_id))"
     )
+    if not sep_retirements:
+        return published
     return (
         f"({published} AND NOT EXISTS ("
         " SELECT 1 FROM sentinel_corpus_publications retirement"

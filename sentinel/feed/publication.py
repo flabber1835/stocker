@@ -321,7 +321,7 @@ def pinned(conn, *, commit: bool = True):
 
 
 def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
-                    evidence=None):
+                    evidence=None, retirement_authority=None):
     """Commit one publication transaction through canonical public dependencies."""
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_lock(%s)", (_core.CORPUS_LOCK_KEY,))
@@ -331,6 +331,13 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
                 "publish. Moving the corpus midway through a decision would "
                 "make that decision's recorded data_version a lie.")
     try:
+        if (evidence or {}).get("kind") == "sep_source_retirement" or \
+                "source_retirement" in (evidence or {}):
+            from sentinel.feed import sep_negative_space_guarded
+
+            sep_negative_space_guarded._validate_retirement_authority_at_boundary(
+                conn, plan=dict((evidence or {}).get("source_retirement") or {}),
+                validated_authority=retirement_authority)
         if run_id is not None:
             producer = _run_producer_identity(conn, str(run_id))
             retired_universe = _core.retire_failed_universe_candidates(
@@ -443,7 +450,7 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
 
 
 def publish(conn, *, run_id=None, window_start=None, window_end=None,
-            evidence=None):
+            evidence=None, retirement_authority=None):
     """Publish one coherent corpus generation with all durable seed evidence."""
     merged = _candidate_evidence(evidence)
     if run_id is not None:
@@ -459,9 +466,12 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
                     "caller-supplied seed coherence evidence conflicts with the "
                     "durable ingest run")
             merged["seed_coherence"] = proof
+    kwargs = {}
+    if retirement_authority is not None:
+        kwargs["retirement_authority"] = retirement_authority
     return _publish_atomic(
         conn, run_id=run_id, window_start=window_start,
-        window_end=window_end, evidence=merged)
+        window_end=window_end, evidence=merged, **kwargs)
 
 
 __all__ = [
