@@ -1,0 +1,40 @@
+{
+  "schema": "champion.alpha-validation-baseline/1",
+  "status": "CERTIFIED_CONTROL_ACCEPTED",
+  "workflow_run_id": 34071569702,
+  "artifact_id": 10001317230,
+  "artifact_sha256": "803b1b8288d77fc9c275cec5ebac91f8bac23ba030dad3dfb5d523fceed2415f",
+  "source_head": "1d3ab06a0b6c1ef5db4939bbecfe24953ae2195d",
+  "formal_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+  "candidate_source_sha": "ba74e79490beb8950611b1d17f5d124833b3d91e",
+  "runtime_sha": "887f479b15ad861313da666ad698034d3847121c",
+  "corpus_hash": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "corpus_package_digest": "f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c",
+  "generated_source_sha256": "bbd6783d0cd0e5d1662a0146190962e5845cc4b6bdb8feb50d0c7788f90a6077",
+  "generated_source_normalized_ast_sha256": "435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde",
+  "dividend_lag_sessions": 1,
+  "dividend_verification": "EXACT_AST_AND_ENGINE_SUMMARY",
+  "measurement_start": "2006-07-31",
+  "measurement_end": "2026-07-31",
+  "sessions": 5032,
+  "strategy_20y": {
+    "cagr": 0.18800888800126314,
+    "ending_multiple": 31.363500124285768,
+    "max_drawdown": -0.2491366167248561,
+    "sharpe_daily_252": 1.0363365863293037
+  },
+  "spy_20y": {
+    "cagr": 0.1125631644567402,
+    "ending_multiple": 8.44330665943228,
+    "max_drawdown": -0.5520185564591154,
+    "sharpe_daily_252": 0.6473414847918394
+  },
+  "final_truth_corpus": {
+    "status": "PASS_FINAL_TRUTH_CORPUS_EXECUTABLE",
+    "effective_security_count": 696,
+    "unresolved_count": 0,
+    "issue_count": 0
+  },
+  "obsolete_15_session_control_permitted": false,
+  "performance_target_used": false
+}
