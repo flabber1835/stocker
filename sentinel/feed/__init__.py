@@ -21,3 +21,11 @@ if os.environ.get("SENTINEL_FEED_SERVICE_MODE") == "GO_VALIDATION":
     raise RuntimeError(
         "legacy GO_VALIDATION feed mode is disabled; use the verified "
         "scripts/sentinel-go-validate.sh lifecycle")
+
+
+# Publication visibility is package-wide authority. Install the append-only SEP
+# retirement/tombstone predicate before any feed submodule imports the
+# publication implementation into a local reference.
+from sentinel.feed import publication_visibility as _publication_visibility  # noqa: E402
+
+_publication_visibility.install()
