@@ -5,6 +5,7 @@ on:
     branches: [research/median5-endbook-extraction-v15]
     paths:
       - '.github/workflows/median5-endbook-extraction-v15.yml'
+      - 'research/median5-endbook-extraction-v15/**'
   workflow_dispatch:
 permissions:
   contents: read
@@ -24,7 +25,9 @@ jobs:
   extract:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
-    defaults: {run: {shell: bash}}
+    defaults:
+      run:
+        shell: bash
     steps:
       - name: Isolated research checkout
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -39,6 +42,7 @@ jobs:
             research/champion-economic-integrity
             research/champion-alpha-five-run-validation-v2
             research/median5-fullpit-recertification-v13
+            research/median5-endbook-extraction-v15
 
       - name: Exact formal source
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -76,7 +80,9 @@ jobs:
             shared
 
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with: {python-version: '3.12.14', check-latest: false}
+        with:
+          python-version: '3.12.14'
+          check-latest: false
 
       - name: Install frozen runtime and stage certified overlays
         run: |
@@ -85,16 +91,21 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
           echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" >> "$GITHUB_ENV"
           echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "$GITHUB_ENV"
-          for f in champion_economic_prefix_audit.py champion_full_classification_control.py champion_security_truth_audit_v2.py champion_security_truth_overlay_v2.py champion_final_security_truth.py champion_final_truth_corpus_validator.py production_equivalent_economic_overlay.py champion_production_equivalent_build.py champion_production_equivalent_final_replay.py; do cp "audit-src/backtester/$f" certified-src/backtester/; done
+          for f in champion_economic_prefix_audit.py champion_full_classification_control.py champion_security_truth_audit_v2.py champion_security_truth_overlay_v2.py champion_final_security_truth.py champion_final_truth_corpus_validator.py production_equivalent_economic_overlay.py champion_production_equivalent_build.py champion_production_equivalent_final_replay.py; do
+            cp "audit-src/backtester/$f" certified-src/backtester/
+          done
           cp audit-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
           cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
           cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
-          for f in champion-best-effort-security-types-v1.csv champion-best-effort-security-types-v1-summary.json champion-reviewed-security-types-v1.csv champion-historical-security-type-corrections-v1.csv; do cp "candidate-src/backtester/data/$f" certified-src/backtester/data/; done
+          for f in champion-best-effort-security-types-v1.csv champion-best-effort-security-types-v1-summary.json champion-reviewed-security-types-v1.csv champion-historical-security-type-corrections-v1.csv; do
+            cp "candidate-src/backtester/data/$f" certified-src/backtester/data/
+          done
           mkdir -p certified-src/research/champion-economic-integrity/security-truth
           cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
 
       - name: Pull and verify immutable canonical PIT package
-        env: {GHCR_TOKEN: '${{ secrets.GITHUB_TOKEN }}'}
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -euo pipefail
           POINTER=certified-src/backtester/data/canonical-pit-20y.json
@@ -102,30 +113,19 @@ jobs:
           test "$PACKAGE" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker pull "$PACKAGE"
-          cid=$(docker create "$PACKAGE" /bin/true); trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          cid=$(docker create "$PACKAGE" /bin/true)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           mkdir -p canonical-pit
           docker cp "$cid:/canonical-pit/." canonical-pit/
-          docker rm "$cid"; trap - EXIT
+          docker rm "$cid"
+          trap - EXIT
           PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "$POINTER" --dataset canonical-pit > package-integrity.json
 
       - name: Instrument end-book witness only
         run: |
           set -euo pipefail
           cp audit-src/research/median5-fullpit-recertification-v13/experiment_overlay.py audit-src/research/champion-alpha-five-run-validation-v2/experiment_overlay.py
-          python - <<'PY'
-          from pathlib import Path
-          p=Path('audit-src/research/champion-alpha-five-run-validation-v2/experiment_runner.py')
-          s=p.read_text()
-          needle='    (out / "experiment-generated.py").write_text(variant)\n'
-          injection=r'''    marker="    (OUT/'summary.json').write_text(json.dumps(summary,indent=2))"
-    witness="""    _end_eq,_end_unresolved=book.equity(raw)\n    _end_cash=float(book.cash+sum(x[1] for x in book.receivables))\n    _end_alloc=float(eff['A'])\n    _end_positions=[]\n    for _slot in book.slots:\n        if not _slot.held(): continue\n        _tid=int(_slot.tid); _px=float(raw[_tid])\n        if not (finite(_px) and _px>0): _px=float(book.last_raw.get(_tid,float('nan')))\n        if not (finite(_px) and _px>0): raise RuntimeError(f'end-book unresolved price tid={_tid}')\n        _mv=float(_slot.qty*_px); _wcw=float(_mv/_end_eq); _effw=float(_end_alloc*_wcw)\n        _end_positions.append({'ticker':str(tick[_tid]),'security_id':str(sid[_tid]),'shares':float(_slot.qty),'price':_px,'market_value':_mv,'wealth_core_weight':_wcw,'effective_portfolio_weight':_effw})\n    _end_positions.sort(key=lambda z:(-z['effective_portfolio_weight'],z['ticker'],z['security_id']))\n    _wc_cash_weight=float(_end_cash/_end_eq)\n    _defensive_cash_weight=float(1.0-_end_alloc)\n    _effective_wc_cash_weight=float(_end_alloc*_wc_cash_weight)\n    _combined_cash_weight=float(_defensive_cash_weight+_effective_wc_cash_weight)\n    _endbook={'date':str(date.date()),'full_pit':bool(PIT_MODE),'replay_mode':str(MODE),'book_equity':float(_end_eq),'book_cash_and_receivables':_end_cash,'book_unresolved':bool(_end_unresolved),'overlay_allocation':_end_alloc,'wealth_core_cash_weight':_wc_cash_weight,'effective_wealth_core_cash_weight':_effective_wc_cash_weight,'defensive_cash_weight':_defensive_cash_weight,'combined_cash_weight':_combined_cash_weight,'positions':_end_positions,'position_weight_sum':float(sum(z['effective_portfolio_weight'] for z in _end_positions)),'total_weight_sum':float(sum(z['effective_portfolio_weight'] for z in _end_positions)+_combined_cash_weight)}\n    (OUT/'endbook.json').write_text(json.dumps(_endbook,indent=2,sort_keys=True))\n"""
-    if marker not in variant: raise RuntimeError('end-book injection marker missing')
-    variant=variant.replace(marker,witness+marker,1)
-    (out / "experiment-generated.py").write_text(variant)
-'''
-          if needle not in s: raise RuntimeError('runner injection point missing')
-          p.write_text(s.replace(needle,injection,1))
-          PY
+          python audit-src/research/median5-endbook-extraction-v15/instrument_endbook.py
 
       - name: Run exact fresh full-PIT Median-5 replay with end-book witness
         run: |
