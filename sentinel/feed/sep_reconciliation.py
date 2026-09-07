@@ -62,11 +62,35 @@ def _source_fingerprint(
         conn, fetch=guarded, start=start, end=end)
 
 
+def _repair_local_only_if_proved(
+        conn, *, fetch, start: str, end: str, observation_ceiling,
+        source, local):
+    """Repair only a bounded source-stable local-only key set.
+
+    A source row absent locally, same-count key substitution, or any value drift
+    is not negative space and never enters the automatic path.
+    """
+    if int(local.rows) <= int(source.rows):
+        return local
+    from sentinel.feed import sep_negative_space
+
+    sep_negative_space.repair_local_only(
+        conn, fetch=fetch, start=start, end=end,
+        observation_ceiling=_strict_ceiling(observation_ceiling),
+        expected_source=source)
+    return _local_fingerprint(conn, start=start, end=end)
+
+
 def reconcile_year(
         conn, *, fetch=_core.sharadar.fetch_table,
         year: int, start: str, end: str,
         observation_ceiling):
-    """Prove one stable source year equals published keys and strategy values."""
+    """Prove one stable source year equals published keys and strategy values.
+
+    The only automatic repair is a bounded set of published local-only rows that
+    an independent stable source re-observation proves Sharadar has retracted.
+    Every other key/value mismatch remains fail-closed.
+    """
     _core.store._assert_corpus_locked(conn)
     if not (str(start).startswith(f"{int(year):04d}-")
             and str(end).startswith(f"{int(year):04d}-")):
@@ -76,12 +100,18 @@ def reconcile_year(
         observation_ceiling=observation_ceiling)
     local = _local_fingerprint(conn, start=start, end=end)
     if source.rows != local.rows or source.key_digest != local.key_digest:
+        local = _repair_local_only_if_proved(
+            conn, fetch=fetch, start=start, end=end,
+            observation_ceiling=observation_ceiling,
+            source=source, local=local)
+    if source.rows != local.rows or source.key_digest != local.key_digest:
         raise _core.SepKeysetDrift(
             f"stable Sharadar SEP {year} normalized key set disagrees with "
             f"published corpus: source {source.rows:,}/{source.key_digest[:16]}, "
             f"local {local.rows:,}/{local.key_digest[:16]}. This can be a vendor "
-            "deletion, insertion, identity restatement, or lost local row. "
-            "Refusing to guess which side to repair.")
+            "insertion, identity restatement, lost local row, or an unproved "
+            "deletion outside the bounded negative-space contract. Refusing to "
+            "guess which side to repair.")
     if source.value_digest != local.value_digest:
         raise _core.SepValueDrift(
             f"stable Sharadar SEP {year} strategy values disagree with published "
