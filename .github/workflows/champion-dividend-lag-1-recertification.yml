@@ -14,30 +14,77 @@ permissions:
   contents: read
   packages: read
   actions: read
+concurrency:
+  group: champion-dividend-lag-1-${{ github.ref }}
+  cancel-in-progress: false
 env:
   PYTHONUNBUFFERED: '1'
   PIT_OFFICIAL_BACKTEST: '0'
-  CERTIFICATION_WARMUP_START: 2006-01-03
-  CERTIFICATION_MEASUREMENT_START: 2006-07-31
-  CERTIFICATION_END_SESSION: 2026-07-31
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+  # Pinned independently from the archived baseline plus the two approved AST edits.
+  EXPECTED_FINAL_NORMALIZED_SHA256: '435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde'
 jobs:
   recertify:
     runs-on: ubuntu-24.04
     timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: {ref: '${{ github.sha }}', path: audit-src, fetch-depth: 1, filter: blob:none, persist-credentials: false}
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: {ref: 27bb992087182c42c3c051e62bf837895f5d2ab7, path: certified-src, fetch-depth: 1, filter: blob:none, persist-credentials: false}
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: {ref: ba74e79490beb8950611b1d17f5d124833b3d91e, path: candidate-src, fetch-depth: 1, filter: blob:none, persist-credentials: false}
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with: {ref: 887f479b15ad861313da666ad698034d3847121c, path: main-src, fetch-depth: 1, filter: blob:none, persist-credentials: false}
+      - name: Isolated audit checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: audit-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/champion-economic-integrity
+      - name: Exact formal source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/strategy9-e3-broad-stability
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+      - name: Exact classifier source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ba74e79490beb8950611b1d17f5d124833b3d91e
+          path: candidate-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: backtester
+      - name: Exact runtime source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with: {python-version: '3.12.14', check-latest: false}
-      - name: Install frozen runtime
+      - name: Verify source pins and install frozen runtime
         run: |
           set -euo pipefail
+          test "$(git -C audit-src rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
+          test "$(git -C candidate-src rev-parse HEAD)" = ba74e79490beb8950611b1d17f5d124833b3d91e
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
           python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
           echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" >> "$GITHUB_ENV"
@@ -45,42 +92,82 @@ jobs:
       - name: Stage exact overlays
         run: |
           set -euo pipefail
-          for f in champion_economic_prefix_audit.py champion_full_classification_control.py champion_security_truth_audit_v2.py champion_security_truth_overlay_v2.py champion_final_security_truth.py champion_final_truth_corpus_validator.py production_equivalent_economic_overlay.py champion_production_equivalent_build.py champion_production_equivalent_final_replay.py; do cp "audit-src/backtester/$f" certified-src/backtester/; done
+          for f in champion_economic_prefix_audit.py champion_full_classification_control.py champion_security_truth_audit_v2.py champion_security_truth_overlay_v2.py champion_final_security_truth.py champion_final_truth_corpus_validator.py production_equivalent_economic_overlay.py champion_production_equivalent_build.py champion_production_equivalent_final_replay.py; do
+            cp "audit-src/backtester/$f" certified-src/backtester/
+          done
           cp audit-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
           cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
           cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
-          cp candidate-src/backtester/data/champion-*security-types-v1* certified-src/backtester/data/
-          cp candidate-src/backtester/data/champion-historical-security-type-corrections-v1.csv certified-src/backtester/data/
+          for f in champion-best-effort-security-types-v1.csv champion-best-effort-security-types-v1-summary.json champion-reviewed-security-types-v1.csv champion-historical-security-type-corrections-v1.csv; do
+            cp "candidate-src/backtester/data/$f" certified-src/backtester/data/
+          done
           mkdir -p certified-src/research/champion-economic-integrity/security-truth
           cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
-      - name: Fail-closed semantic tests and source preflight
+      - name: Execute dividend regression suite
         run: |
           set -euo pipefail
           cd certified-src
-          PYTHONPATH=. python - <<'PY'
-          from backtester.production_equivalent_economic_overlay import assert_one_session_dividend_lag
-          good='book.receivables.append((gday+1,q*rawdiv))\nopen_eq,_=book.equity(opraw)\n'
-          bad='book.receivables.append((gday+15,q*rawdiv))\nopen_eq,_=book.equity(opraw)\n'
-          assert_one_session_dividend_lag(good)
-          try:
-              assert_one_session_dividend_lag(bad)
-          except RuntimeError:
-              pass
-          else:
-              raise AssertionError('gday+15 must fail')
-          print('PASS exact dividend lag gate')
-          PY
+          python "${GITHUB_WORKSPACE}/audit-src/backtester/tests/test_production_equivalent_dividend_lag.py" 2>&1 | tee "${GITHUB_WORKSPACE}/dividend-regressions.log"
+      - name: Validate classifier and build exact executable
+        run: |
+          set -euo pipefail
+          cd certified-src
           python backtester/champion_final_truth_corpus_validator.py --manual research/champion-economic-integrity/security-truth/manual-review --output "${GITHUB_WORKSPACE}/final-corpus-validation.json"
-          rm -rf "${GITHUB_WORKSPACE}/preflight"
-          python backtester/champion_production_equivalent_build.py --candidate-root "${GITHUB_WORKSPACE}/candidate-src" --output "${GITHUB_WORKSPACE}/preflight"
-          EXPECTED_FINAL_NORMALIZED_SHA256=$(python - <<'PY'
-          import hashlib
+          python backtester/champion_production_equivalent_build.py --candidate-root "${GITHUB_WORKSPACE}/candidate-src" --output "${GITHUB_WORKSPACE}/preflight" 2>&1 | tee "${GITHUB_WORKSPACE}/source-build.log"
+      - name: Prove generated semantics before market-data download
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python - <<'PY'
+          import ast, hashlib, json, os
           from pathlib import Path
+          from types import SimpleNamespace
+          from backtester.production_equivalent_economic_overlay import assert_contract, assert_one_session_dividend_lag
           from backtester.champion_economic_prefix_audit import normalized_ast
-          print(hashlib.sha256(normalized_ast(Path('../preflight/production-equivalent-generated.py').read_text()).encode()).hexdigest())
+          p = Path('../preflight')
+          text = (p/'production-equivalent-generated.py').read_text()
+          assert_contract(text)
+          lag = assert_one_session_dividend_lag(text)
+          actual = hashlib.sha256(normalized_ast(text).encode()).hexdigest()
+          if actual != os.environ['EXPECTED_FINAL_NORMALIZED_SHA256']:
+              raise RuntimeError(f'Unapproved generated source: {actual}')
+          probes = json.loads((p/'SOURCE_PROBES.json').read_text())
+          if probes['status'] != 'PASS_SOURCE_BUILD_NO_REPLAY' or probes['dividend_lag_sessions'] != lag:
+              raise RuntimeError('Source probe/source mismatch')
+          tree = ast.parse(text)
+          run = next(n for n in tree.body if isinstance(n, ast.FunctionDef) and n.name == 'run')
+          calls = [n for n in ast.walk(run) if isinstance(n, ast.Call)
+                   and isinstance(n.func, ast.Attribute) and n.func.attr == 'append'
+                   and isinstance(n.func.value, ast.Attribute) and n.func.value.attr == 'receivables']
+          if len(calls) != 1:
+              raise RuntimeError('Dividend append is not unique')
+          nodes = [n for n in ast.walk(run) if isinstance(n, ast.Assign)
+                   and any(isinstance(t, ast.Name) and t.id == 'due' for t in n.targets)]
+          if len(nodes) != 1:
+              raise RuntimeError('Settlement is not unique')
+          settlement = text.splitlines()[nodes[0].lineno-1].strip()
+          snippet = ast.fix_missing_locations(ast.Module(body=[ast.Expr(value=calls[0])], type_ignores=[]))
+          book = SimpleNamespace(cash=100.0, receivables=[])
+          env = {'book':book, 'q':10.0, 'rawdiv':0.25, 'gday':100}
+          exec(compile(snippet, '<actual-generated-dividend>', 'exec'), env)
+          if book.receivables != [(101, 2.5)]:
+              raise RuntimeError('Actual executable scheduled the wrong settlement')
+          exec(settlement, env)
+          if book.cash != 100.0 or book.receivables != [(101, 2.5)]:
+              raise RuntimeError('Premature dividend settlement')
+          env['gday'] = 101
+          exec(settlement, env)
+          if book.cash != 102.5 or book.receivables:
+              raise RuntimeError('Dividend did not settle on the next session')
+          exec(settlement, env)
+          if book.cash != 102.5:
+              raise RuntimeError('Dividend settled twice')
+          report = {'status':'PASS_EXACT_GENERATED_DIVIDEND_SEMANTICS',
+                    'dividend_lag_sessions':lag, 'normalized_ast_sha256':actual,
+                    'synthetic_next_session_settlement':True, 'historical_replay_executed':False}
+          (p/'DIVIDEND_SEMANTICS.json').write_text(json.dumps(report, indent=2)+'\n')
+          print(json.dumps(report, sort_keys=True))
           PY
-          )
-          echo "EXPECTED_FINAL_NORMALIZED_SHA256=${EXPECTED_FINAL_NORMALIZED_SHA256}" >> "$GITHUB_ENV"
       - name: Pull and verify exact canonical PIT package
         env: {GHCR_TOKEN: '${{ secrets.GITHUB_TOKEN }}'}
         run: |
@@ -91,34 +178,45 @@ jobs:
           echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
           docker pull "$PACKAGE"
           cid=$(docker create "$PACKAGE" /bin/true)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
           mkdir -p canonical-pit
           docker cp "$cid:/canonical-pit/." canonical-pit/
           docker rm "$cid"
+          trap - EXIT
           PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "$POINTER" --dataset canonical-pit > package-integrity.json
       - name: Run corrected full-PIT 20-year replay
         run: |
           set -euo pipefail
           cd certified-src
           python backtester/champion_production_equivalent_final_replay.py --candidate-root "${GITHUB_WORKSPACE}/candidate-src" --output "${GITHUB_WORKSPACE}/final-output" 2>&1 | tee "${GITHUB_WORKSPACE}/final-replay.log"
-      - name: Post-run exact semantic verification
+      - name: Verify certificate against executed source and engine summary
         run: |
           set -euo pipefail
           python - <<'PY'
-          import ast,json,pathlib
-          out=pathlib.Path('final-output')
-          cert=json.loads((out/'CERTIFICATE.json').read_text())
-          assert cert['status']=='PRODUCTION_EQUIVALENT_CERTIFIED',cert
-          assert cert['dividend_lag_sessions']==1,cert
-          text=(out/'production-equivalent-generated.py').read_text()
-          hits=[]
-          for n in ast.walk(ast.parse(text)):
-              if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='append' and isinstance(n.func.value,ast.Attribute) and n.func.value.attr=='receivables': hits.append(n)
-          assert len(hits)==1,len(hits)
-          due=hits[0].args[0].elts[0]
-          assert isinstance(due,ast.BinOp) and isinstance(due.op,ast.Add) and isinstance(due.right,ast.Constant) and due.right.value==1,ast.dump(due)
-          summary=json.loads((out/'engine/summary.json').read_text())
-          assert summary['financial_grade_dividend_lag_sessions']==1,summary.get('financial_grade_dividend_lag_sessions')
-          print(json.dumps({'status':'PASS_RECERTIFIED_EXACT_ONE_SESSION','cagr_20y':cert['windows']['20']['strategy']['cagr'],'max_drawdown_20y':cert['windows']['20']['strategy']['max_drawdown']},sort_keys=True))
+          import hashlib, json, os
+          from pathlib import Path
+          from backtester.production_equivalent_economic_overlay import assert_contract, assert_one_session_dividend_lag
+          from backtester.champion_economic_prefix_audit import normalized_ast
+          out = Path('final-output')
+          cert = json.loads((out/'CERTIFICATE.json').read_text())
+          raw = (out/'production-equivalent-generated.py').read_bytes()
+          text = raw.decode()
+          assert_contract(text)
+          lag = assert_one_session_dividend_lag(text)
+          summary = json.loads((out/'engine/summary.json').read_text())
+          if cert['status'] != 'PRODUCTION_EQUIVALENT_CERTIFIED':
+              raise RuntimeError('Replay did not produce a certificate')
+          if cert['dividend_lag_sessions'] != lag or summary['financial_grade_dividend_lag_sessions'] != lag:
+              raise RuntimeError('Dividend source/certificate/summary disagree')
+          if cert['generated_source_sha256'] != hashlib.sha256(raw).hexdigest():
+              raise RuntimeError('Certificate does not bind the executed source')
+          if hashlib.sha256(normalized_ast(text).encode()).hexdigest() != os.environ['EXPECTED_FINAL_NORMALIZED_SHA256']:
+              raise RuntimeError('Executed source differs from approved source')
+          report = {'status':'PASS_EXECUTABLE_DIVIDEND_RECERTIFICATION',
+                    'dividend_lag_sessions':lag, 'source_sha256':cert['generated_source_sha256'],
+                    'sessions':cert['sessions'], 'windows':cert['windows']}
+          Path('recertification-verification.json').write_text(json.dumps(report, indent=2)+'\n')
+          print(json.dumps(report, sort_keys=True))
           PY
       - name: Preserve recertification evidence
         if: always()
@@ -131,6 +229,9 @@ jobs:
             final-corpus-validation.json
             preflight/
             package-integrity.json
-            audit-src/research/champion-dividend-lag-1-recertification/OBSOLETE_15_SESSION_ARTIFACTS.md
+            dividend-regressions.log
+            source-build.log
+            recertification-verification.json
+            audit-src/research/champion-economic-integrity/DIVIDEND_LAG_SEMANTIC_TOMBSTONE.md
           retention-days: 90
-          if-no-files-found: warn
+          if-no-files-found: error

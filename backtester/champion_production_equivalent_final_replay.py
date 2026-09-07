@@ -6,7 +6,7 @@ from pathlib import Path
 import pandas as pd
 import numpy as np
 from backtester import champion_full_classification_control as control
-from backtester.production_equivalent_economic_overlay import install, assert_contract
+from backtester.production_equivalent_economic_overlay import install, assert_contract, assert_one_session_dividend_lag
 from backtester.champion_economic_prefix_audit import EXPECTED_CORPUS, PROFILE, PROFILE_HASH, RUNTIME, SOURCE, normalized_ast
 
 
@@ -32,6 +32,7 @@ def main():
     if cand!=SOURCE['candidate']: raise RuntimeError('candidate source pin mismatch')
     baseline, capacity_off, prior=control.build_source(engine,a.candidate_root)
     final=install(prior); assert_contract(final)
+    observed_dividend_lag = assert_one_session_dividend_lag(final)
     if '_research_capacity_guard(' in final: raise RuntimeError('capacity guard remains')
     raw_source_sha=sha(final.encode())
     normalized_source_sha=sha(normalized_ast(final).encode())
@@ -55,6 +56,10 @@ def main():
     frame=pd.read_csv(daily,parse_dates=['date'])
     if len(frame)!=5032 or str(frame.date.iloc[0].date())!='2006-07-31' or str(frame.date.iloc[-1].date())!='2026-07-31' or frame.date.duplicated().any() or not frame.date.is_monotonic_increasing:
         raise RuntimeError('full-horizon witness mismatch')
+    engine_summary = json.loads((daily.parent/'summary.json').read_text())
+    summary_lag = engine_summary.get('financial_grade_dividend_lag_sessions')
+    if type(summary_lag) is not int or summary_lag != observed_dividend_lag:
+        raise RuntimeError(f'engine dividend summary mismatch: {summary_lag!r} != {observed_dividend_lag}')
     windows={}
     for y in (5,10,15,20):
         start=frame.date.iloc[-1]-pd.DateOffset(years=y); part=frame[frame.date>=start]
@@ -63,7 +68,8 @@ def main():
             'formal_source_sha':SOURCE['certified'],'candidate_source_sha':cand,'runtime_sha':RUNTIME,
             'profile':PROFILE,'profile_sha256':PROFILE_HASH,'corpus_hash':EXPECTED_CORPUS,
             'measurement_start':'2006-07-31','end_session':'2026-07-31','sessions':len(frame),
-            'replay_mode':'fullpit','capacity_participation_cap':None,'dividend_lag_sessions':1,
+            'replay_mode':'fullpit','capacity_participation_cap':None,'dividend_lag_sessions':observed_dividend_lag,
+            'dividend_lag_verification':'EXACT_AST_AND_ENGINE_SUMMARY',
             'final_truth_classifier':'champion_final_security_truth','performance_target_used':False,
             'generated_source_sha256':raw_source_sha,
             'generated_source_normalized_ast_sha256':normalized_source_sha,

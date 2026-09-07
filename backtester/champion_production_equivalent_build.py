@@ -16,7 +16,7 @@ from pathlib import Path
 import subprocess
 
 from backtester import champion_full_classification_control as control
-from backtester.production_equivalent_economic_overlay import install, assert_contract
+from backtester.production_equivalent_economic_overlay import install, assert_contract, assert_one_session_dividend_lag
 from backtester.champion_economic_prefix_audit import (
     EXPECTED_CORPUS, PROFILE, PROFILE_HASH, RUNTIME, SOURCE,
 )
@@ -60,6 +60,7 @@ def main() -> int:
         raise RuntimeError("capacity-off source still contains executable capacity guard")
     final = install(prior)
     assert_contract(final)
+    observed_dividend_lag = assert_one_session_dividend_lag(final)
 
     (out / "baseline-generated.py").write_text(baseline)
     (out / "capacity-off-generated.py").write_text(capacity_off)
@@ -81,7 +82,7 @@ def main() -> int:
         "corpus_identity_source": "IMMUTABLE_FORMAL_PACKAGE_POINTER_NO_DATA_ROWS_CONSUMED",
         "capacity_participation_cap": None,
         "dividend_accrual_precedes_open_equity": final.index("receivables.append") < final.index("open_eq,_=book.equity(opraw)"),
-        "dividend_lag_sessions": 1,
+        "dividend_lag_sessions": observed_dividend_lag,
         "cumulative_terminal_retirement_present": "_retired_tids" in final,
         "hard_abort_missing_mark_present": "financial-grade NAV unresolved" in final,
         "final_truth_classifier_present": "champion_final_security_truth as _bestclass" in final,

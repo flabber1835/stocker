@@ -1,0 +1,28 @@
+{
+  "status": "PASS_LOCAL_SOURCE_AND_SYNTHETIC_SETTLEMENT",
+  "input_artifact_run_id": 34064302990,
+  "input_archive_sha256": "b1970671c05aa205da560a7890d421691408a7ecdec17c49d05bd37aeed9d0d8",
+  "observed_dividend_lag_sessions": 1,
+  "normalized_ast_sha256": "435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde",
+  "permitted_generated_source_changes": [
+    "dividend_due_lag_15_to_1",
+    "dividend_summary_lag_15_to_1"
+  ],
+  "unrelated_economic_ast_changes": 0,
+  "synthetic_due_session": 101,
+  "synthetic_ex_date_session": 100,
+  "synthetic_receivable_amount": 2.5,
+  "settles_once_next_session": true,
+  "historical_replay_executed": false,
+  "python_version": "3.13.5",
+  "ast_dump_compatibility": "Python 3.12 verified against original certificate",
+  "repair_parent_commit": "45178882a4b43c78d4edfe4a4726db0ac50aaadc",
+  "failed_workflow_run": 34070678329,
+  "failure": "ImportError: assert_one_session_dividend_lag was absent",
+  "additional_preflight_defect": "generated engine summary retained 15 after due expression changed to 1",
+  "local_unittest_count": 14,
+  "local_unittest_failures": 0,
+  "workflow_static_validation": "PASS_YAML_BASH_AND_EMBEDDED_PYTHON",
+  "alpha_runs_started": 0,
+  "certificate_status": "PENDING_FRESH_20_YEAR_REPLAY"
+}

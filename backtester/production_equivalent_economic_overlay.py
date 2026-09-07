@@ -46,8 +46,54 @@ def _dividend_due_lag(text: str) -> int:
     return hits[0]
 
 
+
+def assert_one_session_dividend_lag(text: str) -> int:
+    """Validate the executable due expression and return its observed lag."""
+    lag = _dividend_due_lag(text)
+    if lag != DIVIDEND_LAG_SESSIONS:
+        raise RuntimeError(f"dividend lag must be exactly {DIVIDEND_LAG_SESSIONS} session; observed {lag}")
+    return lag
+
+
+def _summary_lag_node(text: str) -> ast.Constant:
+    values = []
+    for node in ast.walk(ast.parse(text)):
+        if isinstance(node, ast.Dict):
+            for key, value in zip(node.keys, node.values):
+                if isinstance(key, ast.Constant) and key.value == "financial_grade_dividend_lag_sessions":
+                    values.append(value)
+    if len(values) != 1:
+        raise RuntimeError(f"dividend summary field is not unique: {len(values)}")
+    value = values[0]
+    if not isinstance(value, ast.Constant) or type(value.value) is not int:
+        raise RuntimeError("dividend summary lag must be an integer literal")
+    return value
+
+
+def _align_dividend_summary(text: str) -> str:
+    """Keep the generated engine's summary consistent with its exact due expression."""
+    lag = assert_one_session_dividend_lag(text)
+    node = _summary_lag_node(text)
+    if node.value not in (1, 15):
+        raise RuntimeError(f"unrecognized inherited dividend summary lag: {node.value}")
+    if node.value == lag:
+        return text
+    # AST columns are UTF-8 byte offsets. Change only the value of this key.
+    lines = text.encode("utf-8").splitlines(keepends=True)
+    start = sum(map(len, lines[:node.lineno - 1])) + node.col_offset
+    end = sum(map(len, lines[:node.end_lineno - 1])) + node.end_col_offset
+    raw = text.encode("utf-8")
+    result = (raw[:start] + str(lag).encode("ascii") + raw[end:]).decode("utf-8")
+    if _summary_lag_node(result).value != lag:
+        raise RuntimeError("dividend summary alignment failed")
+    return result
+
+
 def _force_one_session_dividend_lag(text: str) -> str:
     """Convert the inherited historical lag to the authoritative one-session contract."""
+    inherited_lag = _dividend_due_lag(text)
+    if inherited_lag not in (1, 15):
+        raise RuntimeError(f"unrecognized inherited dividend lag: {inherited_lag}")
     tree = ast.parse(text)
     target = None
     for node in ast.walk(tree):
@@ -74,7 +120,7 @@ def _force_one_session_dividend_lag(text: str) -> str:
     segment = ast.get_source_segment(text, due)
     if segment is None or text.count(segment) != 1:
         raise RuntimeError("cannot uniquely rewrite dividend due-session expression")
-    out = text.replace(segment, "gday+1", 1)
+    out = text.replace(segment, f"gday+{DIVIDEND_LAG_SESSIONS}", 1)
     if _dividend_due_lag(out) != DIVIDEND_LAG_SESSIONS:
         raise RuntimeError("one-session dividend rewrite failed")
     return out
@@ -152,6 +198,7 @@ def _remove_missing_mark_hard_abort(text: str) -> str:
 def install(text: str) -> str:
     out=_replace_classifier(text)
     out=_force_one_session_dividend_lag(out)
+    out=_align_dividend_summary(out)
     out=_move_dividend_accrual_before_open_equity(out)
     out=_remove_cumulative_terminal_retirement(out)
     out=_remove_missing_mark_hard_abort(out)
@@ -159,8 +206,9 @@ def install(text: str) -> str:
 
 
 def assert_contract(text: str) -> None:
-    if _dividend_due_lag(text) != DIVIDEND_LAG_SESSIONS:
-        raise RuntimeError(f"dividend lag must be exactly {DIVIDEND_LAG_SESSIONS} session")
+    lag = assert_one_session_dividend_lag(text)
+    if _summary_lag_node(text).value != lag:
+        raise RuntimeError("generated dividend summary disagrees with executable lag")
     required=(FINAL_CLASSIFIER_IMPORT,"open_eq,_=book.equity(opraw)","receivables.append","term_tids","_leadership_terminal_tids","eq,unresolved=book.equity(clraw)")
     missing=[x for x in required if x not in text]
     if missing: raise RuntimeError(f"production-equivalent economic source missing probes: {missing}")
