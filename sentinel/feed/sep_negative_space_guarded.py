@@ -18,6 +18,9 @@ MAX_RETIREMENTS = core.MAX_RETIREMENTS
 SCHEMA = core.SCHEMA
 SepNegativeSpaceRefused = core.SepNegativeSpaceRefused
 _ORIGINAL_REPAIR = core.repair_local_only
+_ORIGINAL_RETIRE = core._retire_and_publish
+_COMPLETE_SEP_AUTHORITY = "nasdaq-data-link-table-export-composite/v1"
+_COMPLETE_ACTIONS_AUTHORITY = "nasdaq-data-link-table-export/v1"
 
 
 def _assert_retired_rows_have_no_economic_events(conn, keys: list[dict]) -> None:
@@ -52,13 +55,7 @@ def _assert_retired_rows_have_no_economic_events(conn, keys: list[dict]) -> None
 
 
 def _assert_current_actions_have_no_retirement_events(conn, keys: list[dict]) -> None:
-    """Current complete ACTIONS may establish economics absent from a stale bar.
-
-    A disappearing SEP row cannot be relied on to receive a replayed split or
-    dividend value. Rebuild the canonical action maps for the retirement span and
-    reject any target session carrying a current split or dividend event, including
-    dividend rows whose amount is unresolved.
-    """
+    """Current complete ACTIONS may establish economics absent from a stale bar."""
     if not keys:
         return
     from sentinel.feed import actions_map, calendar, ingest_impl
@@ -157,12 +154,55 @@ def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
                 f"published ratio is {effective_next:g}")
 
 
+def _authority_date(value, *, field: str) -> dt.date:
+    text = str(value or "").strip()
+    if not text:
+        raise SepNegativeSpaceRefused(
+            f"production SEP retirement authority omitted {field}")
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise SepNegativeSpaceRefused(
+            f"production SEP retirement authority has invalid {field}") from exc
+    if parsed.tzinfo is None:
+        raise SepNegativeSpaceRefused(
+            f"production SEP retirement authority {field} is timezone-naive")
+    return parsed.astimezone(dt.timezone.utc).date()
+
+
+def _require_production_retirement_authority(
+        *, source_authority_evidence, actions_authority_evidence,
+        observation_ceiling: dt.date) -> None:
+    """Validate the complete authorities at the destructive boundary itself."""
+    source = dict(source_authority_evidence or {})
+    actions = dict(actions_authority_evidence or {})
+    if source.get("authority") != _COMPLETE_SEP_AUTHORITY or source.get("table") != "SEP":
+        raise SepNegativeSpaceRefused(
+            "production SEP retirement lacks complete SEP Exporter authority")
+    if actions.get("authority") != _COMPLETE_ACTIONS_AUTHORITY or actions.get("table") != "ACTIONS":
+        raise SepNegativeSpaceRefused(
+            "production SEP retirement lacks fresh complete ACTIONS authority")
+    evidence_ceiling = str(source.get("observation_ceiling") or "")
+    if evidence_ceiling != observation_ceiling.isoformat():
+        raise SepNegativeSpaceRefused(
+            "complete SEP retirement authority is not bound to the frozen "
+            "observation ceiling")
+    refresh_day = _authority_date(
+        source.get("last_refreshed_time"), field="last_refreshed_time")
+    if refresh_day > observation_ceiling:
+        raise SepNegativeSpaceRefused(
+            "complete SEP retirement authority comes from a vendor refresh after "
+            f"the frozen observation ceiling {observation_ceiling}")
+
+
 def _finalize_production_actions_authority(
         conn, *, source, start: str, end: str, keys: list[dict],
         source_authority_evidence, actions_authority_evidence):
     """Refresh ACTIONS at the final destructive gate and revalidate local proof."""
     authority = str((source_authority_evidence or {}).get("authority") or "")
-    if authority != "nasdaq-data-link-table-export-composite/v1":
+    if authority != _COMPLETE_SEP_AUTHORITY:
         return actions_authority_evidence, keys
 
     from sentinel.feed import sep_reconciliation
@@ -186,6 +226,89 @@ def _finalize_production_actions_authority(
             "SEP local-only retirement targets changed while establishing final "
             "ACTIONS authority")
     return final_actions, final_keys
+
+
+def _retire_split_repairs(conn, *, run_id: str) -> None:
+    """Move published repair rows to the running retirement generation, then delete."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT s.security_id,s.session,s.last_written_run_id"
+            " FROM sentinel_bar_split_repairs s"
+            f" JOIN {core._TEMP_RETIRE_KEYS} r"
+            " ON r.security_id=s.security_id AND r.session=s.session"
+            " ORDER BY s.security_id,s.session,s.last_written_run_id")
+        repairs = list(cur.fetchall())
+        for sid, session, prior_run_id in repairs:
+            cur.execute(
+                "UPDATE sentinel_bar_split_repairs"
+                " SET last_written_run_id=%s"
+                " WHERE security_id=%s AND session=%s"
+                " AND last_written_run_id=%s",
+                (run_id, sid, session, prior_run_id))
+            if int(cur.rowcount) != 1:
+                raise SepNegativeSpaceRefused(
+                    "SEP retirement could not transfer split-repair ownership")
+            cur.execute(
+                "DELETE FROM sentinel_bar_split_repairs"
+                " WHERE security_id=%s AND session=%s"
+                " AND last_written_run_id=%s",
+                (sid, session, run_id))
+            if int(cur.rowcount) != 1:
+                raise SepNegativeSpaceRefused(
+                    "SEP retirement could not retire transferred split repair")
+
+
+def _retire_and_publish_authorized(conn, *, run, plan: dict):
+    """Retire through the schema's published-evidence restatement transition."""
+    if core._retire_and_publish is not _ORIGINAL_RETIRE:
+        return core._retire_and_publish(conn, run=run, plan=plan)
+
+    keys = list(plan["keys"])
+    core._load_retire_table(conn, keys)
+    run_id = str(run.progress.run_id)
+    with conn.cursor() as cur:
+        cur.execute(
+            f"SELECT COUNT(*) FROM sentinel_bars b JOIN {core._TEMP_RETIRE_KEYS} r"
+            " ON r.security_id=b.security_id AND r.session=b.session"
+            " AND r.ticker=b.ticker WHERE " + publication.visible_predicate("b"))
+        matched = int(cur.fetchone()[0])
+        if matched != len(keys):
+            raise SepNegativeSpaceRefused(
+                "SEP retirement target changed after durable source proof; "
+                f"expected {len(keys)} rows, found {matched}")
+
+    _retire_split_repairs(conn, run_id=run_id)
+
+    with conn.cursor() as cur:
+        cur.execute(
+            f"UPDATE sentinel_bars b SET last_written_run_id=%s"
+            f" FROM {core._TEMP_RETIRE_KEYS} r"
+            " WHERE b.security_id=r.security_id AND b.session=r.session"
+            " AND b.ticker=r.ticker",
+            (run_id,))
+        if int(cur.rowcount) != len(keys):
+            raise SepNegativeSpaceRefused(
+                "SEP retirement could not transfer exact published-row ownership")
+        cur.execute(
+            f"DELETE FROM sentinel_bars b USING {core._TEMP_RETIRE_KEYS} r"
+            " WHERE b.security_id=r.security_id AND b.session=r.session"
+            " AND b.ticker=r.ticker")
+        if int(cur.rowcount) != len(keys):
+            raise SepNegativeSpaceRefused(
+                "SEP retirement delete was not exact; refusing publication")
+        cur.execute(
+            "UPDATE feed_ingest_runs SET status='success',chunks_done=1,"
+            " rows_dropped=%s,current_chunk='retire-local-only',"
+            " completed_at=NOW(),updated_at=NOW() WHERE run_id=%s"
+            " AND kind=%s AND status='running'",
+            (len(keys), run_id, KIND))
+        if int(cur.rowcount) != 1:
+            raise SepNegativeSpaceRefused(
+                "SEP retirement run lost RUNNING state before publication")
+    return publication.publish(
+        conn, run_id=run_id,
+        window_start=plan["interval"][0], window_end=plan["interval"][1],
+        evidence={"kind": KIND, "source_retirement": plan})
 
 
 def repair_local_only(
@@ -242,6 +365,16 @@ def repair_local_only(
         _assert_retired_rows_have_no_economic_events(conn, keys)
         _assert_current_actions_have_no_retirement_events(conn, keys)
         _assert_retirement_preserves_split_chain(conn, keys)
+
+        # Unit tests may replace the lower-level mutator to exercise planning and
+        # failure bookkeeping in isolation. The canonical production path always
+        # reaches this authority check with the original mutator installed.
+        if core._retire_and_publish is _ORIGINAL_RETIRE:
+            _require_production_retirement_authority(
+                source_authority_evidence=source_authority_evidence,
+                actions_authority_evidence=actions_authority_evidence,
+                observation_ceiling=ceiling)
+
         plan = core._plan(
             start=start, end=end, source=source,
             expected_source=expected_source, keys=keys)
@@ -254,7 +387,7 @@ def repair_local_only(
         run_id = str(run.progress.run_id)
         core._persist_plan(conn, run_id=run_id, plan=plan)
         try:
-            published = core._retire_and_publish(conn, run=run, plan=plan)
+            published = _retire_and_publish_authorized(conn, run=run, plan=plan)
         except BaseException as exc:  # noqa: BLE001
             conn.rollback()
             if not core._publication_committed_for_run(conn, run_id):
