@@ -1,0 +1,36 @@
+{
+  "schema": "caesar20.exit-delay-repair/1",
+  "failed_run_id": 34130368380,
+  "failed_job_id": 101768773594,
+  "failed_head": "c53c153c3941812511c0b3da2a6a836b0048ef98",
+  "failed_artifact_id": 10021826339,
+  "failed_artifact_sha256": "ba835cd51c4420a6a68e22c1f366c73045794e9534637e611da52dc8e20b3db4",
+  "original_failure": "exit signal timestamps missing",
+  "original_entry_timestamp_occurrences": 1,
+  "broken_total_timestamp_occurrences": 3,
+  "bad_assertion_expected_occurrences": 2,
+  "latent_timing_bug": "Repeated stop/review signals overwrite the pending sell timestamp every close and can indefinitely postpone the t+2 fill.",
+  "synthetic_old_behavior": {
+    "first_signal_session": 100,
+    "last_repeated_signal_session": 104,
+    "ordinary_fills": 0
+  },
+  "repair": "Separate latched exit timestamp, preserved on repeated signals and reset on slot lifecycle changes; ordinary fills at t+2 or the next valid open.",
+  "scope": "EXIT_DELAY_1 only; five original peer jobs retain their frozen commit and workflow.",
+  "local_synthetic_tests": 14,
+  "local_synthetic_tests_passed": 14,
+  "other_five_generated_variants_byte_identical": true,
+  "baseline_files_modified": false,
+  "historical_replays_executed_locally": 0,
+  "failed_job_historical_replays": 0,
+  "planned_repair_economic_runs": 1,
+  "total_stress_variants_authorized": 6,
+  "classification_expansion_assessment": "Pending repaired path execution; classifier authority remains frozen.",
+  "local_validation_python": "3.13.5",
+  "ci_python_pin": "3.12.14",
+  "files_sha256": {
+    "experiment_overlay.py": "0b4a12f6a5610889cf26bdc9a7e45ef0b72cde9018b635708483ce1bd13ef328",
+    "test_exit_delay.py": "c7722184d3f0ec58839193ffb04fbae22944ee4c5ef0f390c30b632a393a5218",
+    "base.py": "2cee4dc35a59ce068bfcfe46c00ed4725a9a5191358f04516eba021c11202d35"
+  }
+}

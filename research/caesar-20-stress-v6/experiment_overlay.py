@@ -27,6 +27,47 @@ def _caesar20(text: str) -> str:
     return text
 
 
+def _exit_delay(text: str) -> str:
+    """Latch each ordinary exit at its first decision close; fill at t+2 or later."""
+    text = _replace_exact(
+        text, "pending_sell:bool=False; sell_reason:str=''",
+        "pending_sell:bool=False; pending_exit_signal_day:int=-1; sell_reason:str=''",
+        1, "dedicated ordinary-exit timestamp",
+    )
+    for owner, count in (("s", 4), ("_slot", 1)):
+        old = f"{owner}.pending_sell=False; {owner}.sell_reason=''"
+        new = f"{owner}.pending_sell=False; {owner}.pending_exit_signal_day=-1; {owner}.sell_reason=''"
+        text = _replace_exact(text, old, new, count, f"{owner} exit-state resets")
+    for reason in ("stop", "review"):
+        old = f"s.pending_sell=True; s.sell_reason='{reason}'"
+        new = ("s.pending_exit_signal_day=gday if not s.pending_sell else s.pending_exit_signal_day; " + old)
+        text = _replace_exact(text, old, new, 1, f"latched {reason} timestamp")
+    text = _replace_exact(
+        text, "if not(s.held() and s.pending_sell): continue",
+        "if not(s.held() and s.pending_sell): continue\n"
+        "                if not (0 <= s.pending_exit_signal_day < gday):\n"
+        "                    raise RuntimeError('invalid latched ordinary-exit timestamp')\n"
+        "                if gday < s.pending_exit_signal_day+2: continue",
+        1, "t+2 ordinary-exit gate",
+    )
+    text = _replace_exact(text, "def run():\n", "def run():\n    _exit_delay_events=[]\n", 1, "exit witness initialization")
+    text = _replace_exact(
+        text, "book.cash+=s.qty*float(px)*(1-COST); sells+=1",
+        "book.cash+=s.qty*float(px)*(1-COST); sells+=1\n"
+        "                    _exit_delay_events.append({'security_id':str(sid[s.tid]),'ticker':str(tick[s.tid]),"
+        "'signal_session_index':s.pending_exit_signal_day,'execution_session_index':gday,"
+        "'execution_session':ds,'reason':s.sell_reason})",
+        1, "executed ordinary-exit witness",
+    )
+    text = _replace_exact(
+        text, "out.to_csv(OUT/'daily.csv',index=False)",
+        "out.to_csv(OUT/'daily.csv',index=False)\n"
+        "    pd.DataFrame(_exit_delay_events).to_csv(OUT/'exit-delay-events.csv',index=False)",
+        1, "ordinary-exit witness export",
+    )
+    return text
+
+
 def apply_arm(text: str, arm: str) -> str:
     if arm not in ARMS:
         raise ValueError(f"unsupported arm: {arm}")
@@ -49,27 +90,7 @@ def apply_arm(text: str, arm: str) -> str:
             "two-session additional entry delay",
         )
     elif arm == "EXIT_DELAY_1":
-        out = _replace_exact(
-            out,
-            "s.pending_sell=True; s.sell_reason='stop'",
-            "s.pending_sell=True; s.sell_reason='stop'; s.pending_signal_day=gday",
-            1,
-            "stop sell signal timestamp",
-        )
-        out = _replace_exact(
-            out,
-            "s.pending_sell=True; s.sell_reason='review'",
-            "s.pending_sell=True; s.sell_reason='review'; s.pending_signal_day=gday",
-            1,
-            "review sell signal timestamp",
-        )
-        out = _replace_exact(
-            out,
-            "if not(s.held() and s.pending_sell): continue",
-            "if not(s.held() and s.pending_sell) or gday < s.pending_signal_day+2: continue",
-            1,
-            "one-session additional exit delay",
-        )
+        out = _exit_delay(out)
     elif arm == "RANK_TOP3_REVERSE":
         out = _replace_exact(
             out,
@@ -121,10 +142,29 @@ def assert_arm_contract(base: str, variant: str, arm: str) -> None:
     if arm == "ENTRY_DELAY_2" and "gday < s.pending_signal_day+3" not in variant:
         raise RuntimeError("entry-delay-2 gate missing")
     if arm == "EXIT_DELAY_1":
-        if variant.count("s.pending_signal_day=gday") != 2:
-            raise RuntimeError("exit signal timestamps missing")
-        if "gday < s.pending_signal_day+2" not in variant:
-            raise RuntimeError("exit-delay gate missing")
+        # Entry reservation timestamps are a separate, unchanged field.
+        def entry_timestamps(source: str) -> list[str]:
+            return [ast.dump(n) for n in ast.walk(ast.parse(source))
+                    if isinstance(n, ast.Assign) and any(
+                        isinstance(t, ast.Attribute) and t.attr == "pending_signal_day"
+                        for t in n.targets)]
+        if entry_timestamps(variant) != entry_timestamps(base):
+            raise RuntimeError("entry reservation timestamp changed")
+        for reason in ("stop", "review"):
+            latch = ("s.pending_exit_signal_day=gday if not s.pending_sell else s.pending_exit_signal_day; "
+                     f"s.pending_sell=True; s.sell_reason='{reason}'")
+            if variant.count(latch) != 1:
+                raise RuntimeError(f"latched {reason} timestamp missing or duplicated")
+        if variant.count("pending_exit_signal_day:int=-1") != 1:
+            raise RuntimeError("dedicated exit timestamp field missing or duplicated")
+        if variant.count("s.pending_exit_signal_day=-1") != 4 or variant.count("_slot.pending_exit_signal_day=-1") != 1:
+            raise RuntimeError("exit timestamp reset coverage changed")
+        for marker in ("if not (0 <= s.pending_exit_signal_day < gday):",
+                       "if gday < s.pending_exit_signal_day+2: continue",
+                       "_exit_delay_events.append(",
+                       "to_csv(OUT/'exit-delay-events.csv',index=False)"):
+            if variant.count(marker) != 1:
+                raise RuntimeError(f"exit-delay gate/witness missing or duplicated: {marker}")
     if arm == "RANK_TOP3_REVERSE":
         if "np.concatenate((durable[:3][::-1],durable[3:]))" not in variant:
             raise RuntimeError("rank perturbation missing")

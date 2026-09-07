@@ -1,0 +1,212 @@
+name: Caesar 20 exit-delay stress repair
+run-name: Caesar 20 EXIT_DELAY_1 repair - ${{ github.sha }}
+on:
+  push:
+    branches: [research/caesar-20-stress-v6-exit-fix]
+    paths: ['.github/workflows/caesar-20-exit-delay-repair.yml']
+permissions:
+  contents: read
+  packages: read
+  actions: read
+concurrency:
+  group: caesar-20-exit-delay-repair-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+  EXPECTED_BASE_NORMALIZED_SHA256: '435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde'
+  ALPHA_ARM: EXIT_DELAY_1
+jobs:
+  exit-delay:
+    # Exactly one economic launch; further attempts require a new explicit authorization.
+    if: github.run_number == 1 && github.run_attempt == 1
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Isolated repair checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: audit-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/champion-economic-integrity
+            research/champion-alpha-five-run-validation-v2
+            research/caesar-20-stress-v6
+      - name: Exact formal source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/strategy9-e3-broad-stability
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+      - name: Exact classifier source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ba74e79490beb8950611b1d17f5d124833b3d91e
+          path: candidate-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: backtester
+      - name: Exact runtime source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.12.14', check-latest: false}
+      - name: Verify pins and install frozen runtime
+        run: |
+          set -euo pipefail
+          test "$(git -C audit-src rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
+          test "$(git -C candidate-src rev-parse HEAD)" = ba74e79490beb8950611b1d17f5d124833b3d91e
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" >> "$GITHUB_ENV"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "$GITHUB_ENV"
+      - name: Stage exact corrected certification overlays
+        run: |
+          set -euo pipefail
+          for f in champion_economic_prefix_audit.py champion_full_classification_control.py champion_security_truth_audit_v2.py champion_security_truth_overlay_v2.py champion_final_security_truth.py champion_final_truth_corpus_validator.py production_equivalent_economic_overlay.py champion_production_equivalent_build.py champion_production_equivalent_final_replay.py; do
+            cp "audit-src/backtester/$f" certified-src/backtester/
+          done
+          cp audit-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
+          cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
+          cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
+          for f in champion-best-effort-security-types-v1.csv champion-best-effort-security-types-v1-summary.json champion-reviewed-security-types-v1.csv champion-historical-security-type-corrections-v1.csv; do
+            cp "candidate-src/backtester/data/$f" certified-src/backtester/data/
+          done
+          mkdir -p certified-src/research/champion-economic-integrity/security-truth
+          cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
+      - name: Validate dividend semantics and classifier
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/audit-src/backtester/tests/test_production_equivalent_dividend_lag.py"
+          python backtester/champion_final_truth_corpus_validator.py --manual research/champion-economic-integrity/security-truth/manual-review --output "${GITHUB_WORKSPACE}/final-corpus-validation-EXIT_DELAY_1.json"
+          python backtester/champion_production_equivalent_build.py --candidate-root "${GITHUB_WORKSPACE}/candidate-src" --output "${GITHUB_WORKSPACE}/preflight-EXIT_DELAY_1"
+      - name: Test actual generated exit timing on synthetic sessions
+        run: |
+          set -euo pipefail
+          python audit-src/research/caesar-20-stress-v6/test_exit_delay.py --base preflight-EXIT_DELAY_1/production-equivalent-generated.py 2>&1 | tee exit-delay-tests.log
+      - name: Verify corrected base and exit stress source
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python - <<'PY'
+          import hashlib, os, sys
+          from pathlib import Path
+          sys.path.insert(0,str(Path('../audit-src/research/caesar-20-stress-v6').resolve()))
+          from experiment_overlay import apply_arm
+          from backtester.production_equivalent_economic_overlay import assert_contract, assert_one_session_dividend_lag
+          from backtester.champion_economic_prefix_audit import normalized_ast
+          p=Path('../preflight-EXIT_DELAY_1')
+          base=(p/'production-equivalent-generated.py').read_text()
+          actual=hashlib.sha256(normalized_ast(base).encode()).hexdigest()
+          assert actual==os.environ['EXPECTED_BASE_NORMALIZED_SHA256'],actual
+          assert_contract(base)
+          assert assert_one_session_dividend_lag(base)==1
+          variant=apply_arm(base,'EXIT_DELAY_1')
+          assert_contract(variant)
+          assert assert_one_session_dividend_lag(variant)==1
+          (p/'experiment-generated.py').write_text(variant)
+          print('PASS_EXIT_DELAY_PREFLIGHT',actual,hashlib.sha256(normalized_ast(variant).encode()).hexdigest())
+          PY
+      - name: Pull and verify immutable canonical PIT package
+        env: {GHCR_TOKEN: '${{ secrets.GITHUB_TOKEN }}'}
+        run: |
+          set -euo pipefail
+          POINTER=certified-src/backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "$PACKAGE" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$PACKAGE"
+          cid=$(docker create "$PACKAGE" /bin/true)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "$cid:/canonical-pit/." canonical-pit/
+          docker rm "$cid"
+          trap - EXIT
+          PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "$POINTER" --dataset canonical-pit > package-integrity-EXIT_DELAY_1.json
+      - name: Run only the repaired EXIT_DELAY_1 experiment
+        run: |
+          set -euo pipefail
+          test "$ALPHA_ARM" = EXIT_DELAY_1
+          cp audit-src/research/caesar-20-stress-v6/experiment_overlay.py audit-src/research/champion-alpha-five-run-validation-v2/experiment_overlay.py
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/audit-src/research/champion-alpha-five-run-validation-v2/experiment_runner.py" \
+            --arm "$ALPHA_ARM" --candidate-root "${GITHUB_WORKSPACE}/candidate-src" \
+            --output "${GITHUB_WORKSPACE}/experiment-output-EXIT_DELAY_1" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/experiment-EXIT_DELAY_1.log"
+      - name: Verify result and every executed exit timestamp
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, hashlib, json
+          from pathlib import Path
+          out=Path('experiment-output-EXIT_DELAY_1')
+          r=json.loads((out/'RESULT.json').read_text())
+          assert r['status']=='PASS_FRESH_CAUSAL_PIT_REPLAY',r
+          assert r['arm']=='EXIT_DELAY_1',r
+          assert r['dividend_lag_sessions']==1,r
+          assert r['data']['pit'] is True and r['data']['prerecorded_decisions_used'] is False,r
+          assert r['data']['sessions']==5032,r
+          assert r['data']['canonical_pit_dataset_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993',r
+          assert r['classification']['classification_expansion_required'] is False,r
+          with (out/'engine/exit-delay-events.csv').open() as f:
+              events=list(csv.DictReader(f))
+          assert events and len(events)==r['engine']['sells'],(len(events),r['engine']['sells'])
+          lags=[int(e['execution_session_index'])-int(e['signal_session_index']) for e in events]
+          assert min(lags)>=2,lags
+          assert all(e['reason'] in ('stop','review') for e in events),events
+          result={'status':'PASS_LATCHED_EXIT_TIMING','ordinary_exits':len(events),
+                  'minimum_signal_to_execution_sessions':min(lags),'maximum_signal_to_execution_sessions':max(lags),
+                  'failed_original_run':34130368380,'failed_original_job':101768773594,
+                  'original_failed_job_started_historical_replay':False}
+          (out/'EXIT_TIMING_CHECK.json').write_text(json.dumps(result,indent=2)+'\n')
+          hashes={str(p.relative_to(out)):hashlib.sha256(p.read_bytes()).hexdigest()
+                  for p in sorted(out.rglob('*')) if p.is_file() and p.name!='REPAIR_SHA256.json'}
+          (out/'REPAIR_SHA256.json').write_text(json.dumps(hashes,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(result,sort_keys=True))
+          PY
+      - name: Preserve isolated repair evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caesar-20-stress-v6-EXIT_DELAY_1-repair-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            experiment-output-EXIT_DELAY_1/
+            experiment-EXIT_DELAY_1.log
+            exit-delay-tests.log
+            preflight-EXIT_DELAY_1/
+            package-integrity-EXIT_DELAY_1.json
+            final-corpus-validation-EXIT_DELAY_1.json
+            audit-src/research/caesar-20-stress-v6/PLAN.md
+            audit-src/research/caesar-20-stress-v6/experiment_overlay.py
+            audit-src/research/caesar-20-stress-v6/test_exit_delay.py
+            audit-src/research/caesar-20-stress-v6/EXIT_DELAY_REPAIR.json
+          retention-days: 90
+          if-no-files-found: error
