@@ -6,6 +6,9 @@ from sentinel.feed import ingest, seed_capture, sharadar, snapshot_export
 from sentinel.feed.authority import VendorPublicationUnstable
 from tests.sentinel.test_sharadar_snapshot_export import _Http, _Response, _status
 from tests.sentinel.test_issue_178_seed_reference_bracketing import _ticker, _sep
+from tests.sentinel.test_issue_246_identity_rebuild import (
+    pg, conn, _publish_base, _candidate_rows,
+)
 
 
 def evidence():
@@ -96,6 +99,42 @@ def test_real_seed_guard_checks_refresh_before_database_replay(monkeypatch):
                              sharadar.date_params("2026-08-17", "2026-08-19"))
         assert all(key[0] != sharadar.SEP for key in captured.files)
     assert events == ["TICKERS", "SFP", "SEP", "SEP", "refresh"]
+
+
+def test_postgres_identity_capture_failure_preserves_published_corpus(conn, monkeypatch):
+    from sentinel.feed import coherence, publication, store
+    base = _publish_base(conn)
+    def raw(table, params=None, **kwargs):
+        if table == sharadar.TICKERS:
+            return _candidate_rows()
+        if table == sharadar.SFP:
+            return [{"ticker": "SPY", "date": "2026-08-20", "closeadj": 100}]
+        return [dict(_sep("2026-08-20"), ticker="BTLN")]
+    monkeypatch.setattr(snapshot_export, "fetch_complete_actions", lambda **k: (
+        [{"date": "2026-08-20", "ticker": "BTLN", "action": "dividend", "value": "0"}],
+        evidence()))
+    def changed(**kwargs):
+        raise VendorPublicationUnstable("changed during capture")
+    monkeypatch.setattr(snapshot_export, "require_actions_refresh", changed)
+    # Small fixture exercises real identity preflight and PostgreSQL state;
+    # the existing exact-population tests cover the 4,000-security seed floor.
+    def guarded_source(fetch, **kwargs):
+        guarded = coherence.StableSharadarFetch(kwargs["acquisition_fetch"])
+        return object(), guarded
+    monkeypatch.setattr(ingest, "_seed_source", guarded_source)
+    recovery = SimpleNamespace(date_from="2026-08-20", date_to="2026-08-21",
+                               retired_run_ids=())
+    with store.corpus_write_lock(conn):
+        with pytest.raises(VendorPublicationUnstable, match="during capture"):
+            seed_capture.run_generation(
+                conn, recovery_plan=recovery, fetch=raw,
+                final_hi="2026-08-21", boundary="2026-08-24")
+    assert publication.require_current(conn).version == base.version
+    with conn.cursor() as cur:
+        cur.execute("SELECT count(*) FROM feed_ingest_runs")
+        assert cur.fetchone()[0] == 1
+        cur.execute("SELECT ticker FROM sentinel_bars ORDER BY ticker")
+        assert [row[0] for row in cur.fetchall()] == ["GGRP", "KEEP", "LBRDK"]
 
 
 @pytest.mark.parametrize("identity_changed", [False, True])
