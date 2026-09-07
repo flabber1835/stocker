@@ -56,18 +56,28 @@ def _assert_current_actions_have_no_retirement_events(conn, keys: list[dict]) ->
 
     A disappearing SEP row cannot be relied on to receive a replayed split or
     dividend value. Rebuild the canonical action maps for the retirement span and
-    reject any target session carrying a current split or usable dividend event.
+    reject any target session carrying a current split or dividend event, including
+    dividend rows whose amount is unresolved.
     """
     if not keys:
         return
-    from sentinel.feed import ingest_impl
+    from sentinel.feed import actions_map, calendar, ingest_impl
+    from sentinel.core.terminal import DIVIDEND_ACTIONS
 
     start = min(str(key["session"]) for key in keys)
     end = max(str(key["session"]) for key in keys)
-    splits, dividends, _rows, _ambiguous = ingest_impl._action_maps(
-        conn, start, end)
+    splits, dividends, rows, _ambiguous = ingest_impl._action_maps(conn, start, end)
     split_keys = {(str(t).upper(), str(s)) for t, s in splits}
     dividend_keys = {(str(t).upper(), str(s)) for t, s in dividends}
+
+    sessions = calendar.sessions_in_range(start, end)
+    for row in rows:
+        if str(row.get("action") or "").lower() not in DIVIDEND_ACTIONS:
+            continue
+        session = actions_map.snap_to_session(str(row.get("date") or ""), sessions)
+        if session is not None:
+            dividend_keys.add((str(row.get("ticker") or "").upper(), str(session)))
+
     for key in keys:
         ticker = str(key["ticker"]).upper()
         session = str(key["session"])
@@ -107,12 +117,20 @@ def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
                 " ORDER BY b.session ASC LIMIT 1",
                 (sid, session))
             next_row = cur.fetchone()
-        if next_row is None or prev_row is None:
+        if next_row is None:
+            continue
+        effective_next = float(next_row[2] or 1.0)
+        if prev_row is None:
+            if abs(effective_next - 1.0) > 1e-12:
+                raise SepNegativeSpaceRefused(
+                    "SEP retirement would change the effective split chain for "
+                    f"{sid} after {session}: no surviving predecessor remains, "
+                    f"so canonical normalization yields no predecessor-derived "
+                    f"split but published ratio is {effective_next:g}")
             continue
 
         required = domains.unsnapped_split_ratio(
             prev_row[0], prev_row[1], next_row[0], next_row[1])
-        effective_next = float(next_row[2] or 1.0)
         bounds = split_ratio_bounds(
             prev_row[0], prev_row[1], next_row[0], next_row[1])
         price_event = split_price_evidence(required)
