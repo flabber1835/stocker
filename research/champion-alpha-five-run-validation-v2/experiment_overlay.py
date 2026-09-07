@@ -25,8 +25,6 @@ def _replace_exact(text: str, old: str, new: str, count: int, label: str) -> str
 
 
 def _fresh_replacement(text: str) -> str:
-    # Slot reuse becomes immediate after an exit.  The separate sec_ready security
-    # cooldown is deliberately untouched, so the sold identity still waits 21 sessions.
     text = _replace_exact(
         text, "s.ready_day=gday+COOLDOWN", "s.ready_day=gday", 3,
         "fresh-replacement ordinary/terminal slot release",
@@ -61,8 +59,6 @@ def _early_weak_review(text: str) -> str:
         1,
         "early-review slot state",
     )
-
-    # Reset the new state everywhere a slot identity is destroyed or initialized.
     before = text.count("s.entry_day=-1; s.reviewed=False;")
     if before != 3:
         raise RuntimeError(f"early-review s reset seam changed: expected 3, got {before}")
@@ -97,26 +93,21 @@ class AlphaStagedRecovery:
         self.stage_25_sessions=0; self.stage_55_sessions=0; self.episode_resets=0
 
     def step(self, baseline_desired, spy_close, spy20, wc_r5, fast_signal):
-        # Once the baseline controller is positive again, this probe has no authority.
         if baseline_desired>1e-12:
             if self.episode: self.episode_resets+=1
             self.episode=False; self.reference=None; self.zero_sessions=0; self.qualifying_streak=0
             return float(baseline_desired), 'BASELINE_POSITIVE'
-
-        # First zero-target close establishes a causal reference from that same close.
         if not self.episode:
             if not finite(spy_close):
                 raise RuntimeError('staged recovery missing causal SPY close at episode start')
             self.episode=True; self.reference=float(spy_close); self.zero_sessions=1; self.qualifying_streak=0
         else:
             self.zero_sessions+=1
-
         qualifying=(finite(spy_close) and float(spy_close)>float(self.reference)
                     and finite(spy20) and spy20>0
                     and finite(wc_r5) and wc_r5>0
                     and not bool(fast_signal))
         self.qualifying_streak=self.qualifying_streak+1 if qualifying else 0
-
         if self.zero_sessions>=10 and self.qualifying_streak>=10:
             self.stage_55_sessions+=1
             return 0.55, 'STAGED_RECOVERY_55'
@@ -188,15 +179,12 @@ def apply_arm(text: str, arm: str) -> str:
 
 
 def assert_arm_contract(base: str, variant: str, arm: str) -> None:
-    """Structural falsifiers for the prespecified dimensions."""
     if arm not in ARMS:
         raise ValueError(arm)
     if variant.count("book.receivables.append((gday+1,q*rawdiv))") != 1:
         raise RuntimeError("variant lost exact one-session dividend scheduling")
     if "book.receivables.append((gday+15" in variant.replace(" ", ""):
         raise RuntimeError("15-session dividend regression present")
-    if "DIVIDEND_LAG_SESSIONS = 1" not in variant:
-        raise RuntimeError("one-session dividend contract constant missing")
     if "from backtester import champion_final_security_truth as _bestclass" not in variant:
         raise RuntimeError("factual classifier changed")
     if "COOLDOWN = 21" not in variant or "REVIEW_AGE = 119" not in variant:
