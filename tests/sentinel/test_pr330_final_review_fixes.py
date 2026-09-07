@@ -6,7 +6,8 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel.feed import ingest, maintenance, sep_reconciliation as recon
+from sentinel.feed import ingest, maintenance, sep_negative_space_guarded as guarded
+from sentinel.feed import sep_reconciliation as recon
 from sentinel.feed import source_authority
 
 
@@ -82,7 +83,7 @@ def test_daily_reuses_one_frozen_source_ceiling_for_rotation_and_sep(monkeypatch
     assert seen["rotation"] == seen["sep"]
 
 
-def test_complete_sep_export_precedes_final_actions_authority(monkeypatch):
+def test_complete_sep_export_precedes_actions_authority(monkeypatch):
     source = _proof(10)
     local = _proof(11, "c", "d")
     order = []
@@ -116,6 +117,37 @@ def test_complete_sep_export_precedes_final_actions_authority(monkeypatch):
 
     assert order[:3] == ["sep_export", "actions", "repair"]
     assert order[-1] == "cleanup"
+
+
+def test_composite_export_refreshes_actions_at_final_destructive_gate(monkeypatch):
+    source = _proof(10)
+    keys = [{"security_id": "P:1", "session": "2026-04-02", "ticker": "AAA"}]
+    order = []
+    final_actions = {"authority": "fresh-actions"}
+
+    monkeypatch.setattr(
+        guarded.core.recon, "_visible_bounds",
+        lambda conn: (dt.date(2026, 1, 2), dt.date(2026, 9, 4)))
+    monkeypatch.setattr(
+        recon, "_fresh_actions_retirement_authority",
+        lambda conn, **kwargs: order.append("actions") or final_actions)
+    monkeypatch.setattr(
+        guarded.core, "_source_only_local_proof",
+        lambda *a, **k: order.append("local_recheck") or source)
+    monkeypatch.setattr(
+        guarded.core, "_local_only_keys",
+        lambda *a, **k: order.append("key_recheck") or keys)
+
+    evidence, final_keys = guarded._finalize_production_actions_authority(
+        object(), source=source, start="2026-01-02", end="2026-09-04",
+        keys=keys,
+        source_authority_evidence={
+            "authority": "nasdaq-data-link-table-export-composite/v1"},
+        actions_authority_evidence={"authority": "earlier-actions"})
+
+    assert order == ["actions", "local_recheck", "key_recheck"]
+    assert evidence == final_actions
+    assert final_keys == keys
 
 
 def test_post_retirement_source_change_refuses_reconciliation_authority(monkeypatch):
