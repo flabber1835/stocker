@@ -94,10 +94,32 @@ def _month_windows(start: str, end: str):
         cursor = next_month
 
 
-def _complete_export_source(*, start: str, end: str):
-    """Return replayable complete Exporter authority with bounded Python memory."""
+def _export_refresh_day(value) -> dt.date:
+    text = str(value or "").strip()
+    if not text:
+        raise SepReconciliationStateInvalid(
+            "SEP complete export omitted last_refreshed_time authority")
+    if text.endswith("Z"):
+        text = text[:-1] + "+00:00"
+    try:
+        parsed = dt.datetime.fromisoformat(text)
+    except ValueError as exc:
+        raise SepReconciliationStateInvalid(
+            "SEP complete export returned invalid last_refreshed_time authority") from exc
+    if parsed.tzinfo is None:
+        raise SepReconciliationStateInvalid(
+            "SEP complete export returned timezone-naive last_refreshed_time authority")
+    return parsed.astimezone(dt.timezone.utc).date()
+
+
+def _complete_export_source(
+        *, start: str, end: str, observation_ceiling=None):
+    """Return replayable complete Exporter authority bound to one source date."""
     from sentinel.feed import sharadar, snapshot_export
 
+    ceiling = (
+        None if observation_ceiling is None
+        else _strict_ceiling(observation_ceiling))
     handle = tempfile.NamedTemporaryFile(
         mode="w+", encoding="utf-8", prefix="sentinel-sep-export-",
         suffix=".jsonl", delete=False)
@@ -109,9 +131,11 @@ def _complete_export_source(*, start: str, end: str):
         for lo, hi in _month_windows(start, end):
             rows, evidence = snapshot_export.fetch_complete_sep(start=lo, end=hi)
             current_refresh = str(evidence.get("last_refreshed_time") or "")
-            if not current_refresh:
+            refresh_day = _export_refresh_day(current_refresh)
+            if ceiling is not None and refresh_day > ceiling:
                 raise SepReconciliationStateInvalid(
-                    "SEP complete export omitted last_refreshed_time authority")
+                    "SEP complete export vendor generation is newer than the "
+                    f"frozen observation ceiling {ceiling}: refresh={refresh_day}")
             if refresh_marker is None:
                 refresh_marker = current_refresh
             elif current_refresh != refresh_marker:
@@ -158,7 +182,7 @@ def _complete_export_source(*, start: str, end: str):
             pass
 
     export_fetch.cleanup = cleanup
-    return export_fetch, {
+    authority = {
         "authority": "nasdaq-data-link-table-export-composite/v1",
         "table": sharadar.SEP,
         "window": [str(start), str(end)],
@@ -166,6 +190,9 @@ def _complete_export_source(*, start: str, end: str):
         "last_refreshed_time": refresh_marker,
         "parts": parts,
     }
+    if ceiling is not None:
+        authority["observation_ceiling"] = ceiling.isoformat()
+    return export_fetch, authority
 
 
 def _fresh_actions_retirement_authority(conn, *, through: dt.date) -> dict:
@@ -216,7 +243,8 @@ def _repair_local_only_if_proved(
     source_authority_evidence = None
     if require_complete_export:
         repair_fetch, source_authority_evidence = _complete_export_source(
-            start=start, end=end)
+            start=start, end=end,
+            observation_ceiling=_strict_ceiling(observation_ceiling))
     try:
         if require_complete_export and actions_authority_evidence is None:
             _lo, market_hi = _visible_bounds(conn)
@@ -246,8 +274,10 @@ def _repair_local_only_if_proved(
 
 def _post_retirement_source_proof(
         conn, *, start: str, end: str, observation_ceiling):
-    """Re-observe complete SEP authority after a destructive publication."""
-    verify_fetch, _evidence = _complete_export_source(start=start, end=end)
+    """Re-observe the same causally bounded complete authority after retirement."""
+    verify_fetch, _evidence = _complete_export_source(
+        start=start, end=end,
+        observation_ceiling=_strict_ceiling(observation_ceiling))
     try:
         return _source_fingerprint(
             conn, fetch=verify_fetch, start=start, end=end,
