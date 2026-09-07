@@ -5,6 +5,8 @@ on:
     branches: [research/champion-alpha-five-run-validation-v2]
     paths:
       - '.github/workflows/champion-alpha-five-run-validation-v2.yml'
+      - 'research/champion-alpha-five-run-validation-v2/experiment_overlay.py'
+      - 'research/champion-alpha-five-run-validation-v2/experiment_runner.py'
   workflow_dispatch:
 permissions:
   contents: read
