@@ -22,13 +22,13 @@ For a surviving effective split of 1.0, bridge price evidence inside the canonic
 
 ## Observation boundary
 
-A production reconciliation operation uses one explicit source-observation date for SEP CDC and complete SEP proofs. Complete SEP negative-space authority must come from a vendor `last_refreshed_time` whose UTC date is on or before that frozen observation date. The durable Exporter evidence records the same `observation_ceiling`. A later vendor refresh refuses retirement before mutation.
+A production reconciliation operation uses one explicit source-observation date for SEP CDC and complete SEP proofs. Complete SEP negative-space authority must come from a vendor `last_refreshed_time` whose timestamp is on or before the captured mismatch observation instant. That instant must fall on the frozen source-observation date. The durable Exporter evidence records both `observation_ceiling` and `source_observation_boundary`. A later vendor refresh refuses retirement before mutation.
 
 A SEP cursor newer than the frozen observation date refuses the pass. Equal cursors can be re-observed explicitly. Recent-window proof reuses the established SEP observation ceiling.
 
 ## Publication
 
-The exact retirement keys, complete SEP Exporter authority, fresh ACTIONS authority, normalized source digests, and key digest are persisted before mutation. The `sep_source_retirement` publication appends its exact keys as tombstones. The physical bars and split-repair children retain their original contents and generation ownership. SEP visibility excludes a key only when its retirement publication is newer than the bar generation. A later published bar generation restores visibility. Unpublished or rolled-back retirement evidence has no effect.
+The exact retirement keys, complete SEP Exporter authority, fresh ACTIONS authority, normalized source digests, and key digest are persisted before mutation. The `sep_source_retirement` publication appends its exact keys as tombstones. The physical bars and split-repair children retain their original contents and generation ownership. SEP visibility excludes a key only when its retirement publication is newer than the bar generation. A later published bar generation restores visibility. An identical vendor reappearance must still move the row to the new ingest generation; value equality cannot preserve retired ownership. Ingest predecessor lookup excludes published tombstoned rows while retaining the existing ability to read unpublished rows from an active chunked ingest. Unpublished or rolled-back retirement evidence has no effect.
 
 SPY total-return, defensive SFP prices, and universe snapshots use generation-only visibility (`sep_retirements=False`); SEP tombstones apply only to equity bars. Callers identify the relation explicitly, independently of SQL alias spelling.
 

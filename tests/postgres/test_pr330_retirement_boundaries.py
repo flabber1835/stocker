@@ -25,13 +25,6 @@ def pg_conn():
     with conn.cursor() as cur:
         for statement in DDL:
             cur.execute(statement)
-        # These regressions create minimal publication rows directly so they can
-        # exercise SEP visibility/authority in isolation. Treat that synthetic
-        # prefix as pre-receipt history; receipt-chain behavior has its own
-        # dedicated PostgreSQL certification tests.
-        cur.execute(
-            "UPDATE sentinel_publication_validation_policy"
-            " SET required_after_version=1000000")
     conn.commit()
     try:
         yield conn
@@ -50,13 +43,36 @@ def _insert_run(conn, run_id, *, kind, status):
 
 
 def _insert_publication(conn, *, version, previous, run_id, evidence):
+    # Keep publication and receipt triggers active. The fixture signs the exact
+    # synthetic row using the normal receipt implementation and test-only key.
+    with conn.cursor() as cur:
+        cur.execute("SELECT clock_timestamp()")
+        published_at = cur.fetchone()[0]
+    previous_receipt = publication._latest_receipt_sha256(
+        conn, through_version=previous or 0)
+    signed = publication._add_validation_receipt(
+        conn, version=version, previous_version=previous,
+        run_id=str(run_id) if run_id else None, published_at=published_at,
+        window_start="2026-04-02", window_end="2026-04-02",
+        evidence=evidence, previous_receipt_sha256=previous_receipt)
+    receipt = signed[publication.RECEIPT_EVIDENCE_KEY]
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_corpus_publications"
-            " (version,previous_version,run_id,window_start,window_end,evidence)"
-            " VALUES (%s,%s,%s,%s,%s,%s::jsonb)",
-            (int(version), previous, str(run_id) if run_id else None,
-             "2026-04-02", "2026-04-02", json.dumps(evidence)))
+            " (version,previous_version,run_id,published_at,window_start,window_end,evidence)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb)",
+            (int(version), previous, str(run_id) if run_id else None, published_at,
+             "2026-04-02", "2026-04-02", json.dumps(signed)))
+        cur.execute(
+            "INSERT INTO sentinel_publication_validation_receipts"
+            " (publication_version,previous_version,run_id,published_at,"
+            " window_start,window_end,evidence,origin_run_status,"
+            " previous_receipt_sha256,receipt_sha256,receipt_hmac_sha256)"
+            " SELECT version,previous_version,run_id,published_at,"
+            " window_start,window_end,%s::jsonb,%s,%s,%s,%s"
+            " FROM sentinel_corpus_publications WHERE version=%s",
+            (json.dumps(evidence), "success" if run_id else None, previous_receipt,
+             receipt["receipt_sha256"], receipt["receipt_hmac_sha256"], version))
 
 
 def test_append_only_retirement_hides_bar_and_preserves_physical_evidence(
@@ -198,6 +214,52 @@ def test_generic_publication_cannot_publish_unvalidated_sep_tombstones(pg_conn):
     with pg_conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM sentinel_corpus_publications")
         assert cur.fetchone()[0] == 0
+
+
+def test_predecessor_skips_retirement_and_identical_reappearance_gets_new_owner(pg_conn):
+    base, reappeared = uuid.uuid4(), uuid.uuid4()
+    _insert_run(pg_conn, base, kind="daily", status="success")
+    _insert_run(pg_conn, reappeared, kind="daily", status="running")
+    _insert_publication(pg_conn, version=1, previous=None, run_id=base, evidence={})
+    old = ("P:1", "2026-04-01", "AAA", 10, 10, 10, 1000, 1, 0, str(base))
+    target = ("P:1", "2026-04-02", "AAA", 20, 20, 20, 1000, 1, 0, str(base))
+    with pg_conn.cursor() as cur:
+        cur.executemany(store._BAR_UPSERT, [old, target])
+        cur.execute("SAVEPOINT before_retirement")
+    evidence = {"kind": guarded.KIND, "source_retirement": {"keys": [{
+        "security_id": "P:1", "session": "2026-04-02", "ticker": "AAA",
+    }]}}
+    _insert_publication(pg_conn, version=2, previous=1, run_id=None, evidence=evidence)
+    assert store.previous_observations(pg_conn, "2026-04-03") == {"P:1": (10.0, 10.0)}
+    with pg_conn.cursor() as cur:
+        cur.execute("ROLLBACK TO SAVEPOINT before_retirement")
+    assert store.previous_observations(pg_conn, "2026-04-03") == {"P:1": (20.0, 20.0)}
+
+    _insert_publication(pg_conn, version=2, previous=1, run_id=None, evidence=evidence)
+    with pg_conn.cursor() as cur:
+        cur.execute(store._BAR_UPSERT, (*target[:-1], str(reappeared)))
+        assert cur.rowcount == 1
+        cur.execute(
+            "SELECT last_written_run_id FROM sentinel_bars"
+            " WHERE security_id='P:1' AND session='2026-04-02'")
+        assert str(cur.fetchone()[0]) == str(reappeared)
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_bars b WHERE b.session='2026-04-02' AND "
+            + publication.visible_predicate("b"))
+        assert cur.fetchone()[0] == 0
+    # The next ingest chunk can use its candidate predecessor before publication.
+    assert store.previous_observations(pg_conn, "2026-04-03") == {"P:1": (20.0, 20.0)}
+    with pg_conn.cursor() as cur:
+        cur.execute("UPDATE feed_ingest_runs SET status='success' WHERE run_id=%s", (str(reappeared),))
+    _insert_publication(pg_conn, version=3, previous=2, run_id=reappeared, evidence={})
+    with pg_conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_bars b WHERE b.session='2026-04-02' AND "
+            + publication.visible_predicate("b"))
+        assert cur.fetchone()[0] == 1
+        cur.execute("SELECT evidence FROM sentinel_corpus_publications WHERE version=2")
+        stored = cur.fetchone()[0]
+        assert {k: v for k, v in stored.items() if k != publication.RECEIPT_EVIDENCE_KEY} == evidence
 
 
 def _source_authority(*, refresh="2026-09-07T19:59:00+00:00"):

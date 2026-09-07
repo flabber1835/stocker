@@ -26,6 +26,7 @@ from dataclasses import dataclass
 from typing import Any, Iterable, Iterator, Optional, Sequence
 
 from sentinel.feed.schema import RECLAIM_ORPHANS, RESTART_ABORT_MARKER
+from sentinel.feed.publication_visibility import retired_predicate
 
 _BAR_UPSERT = """
     INSERT INTO sentinel_bars (security_id, session, ticker, close_signal,
@@ -81,6 +82,14 @@ _BAR_UPSERT = """
                SELECT 1 FROM sentinel_corpus_publications p
                WHERE p.run_id = sentinel_bars.last_written_run_id))
 """
+
+# A stable reappearance changes visibility even when every economic value is
+# identical. Give it a fresh candidate owner so its publication supersedes the
+# older tombstone. Legacy unprovenanced writes cannot restore published rows.
+_BAR_UPSERT += (
+    " OR (EXCLUDED.last_written_run_id IS NOT NULL AND "
+    + retired_predicate("sentinel_bars") + ")"
+)
 
 _SPY_TOTAL_RETURN_UPSERT = """
     INSERT INTO sentinel_spy_total_return
@@ -837,7 +846,7 @@ def rejected_tickers(conn, start: str, end: str, reason: str = "NO_IDENTITY") ->
         return {str(t[0]).upper() for t in cur.fetchall() if t[0]}
 
 
-_PREVIOUS_OBSERVATIONS_SQL = """
+_PREVIOUS_OBSERVATIONS_SQL = f"""
 WITH RECURSIVE security_ids(security_id) AS (
     (SELECT b.security_id
        FROM sentinel_bars b
@@ -861,6 +870,7 @@ SELECT ids.security_id, previous.close_signal, previous.close_unadjusted
       FROM sentinel_bars b
      WHERE b.security_id = ids.security_id
        AND b.session < %s
+       AND NOT {retired_predicate("b")}
      ORDER BY b.session DESC
      LIMIT 1
   ) previous
