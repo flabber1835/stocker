@@ -34,6 +34,7 @@ from sentinel.authority import (
 )
 
 from sentinel.controller.concordance import is_concordance_identity
+from sentinel.controller.median5 import enabled as is_median5
 
 from sentinel.core import catchup
 
@@ -90,7 +91,7 @@ from .model import (
 def _assert_concordance_witness_authority(
         state: SessionState, authorization_mode: str) -> None:
     """Prevent a prospective witness from inheriting historical authority."""
-    if (is_concordance_identity(state.strategy_identity)
+    if ((is_concordance_identity(state.strategy_identity) or is_median5(state.strategy_identity))
             and state.concordance_witness_origin
             == CONCORDANCE_WITNESS_PROSPECTIVE
             and authorization_mode != PAPER_OBSERVATION_ONLY):

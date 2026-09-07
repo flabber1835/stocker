@@ -37,6 +37,7 @@ from sentinel.core.session import (
     holdings_from_shadow,
 )
 from sentinel.feed.requirements import REQUIRED_SPY_SESSIONS as MIN_CLOSES
+from sentinel.controller import median5 as median5_controller
 
 
 def warm_session_state(state: SessionState | Mapping, window, *,
@@ -69,6 +70,9 @@ def warm_session_state(state: SessionState | Mapping, window, *,
         raise ValueError(
             "prospective_concordance_witness must be an explicit boolean")
     elig = eligibility_config or EligibilityConfig()
+    if median5_controller.enabled(env.strategy_identity):
+        return _warm_median5(env, window, sessions, publication_version,
+                             prospective_concordance_witness, elig)
     witness_state = None
     concordance = is_concordance_identity(env.strategy_identity)
     if prospective_concordance_witness and not concordance:
@@ -132,6 +136,76 @@ def warm_session_state(state: SessionState | Mapping, window, *,
     return warmed
 
 
+def _warm_median5(env, window, sessions, publication_version, prospective, elig):
+    """Form features and optionally the historical zero-capital witness."""
+    from stock_strategy_shared.wealth_core.median5 import config, rank
+    if elig != EligibilityConfig():
+        raise ValueError("Median-5 warmup cannot override eligibility")
+    if len(sessions) < 252:
+        raise ValueError("Median-5 requires 252 warmup sessions")
+    timeline = getattr(window, "metadata_timeline", None)
+    if not prospective and (timeline is None or list(timeline.sessions) != sessions):
+        raise ValueError("Median-5 historical witness requires causal metadata")
+    spy = getattr(window, "median5_spy_closes", None)
+    if spy is None or any(s not in spy for s in sessions):
+        raise ValueError("Median-5 warmup requires the exact dated SPY history")
+    warmed = SessionState.from_dict(env.to_dict())
+    portfolio = PortfolioState.from_dict(warmed.wealth_core)
+    feed = Feed(window.meta if prospective else {}, elig,
+                metadata_timeline=None if prospective else timeline)
+    feed.median5_state = portfolio.median5
+    feed.restart_sessions = 260
+    controller_state = warmed.median5
+    previous = None
+    terminal_by_session = getattr(window, "median5_terminals", {})
+    if not prospective and not hasattr(window, "median5_terminals"):
+        raise ValueError("Median-5 historical witness requires causal terminal evidence")
+    for index, session in enumerate(sessions):
+        norm = feed.advance(session, window.bars_by_session.get(session, ()))
+        close = float(spy[session])
+        if not math.isfinite(close) or close <= 0:
+            raise ValueError("invalid Median-5 warmup SPY close")
+        controller_state["spy_history"].append([index, close, close/previous-1 if previous else None])
+        previous = close
+        if not prospective:
+            scored = score_universe(norm.security_bars, config())
+            rank(scored, portfolio.median5)
+            candidates = [s for s in scored if s.momentum is not None and s.recent is not None]
+            controller_state, _ = median5_controller.witness(
+                controller_state, session=session, candidates=candidates,
+                closes={b.security_id: b.closes[-1] for b in norm.security_bars if b.closes and b.closes[-1] is not None},
+                terminals=terminal_by_session.get(session, ()))
+    controller_state["spy_history"] = controller_state["spy_history"][-254:]
+    warmed.median5 = controller_state
+    warmed.wealth_core = portfolio.to_dict()
+    warmed.feed = _feed_to_dict(feed, set())
+    warmed.concordance_witness_origin = (CONCORDANCE_WITNESS_PROSPECTIVE if prospective
+                                         else CONCORDANCE_WITNESS_HISTORICAL)
+    warmed.data_version = int(publication_version)
+    return SessionState.from_dict(warmed.to_dict())
+
+
+def load_median5_warmup_inputs(conn, window):
+    """Load the peer benchmark and terminal stream under the caller's pin."""
+    from sentinel.feed.publication import visible_predicate
+    from sentinel.feed.universe import load_resolver
+    from sentinel.core.terminal import load_terminal_events
+    start, end = window.sessions[0], window.sessions[-1]
+    with conn.cursor() as cur:
+        cur.execute("SELECT session,closeadj FROM sentinel_spy_total_return r "
+                    "WHERE session BETWEEN %s AND %s AND "
+                    + visible_predicate("r", sep_retirements=False) + " ORDER BY session", (start, end))
+        window.median5_spy_closes = {str(s): float(p) for s, p in cur.fetchall()}
+    resolver = load_resolver(conn)
+    result = load_terminal_events(conn, start=start, end=end,
+                                   resolve_with_reason=resolver.resolve_with_reason)
+    if result.unresolved or not result.conservation_holds() or not result.normalized_stream_holds():
+        raise ValueError("Median-5 warmup terminal evidence is incomplete")
+    window.median5_terminals = {}
+    for event in result.events:
+        window.median5_terminals.setdefault(event.session, set()).add(event.security_id)
+
+
 def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES,
                            known_feed_security_ids: Sequence[str] = ()
                            ) -> PublishedSession:
@@ -173,13 +247,15 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
         cur.execute(
             "SELECT security_id,ticker,close_unadjusted,open_unadjusted,volume,"
             f" {effective_split_ratio('b')} AS split_ratio,"
-            " dividend_per_share FROM sentinel_bars b"
+            " dividend_per_share, close_signal FROM sentinel_bars b"
             f" WHERE session=%s AND {visible_predicate('b')}"
             " ORDER BY security_id", (session,))
-        bars = [VendorBar(session, str(sid), str(ticker), close, op, volume,
-                          float(split or 1.0), float(div or 0.0),
-                          bool(close and volume))
-                for sid, ticker, close, op, volume, split, div in cur.fetchall()]
+        bars = []
+        for row in cur.fetchall():
+            sid, ticker, close, op, volume, split, div = row[:7]
+            bars.append(VendorBar(session, str(sid), str(ticker), close, op, volume,
+                                  float(split or 1.0), float(div or 0.0),
+                                  bool(close and volume), signal_close=(row[7] if len(row) > 7 else None)))
         cur.execute(
             "SELECT session,closeadj FROM sentinel_spy_total_return r"
             f" WHERE session<=%s AND {visible_predicate('r', sep_retirements=False)}"

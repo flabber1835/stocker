@@ -488,7 +488,8 @@ class ProductionAutomation:
                 raise RuntimeError("automation control authority is stale")
             rollout = load_rollout_state(conn)
             current = publication.require_current(conn)
-            strategy = runtime_strategy_identity(load_controller())
+            from sentinel.strategy import production_strategy
+            _controller, strategy = production_strategy()
             certificate = require_current_authority(
                 conn, runtime_identity=system_identity.rehearsal_identity(),
                 strategy_identity=strategy, required_mode=rollout.mode,

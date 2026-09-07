@@ -914,6 +914,11 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     fills: list[dict] = []
     still_pending: list[PendingOrder] = []
     entered_this_session: list[int] = []
+    if cfg.economic_profile != "wealth-core-v1":
+        # The frozen book sells in slot order, then buys in slot order. A
+        # delayed buy must not consume cash before today's queued sale.
+        pending.sort(key=lambda p: (p.operation is not Operation.CLOSE_POSITION,
+                                    p.slot_id))
     for po in pending:
         if po.security_id in terminated and po.slot_id not in state.episodes:
             # The security terminated this session and the slot is gone. An
@@ -1099,6 +1104,14 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # here from `last_known` — that dict holds RAW mark closes, a different
     # price domain, and reusing it would be exactly the cross-domain error
     # prices.py exists to prevent.
+    if cfg.economic_profile != "wealth-core-v1":
+        # Certified Median-5 requires a current print for every owned security
+        # before admitting. The C1 claim remains in estimated equity and its
+        # settlement state remains authoritative.
+        marks = {sid: (replace(mark, status=MarkStatus.STALE,
+                               carried_raw_close=None)
+                       if mark.status is MarkStatus.PENDING_TERMS_CARRIED else mark)
+                 for sid, mark in marks.items()}
     receivable_assets = ledger.receivable_total()
     ev = state.equity_view(marks, noncash_assets=receivable_assets)
 

@@ -243,6 +243,14 @@ jobs:
             exit 1
           fi
 
+      - name: Verify the certified Median-5 components without network access
+        run: |
+          set -euo pipefail
+          docker run --rm --network none sentinel-test:ci \
+            tests/median5 -q -ra
+          docker run --rm --network none --entrypoint python sentinel-test:ci \
+            /work/tools/median5_mutation_check.py
+
       - name: Validate shell and Compose surfaces
         env:
           SENTINEL_POSTGRES_PASSWORD: ci-not-a-production-secret

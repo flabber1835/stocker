@@ -50,6 +50,7 @@ docs/
 !docs/sentinel-paper-observation.md
 !docs/sentinel-stage-4-automation.md
 !docs/paper-lifecycle-equivalence.json
+!docs/median5-production.md
 
 # Runtime artifacts (written at runtime, not part of any build)
 artifacts/

@@ -282,6 +282,15 @@ def run_sessions(*, sessions: Sequence[str],
     last_known = last_known if last_known is not None else {}
     feed = feed if feed is not None else Feed(
         meta, eligibility_cfg, metadata_timeline)
+    if cfg.economic_profile != "wealth-core-v1":
+        from .median5 import fresh
+        if state.median5 is None:
+            if state.session_index or feed._session_index >= 0:
+                raise ValueError("Median-5 requires fresh state or its complete restart image")
+            state.median5 = fresh()
+        feed.median5_state = state.median5
+    elif state.median5 is not None:
+        raise ValueError("Median-5 state cannot run under the legacy economic profile")
 
     events_by_session: dict[str, list[TerminalEvent]] = {}
     for ev in terminal_events:

@@ -67,6 +67,7 @@ COPY docs/sentinel-paper-activation.md /work/repo/docs/sentinel-paper-activation
 COPY docs/sentinel-stage-4-automation.md /work/repo/docs/sentinel-stage-4-automation.md
 COPY docs/sentinel-paper-observation.md /work/repo/docs/sentinel-paper-observation.md
 COPY docs/paper-lifecycle-equivalence.json /work/repo/docs/paper-lifecycle-equivalence.json
+COPY docs/median5-production.md /work/repo/docs/median5-production.md
 COPY config/paper-observation-boundary.json /work/repo/config/paper-observation-boundary.json
 
 ENV PYTHONPATH=/work:/app \

@@ -1,5 +1,10 @@
 # Sentinel — operational deployment ground truth
 
+The default strategy selected by this revision is the versioned certified
+Median-5 profile. Its exact authority, equivalence gate, fresh-state requirements
+and bug register are in [Median-5 promotion](median5-production.md). Delivery is
+a reviewed PR; the owner merges. This revision does not activate a deployment.
+
 **Status: DIRECTION SET 2026-08-09. Stocker is retired as a runtime. Sentinel is
 the operational target. Paper trading only.**
 

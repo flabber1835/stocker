@@ -1,5 +1,9 @@
 # Wealth Core v1 (`stocker_wealth_core_v1`)
 
+This is the historical v1 profile contract. The canonical implementation also
+supports the [certified Median-5 production profile](median5-production.md),
+which explicitly versions its economic differences and restart state.
+
 A **stateful ownership** strategy. It is not a target-portfolio strategy with
 different parameters — it is a different kind of thing, and most of the design
 below follows from that one fact.

@@ -10,15 +10,19 @@ from sentinel.controller.concordance_parent import (
 from sentinel.controller.ldrc import LDRCConfig
 
 
-def test_default_paper_runtime_is_simplified_three_signal_ldrc_v3():
+def test_default_paper_runtime_promotes_complete_certified_median5():
+    from sentinel.controller.median5 import STRATEGY_ID, load
+    from sentinel.shadow_runtime import _strategy
+    from stock_strategy_shared.wealth_core.median5 import REFERENCE_AST
     config, identity = paper_preparation._default_paper_strategy()  # noqa: SLF001
-    assert config.strategy_id == PARENT_STRATEGY_ID
+    assert (config, identity) == _strategy()
+    assert config == load()
+    assert config.strategy_id == STRATEGY_ID
     assert config.fast_entry["min_damaged_breadth_delta5"] == FAST_DAMAGED_BREADTH_DELTA5 == 0.30
-    assert identity["strategy"] == PARENT_STRATEGY_ID
-    assert identity["allocation_overlay"] == "sentinel-concordance-simplified-ldrc"
-    assert identity["allocation_overlay_version"] == "3"
-    assert identity["allocation_overlay_source_sha256"]
-    assert identity["recent_leadership_source_sha256"]
+    assert identity["strategy"] == STRATEGY_ID
+    assert identity["research_reference_ast_sha256"] == REFERENCE_AST
+    assert identity["wealth_core_config_sha256"]
+    assert identity["eligibility_config_sha256"]
 
 
 def test_simplified_v3_entry_and_recovery_constants_are_frozen():

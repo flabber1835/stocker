@@ -261,6 +261,7 @@ class PortfolioState:
     cash: float = 0.0
     initialized: bool = False
     session_index: int = 0
+    median5: dict | None = None
     # security_id -> why its terminal action cannot be applied. Lives on the
     # STATE rather than beside the event stream so it survives a restart: a
     # blocked book that silently unblocks itself on redeploy is the failure the
@@ -467,6 +468,7 @@ class PortfolioState:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            **({"median5": deepcopy(self.median5)} if self.median5 is not None else {}),
             "slots": {str(k): asdict(v) for k, v in sorted(self.slots.items())},
             "episodes": {str(k): _episode_json(v)
                          for k, v in sorted(self.episodes.items())},
@@ -544,6 +546,7 @@ class PortfolioState:
             security_cooldowns=dict(d.get("security_cooldowns") or {}),
             cash=cash,
             initialized=initialized,
+            median5=deepcopy(d.get("median5")),
             session_index=session_index,
             unresolved_terminals=dict(d.get("unresolved_terminals") or {}),
             # Absent means zero — a blob written before the settlement waterfall

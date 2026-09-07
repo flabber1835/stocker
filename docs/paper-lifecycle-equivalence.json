@@ -425,7 +425,12 @@
         103,
         113
       ],
-      "owner": "validation"
+      "owner": "validation",
+      "successor": {
+        "ast_sha256": "43faa648b30b30e8185adcda266aeb69b276ffef62fd078dafc76b17ad15705a",
+        "design": "docs/median5-production.md",
+        "reason": "Apply prospective witness authority to Median-5."
+      }
     },
     "_assert_deterministic_plan_id": {
       "generated_ast_sha256": "743baff6d1d3b8dad92fa19cc2f23e2eb2c97a5215829bd81581e2f6801e949f",
@@ -479,7 +484,12 @@
         116,
         144
       ],
-      "owner": "preparation"
+      "owner": "preparation",
+      "successor": {
+        "ast_sha256": "550857792f1e33efea99c6bc4fa6efd7a544ab5c16e8d38b80db709ce5bdb318",
+        "design": "docs/median5-production.md",
+        "reason": "Promote certified Median-5 through the shared production selector."
+      }
     },
     "_dual_mutation_observation_or_refuse": {
       "generated_ast_sha256": "73cec241b833abc633c6c245974755105dbb7a61b13281a7bc35a127e6e2ed30",
@@ -542,7 +552,12 @@
         1163,
         1204
       ],
-      "owner": "preparation"
+      "owner": "preparation",
+      "successor": {
+        "ast_sha256": "1afd2445d98e791c34d7040fcc345f334173cf9ab9cc44ef2c5426dd1be7202f",
+        "design": "docs/median5-production.md",
+        "reason": "Form Median-5 numerical, benchmark, terminal, and witness history."
+      }
     },
     "_guard_broker": {
       "generated_ast_sha256": "8ef3dd466901a7b35f5f0c6cf3fe3de9a803d83e295b9459ff46986504357ff6",
