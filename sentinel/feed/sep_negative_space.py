@@ -8,10 +8,11 @@ fails on a local-only key.
 This module repairs only that narrow negative-space case.  It independently
 re-observes the exact source partition through the same normalization path,
 requires every current source key/value to match the published corpus, bounds the
-local-only set, durably records the exact keys, and retires them in the same
-transaction that publishes a dedicated repair generation.  Missing local source
-rows, value drift, identity drift, source instability, or large key-set changes
-remain fail-closed.
+local-only set, proves removal cannot change the effective split chain, durably
+records the exact keys, and retires them in the same transaction that publishes a
+dedicated repair generation.  Missing local source rows, value drift, identity
+drift, source instability, split-chain drift, or large key-set changes remain
+fail-closed.
 """
 from __future__ import annotations
 
@@ -74,6 +75,19 @@ def _create_source_table(conn) -> None:
             " security_id TEXT NOT NULL, session DATE NOT NULL, ticker TEXT NOT NULL,"
             " PRIMARY KEY(security_id,session,ticker)) ON COMMIT PRESERVE ROWS")
         cur.execute(f"TRUNCATE {_TEMP_SOURCE_KEYS}")
+
+
+def _load_retire_table(conn, keys: list[dict]) -> None:
+    with conn.cursor() as cur:
+        cur.execute(
+            f"CREATE TEMP TABLE IF NOT EXISTS {_TEMP_RETIRE_KEYS} ("
+            " security_id TEXT NOT NULL, session DATE NOT NULL, ticker TEXT NOT NULL,"
+            " PRIMARY KEY(security_id,session,ticker)) ON COMMIT PRESERVE ROWS")
+        cur.execute(f"TRUNCATE {_TEMP_RETIRE_KEYS}")
+        cur.executemany(
+            f"INSERT INTO {_TEMP_RETIRE_KEYS}(security_id,session,ticker)"
+            " VALUES (%s,%s,%s)",
+            [(k["security_id"], k["session"], k["ticker"]) for k in keys])
 
 
 def _drop_temp(conn, table: str) -> None:
@@ -210,6 +224,58 @@ def _local_only_keys(conn, *, start: str, end: str) -> list[dict]:
     } for sid, session, ticker in rows]
 
 
+def _bridge_split_ratio(prev_row, next_row) -> float:
+    """Split ratio the next surviving bar needs after retirement."""
+    if prev_row is None:
+        return 1.0
+    return domains.split_ratio_from_domains(
+        prev_row[0], prev_row[1], next_row[0], next_row[1])
+
+
+def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
+    """Refuse deletion when it would change any next surviving split edge.
+
+    Split ratios are path-dependent: removing B from A->B->C can change the
+    ratio that C must carry even when every persisted price/volume field on A/C
+    still matches source.  Inspect the nearest surviving predecessor and
+    successor across the complete published corpus, so a successor just beyond
+    the reconciliation partition cannot escape this proof.
+    """
+    effective = publication.effective_split_ratio("b")
+    visible = publication.visible_predicate("b")
+    for key in keys:
+        sid, session = key["security_id"], key["session"]
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT b.close_signal,b.close_unadjusted FROM sentinel_bars b"
+                " WHERE b.security_id=%s AND b.session<%s AND " + visible +
+                f" AND NOT EXISTS (SELECT 1 FROM {_TEMP_RETIRE_KEYS} r"
+                "  WHERE r.security_id=b.security_id AND r.session=b.session"
+                "    AND r.ticker=b.ticker)"
+                " ORDER BY b.session DESC LIMIT 1",
+                (sid, session))
+            prev_row = cur.fetchone()
+            cur.execute(
+                "SELECT b.close_signal,b.close_unadjusted," + effective +
+                " FROM sentinel_bars b"
+                " WHERE b.security_id=%s AND b.session>%s AND " + visible +
+                f" AND NOT EXISTS (SELECT 1 FROM {_TEMP_RETIRE_KEYS} r"
+                "  WHERE r.security_id=b.security_id AND r.session=b.session"
+                "    AND r.ticker=b.ticker)"
+                " ORDER BY b.session ASC LIMIT 1",
+                (sid, session))
+            next_row = cur.fetchone()
+        if next_row is None:
+            continue
+        required = _bridge_split_ratio(prev_row, next_row)
+        effective_next = float(next_row[2] or 1.0)
+        if abs(float(required) - effective_next) > 1e-12:
+            raise SepNegativeSpaceRefused(
+                "SEP retirement would change the effective split chain for "
+                f"{sid} after {session}: surviving successor requires split "
+                f"ratio {required:g}, published ratio is {effective_next:g}")
+
+
 def _plan(*, start: str, end: str, source: recon._PartitionProof,
           expected_source: recon._PartitionProof, keys: list[dict]) -> dict:
     return {
@@ -242,16 +308,8 @@ def _persist_plan(conn, *, run_id: str, plan: dict) -> None:
 
 def _retire_and_publish(conn, *, run, plan: dict):
     keys = list(plan["keys"])
+    _load_retire_table(conn, keys)
     with conn.cursor() as cur:
-        cur.execute(
-            f"CREATE TEMP TABLE IF NOT EXISTS {_TEMP_RETIRE_KEYS} ("
-            " security_id TEXT NOT NULL, session DATE NOT NULL, ticker TEXT NOT NULL,"
-            " PRIMARY KEY(security_id,session,ticker)) ON COMMIT PRESERVE ROWS")
-        cur.execute(f"TRUNCATE {_TEMP_RETIRE_KEYS}")
-        cur.executemany(
-            f"INSERT INTO {_TEMP_RETIRE_KEYS}(security_id,session,ticker)"
-            " VALUES (%s,%s,%s)",
-            [(k["security_id"], k["session"], k["ticker"]) for k in keys])
         cur.execute(
             f"SELECT COUNT(*) FROM sentinel_bars b JOIN {_TEMP_RETIRE_KEYS} r"
             " ON r.security_id=b.security_id AND r.session=b.session"
@@ -318,6 +376,8 @@ def repair_local_only(
                 conn, start=start, end=end).rows - source.rows):
             raise SepNegativeSpaceRefused(
                 "SEP local-only row count changed during retirement planning")
+        _load_retire_table(conn, keys)
+        _assert_retirement_preserves_split_chain(conn, keys)
         plan = _plan(
             start=start, end=end, source=source,
             expected_source=expected_source, keys=keys)
