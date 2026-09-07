@@ -6,10 +6,7 @@ import datetime as dt
 from sentinel.feed import domains, publication, sep_negative_space as core
 from stock_strategy_shared.split_reconciliation import (
     SPLIT_UNRESOLVED,
-    raw_prices_refute_listed_split,
-    resolve_split_orientation,
-    split_price_evidence,
-    split_ratio_bounds,
+    SplitStreamReconciler,
 )
 
 KIND = core.KIND
@@ -88,6 +85,28 @@ def _assert_current_actions_have_no_retirement_events(conn, keys: list[dict]) ->
                 f"dividend entitlement: {key['security_id']}/{session}/{ticker}")
 
 
+def _canonical_surviving_split_decision(
+        conn, *, ticker: str, session: str, prev_row, next_row):
+    """Re-run the surviving edge through the same split membrane as ingest."""
+    from sentinel.feed import calendar, ingest_impl
+
+    # Include one following session so SplitAuthority can expose the canonical
+    # one-session shifted ACTIONS candidate for this edge. A two-session bridge
+    # that cannot be established from the surviving predecessor remains pending
+    # and therefore fails the equality proof below.
+    action_end = calendar.next_session(session)
+    splits, _dividends, _rows, _ambiguous = ingest_impl._action_maps(
+        conn, session, action_end)
+    fallback = domains.split_ratio_from_domains(
+        prev_row[0], prev_row[1], next_row[0], next_row[1])
+    reconciler = SplitStreamReconciler(splits)
+    return reconciler.decide(
+        (str(ticker), str(session)),
+        prev_close=prev_row[0], prev_raw=prev_row[1],
+        close=next_row[0], raw=next_row[1],
+        fallback_ratio=fallback)
+
+
 def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
     """Resolve the next surviving edge with canonical ingest split semantics."""
     effective = publication.effective_split_ratio("b")
@@ -105,7 +124,7 @@ def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
                 (sid, session))
             prev_row = cur.fetchone()
             cur.execute(
-                "SELECT b.close_signal,b.close_unadjusted," + effective +
+                "SELECT b.session,b.ticker,b.close_signal,b.close_unadjusted," + effective +
                 " FROM sentinel_bars b"
                 " WHERE b.security_id=%s AND b.session>%s AND " + visible +
                 f" AND NOT EXISTS (SELECT 1 FROM {core._TEMP_RETIRE_KEYS} r"
@@ -116,7 +135,10 @@ def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
             next_row = cur.fetchone()
         if next_row is None:
             continue
-        effective_next = float(next_row[2] or 1.0)
+        next_session = str(next_row[0])
+        next_ticker = str(next_row[1])
+        next_prices = (next_row[2], next_row[3])
+        effective_next = float(next_row[4] or 1.0)
         if prev_row is None:
             if abs(effective_next - 1.0) > 1e-12:
                 raise SepNegativeSpaceRefused(
@@ -126,31 +148,18 @@ def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
                     f"split but published ratio is {effective_next:g}")
             continue
 
-        required = domains.unsnapped_split_ratio(
-            prev_row[0], prev_row[1], next_row[0], next_row[1])
-        bounds = split_ratio_bounds(
-            prev_row[0], prev_row[1], next_row[0], next_row[1])
-        price_event = split_price_evidence(required)
-
-        if abs(effective_next - 1.0) <= 1e-12:
-            if price_event is None:
-                continue
-            raise SepNegativeSpaceRefused(
-                "SEP retirement would change the effective split chain for "
-                f"{sid} after {session}: bridge price evidence implies material "
-                f"split ratio {required!r}, published ratio is 1")
-
-        resolved, disposition = resolve_split_orientation(
-            effective_next, required, bounds=bounds,
-            explicit_no_event=(required is not None and price_event is None),
-            raw_refutes_event=raw_prices_refute_listed_split(
-                effective_next, prev_row[1], next_row[1]))
-        if (disposition == SPLIT_UNRESOLVED
-                or abs(float(resolved) - effective_next) > 1e-12):
+        decision = _canonical_surviving_split_decision(
+            conn, ticker=next_ticker, session=next_session,
+            prev_row=prev_row, next_row=next_prices)
+        resolved = float(decision.ratio)
+        if (decision.disposition == SPLIT_UNRESOLVED
+                or abs(resolved - effective_next) > 1e-12):
+            disposition = decision.disposition or "fallback"
             raise SepNegativeSpaceRefused(
                 "SEP retirement would change the effective split chain for "
                 f"{sid} after {session}: canonical bridge resolution is "
-                f"{disposition}/{resolved:g} from price evidence {required!r}, "
+                f"{disposition}/{resolved:g} from price evidence "
+                f"{decision.derived!r} and ACTIONS {decision.stated!r}, "
                 f"published ratio is {effective_next:g}")
 
 
