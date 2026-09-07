@@ -69,6 +69,9 @@ def test_post_commit_publish_exception_preserves_successful_origin_run(monkeypat
     monkeypatch.setattr(neg, "_local_only_keys", lambda *a, **k: keys)
     monkeypatch.setattr(
         neg.recon, "_local_fingerprint", lambda *a, **k: _proof(11, "c", "d"))
+    monkeypatch.setattr(neg, "_load_retire_table", lambda *a, **k: None)
+    monkeypatch.setattr(
+        neg, "_assert_retirement_preserves_split_chain", lambda *a, **k: None)
     monkeypatch.setattr(neg.store, "IngestRun", lambda *a, **k: run)
     monkeypatch.setattr(neg, "_persist_plan", lambda *a, **k: None)
     monkeypatch.setattr(
