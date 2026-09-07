@@ -109,6 +109,12 @@ jobs:
           set -euo pipefail
           bash scripts/test-pr301-pitr-recovery.sh
 
+      - name: Regress PR330 retirement boundaries on PostgreSQL 16
+        shell: bash
+        run: |
+          set -euo pipefail
+          bash scripts/test-pr330-postgres-retirement.sh sentinel-test:ci
+
       - name: Record exact-SHA promotion evidence
         shell: bash
         run: |
