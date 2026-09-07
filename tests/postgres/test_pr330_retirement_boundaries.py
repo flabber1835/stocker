@@ -25,6 +25,13 @@ def pg_conn():
     with conn.cursor() as cur:
         for statement in DDL:
             cur.execute(statement)
+        # These regressions create minimal publication rows directly so they can
+        # exercise SEP visibility/authority in isolation. Treat that synthetic
+        # prefix as pre-receipt history; receipt-chain behavior has its own
+        # dedicated PostgreSQL certification tests.
+        cur.execute(
+            "UPDATE sentinel_publication_validation_policy"
+            " SET required_after_version=1000000")
     conn.commit()
     try:
         yield conn
