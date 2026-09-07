@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 
+from sentinel.feed import sep_negative_space_guarded
 from sentinel.feed import sep_reconciliation_impl as _core
 from sentinel.feed.sep_reconciliation_impl import (
     CURSOR_NAME,
@@ -86,8 +87,6 @@ def _repair_local_only_if_proved(
     """
     if int(local.rows) <= int(source.rows):
         return local
-    from sentinel.feed import sep_negative_space_guarded
-
     sep_negative_space_guarded.repair_local_only(
         conn, fetch=fetch, start=start, end=end,
         observation_ceiling=_strict_ceiling(observation_ceiling),
