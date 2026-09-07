@@ -24,6 +24,11 @@ import subprocess
 import sys
 import threading
 import time
+from pathlib import Path
+
+if str(Path(__file__).resolve().parent) not in sys.path:
+    sys.path.insert(0, str(Path(__file__).resolve().parent))
+import sentinel_go_feed_progress as feed_progress
 from typing import Any, Mapping, Optional, Sequence, Tuple
 
 
@@ -218,6 +223,10 @@ def _streaming_run(controller: Any, go: Any, command: Sequence[str], *,
             closed.add(name)
             continue
         captured[name].append(line)
+        safe_event = feed_progress.parse(line)
+        if safe_event is not None and not raw_stream:
+            print("[FEED] {stage} {status}: {rows:,} rows, {elapsed_ms} ms".format(
+                **safe_event), flush=True)
         if raw_stream:
             target = sys.stdout if name == "stdout" else sys.stderr
             target.write(line)

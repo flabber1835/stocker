@@ -223,6 +223,12 @@ price population cannot substitute for the benchmark evidence.
 
 ## 6. Historical seed completeness
 
+Production seed acquisition and database replay are separated as specified in
+[coherent feed recovery](coherent-feed-recovery.md). Reference corroboration
+finishes while acquiring the disk-backed source capture. ACTIONS uses a complete
+Exporter file plus an independent unchanged-refresh check. The existing seed
+coverage guards below validate the captured rows before database replay starts.
+
 A one-time seed creates the foundation later daily generations inherit. Every
 SEP year chunk is checked session-by-session before replay:
 
