@@ -3,7 +3,7 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sentinel.feed import sep_negative_space_guarded
+from sentinel.feed import maintenance, seed_coherence, sep_negative_space_guarded
 from sentinel.feed import sep_reconciliation_impl as _core
 from sentinel.feed.sep_reconciliation_impl import (
     CURSOR_NAME,
@@ -53,12 +53,12 @@ def _strict_ceiling(value) -> dt.date:
 
 
 def _production_source_ceiling(fetch, market_ceiling: dt.date) -> dt.date:
-    """Use the vendor-observation clock for the production snapshot source."""
+    """Use one caller-independent vendor-observation boundary for production."""
     from sentinel.feed import snapshot_source
 
     if fetch is not snapshot_source.fetch_table:
         return market_ceiling
-    source_day = dt.datetime.now(dt.timezone.utc).date()
+    source_day = _strict_ceiling(seed_coherence.capture_update_ceiling())
     if source_day < market_ceiling:
         raise SepReconciliationStateInvalid(
             f"current source observation date {source_day} is behind market "
@@ -120,16 +120,23 @@ def _repair_local_only_if_proved(
 
 
 def reconcile_year(
-        conn, *, fetch=_core.sharadar.fetch_table,
+        conn, *, fetch=None,
         year: int, start: str, end: str,
-        observation_ceiling, require_complete_export: bool = False):
+        observation_ceiling, require_complete_export: bool | None = None):
     """Prove one stable source year equals published keys and strategy values.
 
-    The only automatic repair is a bounded set of published local-only rows that
-    current source proves absent. Production retirement additionally requires a
-    fresh bounded whole-export proof for the exact partition. Every other
-    key/value mismatch remains fail-closed.
+    The production default is the canonical snapshot source and always requires
+    independent whole-export corroboration before a local-only row can retire.
+    Every other key/value mismatch remains fail-closed.
     """
+    from sentinel.feed import snapshot_source
+
+    production = fetch is None
+    if production:
+        fetch = snapshot_source.fetch_table
+    if require_complete_export is None:
+        require_complete_export = production or fetch is snapshot_source.fetch_table
+
     _core.store._assert_corpus_locked(conn)
     if not (str(start).startswith(f"{int(year):04d}-")
             and str(end).startswith(f"{int(year):04d}-")):
@@ -143,7 +150,7 @@ def reconcile_year(
             conn, fetch=fetch, start=start, end=end,
             observation_ceiling=observation_ceiling,
             source=source, local=local,
-            require_complete_export=require_complete_export)
+            require_complete_export=bool(require_complete_export))
     if source.rows != local.rows or source.key_digest != local.key_digest:
         raise _core.SepKeysetDrift(
             f"stable Sharadar SEP {year} normalized key set disagrees with "
@@ -167,15 +174,17 @@ def reconcile_year(
         publication_version=current.version)
 
 
-def reconcile_all(conn, *, fetch=_core.sharadar.fetch_table,
-                  through: str):
+def reconcile_all(conn, *, fetch=None, through: str):
     """Prove every published SEP partition through one market boundary."""
     from sentinel.feed import snapshot_source
 
     _core.store._assert_corpus_locked(conn)
+    production = fetch is None
+    if production:
+        fetch = snapshot_source.fetch_table
     market_through = _strict_ceiling(through)
     source_ceiling = _production_source_ceiling(fetch, market_through)
-    require_complete_export = fetch is snapshot_source.fetch_table
+    require_complete_export = production or fetch is snapshot_source.fetch_table
     lo, hi = _visible_bounds(conn)
     results = []
     for year, start, end in _bounded_years(lo, hi, market_through):
@@ -191,7 +200,7 @@ def reconcile_all(conn, *, fetch=_core.sharadar.fetch_table,
 
 def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
                    through: str):
-    """Advance rotating proof on the market clock under current source authority."""
+    """Advance rotating proof only after pending production SEP mutations converge."""
     from sentinel.feed import snapshot_source
 
     _core.store._assert_corpus_locked(conn)
@@ -199,7 +208,18 @@ def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
         raise ValueError("SHARADAR_SEP_RECONCILE_YEARS_PER_RUN must be >= 1")
     market_through = _strict_ceiling(through)
     source_ceiling = _production_source_ceiling(fetch, market_through)
-    require_complete_export = fetch is snapshot_source.fetch_table
+    production = fetch is snapshot_source.fetch_table
+    require_complete_export = production
+
+    # A retained source row may carry a historical value correction outside the
+    # daily overlap. Apply current-source CDC authority before negative-space
+    # retirement asks that retained values already match, or the rotation can
+    # deadlock on the correction that its own later maintenance step would fix.
+    if production:
+        maintenance.reconcile_sep_mutations(
+            conn, fetch=fetch, through=source_ceiling.isoformat(),
+            reobserve_equal=True)
+
     results = []
     for _ in range(YEARS_PER_RUN):
         year, start, end = _next_year(conn)
