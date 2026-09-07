@@ -55,6 +55,36 @@ def _assert_retired_rows_have_no_economic_events(conn, keys: list[dict]) -> None
                 f"{sid}/{session}/{ticker} dividend_per_share={div:g}")
 
 
+def _assert_current_actions_have_no_retirement_events(conn, keys: list[dict]) -> None:
+    """Current complete ACTIONS may establish economics absent from a stale bar.
+
+    A disappearing SEP row cannot be relied on to receive a replayed split or
+    dividend value. Rebuild the canonical action maps for the retirement span and
+    reject any target session carrying a current split or usable dividend event.
+    """
+    if not keys:
+        return
+    from sentinel.feed import ingest_impl
+
+    start = min(str(key["session"]) for key in keys)
+    end = max(str(key["session"]) for key in keys)
+    splits, dividends, _rows, _ambiguous = ingest_impl._action_maps(
+        conn, start, end)
+    split_keys = {(str(t).upper(), str(s)) for t, s in splits}
+    dividend_keys = {(str(t).upper(), str(s)) for t, s in dividends}
+    for key in keys:
+        ticker = str(key["ticker"]).upper()
+        session = str(key["session"])
+        if (ticker, session) in split_keys:
+            raise SepNegativeSpaceRefused(
+                "SEP retirement target carries a current authoritative ACTIONS "
+                f"split event: {key['security_id']}/{session}/{ticker}")
+        if (ticker, session) in dividend_keys:
+            raise SepNegativeSpaceRefused(
+                "SEP retirement target carries a current authoritative ACTIONS "
+                f"dividend entitlement: {key['security_id']}/{session}/{ticker}")
+
+
 def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
     """Resolve the next surviving edge with canonical ingest split semantics."""
     effective = publication.effective_split_ratio("b")
@@ -91,10 +121,6 @@ def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
             prev_row[0], prev_row[1], next_row[0], next_row[1])
         price_event = split_price_evidence(required)
 
-        # A unit effective edge follows the canonical price-only discovery rule.
-        # Bridge movement inside the 2% no-event band remains ordinary noise;
-        # material bridge evidence would require a split and therefore changes
-        # the surviving economics.
         if abs(effective_next - 1.0) <= 1e-12:
             if price_event is None:
                 continue
@@ -103,10 +129,6 @@ def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
                 f"{sid} after {session}: bridge price evidence implies material "
                 f"split ratio {required!r}, published ratio is 1")
 
-        # A non-unit published edge is treated as the stated surviving economic
-        # event and passed through the same resolver used by canonical ingest.
-        # This preserves the stronger mill-rounded precision interval for small
-        # explicit splits and refuses the canonical UNRESOLVED state.
         resolved, disposition = resolve_split_orientation(
             effective_next, required, bounds=bounds,
             explicit_no_event=(required is not None and price_event is None),
@@ -123,15 +145,18 @@ def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
 
 def repair_local_only(
         conn, *, fetch, start: str, end: str, observation_ceiling,
-        expected_source, source_authority_evidence=None):
+        expected_source, source_authority_evidence=None,
+        actions_authority_evidence=None):
     """Retire exact negative space only after source and economic proof."""
-    # Existing adversarial tests patch the original repair function as a static
-    # seam. Preserve that seam while production keeps the guarded implementation.
     if core.repair_local_only is not _ORIGINAL_REPAIR:
         return core.repair_local_only(
             conn, fetch=fetch, start=start, end=end,
             observation_ceiling=observation_ceiling,
             expected_source=expected_source)
+
+    if source_authority_evidence is not None and actions_authority_evidence is None:
+        raise SepNegativeSpaceRefused(
+            "production SEP retirement lacks fresh complete ACTIONS authority")
 
     core.store._assert_corpus_locked(conn)
     ceiling = (
@@ -166,12 +191,15 @@ def repair_local_only(
                 "SEP local-only row count changed during retirement planning")
         core._load_retire_table(conn, keys)
         _assert_retired_rows_have_no_economic_events(conn, keys)
+        _assert_current_actions_have_no_retirement_events(conn, keys)
         _assert_retirement_preserves_split_chain(conn, keys)
         plan = core._plan(
             start=start, end=end, source=source,
             expected_source=expected_source, keys=keys)
         if source_authority_evidence is not None:
             plan["source_authority"] = dict(source_authority_evidence)
+        if actions_authority_evidence is not None:
+            plan["actions_authority"] = dict(actions_authority_evidence)
         run = core.store.IngestRun(
             conn, KIND, date_from=start, date_to=end, chunks_total=1)
         run_id = str(run.progress.run_id)
