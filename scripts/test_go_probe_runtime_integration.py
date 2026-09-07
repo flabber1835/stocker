@@ -102,9 +102,9 @@ def main(argv=None) -> int:
         _require(empty.returncode == 0, "empty-DB read-only probe crashed")
         _require(report is not None, "empty-DB read-only probe emitted no marker")
         _require(report.get("status") == "RECOVERY_REQUIRED",
-                 "empty database classification changed: %r" % (report,))
+                 "empty database was not typed as recovery-required")
         _require(report.get("reason_code") == "CORPUS_SCHEMA_NOT_INSTALLED",
-                 "empty database recovery reason changed: %r" % (report,))
+                 "empty database recovery reason changed")
 
         stopped = runner.run(prefix + ["stop", contract.POSTGRES_SERVICE], env=env)
         _require(stopped.returncode == 0, "could not stop probe PostgreSQL")
