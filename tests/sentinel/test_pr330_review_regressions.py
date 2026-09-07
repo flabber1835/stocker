@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import datetime as dt
+
 import pytest
 
 from sentinel.feed import sep_negative_space_guarded as guarded
@@ -61,7 +63,7 @@ def test_retirement_refuses_prefix_removal_when_successor_has_derived_split(monk
         guarded.publication, "visible_predicate", lambda alias: "TRUE")
     conn = _SeqConn([
         None,
-        (50.0, 25.0, 2.0),
+        (dt.date(2026, 4, 3), "AAA", 50.0, 25.0, 2.0),
     ])
 
     with pytest.raises(
@@ -77,7 +79,7 @@ def test_retirement_allows_prefix_removal_when_successor_is_unit_split(monkeypat
         guarded.publication, "visible_predicate", lambda alias: "TRUE")
     conn = _SeqConn([
         None,
-        (50.0, 50.0, 1.0),
+        (dt.date(2026, 4, 3), "AAA", 50.0, 50.0, 1.0),
     ])
 
     guarded._assert_retirement_preserves_split_chain(conn, _key())
@@ -143,3 +145,25 @@ def test_complete_export_source_refuses_cross_refresh_composite(monkeypatch):
             recon.SepReconciliationStateInvalid,
             match="crossed a vendor table refresh"):
         recon._complete_export_source(start="2026-01-01", end="2026-02-01")
+
+
+def test_complete_export_source_refuses_same_day_refresh_after_frozen_boundary(monkeypatch):
+    from sentinel.feed import snapshot_export
+
+    def fetch_complete_sep(*, start, end):
+        return ([], {
+            "authority": "nasdaq-data-link-table-export/v1",
+            "table": "SEP", "source_rows": 0,
+            "data_snapshot_time": "2026-09-07T20:02:00+00:00",
+            "last_refreshed_time": "2026-09-07T20:01:00+00:00",
+        })
+
+    monkeypatch.setattr(snapshot_export, "fetch_complete_sep", fetch_complete_sep)
+    with pytest.raises(
+            recon.SepReconciliationStateInvalid,
+            match="newer than the frozen source observation boundary"):
+        recon._complete_export_source(
+            start="2026-01-01", end="2026-01-31",
+            observation_ceiling=dt.date(2026, 9, 7),
+            source_observation_boundary=dt.datetime(
+                2026, 9, 7, 20, 0, tzinfo=dt.timezone.utc))
