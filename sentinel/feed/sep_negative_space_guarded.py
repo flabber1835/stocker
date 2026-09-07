@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import hashlib
+import json
+from dataclasses import dataclass
 
 from sentinel.feed import domains, publication, sep_negative_space as core
 from stock_strategy_shared.split_reconciliation import (
@@ -18,6 +21,25 @@ _ORIGINAL_RETIRE = core._retire_and_publish
 _COMPLETE_SEP_AUTHORITY = "nasdaq-data-link-table-export-composite/v1"
 _COMPLETE_ACTIONS_AUTHORITY = "nasdaq-data-link-table-export/v1"
 _SEP_RETIREMENT_CAPABILITY = object()
+
+
+@dataclass(frozen=True)
+class _ValidatedRetirementAuthority:
+    capability: object
+    source_sha256: str
+    actions_sha256: str
+    observation_ceiling: str
+    source_observation_boundary: str
+    interval: tuple[str, str]
+    source_rows: int
+    actions_publication_version: int
+
+
+def _evidence_sha256(value) -> str:
+    payload = json.dumps(
+        dict(value or {}), sort_keys=True, separators=(",", ":"),
+        default=str).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
 
 
 def _assert_retired_rows_have_no_economic_events(conn, keys: list[dict]) -> None:
@@ -90,10 +112,6 @@ def _canonical_surviving_split_decision(
     """Re-run the surviving edge through the same split membrane as ingest."""
     from sentinel.feed import calendar, ingest_impl
 
-    # Include one following session so SplitAuthority can expose the canonical
-    # one-session shifted ACTIONS candidate for this edge. A two-session bridge
-    # that cannot be established from the surviving predecessor remains pending
-    # and therefore fails the equality proof below.
     action_end = calendar.next_session(session)
     splits, _dividends, _rows, _ambiguous = ingest_impl._action_maps(
         conn, session, action_end)
@@ -163,7 +181,7 @@ def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
                 f"published ratio is {effective_next:g}")
 
 
-def _authority_date(value, *, field: str) -> dt.date:
+def _authority_time(value, *, field: str) -> dt.datetime:
     text = str(value or "").strip()
     if not text:
         raise SepNegativeSpaceRefused(
@@ -178,14 +196,18 @@ def _authority_date(value, *, field: str) -> dt.date:
     if parsed.tzinfo is None:
         raise SepNegativeSpaceRefused(
             f"production SEP retirement authority {field} is timezone-naive")
-    return parsed.astimezone(dt.timezone.utc).date()
+    return parsed.astimezone(dt.timezone.utc)
+
+
+def _authority_date(value, *, field: str) -> dt.date:
+    return _authority_time(value, field=field).date()
 
 
 def _require_production_retirement_authority(
         *, source_authority_evidence, actions_authority_evidence,
-        observation_ceiling: dt.date, fetch=None, start=None, end=None,
-        source_rows=None) -> None:
-    """Validate complete source provenance at the destructive boundary itself."""
+        observation_ceiling: dt.date, source_observation_boundary,
+        fetch=None, start=None, end=None, source_rows=None):
+    """Validate complete SEP+ACTIONS provenance and mint boundary capability."""
     source = dict(source_authority_evidence or {})
     actions = dict(actions_authority_evidence or {})
     if source.get("authority") != _COMPLETE_SEP_AUTHORITY or source.get("table") != "SEP":
@@ -199,12 +221,21 @@ def _require_production_retirement_authority(
         raise SepNegativeSpaceRefused(
             "complete SEP retirement authority is not bound to the frozen "
             "observation ceiling")
-    refresh_day = _authority_date(
+    boundary = _authority_time(
+        source.get("source_observation_boundary"),
+        field="source_observation_boundary")
+    expected_boundary = _authority_time(
+        source_observation_boundary, field="source_observation_boundary")
+    if boundary != expected_boundary or boundary.date() != observation_ceiling:
+        raise SepNegativeSpaceRefused(
+            "complete SEP retirement authority is not bound to the frozen "
+            "source observation boundary")
+    refresh_time = _authority_time(
         source.get("last_refreshed_time"), field="last_refreshed_time")
-    if refresh_day > observation_ceiling:
+    if refresh_time > boundary:
         raise SepNegativeSpaceRefused(
             "complete SEP retirement authority comes from a vendor refresh after "
-            f"the frozen observation ceiling {observation_ceiling}")
+            f"the frozen source observation boundary {boundary.isoformat()}")
     if start is not None and end is not None:
         if list(source.get("window") or []) != [str(start), str(end)]:
             raise SepNegativeSpaceRefused(
@@ -225,11 +256,66 @@ def _require_production_retirement_authority(
             "complete SEP retirement evidence is not backed by the canonical "
             "Exporter replay capability")
 
+    _authority_time(actions.get("last_refreshed_time"), field="ACTIONS last_refreshed_time")
+    _authority_time(actions.get("data_snapshot_time"), field="ACTIONS data_snapshot_time")
+    try:
+        actions_rows = int(actions.get("source_rows"))
+        distinct_rows = int(actions.get("verified_distinct_rows"))
+        actions_version = int(actions.get("verified_publication_version"))
+        dt.date.fromisoformat(str(actions.get("verified_through")))
+    except (TypeError, ValueError) as exc:
+        raise SepNegativeSpaceRefused(
+            "fresh complete ACTIONS retirement authority is structurally invalid") from exc
+    if actions_rows < 0 or distinct_rows < 0 or actions_version < 1:
+        raise SepNegativeSpaceRefused(
+            "fresh complete ACTIONS retirement authority has invalid bounds")
+
+    return _ValidatedRetirementAuthority(
+        capability=_SEP_RETIREMENT_CAPABILITY,
+        source_sha256=_evidence_sha256(source),
+        actions_sha256=_evidence_sha256(actions),
+        observation_ceiling=observation_ceiling.isoformat(),
+        source_observation_boundary=boundary.isoformat(),
+        interval=(str(start), str(end)),
+        source_rows=int(source_rows),
+        actions_publication_version=actions_version)
+
+
+def _validate_retirement_authority_at_boundary(
+        conn, *, plan: dict, validated_authority) -> None:
+    """Revalidate durable plan evidence at the visibility-changing boundary."""
+    token = validated_authority
+    if not isinstance(token, _ValidatedRetirementAuthority) or \
+            token.capability is not _SEP_RETIREMENT_CAPABILITY:
+        raise SepNegativeSpaceRefused(
+            "SEP retirement mutation boundary lacks validated dual-source authority")
+    if _evidence_sha256(plan.get("source_authority")) != token.source_sha256:
+        raise SepNegativeSpaceRefused(
+            "SEP retirement SEP authority changed after validation")
+    if _evidence_sha256(plan.get("actions_authority")) != token.actions_sha256:
+        raise SepNegativeSpaceRefused(
+            "SEP retirement ACTIONS authority changed after validation")
+    if tuple(str(v) for v in plan.get("interval") or ()) != token.interval:
+        raise SepNegativeSpaceRefused(
+            "SEP retirement interval changed after dual-source validation")
+    if int(plan.get("source_rows", -1)) != token.source_rows:
+        raise SepNegativeSpaceRefused(
+            "SEP retirement source row count changed after dual-source validation")
+    keys = list(plan.get("keys") or [])
+    if core._keys_digest(keys) != str(plan.get("keys_sha256") or ""):
+        raise SepNegativeSpaceRefused(
+            "SEP retirement durable key set changed after validation")
+    current = publication.require_current(conn)
+    if int(current.version) != token.actions_publication_version:
+        raise SepNegativeSpaceRefused(
+            "published corpus advanced after fresh ACTIONS retirement authority "
+            "was established")
+
 
 def _finalize_production_actions_authority(
         conn, *, source, start: str, end: str, keys: list[dict],
         source_authority_evidence, actions_authority_evidence):
-    """Refresh ACTIONS at the final destructive gate and revalidate local proof."""
+    """Refresh ACTIONS at the final logical-retirement gate and revalidate proof."""
     authority = str((source_authority_evidence or {}).get("authority") or "")
     if authority != _COMPLETE_SEP_AUTHORITY:
         return actions_authority_evidence, keys
@@ -258,41 +344,24 @@ def _finalize_production_actions_authority(
 
 
 def _retire_split_repairs(conn, *, run_id: str) -> None:
-    """Move published repair rows to the running retirement generation, then delete."""
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT s.security_id,s.session,s.last_written_run_id"
-            " FROM sentinel_bar_split_repairs s"
-            f" JOIN {core._TEMP_RETIRE_KEYS} r"
-            " ON r.security_id=s.security_id AND r.session=s.session"
-            " ORDER BY s.security_id,s.session,s.last_written_run_id")
-        repairs = list(cur.fetchall())
-        for sid, session, prior_run_id in repairs:
-            cur.execute(
-                "UPDATE sentinel_bar_split_repairs"
-                " SET last_written_run_id=%s"
-                " WHERE security_id=%s AND session=%s"
-                " AND last_written_run_id=%s",
-                (run_id, sid, session, prior_run_id))
-            if int(cur.rowcount) != 1:
-                raise SepNegativeSpaceRefused(
-                    "SEP retirement could not transfer split-repair ownership")
-            cur.execute(
-                "DELETE FROM sentinel_bar_split_repairs"
-                " WHERE security_id=%s AND session=%s"
-                " AND last_written_run_id=%s",
-                (sid, session, run_id))
-            if int(cur.rowcount) != 1:
-                raise SepNegativeSpaceRefused(
-                    "SEP retirement could not retire transferred split repair")
+    """Compatibility seam: published split-repair evidence is append-only."""
+    return None
 
 
-def _retire_and_publish_authorized(conn, *, run, plan: dict):
-    """Retire through the schema's published-evidence restatement transition."""
+def _retire_and_publish_authorized(
+        conn, *, run, plan: dict, validated_authority=None):
+    """Publish an append-only tombstone generation for the exact retirement keys."""
     if core._retire_and_publish is not _ORIGINAL_RETIRE:
         return core._retire_and_publish(conn, run=run, plan=plan)
 
+    if plan.get("source_authority") is not None or plan.get("actions_authority") is not None:
+        _validate_retirement_authority_at_boundary(
+            conn, plan=plan, validated_authority=validated_authority)
+
     keys = list(plan["keys"])
+    if core._keys_digest(keys) != str(plan.get("keys_sha256") or ""):
+        raise SepNegativeSpaceRefused(
+            "SEP retirement durable key set failed its append-only tombstone digest")
     core._load_retire_table(conn, keys)
     run_id = str(run.progress.run_id)
     with conn.cursor() as cur:
@@ -305,26 +374,6 @@ def _retire_and_publish_authorized(conn, *, run, plan: dict):
             raise SepNegativeSpaceRefused(
                 "SEP retirement target changed after durable source proof; "
                 f"expected {len(keys)} rows, found {matched}")
-
-    _retire_split_repairs(conn, run_id=run_id)
-
-    with conn.cursor() as cur:
-        cur.execute(
-            f"UPDATE sentinel_bars b SET last_written_run_id=%s"
-            f" FROM {core._TEMP_RETIRE_KEYS} r"
-            " WHERE b.security_id=r.security_id AND b.session=r.session"
-            " AND b.ticker=r.ticker",
-            (run_id,))
-        if int(cur.rowcount) != len(keys):
-            raise SepNegativeSpaceRefused(
-                "SEP retirement could not transfer exact published-row ownership")
-        cur.execute(
-            f"DELETE FROM sentinel_bars b USING {core._TEMP_RETIRE_KEYS} r"
-            " WHERE b.security_id=r.security_id AND b.session=r.session"
-            " AND b.ticker=r.ticker")
-        if int(cur.rowcount) != len(keys):
-            raise SepNegativeSpaceRefused(
-                "SEP retirement delete was not exact; refusing publication")
         cur.execute(
             "UPDATE feed_ingest_runs SET status='success',chunks_done=1,"
             " rows_dropped=%s,current_chunk='retire-local-only',"
@@ -343,7 +392,7 @@ def _retire_and_publish_authorized(conn, *, run, plan: dict):
 def repair_local_only(
         conn, *, fetch, start: str, end: str, observation_ceiling,
         expected_source, source_authority_evidence=None,
-        actions_authority_evidence=None):
+        actions_authority_evidence=None, source_observation_boundary=None):
     """Retire exact negative space only after source and economic proof."""
     if core.repair_local_only is not _ORIGINAL_REPAIR:
         return core.repair_local_only(
@@ -395,15 +444,15 @@ def repair_local_only(
         _assert_current_actions_have_no_retirement_events(conn, keys)
         _assert_retirement_preserves_split_chain(conn, keys)
 
-        # Tests may replace the lower-level mutator to exercise planning and
-        # failure bookkeeping in isolation. The canonical production path keeps
-        # the original mutator and must carry complete Exporter capability.
-        if core._retire_and_publish is _ORIGINAL_RETIRE:
-            _require_production_retirement_authority(
+        validated_authority = None
+        if (core._retire_and_publish is _ORIGINAL_RETIRE
+                and source_authority_evidence is not None):
+            validated_authority = _require_production_retirement_authority(
                 source_authority_evidence=source_authority_evidence,
                 actions_authority_evidence=actions_authority_evidence,
-                observation_ceiling=ceiling, fetch=fetch,
-                start=start, end=end, source_rows=source.rows)
+                observation_ceiling=ceiling,
+                source_observation_boundary=source_observation_boundary,
+                fetch=fetch, start=start, end=end, source_rows=source.rows)
 
         plan = core._plan(
             start=start, end=end, source=source,
@@ -417,7 +466,9 @@ def repair_local_only(
         run_id = str(run.progress.run_id)
         core._persist_plan(conn, run_id=run_id, plan=plan)
         try:
-            published = _retire_and_publish_authorized(conn, run=run, plan=plan)
+            published = _retire_and_publish_authorized(
+                conn, run=run, plan=plan,
+                validated_authority=validated_authority)
         except BaseException as exc:  # noqa: BLE001
             conn.rollback()
             if not core._publication_committed_for_run(conn, run_id):
