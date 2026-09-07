@@ -1,0 +1,137 @@
+name: Median-5 statistical closure v14
+run-name: Median-5 statistical closure - ${{ github.sha }}
+on:
+  push:
+    branches: [research/median5-statistical-closure-v14]
+    paths:
+      - '.github/workflows/median5-statistical-closure-v14.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  actions: read
+concurrency:
+  group: median5-statistical-closure-v14-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: '1'
+  RECERT_RUN_ID: '34160387335'
+  HARDENING_RUN_ID: '34146059708'
+
+jobs:
+  closure:
+    strategy:
+      fail-fast: false
+      max-parallel: 8
+      matrix:
+        mode:
+          - DSR
+          - PBO_CSCV
+          - REALITY_CHECK
+          - ROLLING_WINDOWS
+          - TEMPORAL_LEAVEOUT
+          - BLOCK_BOOTSTRAP
+          - CONTRIBUTOR_CONCENTRATION
+          - WORST_REGIME
+    runs-on: ubuntu-24.04
+    timeout-minutes: 420
+    defaults: {run: {shell: bash}}
+    steps:
+      - name: Isolated closure checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            research/median5-statistical-closure-v14
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.12.14', check-latest: false}
+
+      - name: Install pinned analysis dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install 'numpy==2.3.5' 'pandas==2.3.3'
+          python --version
+          python - <<'PY'
+          import numpy,pandas
+          print('numpy',numpy.__version__,'pandas',pandas.__version__)
+          PY
+
+      - name: Wait for fresh full-PIT recertification
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          for i in $(seq 1 360); do
+            status=$(gh run view "$RECERT_RUN_ID" --repo "$GITHUB_REPOSITORY" --json status --jq .status)
+            if [ "$status" = completed ]; then
+              conclusion=$(gh run view "$RECERT_RUN_ID" --repo "$GITHUB_REPOSITORY" --json conclusion --jq .conclusion)
+              test "$conclusion" = success
+              exit 0
+            fi
+            sleep 60
+          done
+          echo 'Timed out waiting for full-PIT recertification' >&2
+          exit 1
+
+      - name: Download and independently verify fresh certified path
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p inputs/recert
+          gh run download "$RECERT_RUN_ID" --repo "$GITHUB_REPOSITORY" -D inputs/recert
+          python - <<'PY'
+          from pathlib import Path
+          import json
+          files=list(Path('inputs/recert').rglob('RESULT.json'))
+          if len(files)!=1: raise RuntimeError(f'expected one RESULT.json, got {files}')
+          r=json.loads(files[0].read_text())
+          assert r['status']=='PASS_FRESH_CAUSAL_PIT_REPLAY'
+          assert r['arm']=='MEDIAN5_CANONICAL'
+          assert r['dividend_lag_sessions']==1
+          assert r['data']['pit'] is True
+          assert r['data']['prerecorded_decisions_used'] is False
+          assert r['data']['sessions']==5032
+          assert r['data']['measurement_start']=='2006-07-31'
+          assert r['data']['measurement_end']=='2026-07-31'
+          assert r['data']['canonical_pit_dataset_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993'
+          print('PASS fresh full-PIT canonical Median-5 evidence verified')
+          PY
+
+      - name: Download hardening candidate family when required
+        if: matrix.mode == 'PBO_CSCV' || matrix.mode == 'REALITY_CHECK'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          mkdir -p inputs/hardening
+          gh run download "$HARDENING_RUN_ID" --repo "$GITHUB_REPOSITORY" -D inputs/hardening
+          test "$(find inputs/hardening -name daily.csv | wc -l)" -ge 6
+
+      - name: Run preregistered closure analysis
+        env:
+          MODE: ${{ matrix.mode }}
+        run: |
+          set -euo pipefail
+          args=(--mode "$MODE" --canonical inputs/recert --output "results/${MODE}.json")
+          if [ "$MODE" = PBO_CSCV ] || [ "$MODE" = REALITY_CHECK ]; then
+            args+=(--hardening inputs/hardening)
+          fi
+          python research/median5-statistical-closure-v14/closure_analysis.py "${args[@]}" | tee "results-${MODE}.log"
+
+      - name: Preserve closure evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: median5-statistical-closure-v14-${{ matrix.mode }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            results/
+            results-${{ matrix.mode }}.log
+            research/median5-statistical-closure-v14/PLAN.md
+            research/median5-statistical-closure-v14/closure_analysis.py
+          retention-days: 90
+          if-no-files-found: warn
