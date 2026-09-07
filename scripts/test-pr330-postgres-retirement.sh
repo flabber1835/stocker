@@ -7,6 +7,23 @@ network="pr330-pg-${RANDOM}-$$"
 postgres="pr330-postgres-${RANDOM}-$$"
 password="pr330-ci-postgres"
 
+# Fast exact-surface regression gate. Keep this network-disabled: every test in
+# the list exercises deterministic reconciliation, retirement, split-chain, or
+# frozen-source authority behavior and must not depend on live vendor state.
+docker run --rm --network none \
+  "$TEST_IMAGE" \
+  tests/sentinel/test_sep_append_only_repairs.py \
+  tests/sentinel/test_sep_negative_space_repair.py \
+  tests/sentinel/test_sep_reconciliation.py \
+  tests/sentinel/test_sep_semantic_reearn.py \
+  tests/sentinel/test_sep_value_reconciliation.py \
+  tests/sentinel/test_pr330_post_review_fixes.py \
+  tests/sentinel/test_pr330_review_regressions.py \
+  tests/sentinel/test_maintenance_future_cursor_refusal.py \
+  -q -ra
+
+echo "PR330_TARGETED_PASS"
+
 cleanup() {
   docker rm -f "$postgres" >/dev/null 2>&1 || true
   docker network rm "$network" >/dev/null 2>&1 || true
