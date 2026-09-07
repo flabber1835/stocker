@@ -200,7 +200,7 @@ def reconcile_all(conn, *, fetch=None, through: str):
 
 def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
                    through: str):
-    """Advance rotating proof only after pending production SEP mutations converge."""
+    """Advance rotating proof only after pending production mutations converge."""
     from sentinel.feed import snapshot_source
 
     _core.store._assert_corpus_locked(conn)
@@ -210,6 +210,13 @@ def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
     source_ceiling = _production_source_ceiling(fetch, market_through)
     production = fetch is snapshot_source.fetch_table
     require_complete_export = production
+
+    # Negative-space retirement may delete a historical SEP row. Establish the
+    # current complete ACTIONS generation first so the row's effective split and
+    # dividend economics cannot be judged against yesterday's action authority.
+    if production:
+        maintenance.reconcile_actions_if_due(
+            conn, through=market_through.isoformat())
 
     # A retained source row may carry a historical value correction outside the
     # daily overlap. Apply current-source CDC authority before negative-space
