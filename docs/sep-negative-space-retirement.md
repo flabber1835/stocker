@@ -8,6 +8,8 @@ A published SEP row may be retired automatically only when current vendor author
 
 Repeated cursor-paginated SEP traversals establish stability, not completeness. They cannot authorize deletion by themselves. Every production retirement must be corroborated by complete Nasdaq Data Link SEP Exporter authority covering the exact reconciliation partition. Large partitions may be assembled from bounded Exporter subpartitions only when every part reports the same vendor `last_refreshed_time`; crossing a vendor refresh refuses deletion. Exported rows are spooled to disk for replay so annual reconciliation remains bounded in Python memory. The complete authority evidence must be durable in the retirement plan, and the normalized export key/value proof must equal the source proof that detected the local surplus. Any disagreement refuses retirement.
 
+The destructive guard validates complete authority again at the mutation boundary. SEP evidence must identify the complete composite Exporter authority, ACTIONS evidence must identify a fresh complete Exporter snapshot, and the SEP evidence must carry the exact frozen observation ceiling. An injected or paginated source cannot satisfy this mutation contract.
+
 A destructive retirement also requires fresh complete ACTIONS authority. Immediately before deletion, Sentinel forces complete ACTIONS reconciliation, obtains a second fresh complete ACTIONS Exporter snapshot through the published market frontier, and requires that canonical row set to equal the active published ACTIONS projection. The snapshot evidence and bound publication version are persisted in the retirement plan. A cadence cursor alone cannot authorize deletion.
 
 Injected/replay sources remain deterministic test seams and do not gain production deletion authority.
@@ -20,8 +22,12 @@ For a surviving effective split of 1.0, bridge price evidence inside the canonic
 
 ## Observation boundary
 
-A production reconciliation operation uses one explicit source-observation date for SEP CDC and complete SEP proofs. If an earlier phase establishes a stronger SEP cursor before a later phase consumes the frozen boundary, the stronger durable cursor satisfies that older boundary without another source traversal. Recent-window proof reuses the established SEP observation ceiling.
+A production reconciliation operation uses one explicit source-observation date for SEP CDC and complete SEP proofs. Complete SEP negative-space authority must come from a vendor `last_refreshed_time` whose UTC date is on or before that frozen observation date. The durable Exporter evidence records the same `observation_ceiling`. A later vendor refresh refuses retirement before mutation.
+
+If an earlier phase establishes a stronger SEP cursor before a later phase consumes the frozen boundary, the stronger durable cursor satisfies that older boundary without another source traversal. Recent-window proof reuses the established SEP observation ceiling.
 
 ## Publication
 
-The exact retirement keys, complete SEP Exporter authority, fresh ACTIONS authority, normalized source digests, and key digest are persisted before mutation. Exact deletion and publication remain one transaction. Reconciliation re-runs after publication before any cursor/readiness authority is granted.
+The exact retirement keys, complete SEP Exporter authority, fresh ACTIONS authority, normalized source digests, and key digest are persisted before mutation. Published target bars and any published split-repair children first transfer ownership to the running `sep_source_retirement` ingest generation through the existing governed restatement transition. Split-repair children are then retired, followed by the exact bars. This transition satisfies the published-strategy-evidence mutation guard while keeping the entire retirement and publication atomic.
+
+Reconciliation re-runs after publication before any cursor or readiness authority is granted.
