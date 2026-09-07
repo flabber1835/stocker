@@ -215,6 +215,8 @@ def _repair_local_only_if_proved(
     repair_fetch = fetch
     source_authority_evidence = None
     if require_complete_export:
+        repair_fetch, source_authority_evidence = _complete_export_source(
+            start=start, end=end)
         if actions_authority_evidence is None:
             _lo, market_hi = _visible_bounds(conn)
             actions_authority_evidence = _fresh_actions_retirement_authority(
@@ -224,12 +226,16 @@ def _repair_local_only_if_proved(
                 if (local.rows == source.rows
                         and local.key_digest == source.key_digest
                         and local.value_digest == source.value_digest):
+                    cleanup = getattr(repair_fetch, "cleanup", None)
+                    if cleanup is not None:
+                        cleanup()
                     return local
+                cleanup = getattr(repair_fetch, "cleanup", None)
+                if cleanup is not None:
+                    cleanup()
                 raise _core.SepKeysetDrift(
                     "published SEP state changed while establishing fresh ACTIONS "
                     "retirement authority; refusing to continue with stale proof")
-        repair_fetch, source_authority_evidence = _complete_export_source(
-            start=start, end=end)
     try:
         sep_negative_space_guarded.repair_local_only(
             conn, fetch=repair_fetch, start=start, end=end,
@@ -242,6 +248,20 @@ def _repair_local_only_if_proved(
         if cleanup is not None:
             cleanup()
     return _local_fingerprint(conn, start=start, end=end)
+
+
+def _post_retirement_source_proof(
+        conn, *, start: str, end: str, observation_ceiling):
+    """Re-observe complete SEP authority after a destructive publication."""
+    verify_fetch, _evidence = _complete_export_source(start=start, end=end)
+    try:
+        return _source_fingerprint(
+            conn, fetch=verify_fetch, start=start, end=end,
+            observation_ceiling=observation_ceiling)
+    finally:
+        cleanup = getattr(verify_fetch, "cleanup", None)
+        if cleanup is not None:
+            cleanup()
 
 
 def reconcile_year(
@@ -266,6 +286,7 @@ def reconcile_year(
         conn, fetch=fetch, start=start, end=end,
         observation_ceiling=observation_ceiling)
     local = _local_fingerprint(conn, start=start, end=end)
+    repair_candidate = int(local.rows) > int(source.rows)
     if source.rows != local.rows or source.key_digest != local.key_digest:
         local = _repair_local_only_if_proved(
             conn, fetch=fetch, start=start, end=end,
@@ -273,6 +294,11 @@ def reconcile_year(
             source=source, local=local,
             require_complete_export=bool(require_complete_export),
             actions_authority_evidence=actions_authority_evidence)
+        if repair_candidate and require_complete_export:
+            source = _post_retirement_source_proof(
+                conn, start=start, end=end,
+                observation_ceiling=observation_ceiling)
+            local = _local_fingerprint(conn, start=start, end=end)
     if source.rows != local.rows or source.key_digest != local.key_digest:
         raise _core.SepKeysetDrift(
             f"stable Sharadar SEP {year} normalized key set disagrees with "
