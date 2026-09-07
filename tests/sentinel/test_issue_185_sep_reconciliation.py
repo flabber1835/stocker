@@ -176,6 +176,34 @@ def test_reconcile_next_saves_only_successful_complete_proof(monkeypatch):
     assert saved == [(result, dt.date(2026, 8, 18))]
 
 
+def test_production_rotation_applies_sep_mutations_before_year_proof(monkeypatch):
+    from sentinel.feed import snapshot_source
+
+    monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(recon, "YEARS_PER_RUN", 1)
+    monkeypatch.setattr(
+        recon.seed_coherence, "capture_update_ceiling", lambda: "2026-08-19")
+    monkeypatch.setattr(
+        recon, "_next_year",
+        lambda conn: (2024, dt.date(2024, 1, 1), dt.date(2024, 12, 31)))
+    order = []
+    monkeypatch.setattr(
+        recon.maintenance, "reconcile_sep_mutations",
+        lambda *a, **k: order.append(("mutations", k["through"], k["reobserve_equal"])))
+    result = _result(2024)
+    monkeypatch.setattr(
+        recon, "reconcile_year",
+        lambda *a, **k: order.append(("year", k["observation_ceiling"])) or result)
+    monkeypatch.setattr(recon, "_save_result", lambda *a, **k: None)
+
+    recon.reconcile_next(
+        object(), fetch=snapshot_source.fetch_table, through="2026-08-18")
+    assert order == [
+        ("mutations", "2026-08-19", True),
+        ("year", dt.date(2026, 8, 19)),
+    ]
+
+
 def test_complete_launch_sweep_visits_every_published_year_partition(monkeypatch):
     monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
     monkeypatch.setattr(
@@ -183,8 +211,10 @@ def test_complete_launch_sweep_visits_every_published_year_partition(monkeypatch
         lambda conn: (dt.date(2024, 3, 4), dt.date(2026, 8, 18)))
     calls = []
 
-    def check(conn, *, fetch, year, start, end, observation_ceiling):
+    def check(conn, *, fetch, year, start, end, observation_ceiling,
+              require_complete_export=False):
         assert observation_ceiling == dt.date(2026, 8, 18)
+        assert not require_complete_export
         calls.append((year, start, end))
         return recon.ReconciliationResult(
             year=year, start=start, end=end, rows=year,
@@ -203,6 +233,30 @@ def test_complete_launch_sweep_visits_every_published_year_partition(monkeypatch
     assert [r.year for r in results] == [2024, 2025, 2026]
 
 
+def test_complete_launch_default_requires_export_retirement_authority(monkeypatch):
+    from sentinel.feed import snapshot_source
+
+    monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(
+        recon.seed_coherence, "capture_update_ceiling", lambda: "2026-08-19")
+    monkeypatch.setattr(
+        recon, "_visible_bounds",
+        lambda conn: (dt.date(2026, 1, 2), dt.date(2026, 8, 18)))
+    seen = []
+
+    def check(conn, *, fetch, year, start, end, observation_ceiling,
+              require_complete_export=False):
+        seen.append((fetch, observation_ceiling, require_complete_export))
+        return _result(2026)
+
+    monkeypatch.setattr(recon, "reconcile_year", check)
+    monkeypatch.setattr(recon, "_save_result", lambda *a, **k: None)
+    recon.reconcile_all(object(), through="2026-08-18")
+
+    assert seen == [(
+        snapshot_source.fetch_table, dt.date(2026, 8, 19), True)]
+
+
 def test_complete_launch_sweep_stops_at_first_bad_year_and_claims_no_later_year(
         monkeypatch):
     monkeypatch.setattr(store, "_assert_corpus_locked", lambda conn: None)
@@ -212,8 +266,10 @@ def test_complete_launch_sweep_stops_at_first_bad_year_and_claims_no_later_year(
     checked = []
     saved = []
 
-    def check(conn, *, fetch, year, start, end, observation_ceiling):
+    def check(conn, *, fetch, year, start, end, observation_ceiling,
+              require_complete_export=False):
         assert observation_ceiling == dt.date(2026, 8, 18)
+        assert not require_complete_export
         checked.append(year)
         if year == 2025:
             raise recon.SepValueDrift("2025 drift")
