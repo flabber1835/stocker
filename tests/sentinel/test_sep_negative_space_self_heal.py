@@ -142,6 +142,47 @@ def test_repair_refuses_value_drift_even_when_source_keys_exist(monkeypatch):
             observation_ceiling="2026-09-06", expected_source=source)
 
 
+def test_bridge_split_ratio_detects_deleted_intermediate_split_bar():
+    # A -> B -> C stores the split on B.  If Sharadar retracts B, A -> C needs
+    # that same 2:1 edge moved onto C; retaining C's old 1.0 would corrupt the
+    # engine's reconstructed signal history.
+    prev = (10.0, 20.0)
+    successor = (10.0, 10.0, 1.0)
+    assert neg._bridge_split_ratio(prev, successor) == 2.0
+    assert successor[2] == 1.0
+
+
+def test_repair_refuses_when_retirement_would_change_split_chain(monkeypatch):
+    source = _proof(10, "a", "b")
+    keys = [{"security_id": "P:SPLIT", "session": "2026-04-02", "ticker": "SPLT"}]
+    reached_run = []
+
+    monkeypatch.setattr(neg.store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(neg, "_create_source_table", lambda conn: None)
+    monkeypatch.setattr(neg, "_drop_temp", lambda conn, table: None)
+    monkeypatch.setattr(neg, "_source_proof_and_keys", lambda *a, **k: source)
+    monkeypatch.setattr(neg, "_source_only_local_proof", lambda *a, **k: source)
+    monkeypatch.setattr(neg, "_local_only_keys", lambda *a, **k: keys)
+    monkeypatch.setattr(
+        neg.recon, "_local_fingerprint", lambda *a, **k: _proof(11, "c", "d"))
+    monkeypatch.setattr(neg, "_load_retire_table", lambda *a, **k: None)
+    monkeypatch.setattr(
+        neg, "_assert_retirement_preserves_split_chain",
+        lambda *a, **k: (_ for _ in ()).throw(
+            neg.SepNegativeSpaceRefused("would change the effective split chain")))
+    monkeypatch.setattr(
+        neg.store, "IngestRun",
+        lambda *a, **k: reached_run.append(True))
+
+    with pytest.raises(
+            neg.SepNegativeSpaceRefused,
+            match="effective split chain"):
+        neg.repair_local_only(
+            object(), fetch="source", start="2026-03-06", end="2026-09-04",
+            observation_ceiling="2026-09-06", expected_source=source)
+    assert reached_run == []
+
+
 def test_failed_atomic_retirement_marks_repair_run_failed(monkeypatch):
     source = _proof(10, "a", "b")
     keys = [{"security_id": "P:OLD", "session": "2026-04-01", "ticker": "OLD"}]
@@ -171,6 +212,9 @@ def test_failed_atomic_retirement_marks_repair_run_failed(monkeypatch):
     monkeypatch.setattr(neg, "_local_only_keys", lambda *a, **k: keys)
     monkeypatch.setattr(
         neg.recon, "_local_fingerprint", lambda *a, **k: _proof(11, "c", "d"))
+    monkeypatch.setattr(neg, "_load_retire_table", lambda *a, **k: None)
+    monkeypatch.setattr(
+        neg, "_assert_retirement_preserves_split_chain", lambda *a, **k: None)
     monkeypatch.setattr(neg.store, "IngestRun", lambda *a, **k: run)
     monkeypatch.setattr(neg, "_persist_plan", lambda *a, **k: None)
     monkeypatch.setattr(
