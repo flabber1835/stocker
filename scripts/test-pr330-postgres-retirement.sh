@@ -12,6 +12,8 @@ password="pr330-ci-postgres"
 # frozen-source authority behavior and must not depend on live vendor state.
 docker run --rm --network none \
   "$TEST_IMAGE" \
+  tests/sentinel/test_issue_162_predecessor_closes.py \
+  tests/sentinel/test_issue_168_noop_bar_upserts.py \
   tests/sentinel/test_issue_185_sep_reconciliation.py \
   tests/sentinel/test_maintenance_future_cursor_refusal.py \
   tests/sentinel/test_pr330_authority_regressions.py \

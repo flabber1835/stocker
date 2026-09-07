@@ -28,7 +28,7 @@ def retired_predicate(alias: str = "b") -> str:
         "     THEN retirement.evidence #> '{source_retirement,keys}'"
         "     ELSE '[]'::jsonb END) retired_key"
         " WHERE retirement.evidence->>'kind'='sep_source_retirement'"
-        f"   AND retirement.version > COALESCE((SELECT MAX(base.version)"
+        f"   AND retirement.version > COALESCE((SELECT MIN(base.version)"
         "       FROM sentinel_corpus_publications base"
         f"       WHERE base.run_id={alias}.last_written_run_id), 0)"
         f"   AND retired_key->>'security_id'={alias}.security_id"

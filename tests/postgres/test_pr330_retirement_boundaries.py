@@ -236,7 +236,15 @@ def test_predecessor_skips_retirement_and_identical_reappearance_gets_new_owner(
     assert store.previous_observations(pg_conn, "2026-04-03") == {"P:1": (20.0, 20.0)}
 
     _insert_publication(pg_conn, version=2, previous=1, run_id=None, evidence=evidence)
+    # Re-publishing the same owner is not a new bar generation and must not
+    # resurrect its retired keys or put them back into predecessor selection.
+    _insert_publication(pg_conn, version=3, previous=2, run_id=base, evidence={})
+    assert store.previous_observations(pg_conn, "2026-04-03") == {"P:1": (10.0, 10.0)}
     with pg_conn.cursor() as cur:
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_bars b WHERE b.session='2026-04-02' AND "
+            + publication.visible_predicate("b"))
+        assert cur.fetchone()[0] == 0
         cur.execute(store._BAR_UPSERT, (*target[:-1], str(reappeared)))
         assert cur.rowcount == 1
         cur.execute(
@@ -251,7 +259,7 @@ def test_predecessor_skips_retirement_and_identical_reappearance_gets_new_owner(
     assert store.previous_observations(pg_conn, "2026-04-03") == {"P:1": (20.0, 20.0)}
     with pg_conn.cursor() as cur:
         cur.execute("UPDATE feed_ingest_runs SET status='success' WHERE run_id=%s", (str(reappeared),))
-    _insert_publication(pg_conn, version=3, previous=2, run_id=reappeared, evidence={})
+    _insert_publication(pg_conn, version=4, previous=3, run_id=reappeared, evidence={})
     with pg_conn.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) FROM sentinel_bars b WHERE b.session='2026-04-02' AND "
