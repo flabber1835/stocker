@@ -96,14 +96,7 @@ def _complete_export_source(*, start: str, end: str):
 
 
 def _fresh_actions_retirement_authority(conn, *, through: dt.date) -> dict:
-    """Prove current ACTIONS state immediately before destructive SEP repair.
-
-    A cadence cursor proves an earlier complete observation, not that the current
-    source still agrees when a historical SEP row is about to be deleted. Force a
-    complete ACTIONS reconciliation, then independently re-export the same bounded
-    source and require its exact canonical row set to equal the active projection.
-    The second export evidence is persisted with any retirement plan.
-    """
+    """Prove current ACTIONS state immediately before destructive SEP repair."""
     from sentinel.feed import action_source, snapshot_export
 
     maintenance.reconcile_actions_if_due(
@@ -153,8 +146,6 @@ def _repair_local_only_if_proved(
             _lo, market_hi = _visible_bounds(conn)
             actions_authority_evidence = _fresh_actions_retirement_authority(
                 conn, through=market_hi)
-            # Forced ACTIONS reconciliation may have published corrected bars.
-            # Re-observe local state before a destructive decision.
             local = _local_fingerprint(conn, start=start, end=end)
             if int(local.rows) <= int(source.rows):
                 if (local.rows == source.rows
@@ -245,10 +236,9 @@ def reconcile_all(conn, *, fetch=None, through: str, observation_ceiling=None):
             f"current source observation date {source_ceiling} is behind market "
             f"reconciliation boundary {market_through}")
     require_complete_export = production or fetch is snapshot_source.fetch_table
-    actions_authority_evidence = None
     if require_complete_export:
-        actions_authority_evidence = _fresh_actions_retirement_authority(
-            conn, through=market_through)
+        maintenance.reconcile_actions_if_due(
+            conn, through=market_through.isoformat())
         maintenance.reconcile_sep_mutations(
             conn, fetch=fetch, through=source_ceiling.isoformat(),
             reobserve_equal=True)
@@ -259,8 +249,7 @@ def reconcile_all(conn, *, fetch=None, through: str, observation_ceiling=None):
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
             observation_ceiling=source_ceiling,
-            require_complete_export=require_complete_export,
-            actions_authority_evidence=actions_authority_evidence)
+            require_complete_export=require_complete_export)
         _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
@@ -288,10 +277,9 @@ def reconcile_next(conn, *, fetch=None, through: str, observation_ceiling=None):
     production = production or fetch is snapshot_source.fetch_table
     require_complete_export = production
 
-    actions_authority_evidence = None
     if production:
-        actions_authority_evidence = _fresh_actions_retirement_authority(
-            conn, through=market_through)
+        maintenance.reconcile_actions_if_due(
+            conn, through=market_through.isoformat())
         maintenance.reconcile_sep_mutations(
             conn, fetch=fetch, through=source_ceiling.isoformat(),
             reobserve_equal=True)
@@ -306,8 +294,7 @@ def reconcile_next(conn, *, fetch=None, through: str, observation_ceiling=None):
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
             observation_ceiling=source_ceiling,
-            require_complete_export=require_complete_export,
-            actions_authority_evidence=actions_authority_evidence)
+            require_complete_export=require_complete_export)
         _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
