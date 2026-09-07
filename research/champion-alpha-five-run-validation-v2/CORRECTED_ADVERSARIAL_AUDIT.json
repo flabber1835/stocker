@@ -1,0 +1,40 @@
+{
+  "schema": "champion.corrected-adversarial-audit/1",
+  "baseline_workflow_run_id": 34071569702,
+  "baseline_artifact_id": 10001317230,
+  "experimental_results_observed": false,
+  "portfolio_path": {
+    "sessions": 5032,
+    "average_held_count": 22.67885532591415,
+    "full_allocation_average_held_count": 23.22731418148655,
+    "full_allocation_under_25_fraction": 0.7362061103511172
+  },
+  "fresh_replacement_fingerprint": {
+    "clean_single_vacancy_windows": 13,
+    "unique_next_addition_session_steps": [22],
+    "interpretation": "Observed timing is consistent with a 21-session slot cooldown followed by next-open execution."
+  },
+  "holding_age_fingerprint": {
+    "all_observed_position_exits": 485,
+    "exit_age_119_count": 2,
+    "exit_age_120_count": 68,
+    "exit_age_121_through_129_count": 6,
+    "source_review_age": 119
+  },
+  "zero_stock_episodes": [
+    {"start":"2008-07-09","end":"2009-03-27","sessions":182,"strategy_endpoint_return":0.011233153732137513,"spy_endpoint_return":-0.33217399059149144,"worst_spy_change_from_start":-0.4466925289278344},
+    {"start":"2011-08-05","end":"2011-10-28","sessions":60,"strategy_endpoint_return":-0.0004383201380707691,"spy_endpoint_return":0.07646228974498159,"worst_spy_change_from_start":-0.07981551817688526},
+    {"start":"2015-08-26","end":"2015-10-28","sessions":45,"strategy_endpoint_return":-0.0006554959236370062,"spy_endpoint_return":0.08019409564025515,"worst_spy_change_from_start":-0.028058673185910266},
+    {"start":"2018-12-20","end":"2019-02-05","sessions":31,"strategy_endpoint_return":0.002720435269641497,"spy_endpoint_return":0.1114929918560772,"worst_spy_change_from_start":-0.046255115558125115},
+    {"start":"2020-03-02","end":"2020-04-16","sessions":33,"strategy_endpoint_return":0.0013415825464002662,"spy_endpoint_return":-0.09147991618425244,"worst_spy_change_from_start":-0.2742586213019854},
+    {"start":"2022-06-14","end":"2022-08-04","sessions":36,"strategy_endpoint_return":0.0014186058618330666,"spy_endpoint_return":0.11256639475757635,"worst_spy_change_from_start":-0.01931045820177213}
+  ],
+  "reconfirmed_hypotheses": [
+    "fresh_name_slot_reuse_delay",
+    "one_admission_per_day_refill_throttle",
+    "age_120_exit_boundary",
+    "delayed_recovery_participation_after_zero_exposure"
+  ],
+  "classification_expansion_required_before_runs": false,
+  "classification_note": "All five experiments freeze the certified factual classifier. Unknown security types remain fail-closed/ineligible. Any new path-dependent classification gap stops the affected arm and is reported before performance is accepted."
+}
