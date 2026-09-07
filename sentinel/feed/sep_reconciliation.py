@@ -31,18 +31,6 @@ _save_result = _core._save_result
 _bounded_years = _core._bounded_years
 
 
-def _next_year(conn) -> tuple[int, dt.date, dt.date]:
-    """Select the next rotation year through canonical public dependencies."""
-    lo, hi = _visible_bounds(conn)
-    state = _load_state(conn)
-    year = lo.year if state is None else int(state["last_completed_year"]) + 1
-    if year > hi.year or year < lo.year:
-        year = lo.year
-    start = max(lo, dt.date(year, 1, 1))
-    end = min(hi, dt.date(year, 12, 31))
-    return year, start, end
-
-
 def _strict_ceiling(value) -> dt.date:
     if isinstance(value, dt.datetime):
         raise ValueError("SEP reconciliation observation ceiling must be a date")
@@ -55,8 +43,25 @@ def _strict_ceiling(value) -> dt.date:
     return parsed
 
 
+def _strict_observation_boundary(value) -> dt.datetime:
+    if isinstance(value, dt.datetime):
+        parsed = value
+    else:
+        text = str(value or "").strip()
+        if text.endswith("Z"):
+            text = text[:-1] + "+00:00"
+        try:
+            parsed = dt.datetime.fromisoformat(text)
+        except ValueError as exc:
+            raise ValueError(
+                "SEP source observation boundary must be an ISO-8601 timestamp") from exc
+    if parsed.tzinfo is None:
+        raise ValueError("SEP source observation boundary must be timezone-aware")
+    return parsed.astimezone(dt.timezone.utc)
+
+
 def _production_source_ceiling(fetch, market_ceiling: dt.date) -> dt.date:
-    """Use one caller-independent vendor-observation boundary for production."""
+    """Use one caller-independent vendor-observation date for production."""
     from sentinel.feed import snapshot_source
 
     if fetch is not snapshot_source.fetch_table:
@@ -67,6 +72,20 @@ def _production_source_ceiling(fetch, market_ceiling: dt.date) -> dt.date:
             f"current source observation date {source_day} is behind market "
             f"reconciliation boundary {market_ceiling}")
     return source_day
+
+
+def _production_source_boundary(fetch, source_ceiling: dt.date):
+    """Freeze the UTC instant that all production deletion authority must predate."""
+    from sentinel.feed import snapshot_source
+
+    if fetch is not snapshot_source.fetch_table:
+        return None
+    boundary = dt.datetime.now(dt.timezone.utc)
+    if boundary.date() != source_ceiling:
+        raise SepReconciliationStateInvalid(
+            "production SEP source observation date and frozen UTC observation "
+            f"instant disagree: date={source_ceiling}, instant={boundary.isoformat()}")
+    return boundary
 
 
 def _source_fingerprint(
@@ -94,7 +113,7 @@ def _month_windows(start: str, end: str):
         cursor = next_month
 
 
-def _export_refresh_day(value) -> dt.date:
+def _export_refresh_time(value) -> dt.datetime:
     text = str(value or "").strip()
     if not text:
         raise SepReconciliationStateInvalid(
@@ -109,17 +128,25 @@ def _export_refresh_day(value) -> dt.date:
     if parsed.tzinfo is None:
         raise SepReconciliationStateInvalid(
             "SEP complete export returned timezone-naive last_refreshed_time authority")
-    return parsed.astimezone(dt.timezone.utc).date()
+    return parsed.astimezone(dt.timezone.utc)
 
 
 def _complete_export_source(
-        *, start: str, end: str, observation_ceiling=None):
-    """Return replayable complete Exporter authority bound to one source date."""
+        *, start: str, end: str, observation_ceiling=None,
+        source_observation_boundary=None):
+    """Return complete Exporter authority bound to one frozen source observation."""
     from sentinel.feed import sharadar, snapshot_export
 
     ceiling = (
         None if observation_ceiling is None
         else _strict_ceiling(observation_ceiling))
+    boundary = (
+        None if source_observation_boundary is None
+        else _strict_observation_boundary(source_observation_boundary))
+    if boundary is not None and ceiling is not None and boundary.date() != ceiling:
+        raise SepReconciliationStateInvalid(
+            "SEP complete export observation date and frozen source observation "
+            "instant disagree")
     handle = tempfile.NamedTemporaryFile(
         mode="w+", encoding="utf-8", prefix="sentinel-sep-export-",
         suffix=".jsonl", delete=False)
@@ -131,11 +158,16 @@ def _complete_export_source(
         for lo, hi in _month_windows(start, end):
             rows, evidence = snapshot_export.fetch_complete_sep(start=lo, end=hi)
             current_refresh = str(evidence.get("last_refreshed_time") or "")
-            refresh_day = _export_refresh_day(current_refresh)
-            if ceiling is not None and refresh_day > ceiling:
+            refresh_time = _export_refresh_time(current_refresh)
+            if ceiling is not None and refresh_time.date() > ceiling:
                 raise SepReconciliationStateInvalid(
                     "SEP complete export vendor generation is newer than the "
-                    f"frozen observation ceiling {ceiling}: refresh={refresh_day}")
+                    f"frozen observation ceiling {ceiling}: refresh={refresh_time.date()}")
+            if boundary is not None and refresh_time > boundary:
+                raise SepReconciliationStateInvalid(
+                    "SEP complete export vendor generation is newer than the "
+                    "frozen source observation boundary "
+                    f"{boundary.isoformat()}: refresh={refresh_time.isoformat()}")
             if refresh_marker is None:
                 refresh_marker = current_refresh
             elif current_refresh != refresh_marker:
@@ -194,11 +226,13 @@ def _complete_export_source(
     }
     if ceiling is not None:
         authority["observation_ceiling"] = ceiling.isoformat()
+    if boundary is not None:
+        authority["source_observation_boundary"] = boundary.isoformat()
     return export_fetch, authority
 
 
 def _fresh_actions_retirement_authority(conn, *, through: dt.date) -> dict:
-    """Prove current ACTIONS state immediately before destructive SEP repair."""
+    """Prove current ACTIONS state immediately before SEP retirement publication."""
     from sentinel.feed import action_source, snapshot_export
 
     maintenance.reconcile_actions_if_due(
@@ -237,7 +271,7 @@ def _fresh_actions_retirement_authority(conn, *, through: dt.date) -> dict:
 def _repair_local_only_if_proved(
         conn, *, fetch, start: str, end: str, observation_ceiling,
         source, local, require_complete_export: bool = False,
-        actions_authority_evidence=None):
+        actions_authority_evidence=None, source_observation_boundary=None):
     """Repair only a bounded source-stable local-only key set."""
     if int(local.rows) <= int(source.rows):
         return local
@@ -246,7 +280,8 @@ def _repair_local_only_if_proved(
     if require_complete_export:
         repair_fetch, source_authority_evidence = _complete_export_source(
             start=start, end=end,
-            observation_ceiling=_strict_ceiling(observation_ceiling))
+            observation_ceiling=_strict_ceiling(observation_ceiling),
+            source_observation_boundary=source_observation_boundary)
     try:
         if require_complete_export and actions_authority_evidence is None:
             _lo, market_hi = _visible_bounds(conn)
@@ -264,6 +299,7 @@ def _repair_local_only_if_proved(
         sep_negative_space_guarded.repair_local_only(
             conn, fetch=repair_fetch, start=start, end=end,
             observation_ceiling=_strict_ceiling(observation_ceiling),
+            source_observation_boundary=source_observation_boundary,
             expected_source=source,
             source_authority_evidence=source_authority_evidence,
             actions_authority_evidence=actions_authority_evidence)
@@ -275,11 +311,13 @@ def _repair_local_only_if_proved(
 
 
 def _post_retirement_source_proof(
-        conn, *, start: str, end: str, observation_ceiling):
-    """Re-observe the same causally bounded complete authority after retirement."""
+        conn, *, start: str, end: str, observation_ceiling,
+        source_observation_boundary=None):
+    """Re-observe the same frozen complete authority after retirement publication."""
     verify_fetch, _evidence = _complete_export_source(
         start=start, end=end,
-        observation_ceiling=_strict_ceiling(observation_ceiling))
+        observation_ceiling=_strict_ceiling(observation_ceiling),
+        source_observation_boundary=source_observation_boundary)
     try:
         return _source_fingerprint(
             conn, fetch=verify_fetch, start=start, end=end,
@@ -294,7 +332,7 @@ def reconcile_year(
         conn, *, fetch=None,
         year: int, start: str, end: str,
         observation_ceiling, require_complete_export: bool | None = None,
-        actions_authority_evidence=None):
+        actions_authority_evidence=None, source_observation_boundary=None):
     """Prove one stable source year equals published keys and strategy values."""
     from sentinel.feed import snapshot_source
 
@@ -303,6 +341,9 @@ def reconcile_year(
         fetch = snapshot_source.fetch_table
     if require_complete_export is None:
         require_complete_export = production or fetch is snapshot_source.fetch_table
+    if require_complete_export and source_observation_boundary is None:
+        source_observation_boundary = _production_source_boundary(
+            fetch, _strict_ceiling(observation_ceiling))
 
     _core.store._assert_corpus_locked(conn)
     if not (str(start).startswith(f"{int(year):04d}-")
@@ -319,11 +360,13 @@ def reconcile_year(
             observation_ceiling=observation_ceiling,
             source=source, local=local,
             require_complete_export=bool(require_complete_export),
-            actions_authority_evidence=actions_authority_evidence)
+            actions_authority_evidence=actions_authority_evidence,
+            source_observation_boundary=source_observation_boundary)
         if repair_candidate and require_complete_export:
             source = _post_retirement_source_proof(
                 conn, start=start, end=end,
-                observation_ceiling=observation_ceiling)
+                observation_ceiling=observation_ceiling,
+                source_observation_boundary=source_observation_boundary)
             local = _local_fingerprint(conn, start=start, end=end)
     if source.rows != local.rows or source.key_digest != local.key_digest:
         raise _core.SepKeysetDrift(
@@ -366,6 +409,9 @@ def reconcile_all(conn, *, fetch=None, through: str, observation_ceiling=None):
             f"current source observation date {source_ceiling} is behind market "
             f"reconciliation boundary {market_through}")
     require_complete_export = production or fetch is snapshot_source.fetch_table
+    source_boundary = (
+        _production_source_boundary(fetch, source_ceiling)
+        if require_complete_export else None)
     if require_complete_export:
         maintenance.reconcile_actions_if_due(
             conn, through=market_through.isoformat())
@@ -379,7 +425,8 @@ def reconcile_all(conn, *, fetch=None, through: str, observation_ceiling=None):
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
             observation_ceiling=source_ceiling,
-            require_complete_export=require_complete_export)
+            require_complete_export=require_complete_export,
+            source_observation_boundary=source_boundary)
         _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
@@ -406,6 +453,9 @@ def reconcile_next(conn, *, fetch=None, through: str, observation_ceiling=None):
             f"reconciliation boundary {market_through}")
     production = production or fetch is snapshot_source.fetch_table
     require_complete_export = production
+    source_boundary = (
+        _production_source_boundary(fetch, source_ceiling)
+        if require_complete_export else None)
 
     if production:
         maintenance.reconcile_actions_if_due(
@@ -424,7 +474,8 @@ def reconcile_next(conn, *, fetch=None, through: str, observation_ceiling=None):
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
             observation_ceiling=source_ceiling,
-            require_complete_export=require_complete_export)
+            require_complete_export=require_complete_export,
+            source_observation_boundary=source_boundary)
         _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
