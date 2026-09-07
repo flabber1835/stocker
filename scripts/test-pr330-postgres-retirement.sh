@@ -1,0 +1,44 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+TEST_IMAGE="${1:-sentinel-test:ci}"
+POSTGRES_IMAGE="postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b"
+network="pr330-pg-${RANDOM}-$$"
+postgres="pr330-postgres-${RANDOM}-$$"
+password="pr330-ci-postgres"
+
+cleanup() {
+  docker rm -f "$postgres" >/dev/null 2>&1 || true
+  docker network rm "$network" >/dev/null 2>&1 || true
+}
+trap cleanup EXIT
+
+docker network create "$network" >/dev/null
+docker run -d --rm \
+  --name "$postgres" \
+  --network "$network" \
+  -e POSTGRES_PASSWORD="$password" \
+  -e POSTGRES_DB=sentinel \
+  "$POSTGRES_IMAGE" >/dev/null
+
+ready=0
+for _ in $(seq 1 60); do
+  if docker exec "$postgres" pg_isready -U postgres -d sentinel >/dev/null 2>&1; then
+    ready=1
+    break
+  fi
+  sleep 1
+done
+if [ "$ready" -ne 1 ]; then
+  echo "PR330_POSTGRES_REFUSED: PostgreSQL did not become ready" >&2
+  exit 1
+fi
+
+docker run --rm \
+  --network "$network" \
+  -e SENTINEL_DATABASE_URL="postgresql://postgres:${password}@${postgres}:5432/sentinel" \
+  -e SENTINEL_PUBLICATION_RECEIPT_KEY="pr330-test-receipt-key-pr330-test-receipt-key-pr330-test-receipt-key" \
+  "$TEST_IMAGE" \
+  tests/postgres/test_pr330_retirement_boundaries.py -q -ra
+
+echo "PR330_POSTGRES_PASS"
