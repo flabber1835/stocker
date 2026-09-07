@@ -203,6 +203,8 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
             conn, fetch=fetch, through=through)
     hi = _strict_date(through, field="SEP reconciliation through")
     if cursor.processed_through > hi:
+        if reobserve_equal:
+            return cursor
         raise maintenance.SharadarMutationRefused(
             f"SEP mutation cursor {cursor.processed_through} is ahead of "
             f"requested reconciliation through {hi}; refusing to treat future "
