@@ -23,8 +23,8 @@ from __future__ import annotations
 import datetime as dt
 
 from sentinel.feed import (
-    calendar, maintenance, publication, sep_reconciliation, sharadar,
-    snapshot_export, store)
+    calendar, maintenance, publication, seed_coherence, sep_reconciliation,
+    sharadar, snapshot_export, store)
 from stock_strategy_shared.wealth_core.signals import REQUIRED_CLOSES
 
 CURSOR_NAME = "sharadar-sep-recent-export-reconcile:v1"
@@ -57,12 +57,13 @@ def _year_windows(start: str, end: str):
             yield year, first.isoformat(), last.isoformat()
 
 
-def reconcile_recent(conn, *, through: str, fetch=None):
+def reconcile_recent(conn, *, through: str, fetch=None, observation_ceiling=None):
     """Prove the complete current Wealth Core history window against source.
 
     ``fetch=None`` is the production contract and uses the fresh whole-export
-    membrane. An explicit injected fetch stays deterministic/offline; the normal
-    reconciliation layer still observes it twice before trusting its content.
+    membrane. Production captures one source-observation boundary through the
+    shared authority helper; callers may inject it explicitly for deterministic
+    orchestration/tests. An explicit injected fetch stays deterministic/offline.
     """
     store._assert_corpus_locked(conn)
     requested = dt.date.fromisoformat(str(through))
@@ -73,7 +74,17 @@ def reconcile_recent(conn, *, through: str, fetch=None):
             f"is ahead of requested reconciliation through {requested}; refusing "
             "to traverse source under future durable authority")
 
-    source_fetch = _export_fetch if fetch is None else fetch
+    production = fetch is None
+    source_fetch = _export_fetch if production else fetch
+    if observation_ceiling is None:
+        observation_ceiling = (
+            seed_coherence.capture_update_ceiling()
+            if production else requested.isoformat())
+    source_ceiling = sep_reconciliation._strict_ceiling(observation_ceiling)
+    if source_ceiling < requested:
+        raise sep_reconciliation.SepReconciliationStateInvalid(
+            f"current source observation date {source_ceiling} is behind market "
+            f"reconciliation boundary {requested}")
     sessions = calendar.previous_sessions(str(through), REQUIRED_CLOSES)
     if len(sessions) < REQUIRED_CLOSES:
         raise sep_reconciliation.SepReconciliationStateInvalid(
@@ -87,7 +98,8 @@ def reconcile_recent(conn, *, through: str, fetch=None):
     for year, lo, hi in _year_windows(start, end):
         sep_reconciliation.reconcile_year(
             conn, fetch=source_fetch, year=year, start=lo, end=hi,
-            observation_ceiling=through)
+            observation_ceiling=source_ceiling,
+            require_complete_export=production)
 
     current = publication.require_current(conn)
     return maintenance._write_cursor(

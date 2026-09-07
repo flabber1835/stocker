@@ -14,6 +14,7 @@ from sentinel.feed._seed_coherence_impl import (
     START_SCHEMA,
     SeedCoherenceProof,
     SeedCoherenceRefused,
+    capture_observation_instant,
     capture_update_boundary,
     capture_update_ceiling,
     load,

@@ -193,7 +193,7 @@ def _load_marks_and_tickers(conn, state: SessionState, session: str
                 tickers[sid] = str(ticker)
                 if close is not None:
                     marks[sid] = Decimal(str(close))
-        defensive_visible = publication.visible_predicate("d")
+        defensive_visible = publication.visible_predicate("d", sep_retirements=False)
         cur.execute(
             "SELECT security_id,close_unadjusted FROM sentinel_defensive_bars d"
             " WHERE session=%s AND security_id=%s AND ticker=%s AND "

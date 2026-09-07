@@ -25,8 +25,10 @@ def test_recent_reconciliation_splits_cross_year_window_without_gaps(monkeypatch
                         lambda through, count: list(sessions))
     calls = []
 
-    def reconcile(conn, *, fetch, year, start, end, observation_ceiling):
-        calls.append((year, start, end, fetch, observation_ceiling))
+    def reconcile(conn, *, fetch, year, start, end, observation_ceiling,
+                  require_complete_export=False):
+        calls.append((year, start, end, fetch, observation_ceiling,
+                      require_complete_export))
         return object()
 
     monkeypatch.setattr(R.sep_reconciliation, "reconcile_year", reconcile)
@@ -36,13 +38,16 @@ def test_recent_reconciliation_splits_cross_year_window_without_gaps(monkeypatch
         R.maintenance, "_write_cursor",
         lambda conn, **kwargs: kwargs)
 
-    result = R.reconcile_recent(object(), through="2026-01-02")
-    assert [(y, lo, hi) for y, lo, hi, _, _ in calls] == [
+    result = R.reconcile_recent(
+        object(), through="2026-01-02", observation_ceiling="2026-01-02")
+    assert [(y, lo, hi) for y, lo, hi, *_ in calls] == [
         (2025, "2025-12-30", "2025-12-31"),
         (2026, "2026-01-01", "2026-01-02"),
     ]
-    assert all(fetch is R._export_fetch for _, _, _, fetch, _ in calls)
-    assert all(ceiling == "2026-01-02" for *_, ceiling in calls)
+    assert all(fetch is R._export_fetch for _, _, _, fetch, _, _ in calls)
+    assert all(ceiling == dt.date(2026, 1, 2)
+               for *_, ceiling, _ in calls)
+    assert all(require_export for *_, require_export in calls)
     assert result["through"] == dt.date(2026, 1, 2)
     assert result["publication_version"] == 11
 
@@ -58,15 +63,39 @@ def test_recent_reconciliation_preserves_an_explicit_injected_source(monkeypatch
     seen = []
     monkeypatch.setattr(
         R.sep_reconciliation, "reconcile_year",
-        lambda conn, *, fetch, year, start, end, observation_ceiling:
-            seen.append((fetch, observation_ceiling)))
+        lambda conn, *, fetch, year, start, end, observation_ceiling,
+        require_complete_export=False:
+            seen.append((fetch, observation_ceiling, require_complete_export)))
     monkeypatch.setattr(R.publication, "require_current",
                         lambda conn: SimpleNamespace(version=11))
     monkeypatch.setattr(R.maintenance, "_write_cursor",
                         lambda conn, **kwargs: kwargs)
 
     R.reconcile_recent(object(), through="2026-01-02", fetch=injected)
-    assert seen == [(injected, "2026-01-02")]
+    assert seen == [(injected, dt.date(2026, 1, 2), False)]
+
+
+def test_recent_production_clock_uses_shared_authority_helper(monkeypatch):
+    sessions = ["2026-01-02"]
+    monkeypatch.setattr(R, "REQUIRED_CLOSES", 1)
+    monkeypatch.setattr(R.store, "_assert_corpus_locked", lambda conn: None)
+    monkeypatch.setattr(R, "load_cursor", lambda conn: None)
+    monkeypatch.setattr(R.calendar, "previous_sessions",
+                        lambda through, count: list(sessions))
+    monkeypatch.setattr(
+        R.seed_coherence, "capture_update_ceiling", lambda: "2026-01-03")
+    seen = []
+    monkeypatch.setattr(
+        R.sep_reconciliation, "reconcile_year",
+        lambda conn, **kwargs: seen.append(kwargs))
+    monkeypatch.setattr(R.publication, "require_current",
+                        lambda conn: SimpleNamespace(version=11))
+    monkeypatch.setattr(R.maintenance, "_write_cursor",
+                        lambda conn, **kwargs: kwargs)
+
+    R.reconcile_recent(object(), through="2026-01-02")
+    assert seen[0]["observation_ceiling"] == dt.date(2026, 1, 3)
+    assert seen[0]["require_complete_export"] is True
 
 
 def test_recent_reconciliation_refuses_backward_source_traversal(monkeypatch):

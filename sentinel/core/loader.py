@@ -188,7 +188,7 @@ def _historical_metadata_rows(conn, *, as_of: str):
             "  MAX(snapshot_date) snapshot_date"
             " FROM sentinel_universe u"
             " WHERE permaticker IS NOT NULL AND ticker IS NOT NULL"
-            "   AND snapshot_date<=%s AND " + visible_predicate("u") +
+            "   AND snapshot_date<=%s AND " + visible_predicate("u", sep_retirements=False) +
             " GROUP BY permaticker,ticker)"
             " SELECT permaticker,"
             "  (ARRAY_REMOVE(ARRAY_AGG(ticker ORDER BY snapshot_date DESC),NULL))[1] ticker,"
@@ -263,7 +263,7 @@ def load_sectors(conn, *, as_of: Optional[str] = None) -> dict[str, str | None]:
             "  MAX(snapshot_date) FILTER (WHERE sector IS NOT NULL) sector_date"
             " FROM sentinel_universe u"
             " WHERE permaticker IS NOT NULL AND ticker IS NOT NULL"
-            "   AND snapshot_date<=%s AND " + visible_predicate("u") +
+            "   AND snapshot_date<=%s AND " + visible_predicate("u", sep_retirements=False) +
             " GROUP BY permaticker,ticker)"
             " SELECT permaticker,"
             "  (ARRAY_REMOVE(ARRAY_AGG(sector ORDER BY sector_date DESC NULLS LAST),NULL))[1]"

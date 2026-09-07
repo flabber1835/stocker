@@ -488,7 +488,8 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
 
         published_frontier = feed_store.latest_visible_session(conn)
         sep_reconciliation.reconcile_next(
-            conn, fetch=fetch, through=published_frontier)
+            conn, fetch=fetch, through=published_frontier,
+            observation_ceiling=source_observation_day)
         _reconcile_sep_for_market_target(
             conn, fetch=fetch, target=today_date.isoformat(),
             source_observation_day=source_observation_day)

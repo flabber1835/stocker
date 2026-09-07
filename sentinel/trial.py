@@ -526,7 +526,7 @@ def _expected_defensive_dividends(
     if len(set(source_rows)) != len(source_rows):
         raise TrialEvidenceRefused("BIL distribution source identities repeat")
 
-    visible = publication.visible_predicate("d")
+    visible = publication.visible_predicate("d", sep_retirements=False)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT close_signal,close_unadjusted"
@@ -957,7 +957,7 @@ def _marks(conn, session: date, positions: Mapping[str, object]) -> tuple[dict, 
                 (session, equity_wanted))
             rows.extend(cur.fetchall())
         if DEFENSIVE_SECURITY_ID in wanted:
-            defensive_visible = publication.visible_predicate("d")
+            defensive_visible = publication.visible_predicate("d", sep_retirements=False)
             cur.execute(
                 "SELECT security_id,ticker,close_unadjusted"
                 " FROM sentinel_defensive_bars d WHERE d.session=%s"

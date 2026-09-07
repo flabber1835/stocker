@@ -51,7 +51,8 @@ def conn(pg):
             " last_written_run_id UUID, PRIMARY KEY (security_id, session))")
         cur.execute(
             "CREATE TABLE sentinel_corpus_publications ("
-            " version BIGSERIAL PRIMARY KEY, run_id UUID)")
+            " version BIGSERIAL PRIMARY KEY, run_id UUID,"
+            " evidence JSONB NOT NULL DEFAULT '{}'::jsonb)")
         cur.execute(
             "CREATE INDEX idx_test_publications_run"
             " ON sentinel_corpus_publications (run_id)")

@@ -1202,7 +1202,7 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
             "   ORDER BY prior_bar.session DESC LIMIT 1"
             " ) prior ON TRUE"
             " WHERE d.session>%s AND d.session<=%s AND "
-            + publication.visible_predicate("d") +
+            + publication.visible_predicate("d", sep_retirements=False) +
             " ORDER BY d.session", (start, end))
         defensive_rows = list(cur.fetchall())
 

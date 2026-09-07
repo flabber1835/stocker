@@ -90,7 +90,7 @@ def current_metadata_snapshot_identity(conn) -> Mapping:
     not require needless certificate rotation. A content or membership change
     does.
     """
-    visibility = visible_predicate("u")
+    visibility = visible_predicate("u", sep_retirements=False)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT MAX(snapshot_date) FROM sentinel_universe u"

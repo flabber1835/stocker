@@ -479,7 +479,7 @@ def _corpus_pinned(conn, *, start: str, end: str, publication_record) -> dict:
         "SELECT permaticker, ticker, category, related_tickers,"
         " first_price_date, last_price_date, is_delisted, snapshot_date"
         " FROM sentinel_universe u"
-        f" WHERE {visible_predicate('u')}"
+        f" WHERE {visible_predicate('u', sep_retirements=False)}"
         " ORDER BY permaticker, ticker, snapshot_date", ())
     from sentinel.feed.store import published_spy_total_return
 
