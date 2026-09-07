@@ -5,14 +5,13 @@ p = Path('audit-src/research/champion-alpha-five-run-validation-v2/experiment_ru
 s = p.read_text()
 needle = '    (out / "experiment-generated.py").write_text(variant)\n'
 marker = "    (OUT/'summary.json').write_text(json.dumps(summary,indent=2))"
-witness = """    _end_eq,_end_unresolved=book.equity(raw)
+witness = """    _end_eq,_end_unresolved=book.equity(book.last_raw)
     _end_cash=float(book.cash+sum(x[1] for x in book.receivables))
     _end_alloc=float(eff['A'])
     _end_positions=[]
     for _slot in book.slots:
         if not _slot.held(): continue
-        _tid=int(_slot.tid); _px=float(raw[_tid])
-        if not (finite(_px) and _px>0): _px=float(book.last_raw.get(_tid,float('nan')))
+        _tid=int(_slot.tid); _px=float(book.last_raw.get(_tid,float('nan')))
         if not (finite(_px) and _px>0): raise RuntimeError(f'end-book unresolved price tid={_tid}')
         _mv=float(_slot.qty*_px); _wcw=float(_mv/_end_eq); _effw=float(_end_alloc*_wcw)
         _end_positions.append({'ticker':str(tick[_tid]),'security_id':str(sid[_tid]),'shares':float(_slot.qty),'price':_px,'market_value':_mv,'wealth_core_weight':_wcw,'effective_portfolio_weight':_effw})
