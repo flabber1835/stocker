@@ -51,15 +51,21 @@ def conn(pg):
 
 def _published_bar(conn):
     run = store.IngestRun(conn, "daily")
+    run_id = str(run.progress.run_id)
     with conn.cursor() as cur:
         cur.execute(
             "INSERT INTO sentinel_bars (security_id,session,ticker,"
             " close_signal,close_unadjusted,volume,last_written_run_id)"
             " VALUES ('P:1','2026-04-02','AAA',10,10,1000,%s)",
-            (str(run.progress.run_id),))
+            (run_id,))
+        cur.execute(
+            "INSERT INTO sentinel_bar_split_repairs"
+            " (security_id,session,split_ratio,prior_split_ratio,last_written_run_id)"
+            " VALUES ('P:1','2026-04-02',1,1,%s)",
+            (run_id,))
     conn.commit()
     run.finish("success")
-    publication.publish(conn, run_id=str(run.progress.run_id))
+    publication.publish(conn, run_id=run_id)
     return run
 
 
@@ -93,6 +99,10 @@ def test_retirement_uses_governed_restatement_before_delete(conn):
     with conn.cursor() as cur:
         cur.execute(
             "SELECT COUNT(*) FROM sentinel_bars"
+            " WHERE security_id='P:1' AND session='2026-04-02'")
+        assert cur.fetchone()[0] == 0
+        cur.execute(
+            "SELECT COUNT(*) FROM sentinel_bar_split_repairs"
             " WHERE security_id='P:1' AND session='2026-04-02'")
         assert cur.fetchone()[0] == 0
         cur.execute(
