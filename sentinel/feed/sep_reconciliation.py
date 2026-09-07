@@ -2,6 +2,9 @@
 from __future__ import annotations
 
 import datetime as dt
+import json
+import os
+import tempfile
 
 from sentinel.feed import (
     maintenance,
@@ -44,12 +47,56 @@ def _local_fingerprint(conn, *, start: str, end: str):
     return _core._local_fingerprint(conn, start=start, end=end)
 
 
+def _month_windows(start: str, end: str):
+    lo = dt.date.fromisoformat(start)
+    hi = dt.date.fromisoformat(end)
+    cursor = lo
+    while cursor <= hi:
+        if cursor.month == 12:
+            next_month = dt.date(cursor.year + 1, 1, 1)
+        else:
+            next_month = dt.date(cursor.year, cursor.month + 1, 1)
+        last = min(hi, next_month - dt.timedelta(days=1))
+        yield cursor.isoformat(), last.isoformat()
+        cursor = next_month
+
+
 def _complete_export_source(*, start: str, end: str):
-    """Return one fresh bounded Exporter snapshot plus its durable authority."""
+    """Spool fresh bounded Exporter partitions and return replayable authority.
+
+    A full SEP year can contain millions of rows. Keep only one monthly export in
+    memory at a time, persist canonical JSON lines to a temporary file, and replay
+    that file for the two normalization observations required by retirement.
+    """
     from sentinel.feed import sharadar, snapshot_export
 
-    rows, evidence = snapshot_export.fetch_complete_sep(start=start, end=end)
-    frozen = tuple(dict(row) for row in rows)
+    handle = tempfile.NamedTemporaryFile(
+        mode="w+", encoding="utf-8", prefix="sentinel-sep-export-",
+        suffix=".jsonl", delete=False)
+    path = handle.name
+    parts = []
+    total_rows = 0
+    try:
+        for lo, hi in _month_windows(start, end):
+            rows, evidence = snapshot_export.fetch_complete_sep(start=lo, end=hi)
+            parts.append(dict(evidence))
+            total_rows += len(rows)
+            for row in rows:
+                handle.write(json.dumps(dict(row), sort_keys=True, separators=(",", ":")))
+                handle.write("\n")
+            del rows
+        handle.flush()
+        handle.close()
+    except BaseException:
+        try:
+            handle.close()
+        finally:
+            try:
+                os.unlink(path)
+            except FileNotFoundError:
+                pass
+        raise
+
     expected = sharadar.date_params(start, end)
 
     def export_fetch(table, params=None, **_kwargs):
@@ -57,9 +104,28 @@ def _complete_export_source(*, start: str, end: str):
             raise ValueError(
                 "SEP retirement export may be replayed only for its exact bounded "
                 "partition")
-        return iter(dict(row) for row in frozen)
 
-    return export_fetch, dict(evidence)
+        def replay():
+            with open(path, "r", encoding="utf-8") as source:
+                for line in source:
+                    yield json.loads(line)
+        return replay()
+
+    def cleanup():
+        try:
+            os.unlink(path)
+        except FileNotFoundError:
+            pass
+
+    export_fetch.cleanup = cleanup
+    evidence = {
+        "authority": "nasdaq-data-link-table-export-composite/v1",
+        "table": sharadar.SEP,
+        "window": [str(start), str(end)],
+        "source_rows": total_rows,
+        "parts": parts,
+    }
+    return export_fetch, evidence
 
 
 def _fresh_actions_retirement_authority(conn, *, through: dt.date) -> dict:
@@ -124,12 +190,17 @@ def _repair_local_only_if_proved(
                     "retirement authority; refusing to continue with stale proof")
         repair_fetch, source_authority_evidence = _complete_export_source(
             start=start, end=end)
-    sep_negative_space_guarded.repair_local_only(
-        conn, fetch=repair_fetch, start=start, end=end,
-        observation_ceiling=_strict_ceiling(observation_ceiling),
-        expected_source=source,
-        source_authority_evidence=source_authority_evidence,
-        actions_authority_evidence=actions_authority_evidence)
+    try:
+        sep_negative_space_guarded.repair_local_only(
+            conn, fetch=repair_fetch, start=start, end=end,
+            observation_ceiling=_strict_ceiling(observation_ceiling),
+            expected_source=source,
+            source_authority_evidence=source_authority_evidence,
+            actions_authority_evidence=actions_authority_evidence)
+    finally:
+        cleanup = getattr(repair_fetch, "cleanup", None)
+        if cleanup is not None:
+            cleanup()
     return _local_fingerprint(conn, start=start, end=end)
 
 
