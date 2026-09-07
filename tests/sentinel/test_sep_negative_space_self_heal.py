@@ -176,6 +176,8 @@ def test_failed_atomic_retirement_marks_repair_run_failed(monkeypatch):
     monkeypatch.setattr(
         neg, "_retire_and_publish",
         lambda *a, **k: (_ for _ in ()).throw(RuntimeError("publish failed")))
+    monkeypatch.setattr(
+        neg, "_publication_committed_for_run", lambda *a, **k: False)
 
     with pytest.raises(RuntimeError, match="publish failed"):
         neg.repair_local_only(
