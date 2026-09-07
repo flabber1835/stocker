@@ -50,11 +50,87 @@ jobs:
           cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
           cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
           cp candidate-src/backtester/data/champion-*security-types-v1* certified-src/backtester/data/
+          cp candidate-src/backtester/data/champion-historical-security-type-corrections-v1.csv certified-src/backtester/data/
           mkdir -p certified-src/research/champion-economic-integrity/security-truth
           cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
       - name: Fail-closed semantic tests and source preflight
         run: |
           set -euo pipefail
           cd certified-src
-          PYTHONPATH=. pytest -q "${GITHUB_WORKSPACE}/audit-src/backtester/tests/test_production_equivalent_dividend_lag.py"
-          python backtester/champion_final_truth_corpus_validator.py --manual research/champion-economic-integrity/security-truth/manual-review
+          PYTHONPATH=. python - <<'PY'
+          from backtester.production_equivalent_economic_overlay import assert_one_session_dividend_lag
+          good='book.receivables.append((gday+1,q*rawdiv))\nopen_eq,_=book.equity(opraw)\n'
+          bad='book.receivables.append((gday+15,q*rawdiv))\nopen_eq,_=book.equity(opraw)\n'
+          assert_one_session_dividend_lag(good)
+          try:
+              assert_one_session_dividend_lag(bad)
+          except RuntimeError:
+              pass
+          else:
+              raise AssertionError('gday+15 must fail')
+          print('PASS exact dividend lag gate')
+          PY
+          python backtester/champion_final_truth_corpus_validator.py --manual research/champion-economic-integrity/security-truth/manual-review --output "${GITHUB_WORKSPACE}/final-corpus-validation.json"
+          rm -rf "${GITHUB_WORKSPACE}/preflight"
+          python backtester/champion_production_equivalent_build.py --candidate-root "${GITHUB_WORKSPACE}/candidate-src" --output "${GITHUB_WORKSPACE}/preflight"
+          EXPECTED_FINAL_NORMALIZED_SHA256=$(python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          from backtester.champion_economic_prefix_audit import normalized_ast
+          print(hashlib.sha256(normalized_ast(Path('../preflight/production-equivalent-generated.py').read_text()).encode()).hexdigest())
+          PY
+          )
+          echo "EXPECTED_FINAL_NORMALIZED_SHA256=${EXPECTED_FINAL_NORMALIZED_SHA256}" >> "$GITHUB_ENV"
+      - name: Pull and verify exact canonical PIT package
+        env: {GHCR_TOKEN: '${{ secrets.GITHUB_TOKEN }}'}
+        run: |
+          set -euo pipefail
+          POINTER=certified-src/backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "$PACKAGE" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$PACKAGE"
+          cid=$(docker create "$PACKAGE" /bin/true)
+          mkdir -p canonical-pit
+          docker cp "$cid:/canonical-pit/." canonical-pit/
+          docker rm "$cid"
+          PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "$POINTER" --dataset canonical-pit > package-integrity.json
+      - name: Run corrected full-PIT 20-year replay
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python backtester/champion_production_equivalent_final_replay.py --candidate-root "${GITHUB_WORKSPACE}/candidate-src" --output "${GITHUB_WORKSPACE}/final-output" 2>&1 | tee "${GITHUB_WORKSPACE}/final-replay.log"
+      - name: Post-run exact semantic verification
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import ast,json,pathlib
+          out=pathlib.Path('final-output')
+          cert=json.loads((out/'CERTIFICATE.json').read_text())
+          assert cert['status']=='PRODUCTION_EQUIVALENT_CERTIFIED',cert
+          assert cert['dividend_lag_sessions']==1,cert
+          text=(out/'production-equivalent-generated.py').read_text()
+          hits=[]
+          for n in ast.walk(ast.parse(text)):
+              if isinstance(n,ast.Call) and isinstance(n.func,ast.Attribute) and n.func.attr=='append' and isinstance(n.func.value,ast.Attribute) and n.func.value.attr=='receivables': hits.append(n)
+          assert len(hits)==1,len(hits)
+          due=hits[0].args[0].elts[0]
+          assert isinstance(due,ast.BinOp) and isinstance(due.op,ast.Add) and isinstance(due.right,ast.Constant) and due.right.value==1,ast.dump(due)
+          summary=json.loads((out/'engine/summary.json').read_text())
+          assert summary['financial_grade_dividend_lag_sessions']==1,summary.get('financial_grade_dividend_lag_sessions')
+          print(json.dumps({'status':'PASS_RECERTIFIED_EXACT_ONE_SESSION','cagr_20y':cert['windows']['20']['strategy']['cagr'],'max_drawdown_20y':cert['windows']['20']['strategy']['max_drawdown']},sort_keys=True))
+          PY
+      - name: Preserve recertification evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-dividend-lag-1-recertification-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            final-output/
+            final-replay.log
+            final-corpus-validation.json
+            preflight/
+            package-integrity.json
+            audit-src/research/champion-dividend-lag-1-recertification/OBSOLETE_15_SESSION_ARTIFACTS.md
+          retention-days: 90
+          if-no-files-found: warn
