@@ -3,15 +3,14 @@ from __future__ import annotations
 
 import datetime as dt
 
-from sentinel.feed import publication, sep_negative_space as core
-from sentinel.feed.domains import (
+from sentinel.feed import domains, publication, sep_negative_space as core
+from stock_strategy_shared.split_reconciliation import (
     SPLIT_UNRESOLVED,
     raw_prices_refute_listed_split,
     resolve_split_orientation,
     split_price_evidence,
     split_ratio_bounds,
 )
-from sentinel.feed import domains
 
 KIND = core.KIND
 MAX_RETIREMENTS = core.MAX_RETIREMENTS
