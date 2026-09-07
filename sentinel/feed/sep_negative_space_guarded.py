@@ -21,6 +21,7 @@ _ORIGINAL_REPAIR = core.repair_local_only
 _ORIGINAL_RETIRE = core._retire_and_publish
 _COMPLETE_SEP_AUTHORITY = "nasdaq-data-link-table-export-composite/v1"
 _COMPLETE_ACTIONS_AUTHORITY = "nasdaq-data-link-table-export/v1"
+_SEP_RETIREMENT_CAPABILITY = object()
 
 
 def _assert_retired_rows_have_no_economic_events(conn, keys: list[dict]) -> None:
@@ -174,8 +175,9 @@ def _authority_date(value, *, field: str) -> dt.date:
 
 def _require_production_retirement_authority(
         *, source_authority_evidence, actions_authority_evidence,
-        observation_ceiling: dt.date) -> None:
-    """Validate the complete authorities at the destructive boundary itself."""
+        observation_ceiling: dt.date, fetch=None, start=None, end=None,
+        source_rows=None) -> None:
+    """Validate complete source provenance at the destructive boundary itself."""
     source = dict(source_authority_evidence or {})
     actions = dict(actions_authority_evidence or {})
     if source.get("authority") != _COMPLETE_SEP_AUTHORITY or source.get("table") != "SEP":
@@ -195,6 +197,25 @@ def _require_production_retirement_authority(
         raise SepNegativeSpaceRefused(
             "complete SEP retirement authority comes from a vendor refresh after "
             f"the frozen observation ceiling {observation_ceiling}")
+    if start is not None and end is not None:
+        if list(source.get("window") or []) != [str(start), str(end)]:
+            raise SepNegativeSpaceRefused(
+                "complete SEP retirement authority is bound to a different partition")
+    if source_rows is not None:
+        try:
+            evidence_rows = int(source.get("source_rows"))
+        except (TypeError, ValueError) as exc:
+            raise SepNegativeSpaceRefused(
+                "complete SEP retirement authority has invalid source row count") from exc
+        if evidence_rows != int(source_rows):
+            raise SepNegativeSpaceRefused(
+                "complete SEP retirement authority row count disagrees with "
+                "normalized source proof")
+    if getattr(fetch, "_sentinel_sep_retirement_capability", None) is not \
+            _SEP_RETIREMENT_CAPABILITY:
+        raise SepNegativeSpaceRefused(
+            "complete SEP retirement evidence is not backed by the canonical "
+            "Exporter replay capability")
 
 
 def _finalize_production_actions_authority(
@@ -366,14 +387,15 @@ def repair_local_only(
         _assert_current_actions_have_no_retirement_events(conn, keys)
         _assert_retirement_preserves_split_chain(conn, keys)
 
-        # Unit tests may replace the lower-level mutator to exercise planning and
-        # failure bookkeeping in isolation. The canonical production path always
-        # reaches this authority check with the original mutator installed.
+        # Tests may replace the lower-level mutator to exercise planning and
+        # failure bookkeeping in isolation. The canonical production path keeps
+        # the original mutator and must carry complete Exporter capability.
         if core._retire_and_publish is _ORIGINAL_RETIRE:
             _require_production_retirement_authority(
                 source_authority_evidence=source_authority_evidence,
                 actions_authority_evidence=actions_authority_evidence,
-                observation_ceiling=ceiling)
+                observation_ceiling=ceiling, fetch=fetch,
+                start=start, end=end, source_rows=source.rows)
 
         plan = core._plan(
             start=start, end=end, source=source,
