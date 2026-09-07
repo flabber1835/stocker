@@ -44,6 +44,7 @@ def conn(pg):
         ):
             cur.execute(f"DROP TABLE IF EXISTS {table} CASCADE")
     c.commit()
+    store.migrate_schema(c)
     store.require_feed_schema(c)
     yield c
     c.close()
