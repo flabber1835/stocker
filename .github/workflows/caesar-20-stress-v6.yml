@@ -1,0 +1,223 @@
+name: Caesar 20 six-arm causal stress validation
+run-name: Caesar 20 stress validation - ${{ github.sha }}
+on:
+  push:
+    branches: [research/caesar-20-stress-v6]
+    paths:
+      - '.github/workflows/caesar-20-stress-v6.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+  actions: read
+concurrency:
+  group: caesar-20-stress-v6-${{ github.ref }}
+  cancel-in-progress: false
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+  EXPECTED_BASE_NORMALIZED_SHA256: '435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde'
+
+jobs:
+  experiment:
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        arm:
+          - ENTRY_DELAY_1
+          - ENTRY_DELAY_2
+          - EXIT_DELAY_1
+          - RANK_TOP3_REVERSE
+          - COST_25BPS_RT
+          - COST_50BPS_RT
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Isolated experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: audit-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/champion-economic-integrity
+            research/champion-alpha-five-run-validation-v2
+            research/caesar-20-stress-v6
+
+      - name: Exact formal source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/strategy9-e3-broad-stability
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+
+      - name: Exact classifier source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ba74e79490beb8950611b1d17f5d124833b3d91e
+          path: candidate-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: backtester
+
+      - name: Exact runtime source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with: {python-version: '3.12.14', check-latest: false}
+
+      - name: Verify pins and install frozen runtime
+        run: |
+          set -euo pipefail
+          test "$(git -C audit-src rev-parse HEAD)" = "$GITHUB_SHA"
+          test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
+          test "$(git -C candidate-src rev-parse HEAD)" = ba74e79490beb8950611b1d17f5d124833b3d91e
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" >> "$GITHUB_ENV"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "$GITHUB_ENV"
+
+      - name: Stage exact corrected certification overlays
+        run: |
+          set -euo pipefail
+          for f in champion_economic_prefix_audit.py champion_full_classification_control.py champion_security_truth_audit_v2.py champion_security_truth_overlay_v2.py champion_final_security_truth.py champion_final_truth_corpus_validator.py production_equivalent_economic_overlay.py champion_production_equivalent_build.py champion_production_equivalent_final_replay.py; do
+            cp "audit-src/backtester/$f" certified-src/backtester/
+          done
+          cp audit-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
+          cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
+          cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
+          for f in champion-best-effort-security-types-v1.csv champion-best-effort-security-types-v1-summary.json champion-reviewed-security-types-v1.csv champion-historical-security-type-corrections-v1.csv; do
+            cp "candidate-src/backtester/data/$f" certified-src/backtester/data/
+          done
+          mkdir -p certified-src/research/champion-economic-integrity/security-truth
+          cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
+
+      - name: Revalidate one-session dividend semantics and factual classifier
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/audit-src/backtester/tests/test_production_equivalent_dividend_lag.py"
+          python backtester/champion_final_truth_corpus_validator.py --manual research/champion-economic-integrity/security-truth/manual-review --output "${GITHUB_WORKSPACE}/final-corpus-validation-${{ matrix.arm }}.json"
+          python backtester/champion_production_equivalent_build.py --candidate-root "${GITHUB_WORKSPACE}/candidate-src" --output "${GITHUB_WORKSPACE}/preflight-${{ matrix.arm }}"
+
+      - name: Prove corrected base identity and frozen arm delta
+        env:
+          ALPHA_ARM: ${{ matrix.arm }}
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python - <<'PY'
+          import hashlib, os, sys
+          from pathlib import Path
+          sys.path.insert(0, str(Path('../audit-src/research/caesar-20-stress-v6').resolve()))
+          from experiment_overlay import apply_arm
+          from backtester.production_equivalent_economic_overlay import assert_contract, assert_one_session_dividend_lag
+          from backtester.champion_economic_prefix_audit import normalized_ast
+          arm=os.environ['ALPHA_ARM']
+          p=Path('../preflight-'+arm)
+          base=(p/'production-equivalent-generated.py').read_text()
+          assert_contract(base)
+          assert assert_one_session_dividend_lag(base)==1
+          actual=hashlib.sha256(normalized_ast(base).encode()).hexdigest()
+          if actual != os.environ['EXPECTED_BASE_NORMALIZED_SHA256']:
+              raise RuntimeError(f'corrected certified base mismatch: {actual}')
+          variant=apply_arm(base,arm)
+          assert_contract(variant)
+          assert assert_one_session_dividend_lag(variant)==1
+          (p/'experiment-generated.py').write_text(variant)
+          print(f'PASS arm={arm} base={actual} variant={hashlib.sha256(normalized_ast(variant).encode()).hexdigest()}')
+          PY
+
+      - name: Pull and verify immutable canonical PIT package
+        env: {GHCR_TOKEN: '${{ secrets.GITHUB_TOKEN }}'}
+        run: |
+          set -euo pipefail
+          POINTER=certified-src/backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "$PACKAGE" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$PACKAGE"
+          cid=$(docker create "$PACKAGE" /bin/true)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "$cid:/canonical-pit/." canonical-pit/
+          docker rm "$cid"
+          trap - EXIT
+          PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "$POINTER" --dataset canonical-pit > "package-integrity-${{ matrix.arm }}.json"
+
+      - name: Run fresh causal 20-year PIT experiment
+        env:
+          ALPHA_ARM: ${{ matrix.arm }}
+        run: |
+          set -euo pipefail
+          cp audit-src/research/caesar-20-stress-v6/experiment_overlay.py audit-src/research/champion-alpha-five-run-validation-v2/experiment_overlay.py
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/audit-src/research/champion-alpha-five-run-validation-v2/experiment_runner.py" \
+            --arm "$ALPHA_ARM" \
+            --candidate-root "${GITHUB_WORKSPACE}/candidate-src" \
+            --output "${GITHUB_WORKSPACE}/experiment-output-${ALPHA_ARM}" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/experiment-${ALPHA_ARM}.log"
+
+      - name: Verify result provenance
+        env:
+          ALPHA_ARM: ${{ matrix.arm }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          arm=os.environ['ALPHA_ARM']
+          r=json.loads((Path('experiment-output-'+arm)/'RESULT.json').read_text())
+          assert r['status']=='PASS_FRESH_CAUSAL_PIT_REPLAY',r
+          assert r['arm']==arm,r
+          assert r['dividend_lag_sessions']==1,r
+          assert r['data']['pit'] is True,r
+          assert r['data']['prerecorded_decisions_used'] is False,r
+          assert r['data']['sessions']==5032,r
+          assert r['data']['canonical_pit_dataset_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993',r
+          assert r['classification']['classification_expansion_required'] is False,r
+          print(json.dumps({'arm':arm,'status':r['status'],'cagr20':r['windows']['20']['strategy']['cagr'],'maxdd20':r['windows']['20']['strategy']['max_drawdown']},sort_keys=True))
+          PY
+
+      - name: Preserve experiment evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: caesar-20-stress-v6-${{ matrix.arm }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            experiment-output-${{ matrix.arm }}/
+            experiment-${{ matrix.arm }}.log
+            preflight-${{ matrix.arm }}/
+            package-integrity-${{ matrix.arm }}.json
+            final-corpus-validation-${{ matrix.arm }}.json
+            audit-src/research/caesar-20-stress-v6/PLAN.md
+            audit-src/research/caesar-20-stress-v6/experiment_overlay.py
+          retention-days: 90
+          if-no-files-found: error
