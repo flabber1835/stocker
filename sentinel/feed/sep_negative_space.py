@@ -49,6 +49,24 @@ def _keys_digest(keys: list[dict]) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _assert_lossless_source_normalisation(report: domains.NormalisationReport) -> None:
+    """A source row rejected by normalization can never become retirement proof."""
+    if (report.dropped_no_identity or report.dropped_no_raw_close
+            or report.rejections or report.rejections_truncated):
+        raise SepNegativeSpaceRefused(
+            "SEP retirement re-observation was not lossless: source rows were "
+            "rejected during normalization, so source absence is unproved")
+
+
+def _publication_committed_for_run(conn, run_id: str) -> bool:
+    """Resolve durable publication state after a publish-path exception."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT 1 FROM sentinel_corpus_publications WHERE run_id=%s LIMIT 1",
+            (str(run_id),))
+        return cur.fetchone() is not None
+
+
 def _create_source_table(conn) -> None:
     with conn.cursor() as cur:
         cur.execute(
@@ -133,6 +151,7 @@ def _source_proof_and_keys(
                     f"INSERT INTO {_TEMP_SOURCE_KEYS}"
                     " (security_id,session,ticker) VALUES (%s,%s,%s)"
                     " ON CONFLICT DO NOTHING", batch)
+        _assert_lossless_source_normalisation(report)
         if key_fp.rows != value_fp.rows:
             raise AssertionError("SEP negative-space source key/value counts diverged")
         return recon._PartitionProof(
@@ -304,12 +323,14 @@ def repair_local_only(
             expected_source=expected_source, keys=keys)
         run = store.IngestRun(
             conn, KIND, date_from=start, date_to=end, chunks_total=1)
-        _persist_plan(conn, run_id=str(run.progress.run_id), plan=plan)
+        run_id = str(run.progress.run_id)
+        _persist_plan(conn, run_id=run_id, plan=plan)
         try:
             published = _retire_and_publish(conn, run=run, plan=plan)
         except BaseException as exc:  # noqa: BLE001
             conn.rollback()
-            run.finish("failed", f"{type(exc).__name__}: {exc}")
+            if not _publication_committed_for_run(conn, run_id):
+                run.finish("failed", f"{type(exc).__name__}: {exc}")
             raise
         return {"publication": published, "plan": plan}
     finally:
