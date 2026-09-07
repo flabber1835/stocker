@@ -95,40 +95,92 @@ def _complete_export_source(*, start: str, end: str):
     return export_fetch, dict(evidence)
 
 
+def _fresh_actions_retirement_authority(conn, *, through: dt.date) -> dict:
+    """Prove current ACTIONS state immediately before destructive SEP repair.
+
+    A cadence cursor proves an earlier complete observation, not that the current
+    source still agrees when a historical SEP row is about to be deleted. Force a
+    complete ACTIONS reconciliation, then independently re-export the same bounded
+    source and require its exact canonical row set to equal the active projection.
+    The second export evidence is persisted with any retirement plan.
+    """
+    from sentinel.feed import action_source, snapshot_export
+
+    maintenance.reconcile_actions_if_due(
+        conn, through=through.isoformat(), force=True)
+    rows, evidence = snapshot_export.fetch_complete_actions(
+        through=through.isoformat())
+    source = {
+        identity: payload
+        for identity, payload, _row in action_source.distinct_rows(rows)
+    }
+    active = maintenance._active_action_rows(conn)
+    local = {
+        identity: action_source.canonical_payload(row)
+        for identity, row in active.items()
+    }
+    if source != local:
+        missing = sorted(set(source) - set(local))
+        extra = sorted(set(local) - set(source))
+        changed = sorted(
+            identity for identity in set(source).intersection(local)
+            if source[identity] != local[identity])
+        raise maintenance.SharadarMutationRefused(
+            "fresh complete ACTIONS authority disagrees with the active "
+            "published projection after forced reconciliation: "
+            f"missing={missing[:8]}, extra={extra[:8]}, changed={changed[:8]}")
+    current = _core.publication.require_current(conn)
+    bound = dict(evidence)
+    bound.update({
+        "verified_through": through.isoformat(),
+        "verified_publication_version": int(current.version),
+        "verified_distinct_rows": len(source),
+    })
+    return bound
+
+
 def _repair_local_only_if_proved(
         conn, *, fetch, start: str, end: str, observation_ceiling,
-        source, local, require_complete_export: bool = False):
-    """Repair only a bounded source-stable local-only key set.
-
-    Production deletion authority is stronger than stable pagination: a fresh
-    bounded Exporter snapshot must independently corroborate the exact source
-    partition before absence may delete a published row.
-    """
+        source, local, require_complete_export: bool = False,
+        actions_authority_evidence=None):
+    """Repair only a bounded source-stable local-only key set."""
     if int(local.rows) <= int(source.rows):
         return local
     repair_fetch = fetch
     source_authority_evidence = None
     if require_complete_export:
+        if actions_authority_evidence is None:
+            _lo, market_hi = _visible_bounds(conn)
+            actions_authority_evidence = _fresh_actions_retirement_authority(
+                conn, through=market_hi)
+            # Forced ACTIONS reconciliation may have published corrected bars.
+            # Re-observe local state before a destructive decision.
+            local = _local_fingerprint(conn, start=start, end=end)
+            if int(local.rows) <= int(source.rows):
+                if (local.rows == source.rows
+                        and local.key_digest == source.key_digest
+                        and local.value_digest == source.value_digest):
+                    return local
+                raise _core.SepKeysetDrift(
+                    "published SEP state changed while establishing fresh ACTIONS "
+                    "retirement authority; refusing to continue with stale proof")
         repair_fetch, source_authority_evidence = _complete_export_source(
             start=start, end=end)
     sep_negative_space_guarded.repair_local_only(
         conn, fetch=repair_fetch, start=start, end=end,
         observation_ceiling=_strict_ceiling(observation_ceiling),
         expected_source=source,
-        source_authority_evidence=source_authority_evidence)
+        source_authority_evidence=source_authority_evidence,
+        actions_authority_evidence=actions_authority_evidence)
     return _local_fingerprint(conn, start=start, end=end)
 
 
 def reconcile_year(
         conn, *, fetch=None,
         year: int, start: str, end: str,
-        observation_ceiling, require_complete_export: bool | None = None):
-    """Prove one stable source year equals published keys and strategy values.
-
-    The production default is the canonical snapshot source and always requires
-    independent whole-export corroboration before a local-only row can retire.
-    Every other key/value mismatch remains fail-closed.
-    """
+        observation_ceiling, require_complete_export: bool | None = None,
+        actions_authority_evidence=None):
+    """Prove one stable source year equals published keys and strategy values."""
     from sentinel.feed import snapshot_source
 
     production = fetch is None
@@ -150,7 +202,8 @@ def reconcile_year(
             conn, fetch=fetch, start=start, end=end,
             observation_ceiling=observation_ceiling,
             source=source, local=local,
-            require_complete_export=bool(require_complete_export))
+            require_complete_export=bool(require_complete_export),
+            actions_authority_evidence=actions_authority_evidence)
     if source.rows != local.rows or source.key_digest != local.key_digest:
         raise _core.SepKeysetDrift(
             f"stable Sharadar SEP {year} normalized key set disagrees with "
@@ -174,7 +227,7 @@ def reconcile_year(
         publication_version=current.version)
 
 
-def reconcile_all(conn, *, fetch=None, through: str):
+def reconcile_all(conn, *, fetch=None, through: str, observation_ceiling=None):
     """Prove every published SEP partition through one market boundary."""
     from sentinel.feed import snapshot_source
 
@@ -183,8 +236,22 @@ def reconcile_all(conn, *, fetch=None, through: str):
     if production:
         fetch = snapshot_source.fetch_table
     market_through = _strict_ceiling(through)
-    source_ceiling = _production_source_ceiling(fetch, market_through)
+    source_ceiling = (
+        _strict_ceiling(observation_ceiling)
+        if observation_ceiling is not None
+        else _production_source_ceiling(fetch, market_through))
+    if source_ceiling < market_through:
+        raise SepReconciliationStateInvalid(
+            f"current source observation date {source_ceiling} is behind market "
+            f"reconciliation boundary {market_through}")
     require_complete_export = production or fetch is snapshot_source.fetch_table
+    actions_authority_evidence = None
+    if require_complete_export:
+        actions_authority_evidence = _fresh_actions_retirement_authority(
+            conn, through=market_through)
+        maintenance.reconcile_sep_mutations(
+            conn, fetch=fetch, through=source_ceiling.isoformat(),
+            reobserve_equal=True)
     lo, hi = _visible_bounds(conn)
     results = []
     for year, start, end in _bounded_years(lo, hi, market_through):
@@ -192,37 +259,39 @@ def reconcile_all(conn, *, fetch=None, through: str):
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
             observation_ceiling=source_ceiling,
-            require_complete_export=require_complete_export)
+            require_complete_export=require_complete_export,
+            actions_authority_evidence=actions_authority_evidence)
         _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
 
 
-def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
-                   through: str):
+def reconcile_next(conn, *, fetch=None, through: str, observation_ceiling=None):
     """Advance rotating proof only after pending production mutations converge."""
     from sentinel.feed import snapshot_source
 
     _core.store._assert_corpus_locked(conn)
     if YEARS_PER_RUN < 1:
         raise ValueError("SHARADAR_SEP_RECONCILE_YEARS_PER_RUN must be >= 1")
+    production = fetch is None
+    if production:
+        fetch = snapshot_source.fetch_table
     market_through = _strict_ceiling(through)
-    source_ceiling = _production_source_ceiling(fetch, market_through)
-    production = fetch is snapshot_source.fetch_table
+    source_ceiling = (
+        _strict_ceiling(observation_ceiling)
+        if observation_ceiling is not None
+        else _production_source_ceiling(fetch, market_through))
+    if source_ceiling < market_through:
+        raise SepReconciliationStateInvalid(
+            f"current source observation date {source_ceiling} is behind market "
+            f"reconciliation boundary {market_through}")
+    production = production or fetch is snapshot_source.fetch_table
     require_complete_export = production
 
-    # Negative-space retirement may delete a historical SEP row. Establish the
-    # current complete ACTIONS generation first so the row's effective split and
-    # dividend economics cannot be judged against yesterday's action authority.
+    actions_authority_evidence = None
     if production:
-        maintenance.reconcile_actions_if_due(
-            conn, through=market_through.isoformat())
-
-    # A retained source row may carry a historical value correction outside the
-    # daily overlap. Apply current-source CDC authority before negative-space
-    # retirement asks that retained values already match, or the rotation can
-    # deadlock on the correction that its own later maintenance step would fix.
-    if production:
+        actions_authority_evidence = _fresh_actions_retirement_authority(
+            conn, through=market_through)
         maintenance.reconcile_sep_mutations(
             conn, fetch=fetch, through=source_ceiling.isoformat(),
             reobserve_equal=True)
@@ -237,7 +306,8 @@ def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
             observation_ceiling=source_ceiling,
-            require_complete_export=require_complete_export)
+            require_complete_export=require_complete_export,
+            actions_authority_evidence=actions_authority_evidence)
         _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
