@@ -856,7 +856,7 @@ def test_failed_13216_row_daily_candidate_is_retired_by_later_daily_retry(conn):
     assert readiness_checks["freshness"] == readiness.PASS
     with conn.cursor() as cur:
         cur.execute("SELECT COUNT(*) FROM sentinel_spy_total_return r WHERE "
-                    + P.visible_predicate("r"))
+                    + P.visible_predicate("r", sep_retirements=False))
         assert cur.fetchone()[0] == 41
         cur.execute(
             "SELECT COUNT(*) FROM sentinel_universe"
@@ -970,7 +970,7 @@ def test_later_daily_retry_rewrites_failed_bar_spy_and_bil_owners(conn):
                              ("sentinel_defensive_bars", "d")):
             cur.execute(
                 f"SELECT COUNT(*) FROM {table} {alias} WHERE "
-                + P.visible_predicate(alias))
+                + P.visible_predicate(alias, sep_retirements=False))
             visible_counts.append(cur.fetchone()[0])
         assert visible_counts[0] == visible_counts[1] > 0
     assert "retired_failed_universe_candidates" not in P.require_current(

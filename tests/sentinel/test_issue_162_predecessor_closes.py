@@ -133,13 +133,19 @@ def test_representative_plan_has_no_corpus_seq_scan_or_global_sort(migrated):
     migrated.rollback()
 
     nodes = list(_plan_nodes(plan))
-    node_types = {node["Node Type"] for node in nodes}
+    corpus_nodes = [node for node in nodes if node.get("Relation Name") == "sentinel_bars"]
+    node_types = {node["Node Type"] for node in corpus_nodes}
     index_names = {node.get("Index Name") for node in nodes if node.get("Index Name")}
 
     assert "Seq Scan" not in node_types
     assert "Parallel Seq Scan" not in node_types
-    assert "Sort" not in node_types
-    assert "Gather Merge" not in node_types
+    # Retirement filtering may scan the small publication/evidence relations.
+    # The performance contract prohibits scanning or globally sorting the price
+    # history. Apply it to every subtree that actually reads sentinel_bars.
+    for node in nodes:
+        if node["Node Type"] in {"Sort", "Gather Merge"}:
+            assert not any(child.get("Relation Name") == "sentinel_bars"
+                           for child in _plan_nodes(node))
     assert {"Index Scan", "Index Only Scan"} & node_types
     assert PREDECESSOR_INDEX in index_names
 
