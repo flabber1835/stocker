@@ -217,7 +217,8 @@ def _repair_local_only_if_proved(
     if require_complete_export:
         repair_fetch, source_authority_evidence = _complete_export_source(
             start=start, end=end)
-        if actions_authority_evidence is None:
+    try:
+        if require_complete_export and actions_authority_evidence is None:
             _lo, market_hi = _visible_bounds(conn)
             actions_authority_evidence = _fresh_actions_retirement_authority(
                 conn, through=market_hi)
@@ -226,17 +227,10 @@ def _repair_local_only_if_proved(
                 if (local.rows == source.rows
                         and local.key_digest == source.key_digest
                         and local.value_digest == source.value_digest):
-                    cleanup = getattr(repair_fetch, "cleanup", None)
-                    if cleanup is not None:
-                        cleanup()
                     return local
-                cleanup = getattr(repair_fetch, "cleanup", None)
-                if cleanup is not None:
-                    cleanup()
                 raise _core.SepKeysetDrift(
                     "published SEP state changed while establishing fresh ACTIONS "
                     "retirement authority; refusing to continue with stale proof")
-    try:
         sep_negative_space_guarded.repair_local_only(
             conn, fetch=repair_fetch, start=start, end=end,
             observation_ceiling=_strict_ceiling(observation_ceiling),
