@@ -157,6 +157,37 @@ def _assert_retirement_preserves_split_chain(conn, keys: list[dict]) -> None:
                 f"published ratio is {effective_next:g}")
 
 
+def _finalize_production_actions_authority(
+        conn, *, source, start: str, end: str, keys: list[dict],
+        source_authority_evidence, actions_authority_evidence):
+    """Refresh ACTIONS at the final destructive gate and revalidate local proof."""
+    authority = str((source_authority_evidence or {}).get("authority") or "")
+    if authority != "nasdaq-data-link-table-export-composite/v1":
+        return actions_authority_evidence, keys
+
+    from sentinel.feed import sep_reconciliation
+
+    _lo, market_hi = core.recon._visible_bounds(conn)
+    final_actions = sep_reconciliation._fresh_actions_retirement_authority(
+        conn, through=market_hi)
+    local_source = core._source_only_local_proof(conn, start=start, end=end)
+    if (local_source.rows != source.rows
+            or local_source.key_digest != source.key_digest):
+        raise SepNegativeSpaceRefused(
+            "published SEP keys changed while establishing final ACTIONS "
+            "retirement authority")
+    if local_source.value_digest != source.value_digest:
+        raise SepNegativeSpaceRefused(
+            "published SEP values changed while establishing final ACTIONS "
+            "retirement authority")
+    final_keys = core._local_only_keys(conn, start=start, end=end)
+    if final_keys != keys:
+        raise SepNegativeSpaceRefused(
+            "SEP local-only retirement targets changed while establishing final "
+            "ACTIONS authority")
+    return final_actions, final_keys
+
+
 def repair_local_only(
         conn, *, fetch, start: str, end: str, observation_ceiling,
         expected_source, source_authority_evidence=None,
@@ -203,6 +234,10 @@ def repair_local_only(
                 conn, start=start, end=end).rows - source.rows):
             raise SepNegativeSpaceRefused(
                 "SEP local-only row count changed during retirement planning")
+        actions_authority_evidence, keys = _finalize_production_actions_authority(
+            conn, source=source, start=start, end=end, keys=keys,
+            source_authority_evidence=source_authority_evidence,
+            actions_authority_evidence=actions_authority_evidence)
         core._load_retire_table(conn, keys)
         _assert_retired_rows_have_no_economic_events(conn, keys)
         _assert_current_actions_have_no_retirement_events(conn, keys)
