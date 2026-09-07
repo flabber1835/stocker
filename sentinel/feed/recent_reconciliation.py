@@ -73,9 +73,10 @@ def reconcile_recent(conn, *, through: str, fetch=None):
             f"is ahead of requested reconciliation through {requested}; refusing "
             "to traverse source under future durable authority")
 
-    source_fetch = _export_fetch if fetch is None else fetch
+    production = fetch is None
+    source_fetch = _export_fetch if production else fetch
     source_ceiling = (
-        dt.datetime.now(dt.timezone.utc).date() if fetch is None else requested)
+        dt.datetime.now(dt.timezone.utc).date() if production else requested)
     if source_ceiling < requested:
         raise sep_reconciliation.SepReconciliationStateInvalid(
             f"current source observation date {source_ceiling} is behind market "
@@ -93,7 +94,8 @@ def reconcile_recent(conn, *, through: str, fetch=None):
     for year, lo, hi in _year_windows(start, end):
         sep_reconciliation.reconcile_year(
             conn, fetch=source_fetch, year=year, start=lo, end=hi,
-            observation_ceiling=source_ceiling)
+            observation_ceiling=source_ceiling,
+            require_complete_export=production)
 
     current = publication.require_current(conn)
     return maintenance._write_cursor(
