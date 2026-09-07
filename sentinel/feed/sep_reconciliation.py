@@ -51,6 +51,20 @@ def _strict_ceiling(value) -> dt.date:
     return parsed
 
 
+def _production_source_ceiling(fetch, market_ceiling: dt.date) -> dt.date:
+    """Use the vendor-observation clock for the production snapshot source."""
+    from sentinel.feed import snapshot_source
+
+    if fetch is not snapshot_source.fetch_table:
+        return market_ceiling
+    source_day = dt.datetime.now(dt.timezone.utc).date()
+    if source_day < market_ceiling:
+        raise SepReconciliationStateInvalid(
+            f"current source observation date {source_day} is behind market "
+            f"reconciliation boundary {market_ceiling}")
+    return source_day
+
+
 def _source_fingerprint(
         conn, *, fetch, start: str, end: str, observation_ceiling):
     """Fingerprint one source partition behind the explicit observation ceiling."""
@@ -72,9 +86,9 @@ def _repair_local_only_if_proved(
     """
     if int(local.rows) <= int(source.rows):
         return local
-    from sentinel.feed import sep_negative_space
+    from sentinel.feed import sep_negative_space_guarded
 
-    sep_negative_space.repair_local_only(
+    sep_negative_space_guarded.repair_local_only(
         conn, fetch=fetch, start=start, end=end,
         observation_ceiling=_strict_ceiling(observation_ceiling),
         expected_source=source)
@@ -129,39 +143,41 @@ def reconcile_year(
 
 def reconcile_all(conn, *, fetch=_core.sharadar.fetch_table,
                   through: str):
-    """Prove every published SEP partition through one explicit source day."""
+    """Prove every published SEP partition through one market boundary."""
     _core.store._assert_corpus_locked(conn)
-    checked_on = _strict_ceiling(through)
+    market_through = _strict_ceiling(through)
+    source_ceiling = _production_source_ceiling(fetch, market_through)
     lo, hi = _visible_bounds(conn)
     results = []
-    for year, start, end in _bounded_years(lo, hi, checked_on):
+    for year, start, end in _bounded_years(lo, hi, market_through):
         result = reconcile_year(
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
-            observation_ceiling=checked_on)
-        _save_result(conn, result, checked_on=checked_on)
+            observation_ceiling=source_ceiling)
+        _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
 
 
 def reconcile_next(conn, *, fetch=_core.sharadar.fetch_table,
                    through: str):
-    """Advance rotating complete SEP proof through one explicit source day."""
+    """Advance rotating proof on the market clock under current source authority."""
     _core.store._assert_corpus_locked(conn)
     if YEARS_PER_RUN < 1:
         raise ValueError("SHARADAR_SEP_RECONCILE_YEARS_PER_RUN must be >= 1")
-    checked_on = _strict_ceiling(through)
+    market_through = _strict_ceiling(through)
+    source_ceiling = _production_source_ceiling(fetch, market_through)
     results = []
     for _ in range(YEARS_PER_RUN):
         year, start, end = _next_year(conn)
-        if start > checked_on:
+        if start > market_through:
             break
-        end = min(end, checked_on)
+        end = min(end, market_through)
         result = reconcile_year(
             conn, fetch=fetch, year=year,
             start=start.isoformat(), end=end.isoformat(),
-            observation_ceiling=checked_on)
-        _save_result(conn, result, checked_on=checked_on)
+            observation_ceiling=source_ceiling)
+        _save_result(conn, result, checked_on=source_ceiling)
         results.append(result)
     return results
 
