@@ -138,12 +138,12 @@ jobs:
       - name: Run pure Wealth Core experiment
         run: |
           set -euo pipefail
-          mkdir -p "final-output/${{ matrix.variant }}/engine" "experiment-results/${{ matrix.variant }}"
+          mkdir -p "final-output/engine" "experiment-results/${{ matrix.variant }}"
           cd certified-src
           python "${GITHUB_WORKSPACE}/audit-src/research/wealth-core-v1-slot-mechanics-v1/run_experiment.py" \
             --variant "${{ matrix.variant }}" \
             --candidate-root "${GITHUB_WORKSPACE}/candidate-src" \
-            --engine "${GITHUB_WORKSPACE}/final-output/${{ matrix.variant }}/engine" \
+            --engine "${GITHUB_WORKSPACE}/final-output/engine" \
             --output "${GITHUB_WORKSPACE}/experiment-results/${{ matrix.variant }}" \
             2>&1 | tee "${GITHUB_WORKSPACE}/${{ matrix.variant }}.log"
 
