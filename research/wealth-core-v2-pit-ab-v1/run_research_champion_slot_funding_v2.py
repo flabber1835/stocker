@@ -76,12 +76,13 @@ def install_slot_funding_v2(text: str) -> str:
         "afford=math.floor(s.reserved_cash/(float(px)*(1+COST))); q=min(int(round(s.pending_shares)),afford); slot_v2_gap_clipped+=int(q<int(round(s.pending_shares))); slot_v2_gap_cancelled+=int(q<1)",
         "reservation-bounded next-open fill",
     )
-    # After the two contextual cancellation seams above are replaced, exactly one
-    # legacy cleanup remains: the open-fill resolution.
+    # Bind reservation release to the actual successful/open-fill resolution
+    # seam. Champion legitimately contains additional bare pending cleanups, so
+    # the cleanup statement alone is not a unique execution anchor.
     text = replace_once(
         text,
-        "s.pending_tid=-1; s.pending_shares=0.; s.pending_signal_day=-1",
-        "s.pending_tid=-1; s.pending_shares=0.; s.pending_signal_day=-1; s.reserved_cash=0.",
+        "book.initialized=True; buys+=1\n                    s.pending_tid=-1; s.pending_shares=0.; s.pending_signal_day=-1",
+        "book.initialized=True; buys+=1\n                    s.pending_tid=-1; s.pending_shares=0.; s.pending_signal_day=-1; s.reserved_cash=0.",
         "open-fill reservation release",
     )
 
