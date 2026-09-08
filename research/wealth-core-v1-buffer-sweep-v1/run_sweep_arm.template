@@ -1,0 +1,442 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import hashlib
+import json
+import os
+import shutil
+import subprocess
+import sys
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+CAPITAL = 100_000.0
+DATASET_SHA256 = "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993"
+CONTROL_SOURCE_SHA256 = "bbd6783d0cd0e5d1662a0146190962e5845cc4b6bdb8feb50d0c7788f90a6077"
+CONTROL_NORMALIZED_AST_SHA256 = "435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde"
+BASELINE_SOURCE_SHA256 = "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f"
+BASELINE_DAILY_SHA256 = "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6"
+BASELINE_SUMMARY_SHA256 = "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878"
+BASELINE_RUN_ID = 34267327656
+BASELINE_ARTIFACT_ID = 10073578819
+PRIOR_10BP = {
+    "cagr": 0.15488287845556004,
+    "end_equity": 1646091.825445194,
+    "ending_multiple": 17.814947218600263,
+    "max_drawdown": -0.49042738751414783,
+    "sharpe_daily_252": 0.805082394739427,
+    "entries": 519,
+    "gap_clipped_entries": 19,
+    "one_share_entries": 23,
+    "cash_limited_decisions": 124,
+    "q0_candidate_skips": 1004,
+    "entry_fraction_lt_1pct": 33,
+}
+
+
+def sha(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def load(path: Path) -> dict:
+    ns = {"__name__": f"loaded_{path.stem}", "__file__": str(path)}
+    exec(compile(path.read_text(), str(path), "exec"), ns)
+    return ns
+
+
+def one(src: str, old: str, new: str, label: str) -> str:
+    count = src.count(old)
+    if count != 1:
+        raise RuntimeError(f"{label} seam mismatch: {count}")
+    return src.replace(old, new, 1)
+
+
+def patch_for_buffer(src: str, bp: int) -> str:
+    frac = bp / 10000.0
+    f = repr(frac)
+
+    src = one(
+        src,
+        "rows=[]; overlap_checks={}; buys=sells=split_events=div_events=0; scale_q0_candidate_skips=0; scale_one_share_entries=0; scale_cash_limited_decisions=0; scale_gap_clipped_entries=0; scale_entries=0; scale_lt1=0; scale_lt5=0; scale_lt10=0; scale_lt25=0; scale_lt50=0; scale_lt99=0; scale_min_entry_fraction=1.0; scale_max_entry_fraction=0.0; scale_entry_fraction_sum=0.0",
+        "rows=[]; trade_rows=[]; gap_event_rows=[]; close_decision_rows=[]; _pending_meta={}; overlap_checks={}; buys=sells=split_events=div_events=0; scale_q0_candidate_skips=0; scale_one_share_entries=0; scale_cash_limited_decisions=0; scale_gap_clipped_entries=0; scale_entries=0; scale_lt1=0; scale_lt5=0; scale_lt10=0; scale_lt25=0; scale_lt50=0; scale_lt99=0; scale_min_entry_fraction=1.0; scale_max_entry_fraction=0.0; scale_entry_fraction_sum=0.0; buffer_blocked_open_entries=0; buffer_min_post_buy_excess=float('inf'); buffer_min_actual_cash=float(book.cash); buffer_reserve_violations=0",
+        "init telemetry",
+    )
+
+    src = one(
+        src,
+        "book.cash+=s.qty*float(px)*(1-COST); sells+=1",
+        "_sell_qty=float(s.qty); _sell_tid=int(s.tid); book.cash+=s.qty*float(px)*(1-COST); sells+=1; trade_rows.append({'Transaction date':ds,'Buy or sell':'SELL','Ticker':str(tick[_sell_tid]),'Ticker name':'','Amount of shares':_sell_qty})",
+        "sell ledger",
+    )
+
+    src = one(
+        src,
+        "_planned_q=int(round(s.pending_shares)); afford=math.floor(book.cash/(float(px)*(1+COST))); q=min(_planned_q,afford)",
+        (
+            "_planned_q=int(round(s.pending_shares)); "
+            f"_buffer_required=max(0.0,float(open_eq)*{f}); "
+            "_cash_before=float(book.cash); _buffer_available=max(0.0,_cash_before-_buffer_required); "
+            "afford=math.floor(_buffer_available/(float(px)*(1+COST))); q=min(_planned_q,afford); "
+            "_pm=_pending_meta.get(id(s),{}); "
+            "buffer_blocked_open_entries+=int(_planned_q>=1 and q<1); "
+            "(_close_px:=float(_pm.get('close_price',np.nan))); "
+            "(_close_uncommitted:=float(_pm.get('close_uncommitted_cash',np.nan))); "
+            "(_close_required:=float(_pm.get('close_required_reserve',np.nan))); "
+            "(_gap_pct:=((float(px)/_close_px-1.0)*100.0 if finite(_close_px) and _close_px>0 else np.nan)); "
+            "(_planned_close_notional:=float(_planned_q)*_close_px if finite(_close_px) else np.nan); "
+            "(_executed_open_notional:=float(max(q,0))*float(px)); "
+            "(_planned_open_gross:=float(_planned_q)*float(px)*(1+COST)); "
+            "(_close_plan_gross:=float(_planned_q)*_close_px*(1+COST) if finite(_close_px) else np.nan); "
+            "(_gap_alone_would_clip:=bool(finite(_close_uncommitted) and _close_uncommitted+1e-12<_planned_open_gross)); "
+            "gap_event_rows.append({'decision_date':str(_pm.get('decision_date','')),'execution_date':ds,'ticker':str(tick[tid]),"
+            "'intended_shares':int(_planned_q),'executed_shares':int(max(q,0)),'close_price_used_for_planning':_close_px,"
+            "'next_open_price':float(px),'close_to_open_percentage_gap':_gap_pct,'cash_available_before_execution':_cash_before,"
+            "'required_reserve':_buffer_required,'uncommitted_cash_after_reserve':_buffer_available,"
+            "'close_required_reserve':_close_required,'close_uncommitted_cash_after_reserve':_close_uncommitted,"
+            "'intended_notional':_planned_close_notional,'executed_notional':_executed_open_notional,"
+            "'became_q0':bool(q<1),'buffer_basis_points':"
+            + repr(bp)
+            + ",'gap_alone_would_clip':_gap_alone_would_clip,"
+            "'open_uncommitted_cash_change_vs_close':(_buffer_available-_close_uncommitted if finite(_close_uncommitted) else np.nan)}) if q<_planned_q else None"
+        ),
+        "open buffer and gap telemetry",
+    )
+
+    src = one(
+        src,
+        "book.cash-=_gross; s.tid=tid; s.qty=float(q); s.entry_day=gday; s.reviewed=False; s.pending_sell=False; s.sell_reason=''; s.entry_sig=float(opsig[tid]) if finite(opsig[tid]) and opsig[tid]>0 else np.nan; s.peak=np.nan; book.initialized=True; buys+=1",
+        (
+            "book.cash-=_gross; buffer_min_actual_cash=min(buffer_min_actual_cash,float(book.cash)); "
+            "_post_excess=float(book.cash)-float(_buffer_required); buffer_min_post_buy_excess=min(buffer_min_post_buy_excess,_post_excess); "
+            "buffer_reserve_violations+=int(_post_excess < -1e-8); "
+            "trade_rows.append({'Transaction date':ds,'Buy or sell':'BUY','Ticker':str(tick[tid]),'Ticker name':'','Amount of shares':float(q)}); "
+            "s.tid=tid; s.qty=float(q); s.entry_day=gday; s.reviewed=False; s.pending_sell=False; s.sell_reason=''; "
+            "s.entry_sig=float(opsig[tid]) if finite(opsig[tid]) and opsig[tid]>0 else np.nan; s.peak=np.nan; book.initialized=True; buys+=1"
+        ),
+        "buy ledger and reserve integrity",
+    )
+
+    src = one(
+        src,
+        "s.pending_tid=-1; s.pending_shares=0.; s.pending_signal_day=-1; s.pending_intended_capital=0.",
+        "_pending_meta.pop(id(s),None); s.pending_tid=-1; s.pending_shares=0.; s.pending_signal_day=-1; s.pending_intended_capital=0.",
+        "pending metadata cleanup",
+    )
+
+    src = one(
+        src,
+        "_desired=float(eq*ENTRY_W); target=min(_desired,book.cash); _funding_fraction=(float(target)/_desired if _desired>0 else 0.0); q=int(target//(float(px)*(1+COST)))",
+        (
+            f"_desired=float(eq*ENTRY_W); _buffer_required_close=max(0.0,float(eq)*{f}); "
+            "_buffer_available_close=max(0.0,float(book.cash)-_buffer_required_close); "
+            "target=min(_desired,_buffer_available_close); _funding_fraction=(float(target)/_desired if _desired>0 else 0.0); "
+            "_one_share_gross=float(px)*(1+COST); q=int(target//_one_share_gross)"
+        ),
+        "close buffer",
+    )
+
+    src = one(
+        src,
+        "if q<1: scale_q0_candidate_skips+=1; continue",
+        (
+            "if q<1: "
+            "scale_q0_candidate_skips+=1; "
+            "_q0_reason=('CASH_SCARCITY' if _buffer_available_close+1e-12<_one_share_gross else 'TARGET_GRANULARITY'); "
+            "close_decision_rows.append({'decision_date':ds,'ticker':str(tick[tid]),'outcome':'Q0_SKIP','planned_shares':0,"
+            "'close_price':float(px),'close_nav':float(eq),'cash_before_decision':float(book.cash),"
+            "'required_reserve':float(_buffer_required_close),'uncommitted_cash_after_reserve':float(_buffer_available_close),"
+            "'intended_capital':float(_desired),'funding_fraction':float(_funding_fraction),'q0_reason':_q0_reason,"
+            "'buffer_basis_points':"
+            + repr(bp)
+            + "}); continue"
+        ),
+        "close q0 decision telemetry",
+    )
+
+    src = one(
+        src,
+        "scale_cash_limited_decisions+=int(_funding_fraction<0.999999999)",
+        (
+            "scale_cash_limited_decisions+=int(_funding_fraction<0.999999999); "
+            "close_decision_rows.append({'decision_date':ds,'ticker':str(tick[tid]),'outcome':'PLAN','planned_shares':int(q),"
+            "'close_price':float(px),'close_nav':float(eq),'cash_before_decision':float(book.cash),"
+            "'required_reserve':float(_buffer_required_close),'uncommitted_cash_after_reserve':float(_buffer_available_close),"
+            "'intended_capital':float(_desired),'funding_fraction':float(_funding_fraction),'q0_reason':'',"
+            "'buffer_basis_points':"
+            + repr(bp)
+            + "})"
+        ),
+        "close plan decision telemetry",
+    )
+
+    src = one(
+        src,
+        "s=ready[ad]; s.pending_tid=tid; s.pending_shares=float(q); s.pending_signal_day=gday; s.pending_intended_capital=_desired; resids.add(tid); resissuers.add(issuer_key(tid,ds)); ad+=1",
+        (
+            "s=ready[ad]; s.pending_tid=tid; s.pending_shares=float(q); s.pending_signal_day=gday; s.pending_intended_capital=_desired; "
+            "_pending_meta[id(s)]={'decision_date':ds,'close_price':float(px),'close_nav':float(eq),"
+            "'close_cash_before':float(book.cash),'close_required_reserve':float(_buffer_required_close),"
+            "'close_uncommitted_cash':float(_buffer_available_close),'planned_shares':int(q),'intended_capital':float(_desired)}; "
+            "resids.add(tid); resissuers.add(issuer_key(tid,ds)); ad+=1"
+        ),
+        "pending metadata",
+    )
+
+    src = one(
+        src,
+        "shadow_dates.append(date); shadow_eq.append(eq); damaged_hist.append(dam_b)",
+        "buffer_min_actual_cash=min(buffer_min_actual_cash,float(book.cash)); shadow_dates.append(date); shadow_eq.append(eq); damaged_hist.append(dam_b)",
+        "daily minimum cash",
+    )
+
+    src = one(
+        src,
+        "out.to_csv(OUT/'daily.csv',index=False)",
+        (
+            "out.to_csv(OUT/'daily.csv',index=False)\n"
+            "    pd.DataFrame(trade_rows,columns=['Transaction date','Buy or sell','Ticker','Ticker name','Amount of shares']).to_csv(OUT/'transactions.csv',index=False)\n"
+            "    pd.DataFrame(gap_event_rows,columns=['decision_date','execution_date','ticker','intended_shares','executed_shares','close_price_used_for_planning','next_open_price','close_to_open_percentage_gap','cash_available_before_execution','required_reserve','uncommitted_cash_after_reserve','close_required_reserve','close_uncommitted_cash_after_reserve','intended_notional','executed_notional','became_q0','buffer_basis_points','gap_alone_would_clip','open_uncommitted_cash_change_vs_close']).to_csv(OUT/'gap-events.csv',index=False)\n"
+            "    pd.DataFrame(close_decision_rows,columns=['decision_date','ticker','outcome','planned_shares','close_price','close_nav','cash_before_decision','required_reserve','uncommitted_cash_after_reserve','intended_capital','funding_fraction','q0_reason','buffer_basis_points']).to_csv(OUT/'close-decisions.csv',index=False)"
+        ),
+        "sidecar csv outputs",
+    )
+
+    src = one(
+        src,
+        "(OUT/'summary.json').write_text(json.dumps(summary,indent=2))",
+        (
+            "(OUT/'summary.json').write_text(json.dumps(summary,indent=2))\n"
+            "    _buy_q=[float(r['Amount of shares']) for r in trade_rows if r['Buy or sell']=='BUY']\n"
+            "    _telemetry={'buffer_basis_points':"
+            + repr(bp)
+            + ",'buffer_fraction':"
+            + f
+            + ",'blocked_open_entries':int(buffer_blocked_open_entries),"
+            "'gap_clipped_entries':int(sum(1 for r in gap_event_rows if int(r['executed_shares'])>=1)),"
+            "'open_shortfall_events':int(len(gap_event_rows)),"
+            "'minimum_post_buy_cash_excess_over_required_reserve':(float(buffer_min_post_buy_excess) if _buy_q else None),"
+            "'reserve_violations':int(buffer_reserve_violations),'minimum_actual_cash':float(buffer_min_actual_cash),"
+            "'fractional_share_buys':bool(any(abs(q-round(q))>1e-9 for q in _buy_q)),"
+            "'all_buy_quantities_integer':bool(all(abs(q-round(q))<=1e-9 for q in _buy_q)),"
+            "'close_q0_candidate_skips':int(sum(1 for r in close_decision_rows if r['outcome']=='Q0_SKIP')),“
+            "'close_cash_scarcity_q0':int(sum(1 for r in close_decision_rows if r['q0_reason']=='CASH_SCARCITY')),“
+            "'close_target_granularity_q0':int(sum(1 for r in close_decision_rows if r['q0_reason']=='TARGET_GRANULARITY')),“
+            "'gap_alone_would_clip_events':int(sum(1 for r in gap_event_rows if bool(r['gap_alone_would_clip']))),"
+            "'positive_gap_shortfall_events':int(sum(1 for r in gap_event_rows if finite(r['close_to_open_percentage_gap']) and float(r['close_to_open_percentage_gap'])>0)),"
+            "'gap_gt_2_5pct_shortfall_events':int(sum(1 for r in gap_event_rows if finite(r['close_to_open_percentage_gap']) and float(r['close_to_open_percentage_gap'])>2.5)),"
+            "'transaction_rows':int(len(trade_rows)),'close_decision_rows':int(len(close_decision_rows))}\n"
+            "    (OUT/'buffer-telemetry.json').write_text(json.dumps(_telemetry,indent=2,sort_keys=True))"
+        ),
+        "telemetry json output",
+    )
+
+    compile(src, f"<buffer-{bp}bp>", "exec")
+    return src
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--buffer-bp", type=int, choices=[0, 5, 10, 15, 20, 25], required=True)
+    ap.add_argument("--candidate-root", type=Path, required=True)
+    ap.add_argument("--engine", type=Path, required=True)
+    ap.add_argument("--output", type=Path, required=True)
+    args = ap.parse_args()
+
+    from backtester import champion_full_classification_control as control
+    from backtester.production_equivalent_economic_overlay import install, assert_contract, assert_one_session_dividend_lag
+    from backtester.champion_economic_prefix_audit import normalized_ast
+
+    here = Path(__file__).resolve().parents[1]
+    clean = load(here / "wealth-core-v1-clean-100k-v1" / "run_clean_100k.py")
+    cap = load(here / "wealth-core-v1-capital-scale-v1" / "run_capital_scale.py")
+
+    engine = args.engine.resolve()
+    out = args.output.resolve()
+    engine.mkdir(parents=True, exist_ok=True)
+    out.mkdir(parents=True, exist_ok=True)
+
+    manifest = json.loads((Path(os.environ["CANONICAL_PIT_DATASET"]) / "manifest.json").read_text())
+    if manifest.get("dataset_hash") != DATASET_SHA256:
+        raise RuntimeError("canonical PIT dataset mismatch")
+
+    _, _, raw = control.build_source(engine, args.candidate_root.resolve())
+    v1 = install(raw)
+    assert_contract(v1)
+    if assert_one_session_dividend_lag(v1) != 1:
+        raise RuntimeError("dividend authority mismatch")
+    if sha(v1.encode()) != CONTROL_SOURCE_SHA256:
+        raise RuntimeError("V1 source authority mismatch")
+    if sha(normalized_ast(v1).encode()) != CONTROL_NORMALIZED_AST_SHA256:
+        raise RuntimeError("V1 normalized AST authority mismatch")
+
+    baseline = cap["patch_source"](v1, CAPITAL)
+    assert_contract(baseline)
+    if sha(baseline.encode()) != BASELINE_SOURCE_SHA256:
+        raise RuntimeError("100k baseline source authority mismatch")
+
+    arm_source = patch_for_buffer(baseline, args.buffer_bp)
+    assert_contract(arm_source)
+    if assert_one_session_dividend_lag(arm_source) != 1:
+        raise RuntimeError("buffer instrumentation changed dividend timing")
+
+    src_path = out / f"buffer-{args.buffer_bp:02d}bp-generated.py"
+    src_path.write_text(arm_source)
+    subprocess.run([sys.executable, "-m", "py_compile", str(src_path)], check=True)
+
+    for p in (
+        engine / "daily.csv",
+        engine / "summary.json",
+        engine / "transactions.csv",
+        engine / "gap-events.csv",
+        engine / "close-decisions.csv",
+        engine / "buffer-telemetry.json",
+    ):
+        if p.exists():
+            p.unlink()
+
+    env = os.environ.copy()
+    env["RESEARCH_REPLAY_MODE"] = "fullpit"
+    subprocess.run([sys.executable, str(src_path)], cwd=Path.cwd(), env=env, check=True)
+
+    copies = {
+        "daily.csv": out / "daily.csv",
+        "summary.json": out / "summary.json",
+        "transactions.csv": out / "transactions.csv",
+        "gap-events.csv": out / "gap-events.csv",
+        "close-decisions.csv": out / "close-decisions.csv",
+        "buffer-telemetry.json": out / "buffer-telemetry.json",
+    }
+    for name, dst in copies.items():
+        shutil.copy2(engine / name, dst)
+
+    daily_hash = sha((out / "daily.csv").read_bytes())
+    summary_hash = sha((out / "summary.json").read_bytes())
+    zero_exact = None
+    if args.buffer_bp == 0:
+        zero_exact = {
+            "daily_sha256": daily_hash,
+            "summary_sha256": summary_hash,
+            "daily_exact_match": daily_hash == BASELINE_DAILY_SHA256,
+            "summary_exact_match": summary_hash == BASELINE_SUMMARY_SHA256,
+        }
+        if not zero_exact["daily_exact_match"] or not zero_exact["summary_exact_match"]:
+            raise RuntimeError(f"0 bp failed exact V1 parity: {zero_exact}")
+
+    frame = pd.read_csv(out / "daily.csv")
+    metrics = clean["metrics"](frame.shadow_equity, frame.date)
+    summary = json.loads((out / "summary.json").read_text())
+    scale = summary["wealth_core_capital_scale"]
+    telemetry = json.loads((out / "buffer-telemetry.json").read_text())
+    tx = pd.read_csv(out / "transactions.csv")
+    gap = pd.read_csv(out / "gap-events.csv")
+
+    expected_cols = ["Transaction date", "Buy or sell", "Ticker", "Ticker name", "Amount of shares"]
+    if list(tx.columns) != expected_cols:
+        raise RuntimeError(f"transaction columns changed: {list(tx.columns)}")
+    buy_q = pd.to_numeric(tx.loc[tx["Buy or sell"].eq("BUY"), "Amount of shares"], errors="raise").to_numpy()
+    if not np.allclose(buy_q, np.round(buy_q), atol=1e-9):
+        raise RuntimeError("fractional BUY detected")
+    if telemetry["reserve_violations"] != 0:
+        raise RuntimeError(f"reserve invariant violated: {telemetry['reserve_violations']}")
+    if telemetry["minimum_actual_cash"] < -1e-8:
+        raise RuntimeError(f"negative cash observed: {telemetry['minimum_actual_cash']}")
+    if int(scale["gap_clipped_entries"]) != int(telemetry["gap_clipped_entries"]):
+        raise RuntimeError("gap-clipped telemetry disagreement")
+    if int(scale["q0_candidate_skips"]) != int(telemetry["close_q0_candidate_skips"]):
+        raise RuntimeError("q0 telemetry disagreement")
+
+    prior_10bp_crosscheck = None
+    if args.buffer_bp == 10:
+        checks = {
+            "cagr": abs(metrics["cagr"] - PRIOR_10BP["cagr"]) <= 1e-12,
+            "end_equity": abs(metrics["end_equity"] - PRIOR_10BP["end_equity"]) <= 1e-6,
+            "ending_multiple": abs(metrics["ending_multiple"] - PRIOR_10BP["ending_multiple"]) <= 1e-12,
+            "max_drawdown": abs(metrics["max_drawdown"] - PRIOR_10BP["max_drawdown"]) <= 1e-12,
+            "sharpe_daily_252": abs(metrics["sharpe_daily_252"] - PRIOR_10BP["sharpe_daily_252"]) <= 1e-12,
+            "entries": int(scale["entries"]) == PRIOR_10BP["entries"],
+            "gap_clipped_entries": int(scale["gap_clipped_entries"]) == PRIOR_10BP["gap_clipped_entries"],
+            "one_share_entries": int(scale["one_share_entries"]) == PRIOR_10BP["one_share_entries"],
+            "cash_limited_decisions": int(scale["cash_limited_decisions"]) == PRIOR_10BP["cash_limited_decisions"],
+            "q0_candidate_skips": int(scale["q0_candidate_skips"]) == PRIOR_10BP["q0_candidate_skips"],
+            "entry_fraction_lt_1pct": int(scale["entry_fraction_lt_1pct"]) == PRIOR_10BP["entry_fraction_lt_1pct"],
+        }
+        prior_10bp_crosscheck = {"checks": checks, "pass": all(checks.values())}
+        if not prior_10bp_crosscheck["pass"]:
+            raise RuntimeError(f"10 bp failed prior-result cross-check: {prior_10bp_crosscheck}")
+
+    result = {
+        "schema": "research.wealth-core-v1-buffer-sweep-arm/1",
+        "status": "PASS",
+        "buffer_basis_points": args.buffer_bp,
+        "buffer_fraction": args.buffer_bp / 10000.0,
+        "economic_scope": "WEALTH_CORE_V1_ONLY",
+        "sentinel_metrics_used": False,
+        "whole_shares_only": True,
+        "dataset_sha256": DATASET_SHA256,
+        "financial_grade_dividend_lag_sessions": summary.get("financial_grade_dividend_lag_sessions"),
+        "authority": {
+            "baseline_run_id": BASELINE_RUN_ID,
+            "baseline_artifact_id": BASELINE_ARTIFACT_ID,
+            "control_source_sha256": CONTROL_SOURCE_SHA256,
+            "control_normalized_ast_sha256": CONTROL_NORMALIZED_AST_SHA256,
+            "baseline_source_sha256": BASELINE_SOURCE_SHA256,
+            "baseline_daily_sha256": BASELINE_DAILY_SHA256,
+            "baseline_summary_sha256": BASELINE_SUMMARY_SHA256,
+            "generated_arm_source_sha256": sha(arm_source.encode()),
+            "daily_sha256": daily_hash,
+            "summary_sha256": summary_hash,
+            "zero_bp_exact_authority": zero_exact,
+            "prior_10bp_crosscheck": prior_10bp_crosscheck,
+        },
+        "portfolio_performance": metrics,
+        "entry_execution": {
+            "completed_entries": int(scale["entries"]),
+            "cash_limited_close_decisions": int(scale["cash_limited_decisions"]),
+            "q0_candidate_skips_close": int(scale["q0_candidate_skips"]),
+            "q0_cash_scarcity_close": int(telemetry["close_cash_scarcity_q0"]),
+            "q0_target_granularity_close": int(telemetry["close_target_granularity_q0"]),
+            "planned_entries_fully_blocked_next_open": int(telemetry["blocked_open_entries"]),
+            "gap_clipped_entries": int(scale["gap_clipped_entries"]),
+            "one_share_entries": int(scale["one_share_entries"]),
+            "entry_fraction_lt_1pct": int(scale["entry_fraction_lt_1pct"]),
+            "entry_fraction_lt_5pct": int(scale["entry_fraction_lt_5pct"]),
+            "entry_fraction_lt_10pct": int(scale["entry_fraction_lt_10pct"]),
+            "entry_fraction_lt_25pct": int(scale["entry_fraction_lt_25pct"]),
+            "entry_fraction_lt_50pct": int(scale["entry_fraction_lt_50pct"]),
+            "entry_fraction_lt_99pct": int(scale["entry_fraction_lt_99pct"]),
+            "minimum_entry_fraction": scale["minimum_entry_fraction"],
+            "average_entry_fraction": scale["average_entry_fraction"],
+            "maximum_entry_fraction": scale["maximum_entry_fraction"],
+        },
+        "buffer_integrity": {
+            "minimum_post_buy_cash_excess_over_required_reserve": telemetry["minimum_post_buy_cash_excess_over_required_reserve"],
+            "reserve_violations": int(telemetry["reserve_violations"]),
+            "minimum_actual_cash": telemetry["minimum_actual_cash"],
+            "fractional_share_buys": bool(telemetry["fractional_share_buys"]),
+            "all_buy_quantities_integer": bool(telemetry["all_buy_quantities_integer"]),
+        },
+        "gap_attribution": {
+            "open_shortfall_events": int(telemetry["open_shortfall_events"]),
+            "gap_alone_would_clip_events": int(telemetry["gap_alone_would_clip_events"]),
+            "positive_gap_shortfall_events": int(telemetry["positive_gap_shortfall_events"]),
+            "gap_gt_2_5pct_shortfall_events": int(telemetry["gap_gt_2_5pct_shortfall_events"]),
+            "max_close_to_open_gap_pct": (float(pd.to_numeric(gap["close_to_open_percentage_gap"], errors="coerce").max()) if len(gap) else None),
+            "median_close_to_open_gap_pct": (float(pd.to_numeric(gap["close_to_open_percentage_gap"], errors="coerce").median()) if len(gap) else None),
+        },
+        "transaction_ledger": {
+            "rows": int(len(tx)),
+            "buys": int(tx["Buy or sell"].eq("BUY").sum()),
+            "sells": int(tx["Buy or sell"].eq("SELL").sum()),
+            "columns_exact": list(tx.columns) == expected_cols,
+        },
+    }
+    (out / "RESULT.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+    print("[BUFFER_SWEEP_ARM] " + json.dumps(result, sort_keys=True), flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
