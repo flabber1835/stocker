@@ -10,6 +10,15 @@ def replace_once(text: str, old: str, new: str, label: str) -> str:
     return text.replace(old, new, 1)
 
 
+def replace_one_of(text: str, olds: tuple[str, ...], new_prefix: str, label: str) -> str:
+    hits = [(old, text.count(old)) for old in olds if text.count(old)]
+    exact = [old for old, n in hits if n == 1]
+    if len(exact) != 1 or any(n != 1 for _, n in hits):
+        raise RuntimeError(f"{label}: expected exactly one known source seam, found {hits}")
+    old = exact[0]
+    return text.replace(old, new_prefix + old, 1)
+
+
 def install(text: str, *, variant: str) -> str:
     if variant not in {"V1", "V2"}:
         raise ValueError(variant)
@@ -114,7 +123,14 @@ def install(text: str, *, variant: str) -> str:
 '''
     text = replace_once(text, open_marker, pre_open + open_marker, "pre-open observer")
 
-    dividends_marker = "            # Dividends use prior-close raw share quantity and current raw/signal price factor."
+    # Strict-PIT source generation has two legitimate forms: before canonical
+    # corpus binding it carries the retained dividend comment; with the canonical
+    # dataset bound, the strict transform replaces the entire dividend block and
+    # emits the canonical comment. Anchor on exactly one known form.
+    dividend_markers = (
+        "            # Dividends use prior-close raw share quantity and current raw/signal price factor.",
+        "            # Canonical dividends already use the as-traded share basis.",
+    )
     post_open = '''            # Observer: reconcile fills, cancellations and exits after open execution.
             _audit_open_equity,_audit_unresolved=book.equity(opraw)
             for _slot_id,_pre in enumerate(audit_pre_slots):
@@ -150,10 +166,13 @@ def install(text: str, *, variant: str) -> str:
                     if not(finite(_px_new) and _px_new>0): _px_new=book.last_raw.get(int(_cur.tid),np.nan)
                     if finite(_px_new) and _px_new>0: _audit_start(_slot_id,int(_cur.tid),float(_cur.qty),ds,ds,_px_new,_audit_open_equity)
 '''
-    text = replace_once(text, dividends_marker, post_open + dividends_marker, "post-open observer")
+    text = replace_one_of(text, dividend_markers, post_open, "post-open observer")
 
     text = replace_once(text, "            held=[]", "            _audit_mark(ds,eq)\n            held=[]", "position mark observer")
 
+    # Champion's canonical transform may have inserted strategy-boundary
+    # telemetry immediately before rows.append, but the rows.append prefix itself
+    # remains singular in both source forms.
     rows_marker = "                rows.append({'date':date,"
     daily = '''                _recv=float(sum(x[1] for x in book.receivables))
                 _reserved_cash=float(sum(getattr(s,'reserved_cash',0.) for s in book.slots if s.reserved()))
