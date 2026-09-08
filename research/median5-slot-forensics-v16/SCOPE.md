@@ -1,0 +1,1 @@
+Scope: exact observer-only diagnosis of underfilled slot admissions and persistent de minimis positions. No economic modification or performance optimization is authorized on this branch.
