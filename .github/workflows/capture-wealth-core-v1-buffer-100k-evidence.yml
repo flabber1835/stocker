@@ -1,0 +1,169 @@
+name: Research - capture Wealth Core V1 buffer evidence
+run-name: Capture Wealth Core V1 buffer evidence - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/wealth-core-v1-buffer-100k-fast-v1]
+    paths:
+      - '.github/workflows/capture-wealth-core-v1-buffer-100k-evidence.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: capture-wealth-core-v1-buffer-100k-evidence-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  capture:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Checkout research branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/wealth-core-v1-buffer-100k-fast-v1
+          fetch-depth: 0
+
+      - name: Capture Actions evidence and hashes
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          E='research/wealth-core-v1-buffer-100k-evidence'
+          mkdir -p "$E/raw" "$E/api" "$E/runs"
+
+          api_get() {
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/$1"
+          }
+
+          capture_run() {
+            local run_id="$1"
+            api_get "actions/runs/${run_id}" > "$E/api/run-${run_id}.json"
+            api_get "actions/runs/${run_id}/artifacts" > "$E/api/run-${run_id}-artifacts.json"
+          }
+
+          capture_artifact() {
+            local artifact_id="$1"
+            local run_id="$2"
+            local label="$3"
+            local zip="$E/raw/${label}.zip"
+            local out="$E/runs/${run_id}/${label}"
+            api_get "actions/artifacts/${artifact_id}" > "$E/api/artifact-${artifact_id}.json"
+            curl -fsSL -L \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+              -o "$zip"
+            mkdir -p "$out"
+            unzip -q -o "$zip" -d "$out"
+            python - "$E/api/artifact-${artifact_id}.json" "$zip" <<'PY'
+          import hashlib, json, pathlib, sys
+          meta = json.load(open(sys.argv[1]))
+          path = pathlib.Path(sys.argv[2])
+          observed = hashlib.sha256(path.read_bytes()).hexdigest()
+          expected = str(meta.get('digest') or '')
+          if expected.startswith('sha256:') and observed != expected.split(':',1)[1]:
+              raise SystemExit(f'artifact digest mismatch: {path}: {observed} != {expected}')
+          print(f'verified {path}: sha256:{observed}')
+          PY
+          }
+
+          # Exact $100k V1 authority used by both diagnostics.
+          capture_run 34267327656
+          capture_artifact 10073578819 34267327656 wealth-core-v1-100k-authority-34267327656
+
+          # Exact-path no-micro diagnostic that exposed seven financing breaches.
+          capture_run 34272674885
+          capture_artifact 10076643420 34272674885 wealth-core-v1-clean-100k-34272674885-1
+
+          # Primary self-financing 10 bp integer-share buffer PASS.
+          capture_run 34283531740
+          capture_artifact 10079799925 34283531740 wealth-core-v1-buffer-100k-fast-34283531740-1
+
+          # Record the redundant cross-check state. If its artifact already exists,
+          # capture it too; otherwise preserve its current API state without waiting.
+          capture_run 34282958960
+          python - "$E/api/run-34282958960-artifacts.json" > /tmp/cross_artifacts.txt <<'PY'
+          import json, sys
+          data=json.load(open(sys.argv[1]))
+          for a in data.get('artifacts', []):
+              print(a['id'], a['name'])
+          PY
+          while read -r aid aname; do
+            [ -n "${aid:-}" ] || continue
+            capture_artifact "$aid" 34282958960 "cross-check-${aid}-${aname}"
+          done < /tmp/cross_artifacts.txt
+
+          # User-facing ledger is duplicated at the evidence root for easy access.
+          cp "$E/runs/34283531740/wealth-core-v1-buffer-100k-fast-34283531740-1/experiment-results/buffer-100k-fast/transactions.csv" \
+             "$E/wealth_core_v1_10bp_buffer_transactions.csv"
+
+          # Record exact immutable identifiers used in this research sequence.
+          cat > "$E/PROVENANCE.json" <<'JSON'
+          {
+            "schema": "research.wealth-core-v1-buffer-100k-evidence/1",
+            "baseline_authority": {
+              "run_id": 34267327656,
+              "artifact_id": 10073578819,
+              "source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
+              "daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+              "summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878"
+            },
+            "no_micro_diagnostic": {
+              "run_id": 34272674885,
+              "artifact_id": 10076643420,
+              "artifact_sha256": "5bc7f2600881bf993e772812f9b214166365104b9a815b976336122266fcf097"
+            },
+            "buffer_primary": {
+              "run_id": 34283531740,
+              "artifact_id": 10079799925,
+              "run_head": "32b16cf9addd7fe8122b02d06c4d3643c86a74a9",
+              "artifact_sha256": "79de96a433acf364488b79badbf2b46fa9e2a8fb90416c8c9b85af11bcfd4aac",
+              "generated_source_sha256": "44a9914be859eb7f76ca747aaa66a41e19a557a2095da0a707ea99575898c4e0",
+              "transaction_ledger_sha256": "3cffc04199190c1b0a4e6c90db4396dd347de0173b33dbec4e78fe84357dd687"
+            },
+            "cross_check_run_id": 34282958960,
+            "canonical_pit_dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993"
+          }
+          JSON
+
+          # Inventory before hashing; preserve every raw and expanded artifact member.
+          find "$E" -type f ! -name 'FILE_INDEX.txt' ! -name 'SHA256SUMS.txt' -printf '%P\n' | LC_ALL=C sort > "$E/FILE_INDEX.txt"
+          (
+            cd "$E"
+            find . -type f ! -name 'SHA256SUMS.txt' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+          ) > "$E/SHA256SUMS.txt"
+
+          # Assert the primary result and requested CSV survived capture byte-for-byte.
+          python - "$E" <<'PY'
+          import hashlib, json, pathlib, sys
+          e=pathlib.Path(sys.argv[1])
+          result=next((e/'runs/34283531740').rglob('RESULT.json'))
+          data=json.loads(result.read_text())
+          assert data['status']=='PASS'
+          assert data['fractional_share_buys'] is False
+          assert data['transaction_ledger']['all_buy_share_amounts_integer'] is True
+          csv=e/'wealth_core_v1_10bp_buffer_transactions.csv'
+          assert hashlib.sha256(csv.read_bytes()).hexdigest() == '3cffc04199190c1b0a4e6c90db4396dd347de0173b33dbec4e78fe84357dd687'
+          print(json.dumps({'captured_result_status':data['status'],'transaction_rows':data['transaction_ledger']['rows']},sort_keys=True))
+          PY
+
+      - name: Commit durable evidence bundle
+        run: |
+          set -euo pipefail
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add research/wealth-core-v1-buffer-100k-evidence
+          if git diff --cached --quiet; then
+            echo 'No evidence changes to commit.'
+            exit 0
+          fi
+          git commit -m 'research: preserve Wealth Core V1 10bp buffer evidence'
+          git push origin HEAD:research/wealth-core-v1-buffer-100k-fast-v1
