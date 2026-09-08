@@ -9,8 +9,8 @@ import sys
 
 from backtester import run_research_champion_strict_pit_20y_v2 as certified
 
-_OBSERVER_PATH = Path("research/wealth-core-v2-pit-ab-v1/pit_audit_observer_v3.py")
-_spec = importlib.util.spec_from_file_location("wealth_core_pit_audit_observer_v3", _OBSERVER_PATH)
+_OBSERVER_PATH = Path("research/wealth-core-v2-pit-ab-v1/pit_audit_observer_v4.py")
+_spec = importlib.util.spec_from_file_location("wealth_core_pit_audit_observer_v4", _OBSERVER_PATH)
 if _spec is None or _spec.loader is None:
     raise RuntimeError(f"cannot load observer {_OBSERVER_PATH}")
 observer = importlib.util.module_from_spec(_spec)
