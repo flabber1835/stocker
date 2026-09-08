@@ -241,3 +241,14 @@ it cannot use the partial-run validation cache. `RESULT.json`,
 `production-daily.csv`, and the independently generated `research/daily.csv`
 and `research/summary.json` are the review evidence. A failure writes
 `first-divergence.json` and exits unsuccessfully. No partial run is certification.
+
+The long promotion replay runs in the dedicated `Median-5 equivalence` Actions
+workflow, independently of the interactive workspace. It runs automatically
+for relevant source changes on the promotion branch and can be dispatched
+manually after merge. Documentation-only changes do not restart it. The job
+records the exact commit and tree, rebuilds the existing pinned production and
+test images, verifies the three research commits and data-image digest, and
+runs the unchanged comparison with networking disabled. It retains the full
+result, daily curves and log as a 90-day artifact, including failure diagnostics.
+It cannot publish an image or activate any runtime. A terminated local run,
+even after matching sessions, supplies no completion evidence.
