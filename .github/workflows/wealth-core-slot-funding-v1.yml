@@ -10,6 +10,7 @@ on:
       - 'research/wealth-core-slot-funding-v1/remove_obsolete_golden_reservation_checks.py'
       - 'research/wealth-core-slot-funding-v1/apply_full_suite_fixture_updates.py'
       - 'research/wealth-core-slot-funding-v1/apply_semantic_binding.py'
+      - 'research/wealth-core-slot-funding-v1/apply_sentinel_fixture_updates.py'
   workflow_dispatch:
 
 permissions:
@@ -42,8 +43,13 @@ jobs:
           python research/wealth-core-slot-funding-v1/remove_obsolete_golden_reservation_checks.py
           python research/wealth-core-slot-funding-v1/apply_full_suite_fixture_updates.py
           python research/wealth-core-slot-funding-v1/apply_semantic_binding.py
+          python research/wealth-core-slot-funding-v1/apply_sentinel_fixture_updates.py
           git diff --check
-          python -m compileall -q shared/stock_strategy_shared/wealth_core tests/wealth_core
+          python -m compileall -q \
+            shared/stock_strategy_shared/wealth_core \
+            tests/wealth_core \
+            tests/sentinel/test_issue209_target_reprojection.py \
+            tests/sentinel/test_production_state.py
 
       - name: Install test dependencies
         run: |
@@ -69,6 +75,9 @@ jobs:
             tests/wealth_core/test_identity.py \
             tests/wealth_core/test_issuer_rebinding.py \
             tests/wealth_core/test_golden_fixture.py
+          python -m pytest -q \
+            tests/sentinel/test_issue209_target_reprojection.py::test_projection_matches_canonical_pending_open_cancellation_end_to_end \
+            tests/sentinel/test_production_state.py::test_path_dependent_securities_pin_anchors_and_marks_after_expiry
 
       - name: Commit the tested kernel correction
         run: |
@@ -93,8 +102,10 @@ jobs:
             tests/wealth_core/test_dividends.py \
             tests/wealth_core/test_identity.py \
             tests/wealth_core/test_issuer_rebinding.py \
-            tests/wealth_core/test_golden_fixture.py
-          git commit -m "wealth_core: bind corrected slot funding semantics"
+            tests/wealth_core/test_golden_fixture.py \
+            tests/sentinel/test_issue209_target_reprojection.py \
+            tests/sentinel/test_production_state.py
+          git commit -m "wealth_core: complete funded reservation fixture migration"
           git push origin HEAD:research/wealth-core-slot-funding-v1
 
       - name: Run complete Wealth Core suite on corrected kernel
