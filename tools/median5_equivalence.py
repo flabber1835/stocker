@@ -17,6 +17,7 @@ import os
 from pathlib import Path
 import sys
 import types
+from unittest.mock import patch
 
 REPO = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(REPO))
@@ -33,6 +34,7 @@ from sentinel.core.decision import runtime_strategy_identity
 from sentinel.core.kernel import advance_session
 from sentinel.core.session import FeedAnchor, PublishedSession, SessionState
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
+from stock_strategy_shared.wealth_core import adapter
 
 AST_SHA = "11c94a61c145261daac81047cf7b7bb1ea0c97b369476458d83fc29fbc10de95"
 DATA_SHA = "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993"
@@ -54,6 +56,43 @@ def normalized_sha(source):
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "OUT" for t in node.targets):
             node.value = ast.Constant("<OUTPUT_PATH>")
     return hashlib.sha256(ast.dump(tree, include_attributes=False).encode()).hexdigest()
+
+
+def opening_estimate(state, bars, ledger, prior):
+    """Audit-only research valuation of the actual pre-fill production book."""
+    current = {bar.security_id: bar.raw_open for bar in bars}
+    value = float(state.cash) + ledger.receivable_total()
+    carried = []
+    def positive(price):
+        return price is not None and math.isfinite(price) and price > 0
+    for slot in sorted(state.episodes):
+        episode = state.episodes[slot]
+        sid = episode.security_id
+        price = current.get(sid)
+        if not positive(price):
+            history = prior.feed.get("series", {}).get(sid, {}).get("raw_closes", ())
+            price = next((p for p in reversed(history) if positive(p)), prior.last_known.get(sid))
+            if not positive(price):
+                raise ValueError("opening audit lacks current and prior raw price: " + sid)
+            carried.append(sid)
+        value += float(episode.current_shares) * float(price)
+    return value, tuple(sorted(set(carried)))
+
+
+def advance_with_open_audit(prior, published, *, controller_config, strategy_identity):
+    """Observe the existing opening boundary without changing its return value."""
+    observations = []
+    original = adapter._resolved_open_equity
+    def observe_open(state, bars, ledger):
+        resolved = original(state, bars, ledger)
+        observations.append(opening_estimate(state, bars, ledger, prior))
+        return resolved
+    with patch.object(adapter, "_resolved_open_equity", observe_open):
+        after = advance_session(prior, published, controller_config=controller_config,
+                                strategy_identity=strategy_identity)
+    if len(observations) != 1:
+        raise AssertionError("opening audit must observe exactly one canonical boundary")
+    return after, observations[0]
 
 
 def inputs(dataset, classifier, end):
@@ -127,6 +166,8 @@ class Comparison:
         self.maximum_error = 0.
         self.maximum_ratio_error = 0.
         self.fractional_share_roundoffs = 0
+        self.estimated_open_sessions = []
+        self.estimated_open_transitions = []
 
     def shares(self, name, actual, expected):
         actual, expected = float(actual), float(expected)
@@ -167,8 +208,8 @@ class Comparison:
         self.session = published.session
         self.equal("session", self.session, research["ds"])
         before = self.state
-        self.state = advance_session(before, published, controller_config=self.controller,
-                                     strategy_identity=self.identity)
+        self.state, (opened, carried) = advance_with_open_audit(
+            before, published, controller_config=self.controller, strategy_identity=self.identity)
         after = self.state
         if self.restart_every and self.count % self.restart_every == 0:
             restored = SessionState.from_dict(json.loads(json.dumps(before.to_dict(), allow_nan=False)))
@@ -189,6 +230,8 @@ class Comparison:
             "reference_missing_held_prices": [str(sid[s.tid]) for s in ref.slots
                 if s.held() and not np.isfinite(research["clraw"][s.tid])],
             "reference_holding_features": research["held"],
+            "opening_audit_equity": opened,
+            "opening_audit_carried_security_ids": carried,
         }
         ref_order = [str(sid[int(t)]) for t in research["durable"]]
         self.equal("durable_order", wealth["median5"]["rank_history"][-1], ref_order)
@@ -232,9 +275,15 @@ class Comparison:
         self.equal("final_allocation", after.last_decision["target_core_exposure"], research["a_d"])
         self.equal("recovery_reason", after.last_decision["ldrc"]["reason"], research["a_reason"])
         nav = float(evidence["observation"]["shadow_nav"])
-        opened = evidence["wealth_core"]["resolved_open_equity"]
-        if opened is not None:
-            self.equal("open_equity", opened, research["open_eq"], numeric=True)
+        resolved_open = evidence["wealth_core"]["resolved_open_equity"]
+        self.equal("open_equity", opened, research["open_eq"], numeric=True)
+        self.equal("unresolved_open_securities", list(carried),
+                   evidence["wealth_core"]["open_unresolved_security_ids"])
+        if carried:
+            self.equal("strict_open_remains_unresolved", resolved_open, None)
+            self.estimated_open_sessions.append({"session": self.session, "security_ids": list(carried)})
+        else:
+            self.equal("open_equity", opened, resolved_open, numeric=True)
         if self.session >= "2006-07-31":
             if self.previous_equity is not None:
                 gap, intraday = self.cash_factors[self.session]
@@ -242,8 +291,9 @@ class Comparison:
                 if abs(old-new) < 1e-15:
                     factor = old*nav/self.previous_equity + (1-old)*gap*intraday
                 else:
-                    if opened is None:
-                        raise AssertionError("production allocation transition has unresolved open equity")
+                    if carried:
+                        self.estimated_open_transitions.append({"session": self.session,
+                            "security_ids": list(carried), "old_allocation": old, "new_allocation": new})
                     factor = (1+old*(opened/self.previous_equity-1)+(1-old)*(gap-1))
                     factor *= 1-0.001*abs(new-old)
                     factor *= 1+new*(nav/opened-1)+(1-new)*(intraday-1)
@@ -256,6 +306,8 @@ class Comparison:
         self.pending = after.last_decision["target_core_exposure"]
         self.count += 1
         self.rows.append({"session": self.session, "wealth_core_equity": nav,
+                          "opening_audit_equity": opened,
+                          "opening_audit_carried_security_ids": json.dumps(list(carried)),
                           "native_target": after.last_decision["native_target_core_exposure"],
                           "final_target": self.pending, "allocation": self.allocation, "nav": self.nav})
         if self.count % (10 if self.count <= 150 else 50) == 0:
@@ -332,7 +384,20 @@ def main():
     try:
         os.chdir(root)
         exec(compile(tree, str(REPO/"tests/median5/frozen_reference.txt"), "exec"), module.__dict__)
-        module._capture = comparison.observe
+        def capture(research):
+            try:
+                comparison.observe(research)
+            except Exception as exc:
+                failure = output/"first-divergence.json"
+                if not failure.exists():
+                    failure.write_text(json.dumps({"status": "FAIL",
+                        "session": getattr(comparison, "session", research.get("ds")),
+                        "sessions_compared": comparison.count,
+                        "exception": type(exc).__name__, "message": str(exc),
+                        "diagnostics": getattr(comparison, "diagnostics", {})}, indent=2, default=str)+"\n")
+                print(failure.read_text(), flush=True)
+                raise
+        module._capture = capture
         module.CanonicalPITDataset = lambda *a, **kw: dataset
         module.END = pd.Timestamp(args.through)
         module.run()
@@ -372,6 +437,9 @@ def main():
               "maximum_absolute_nonmonetary_difference": comparison.maximum_ratio_error,
               "fractional_share_tolerance_ulps": FRACTIONAL_SHARE_ULPS,
               "fractional_share_roundoff_comparisons": comparison.fractional_share_roundoffs,
+              "opening_valuation_convention": "current raw open, else prior raw observation; audit only",
+              "estimated_open_sessions": comparison.estimated_open_sessions,
+              "estimated_open_allocation_transitions": comparison.estimated_open_transitions,
               "production_identity": comparison.identity}
     (output/"RESULT.json").write_text(json.dumps(result, indent=2)+"\n")
     with (output/"production-daily.csv").open("w") as stream:

@@ -192,6 +192,11 @@ replacing one red peer's ticker C with ZZ must leave the original tie order
 intact. Rewriting that key changed a target's stress from 0.50 to 0.25 and its
 amber label; the corrected profile preserves the first key through JSON restart.
 
+The separate opening-equity harness defect described below is also fixed. Its
+falsifiers reject replacing the production refusal with an estimated value,
+silently valuing an unpriced delivered security at zero, and accepting duplicate
+opening boundaries. The mutation runner now kills twelve reviewed mutations.
+
 The full-PIT comparison fixes monetary tolerances at absolute 0.0001 and
 relative 1e-12. Development exposed a scalar NumPy promotion that rounded a
 small positive breadth return to zero; the port now explicitly preserves the
@@ -204,6 +209,25 @@ the research binary split product was 216058.70070000002, a one-ULP difference.
 This exception cannot admit an integer or whole-share order mismatch. Every
 such roundoff comparison is counted. Partial development runs are explicitly
 labelled `PASS_PARTIAL_EQUIVALENCE` and cannot satisfy the full promotion gate.
+
+The frozen research curve estimates opening equity with the last observed raw
+price when a current opening price is absent. Production's
+`resolved_open_equity` deliberately refuses that substitution for verified
+overnight/intraday performance. The first full Actions replay matched through
+2008, then exposed the harness's incorrect assumption that every allocation
+transition had resolved opening equity.
+
+For economic comparison only, a read-only harness observer captures the
+canonical book at its existing pre-fill opening-equity boundary, after splits,
+dividend entitlement and terminal transformations. It calls the original
+opening-equity function and returns its exact result unchanged. Separately it
+values that same book using current raw opens or its own prior published raw
+observations, matching the research convention without reading reference book
+values. A missing current and prior price refuses the comparison. Every
+estimated opening valuation and every affected allocation transition is
+retained in the evidence. These estimates reproduce the certified research
+curve; they do not establish executable returns or verified production
+performance. The operational opening-price refusal remains authoritative.
 
 The first replay divergence was 2006-09-27: production proposed buying 118,135
 CMCSA shares while research froze admissions on a carried terminal claim. The

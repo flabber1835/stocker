@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove the Median-5 promotion regressions reject nine reviewed mutations.
+"""Prove the Median-5 promotion regressions reject reviewed mutations.
 
 Only in-memory functions are changed. This never edits production source or
 imports a broker client into a test flow.
@@ -29,6 +29,7 @@ from sentinel.controller import median5 as controller
 from sentinel import strategy, empty_account_authority
 from sentinel.core.decision import runtime_strategy_identity
 from stock_strategy_shared.wealth_core import adapter
+from tools import median5_equivalence as equivalence
 
 
 def rewritten(function, old, new, *, last=False):
@@ -88,6 +89,15 @@ def run():
         ("previous_gate_pass_reused", lambda: with_tmp_path(test_equivalence_gate.test_previous_pass_cannot_survive_into_a_new_gate_run),
          test_equivalence_gate, "prepare_output", rewritten(test_equivalence_gate.prepare_output,
              'if output.exists() and any(output.iterdir()):', 'if False:')),
+        ("opening_audit_replaces_production_refusal", lambda: with_monkeypatch(test_equivalence_gate.test_opening_audit_preserves_strict_production_result_and_prefill_boundary),
+         equivalence, "advance_with_open_audit", rewritten(equivalence.advance_with_open_audit,
+             '        return resolved', '        return observations[-1][0], ()')),
+        ("missing_open_price_assumed_zero", test_equivalence_gate.test_opening_audit_refuses_missing_prior_price,
+         equivalence, "opening_estimate", rewritten(equivalence.opening_estimate,
+             'raise ValueError("opening audit lacks current and prior raw price: " + sid)', 'price = 0.0')),
+        ("duplicate_opening_boundary_accepted", lambda: with_monkeypatch(test_equivalence_gate.test_opening_audit_refuses_duplicate_boundary),
+         equivalence, "advance_with_open_audit", rewritten(equivalence.advance_with_open_audit,
+             'if len(observations) != 1:', 'if False:')),
     )
     results = []
     for name, falsifier, module, attribute, mutant in cases:
