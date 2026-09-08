@@ -20,7 +20,7 @@ def _load(name: str, path: Path):
 
 
 v2 = _load("wealth_core_v2_replay", ROOT / "run_research_champion_slot_funding_v2.py")
-observer = _load("wealth_core_pit_audit_observer_v3", ROOT / "pit_audit_observer_v3.py")
+observer = _load("wealth_core_pit_audit_observer_v4", ROOT / "pit_audit_observer_v4.py")
 
 _PRIOR = v2.BASE.strict20.corrected.transformed_source
 
@@ -41,6 +41,7 @@ def _assert_generated(generated: str, label: str) -> None:
         "reserved_cash:float=0.",
         "required_cash>book.uncommitted_cash()",
         "afford=math.floor(s.reserved_cash/",
+        "slot_v2_reserved=slot_v2_rejected=slot_v2_gap_clipped=slot_v2_gap_cancelled=0",
         "pending_native=native_target; pend['control']=a_d; pend['A']=a_d; pend['B']=b_d",
     )
     missing = [needle for needle in required if needle not in generated]
@@ -66,7 +67,7 @@ def _self_test_observer() -> int:
             os.environ.pop("CANONICAL_PIT_DATASET", None)
         else:
             os.environ["CANONICAL_PIT_DATASET"] = prior
-    print("[OBSERVER_FINAL_SOURCE] PASS V2 unbound+canonical+promotion", flush=True)
+    print("[OBSERVER_FINAL_SOURCE] PASS V2 unbound+canonical+promotion+init", flush=True)
     return 0
 
 
