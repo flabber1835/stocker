@@ -1,4 +1,3 @@
-INSIGHTS.md
 PROVENANCE.json
 api/artifact-10073578819.json
 api/artifact-10076643420.json

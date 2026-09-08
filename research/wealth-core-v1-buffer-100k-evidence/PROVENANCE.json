@@ -1,25 +1,8 @@
 {
-  "schema": "research.wealth-core-v1-buffer-100k-evidence/1",
-  "baseline_authority": {
-    "run_id": 34267327656,
-    "artifact_id": 10073578819,
-    "source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
-    "daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
-    "summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878"
-  },
-  "no_micro_diagnostic": {
-    "run_id": 34272674885,
-    "artifact_id": 10076643420,
-    "artifact_sha256": "5bc7f2600881bf993e772812f9b214166365104b9a815b976336122266fcf097"
-  },
-  "buffer_primary": {
-    "run_id": 34283531740,
-    "artifact_id": 10079799925,
-    "run_head": "32b16cf9addd7fe8122b02d06c4d3643c86a74a9",
-    "artifact_sha256": "79de96a433acf364488b79badbf2b46fa9e2a8fb90416c8c9b85af11bcfd4aac",
-    "generated_source_sha256": "44a9914be859eb7f76ca747aaa66a41e19a557a2095da0a707ea99575898c4e0",
-    "transaction_ledger_sha256": "3cffc04199190c1b0a4e6c90db4396dd347de0173b33dbec4e78fe84357dd687"
-  },
-  "cross_check_run_id": 34282958960,
-  "canonical_pit_dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993"
+  "schema":"research.wealth-core-v1-buffer-100k-evidence/1",
+  "baseline_authority":{"run_id":34267327656,"artifact_id":10073578819,"source_sha256":"32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f","daily_sha256":"8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6","summary_sha256":"929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878"},
+  "no_micro_diagnostic":{"run_id":34272674885,"artifact_id":10076643420,"artifact_sha256":"5bc7f2600881bf993e772812f9b214166365104b9a815b976336122266fcf097"},
+  "buffer_primary":{"run_id":34283531740,"artifact_id":10079799925,"run_head":"32b16cf9addd7fe8122b02d06c4d3643c86a74a9","artifact_sha256":"79de96a433acf364488b79badbf2b46fa9e2a8fb90416c8c9b85af11bcfd4aac","generated_source_sha256":"44a9914be859eb7f76ca747aaa66a41e19a557a2095da0a707ea99575898c4e0","transaction_ledger_sha256":"3cffc04199190c1b0a4e6c90db4396dd347de0173b33dbec4e78fe84357dd687"},
+  "cross_check_run_id":34282958960,
+  "canonical_pit_dataset_sha256":"5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993"
 }
