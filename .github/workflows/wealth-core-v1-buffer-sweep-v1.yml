@@ -168,7 +168,7 @@ jobs:
           set -euo pipefail
           BP='${{ matrix.buffer_bp }}'
           OUT="${GITHUB_WORKSPACE}/experiment-results/${BP}bp"
-          ENGINE="${GITHUB_WORKSPACE}/final-output/${BP}bp/engine"
+          ENGINE="${GITHUB_WORKSPACE}/final-output/engine"
           mkdir -p "$OUT" "$ENGINE"
           cd certified-src
           python "${GITHUB_WORKSPACE}/audit-src/research/wealth-core-v1-buffer-sweep-v1/run_sweep_arm.py" \
