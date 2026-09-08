@@ -18,7 +18,7 @@ def _load(name: str, path: Path):
 
 
 v2 = _load("wealth_core_v2_replay", ROOT / "run_research_champion_slot_funding_v2.py")
-observer = _load("wealth_core_pit_audit_observer", ROOT / "pit_audit_observer.py")
+observer = _load("wealth_core_pit_audit_observer_v2", ROOT / "pit_audit_observer_v2.py")
 
 _PRIOR = v2.BASE.strict20.corrected.transformed_source
 
