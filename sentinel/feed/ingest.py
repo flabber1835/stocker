@@ -51,7 +51,8 @@ _prove_recent_frontier = _authority._prove_recent_frontier
 _today = _impl._today
 
 
-def _seed_source(fetch, *, final_hi: str, update_ceiling: str | None = None):
+def _seed_source(fetch, *, final_hi: str, update_ceiling: str | None = None,
+                 acquisition_fetch=None):
     """Return one stable canonical seed observation.
 
     ``final_hi`` is the market-session boundary used for source corroboration.
@@ -65,10 +66,11 @@ def _seed_source(fetch, *, final_hi: str, update_ceiling: str | None = None):
     """
     production_snapshot = fetch is snapshot_source.fetch_table
     guarded = source_authority.StableSharadarFetch(
-        fetch, protect_sep=lambda _params: True,
+        acquisition_fetch or fetch, protect_sep=lambda _params: True,
         corroborate_reference=(
             lambda params: str(params.get("date.lte") or "") == final_hi),
-        after_session=None, seed_mode=production_snapshot)
+        after_session=None, seed_mode=production_snapshot,
+        validate_tickers=production_snapshot)
     ceiling = final_hi if update_ceiling is None else update_ceiling
     tracked = source_authority.LastUpdatedTrackingFetch(
         guarded, update_ceiling=ceiling)
@@ -198,12 +200,14 @@ class _SeedAuthority:
             ceiling = seed_coherence.capture_update_ceiling()
             proof_fetch = _post_seed_proof_source(
                 self.source_fetch, boundary=self.boundary, ceiling=ceiling)
-            self.proof = seed_coherence.prove(
-                run.conn, run=run, fetch=proof_fetch,
-                market_start=self.market_start, market_end=self.market_end,
-                seed_start_update_boundary=self.boundary,
-                observed_max_lastupdated=self.tracked.max_sep_lastupdated,
-                resolver=resolver, update_through=ceiling)
+            from sentinel.feed import progress
+            with progress.phase("post_seed_proof"):
+                self.proof = seed_coherence.prove(
+                    run.conn, run=run, fetch=proof_fetch,
+                    market_start=self.market_start, market_end=self.market_end,
+                    seed_start_update_boundary=self.boundary,
+                    observed_max_lastupdated=self.tracked.max_sep_lastupdated,
+                    resolver=resolver, update_through=ceiling)
         except BaseException as exc:                         # noqa: BLE001
             run.finish("failed", f"post-seed coherence failed: {exc}")
             raise
@@ -283,6 +287,12 @@ def _seed_authority(*, boundary, tracked, source_fetch, market_start,
 def _run_seed_generation(conn, *, recovery_plan, fetch, final_hi: str,
                          boundary: str | None = None, resolve_identity=None):
     """Run one seed/reseed engine with source-specific proof hooks."""
+    if fetch is snapshot_source.fetch_table:
+        from sentinel.feed import seed_capture
+        return seed_capture.run_generation(
+            conn, recovery_plan=recovery_plan, fetch=fetch,
+            final_hi=final_hi, boundary=boundary,
+            resolve_identity=resolve_identity)
     seed_from, seed_to = recovery_plan.date_from, recovery_plan.date_to
     if boundary is None:
         tracked, guarded = _seed_source(fetch, final_hi=final_hi)
