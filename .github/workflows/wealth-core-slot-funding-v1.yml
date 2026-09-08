@@ -8,6 +8,7 @@ on:
       - 'research/wealth-core-slot-funding-v1/apply_kernel_fix.py'
       - 'research/wealth-core-slot-funding-v1/apply_fixture_updates.py'
       - 'research/wealth-core-slot-funding-v1/remove_obsolete_golden_reservation_checks.py'
+      - 'research/wealth-core-slot-funding-v1/apply_full_suite_fixture_updates.py'
   workflow_dispatch:
 
 permissions:
@@ -38,6 +39,7 @@ jobs:
           python research/wealth-core-slot-funding-v1/apply_kernel_fix.py
           python research/wealth-core-slot-funding-v1/apply_fixture_updates.py
           python research/wealth-core-slot-funding-v1/remove_obsolete_golden_reservation_checks.py
+          python research/wealth-core-slot-funding-v1/apply_full_suite_fixture_updates.py
           git diff --check
           python -m compileall -q shared/stock_strategy_shared/wealth_core tests/wealth_core
 
@@ -59,7 +61,12 @@ jobs:
             tests/wealth_core/test_restore_economic_invariants.py \
             tests/wealth_core/test_restore_nested_economic_invariants.py \
             tests/wealth_core/test_pending_corporate_actions.py \
-            tests/wealth_core/test_restart_matrix.py
+            tests/wealth_core/test_restart_matrix.py \
+            tests/wealth_core/test_cooldown_timing.py \
+            tests/wealth_core/test_dividends.py \
+            tests/wealth_core/test_identity.py \
+            tests/wealth_core/test_issuer_rebinding.py \
+            tests/wealth_core/test_golden_fixture.py
 
       - name: Commit the tested kernel correction
         run: |
@@ -79,8 +86,13 @@ jobs:
             tests/wealth_core/test_slot_funding.py \
             tests/wealth_core/test_pending_corporate_actions.py \
             tests/wealth_core/test_restore_nested_economic_invariants.py \
-            tests/wealth_core/test_restart_matrix.py
-          git commit -m "wealth_core: require fully funded slot reservations"
+            tests/wealth_core/test_restart_matrix.py \
+            tests/wealth_core/test_cooldown_timing.py \
+            tests/wealth_core/test_dividends.py \
+            tests/wealth_core/test_identity.py \
+            tests/wealth_core/test_issuer_rebinding.py \
+            tests/wealth_core/test_golden_fixture.py
+          git commit -m "wealth_core: complete funded slot reservation migration"
           git push origin HEAD:research/wealth-core-slot-funding-v1
 
       - name: Run complete Wealth Core suite on corrected kernel
