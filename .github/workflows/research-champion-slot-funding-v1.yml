@@ -1,0 +1,286 @@
+name: Research Champion corrected slot funding v1
+run-name: Corrected 25x4 Research Champion slot funding - ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - research/research-champion-slot-funding-v1
+    paths:
+      - '.github/workflows/research-champion-slot-funding-v1.yml'
+      - 'research/research-champion-slot-funding-v1/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: research-champion-slot-funding-v1-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  CERTIFIED_CHAMPION_SHA: '27bb992087182c42c3c051e62bf837895f5d2ab7'
+  CURRENT_KERNEL_ANCHOR: 'bd5ba4572fb170ac5a5ac24c408c27ac2fe1b823'
+  PINNED_RUNTIME_SHA: '887f479b15ad861313da666ad698034d3847121c'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  corrected-champion:
+    name: Research-only corrected Champion full-PIT replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Check out exact current research head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+
+      - name: Refuse production or kernel drift
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/research-champion-slot-funding-v1"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          git merge-base --is-ancestor "${CURRENT_KERNEL_ANCHOR}" HEAD
+          git diff --quiet "${CURRENT_KERNEL_ANCHOR}" HEAD -- \
+            shared/stock_strategy_shared/wealth_core/engine.py \
+            shared/stock_strategy_shared/wealth_core/state.py \
+            shared/stock_strategy_shared/wealth_core/state_restore_validation.py \
+            shared/stock_strategy_shared/wealth_core/adapter.py
+          grep -q '^ENTRY_FUNDING_PROFILE = "full_whole_share_target_v1"$' \
+            shared/stock_strategy_shared/wealth_core/engine.py
+          grep -q 'reserved_cash: float = 0.0' \
+            shared/stock_strategy_shared/wealth_core/state.py
+          test -z "$(git status --porcelain)"
+          echo "CURRENT_RESEARCH_SHA=${GITHUB_SHA}" >> "${GITHUB_ENV}"
+
+      - name: Check out exact certified Research Champion source read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.CERTIFIED_CHAMPION_SHA }}
+          path: legacy
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Check out historical pinned runtime authority read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          ref: ${{ env.PINNED_RUNTIME_SHA }}
+          path: legacy/main-src
+          fetch-depth: 1
+          persist-credentials: false
+
+      - name: Verify immutable source identities and experiment scope
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C legacy rev-parse HEAD)" = "${CERTIFIED_CHAMPION_SHA}"
+          test "$(git -C legacy/main-src rev-parse HEAD)" = "${PINNED_RUNTIME_SHA}"
+          test -z "$(git -C legacy status --porcelain --untracked-files=no)"
+          test -f legacy/backtester/run_research_champion_strict_pit_20y_v2.py
+          test -f legacy/backtester/data/canonical-pit-20y.json
+          test -f research/research-champion-slot-funding-v1/EXPERIMENT_CONTRACT.md
+          test -f research/research-champion-slot-funding-v1/run_corrected_research_champion.py
+          test -f research/research-champion-slot-funding-v1/summarize_corrected_research_champion.py
+          sha256sum \
+            research/research-champion-slot-funding-v1/EXPERIMENT_CONTRACT.md \
+            research/research-champion-slot-funding-v1/run_corrected_research_champion.py \
+            research/research-champion-slot-funding-v1/summarize_corrected_research_champion.py \
+            shared/stock_strategy_shared/wealth_core/engine.py \
+            shared/stock_strategy_shared/wealth_core/state.py \
+            shared/stock_strategy_shared/wealth_core/state_restore_validation.py \
+            shared/stock_strategy_shared/wealth_core/adapter.py \
+            > /tmp/experiment-input-sha256.txt
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4e3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12.13'
+          check-latest: false
+
+      - name: Install the certified replay runtime closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r legacy/main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e legacy/main-src/shared
+          python -m pip install -r legacy/services/backtester/requirements.txt
+          python -m pip install pytest==8.4.2
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/legacy/main-src:${GITHUB_WORKSPACE}/legacy/main-src/shared:${GITHUB_WORKSPACE}/legacy/services/backtester:${GITHUB_WORKSPACE}/legacy" >> "${GITHUB_ENV}"
+
+      - name: Compile overlay and historical Champion closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            research/research-champion-slot-funding-v1/run_corrected_research_champion.py \
+            research/research-champion-slot-funding-v1/summarize_corrected_research_champion.py \
+            legacy/backtester/run_research_champion_strict_pit_20y.py \
+            legacy/backtester/run_research_champion_strict_pit_20y_v2.py
+          (
+            cd legacy
+            python "${GITHUB_WORKSPACE}/research/research-champion-slot-funding-v1/run_corrected_research_champion.py" \
+              --self-test-slot-funding
+          )
+
+      - name: Pull and verify the immutable canonical PIT-v2 package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          PACKAGE=$(python -c "import json; print(json.load(open('legacy/backtester/data/canonical-pit-20y.json'))['package'])")
+          test "${PACKAGE#*@sha256:}" != "${PACKAGE}"
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          rm -rf legacy/backtester-results/canonical-pit-20y
+          mkdir -p legacy/backtester-results/canonical-pit-20y
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${cid}:/canonical-pit/." legacy/backtester-results/canonical-pit-20y
+          docker rm "${cid}"; trap - EXIT
+          (
+            cd legacy
+            python backtester/canonical_pit_package.py verify \
+              --pointer backtester/data/canonical-pit-20y.json \
+              --dataset backtester-results/canonical-pit-20y
+          )
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/legacy/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
+
+      - name: Audit canonical dataset and canonical generated-source seams
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p legacy/backtester-results/research-champion-slot-funding-v1
+          (
+            cd legacy
+            python backtester/certify_backtest_result_v2.py audit-dataset \
+              --dataset backtester-results/canonical-pit-20y \
+              --pointer backtester/data/canonical-pit-20y.json \
+              --output backtester-results/research-champion-slot-funding-v1/dataset-audit.json
+            python "${GITHUB_WORKSPACE}/research/research-champion-slot-funding-v1/run_corrected_research_champion.py" \
+              --self-test-slot-funding
+          )
+          python - <<'PY'
+          import json
+          p='legacy/backtester-results/research-champion-slot-funding-v1/dataset-audit.json'
+          a=json.load(open(p))
+          assert all(v=='PASS' for v in a['checks'].values()), a['checks']
+          assert a['universe_resolution']['unresolved']==0
+          assert a['terminal_accounting']['complete'] is True
+          print('[CANONICAL_DATASET_AUDIT] PASS')
+          PY
+
+      - name: Run historical Champion financial/causality regression closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          (
+            cd legacy
+            python -m unittest tests.backtester.test_research_champion_pit_v2_fixes -v
+          )
+
+      - name: Run corrected 25x4 Research Champion full-PIT replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf legacy/backtester-results/research-champion-slot-funding-v1/replay
+          mkdir -p legacy/backtester-results/research-champion-slot-funding-v1/replay
+          (
+            cd legacy
+            python "${GITHUB_WORKSPACE}/research/research-champion-slot-funding-v1/run_corrected_research_champion.py" \
+              --mode fullpit \
+              --output backtester-results/research-champion-slot-funding-v1/replay \
+              2>&1 | tee backtester-results/research-champion-slot-funding-v1/replay.log
+          )
+
+      - name: Structural diagnostics — performance still sealed
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="${GITHUB_WORKSPACE}/legacy/backtester-results/research-champion-slot-funding-v1/replay"
+          python research/research-champion-slot-funding-v1/summarize_corrected_research_champion.py \
+            structural --root "${ROOT}" --output "${ROOT}/slot-funding-structural.json"
+          cat "${ROOT}/slot-funding-structural.md" >> "${GITHUB_STEP_SUMMARY}"
+          python - <<'PY'
+          import json, pathlib
+          root=pathlib.Path('legacy/backtester-results/research-champion-slot-funding-v1/replay')
+          s=json.loads((root/'slot-funding-structural.json').read_text())
+          i=json.loads((root/'slot-funding-experiment-identity.json').read_text())
+          c=json.loads((root/'research-champion-identity.json').read_text())
+          assert s['status']=='PASS'
+          assert s['performance_examined'] is False
+          assert i['status']=='RESEARCH_COUNTERFACTUAL_PASS'
+          assert i['production_certification'] is False
+          assert i['funding_profile']=='full_whole_share_target_v1'
+          assert c['status']=='PASS'
+          assert c['profile']=='strategy9-e3-research-champion-v1'
+          assert c['authoritative_output']['promoted_from']=='A'
+          print('[STRUCTURAL_GATE] PASS -- performance may now be reported')
+          PY
+
+      - name: Performance diagnostics — after structural PASS only
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="${GITHUB_WORKSPACE}/legacy/backtester-results/research-champion-slot-funding-v1/replay"
+          python research/research-champion-slot-funding-v1/summarize_corrected_research_champion.py \
+            performance --root "${ROOT}" --output "${ROOT}/slot-funding-performance.json"
+          python - <<'PY' >> "${GITHUB_STEP_SUMMARY}"
+          import json, pathlib
+          p=pathlib.Path('legacy/backtester-results/research-champion-slot-funding-v1/replay/slot-funding-performance.json')
+          r=json.loads(p.read_text())
+          c=r['research_champion']; w=r['wealth_core']; s=r['spy']
+          print('\n## Performance — opened only after structural PASS\n')
+          print(f"- Research Champion CAGR: {c['cagr']:.6%}; max DD: {c['max_drawdown']:.6%}; Sharpe: {c['sharpe']:.6f}; multiple: {c['ending_multiple']:.6f}x")
+          print(f"- Wealth Core CAGR: {w['cagr']:.6%}; max DD: {w['max_drawdown']:.6%}; Sharpe: {w['sharpe']:.6f}; multiple: {w['ending_multiple']:.6f}x")
+          print(f"- SPY CAGR: {s['cagr']:.6%}; max DD: {s['max_drawdown']:.6%}; Sharpe: {s['sharpe']:.6f}; multiple: {s['ending_multiple']:.6f}x")
+          PY
+
+      - name: Seal research-only evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT="legacy/backtester-results/research-champion-slot-funding-v1"
+          REPLAY="${ROOT}/replay"
+          cp /tmp/experiment-input-sha256.txt "${ROOT}/experiment-input-sha256.txt"
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root=Path('legacy/backtester-results/research-champion-slot-funding-v1')
+          replay=root/'replay'
+          dataset=json.loads((root/'dataset-audit.json').read_text())
+          structural=json.loads((replay/'slot-funding-structural.json').read_text())
+          perf=json.loads((replay/'slot-funding-performance.json').read_text())
+          identity=json.loads((replay/'slot-funding-experiment-identity.json').read_text())
+          manifest={
+              'schema':'research.corrected-champion-slot-funding-result/1',
+              'status':'RESEARCH_COUNTERFACTUAL_PASS',
+              'production_go':False,
+              'pit_production_certificate':False,
+              'dataset_audit_status':'PASS' if all(v=='PASS' for v in dataset['checks'].values()) else 'FAIL',
+              'structural_status':structural['status'],
+              'performance_status':perf['status'],
+              'identity':identity,
+          }
+          (root/'RESULT.json').write_text(json.dumps(manifest,indent=2,sort_keys=True)+'\n')
+          files=[p for p in root.rglob('*') if p.is_file() and p.name!='SHA256SUMS.txt']
+          lines=[]
+          for p in sorted(files):
+              h=hashlib.sha256(p.read_bytes()).hexdigest()
+              lines.append(f"{h}  {p.relative_to(root)}\n")
+          (root/'SHA256SUMS.txt').write_text(''.join(lines))
+          print('[RESEARCH_COUNTERFACTUAL_PASS] no production promotion')
+          PY
+
+      - name: Upload complete corrected Champion research evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: research-champion-slot-funding-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: legacy/backtester-results/research-champion-slot-funding-v1
+          if-no-files-found: error
+          retention-days: 30
