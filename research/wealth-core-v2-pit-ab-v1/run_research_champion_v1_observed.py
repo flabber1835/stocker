@@ -9,8 +9,8 @@ import sys
 
 from backtester import run_research_champion_strict_pit_20y_v2 as certified
 
-_OBSERVER_PATH = Path("research/wealth-core-v2-pit-ab-v1/pit_audit_observer_v2.py")
-_spec = importlib.util.spec_from_file_location("wealth_core_pit_audit_observer_v2", _OBSERVER_PATH)
+_OBSERVER_PATH = Path("research/wealth-core-v2-pit-ab-v1/pit_audit_observer_v3.py")
+_spec = importlib.util.spec_from_file_location("wealth_core_pit_audit_observer_v3", _OBSERVER_PATH)
 if _spec is None or _spec.loader is None:
     raise RuntimeError(f"cannot load observer {_OBSERVER_PATH}")
 observer = importlib.util.module_from_spec(_spec)
@@ -33,10 +33,13 @@ def _assert_generated(generated: str, label: str) -> None:
         "wealth_core_order_blotter.csv",
         "wealth_core_position_lifecycle.csv",
         "wealth_core_daily_observer.csv",
+        "pending_native=native_target; pend['control']=a_d; pend['A']=a_d; pend['B']=b_d",
     )
     missing = [needle for needle in required if needle not in generated]
     if missing:
         raise RuntimeError(f"observed V1 {label} source missing: {missing}")
+    if "pending_native=native_target; pend['control']=ctl_d; pend['A']=a_d; pend['B']=b_d" in generated:
+        raise RuntimeError("observed V1 final source reverted Champion control promotion")
 
 
 def _self_test_observer() -> int:
@@ -58,7 +61,7 @@ def _self_test_observer() -> int:
             os.environ.pop("CANONICAL_PIT_DATASET", None)
         else:
             os.environ["CANONICAL_PIT_DATASET"] = prior
-    print("[OBSERVER_FINAL_SOURCE] PASS V1 unbound+canonical", flush=True)
+    print("[OBSERVER_FINAL_SOURCE] PASS V1 unbound+canonical+promotion", flush=True)
     return 0
 
 
