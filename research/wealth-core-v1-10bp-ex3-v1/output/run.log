@@ -1,0 +1,104 @@
+{
+  "authorities": {
+    "baseline_run_id": 34267327656,
+    "buffer_basis_points": 10,
+    "buffer_generated_source_sha256": "44a9914be859eb7f76ca747aaa66a41e19a557a2095da0a707ea99575898c4e0",
+    "buffer_run_id": 34283531740,
+    "canonical_pit_dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+    "dividend_lag_sessions": 1,
+    "fractional_shares": false
+  },
+  "controller_effect_on_10bp_core": {
+    "cagr_percentage_points": 4.646242087184471,
+    "ending_multiple": 21.394415750589598,
+    "max_drawdown_percentage_points": 26.569125331899613,
+    "sharpe": 0.2806370367915858
+  },
+  "controller_path": {
+    "0bp_candidate_A_episodes": 8,
+    "0bp_concordance_releases": 3,
+    "0bp_modeled_transition_cost_sum": 0.018250000000000002,
+    "0bp_transition_count": 26,
+    "10bp_candidate_A_episodes": 6,
+    "10bp_concordance_releases": 2,
+    "10bp_modeled_transition_cost_sum": 0.01335,
+    "10bp_transition_count": 19
+  },
+  "economic_scope": "WEALTH_CORE_V1_10BP_PLUS_RESEARCH_CHAMPION_EX3",
+  "ex3_identity": {
+    "control_is_candidate_A": true,
+    "divergence_spy_floor": 0.0,
+    "fast_damaged_breadth": 0.88,
+    "full_recovery_r40_floor": 0.0,
+    "healthy_damaged_ceiling": 0.63,
+    "ldrc_dd": -0.1,
+    "ldrc_r20": -0.085,
+    "ldrc_rec_sessions": 8,
+    "ldrc_v": 0.11,
+    "profile": "strategy9-e3-research-champion-v1"
+  },
+  "ex3_layered": {
+    "0bp": {
+      "cagr": 0.17435250979735462,
+      "end": "2026-07-31",
+      "ending_multiple": 24.888474095101383,
+      "max_drawdown": -0.2436445786275303,
+      "sessions": 5032,
+      "sharpe": 0.9804948416972252,
+      "start": "2006-07-31"
+    },
+    "10bp": {
+      "cagr": 0.20134529932740475,
+      "end": "2026-07-31",
+      "ending_multiple": 39.20936296918986,
+      "max_drawdown": -0.2247361341951517,
+      "sessions": 5032,
+      "sharpe": 1.0857194315310128,
+      "start": "2006-07-31"
+    },
+    "delta_10bp_minus_0bp": {
+      "cagr_percentage_points": 2.699278953005013,
+      "ending_multiple": 14.320888874088478,
+      "ending_multiple_percent": 57.54024461028391,
+      "max_drawdown_percentage_points": 1.8908444432378602,
+      "sharpe": 0.10522458983378757
+    }
+  },
+  "new_market_replay_required": false,
+  "path_divergence_10bp_vs_0bp": {
+    "control_allocation_divergence_days": 404,
+    "first_control_allocation_divergence": "2015-10-29",
+    "first_native_target_divergence": "2015-10-26",
+    "first_position_divergence": "2006-11-02",
+    "native_target_divergence_days": 154,
+    "position_divergence_days": 4787,
+    "ranking_divergence_days": 0
+  },
+  "pure_wealth_core": {
+    "0bp": {
+      "cagr": 0.1454603836086088,
+      "end": "2026-07-31",
+      "end_equity": 1397317.8592213374,
+      "ending_multiple": 15.122573069642186,
+      "max_drawdown": -0.4901142196226078,
+      "sessions": 5032,
+      "sharpe_daily_252": 0.7649936149589806,
+      "start": "2006-07-31",
+      "start_equity": 92399.478103788
+    },
+    "10bp": {
+      "cagr": 0.15488287845556004,
+      "end": "2026-07-31",
+      "end_equity": 1646091.825445194,
+      "ending_multiple": 17.814947218600263,
+      "max_drawdown": -0.49042738751414783,
+      "sessions": 5032,
+      "sharpe_daily_252": 0.805082394739427,
+      "start": "2006-07-31",
+      "start_equity": 92399.478103788
+    }
+  },
+  "schema": "research.wealth-core-v1-10bp-ex3/1",
+  "status": "PASS_EXISTING_REPLAY_EX3_LAYER_VERIFIED",
+  "why_no_new_market_replay": "The exact 0bp and 10bp 20-year replays already executed Candidate A / EX3 alongside the pure Wealth Core book. This experiment verifies and extracts that precomputed control path."
+}
