@@ -240,6 +240,40 @@ def fetch_complete_actions(*, through: str, **kwargs) -> tuple[list[dict], dict]
                   "contraticker", "contraname"}, **kwargs)
 
 
+def require_actions_refresh(*, through: str, evidence: Mapping,
+                            http=None, sleep=time.sleep, now=None) -> dict:
+    """Re-observe export status to corroborate one captured ACTIONS file."""
+    validate_config()
+    if http is None:
+        import httpx
+        http = httpx
+    query = {"api_key": sharadar._api_key(), "qopts.export": "true",
+             "date.gte": "1900-01-01", "date.lte": str(through)}
+    with http.Client(timeout=sharadar.FETCH_TIMEOUT_SECS) as client:
+        response = sharadar._get_with_retry(
+            client, f"{sharadar.NDL_BASE}/{sharadar.ACTIONS}.json", query,
+            http=http, sleep=sleep, now=now)
+        try:
+            payload = response.json()
+        except Exception:
+            raise SharadarSnapshotExportError(
+                "Sharadar ACTIONS refresh status is not valid JSON") from None
+    status, link, snapshot, refreshed = _decode_export_status(payload)
+    if (status != "fresh" or link is None or snapshot is None
+            or refreshed is None or snapshot < refreshed
+            or evidence.get("authority") != "nasdaq-data-link-table-export/v1"
+            or evidence.get("table") != sharadar.ACTIONS
+            or evidence.get("file_status") != "fresh"
+            or refreshed != _aware_iso(evidence.get("last_refreshed_time"),
+                                       field="captured last_refreshed_time")):
+        from sentinel.feed.authority import VendorPublicationUnstable
+        raise VendorPublicationUnstable(
+            "Sharadar ACTIONS export refresh changed during seed acquisition; "
+            "captured source requires a new acquisition")
+    return {"last_refreshed_time": refreshed.isoformat(),
+            "data_snapshot_time": snapshot.isoformat()}
+
+
 def fetch_complete_sep(*, start: str, end: str, **kwargs) -> tuple[list[dict], dict]:
     """Complete bounded SEP file used for current decision-history proof."""
     return _fetch_complete(

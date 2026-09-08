@@ -127,6 +127,7 @@ class PreparationView:
     base: Any
     failure_reason_code: Optional[str] = None
     failure_detail: Optional[str] = None
+    progress_events: tuple = ()
 
     def __getattr__(self, name: str):
         return getattr(self.base, name)
@@ -141,6 +142,8 @@ class PreparationView:
             value["failure_reason_code"] = self.failure_reason_code
         if self.failure_detail:
             value["failure_detail"] = self.failure_detail
+        if self.progress_events:
+            value["progress_events"] = list(self.progress_events)
         return value
 
 
@@ -397,7 +400,10 @@ def run_phased_probes(*, runner=None, env=None, now=None, urlopen=None,
         if reason_code:
             print(f"GO preparation refusal: {reason_code}" + (f" - {detail}" if detail else ""),
                   file=sys.stderr, flush=True)
-    preparation = PreparationView(preparation_base, reason_code, detail)
+    import sentinel_go_feed_progress
+    preparation = PreparationView(
+        preparation_base, reason_code, detail,
+        tuple(sentinel_go_feed_progress.collect(runner.last_preparation_output)))
 
     # D: read-only financial readiness using the exact certified deployable runtime.
     subjects = dict(account_subjects)

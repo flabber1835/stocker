@@ -6,6 +6,12 @@ and no paper trading has occurred. Delivery requires a reviewed PR and a
 successful equivalence test. The owner merges. This document does not authorize
 deployment, state activation, a broker operation, or live trading.
 
+The promotion branch also incorporates main
+`df4683b8bf1c80453b8f542f4e3ed441387ad3f5` (PR #334, coherent NAS feed recovery).
+That merge does not change the Median-5 economic rules. Its source-identity
+change requires the final safety and equivalence evidence to cover the combined
+code, so the pre-merge replay is not the final promotion receipt.
+
 ## Frozen authority
 
 The independent reference is the full-PIT v13 replay at research commit

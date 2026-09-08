@@ -449,7 +449,13 @@ class IngestRun:
         self.progress.current_chunk = label
         self.publish()
         try:
-            yield self.progress
+            from sentinel.feed import progress
+            stage = ("database_" + label if label in {"tickers", "actions", "spy"}
+                     else "database_prices")
+            with progress.phase(stage) as count:
+                before = self.progress.rows_written
+                yield self.progress
+                count[0] = self.progress.rows_written - before
         except BaseException as exc:      # noqa: BLE001 — recorded, then re-raised
             self.finish("failed", f"{type(exc).__name__} at {label}: {exc}")
             raise
