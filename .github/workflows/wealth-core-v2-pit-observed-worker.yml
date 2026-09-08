@@ -1,0 +1,157 @@
+name: Research - Wealth Core V2 observed PIT worker
+
+on:
+  push:
+    branches:
+      - research/wealth-core-v2-pit-observed-v2-worker
+    paths:
+      - '.github/workflows/wealth-core-v2-pit-observed-worker.yml'
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  PIT_OFFICIAL_BACKTEST: '1'
+  PIT_RUNTIME_MAIN_SHA: '887f479b15ad861313da666ad698034d3847121c'
+  PIT_POINTER: 'backtester/data/canonical-pit-20y.json'
+  ECONOMIC_SOURCE_SHA: '28c484d2abd3fcb5726a425f029b825131d5222b'
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  v2:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout worker
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/wealth-core-v2-pit-observed-worker.yml
+            /backtester
+            /services/backtester
+            /tools
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence
+            /research/strategy9-e3-broad-stability
+            /research/wealth-core-v2-pit-ab-v1
+
+      - name: Prove economic source equals definitive A/B head
+        shell: bash
+        run: |
+          set -euo pipefail
+          git diff --exit-code "${ECONOMIC_SOURCE_SHA}" -- \
+            backtester services/backtester tools \
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py \
+            research/sentinel-fastgate/pit-evidence research/strategy9-e3-broad-stability \
+            research/wealth-core-v2-pit-ab-v1
+          echo '[ECONOMIC_SOURCE_PARITY] PASS'
+
+      - name: Checkout pinned runtime authority
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.PIT_RUNTIME_MAIN_SHA }}
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen replay closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C main-src rev-parse HEAD)" = "${PIT_RUNTIME_MAIN_SHA}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/services/backtester:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install -r services/backtester/requirements.txt
+
+      - name: Validate final observed V2 source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            research/wealth-core-v2-pit-ab-v1/pit_audit_observer_v2.py \
+            research/wealth-core-v2-pit-ab-v1/pit_audit_observer_v3.py \
+            research/wealth-core-v2-pit-ab-v1/pit_audit_observer_v4.py \
+            research/wealth-core-v2-pit-ab-v1/run_research_champion_slot_funding_v2.py \
+            research/wealth-core-v2-pit-ab-v1/run_research_champion_v2_observed.py
+          python research/wealth-core-v2-pit-ab-v1/run_research_champion_v2_observed.py --self-test-observer
+
+      - name: Pull exact certified broad-PIT corpus
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          p=json.load(open('backtester/data/canonical-pit-20y.json'))
+          assert p['dataset_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993',p
+          assert p['window']=={'warmup_start':'2006-01-03','measurement_start':'2006-07-31','end':'2026-07-31'},p['window']
+          print('[POINTER] PASS',p['dataset_id'])
+          PY
+          PACKAGE=$(python -c "import json; print(json.load(open('${PIT_POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          rm -rf backtester-results/canonical-pit-20y && mkdir -p backtester-results/canonical-pit-20y
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${cid}:/canonical-pit/." backtester-results/canonical-pit-20y
+          docker rm "${cid}"; trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer "${PIT_POINTER}" --dataset backtester-results/canonical-pit-20y
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
+
+      - name: Run observed Wealth Core V2
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf backtester-results/wc-v2 && mkdir -p backtester-results/wc-v2
+          python research/wealth-core-v2-pit-ab-v1/run_research_champion_v2_observed.py \
+            --mode fullpit --output backtester-results/wc-v2 2>&1 | tee wealth-core-v2.log
+
+      - name: Validate V2 observer outputs
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          from pathlib import Path
+          import pandas as pd, json
+          root=Path('backtester-results/wc-v2')
+          for name in ('wealth_core_order_blotter.csv','wealth_core_position_lifecycle.csv','wealth_core_daily_observer.csv'):
+              p=root/name
+              assert p.is_file() and p.stat().st_size>0,name
+          d=pd.read_csv(root/'wealth_core_daily_observer.csv')
+          assert len(d)>5000,len(d)
+          assert (d['uncommitted_cash'].astype(float)>=-1e-6).all(), d['uncommitted_cash'].min()
+          s=json.load(open(root/'summary.json'))
+          print('[V2_OBSERVER] PASS rows',len(d),'funding',s.get('wealth_core_entry_funding'))
+          PY
+
+      - name: Upload V2 worker evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wealth-core-v2-observed-worker-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backtester/data/canonical-pit-20y.json
+            backtester-results/wc-v2/**
+            wealth-core-v2.log
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
