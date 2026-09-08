@@ -71,6 +71,20 @@ def queue_one(*, cash, cfg, price=100.0):
     return st, pending
 
 
+def test_corrected_funding_semantics_are_bound_to_config_identity():
+    cfg = WealthCoreConfig()
+    assert cfg.entry_funding_profile == "full_whole_share_target_v1"
+    with pytest.raises(ValueError, match="Legacy cash-clipped slot funding"):
+        WealthCoreConfig(entry_funding_profile="legacy_cash_clipped_v0")
+
+    # The profile is identity-bearing: altering the frozen object only for this
+    # hash falsifier must move the config hash.  Production construction cannot
+    # do this because the dataclass is frozen and __post_init__ refuses it.
+    before = cfg.config_hash()
+    object.__setattr__(cfg, "entry_funding_profile", "falsifier-only")
+    assert cfg.config_hash() != before
+
+
 def test_whole_shares_is_full_target_or_zero_never_cash_clipped():
     cfg = WealthCoreConfig()
     shares, required = whole_share_target(100_000.0, 100.0, cfg)

@@ -172,6 +172,9 @@ class Decision:
         return hashlib.sha256(blob.encode()).hexdigest()[:16]
 
 
+ENTRY_FUNDING_PROFILE = "full_whole_share_target_v1"
+
+
 @dataclass(frozen=True)
 class WealthCoreConfig:
     """Immutable during a run (original brief §11). Every constant that could
@@ -183,6 +186,10 @@ class WealthCoreConfig:
     transaction_cost_bps: float = 10.0
     max_admissions_per_session: int = 1
     minimum_leadership_population: int = 25
+    # Foundational admission economics.  This is intentionally a single
+    # accepted value, not a strategy knob: it prevents a corrected run from
+    # carrying the same config identity as the superseded cash-clipped rule.
+    entry_funding_profile: str = ENTRY_FUNDING_PROFILE
     # The ORDERING PROFILE, in the config hash. A run scored under one profile
     # can never be mistaken for a run scored under another — which is what makes
     # a future compatibility profile a deliberate, visible change rather than a
@@ -213,6 +220,12 @@ class WealthCoreConfig:
     dividend_settlement_lag_sessions: int = 1
 
     def __post_init__(self) -> None:
+        if self.entry_funding_profile != ENTRY_FUNDING_PROFILE:
+            raise ValueError(
+                f"unknown entry_funding_profile {self.entry_funding_profile!r}; "
+                f"the corrected kernel accepts only {ENTRY_FUNDING_PROFILE!r}. "
+                f"Legacy cash-clipped slot funding is deliberately not a "
+                f"compatibility mode.")
         if self.dividend_settlement_lag_sessions < 0:
             raise ValueError(
                 f"dividend_settlement_lag_sessions must be >= 0, got "
@@ -237,6 +250,7 @@ class WealthCoreConfig:
             "transaction_cost_bps": self.transaction_cost_bps,
             "max_admissions_per_session": self.max_admissions_per_session,
             "minimum_leadership_population": self.minimum_leadership_population,
+            "entry_funding_profile": self.entry_funding_profile,
             "ordering_profile": self.ordering_profile,
             "volatility_profile": self.volatility_profile,
             "dividend_settlement_lag_sessions":
