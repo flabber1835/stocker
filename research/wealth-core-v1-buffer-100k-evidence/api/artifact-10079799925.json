@@ -1,0 +1,20 @@
+{
+  "id": 10079799925,
+  "node_id": "MDg6QXJ0aWZhY3QxMDA3OTc5OTkyNQ==",
+  "name": "wealth-core-v1-buffer-100k-fast-34283531740-1",
+  "size_in_bytes": 928741,
+  "url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/10079799925",
+  "archive_download_url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/10079799925/zip",
+  "expired": false,
+  "digest": "sha256:79de96a433acf364488b79badbf2b46fa9e2a8fb90416c8c9b85af11bcfd4aac",
+  "created_at": "2026-09-08T22:37:58Z",
+  "updated_at": "2026-09-08T22:37:58Z",
+  "expires_at": "2026-12-07T21:59:16Z",
+  "workflow_run": {
+    "id": 34283531740,
+    "repository_id": 1233957439,
+    "head_repository_id": 1233957439,
+    "head_branch": "research/wealth-core-v1-buffer-100k-fast-v1",
+    "head_sha": "32b16cf9addd7fe8122b02d06c4d3643c86a74a9"
+  }
+}

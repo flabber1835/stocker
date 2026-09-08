@@ -1,0 +1,77 @@
+{
+  "baseline_authority": {
+    "artifact_id": 10073578819,
+    "daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+    "run_id": 34267327656,
+    "source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
+    "summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878"
+  },
+  "baseline_replay_skipped": true,
+  "buffer_10bp_integer_shares": {
+    "cagr": 0.15488287845556004,
+    "end": "2026-07-31",
+    "end_equity": 1646091.825445194,
+    "ending_multiple": 17.814947218600263,
+    "max_drawdown": -0.49042738751414783,
+    "sessions": 5032,
+    "sharpe_daily_252": 0.805082394739427,
+    "start": "2006-07-31",
+    "start_equity": 92399.478103788
+  },
+  "buffer_source_sha256": "44a9914be859eb7f76ca747aaa66a41e19a557a2095da0a707ea99575898c4e0",
+  "buffer_telemetry": {
+    "blocked_open_entries": 1,
+    "buffer_fraction": 0.001,
+    "fractional_share_buys": false,
+    "micro_entries_lt_1pct": 33,
+    "minimum_post_buy_cash_excess_over_buffer": 0.012660515522895821,
+    "transaction_rows": 961
+  },
+  "cash_buffer_basis_points": 10.0,
+  "cash_buffer_fraction": 0.001,
+  "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "delta_vs_v1": {
+    "cagr_percentage_points": 0.9422494846951235,
+    "ending_equity": 248773.96622385667
+  },
+  "economic_scope": "WEALTH_CORE_V1_ONLY",
+  "entry_telemetry": {
+    "average_entry_fraction": 0.8453482148105664,
+    "cash_limited_decisions": 124,
+    "entries": 519,
+    "entry_fraction_lt_10pct": 53,
+    "entry_fraction_lt_1pct": 33,
+    "entry_fraction_lt_25pct": 60,
+    "entry_fraction_lt_50pct": 71,
+    "entry_fraction_lt_5pct": 50,
+    "entry_fraction_lt_99pct": 231,
+    "gap_clipped_entries": 19,
+    "initial_capital": 100000.0,
+    "maximum_entry_fraction": 1.223330188509835,
+    "minimum_entry_fraction": 0.00018563010631380847,
+    "one_share_entries": 23,
+    "q0_candidate_skips": 1004
+  },
+  "fractional_share_buys": false,
+  "initial_capital": 100000.0,
+  "schema": "research.wealth-core-v1-buffer-100k-fast/1",
+  "sentinel_metrics_used": false,
+  "status": "PASS",
+  "transaction_ledger": {
+    "all_buy_share_amounts_integer": true,
+    "buys": 519,
+    "rows": 961,
+    "sells": 442
+  },
+  "v1_100k": {
+    "cagr": 0.1454603836086088,
+    "end": "2026-07-31",
+    "end_equity": 1397317.8592213374,
+    "ending_multiple": 15.122573069642186,
+    "max_drawdown": -0.4901142196226078,
+    "sessions": 5032,
+    "sharpe_daily_252": 0.7649936149589806,
+    "start": "2006-07-31",
+    "start_equity": 92399.478103788
+  }
+}

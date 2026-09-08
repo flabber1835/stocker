@@ -1,0 +1,25 @@
+{
+  "total_count": 1,
+  "artifacts": [
+    {
+      "id": 10076643420,
+      "node_id": "MDg6QXJ0aWZhY3QxMDA3NjY0MzQyMA==",
+      "name": "wealth-core-v1-clean-100k-34272674885-1",
+      "size_in_bytes": 1849816,
+      "url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/10076643420",
+      "archive_download_url": "https://api.github.com/repos/flabber1835/stocker/actions/artifacts/10076643420/zip",
+      "expired": false,
+      "digest": "sha256:5bc7f2600881bf993e772812f9b214166365104b9a815b976336122266fcf097",
+      "created_at": "2026-09-08T21:04:30Z",
+      "updated_at": "2026-09-08T21:04:30Z",
+      "expires_at": "2026-12-07T20:04:41Z",
+      "workflow_run": {
+        "id": 34272674885,
+        "repository_id": 1233957439,
+        "head_repository_id": 1233957439,
+        "head_branch": "research/wealth-core-v1-clean-100k-v1",
+        "head_sha": "1c5fd0bd39701882890133a08a8bbccfdb161f22"
+      }
+    }
+  ]
+}

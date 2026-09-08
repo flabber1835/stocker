@@ -1,0 +1,41 @@
+{
+  "buys": 523,
+  "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "economic_scope": "WEALTH_CORE_V1_ONLY",
+  "generated_source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
+  "initial_capital": 100000.0,
+  "metrics": {
+    "average_held_count": 22.62539745627981,
+    "cagr": 0.1454603836086088,
+    "end": "2026-07-31",
+    "ending_multiple": 15.122573069642186,
+    "full_slot_sessions": 1179,
+    "max_drawdown": -0.4901142196226078,
+    "median_held_count": 23.0,
+    "sessions": 5032,
+    "sharpe_daily_252": 0.7649936149589806,
+    "start": "2006-07-31"
+  },
+  "schema": "research.wealth-core-v1-capital-scale/1",
+  "sells": 446,
+  "sentinel_metrics_used": false,
+  "status": "PASS",
+  "telemetry": {
+    "average_entry_fraction": 0.8495281364233336,
+    "cash_limited_decisions": 119,
+    "entries": 523,
+    "entry_fraction_lt_10pct": 53,
+    "entry_fraction_lt_1pct": 40,
+    "entry_fraction_lt_25pct": 56,
+    "entry_fraction_lt_50pct": 72,
+    "entry_fraction_lt_5pct": 51,
+    "entry_fraction_lt_99pct": 235,
+    "gap_clipped_entries": 27,
+    "initial_capital": 100000.0,
+    "maximum_entry_fraction": 1.2412629358471419,
+    "minimum_entry_fraction": 0.0004025302532520693,
+    "one_share_entries": 28,
+    "q0_candidate_skips": 632
+  },
+  "v1_source_sha256_before_capital_patch": "bbd6783d0cd0e5d1662a0146190962e5845cc4b6bdb8feb50d0c7788f90a6077"
+}

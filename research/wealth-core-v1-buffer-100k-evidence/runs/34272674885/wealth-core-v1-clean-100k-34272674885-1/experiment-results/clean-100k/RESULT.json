@@ -1,0 +1,55 @@
+{
+  "baseline_authority": {
+    "artifact_id": 10073578819,
+    "daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+    "run_id": 34267327656,
+    "source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
+    "summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878"
+  },
+  "clean_no_micro": {
+    "cagr": 0.14545071525610198,
+    "end": "2026-07-31",
+    "end_equity": 1397081.9897673514,
+    "ending_multiple": 15.120020355505414,
+    "max_drawdown": -0.48998373423545394,
+    "sessions": 5032,
+    "sharpe_daily_252": 0.7650345147098006,
+    "start": "2006-07-31",
+    "start_equity": 92399.478103788
+  },
+  "clean_source_sha256": "19e9fa0af4f273df66ba5aa49aee23d920801fb8cac81e37470b37f8724cb404",
+  "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "decision_path": "EXACT_100K_V1_COMMON_CELLS",
+  "delta_vs_v1": {
+    "cagr_percentage_points": -0.0009668352506819744,
+    "ending_equity": -235.86945398594253
+  },
+  "economic_scope": "WEALTH_CORE_V1_ONLY",
+  "initial_capital": 100000.0,
+  "micro_fraction": 0.01,
+  "schema": "research.wealth-core-v1-clean-100k/1",
+  "sentinel_metrics_used": false,
+  "status": "FAIL_SELF_FINANCING",
+  "telemetry": {
+    "affordability_breaches": 7,
+    "max_concurrent_virtual": 4,
+    "maximum_micro_fraction": 0.0098148488555588,
+    "minimum_clean_cash": -60.549864540767885,
+    "minimum_micro_fraction": 0.000402530253252,
+    "omitted_gross_capital_cumulative": 1991.077097009,
+    "real_micro_entries": 0,
+    "sessions_with_virtual": 3898,
+    "virtual_entries": 40
+  },
+  "v1_100k": {
+    "cagr": 0.1454603836086088,
+    "end": "2026-07-31",
+    "end_equity": 1397317.8592213374,
+    "ending_multiple": 15.122573069642186,
+    "max_drawdown": -0.4901142196226078,
+    "sessions": 5032,
+    "sharpe_daily_252": 0.7649936149589806,
+    "start": "2006-07-31",
+    "start_equity": 92399.478103788
+  }
+}
