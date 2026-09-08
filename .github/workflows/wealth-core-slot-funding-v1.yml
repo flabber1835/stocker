@@ -6,6 +6,7 @@ on:
     paths:
       - '.github/workflows/wealth-core-slot-funding-v1.yml'
       - 'research/wealth-core-slot-funding-v1/apply_kernel_fix.py'
+      - 'research/wealth-core-slot-funding-v1/apply_fixture_updates.py'
   workflow_dispatch:
 
 permissions:
@@ -34,8 +35,9 @@ jobs:
           set -euo pipefail
           test "$(git branch --show-current)" = "research/wealth-core-slot-funding-v1"
           python research/wealth-core-slot-funding-v1/apply_kernel_fix.py
+          python research/wealth-core-slot-funding-v1/apply_fixture_updates.py
           git diff --check
-          python -m compileall -q shared/stock_strategy_shared/wealth_core tests/wealth_core/test_slot_funding.py
+          python -m compileall -q shared/stock_strategy_shared/wealth_core tests/wealth_core
 
       - name: Install test dependencies
         run: |
@@ -72,7 +74,10 @@ jobs:
             shared/stock_strategy_shared/wealth_core/engine.py \
             shared/stock_strategy_shared/wealth_core/adapter.py \
             tests/wealth_core/test_state_machine.py \
-            tests/wealth_core/test_slot_funding.py
+            tests/wealth_core/test_slot_funding.py \
+            tests/wealth_core/test_pending_corporate_actions.py \
+            tests/wealth_core/test_restore_nested_economic_invariants.py \
+            tests/wealth_core/test_restart_matrix.py
           git commit -m "wealth_core: require fully funded slot reservations"
           git push origin HEAD:research/wealth-core-slot-funding-v1
 
