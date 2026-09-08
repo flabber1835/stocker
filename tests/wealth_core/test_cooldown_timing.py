@@ -291,11 +291,7 @@ def test_mnst_omg_september_2006_cooldown_boundary() -> None:
 
     for slot_id, slot in state.slots.items():
         if slot_id != 5:
-            slot.reserve(
-                f"BLOCKED-{slot_id}",
-                f"BLOCKED-{slot_id}",
-                f"BLOCKED-ISSUER-{slot_id}",
-            )
+            slot.occupied_by = f"BLOCKED-{slot_id}"
 
     pending = [PendingOrder(
         Operation.CLOSE_POSITION,

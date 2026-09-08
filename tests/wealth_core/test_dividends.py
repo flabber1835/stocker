@@ -102,6 +102,7 @@ class TestEntitlement:
         # into the free slot, on a session where it also goes ex.
         pending = [PendingOrder(Operation.OPEN_SLOT_POSITION, "S2", "T2", 1, 10,
                                 "d0", Reason.ENTRY_DURABLE_RANK.value)]
+        st.reserve_slot(1, "S2", "T2", "I2", 1_001.0)
         bars = [bar("S1", div=0.50), bar("S2", div=5.00)]
         run_session(st, bars, led, "d1", pending=pending)
 

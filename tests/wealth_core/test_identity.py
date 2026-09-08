@@ -234,7 +234,7 @@ class TestPendingOrdersAcrossARename:
 
     def test_a_slot_RESERVATION_is_retargeted_too(self):
         st = seated()
-        st.slots[1].reserve(SEC, OLD, "I1")
+        st.slots[1].reserve(SEC, OLD, "I1", 100.0)
         res = run(st, [db(ticker=NEW, mark=150.0, signal=150.0)])
         assert st.slots[1].reserved_ticker == NEW
         assert st.slots[1].reserved_for == SEC

@@ -355,8 +355,9 @@ class TestRestartAtTheBoundary:
                              terminal_events=g.terminal_events, pending=pending)
         kinds = {p.operation.value for p in pending}
         assert "CLOSE_POSITION" in kinds, "no exit order straddles the boundary"
-        assert "OPEN_SLOT_POSITION" in kinds, "no entry order straddles it"
-        assert first.state.reserved_security_ids(), "no slot is reserved"
+        # The old OPEN here was an underfunded SEC_BUST admission and is
+        # deliberately absent under the corrected economics.  Funded pending-
+        # entry restart coverage lives in test_slot_funding.py.
 
     def test_a_restart_reproduces_the_one_shot_run_exactly(self):
         g = golden_scenario()
@@ -421,55 +422,9 @@ class TestRestartAtTheBoundary:
             ledger=Ledger.from_dict(first.ledger.to_dict()),
             last_known=dict(last_known), feed=feed)
 
-    def test_dropping_the_reservation_across_the_restart_REORDERS_the_slot(self):
-        """A mutation proof that the reservation is load-bearing.
-
-        Without it the resumed run re-hands the reserved slot to the same
-        candidate — the duplicate-orders defect, arriving by the restart route.
-
-        THE ASSERTION IS ON THE ORDER STREAM, NOT THE TERMINAL STATE, and that
-        is a correction rather than a weakening. This test used to compare the
-        damaged run's final state hash against the one-shot run's, which no
-        longer differs: the duplicate entry is emitted, reaches the open, finds
-        the cash already spent by the original order, and is cancelled
-        UNAFFORDABLE_AT_OPEN. The book converges because a SECOND safeguard
-        catches what the reservation missed.
-
-        Asserting on state would therefore report "the reservation is not
-        load-bearing", which is false — it is doing its job one layer earlier.
-        Asserting on the orders says what actually happens, and keeps saying it
-        if the affordability rule is ever changed.
-        """
-        g = golden_scenario()
-        clean = self._resume(g)
-        damaged = self._resume(g, corrupt=self._drop_reservations)
-
-        def entries(run, sec):
-            return [o for s in run.sessions if s.decision
-                    for o in s.decision.to_dict()["operations"]
-                    if o["operation"] == "OPEN_SLOT_POSITION"
-                    and o["security_id"] == sec]
-
-        reserved = "SEC_BUST"
-        assert not entries(clean, reserved), (
-            "the intact reservation must stop the resumed run re-selecting the "
-            "security whose entry is already queued")
-        dupes = entries(damaged, reserved)
-        assert dupes, "the corruption produced no duplicate — nothing is guarded"
-        assert dupes[0]["slot_id"] == 0, "and it claims the very same slot"
-
-        assert any(c["security_id"] == reserved
-                   and c["reason"] == "UNAFFORDABLE_AT_OPEN"
-                   for s in damaged.sessions for c in s.cancelled), (
-            "the duplicate must be caught at the fill by the affordability "
-            "rule; if it fills, the position doubles")
-
-    @staticmethod
-    def _drop_reservations(blob):
-        for slot in blob["slots"].values():
-            slot["reserved_for"] = None
-            slot["reserved_ticker"] = None
-            slot["reserved_issuer"] = None
+    # The former SEC_BUST reservation mutation was a mutation of the
+    # superseded underfunded-entry behavior.  The corrected cash-reservation
+    # mutation/restart falsifiers are in test_slot_funding.py.
 
 
 # ── the pin ─────────────────────────────────────────────────────────────────

@@ -42,7 +42,7 @@ def hold(state: PortfolioState, slot: int, sec: str, issuer: str) -> None:
 
 def reserve(state: PortfolioState, slot: int, sec: str, issuer: str,
             *, signal: str = "d0") -> PendingOrder:
-    state.reserve_slot(slot, sec, sec, issuer)
+    state.reserve_slot(slot, sec, sec, issuer, 100.10)
     return PendingOrder(
         Operation.OPEN_SLOT_POSITION, sec, sec, slot, 10,
         signal, "ENTRY_DURABLE_RANK")
