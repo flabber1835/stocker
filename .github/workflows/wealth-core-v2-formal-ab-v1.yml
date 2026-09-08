@@ -1,0 +1,228 @@
+name: Research - Wealth Core V2 formal-harness A/B
+
+on:
+  push:
+    branches:
+      - research/wealth-core-v2-formal-ab-v1
+    paths:
+      - '.github/workflows/wealth-core-v2-formal-ab-v1.yml'
+      - 'research/wealth-core-v2-formal-ab-v1/**'
+
+permissions:
+  contents: read
+  packages: read
+
+concurrency:
+  group: wealth-core-v2-formal-ab-v1
+  cancel-in-progress: true
+
+env:
+  PIT_OFFICIAL_BACKTEST: '1'
+  PIT_RUNTIME_MAIN_SHA: '887f479b15ad861313da666ad698034d3847121c'
+  CERTIFIED_BASE_SHA: '3af356ab6d329e7bc6cdc015a49a6ca2d4e4b864'
+  PIT_POINTER: 'backtester/data/canonical-pit-20y.json'
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  ab:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout clean research experiment
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/wealth-core-v2-formal-ab-v1.yml
+            /backtester
+            /tests
+            /services/backtester
+            /tools
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence
+            /research/strategy9-e3-broad-stability
+            /research/wealth-core-v2-formal-ab-v1
+
+      - name: Prove certified formal harness is untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = 'research/wealth-core-v2-formal-ab-v1'
+          git diff --exit-code "${CERTIFIED_BASE_SHA}" -- \
+            backtester services/backtester tools \
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py \
+            research/sentinel-fastgate/pit-evidence research/strategy9-e3-broad-stability
+          echo '[FORMAL_SOURCE_PARITY] PASS'
+
+      - name: Checkout pinned runtime authority
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.PIT_RUNTIME_MAIN_SHA }}
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen replay closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C main-src rev-parse HEAD)" = "${PIT_RUNTIME_MAIN_SHA}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/services/backtester:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install -r services/backtester/requirements.txt
+
+      - name: Review final V1 and V2 generated sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            research/wealth-core-v2-formal-ab-v1/formal_ab.py \
+            research/wealth-core-v2-formal-ab-v1/compare_formal_ab.py
+          python research/wealth-core-v2-formal-ab-v1/formal_ab.py --self-test-helpers
+          python research/wealth-core-v2-formal-ab-v1/formal_ab.py --self-test-formal
+          python - <<'PY'
+          import os, sys
+          from pathlib import Path
+          sys.path.insert(0,'research/wealth-core-v2-formal-ab-v1')
+          import formal_ab as m
+          os.environ['CANONICAL_PIT_DATASET']='/tmp/source-generation-only-canonical-pit'
+          _,transform=m._formal_transform()
+          v1=transform('fullpit',Path('/tmp/review-v1'))
+          if '_wc_audit_' in v1 or 'audit_orders' in v1:
+              raise RuntimeError('audit namespace already exists in formal economic source')
+          for variant,economic in (('V1',v1),('V2',m.apply_v2_patch(v1))):
+              _,blocks=m.install_audit(economic,variant=variant)
+              audit=''.join(blocks)
+              forbidden=('book.cash+=','book.cash-=','s.pending_tid=','s.pending_shares=','s.qty=',"pend['",'pending_native=','native.step(','ctl.step(','ca.step(','cb.step(')
+              bad=[x for x in forbidden if x in audit]
+              if bad: raise RuntimeError(f'{variant} audit writes/feeds economic state: {bad}')
+          print('[AUDIT_NON_INTERFERENCE] PASS')
+          PY
+          echo '[FORMAL_PREFLIGHT] PASS'
+
+      - name: Pull exact certified broad-PIT corpus
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          p=json.load(open('backtester/data/canonical-pit-20y.json'))
+          assert p['dataset_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993',p
+          assert p['window']=={'warmup_start':'2006-01-03','measurement_start':'2006-07-31','end':'2026-07-31'},p['window']
+          print('[POINTER] PASS',p['dataset_id'])
+          PY
+          PACKAGE=$(python -c "import json; print(json.load(open('${PIT_POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          rm -rf backtester-results/canonical-pit-20y && mkdir -p backtester-results/canonical-pit-20y
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${cid}:/canonical-pit/." backtester-results/canonical-pit-20y
+          docker rm "${cid}"; trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer "${PIT_POINTER}" --dataset backtester-results/canonical-pit-20y
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
+
+      - name: Run full formal Wealth Core V1 certified control
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf backtester-results/wc-v1 && mkdir -p backtester-results/wc-v1
+          WC_AB_VARIANT=V1 python research/wealth-core-v2-formal-ab-v1/formal_ab.py \
+            --mode fullpit --output backtester-results/wc-v1 2>&1 | tee wealth-core-v1.log
+
+      - name: Gate exact certified V1 parity
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          root=Path('backtester-results/wc-v1')
+          got=hashlib.sha256((root/'summary.json').read_bytes()).hexdigest()
+          want='7488908b6e3da6141560838e8a825009e4462a11de733681addd17ac0658267a'
+          if got!=want: raise RuntimeError(f'V1 summary parity failed got={got} want={want}')
+          s=json.loads((root/'summary.json').read_text())
+          if s.get('canonical_pit_dataset_hash')!='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993': raise RuntimeError('V1 dataset binding mismatch')
+          for f in ('canonical_input_session_hashes.csv','wealth_core_order_blotter.csv','wealth_core_position_lifecycle.csv','wealth_core_daily_observer.csv'):
+              if not (root/f).is_file(): raise RuntimeError(f'V1 missing {f}')
+          for line in (root/'SHA256SUMS.txt').read_text().splitlines():
+              if not line.strip(): continue
+              digest,name=line.split(None,1); path=root/name.strip()
+              actual=hashlib.sha256(path.read_bytes()).hexdigest()
+              if actual!=digest: raise RuntimeError(f'V1 formal checksum mismatch: {name}')
+          print('[V1_CERTIFIED_PARITY] PASS',got)
+          PY
+
+      - name: Run full formal Wealth Core V2
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf backtester-results/wc-v2 && mkdir -p backtester-results/wc-v2
+          WC_AB_VARIANT=V2 python research/wealth-core-v2-formal-ab-v1/formal_ab.py \
+            --mode fullpit --output backtester-results/wc-v2 2>&1 | tee wealth-core-v2.log
+
+      - name: Re-seal and verify V2 formal evidence checksums
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib
+          from pathlib import Path
+          root=Path('backtester-results/wc-v2'); sums=root/'SHA256SUMS.txt'
+          names=[]
+          for line in sums.read_text().splitlines():
+              if not line.strip(): continue
+              _,name=line.split(None,1); names.append(name.strip())
+          lines=[]
+          for name in names:
+              path=root/name
+              if not path.is_file(): raise RuntimeError(f'V2 checksum member missing: {name}')
+              lines.append(f"{hashlib.sha256(path.read_bytes()).hexdigest()}  {name}\n")
+          sums.write_text(''.join(lines))
+          for line in sums.read_text().splitlines():
+              digest,name=line.split(None,1); path=root/name.strip()
+              got=hashlib.sha256(path.read_bytes()).hexdigest()
+              if got!=digest: raise RuntimeError(f'V2 checksum mismatch after reseal: {name}')
+          print('[V2_EVIDENCE_RESEALED] PASS')
+          PY
+
+      - name: Compare pure Wealth Core and frozen Research Champion EX3
+        shell: bash
+        run: |
+          set -euo pipefail
+          python research/wealth-core-v2-formal-ab-v1/compare_formal_ab.py
+          cat backtester-results/comparison/COMPARISON.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload complete formal A/B evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wealth-core-v2-formal-ab-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backtester/data/canonical-pit-20y.json
+            backtester-results/wc-v1/**
+            backtester-results/wc-v2/**
+            backtester-results/comparison/**
+            wealth-core-v1.log
+            wealth-core-v2.log
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
