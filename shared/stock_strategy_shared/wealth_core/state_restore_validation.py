@@ -110,6 +110,9 @@ def _validate_slot(slot_id, raw, *, cooldown_sessions):
         raw.get("reserved_issuer"),
     )
     present = tuple(value is not None for value in reservation)
+    reserved_cash = _finite(
+        raw.get("reserved_cash", 0.0),
+        "slot %d reserved_cash" % slot_id, non_negative=True)
     if any(present) and not all(present):
         _fail("slot %d reservation" % slot_id,
               "must provide security, ticker, and issuer together")
@@ -117,6 +120,12 @@ def _validate_slot(slot_id, raw, *, cooldown_sessions):
         _text(reservation[0], "slot %d reserved_for" % slot_id)
         _text(reservation[1], "slot %d reserved_ticker" % slot_id)
         _text(reservation[2], "slot %d reserved_issuer" % slot_id)
+        if reserved_cash <= 0:
+            _fail("slot %d reservation" % slot_id,
+                  "must carry a positive cash budget")
+    elif reserved_cash != 0:
+        _fail("slot %d reserved_cash" % slot_id,
+              "must be zero when no entry is reserved")
 
     if occupied is not None and any(present):
         _fail("slot %d" % slot_id,
@@ -131,6 +140,7 @@ def _validate_slot(slot_id, raw, *, cooldown_sessions):
         "reserved_for": reservation[0],
         "reserved_ticker": reservation[1],
         "reserved_issuer": reservation[2],
+        "reserved_cash": reserved_cash,
     }
 
 
@@ -346,6 +356,11 @@ def validate_payload(d, *, cooldown_sessions):
     overlap = held.intersection(reserved)
     if overlap:
         _fail("slots", "reserve already-held securities: %s" % sorted(overlap))
+
+    cash = _finite(d.get("cash", 0.0), "cash", non_negative=True)
+    reserved_cash_total = sum(slot["reserved_cash"] for slot in slots.values())
+    if reserved_cash_total > cash:
+        _fail("slots", "reserve more entry cash than account cash")
 
     _validate_counter_map(
         d.get("security_cooldowns"), "security_cooldowns",

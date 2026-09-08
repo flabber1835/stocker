@@ -93,6 +93,7 @@ def test_restore_refuses_partial_or_conflicting_slot_reservation():
         "reserved_for": "SEC-B",
         "reserved_ticker": "BBB",
         "reserved_issuer": "ISS-B",
+        "reserved_cash": 100.0,
     })
     with pytest.raises(ValueError, match="occupied and reserved"):
         PortfolioState.from_dict(payload)

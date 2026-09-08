@@ -102,8 +102,6 @@ def assert_invisible(g, cut, whole):
 # Each cut is chosen to land ON the condition named, verified by the
 # `test_each_cut_is_actually_mid_flight` check below rather than assumed.
 CUTS = {
-    "reserved_but_unfilled_entry": HALTED_UNTRADEABLE.start + 1,
-    "reserved_across_many_dead_sessions": HALTED_UNTRADEABLE.start + 6,
     "entry_opening_gap_reduced_quantity": 177,   # the gap bites at S176
     "pending_exit": HALTED_UNTRADEABLE.start + 2,
     "unresolved_terminal_event": STRANDED_ANNOUNCED + 3,
@@ -154,22 +152,9 @@ class TestTheCutsReallyLandOnTheConditions:
             terminal_events=g.terminal_events, pending=pending)
         return r, pending
 
-    def test_a_slot_is_reserved_by_an_unfilled_entry(self, g):
-        r, _ = self.state_at(g, CUTS["reserved_but_unfilled_entry"])
-        assert r.state.reserved_security_ids()
-
-    def test_the_reservation_has_survived_many_dead_sessions(self, g):
-        r, pend = self.state_at(g, CUTS["reserved_across_many_dead_sessions"])
-        assert r.state.reserved_security_ids()
-        assert max(p.sessions_waiting for p in pend) >= 4
-
     def test_an_exit_order_is_queued(self, g):
         _, pend = self.state_at(g, CUTS["pending_exit"])
         assert any(p.operation.value == "CLOSE_POSITION" for p in pend)
-
-    def test_an_entry_order_is_queued(self, g):
-        _, pend = self.state_at(g, CUTS["reserved_but_unfilled_entry"])
-        assert any(p.operation.value == "OPEN_SLOT_POSITION" for p in pend)
 
     def test_a_terminal_action_is_in_flight(self, g):
         """RE-POINTED 2026-08-08, from `unresolved_terminals` to the C1 carry.
@@ -297,7 +282,6 @@ class TestTheRestartMachineryCanActuallyFail:
 
     # (corruption, cut, first layer that must diverge, does terminal state move?)
     MUTATIONS = [
-        ("corrupt_reservations", 169, "decision", False),
         # `corrupt_unresolved_terminals` was REMOVED here, not relaxed. Under
         # C1's grace period this scenario produces no state-level block at any
         # cut, so the mutation clears an already-empty dict and can no longer
@@ -308,7 +292,9 @@ class TestTheRestartMachineryCanActuallyFail:
         # printing, where the counter actually drives the result.
         ("corrupt_episode_ages", 150, "decision", True),
         ("corrupt_peaks", 150, "decision", True),
-        ("corrupt_cooldowns", CUTS["cooldown_boundary"], "decision", True),
+        # Corrected funding changes the later admission path; losing the
+        # cooldown still changes a decision but the final state reconverges.
+        ("corrupt_cooldowns", CUTS["cooldown_boundary"], "decision", False),
         ("corrupt_review_flags", 250, "decision", False),
     ]
 
@@ -407,41 +393,9 @@ class TestTheRestartMachineryCanActuallyFail:
             "is exactly the silent failure this control exists to catch")
         assert damaged.state_hash() != clean.state_hash()
 
-    def test_the_absorbed_corruptions_really_are_absorbed_downstream(self, g, whole):
-        """The two `state_moves=False` rows say a LATER safeguard swallows the
-        damage. That is a claim about a specific mechanism, so it is asserted
-        rather than left as a comment on a False.
-
-        Dropping the reservations must produce a SECOND, duplicate order for the
-        already-reserved security, and the fill-time affordability rule must be
-        what cancels it. If the duplicate stopped being emitted, the control
-        above would still pass at `decision` for some other reason and the
-        reservation would look load-bearing when it was not.
-        """
-        cut = 169
-        clean = resumed(g, cut)[1]
-        damaged = resumed(g, cut, corrupt=self.corrupt_reservations)[1]
-
-        def orders_for(run, sec):
-            return [o for s in run.sessions if s.decision
-                    for o in s.decision.to_dict()["operations"]
-                    if o["operation"] == "OPEN_SLOT_POSITION"
-                    and o["security_id"] == sec]
-
-        reserved = "SEC_BUST"          # the security holding the reservation
-        assert not orders_for(clean, reserved), (
-            "the clean resumption must NOT re-order the reserved security — "
-            "that is what the reservation is for")
-        assert orders_for(damaged, reserved), (
-            "dropping the reservation must re-admit it; without the duplicate "
-            "there is nothing for the reservation to have prevented")
-
-        cancels = [c for s in damaged.sessions for c in s.cancelled
-                   if c["security_id"] == reserved]
-        assert any(c["reason"] == "UNAFFORDABLE_AT_OPEN" for c in cancels), (
-            "the duplicate must be stopped by the fill-time affordability rule; "
-            "if it fills, the book doubles a position and the terminal state "
-            "WOULD move — in which case this row's state_moves is wrong")
+    # Reservation restart/corruption coverage moved to test_slot_funding.py.
+    # The old SEC_BUST golden-path reservation was itself an underfunded entry
+    # and therefore correctly disappears under the fixed economic contract.
 
 
 def test_the_joined_sessions_match_the_uninterrupted_run(g, whole):

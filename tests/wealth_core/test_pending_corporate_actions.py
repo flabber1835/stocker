@@ -46,7 +46,8 @@ def pending_close(shares: float) -> list[PendingOrder]:
 def pending_open(shares: float) -> tuple[PortfolioState, list[PendingOrder]]:
     state = PortfolioState.fresh(100_000.0)
     state.initialized = True
-    state.reserve_slot(0, "OLD", "OLD", "I:OLD")
+    state.reserve_slot(0, "OLD", "OLD", "I:OLD",
+                       float(shares) * 100.0 * 1.001)
     return state, [PendingOrder(
         Operation.OPEN_SLOT_POSITION, "OLD", "OLD", 0, shares, "d0", "ENTRY")]
 

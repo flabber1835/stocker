@@ -166,6 +166,10 @@ class SlotState:
     reserved_for: str | None = None         # security_id
     reserved_ticker: str | None = None
     reserved_issuer: str | None = None
+    # Dollars committed to this still-unfilled entry.  Cash remains in
+    # `PortfolioState.cash` until execution, so this separate claim is what
+    # prevents another free slot from promising the same dollars.
+    reserved_cash: float = 0.0
 
     @property
     def in_cooldown(self) -> bool:
@@ -187,13 +191,19 @@ class SlotState:
         return (self.occupied_by is None and self.reserved_for is None
                 and not self.in_cooldown)
 
-    def reserve(self, security_id: str, ticker: str, issuer_id: str) -> None:
+    def reserve(self, security_id: str, ticker: str, issuer_id: str,
+                reserved_cash: float) -> None:
+        amount = float(reserved_cash)
+        if not math.isfinite(amount) or amount <= 0:
+            raise ValueError("entry reservation cash must be finite and positive")
         self.reserved_for = security_id
         self.reserved_ticker = ticker
         self.reserved_issuer = issuer_id
+        self.reserved_cash = amount
 
     def release_reservation(self) -> None:
         self.reserved_for = self.reserved_ticker = self.reserved_issuer = None
+        self.reserved_cash = 0.0
 
     def start_cooldown(self) -> None:
         self.occupied_by = None
@@ -205,6 +215,19 @@ class SlotState:
             self.cooldown_sessions_elapsed += 1
             if self.cooldown_sessions_elapsed >= COOLDOWN_SESSIONS:
                 self.cooldown_sessions_elapsed = None    # expired, slot is free
+
+
+def _slot_json(slot) -> dict[str, Any]:
+    """Serialise a slot without inventing zero-valued hash movement.
+
+    `reserved_cash` is economic state only while a reservation exists.  Old
+    unreserved states omitted the field entirely, so zero continues to omit
+    it; a positive cash claim is persisted and hashed.
+    """
+    d = asdict(slot)
+    if d.get("reserved_cash") == 0.0:
+        d.pop("reserved_cash", None)
+    return d
 
 
 def _episode_json(ep) -> dict[str, Any]:
@@ -390,9 +413,30 @@ class PortfolioState:
     def reserved_tickers(self) -> set[str]:
         return {s.reserved_ticker for s in self.slots.values() if s.reserved_ticker}
 
+    def reserved_entry_cash_total(self) -> float:
+        """Cash already promised to queued entry orders.
+
+        The dollars remain part of portfolio equity until a fill occurs, but
+        they are not available to finance a second admission.
+        """
+        return float(sum(s.reserved_cash for s in self.slots.values()
+                         if s.reserved_for is not None))
+
+    def uncommitted_cash(self) -> float:
+        return float(self.cash) - self.reserved_entry_cash_total()
+
     def reserve_slot(self, slot_id: int, security_id: str, ticker: str,
-                     issuer_id: str) -> None:
-        self.slots[slot_id].reserve(security_id, ticker, issuer_id)
+                     issuer_id: str, reserved_cash: float) -> None:
+        amount = float(reserved_cash)
+        slot = self.slots[slot_id]
+        if not slot.ready:
+            raise ValueError(f"slot {slot_id} is not ready for reservation")
+        available = self.uncommitted_cash()
+        if amount > available:
+            raise ValueError(
+                f"entry reservation {amount!r} exceeds uncommitted cash "
+                f"{available!r}")
+        slot.reserve(security_id, ticker, issuer_id, amount)
 
     def shares_by_security(self) -> dict[str, int]:
         """AGGREGATED across episodes, not one entry per episode.
@@ -467,7 +511,7 @@ class PortfolioState:
 
     def to_dict(self) -> dict[str, Any]:
         return {
-            "slots": {str(k): asdict(v) for k, v in sorted(self.slots.items())},
+            "slots": {str(k): _slot_json(v) for k, v in sorted(self.slots.items())},
             "episodes": {str(k): _episode_json(v)
                          for k, v in sorted(self.episodes.items())},
             "security_cooldowns": dict(sorted(self.security_cooldowns.items())),

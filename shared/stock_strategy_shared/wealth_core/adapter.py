@@ -964,24 +964,29 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
             # OPEN quantities remain whole-share trades even if a split stored
             # the transformed quantity as an integral float.
             po.shares = int(po.shares)
-            # NO LEVERAGE, checked at the fill and not only at the decision.
-            # The size was computed from session t's close; this is t+1's open
-            # and it can gap. Fill what the cash actually covers.
-            fillable = min(po.shares, affordable_shares(state.cash, px, cfg))
+            # NO LEVERAGE, and no borrowing from tomorrow's unrelated cash.
+            # The decision reserved a dollar budget together with this slot.
+            # A gap may reduce shares, but this order may spend only that budget.
+            slot = state.slots[po.slot_id]
+            if slot.reserved_for != po.security_id or slot.reserved_cash <= 0:
+                res_cancelled.append(_cancelled_order(
+                    state, po, session=session, reason="MISSING_CASH_RESERVATION"))
+                continue
+            reserved_budget = float(slot.reserved_cash)
+            fillable = min(po.shares, affordable_shares(reserved_budget, px, cfg))
             if fillable <= 0:
-                state.slots[po.slot_id].release_reservation()
-                res_cancelled.append(
-                    {"session": session, "security_id": po.security_id,
-                     "ticker": po.ticker, "slot_id": po.slot_id,
-                     "wanted_shares": po.shares, "raw_open": px,
-                     "cash": round(state.cash, 2), "reason": "UNAFFORDABLE_AT_OPEN"})
+                res_cancelled.append(_cancelled_order(
+                    state, po, session=session, reason="UNAFFORDABLE_AT_OPEN",
+                    reserved_cash=reserved_budget,
+                    account_cash=round(state.cash, 2), raw_open=px))
                 continue
             if fillable < po.shares:
                 res_cancelled.append(
                     {"session": session, "security_id": po.security_id,
                      "ticker": po.ticker, "slot_id": po.slot_id,
                      "wanted_shares": po.shares, "filled_shares": fillable,
-                     "raw_open": px, "reason": "PARTIAL_AT_OPEN"})
+                     "raw_open": px, "reserved_cash": reserved_budget,
+                     "reason": "PARTIAL_AT_OPEN"})
                 po.shares = fillable
             before = state.cash
             apply_entry(state, op=Op(Operation.OPEN_SLOT_POSITION, None,

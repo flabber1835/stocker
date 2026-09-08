@@ -485,7 +485,8 @@ class TestAdmissions:
         """10bps is inside the affordability test, not applied afterwards —
         otherwise every admission overdraws by the commission."""
         assert whole_shares(100_000.0, 100.0, 100_000.0, CFG) == 39   # 4000/100.1
-        assert whole_shares(100_000.0, 100.0, 500.0, CFG) == 4        # cash-bound
+        # Cash no longer shrinks a target into a microscopic slot owner.
+        assert whole_shares(100_000.0, 100.0, 500.0, CFG) == 0
         assert whole_shares(100_000.0, 0.0, 100_000.0, CFG) == 0
 
     def test_unsettled_receivable_is_equity_but_cannot_fund_an_order(self):

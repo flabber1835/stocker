@@ -25,6 +25,7 @@ from stock_strategy_shared.wealth_core.shares import as_json as _shares_json
 
 import hashlib
 import json
+import math
 from dataclasses import dataclass, field
 from enum import Enum
 from typing import Mapping, Sequence
@@ -315,21 +316,35 @@ def still_qualifies(row: DurableScore | None) -> bool:
     return row.in_top_decile and passes_freshness(row.recent)
 
 
+def whole_share_target(equity: float, price: float | None,
+                       cfg: WealthCoreConfig) -> tuple[int, float]:
+    """The complete decision-time whole-share target and its cash requirement.
+
+    Cash is deliberately absent from this calculation.  A 4%/5% target is a
+    portfolio decision; available cash answers the separate yes/no question of
+    whether that complete whole-share order may claim a slot.
+    """
+    if price is None or price <= 0 or equity <= 0:
+        return 0, 0.0
+    target = float(equity) * cfg.entry_weight
+    per_share = float(price) * (1.0 + cfg.transaction_cost_bps / 10_000.0)
+    shares = max(0, int(target // per_share))
+    return shares, float(shares * per_share)
+
+
 def whole_shares(equity: float, price: float, cash: float,
                  cfg: WealthCoreConfig) -> int:
-    """Spec §6: 4% of CURRENT portfolio equity, whole shares, actual available
-    cash, 10bps cost on the traded side, no leverage.
+    """Return the FULL whole-share target only when cash can fund it.
 
-    The cost is included in the affordability test rather than applied after —
-    sizing to exactly `cash` and then paying commission would overdraw by the
-    commission on every single admission.
+    Historical Wealth Core used ``min(target, cash)`` here.  That let a $28 cash
+    remainder buy one share and own the same scarce slot as a properly funded
+    target episode.  The corrected invariant is binary at the decision boundary:
+    fund the complete whole-share target or leave the slot vacant.
     """
-    if price is None or price <= 0 or equity <= 0 or cash <= 0:
+    shares, required_cash = whole_share_target(equity, price, cfg)
+    if shares <= 0 or cash is None or not math.isfinite(float(cash)):
         return 0
-    target = equity * cfg.entry_weight
-    per_share = price * (1.0 + cfg.transaction_cost_bps / 10_000.0)
-    shares = int(min(target, cash) // per_share)
-    return max(0, shares)
+    return shares if float(cash) >= required_cash else 0
 
 
 def affordable_shares(cash: float, price: float | None,
@@ -552,22 +567,29 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
             continue
         m = marks.get(cand.security_id)
         px = m.raw_mark_close if (m and m.status.name == "CURRENT") else None
-        shares = whole_shares(equity, px, state.cash, cfg)
-        if shares <= 0:
-            reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px)
+        target_shares, required_cash = whole_share_target(equity, px, cfg)
+        available_cash = state.uncommitted_cash()
+        if target_shares <= 0 or available_cash < required_cash:
+            reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px,
+                   target_shares=target_shares, required_cash=required_cash,
+                   uncommitted_cash=available_cash)
             continue
+        shares = target_shares
         slot_id = ready.pop(0)
         # RESERVE now, not at fill. The order may not fill for many sessions and
         # the slot must be unavailable for every one of them; because the
         # reservation lives in PortfolioState it also survives a restart, which
         # a queue-side guard alone would not.
-        state.reserve_slot(slot_id, cand.security_id, cand.ticker, issuer)
+        state.reserve_slot(slot_id, cand.security_id, cand.ticker, issuer,
+                           required_cash)
         d.operations.append(Op(Operation.OPEN_SLOT_POSITION, Reason.ENTRY_DURABLE_RANK,
                                slot_id, cand.security_id, cand.ticker, shares,
                                {"durable_score": cand.score, "momentum": cand.momentum,
                                 "recent": cand.recent, "volatility": cand.volatility,
                                 "target_weight": cfg.entry_weight,
-                                "equity_at_decision": equity}))
+                                "equity_at_decision": equity,
+                                "reserved_cash": required_cash,
+                                "uncommitted_cash_before": available_cash}))
         held_secs.add(cand.security_id)
         held_issuers.add(issuer)
         admitted += 1
