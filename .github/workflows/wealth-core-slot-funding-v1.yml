@@ -7,6 +7,7 @@ on:
       - '.github/workflows/wealth-core-slot-funding-v1.yml'
       - 'research/wealth-core-slot-funding-v1/apply_kernel_fix.py'
       - 'research/wealth-core-slot-funding-v1/apply_fixture_updates.py'
+      - 'research/wealth-core-slot-funding-v1/remove_obsolete_golden_reservation_checks.py'
   workflow_dispatch:
 
 permissions:
@@ -36,6 +37,7 @@ jobs:
           test "$(git branch --show-current)" = "research/wealth-core-slot-funding-v1"
           python research/wealth-core-slot-funding-v1/apply_kernel_fix.py
           python research/wealth-core-slot-funding-v1/apply_fixture_updates.py
+          python research/wealth-core-slot-funding-v1/remove_obsolete_golden_reservation_checks.py
           git diff --check
           python -m compileall -q shared/stock_strategy_shared/wealth_core tests/wealth_core
 
