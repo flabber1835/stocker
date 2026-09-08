@@ -25,10 +25,12 @@ def install(text: str, *, variant: str) -> str:
 
     init_v1 = "    rows=[]; overlap_checks={}; buys=sells=split_events=div_events=0"
     init_v2 = "    rows=[]; overlap_checks={}; buys=sells=split_events=div_events=0; slot_v2_reserved=slot_v2_rejected=slot_v2_gap_clipped=slot_v2_gap_cancelled=0"
-    hits = [x for x in (init_v1, init_v2) if text.count(x) == 1]
-    if len(hits) != 1:
-        raise RuntimeError(f"observer init seam count={len(hits)}")
-    init = hits[0]
+    init = init_v1 if variant == "V1" else init_v2
+    init_count = text.count(init)
+    if init_count != 1:
+        raise RuntimeError(
+            f"observer {variant} init seam: expected one exact source seam, found {init_count}"
+        )
 
     observer_init = '''
     # OBSERVER ONLY: never read by strategy decisions or controller state.
