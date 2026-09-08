@@ -87,19 +87,22 @@ jobs:
           python -m pip install --no-build-isolation --no-deps -e main-src/shared
           python -m pip install -r services/backtester/requirements.txt
 
-      - name: Compile and generate observed V1 and V2 sources
+      - name: Compile and validate final observed V1 and V2 sources
         shell: bash
         run: |
           set -euo pipefail
           python -m py_compile \
-            research/wealth-core-v2-pit-ab-v1/pit_audit_observer.py \
+            research/wealth-core-v2-pit-ab-v1/pit_audit_observer_v2.py \
             research/wealth-core-v2-pit-ab-v1/run_research_champion_v1_observed.py \
             research/wealth-core-v2-pit-ab-v1/run_research_champion_v2_observed.py \
             research/wealth-core-v2-pit-ab-v1/run_research_champion_slot_funding_v2.py \
             research/wealth-core-v2-pit-ab-v1/compare_v1_v2.py
-          python research/wealth-core-v2-pit-ab-v1/run_research_champion_v1_observed.py --self-test-imports
-          python research/wealth-core-v2-pit-ab-v1/run_research_champion_v2_observed.py --self-test-imports
-          echo '[SOURCE_GENERATION] PASS V1+V2+OBSERVER'
+          # These calls explicitly run the final observer transform and compile
+          # the generated full-PIT program. They must pass before the expensive
+          # canonical dataset download begins.
+          python research/wealth-core-v2-pit-ab-v1/run_research_champion_v1_observed.py --self-test-observer
+          python research/wealth-core-v2-pit-ab-v1/run_research_champion_v2_observed.py --self-test-observer
+          echo '[FINAL_SOURCE_GENERATION] PASS V1+V2+OBSERVER'
 
       - name: Pull exact certified broad-PIT corpus
         shell: bash
