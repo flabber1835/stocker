@@ -1,0 +1,276 @@
+name: Research - Wealth Core V1 vs V2 certified broad-PIT A/B
+run-name: WC V1 vs V2 broad-PIT A/B - ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  PIT_OFFICIAL_BACKTEST: '1'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+  PIT_RUNTIME_MAIN_SHA: '887f479b15ad861313da666ad698034d3847121c'
+  PIT_POINTER: 'backtester/data/canonical-pit-20y.json'
+  CERTIFIED_BASE_SHA: '3af356ab6d329e7bc6cdc015a49a6ca2d4e4b864'
+  CERTIFIED_DATASET_SHA256: '5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993'
+  CERTIFIED_V1_SUMMARY_SHA256: '7488908b6e3da6141560838e8a825009e4462a11de733681addd17ac0658267a'
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  ab:
+    name: Same-corpus V1 control and V2 slot-funding replay
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Check out exact research experiment head
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/wealth-core-v2-pit-ab-v1.yml
+            /backtester
+            /tests
+            /services/backtester
+            /tools
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence
+            /research/strategy9-e3-broad-stability
+            /research/research-champion/certification/27bb992087182c42c3c051e62bf837895f5d2ab7
+            /research/wealth-core-v2-pit-ab-v1
+
+      - name: Prove V1 source is untouched from certified base
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = "research/wealth-core-v2-pit-ab-v1"
+          test "$(git rev-parse HEAD)" = "${GITHUB_SHA}"
+          # New experiment files are allowed.  Every pre-existing economic/PIT
+          # source used by V1 must be byte-identical to the certified head.
+          git diff --exit-code "${CERTIFIED_BASE_SHA}" -- \
+            backtester \
+            services/backtester \
+            tools \
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py \
+            research/sentinel-fastgate/pit-evidence \
+            research/strategy9-e3-broad-stability
+          echo '[V1_SOURCE_PARITY] PASS'
+
+      - name: Check out pinned runtime authority read-only
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.PIT_RUNTIME_MAIN_SHA }}
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Verify runtime and set Python path
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C main-src rev-parse HEAD)" = "${PIT_RUNTIME_MAIN_SHA}"
+          test -z "$(git -C main-src status --porcelain)"
+          test -f main-src/docs/sentinel-handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/services/backtester:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen replay closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install -r services/backtester/requirements.txt
+          python -m pip install pytest==8.4.2
+
+      - name: Compile and source-generate both variants
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            backtester/run_research_champion_strict_pit_20y.py \
+            backtester/run_research_champion_strict_pit_20y_v2.py \
+            research/wealth-core-v2-pit-ab-v1/run_research_champion_slot_funding_v2.py
+          python backtester/run_research_champion_strict_pit_20y_v2.py --self-test-imports
+          python research/wealth-core-v2-pit-ab-v1/run_research_champion_slot_funding_v2.py --self-test-imports
+          echo '[SOURCE_GENERATION] PASS V1+V2'
+
+      - name: Pull and verify exact retained canonical broad-PIT package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          p=json.load(open('backtester/data/canonical-pit-20y.json'))
+          assert p['status']=='PASS'
+          assert p['dataset_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993', p['dataset_hash']
+          assert p['window']=={'warmup_start':'2006-01-03','measurement_start':'2006-07-31','end':'2026-07-31'}, p['window']
+          print(p['package'])
+          PY
+          PACKAGE=$(python -c "import json; print(json.load(open('${PIT_POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          rm -rf backtester-results/canonical-pit-20y && mkdir -p backtester-results/canonical-pit-20y
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${cid}:/canonical-pit/." backtester-results/canonical-pit-20y
+          docker rm "${cid}"; trap - EXIT
+          python backtester/canonical_pit_package.py verify \
+            --pointer "${PIT_POINTER}" --dataset backtester-results/canonical-pit-20y
+          python - <<'PY'
+          import json
+          p=json.load(open('backtester/data/canonical-pit-20y.json'))
+          m=json.load(open('backtester-results/canonical-pit-20y/manifest.json'))
+          assert m['status']=='PASS'
+          assert m['schema']=='backtester.canonical-pit-dataset/2'
+          assert m['dataset_hash']==p['dataset_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993'
+          print('[CANONICAL_BROAD_PIT] PASS',m['dataset_hash'],m['counts'].get('security_count'),m['counts'].get('session_count'))
+          PY
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
+
+      - name: Run certified Wealth Core V1 control
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf backtester-results/wc-v1 && mkdir -p backtester-results/wc-v1
+          python backtester/run_research_champion_strict_pit_20y_v2.py \
+            --mode fullpit --output backtester-results/wc-v1 \
+            2>&1 | tee wealth-core-v1.log
+
+      - name: Run Wealth Core V2 on identical PIT corpus
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf backtester-results/wc-v2 && mkdir -p backtester-results/wc-v2
+          python research/wealth-core-v2-pit-ab-v1/run_research_champion_slot_funding_v2.py \
+            --mode fullpit --output backtester-results/wc-v2 \
+            2>&1 | tee wealth-core-v2.log
+
+      - name: Compare V1 and V2 structurally and economically
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p backtester-results/comparison
+          python - <<'PY'
+          import hashlib, json, math
+          from pathlib import Path
+          import numpy as np
+          import pandas as pd
+
+          START=pd.Timestamp('2006-07-31'); END=pd.Timestamp('2026-07-31')
+          v1root=Path('backtester-results/wc-v1'); v2root=Path('backtester-results/wc-v2'); out=Path('backtester-results/comparison')
+          v1=pd.read_csv(v1root/'daily.csv.gz',compression='gzip',parse_dates=['date'])
+          v2=pd.read_csv(v2root/'daily.csv.gz',compression='gzip',parse_dates=['date'])
+          v1=v1[(v1.date>=START)&(v1.date<=END)].reset_index(drop=True)
+          v2=v2[(v2.date>=START)&(v2.date<=END)].reset_index(drop=True)
+          assert len(v1)==len(v2)>5000,(len(v1),len(v2))
+          assert v1.date.equals(v2.date)
+
+          # Both variants must consume the identical canonical session stream.
+          h1=v1root/'canonical_input_session_hashes.csv'; h2=v2root/'canonical_input_session_hashes.csv'
+          if h1.exists() and h2.exists():
+              assert h1.read_bytes()==h2.read_bytes(),'canonical input session hashes differ'
+          def sha(p): return hashlib.sha256(Path(p).read_bytes()).hexdigest()
+          v1_summary_sha=sha(v1root/'summary.json')
+          certified_summary_sha='7488908b6e3da6141560838e8a825009e4462a11de733681addd17ac0658267a'
+          v1_exact_summary_parity=(v1_summary_sha==certified_summary_sha)
+
+          def metrics(df,col):
+              x=df[['date',col]].dropna().copy(); a=x[col].astype(float).to_numpy(); norm=a/a[0]
+              ret=norm[1:]/norm[:-1]-1.; years=(x.date.iloc[-1]-x.date.iloc[0]).days/365.2425
+              peak=np.maximum.accumulate(norm); std=float(np.std(ret,ddof=1))
+              return {'cagr':float(norm[-1]**(1/years)-1),'max_drawdown':float(np.min(norm/peak-1)),
+                      'sharpe':float(np.mean(ret)/std*np.sqrt(252)) if std>0 else None,
+                      'ending_multiple':float(norm[-1]),'sessions':int(len(x))}
+
+          variants={}
+          for name,df in [('V1',v1),('V2',v2)]:
+              variants[name]={
+                  'portfolio':metrics(df,'research_nav'),
+                  'wealth_core':metrics(df,'research_wealth_core_equity'),
+                  'average_held_count':float(df['held_count'].astype(float).mean()) if 'held_count' in df else None,
+                  'median_held_count':float(df['held_count'].astype(float).median()) if 'held_count' in df else None,
+                  'full_slot_sessions':int((df['held_count'].astype(float)>=25).sum()) if 'held_count' in df else None,
+                  'allocation_transitions':int((df['research_allocation'].astype(float).diff().abs()>1e-12).sum()),
+              }
+
+          common=['research_wealth_core_equity','research_nav','research_allocation']
+          first={}
+          for col in common:
+              a=v1[col].astype(float).to_numpy(); b=v2[col].astype(float).to_numpy()
+              scale=np.maximum(np.maximum(np.abs(a),np.abs(b)),1.0); idx=np.flatnonzero(np.abs(a-b)>1e-10*scale)
+              first[col]=str(v1.date.iloc[int(idx[0])].date()) if len(idx) else None
+          if 'research_selected_positions_sha256' in v1 and 'research_selected_positions_sha256' in v2:
+              z=v1['research_selected_positions_sha256'].astype(str).ne(v2['research_selected_positions_sha256'].astype(str))
+              first['selected_positions']=str(v1.loc[z,'date'].iloc[0].date()) if z.any() else None
+
+          annual=[]
+          for name,df in [('V1',v1),('V2',v2)]:
+              r=df.set_index('date')['research_nav'].astype(float).pct_change().fillna(0.)
+              for year,val in r.groupby(r.index.year).apply(lambda x:float((1+x).prod()-1)).items():
+                  annual.append({'variant':name,'year':int(year),'return':float(val)})
+          annual_df=pd.DataFrame(annual); annual_df.to_csv(out/'annual_returns.csv',index=False)
+
+          s1=json.load(open(v1root/'summary.json')); s2=json.load(open(v2root/'summary.json'))
+          funding=s2.get('wealth_core_entry_funding') or s2.get('wealth_core_v2') or {}
+          result={
+              'schema':'research.wealth-core-v1-v2-pit-ab/1','status':'PASS' if v1_exact_summary_parity else 'V1_CERTIFIED_SUMMARY_PARITY_FAIL',
+              'dataset_sha256':'5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993',
+              'window':{'warmup_start':'2006-01-03','measurement_start':'2006-07-31','end':'2026-07-31'},
+              'architecture':{'research_champion_profile':'strategy9-e3-research-champion-v1','slots':25,'entry_weight':0.04,
+                              'v1_entry_funding':'cash_clipped_target','v2_entry_funding':'full_whole_share_target_v1'},
+              'v1_control':{'summary_sha256':v1_summary_sha,'certified_summary_sha256':certified_summary_sha,
+                            'exact_summary_parity':v1_exact_summary_parity},
+              'metrics':variants,'first_divergence':first,'v2_funding_diagnostics':funding,
+              'v1_buys':s1.get('buys'),'v1_sells':s1.get('sells'),'v2_buys':s2.get('buys'),'v2_sells':s2.get('sells'),
+          }
+          (out/'comparison.json').write_text(json.dumps(result,indent=2,sort_keys=True)+'\n')
+          md=['# Wealth Core V1 vs V2 — certified broad-PIT A/B','',f"Status: **{result['status']}**",'',
+              f"Dataset: `{result['dataset_sha256']}`",f"Window: 2006-07-31 through 2026-07-31 (warmup 2006-01-03)",'',
+              '| Metric | V1 | V2 |','|---|---:|---:|']
+          for key,label in [('cagr','CAGR'),('max_drawdown','Max DD'),('sharpe','Sharpe'),('ending_multiple','Ending multiple')]:
+              md.append(f"| {label} | {variants['V1']['portfolio'][key]:.10g} | {variants['V2']['portfolio'][key]:.10g} |")
+          md += ['',f"First Wealth Core equity divergence: **{first['research_wealth_core_equity']}**",
+                 f"First portfolio NAV divergence: **{first['research_nav']}**",f"First allocation divergence: **{first['research_allocation']}**",'',
+                 '## V2 funding diagnostics','```json',json.dumps(funding,indent=2,sort_keys=True),'```','']
+          (out/'COMPARISON.md').write_text('\n'.join(md))
+          print(json.dumps(result,indent=2,sort_keys=True))
+          if not v1_exact_summary_parity:
+              raise SystemExit('V1 control did not reproduce retained certified summary hash')
+          PY
+          cat backtester-results/comparison/COMPARISON.md >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload complete A/B evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wealth-core-v2-pit-ab-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            backtester/data/canonical-pit-20y.json
+            backtester-results/wc-v1/**
+            backtester-results/wc-v2/**
+            backtester-results/comparison/**
+            wealth-core-v1.log
+            wealth-core-v2.log
+          if-no-files-found: warn
+          retention-days: 90
+          compression-level: 6
