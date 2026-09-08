@@ -11,8 +11,14 @@ p=Path('audit-src/research/champion-alpha-five-run-validation-v2/experiment_runn
 s=p.read_text()
 helper=r'''
 def _apply_full_target_cash_counterfactual(text: str) -> str:
-    old = """                    target=min(eq*ENTRY_W,book.cash)\n                    q=int(target//(float(px)*(1+COST)))\n                    if q<1: continue\n"""
-    new = """                    target=eq*ENTRY_W\n                    q=int(target//(float(px)*(1+COST)))\n                    if q<1: continue\n                    _full_target_cost=float(q)*float(px)*(1+COST)\n                    if book.cash+1e-9<_full_target_cost: continue\n"""
+    old = """                        target=min(eq*ENTRY_W,book.cash); q=int(target//(float(px)*(1+COST)))
+                        if q<1: continue
+"""
+    new = """                        target=eq*ENTRY_W; q=int(target//(float(px)*(1+COST)))
+                        if q<1: continue
+                        _full_target_cost=float(q)*float(px)*(1+COST)
+                        if book.cash+1e-9<_full_target_cost: continue
+"""
     n=text.count(old)
     if n!=1:
         raise RuntimeError(f'full-target-cash counterfactual anchor count={n}')
