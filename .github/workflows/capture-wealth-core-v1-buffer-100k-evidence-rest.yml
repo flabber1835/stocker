@@ -1,0 +1,193 @@
+name: Research - direct capture Wealth Core V1 buffer evidence
+run-name: Direct capture Wealth Core V1 buffer evidence - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/wealth-core-v1-buffer-100k-fast-v1]
+    paths:
+      - '.github/workflows/capture-wealth-core-v1-buffer-100k-evidence-rest.yml'
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: capture-wealth-core-v1-buffer-100k-evidence-rest-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  capture-direct:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Download and verify complete evidence set
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          E="$RUNNER_TEMP/evidence/research/wealth-core-v1-buffer-100k-evidence"
+          mkdir -p "$E/raw" "$E/api" "$E/runs"
+
+          api_get() {
+            curl -fsSL \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/$1"
+          }
+
+          capture_run() {
+            local run_id="$1"
+            api_get "actions/runs/${run_id}" > "$E/api/run-${run_id}.json"
+            api_get "actions/runs/${run_id}/artifacts" > "$E/api/run-${run_id}-artifacts.json"
+          }
+
+          capture_artifact() {
+            local artifact_id="$1"
+            local run_id="$2"
+            local label="$3"
+            local zip="$E/raw/${label}.zip"
+            local out="$E/runs/${run_id}/${label}"
+            api_get "actions/artifacts/${artifact_id}" > "$E/api/artifact-${artifact_id}.json"
+            curl -fsSL -L \
+              -H "Authorization: Bearer ${GH_TOKEN}" \
+              -H 'Accept: application/vnd.github+json' \
+              -H 'X-GitHub-Api-Version: 2022-11-28' \
+              "https://api.github.com/repos/${GITHUB_REPOSITORY}/actions/artifacts/${artifact_id}/zip" \
+              -o "$zip"
+            mkdir -p "$out"
+            unzip -q -o "$zip" -d "$out"
+            python - "$E/api/artifact-${artifact_id}.json" "$zip" <<'PY'
+          import hashlib, json, pathlib, sys
+          meta=json.load(open(sys.argv[1]))
+          p=pathlib.Path(sys.argv[2])
+          observed=hashlib.sha256(p.read_bytes()).hexdigest()
+          expected=str(meta.get('digest') or '')
+          if expected.startswith('sha256:') and observed != expected.split(':',1)[1]:
+              raise SystemExit(f'artifact digest mismatch: {p}: {observed} != {expected}')
+          print(f'verified {p.name}: sha256:{observed}')
+          PY
+          }
+
+          capture_run 34267327656
+          capture_artifact 10073578819 34267327656 wealth-core-v1-100k-authority-34267327656
+
+          capture_run 34272674885
+          capture_artifact 10076643420 34272674885 wealth-core-v1-clean-100k-34272674885-1
+
+          capture_run 34283531740
+          capture_artifact 10079799925 34283531740 wealth-core-v1-buffer-100k-fast-34283531740-1
+
+          capture_run 34282958960
+          python - "$E/api/run-34282958960-artifacts.json" > "$RUNNER_TEMP/cross_artifacts.txt" <<'PY'
+          import json, sys
+          for a in json.load(open(sys.argv[1])).get('artifacts', []):
+              print(a['id'], a['name'])
+          PY
+          while read -r aid aname; do
+            [ -n "${aid:-}" ] || continue
+            capture_artifact "$aid" 34282958960 "cross-check-${aid}-${aname}"
+          done < "$RUNNER_TEMP/cross_artifacts.txt"
+
+          cp "$E/runs/34283531740/wealth-core-v1-buffer-100k-fast-34283531740-1/experiment-results/buffer-100k-fast/transactions.csv" \
+             "$E/wealth_core_v1_10bp_buffer_transactions.csv"
+
+          cat > "$E/PROVENANCE.json" <<'JSON'
+          {
+            "schema": "research.wealth-core-v1-buffer-100k-evidence/1",
+            "baseline_authority": {
+              "run_id": 34267327656,
+              "artifact_id": 10073578819,
+              "source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
+              "daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+              "summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878"
+            },
+            "no_micro_diagnostic": {
+              "run_id": 34272674885,
+              "artifact_id": 10076643420,
+              "artifact_sha256": "5bc7f2600881bf993e772812f9b214166365104b9a815b976336122266fcf097"
+            },
+            "buffer_primary": {
+              "run_id": 34283531740,
+              "artifact_id": 10079799925,
+              "run_head": "32b16cf9addd7fe8122b02d06c4d3643c86a74a9",
+              "artifact_sha256": "79de96a433acf364488b79badbf2b46fa9e2a8fb90416c8c9b85af11bcfd4aac",
+              "generated_source_sha256": "44a9914be859eb7f76ca747aaa66a41e19a557a2095da0a707ea99575898c4e0",
+              "transaction_ledger_sha256": "3cffc04199190c1b0a4e6c90db4396dd347de0173b33dbec4e78fe84357dd687"
+            },
+            "cross_check_run_id": 34282958960,
+            "canonical_pit_dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993"
+          }
+          JSON
+
+          find "$E" -type f ! -name 'FILE_INDEX.txt' ! -name 'SHA256SUMS.txt' -printf '%P\n' | LC_ALL=C sort > "$E/FILE_INDEX.txt"
+          (
+            cd "$E"
+            find . -type f ! -name 'SHA256SUMS.txt' -print0 | LC_ALL=C sort -z | xargs -0 sha256sum
+          ) > "$E/SHA256SUMS.txt"
+
+          python - "$E" <<'PY'
+          import hashlib, json, pathlib, sys
+          e=pathlib.Path(sys.argv[1])
+          result=next((e/'runs/34283531740').rglob('RESULT.json'))
+          data=json.loads(result.read_text())
+          assert data['status']=='PASS'
+          assert data['fractional_share_buys'] is False
+          assert data['transaction_ledger']['all_buy_share_amounts_integer'] is True
+          csv=e/'wealth_core_v1_10bp_buffer_transactions.csv'
+          assert hashlib.sha256(csv.read_bytes()).hexdigest() == '3cffc04199190c1b0a4e6c90db4396dd347de0173b33dbec4e78fe84357dd687'
+          print(json.dumps({'status':data['status'],'rows':data['transaction_ledger']['rows']},sort_keys=True))
+          PY
+
+          echo "EVIDENCE_ROOT=$RUNNER_TEMP/evidence" >> "$GITHUB_ENV"
+
+      - name: Upload evidence through Git data API
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          BRANCH: research/wealth-core-v1-buffer-100k-fast-v1
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import base64, json, os, pathlib, urllib.parse, urllib.request
+
+          repo=os.environ['GITHUB_REPOSITORY']
+          token=os.environ['GH_TOKEN']
+          branch=os.environ['BRANCH']
+          root=pathlib.Path(os.environ['EVIDENCE_ROOT'])
+          api=f'https://api.github.com/repos/{repo}'
+
+          def request(method, path, payload=None):
+              data=None if payload is None else json.dumps(payload,separators=(',',':')).encode()
+              req=urllib.request.Request(api+path, data=data, method=method)
+              req.add_header('Authorization', f'Bearer {token}')
+              req.add_header('Accept','application/vnd.github+json')
+              req.add_header('X-GitHub-Api-Version','2022-11-28')
+              if data is not None:
+                  req.add_header('Content-Type','application/json')
+              with urllib.request.urlopen(req) as r:
+                  return json.load(r)
+
+          ref_path='/git/ref/heads/' + '/'.join(urllib.parse.quote(x, safe='') for x in branch.split('/'))
+          ref=request('GET', ref_path)
+          parent=ref['object']['sha']
+          commit=request('GET', f'/git/commits/{parent}')
+          base_tree=commit['tree']['sha']
+
+          entries=[]
+          files=sorted(p for p in root.rglob('*') if p.is_file())
+          for i,p in enumerate(files,1):
+              rel=p.relative_to(root).as_posix()
+              content=base64.b64encode(p.read_bytes()).decode('ascii')
+              blob=request('POST','/git/blobs',{'content':content,'encoding':'base64'})
+              entries.append({'path':rel,'mode':'100644','type':'blob','sha':blob['sha']})
+              print(f'blob {i}/{len(files)} {rel} {p.stat().st_size} bytes')
+
+          tree=request('POST','/git/trees',{'base_tree':base_tree,'tree':entries})
+          new_commit=request('POST','/git/commits',{
+              'message':'research: preserve complete Wealth Core V1 10bp buffer evidence',
+              'tree':tree['sha'],
+              'parents':[parent],
+          })
+          updated=request('PATCH', ref_path, {'sha':new_commit['sha'],'force':False})
+          print(json.dumps({'parent':parent,'commit':new_commit['sha'],'files':len(files),'ref':updated['ref']},sort_keys=True))
+          PY
