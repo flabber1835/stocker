@@ -1,0 +1,26 @@
+name: Dispatch Wealth Core V1 vs V2 PIT A/B
+
+on:
+  push:
+    branches:
+      - research/wealth-core-v2-pit-ab-v1
+    paths:
+      - '.github/workflows/wealth-core-v2-pit-ab-dispatch.yml'
+
+permissions:
+  actions: write
+  contents: read
+
+jobs:
+  dispatch:
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Dispatch research A/B workflow
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh workflow run wealth-core-v2-pit-ab-v1.yml \
+            --repo "${GITHUB_REPOSITORY}" \
+            --ref "${GITHUB_REF_NAME}"
+          echo '[DISPATCH] wealth-core-v2-pit-ab-v1.yml'
