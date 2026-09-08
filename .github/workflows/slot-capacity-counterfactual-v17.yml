@@ -1,0 +1,189 @@
+name: Slot-capacity counterfactual v17
+run-name: Slot counterfactual - ${{ github.sha }}
+on:
+  push:
+    branches: [research/slot-capacity-counterfactual-v17]
+    paths:
+      - '.github/workflows/slot-capacity-counterfactual-v17.yml'
+      - 'research/slot-capacity-counterfactual-v17/**'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+  actions: read
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+
+jobs:
+  full-target-cash:
+    strategy:
+      fail-fast: false
+      matrix:
+        strategy: [median5, caesar20]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    defaults:
+      run:
+        shell: bash
+    steps:
+      - name: Isolated research checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: audit-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/champion-economic-integrity
+            research/champion-alpha-five-run-validation-v2
+            research/median5-fullpit-recertification-v13
+            research/slot-capacity-counterfactual-v17
+
+      - name: Exact formal source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/strategy9-e3-broad-stability
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+
+      - name: Exact classifier source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ba74e79490beb8950611b1d17f5d124833b3d91e
+          path: candidate-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: backtester
+
+      - name: Exact runtime source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+
+      - name: Install frozen runtime and stage exact overlays
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" >> "$GITHUB_ENV"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "$GITHUB_ENV"
+          for f in champion_economic_prefix_audit.py champion_full_classification_control.py champion_security_truth_audit_v2.py champion_security_truth_overlay_v2.py champion_final_security_truth.py champion_final_truth_corpus_validator.py production_equivalent_economic_overlay.py champion_production_equivalent_build.py champion_production_equivalent_final_replay.py; do
+            cp "audit-src/backtester/$f" certified-src/backtester/
+          done
+          cp audit-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
+          cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
+          cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
+          for f in champion-best-effort-security-types-v1.csv champion-best-effort-security-types-v1-summary.json champion-reviewed-security-types-v1.csv champion-historical-security-type-corrections-v1.csv; do
+            cp "candidate-src/backtester/data/$f" certified-src/backtester/data/
+          done
+          mkdir -p certified-src/research/champion-economic-integrity/security-truth
+          cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
+
+      - name: Pull and verify immutable canonical PIT package
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          POINTER=certified-src/backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "$PACKAGE" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$PACKAGE"
+          cid=$(docker create "$PACKAGE" /bin/true)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "$cid:/canonical-pit/." canonical-pit/
+          docker rm "$cid"
+          trap - EXIT
+          PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "$POINTER" --dataset canonical-pit > package-integrity.json
+
+      - name: Build exact strategy plus one-factor counterfactual
+        env:
+          STRATEGY: ${{ matrix.strategy }}
+        run: |
+          set -euo pipefail
+          if [ "$STRATEGY" = median5 ]; then
+            cp audit-src/research/median5-fullpit-recertification-v13/experiment_overlay.py audit-src/research/champion-alpha-five-run-validation-v2/experiment_overlay.py
+            echo 'CF_ARM=MEDIAN5_CANONICAL' >> "$GITHUB_ENV"
+          else
+            cp audit-src/research/slot-capacity-counterfactual-v17/caesar20_canonical_overlay.py audit-src/research/champion-alpha-five-run-validation-v2/experiment_overlay.py
+            echo 'CF_ARM=CAESAR20_CANONICAL' >> "$GITHUB_ENV"
+          fi
+          python audit-src/research/slot-capacity-counterfactual-v17/apply_full_target_cash_counterfactual.py
+          python -m py_compile audit-src/research/champion-alpha-five-run-validation-v2/experiment_runner.py
+
+      - name: Run exact fresh full-PIT counterfactual
+        env:
+          STRATEGY: ${{ matrix.strategy }}
+        run: |
+          set -euo pipefail
+          cd certified-src
+          RESEARCH_REPLAY_MODE=fullpit python "${GITHUB_WORKSPACE}/audit-src/research/champion-alpha-five-run-validation-v2/experiment_runner.py" --arm "$CF_ARM" --candidate-root "${GITHUB_WORKSPACE}/candidate-src" --output "${GITHUB_WORKSPACE}/cf-${STRATEGY}" 2>&1 | tee "${GITHUB_WORKSPACE}/cf-${STRATEGY}.log"
+
+      - name: Summarize counterfactual
+        env:
+          STRATEGY: ${{ matrix.strategy }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=os.environ['STRATEGY']; root=Path(f'cf-{s}')
+          r=json.loads((root/'RESULT.json').read_text())
+          assert r['status']=='PASS_FRESH_CAUSAL_PIT_REPLAY'
+          assert r['data']['sessions']==5032 and r['data']['pit'] is True
+          out={
+            'schema':'slot-capacity-counterfactual/1',
+            'strategy':s,
+            'counterfactual':'FULL_WHOLE_SHARE_TARGET_CASH_REQUIRED_AT_DECISION',
+            'changed_dimension':'decision-time entry target only; next-open affordability clipping unchanged',
+            'performance_target_used':False,
+            'metrics_20y':r['windows']['20']['strategy'],
+            'metrics_5y':r['windows']['5']['strategy'],
+            'holdings':r['holdings'],
+            'engine':r['engine'],
+            'data':r['data'],
+          }
+          Path(f'COUNTERFACTUAL-{s}.json').write_text(json.dumps(out,indent=2,sort_keys=True)+'\n')
+          print(json.dumps(out,indent=2,sort_keys=True))
+          PY
+
+      - name: Preserve exact counterfactual evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: slot-capacity-cf-${{ matrix.strategy }}-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            COUNTERFACTUAL-${{ matrix.strategy }}.json
+            cf-${{ matrix.strategy }}/RESULT.json
+            cf-${{ matrix.strategy }}/engine/daily.csv
+            cf-${{ matrix.strategy }}/engine/summary.json
+            cf-${{ matrix.strategy }}.log
+            package-integrity.json
+          retention-days: 90
+          if-no-files-found: warn
