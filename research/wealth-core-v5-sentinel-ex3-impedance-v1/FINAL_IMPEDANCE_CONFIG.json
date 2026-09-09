@@ -1,6 +1,8 @@
 {
   "schema": "research.wealth-core-v5-sentinel-ex3-impedance-final/1",
   "status": "SELECTED_RESEARCH_CONFIGURATION",
+  "controller_name": "Sentinel EX3 V5",
+  "controller_name_definition": "Sentinel EX3 controller impedance-matched to Wealth Core V5",
   "source_run_id": 34319850800,
   "source_experiment_head": "54af0c9e50e4bf0c0d4242dafcf7fff0b75eb0f3",
   "wealth_core": {
