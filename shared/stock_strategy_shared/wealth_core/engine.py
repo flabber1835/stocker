@@ -214,9 +214,10 @@ class WealthCoreConfig:
 
     def __post_init__(self) -> None:
         from .median5 import PROFILE
-        if self.economic_profile not in ("wealth-core-v1", PROFILE):
+        from .v5 import PROFILE as V5_PROFILE
+        if self.economic_profile not in ("wealth-core-v1", PROFILE, V5_PROFILE):
             raise ValueError("unknown Wealth Core economic profile")
-        if self.economic_profile == PROFILE and (
+        if self.economic_profile in (PROFILE, V5_PROFILE) and (
                 self.n_slots != 20 or self.entry_weight != 0.05
                 or self.transaction_cost_bps != 10
                 or self.dividend_settlement_lag_sessions != 1
@@ -587,10 +588,21 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
             continue
         m = marks.get(cand.security_id)
         px = m.raw_mark_close if (m and m.status.name == "CURRENT") else None
-        shares = whole_shares(equity, px, state.cash, cfg)
-        if shares <= 0:
-            reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px)
-            continue
+        from .v5 import PROFILE as V5_PROFILE, admission as v5_admission
+        intended = None
+        if cfg.economic_profile == V5_PROFILE:
+            intended, why = v5_admission(equity=equity, cash=state.cash,
+                                         price=px, cost_bps=cfg.transaction_cost_bps)
+            if intended is None:
+                reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px,
+                       affordability_reason=why)
+                continue
+            shares = 0
+        else:
+            shares = whole_shares(equity, px, state.cash, cfg)
+            if shares <= 0:
+                reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px)
+                continue
         slot_id = ready.pop(0)
         # RESERVE now, not at fill. The order may not fill for many sessions and
         # the slot must be unavailable for every one of them; because the
@@ -602,7 +614,9 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
                                {"durable_score": cand.score, "momentum": cand.momentum,
                                 "recent": cand.recent, "volatility": cand.volatility,
                                 "target_weight": cfg.entry_weight,
-                                "equity_at_decision": equity}))
+                                "equity_at_decision": equity,
+                                **({"intended_dollars": intended}
+                                   if intended is not None else {})}))
         held_secs.add(cand.security_id)
         held_issuers.add(issuer)
         admitted += 1

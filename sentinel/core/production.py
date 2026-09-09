@@ -138,7 +138,8 @@ def warm_session_state(state: SessionState | Mapping, window, *,
 
 def _warm_median5(env, window, sessions, publication_version, prospective, elig):
     """Form features and optionally the historical zero-capital witness."""
-    from stock_strategy_shared.wealth_core.median5 import config, rank
+    from stock_strategy_shared.wealth_core.median5 import rank
+    config = median5_controller.wealth_config(env.strategy_identity)
     if elig != EligibilityConfig():
         raise ValueError("Median-5 warmup cannot override eligibility")
     if len(sessions) < 252:
@@ -170,7 +171,7 @@ def _warm_median5(env, window, sessions, publication_version, prospective, elig)
         controller_state["spy_history"].append([index, close, close/previous-1 if previous else None])
         previous = close
         if not prospective:
-            scored = score_universe(norm.security_bars, config())
+            scored = score_universe(norm.security_bars, config)
             rank(scored, portfolio.median5)
             candidates = [s for s in scored if s.momentum is not None and s.recent is not None]
             controller_state, _ = median5_controller.witness(

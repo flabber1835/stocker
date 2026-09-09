@@ -43,6 +43,7 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.controller.frozen_rule",
     "sentinel.controller.ldrc",
     "sentinel.controller.median5",
+    "sentinel.controller.ex3_v5",
     "sentinel.controller.machine",
     "sentinel.controller.recent_leadership",
     "sentinel.core.bootstrap",
@@ -215,14 +216,21 @@ def runtime_strategy_identity(
     }
     from sentinel.controller.median5 import enabled as median5_enabled
     if median5_enabled(result):
-        from stock_strategy_shared.wealth_core.median5 import config, REFERENCE_AST
+        from stock_strategy_shared.wealth_core.median5 import REFERENCE_AST
+        from sentinel.controller.median5 import wealth_config
         from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
         from dataclasses import asdict
-        for name, value in (("wealth_core_config_sha256", config()),
+        for name, value in (("wealth_core_config_sha256", wealth_config(result)),
                              ("eligibility_config_sha256", EligibilityConfig())):
             result[name] = hashlib.sha256(json.dumps(asdict(value), sort_keys=True,
                                                      separators=(",", ":")).encode()).hexdigest()
         result["research_reference_ast_sha256"] = REFERENCE_AST
+        from sentinel.controller.ex3_v5 import enabled as v5_enabled
+        if v5_enabled(result):
+            from stock_strategy_shared.wealth_core.v5 import REFERENCE_SOURCE_SHA256
+            result.pop("research_reference_ast_sha256")
+            result["research_reference_source_sha256"] = REFERENCE_SOURCE_SHA256
+            result["universe"] = "BROAD_SHARADAR_COMMON_EQUITY"
         return result
     if not concordance:
         return result
@@ -303,6 +311,10 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
                 f"pending operation for {security_id!r} has invalid shares "
                 f"{quantity}")
         if pending.operation is Operation.OPEN_SLOT_POSITION:
+            if pending.intended_dollars is not None:
+                raise ValueError(
+                    "V5 pending dollar intent requires a certified opening-time "
+                    "execution projection")
             signed = quantity
             pending_opens.setdefault(security_id, []).append(quantity)
         elif pending.operation is Operation.CLOSE_POSITION:

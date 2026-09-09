@@ -1,5 +1,5 @@
 """The single production strategy selector shared by paper and shadow paths."""
-from sentinel.controller.median5 import load
+from sentinel.controller.ex3_v5 import load
 from sentinel.core.decision import runtime_strategy_identity
 
 
@@ -12,7 +12,8 @@ def controller_for_identity(identity):
     """Resolve the actual controller config for a named, digest-bound profile."""
     from sentinel.controller.frozen_rule import load as frozen
     from sentinel.controller.concordance_parent import load as concordance
-    for factory in (load, concordance, frozen):
+    from sentinel.controller.median5 import load as median5
+    for factory in (load, median5, concordance, frozen):
         controller = factory()
         if controller.strategy_id == identity.get("strategy"):
             if controller.digest != identity.get("controller_rule_sha256"):

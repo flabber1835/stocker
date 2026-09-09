@@ -362,6 +362,11 @@ class SessionState:
         migrated["version"] = ENVELOPE_VERSION
         json.dumps(migrated, sort_keys=True, allow_nan=False)
         state = cls(**migrated)
+        from sentinel.controller.ex3_v5 import enabled as v5_enabled
+        for raw_order in state.pending:
+            from stock_strategy_shared.wealth_core.adapter import PendingOrder
+            PendingOrder.from_dict(raw_order).validate_sizing(
+                open_time=v5_enabled(state.strategy_identity))
         portfolio = PortfolioState.from_dict(state.wealth_core)
         median5 = median5_controller.enabled(state.strategy_identity)
         slots = 20 if median5 else DEFAULT_SLOTS

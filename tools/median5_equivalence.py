@@ -150,11 +150,13 @@ def inputs(dataset, classifier, end):
 
 
 class Comparison:
-    def __init__(self, dataset, classifier, end, output, restart_every):
+    def __init__(self, dataset, classifier, end, output, restart_every, *,
+                 controller_factory=load, starting_cash=100_000_000., v5=False):
         self.inputs = iter(inputs(dataset, classifier, end))
-        self.controller = load()
+        self.controller = controller_factory()
+        self.v5 = v5
         self.identity = runtime_strategy_identity(self.controller)
-        self.state = SessionState.fresh(starting_cash=100_000_000.,
+        self.state = SessionState.fresh(starting_cash=starting_cash,
             controller=Controller(self.controller), strategy_identity=self.identity)
         self.cash_factors = dataset.cash_factors()
         self.output, self.restart_every = output, restart_every
@@ -257,6 +259,10 @@ class Comparison:
         for actual, expected in zip(actual_pending, expected_pending):
             if actual[2] == "OPEN_SLOT_POSITION":
                 self.equal(f"slot_{actual[0]}_entry_quantity", actual[3], expected[3])
+                if self.v5:
+                    pending = next(p for p in after.pending if p["slot_id"] == actual[0])
+                    self.equal(f"slot_{actual[0]}_intended_dollars", pending["intended_dollars"],
+                               ref.slots[actual[0]].pending_intended_capital, numeric=True)
             else:
                 self.shares(f"slot_{actual[0]}_exit_quantity", actual[3], expected[3])
         for slot, (_, _) in actual_held.items():
@@ -314,7 +320,12 @@ class Comparison:
             print(f"EQUIVALENCE sessions={self.count} through={self.session} restarts={self.restarts}", flush=True)
 
 
-def main():
+def main(*, profile="median5"):
+    if profile not in ("median5", "v5"):
+        raise ValueError("unsupported equivalence profile")
+    v5 = profile == "v5"
+    reference_ast = ("a65fe9f187e4a2bd5864e095e3a338b38175db97100715f5fcca27856e2450a3"
+                     if v5 else AST_SHA)
     parser = argparse.ArgumentParser()
     parser.add_argument("--research-root", type=Path, required=True)
     parser.add_argument("--dataset", type=Path, required=True)
@@ -363,15 +374,18 @@ def main():
     os.environ["RESEARCH_REPLAY_MODE"] = "fullpit"
     engine = output/"research"
     engine.mkdir(exist_ok=True)
-    source = (REPO/"tests/median5/frozen_reference.txt").read_text()
-    assert normalized_sha(source) == AST_SHA
+    source = (REPO/f"tests/{profile}/frozen_reference.txt").read_text()
+    assert normalized_sha(source) == reference_ast
+    if v5:
+        from stock_strategy_shared.wealth_core.v5 import REFERENCE_SOURCE_SHA256
+        assert hashlib.sha256(source.encode()).hexdigest() == REFERENCE_SOURCE_SHA256
     # A sole observation after the completed transition. Removing it must
     # restore the exact normalized research AST; no economic statement moves.
     anchor = "            pending_native=native_target; pend['control']=a_d; pend['A']=a_d; pend['B']=b_d"
     injected = anchor + "\n            _capture(locals())"
     assert source.count(anchor) == 1
     instrumented = source.replace(anchor, injected)
-    assert normalized_sha(instrumented.replace(injected, anchor)) == AST_SHA
+    assert normalized_sha(instrumented.replace(injected, anchor)) == reference_ast
     tree = ast.parse(instrumented)
     for node in tree.body:
         if isinstance(node, ast.Assign) and any(isinstance(t, ast.Name) and t.id == "OUT" for t in node.targets):
@@ -379,7 +393,9 @@ def main():
     ast.fix_missing_locations(tree)
     module = types.ModuleType("frozen_median5_equivalence_reference")
     sys.modules[module.__name__] = module
-    comparison = Comparison(dataset, classifier.SecurityTypeEstimate(DEFAULT_LEDGER, "reviewed_18"), args.through, output, args.restart_every)
+    from sentinel.controller.ex3_v5 import load as v5_load
+    comparison = Comparison(dataset, classifier.SecurityTypeEstimate(DEFAULT_LEDGER, "reviewed_18"), args.through, output, args.restart_every,
+        controller_factory=v5_load if v5 else load, starting_cash=100_000. if v5 else 100_000_000., v5=v5)
     previous_cwd = Path.cwd()
     try:
         os.chdir(root)
@@ -408,21 +424,32 @@ def main():
     if args.through == "2026-07-31":
         comparison.equal("complete_session_count", comparison.count, 5176)
         comparison.equal("complete_measured_count", comparison.measured, 5032)
-        for field, expected in {"cagr": .19701208470494502,
+        expected_metrics = ({"cagr": .21557225805610547,
+                                "max_drawdown": -.2737554573856501,
+                                "sharpe": 1.1210581190467033,
+                                "ending_multiple": 49.61927543842201} if v5 else {"cagr": .19701208470494502,
                                 "max_drawdown": -.26388132212279014,
                                 "sharpe": 1.0471046041739411,
-                                "ending_multiple": 36.47562758311568}.items():
+                                "ending_multiple": 36.47562758311568})
+        for field, expected in expected_metrics.items():
             comparison.equal("certified_reference_"+field,
                              research_summary["metrics"]["A"][field], expected, numeric=True)
-        comparison.equal("certified_reference_buys", research_summary["buys"], 426)
-        comparison.equal("certified_reference_sells", research_summary["sells"], 363)
-        comparison.equal("certified_reference_transitions", research_summary["transition_counts"]["A"], 25)
+        comparison.equal("certified_reference_buys", research_summary["buys"], 416 if v5 else 426)
+        comparison.equal("certified_reference_sells", research_summary["sells"], 350 if v5 else 363)
+        comparison.equal("certified_reference_transitions", research_summary["transition_counts"]["A"], 28 if v5 else 25)
         comparison.equal("certified_reference_zero_allocation_sessions",
                          sum(row["allocation"] == 0 for row in comparison.rows
-                             if row["session"] >= "2006-07-31"), 459)
+                             if row["session"] >= "2006-07-31"), 634 if v5 else 459)
+        if v5:
+            for name, expected in {
+                "transactions.csv": "0e4828229c323ab029a5dfe49f258a3e2e379aee6b5e18169e72f9edc88652da",
+                "close-decisions.csv": "d1f557bd139e3445538e3f94bce90fe296eba19450d939c4160fe0880e067724",
+            }.items():
+                comparison.equal("reference_"+name, hashlib.sha256((engine/name).read_bytes()).hexdigest(), expected)
         comparison.equal("production_identity_unchanged", runtime_strategy_identity(comparison.controller), comparison.identity)
     result = {"status": "PASS_FULL_PIT_EQUIVALENCE" if complete else "PASS_PARTIAL_EQUIVALENCE",
-              "dataset_sha256": DATA_SHA, "reference_normalized_ast_sha256": AST_SHA,
+              "profile": profile,
+              "dataset_sha256": DATA_SHA, "reference_normalized_ast_sha256": reference_ast,
               "reference_dependency_sha256": dependency_sha,
               "harness_source_sha256": HARNESS_SHA,
               "runtime": {"python": sys.version, "numpy": np.__version__, "pandas": pd.__version__},

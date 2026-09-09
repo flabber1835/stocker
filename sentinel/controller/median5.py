@@ -14,7 +14,23 @@ STRATEGY_ID = "sentinel-median5-v1"
 
 
 def enabled(identity):
-    return identity.get("strategy") == STRATEGY_ID
+    from .ex3_v5 import STRATEGY_ID as V5_ID
+    return identity.get("strategy") in (STRATEGY_ID, V5_ID)
+
+
+def wealth_config(identity):
+    from .ex3_v5 import enabled as v5_enabled
+    from stock_strategy_shared.wealth_core import median5, v5
+    if not enabled(identity):
+        raise ValueError("unknown Median-5 family strategy identity")
+    return v5.config() if v5_enabled(identity) else median5.config()
+
+
+def controller_config(identity):
+    from .ex3_v5 import enabled as v5_enabled, load as v5_load
+    if not enabled(identity):
+        raise ValueError("unknown Median-5 family strategy identity")
+    return v5_load() if v5_enabled(identity) else load()
 
 
 def load():
@@ -89,12 +105,12 @@ def validate(raw):
 
 
 def recover(*, state, native, wc_drawdown, recent_r20, recent_r40,
-            spy_r20, wc_r20):
+            spy_r20, wc_r20, r40_floor=0., rec_sessions=8):
     """Candidate A: decisions depend solely on shadow strategy observations."""
     result = deepcopy(validate(state))
     if not finite(native) or not 0 <= native <= 1:
         raise ValueError("invalid Median-5 native allocation")
-    full = finite(recent_r20) and finite(recent_r40) and recent_r20 > 0 and recent_r40 > 0
+    full = finite(recent_r20) and finite(recent_r40) and recent_r20 > 0 and recent_r40 > r40_floor
     result["full_streak"] = state["full_streak"]+1 if full else 0
     rebound = finite(spy_r20) and spy_r20 > 0.11
     reasons = []
@@ -104,20 +120,20 @@ def recover(*, state, native, wc_drawdown, recent_r20, recent_r40,
         reasons.append("RECOVERY_EPISODE_START")
     positive = result["episode"] and native > 0 and finite(recent_r20) and recent_r20 > 0
     result["recent_positive_streak"] = result["recent_positive_streak"]+1 if positive else 0
-    cleared = result["latched"] and (result["full_streak"] >= 8 or rebound)
+    cleared = result["latched"] and (result["full_streak"] >= rec_sessions or rebound)
     if cleared:
         result["latched"] = False
         reasons.append("DIVERGENCE_CLEAR")
     desired = native
     if result["episode"] and native >= 1-1e-12:
-        concordant = (result["recent_positive_streak"] >= 8
+        concordant = (result["recent_positive_streak"] >= rec_sessions
                       and finite(wc_r20) and wc_r20 > 0
                       and finite(recent_r20) and recent_r20 >= wc_r20
                       and finite(spy_r20) and spy_r20 >= wc_r20)
-        if result["full_streak"] >= 8 or rebound or concordant:
+        if result["full_streak"] >= rec_sessions or rebound or concordant:
             result["episode"] = False
             desired = 1.
-            reason = ("FULL_RISK_CERTIFIED_PERSISTENCE" if result["full_streak"] >= 8
+            reason = ("FULL_RISK_CERTIFIED_PERSISTENCE" if result["full_streak"] >= rec_sessions
                       else "FULL_RISK_CERTIFIED_SPY_V_REBOUND" if rebound
                       else "FULL_RISK_CERTIFIED_CROSS_SURFACE")
             reasons.append(reason)

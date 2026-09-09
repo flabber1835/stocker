@@ -95,9 +95,8 @@ def advance_session(
         )
     median5 = median5_controller.enabled(running_identity)
     if median5:
-        from stock_strategy_shared.wealth_core.median5 import config as median5_config
-        expected_wealth = median5_config()
-        if controller_config != median5_controller.load():
+        expected_wealth = median5_controller.wealth_config(running_identity)
+        if controller_config != median5_controller.controller_config(running_identity):
             raise ValueError("Median-5 controller configuration differs from frozen profile")
     else:
         expected_wealth = WealthCoreConfig()
@@ -234,7 +233,9 @@ def advance_session(
             median5_state, session=published.session,
             candidates=plan.leadership_candidates, closes=plan.signal_closes,
             terminals={t.security_id for t in published.terminal_events})
-        median5_state, overlay_decision = median5_controller.recover(
+        from sentinel.controller import ex3_v5
+        recover = ex3_v5.recover if ex3_v5.enabled(running_identity) else median5_controller.recover
+        median5_state, overlay_decision = recover(
             state=median5_state, native=native_decision.target_core_exposure,
             wc_drawdown=observation.shadow_drawdown,
             recent_r20=witness_decision["recent_r20"],
