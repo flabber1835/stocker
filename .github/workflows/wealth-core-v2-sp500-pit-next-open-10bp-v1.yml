@@ -3,8 +3,7 @@ run-name: WC V2 SP500 PIT next-open 10bp — ${{ github.sha }}
 
 on:
   push:
-    branches:
-      - research/wealth-core-v2-sp500-pit-next-open-10bp-v1
+    branches: [research/wealth-core-v2-sp500-pit-next-open-10bp-v1]
     paths:
       - '.github/workflows/wealth-core-v2-sp500-pit-next-open-10bp-v1.yml'
       - 'research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run.py'
@@ -74,8 +73,7 @@ jobs:
           git diff --exit-code "${EXPERIMENT_BASE_SHA}" -- \
             backtester services/backtester tools \
             research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py \
-            research/sentinel-fastgate/pit-evidence \
-            research/strategy9-e3-broad-stability \
+            research/sentinel-fastgate/pit-evidence research/strategy9-e3-broad-stability \
             research/wealth-core-v2-formal-ab-v1
           echo '[FORMAL_V2_SOURCE_PARITY] PASS'
 
@@ -93,7 +91,7 @@ jobs:
             docs/sentinel-handoff/00_README
 
       - name: Set up Python 3.12
-        uses: actions/setup-python@a26af69be951a213d495a4cc76be5b41a3a56
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12'
           check-latest: false
@@ -112,11 +110,8 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python -m py_compile \
-            research/wealth-core-v2-formal-ab-v1/formal_ab.py \
-            research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run.py
-          python research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run.py \
-            --self-test --output /tmp/wc-v2-sp500-next-open-selftest
+          python -m py_compile research/wealth-core-v2-formal-ab-v1/formal_ab.py research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run.py
+          python research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run.py --self-test --output /tmp/wc-v2-sp500-next-open-selftest
 
       - name: Rebuild pinned historical S&P membership and identities
         shell: bash
@@ -125,22 +120,12 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p "${SOURCE_DIR}"
-          curl --fail --location --retry 4 --retry-all-errors \
-            "${SOURCE_URL}" --output "${SOURCE_DIR}/sp500_ticker_start_end.csv"
+          curl --fail --location --retry 4 --retry-all-errors "${SOURCE_URL}" --output "${SOURCE_DIR}/sp500_ticker_start_end.csv"
           rm -rf "${MEMBERSHIP_DIR}" "${IDENTITY_DIR}"
-          python -m backtester.sp500_pit_corpus \
-            --source "${SOURCE_DIR}/sp500_ticker_start_end.csv" \
-            --overlay backtester/data/sp500_official_overlay_2026.csv \
-            --output "${MEMBERSHIP_DIR}" \
-            --start 1996-01-02 --end 2026-09-03
-          python -m backtester.sp500_pit_identity \
-            --membership-root "${MEMBERSHIP_DIR}" \
-            --sharadar-root sharadar \
-            --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz \
-            --output "${IDENTITY_DIR}" \
-            --start-year 1997 --end-year 2026
+          python -m backtester.sp500_pit_corpus --source "${SOURCE_DIR}/sp500_ticker_start_end.csv" --overlay backtester/data/sp500_official_overlay_2026.csv --output "${MEMBERSHIP_DIR}" --start 1996-01-02 --end 2026-09-03
+          python -m backtester.sp500_pit_identity --membership-root "${MEMBERSHIP_DIR}" --sharadar-root sharadar --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz --output "${IDENTITY_DIR}" --start-year 1997 --end-year 2026
           python - <<'PY'
-          import json, os
+          import json,os
           from pathlib import Path
           p=json.loads((Path(os.environ['MEMBERSHIP_DIR'])/'manifest.json').read_text())
           assert p['dataset_hash']=='1981828b71073be4d0fcf4addb37a56c844a29219090eb0c8fbc535d393bdb2d',p
@@ -154,47 +139,28 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf "${ALIAS_DIR}" "${COVERAGE_DIR}" "${TRADING_GAP_DIR}" "${WEB_ALIAS_DIR}" "${CIK_ALIAS_DIR}"
-          gh run download 33823947011 \
-            --repo flabber1835/stocker \
-            --name sp500-pit-alias-v2-30dce7f2adedc8196bc14f73d8943786631922bb \
-            --dir backtester-results
-          for d in "${ALIAS_DIR}" "${COVERAGE_DIR}" "${TRADING_GAP_DIR}" "${WEB_ALIAS_DIR}" "${CIK_ALIAS_DIR}"; do
-            test -f "$d/SHA256SUMS.txt"
-            (cd "$d" && sha256sum -c SHA256SUMS.txt)
-          done
+          gh run download 33823947011 --repo flabber1835/stocker --name sp500-pit-alias-v2-30dce7f2adedc8196bc14f73d8943786631922bb --dir backtester-results
+          for d in "${ALIAS_DIR}" "${COVERAGE_DIR}" "${TRADING_GAP_DIR}" "${WEB_ALIAS_DIR}" "${CIK_ALIAS_DIR}"; do test -f "$d/SHA256SUMS.txt"; (cd "$d" && sha256sum -c SHA256SUMS.txt); done
           python - <<'PY'
-          import json, os
+          import json,os
           from pathlib import Path
           p=json.loads((Path(os.environ['TRADING_GAP_DIR'])/'trading-gap-summary.json').read_text())
-          assert p['status']=='TRADING_GAP_FILTER_COMPLETE'
-          assert p['market_session_end'] >= '2026-07-31'
+          assert p['status']=='TRADING_GAP_FILTER_COMPLETE' and p['market_session_end']>='2026-07-31'
           print('[SP500_IDENTITY_DIAGNOSTICS] PASS')
           PY
 
-      - name: Materialize S&P 500 PIT eligibility tape for experiment window
+      - name: Materialize S&P 500 PIT eligibility tape
         shell: bash
         run: |
           set -euo pipefail
           rm -rf "${UNIVERSE_DIR}"
-          python -m backtester.sp500_best_effort_universe \
-            --membership-root "${MEMBERSHIP_DIR}" \
-            --identity-root "${IDENTITY_DIR}" \
-            --alias-root "${ALIAS_DIR}" \
-            --trading-gap-root "${TRADING_GAP_DIR}" \
-            --web-alias-root "${WEB_ALIAS_DIR}" \
-            --cik-alias-root "${CIK_ALIAS_DIR}" \
-            --sharadar-root sharadar \
-            --output "${UNIVERSE_DIR}" \
-            --window-start 2006-01-03 \
-            --window-end 2026-07-31
+          python -m backtester.sp500_best_effort_universe --membership-root "${MEMBERSHIP_DIR}" --identity-root "${IDENTITY_DIR}" --alias-root "${ALIAS_DIR}" --trading-gap-root "${TRADING_GAP_DIR}" --web-alias-root "${WEB_ALIAS_DIR}" --cik-alias-root "${CIK_ALIAS_DIR}" --sharadar-root sharadar --output "${UNIVERSE_DIR}" --window-start 2006-01-03 --window-end 2026-07-31
           (cd "${UNIVERSE_DIR}" && sha256sum -c SHA256SUMS.txt)
           python - <<'PY'
-          import json, os
+          import json,os
           from pathlib import Path
           s=json.loads((Path(os.environ['UNIVERSE_DIR'])/'best-effort-summary.json').read_text())
-          assert s['status']=='BEST_EFFORT_RUNNABLE'
-          assert s['window_start']=='2006-01-03' and s['window_end']=='2026-07-31'
-          assert s['membership_dataset_hash']=='1981828b71073be4d0fcf4addb37a56c844a29219090eb0c8fbc535d393bdb2d'
+          assert s['status']=='BEST_EFFORT_RUNNABLE'; assert s['window_start']=='2006-01-03' and s['window_end']=='2026-07-31'; assert s['membership_dataset_hash']=='1981828b71073be4d0fcf4addb37a56c844a29219090eb0c8fbc535d393bdb2d'
           print(json.dumps({'daily_constituents':s['daily_constituents'],'excluded_source_sessions':s['excluded_source_sessions'],'exclusion_fraction':s['exclusion_fraction_of_source_membership_sessions']},indent=2))
           PY
 
@@ -207,18 +173,15 @@ jobs:
           python - <<'PY'
           import json
           p=json.load(open('backtester/data/canonical-pit-20y.json'))
-          assert p['dataset_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993',p
-          assert p['window']=={'warmup_start':'2006-01-03','measurement_start':'2006-07-31','end':'2026-07-31'},p['window']
+          assert p['dataset_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993'; assert p['window']=={'warmup_start':'2006-01-03','measurement_start':'2006-07-31','end':'2026-07-31'}
           print('[PIT_POINTER] PASS',p['dataset_id'])
           PY
           PACKAGE=$(python -c "import json; print(json.load(open('${PIT_POINTER}'))['package'])")
           echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
           docker pull "${PACKAGE}"
           rm -rf backtester-results/canonical-pit-20y && mkdir -p backtester-results/canonical-pit-20y
-          cid=$(docker create "${PACKAGE}" /bin/true)
-          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
-          docker cp "${cid}:/canonical-pit/." backtester-results/canonical-pit-20y
-          docker rm "${cid}"; trap - EXIT
+          cid=$(docker create "${PACKAGE}" /bin/true); trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${cid}:/canonical-pit/." backtester-results/canonical-pit-20y; docker rm "${cid}"; trap - EXIT
           python backtester/canonical_pit_package.py verify --pointer "${PIT_POINTER}" --dataset backtester-results/canonical-pit-20y
           echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
           echo "SP500_PIT_ELIGIBILITY=${GITHUB_WORKSPACE}/${UNIVERSE_DIR}/sp500-best-effort-eligibility.csv.gz" >> "${GITHUB_ENV}"
@@ -229,27 +192,17 @@ jobs:
         run: |
           set -euo pipefail
           rm -rf "${RESULT_DIR}" && mkdir -p "${RESULT_DIR}"
-          python research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run.py \
-            --output "${RESULT_DIR}" 2>&1 | tee wealth-core-v2-sp500-next-open.log
+          python research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run.py --output "${RESULT_DIR}" 2>&1 | tee wealth-core-v2-sp500-next-open.log
 
-      - name: Validate result integrity
+      - name: Validate and summarize result
         shell: bash
         run: |
           set -euo pipefail
           python - <<'PY'
-          import json, os
+          import json,os
           from pathlib import Path
-          root=Path(os.environ['RESULT_DIR'])
-          r=json.loads((root/'RESULT.json').read_text())
-          assert r['status']=='PASS'
-          assert r['canonical_pit_dataset_sha256']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993'
-          assert r['experiment']['initial_capital']==100000.0
-          assert r['experiment']['buffer_basis_points']==10
-          assert r['experiment']['share_quantity_bound_at_close'] is False
-          assert r['experiment']['whole_shares'] is True
-          assert r['integrity']['financial_grade_dividend_lag_sessions']==1
-          for f in ('summary.json','daily.csv','wealth_core_order_blotter.csv','wealth_core_position_lifecycle.csv','wealth_core_daily_observer.csv','INSIGHTS.md','EXPERIMENT_SHA256SUMS.txt'):
-              assert (root/f).is_file(),f
+          root=Path(os.environ['RESULT_DIR']); r=json.loads((root/'RESULT.json').read_text())
+          assert r['status']=='PASS'; assert r['canonical_pit_dataset_sha256']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993'; assert r['experiment']['initial_capital']==100000.0; assert r['experiment']['buffer_basis_points']==10; assert r['experiment']['share_quantity_bound_at_close'] is False; assert r['experiment']['whole_shares'] is True; assert r['integrity']['financial_grade_dividend_lag_sessions']==1
           print(json.dumps({'wealth_core':r['wealth_core_performance'],'spy':r['spy_performance'],'execution':r['execution'],'sp500_filter':r['integrity']['sp500_filter']},indent=2,sort_keys=True))
           PY
           cat "${RESULT_DIR}/INSIGHTS.md" >> "${GITHUB_STEP_SUMMARY}"
@@ -268,65 +221,3 @@ jobs:
           if-no-files-found: error
           retention-days: 90
           compression-level: 6
-
-  persist:
-    needs: replay
-    if: ${{ needs.replay.result == 'success' }}
-    runs-on: ubuntu-24.04
-    permissions:
-      contents: write
-      actions: read
-    steps:
-      - name: Checkout experiment branch for evidence commit
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: research/wealth-core-v2-sp500-pit-next-open-10bp-v1
-          fetch-depth: 0
-
-      - name: Download current-run evidence
-        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          name: wealth-core-v2-sp500-pit-next-open-10bp-${{ github.run_id }}-${{ github.run_attempt }}
-          path: _evidence
-
-      - name: Persist durable evidence
-        shell: bash
-        run: |
-          set -euo pipefail
-          DEST=research/wealth-core-v2-sp500-pit-next-open-10bp-evidence
-          rm -rf "$DEST"
-          mkdir -p "$DEST"
-          cp research/wealth-core-v2-sp500-pit-next-open-10bp-v1/EXPERIMENT_SPEC.md "$DEST/EXPERIMENT_SPEC.md"
-          SRC=_evidence/wc-v2-sp500-next-open-10bp
-          if [ ! -d "$SRC" ]; then SRC=_evidence/backtester-results/wc-v2-sp500-next-open-10bp; fi
-          test -d "$SRC"
-          for f in RESULT.json INSIGHTS.md EXPERIMENT_SHA256SUMS.txt summary.json wealth_core_order_blotter.csv wealth_core_position_lifecycle.csv wealth_core_daily_observer.csv sp500-v2-next-open-10bp-generated.py; do
-            cp "$SRC/$f" "$DEST/$f"
-          done
-          USRC=_evidence/sp500-best-effort-universe-2006-2026
-          if [ ! -d "$USRC" ]; then USRC=_evidence/backtester-results/sp500-best-effort-universe-2006-2026; fi
-          test -d "$USRC"
-          cp "$USRC/best-effort-summary.json" "$DEST/SP500_MEMBERSHIP_SUMMARY.json"
-          python - <<'PY'
-          import json, os
-          from pathlib import Path
-          d={
-            'schema':'research.wealth-core-v2-sp500-pit-next-open-10bp-provenance/1',
-            'workflow_run_id':int(os.environ['GITHUB_RUN_ID']),
-            'workflow_run_attempt':int(os.environ['GITHUB_RUN_ATTEMPT']),
-            'trigger_head':os.environ['GITHUB_SHA'],
-            'experiment_base_head':'880209078f2b4817e837431984dc0ba0bf0b9d79',
-            'formal_v2_run_id':34189070385,
-            'formal_v2_artifact_id':10042774099,
-            'canonical_pit_dataset_sha256':'5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993',
-            'sp500_membership_dataset_sha256':'1981828b71073be4d0fcf4addb37a56c844a29219090eb0c8fbc535d393bdb2d',
-          }
-          Path('research/wealth-core-v2-sp500-pit-next-open-10bp-evidence/PROVENANCE.json').write_text(json.dumps(d,indent=2,sort_keys=True)+'\n')
-          PY
-          (cd "$DEST" && sha256sum $(find . -maxdepth 1 -type f ! -name SHA256SUMS.txt -printf '%f\n' | sort) > SHA256SUMS.txt)
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$DEST"
-          git diff --cached --quiet && exit 0
-          git commit -m 'research: persist V2 SP500 PIT next-open evidence'
-          git push origin HEAD:research/wealth-core-v2-sp500-pit-next-open-10bp-v1
