@@ -218,3 +218,26 @@ Price/source disagreements continue to block readiness until that independent
 proof resolves them. Correctly corroborated and already-resolved events do not
 trigger this additional replay. A falsifier disables unresolved-date discovery
 and must reproduce the valid-current-split readiness failure.
+
+## Current adversarial inventory
+
+The suite contains 118 independently checked PostgreSQL scenarios and 229 tests
+in total, including four end-to-end recovery falsifiers.
+
+| Area | Variations |
+|---|---|
+| Transport | All four feeds; malformed JSON/schema/row widths/cursors, provider errors, loops, rate limits and service deferrals |
+| Partial delivery | Failure after valid prefixes, missing tickers/reference series, corrupted ZIP and stale export authority |
+| Duplicate data | Identical and conflicting SEP/SFP keys |
+| Prices | Missing, zero, negative, non-finite and nonnumeric raw closes; invalid keys and source clocks |
+| Corrections | 16 seeded schedules with old-date changes, same-day revisions, shuffled pages and varying page sizes |
+| Identity | Missing keys, impossible/reversed listing dates, invalid delisted state and overlapping ticker ownership |
+| Actions | Invalid dividend numbers; missing, conflicting, zero, negative and unsubstantiated split records |
+| Split economics | Late restatements; 1-for-4, 1-for-2, 2-for-1, 4-for-1 and 10-for-1 splits at overlap and current-session boundaries |
+| Recovery | Consecutive outages, first-correct-attempt recovery, repeated same-day input, persistent incomplete identity and publication interruption |
+| Test sensitivity | Restored production defects, corrupted expected-state comparisons, incomplete/forged CI evidence and inactive fault definitions |
+
+This is a deterministic adversarial regression suite with seeded variations.
+Process death during database commits, concurrent workers, full-scale certified
+seed/reseed, broader lifecycle histories and a strategy consuming each daily
+snapshot remain the next coverage stages.
