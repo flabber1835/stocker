@@ -7,7 +7,6 @@ on:
       - '.github/workflows/v5-reconvergence-restart-barrier.yml'
 
 permissions:
-  actions: write
   contents: read
 
 concurrency:
@@ -15,10 +14,7 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
-  restart:
+  barrier:
     runs-on: ubuntu-24.04
     steps:
-      - name: Dispatch optimized experiment after cancellation
-        env:
-          GH_TOKEN: ${{ github.token }}
-        run: gh workflow run wealth-core-v5-canonical-reconvergence-fast-v1.yml --ref research/wealth-core-v5-canonical-reconvergence-v1
+      - run: echo "Superseded run canceled; no experiment dispatched."
