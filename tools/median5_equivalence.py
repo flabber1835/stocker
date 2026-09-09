@@ -393,13 +393,13 @@ def main(*, profile="median5"):
     ast.fix_missing_locations(tree)
     module = types.ModuleType("frozen_median5_equivalence_reference")
     sys.modules[module.__name__] = module
-    from sentinel.controller.ex3_v5 import load as v5_load
+    from sentinel.controller.ex3_v6 import load as v5_load
     comparison = Comparison(dataset, classifier.SecurityTypeEstimate(DEFAULT_LEDGER, "reviewed_18"), args.through, output, args.restart_every,
         controller_factory=v5_load if v5 else load, starting_cash=100_000. if v5 else 100_000_000., v5=v5)
     previous_cwd = Path.cwd()
     try:
         os.chdir(root)
-        exec(compile(tree, str(REPO/"tests/median5/frozen_reference.txt"), "exec"), module.__dict__)
+        exec(compile(tree, str(REPO/f"tests/{profile}/frozen_reference.txt"), "exec"), module.__dict__)
         def capture(research):
             try:
                 comparison.observe(research)
@@ -449,6 +449,7 @@ def main(*, profile="median5"):
         comparison.equal("production_identity_unchanged", runtime_strategy_identity(comparison.controller), comparison.identity)
     result = {"status": "PASS_FULL_PIT_EQUIVALENCE" if complete else "PASS_PARTIAL_EQUIVALENCE",
               "profile": profile,
+              "strategy_identity": comparison.identity,
               "dataset_sha256": DATA_SHA, "reference_normalized_ast_sha256": reference_ast,
               "reference_dependency_sha256": dependency_sha,
               "harness_source_sha256": HARNESS_SHA,

@@ -11,7 +11,7 @@ import random
 import numpy as np
 import pytest
 
-from sentinel.controller import ex3_v5, median5
+from sentinel.controller import ex3_v6, median5
 from stock_strategy_shared.wealth_core import v5
 from stock_strategy_shared.wealth_core.adapter import PendingOrder, step_session
 from stock_strategy_shared.wealth_core.engine import Operation, SecurityBar
@@ -50,7 +50,7 @@ def test_open_budget_uses_actual_price_cash_and_released_cushion():
 
 
 def book():
-    state = PortfolioState.fresh(100000., 20)
+    state = PortfolioState.fresh(100000., 20, entry_sizing_profile=v5.PROFILE)
     state.initialized = True
     state.median5 = median5_features()
     return state
@@ -73,7 +73,7 @@ def advance(state, pending, session, *, opened=100., close=100., volume=1e6,
     return step_session(session=session, state=state,
         bars=bars(session, opened=opened, close=close, volume=volume, split=split),
         security_bars=list(candidates), pending=pending, ledger=Ledger(),
-        last_known={}, cfg=v5.config(), strategy_id=ex3_v5.STRATEGY_ID, strategy_version=1)
+        last_known={}, cfg=v5.config(), strategy_id=ex3_v6.STRATEGY_ID, strategy_version=1)
 
 
 def test_close_admission_has_no_bound_quantity_and_open_reprices():
@@ -129,7 +129,7 @@ def test_rec8_strict_r40_boundary_and_latch_release():
     state = median5.fresh(); state["latched"] = True
     state["previous_desired"] = .55
     def step(x, r40):
-        return ex3_v5.recover(state=x, native=1., wc_drawdown=-.05,
+        return ex3_v6.recover(state=x, native=1., wc_drawdown=-.05,
             recent_r20=.02, recent_r40=r40, spy_r20=.01, wc_r20=.03)
     for _ in range(10):
         state, _ = step(state, -.04)
@@ -151,7 +151,7 @@ def test_controller_matches_selected_reference_with_restarts():
         spy20 = rng.choice([None, -.01, 0., .11, .12])
         wc20 = rng.choice([None, -.04, .01, .04])
         expected = ref.step(native, state["effective_native"], dd, r20, r40, spy20, wc20)
-        state, decision = ex3_v5.recover(state=state, native=native, wc_drawdown=dd,
+        state, decision = ex3_v6.recover(state=state, native=native, wc_drawdown=dd,
             recent_r20=r20, recent_r40=r40, spy_r20=spy20, wc_r20=wc20)
         assert (decision["desired_allocation"], decision["reason"]) == expected
         assert state["full_streak"] == ref.full_streak
@@ -163,9 +163,100 @@ def test_selected_default_profile_and_identity():
     from sentinel.core.session import SessionState
     from sentinel.controller.machine import Controller
     cfg, identity = production_strategy()
-    assert cfg.strategy_id == ex3_v5.STRATEGY_ID
+    assert cfg.strategy_id == ex3_v6.STRATEGY_ID
     assert identity["universe"] == "BROAD_SHARADAR_COMMON_EQUITY"
     assert controller_for_identity(identity) == cfg
     env = SessionState.fresh(starting_cash=100000., controller=Controller(cfg), strategy_identity=identity)
     assert len(env.wealth_core["slots"]) == 20
     assert SessionState.from_dict(env.to_dict()).to_dict() == env.to_dict()
+
+
+def canonical():
+    from sentinel.strategy import production_strategy
+    from sentinel.core.session import SessionState
+    from sentinel.controller.machine import Controller
+    cfg, identity = production_strategy()
+    return SessionState.fresh(starting_cash=100000., controller=Controller(cfg),
+                              strategy_identity=identity)
+
+
+def test_empty_legacy_book_cannot_be_relabelled_v5():
+    from sentinel.core.session import SessionState
+    env = canonical()
+    raw = env.to_dict()
+    del raw["wealth_core"]["entry_sizing_profile"]
+    with pytest.raises(ValueError, match="entry sizing profile"):
+        SessionState.from_dict(raw)
+
+
+def test_missing_profile_refuses_before_advancing_book():
+    state = book(); state.entry_sizing_profile = None
+    before = deepcopy(state.to_dict())
+    with pytest.raises(ValueError, match="entry sizing profile"):
+        advance(state, [], "0001")
+    assert state.to_dict() == before
+
+
+def test_dollar_intent_cannot_silently_disappear_from_executable_target():
+    from sentinel.core import decision
+    env = canonical()
+    state = PortfolioState.from_dict(env.wealth_core)
+    state.reserve_slot(0, "A", "A", "SID:A")
+    env.wealth_core = state.to_dict()
+    env.feed["series"]["A"] = {
+        "security_id": "A", "ticker": "A", "issuer_id": "SID:A",
+        "split_factor": 1., "sessions": [], "session_indices": [],
+        "signal_closes": [], "raw_closes": [], "volumes": []}
+    env.pending = [PendingOrder(Operation.OPEN_SLOT_POSITION, "A", "A", 0, 0,
+                               "2026-08-11", "ENTRY_DURABLE_RANK",
+                               intended_dollars=5000.).to_dict()]
+    before = env.to_dict()
+    with pytest.raises(ValueError, match="certified opening-time"):
+        decision.shadow_target(env)
+    assert env.to_dict() == before
+
+
+def test_v5_controller_cannot_be_silently_pinned_to_full_exposure():
+    from sentinel.core import decision
+    from tests.sentinel.test_production_decision import (
+        DECISION_SESSION, EFFECTIVE_SESSION, _binding, _account,
+        _publication, _observation)
+    env = canonical()
+    env.last_processed_session = DECISION_SESSION.isoformat()
+    env.data_version = 7
+    env.last_decision = {"session": DECISION_SESSION.isoformat(),
+                         "target_core_exposure": .55}
+    env.last_evidence = {"wealth_core": {"estimated_equity": 100000.}}
+    with pytest.raises(ValueError, match="PINNED_1_00"):
+        decision.build_execution_plan(env, _binding(), _publication(), _account(),
+            _observation(), {}, {}, DECISION_SESSION, EFFECTIVE_SESSION)
+
+
+def test_pending_buys_use_slot_order_after_sale_proceeds():
+    from tests.sentinel.test_production_decision import _episode
+    state = book(); state.cash = 100.
+    state.episodes[2] = _episode(2, "X", "X", 10.)
+    state.slots[2].occupied_by = "X"
+    for slot, sid in ((0, "A"), (1, "B")):
+        state.reserve_slot(slot, sid, sid, "SID:"+sid)
+    pending = [
+        PendingOrder(Operation.OPEN_SLOT_POSITION, "B", "B", 1, 0,
+                     "0001", "ENTRY_DURABLE_RANK", intended_dollars=5000.),
+        PendingOrder(Operation.OPEN_SLOT_POSITION, "A", "A", 0, 0,
+                     "0001", "ENTRY_DURABLE_RANK", intended_dollars=5000.),
+        PendingOrder(Operation.CLOSE_POSITION, "X", "X", 2, 10., "0001", "EXIT"),
+    ]
+    market = [DailyBar(sid, sid, "SID:"+sid, "0002", 100., 100., 100.)
+              for sid in ("A", "B", "X")]
+    result = step_session(session="0002", state=state, bars=market, pending=pending,
+        ledger=Ledger(), last_known={}, cfg=v5.config(),
+        strategy_id=ex3_v6.STRATEGY_ID, strategy_version=1, security_bars=[])
+    assert [(f["security_id"], f["shares"]) for f in result.fills] == [("X", 10.), ("A", 10)]
+    assert state.cash == pytest.approx(98.)
+    assert not pending and not state.reserved_security_ids()
+
+
+@pytest.mark.parametrize("cost", [-1., float("nan"), float("inf")])
+def test_invalid_costs_refuse(cost):
+    with pytest.raises(ValueError, match="invalid V5 admission"):
+        v5.admission(equity=100000., cash=5000., price=50., cost_bps=cost)

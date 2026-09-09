@@ -43,7 +43,7 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.controller.frozen_rule",
     "sentinel.controller.ldrc",
     "sentinel.controller.median5",
-    "sentinel.controller.ex3_v5",
+    "sentinel.controller.ex3_v6",
     "sentinel.controller.machine",
     "sentinel.controller.recent_leadership",
     "sentinel.core.bootstrap",
@@ -225,7 +225,7 @@ def runtime_strategy_identity(
             result[name] = hashlib.sha256(json.dumps(asdict(value), sort_keys=True,
                                                      separators=(",", ":")).encode()).hexdigest()
         result["research_reference_ast_sha256"] = REFERENCE_AST
-        from sentinel.controller.ex3_v5 import enabled as v5_enabled
+        from sentinel.controller.ex3_v6 import enabled as v5_enabled
         if v5_enabled(result):
             from stock_strategy_shared.wealth_core.v5 import REFERENCE_SOURCE_SHA256
             result.pop("research_reference_ast_sha256")
@@ -561,10 +561,12 @@ def build_execution_plan(
         raise ValueError("controller target_core_exposure is not finite")
     rollout = rollout_state or RolloutState(
         mode=RolloutMode.PINNED_1_00, version=1)
-    if (is_concordance_identity(canonical.strategy_identity)
+    from sentinel.controller.ex3_v6 import enabled as is_ex3_v6
+    if ((is_concordance_identity(canonical.strategy_identity)
+         or is_ex3_v6(canonical.strategy_identity))
             and rollout.mode is RolloutMode.PINNED_1_00):
         raise ValueError(
-            "PINNED_1_00 cannot override a Concordance allocation; "
+            "PINNED_1_00 cannot override a Concordance or EX3 V6 allocation; "
             "use a separately certified CONTROLLER rollout")
     exposure = (Decimal(1) if rollout.mode is RolloutMode.PINNED_1_00
                 else controller_exposure)

@@ -70,9 +70,11 @@ class IssuerFamilyCollision(RuntimeError):
 class PendingOrder:
     """An order decided after session t, awaiting the next tradeable open.
 
-    It PERSISTS across non-tradeable sessions (spec §11) rather than expiring:
+    Exits and legacy entries PERSIST across non-tradeable sessions (spec §11):
     a halted security's exit is still wanted tomorrow, and silently dropping it
     would leave a stopped-out position in the book with no record of why.
+    V5 dollar entries expire after their first next-session opening attempt,
+    including a confirmed invalid market or zero affordable quantity.
     """
     operation: Operation
     security_id: str
@@ -823,6 +825,9 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     want that, and it says so in its name.
     """
     from .v5 import PROFILE as V5_PROFILE
+    expected_sizing = V5_PROFILE if cfg.economic_profile == V5_PROFILE else None
+    if state.entry_sizing_profile != expected_sizing:
+        raise ValueError("canonical entry sizing profile differs from configuration")
     for order in pending:
         order.validate_sizing(open_time=cfg.economic_profile == V5_PROFILE)
     by_sec = {b.security_id: b for b in bars}

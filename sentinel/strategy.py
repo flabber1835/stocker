@@ -1,5 +1,5 @@
 """The single production strategy selector shared by paper and shadow paths."""
-from sentinel.controller.ex3_v5 import load
+from sentinel.controller.ex3_v6 import load
 from sentinel.core.decision import runtime_strategy_identity
 
 

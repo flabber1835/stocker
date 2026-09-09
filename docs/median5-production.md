@@ -1,5 +1,8 @@
 # Certified Median-5 production promotion
 
+This document records the inherited Median-5 profile and PR #333. The current
+selected successor and its release status are [Wealth Core V5 / EX3 V6](wealth-core-v5-ex3-v6-production.md).
+
 This change promotes the complete `MEDIAN5_CANONICAL` economic profile through
 a PR against main `388b8652fdb4cd43a93065884bddcc59ed59de83`. The account is flat
 and no paper trading has occurred. Delivery requires a reviewed PR and a

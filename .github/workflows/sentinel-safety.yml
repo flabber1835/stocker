@@ -250,6 +250,9 @@ jobs:
             tests/median5 -q -ra
           docker run --rm --network none --entrypoint python sentinel-test:ci \
             /work/tools/median5_mutation_check.py
+          docker run --rm --network none sentinel-test:ci tests/v5 -q -ra
+          docker run --rm --network none --entrypoint python sentinel-test:ci \
+            /work/tools/v5_mutation_check.py
 
       - name: Validate shell and Compose surfaces
         env:

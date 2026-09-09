@@ -17,7 +17,8 @@ def config():
 def admission(*, equity: float, cash: float, price: float | None,
               cost_bps: float = 10.0) -> tuple[float | None, str]:
     """The close binds dollars only; settled total cash funds feasibility."""
-    if not all(math.isfinite(x) for x in (equity, cash, cost_bps)) or equity <= 0 or cash < 0:
+    if (not all(math.isfinite(x) for x in (equity, cash, cost_bps))
+            or equity <= 0 or cash < 0 or cost_bps < 0):
         raise ValueError("invalid V5 admission economics")
     reserve = max(0., equity * BUFFER_FRACTION)
     if max(0., cash - reserve) <= EPSILON:

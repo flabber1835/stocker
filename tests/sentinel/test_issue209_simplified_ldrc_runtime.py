@@ -10,17 +10,18 @@ from sentinel.controller.concordance_parent import (
 from sentinel.controller.ldrc import LDRCConfig
 
 
-def test_default_paper_runtime_promotes_complete_certified_median5():
-    from sentinel.controller.median5 import STRATEGY_ID, load
+def test_default_paper_runtime_selects_ex3_v6_r40_m04_rec8():
+    from sentinel.controller.ex3_v6 import STRATEGY_ID, load
     from sentinel.shadow_runtime import _strategy
-    from stock_strategy_shared.wealth_core.median5 import REFERENCE_AST
+    from stock_strategy_shared.wealth_core.v5 import REFERENCE_SOURCE_SHA256
     config, identity = paper_preparation._default_paper_strategy()  # noqa: SLF001
     assert (config, identity) == _strategy()
     assert config == load()
     assert config.strategy_id == STRATEGY_ID
     assert config.fast_entry["min_damaged_breadth_delta5"] == FAST_DAMAGED_BREADTH_DELTA5 == 0.30
     assert identity["strategy"] == STRATEGY_ID
-    assert identity["research_reference_ast_sha256"] == REFERENCE_AST
+    assert identity["research_reference_source_sha256"] == REFERENCE_SOURCE_SHA256
+    assert identity["universe"] == "BROAD_SHARADAR_COMMON_EQUITY"
     assert identity["wealth_core_config_sha256"]
     assert identity["eligibility_config_sha256"]
 

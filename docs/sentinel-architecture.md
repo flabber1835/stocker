@@ -1,8 +1,9 @@
 # Sentinel — architecture and build plan
 
-The current production selector uses [certified Median-5](median5-production.md),
-a versioned profile of the canonical Wealth Core book plus its Sentinel exposure
-rules. Historical frozen profiles below retain their original identities.
+The current selector names Wealth Core V5 with [Sentinel EX3 V6](sentinel-ex3-v6.md).
+The [implementation and release gates](wealth-core-v5-ex3-v6-production.md)
+describe the versioned canonical book and opening-time execution blocker.
+Historical frozen profiles below retain their original identities.
 
 > **CURRENT TARGET BOUNDARY:** Full historical replay is being separated from
 > the production trader. Production retains feature-only warm-up, the canonical

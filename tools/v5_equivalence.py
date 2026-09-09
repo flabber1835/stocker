@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Compare the owner-selected Wealth Core V5 / EX3 V5 against pinned research."""
+"""Compare the owner-selected Wealth Core V5 / EX3 V6 against pinned research."""
 import sys
 from pathlib import Path
 

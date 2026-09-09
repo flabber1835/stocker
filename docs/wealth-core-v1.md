@@ -3,6 +3,8 @@
 This is the historical v1 profile contract. The canonical implementation also
 supports the [certified Median-5 production profile](median5-production.md),
 which explicitly versions its economic differences and restart state.
+The selected successor is [Wealth Core V5 / EX3 V6](wealth-core-v5-ex3-v6-production.md),
+which binds entry dollars at the close and whole shares at the next opening attempt.
 
 A **stateful ownership** strategy. It is not a target-portfolio strategy with
 different parameters — it is a different kind of thing, and most of the design

@@ -1,8 +1,8 @@
-name: Wealth Core V5 EX3 V5 equivalence
+name: Wealth Core V5 EX3 V6 equivalence
 
 on:
   push:
-    branches: [codex/wealth-core-v5-ex3-v5-production]
+    branches: [codex/wealth-core-v5-ex3-v6-production]
     paths:
       - '.github/workflows/v5-equivalence.yml'
       - 'Dockerfile.sentinel'
@@ -53,9 +53,9 @@ jobs:
               'run_attempt': os.environ['GITHUB_RUN_ATTEMPT'],
           }, indent=2) + '\n')
           PY
-          git fetch --no-tags origin 27bb992087182c42c3c051e62bf837895f5d2ab7
-          git fetch --no-tags origin ba74e79490beb8950611b1d17f5d124833b3d91e
-          git fetch --no-tags origin 1c66096c1e3bd650233c630d4e9f71104ac8fc32
+          git fetch --depth=1 --filter=blob:none --no-tags origin 27bb992087182c42c3c051e62bf837895f5d2ab7
+          git fetch --depth=1 --filter=blob:none --no-tags origin ba74e79490beb8950611b1d17f5d124833b3d91e
+          git fetch --depth=1 --filter=blob:none --no-tags origin 1c66096c1e3bd650233c630d4e9f71104ac8fc32
           python tools/median5_reference.py \
             --output "$RUNNER_TEMP/median5-reference" \
             | tee "$RUNNER_TEMP/median5-evidence/reference.json"
@@ -105,7 +105,7 @@ jobs:
           assert result['status'] == 'PASS_FULL_PIT_EQUIVALENCE', result['status']
           assert result['sessions'] == 5176 and result['measured_sessions'] == 5032
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as summary:
-              summary.write('Wealth Core V5 / EX3 V5 R40 -4 REC8 full PIT equivalence: **PASS**.\n\n')
+              summary.write('Wealth Core V5 / EX3 V6 R40 -4 REC8 full PIT equivalence: **PASS**.\n\n')
               summary.write('```json\n' + json.dumps(result, indent=2) + '\n```\n')
           PY
 

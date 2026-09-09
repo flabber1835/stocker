@@ -269,8 +269,10 @@ def run_sessions(*, sessions: Sequence[str],
         seen_terminal_events.add(key)
 
     cfg = cfg or WealthCoreConfig()
+    from .v5 import PROFILE as V5_PROFILE
     state = state if state is not None else PortfolioState.fresh(
-        starting_cash, cfg.n_slots if hasattr(cfg, "n_slots") else 25)
+        starting_cash, cfg.n_slots if hasattr(cfg, "n_slots") else 25,
+        entry_sizing_profile=(V5_PROFILE if cfg.economic_profile == V5_PROFILE else None))
     # `initialized` is NOT set here. It means "the book has been constructed",
     # and `decide` reads it to choose between filling every free slot at once
     # (the opening) and one admission per session (steady state). Setting it

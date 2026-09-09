@@ -257,6 +257,10 @@ class SessionState:
         concordance = is_concordance_identity(strategy_identity)
         median5 = median5_controller.enabled(strategy_identity)
         portfolio = PortfolioState.fresh(starting_cash, 20 if median5 else DEFAULT_SLOTS)
+        from sentinel.controller.ex3_v6 import enabled as v5_enabled
+        if v5_enabled(strategy_identity):
+            from stock_strategy_shared.wealth_core.v5 import PROFILE
+            portfolio.entry_sizing_profile = PROFILE
         if median5:
             from stock_strategy_shared.wealth_core.median5 import fresh
             portfolio.median5 = fresh()
@@ -362,12 +366,16 @@ class SessionState:
         migrated["version"] = ENVELOPE_VERSION
         json.dumps(migrated, sort_keys=True, allow_nan=False)
         state = cls(**migrated)
-        from sentinel.controller.ex3_v5 import enabled as v5_enabled
+        from sentinel.controller.ex3_v6 import enabled as v5_enabled
         for raw_order in state.pending:
             from stock_strategy_shared.wealth_core.adapter import PendingOrder
             PendingOrder.from_dict(raw_order).validate_sizing(
                 open_time=v5_enabled(state.strategy_identity))
         portfolio = PortfolioState.from_dict(state.wealth_core)
+        from stock_strategy_shared.wealth_core.v5 import PROFILE
+        expected_sizing = PROFILE if v5_enabled(state.strategy_identity) else None
+        if portfolio.entry_sizing_profile != expected_sizing:
+            raise ValueError("canonical entry sizing profile differs from strategy identity")
         median5 = median5_controller.enabled(state.strategy_identity)
         slots = 20 if median5 else DEFAULT_SLOTS
         if median5:

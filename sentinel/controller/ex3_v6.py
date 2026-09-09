@@ -1,4 +1,4 @@
-"""Owner-selected EX3 V5: broad Wealth Core V5, R40 strictly above -4%, REC8."""
+"""Owner-selected EX3 V6: broad Wealth Core V5, R40 strictly above -4%, REC8."""
 from dataclasses import asdict, replace
 import hashlib
 import json
@@ -6,7 +6,7 @@ import json
 from stock_strategy_shared.wealth_core import v5
 from . import median5
 
-STRATEGY_ID = "sentinel-ex3-v5-r40-m04-rec8"
+STRATEGY_ID = "sentinel-ex3-v6-r40-m04-rec8"
 R40_FLOOR = -0.04
 RECOVERY_SESSIONS = 8
 

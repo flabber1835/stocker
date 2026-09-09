@@ -14,12 +14,12 @@ STRATEGY_ID = "sentinel-median5-v1"
 
 
 def enabled(identity):
-    from .ex3_v5 import STRATEGY_ID as V5_ID
+    from .ex3_v6 import STRATEGY_ID as V5_ID
     return identity.get("strategy") in (STRATEGY_ID, V5_ID)
 
 
 def wealth_config(identity):
-    from .ex3_v5 import enabled as v5_enabled
+    from .ex3_v6 import enabled as v5_enabled
     from stock_strategy_shared.wealth_core import median5, v5
     if not enabled(identity):
         raise ValueError("unknown Median-5 family strategy identity")
@@ -27,7 +27,7 @@ def wealth_config(identity):
 
 
 def controller_config(identity):
-    from .ex3_v5 import enabled as v5_enabled, load as v5_load
+    from .ex3_v6 import enabled as v5_enabled, load as v5_load
     if not enabled(identity):
         raise ValueError("unknown Median-5 family strategy identity")
     return v5_load() if v5_enabled(identity) else load()
