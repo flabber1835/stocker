@@ -9,7 +9,7 @@ import pandas as pd
 
 HERE=Path(__file__).resolve().parent
 if str(HERE) not in sys.path: sys.path.insert(0,str(HERE))
-from experiment_overlay import ARMS, apply_arm, arm_dimensions, median5_only, BASE_MEDIAN5_RAW_SHA256
+from experiment_overlay import ARMS, apply_arm, arm_dimensions, median5_only
 from backtester import champion_full_classification_control as control
 from backtester.production_equivalent_economic_overlay import install, assert_contract, assert_one_session_dividend_lag
 from backtester.champion_economic_prefix_audit import EXPECTED_CORPUS, PROFILE, PROFILE_HASH, RUNTIME, SOURCE, normalized_ast
@@ -18,6 +18,8 @@ BASELINE_MEDIAN5_RUN_ID=34160387335
 BASELINE_MEDIAN5_ARTIFACT_ID=10032942751
 BASELINE_MEDIAN5_HEAD='1c66096c1e3bd650233c630d4e9f71104ac8fc32'
 BASELINE_DAILY_SHA256='4be426c1f92c6684d0227bf613d474ee335aeef71c6b87ac112dfffdb743f66e'
+BASELINE_MEDIAN5_ARTIFACT_SOURCE_SHA256='3b1bb12dc4f246dc855c135bce04f97cef79a38c9bd81245c543b733c492290b'
+BASELINE_MEDIAN5_NORMALIZED_AST_SHA256='e67b5718de24f370401a675e7787303662b4a43c9a7a2229b53f25d9c6a3602a'
 BASELINE_20Y={'cagr':0.16074252765555608,'ending_multiple':19.712627583637513,'max_drawdown':-0.4883977810220498,'sharpe_daily_252':0.8065779073622603}
 BASELINE_NORMALIZED_SHA256='435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde'
 EXPECTED_PACKAGE='ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c'
@@ -47,8 +49,8 @@ def main()->int:
     if assert_one_session_dividend_lag(certified)!=1: raise RuntimeError('base dividend lag is not one')
     base_norm=sha(normalized_ast(certified).encode())
     if base_norm!=BASELINE_NORMALIZED_SHA256: raise RuntimeError(f'base normalized identity mismatch {base_norm}')
-    median=median5_only(certified); median_raw=sha(median.encode())
-    if median_raw!=BASE_MEDIAN5_RAW_SHA256: raise RuntimeError(f'Median-5 control source mismatch {median_raw}')
+    median=median5_only(certified); median_raw=sha(median.encode()); median_norm=sha(normalized_ast(median).encode())
+    if median_norm!=BASELINE_MEDIAN5_NORMALIZED_AST_SHA256: raise RuntimeError(f'Median-5 normalized control source mismatch {median_norm}')
     variant=apply_arm(certified,a.arm); assert_contract(variant)
     if assert_one_session_dividend_lag(variant)!=1: raise RuntimeError('variant dividend lag changed')
     (out/'certified-base-generated.py').write_text(certified); (out/'median5-control-generated.py').write_text(median); (out/'experiment-generated.py').write_text(variant)
@@ -79,8 +81,8 @@ def main()->int:
         part=frame[frame.date>=frame.date.iloc[-1]-pd.DateOffset(years=years)]
         windows[str(years)]={'strategy':metrics(part,'shadow_equity'),'spy':metrics(part,'spy_nav')}
     result={'schema':'research.median5-10bp-pure/1','status':'PASS_FRESH_CAUSAL_PIT_REPLAY','arm':a.arm,'dimensions':arm_dimensions(a.arm),
-            'economic_scope':'PURE_WEALTH_CORE_MEDIAN5_10BP_NO_EX3_NO_SENTINEL','baseline_reference':{'run_id':BASELINE_MEDIAN5_RUN_ID,'artifact_id':BASELINE_MEDIAN5_ARTIFACT_ID,'head':BASELINE_MEDIAN5_HEAD,'daily_sha256':BASELINE_DAILY_SHA256,'generated_source_sha256':BASE_MEDIAN5_RAW_SHA256,'pure_wealth_core_20y':BASELINE_20Y},
-            'source':{'formal_source_sha':SOURCE['certified'],'candidate_source_sha':candidate,'runtime_sha':RUNTIME,'profile':PROFILE,'profile_sha256':PROFILE_HASH,'experiment_code_sha':os.environ.get('GITHUB_SHA'),'base_generated_normalized_ast_sha256':base_norm,'median5_control_generated_sha256':median_raw,'variant_generated_sha256':sha(variant.encode()),'variant_generated_normalized_ast_sha256':sha(normalized_ast(variant).encode())},
+            'economic_scope':'PURE_WEALTH_CORE_MEDIAN5_10BP_NO_EX3_NO_SENTINEL','baseline_reference':{'run_id':BASELINE_MEDIAN5_RUN_ID,'artifact_id':BASELINE_MEDIAN5_ARTIFACT_ID,'head':BASELINE_MEDIAN5_HEAD,'daily_sha256':BASELINE_DAILY_SHA256,'artifact_generated_source_sha256':BASELINE_MEDIAN5_ARTIFACT_SOURCE_SHA256,'normalized_generated_source_sha256':BASELINE_MEDIAN5_NORMALIZED_AST_SHA256,'pure_wealth_core_20y':BASELINE_20Y},
+            'source':{'formal_source_sha':SOURCE['certified'],'candidate_source_sha':candidate,'runtime_sha':RUNTIME,'profile':PROFILE,'profile_sha256':PROFILE_HASH,'experiment_code_sha':os.environ.get('GITHUB_SHA'),'base_generated_normalized_ast_sha256':base_norm,'median5_control_generated_sha256':median_raw,'median5_control_normalized_ast_sha256':median_norm,'variant_generated_sha256':sha(variant.encode()),'variant_generated_normalized_ast_sha256':sha(normalized_ast(variant).encode())},
             'data':{'canonical_pit_dataset_hash':EXPECTED_CORPUS,'canonical_pit_package':EXPECTED_PACKAGE,'measurement_start':'2006-07-31','measurement_end':'2026-07-31','sessions':5032,'pit':True,'prerecorded_decisions_used':False},
             'economics':{'slots':20,'entry_weight':0.05,'median5_lookback_sessions':5,'median5_hardened_front':3,'cash_buffer_basis_points':10.0,'whole_share_buys':True,'dividend_lag_sessions':1,'ex3':False,'sentinel':False},
             'classification':{'strict_security_type_counts':summary['strict_security_type_counts'],'candidate_coverage':cov,'classification_expansion_required':False},
