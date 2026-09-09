@@ -36,7 +36,7 @@ jobs:
           sparse-checkout: |
             research/median5-open-sizing-10bp-ex3-v1
 
-      - name: Exact open-sizing authority
+      - name: Exact economic-source authority
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: 3dc74a8e54fdfe6e8368a8db3be0ecd127ee4689
@@ -47,7 +47,6 @@ jobs:
           sparse-checkout: |
             backtester
             research/champion-economic-integrity
-            research/wealth-core-v1-open-sizing-10bp-v1
             research/wealth-core-v1-buffer-sweep-evidence/arms/10bp
 
       - name: Exact Median-5 authority
@@ -182,7 +181,6 @@ jobs:
           python "${GITHUB_WORKSPACE}/experiment-src/research/median5-open-sizing-10bp-ex3-v1/run_experiment.py" \
             --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
             --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
-            --open-sizing-runner "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-open-sizing-10bp-v1/run_open_sizing.py" \
             --output "${GITHUB_WORKSPACE}/experiment-results" \
             2>&1 | tee "${GITHUB_WORKSPACE}/experiment.log"
           cp "${GITHUB_WORKSPACE}/package-integrity.json" "${GITHUB_WORKSPACE}/experiment-results/package-integrity.json"
@@ -201,6 +199,9 @@ jobs:
             package-integrity.json
             final-corpus-validation.json
             experiment-src/research/median5-open-sizing-10bp-ex3-v1/PLAN.md
+            experiment-src/research/median5-open-sizing-10bp-ex3-v1/EXECUTION_BLOCK_INVESTIGATION.md
+            experiment-src/research/median5-open-sizing-10bp-ex3-v1/HARNESS_CONSOLIDATION.md
+            experiment-src/research/median5-open-sizing-10bp-ex3-v1/canonical_execution_harness.py
             experiment-src/research/median5-open-sizing-10bp-ex3-v1/run_experiment.py
           retention-days: 90
           if-no-files-found: warn
@@ -217,6 +218,7 @@ jobs:
           cp "${GITHUB_WORKSPACE}/experiment-results/RESULT.json" "$DEST/RESULT.json"
           cp "${GITHUB_WORKSPACE}/experiment-results/SHA256.json" "$DEST/SHA256.json"
           cp "${GITHUB_WORKSPACE}/experiment-results/open-sizing-telemetry.json" "$DEST/open-sizing-telemetry.json"
+          cp "${GITHUB_WORKSPACE}/experiment-results/close-decisions.csv" "$DEST/close-decisions.csv"
           cp "${GITHUB_WORKSPACE}/package-integrity.json" "$DEST/package-integrity.json"
           cp "${GITHUB_WORKSPACE}/final-corpus-validation.json" "$DEST/final-corpus-validation.json"
           git config user.name 'github-actions[bot]'
