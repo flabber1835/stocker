@@ -1,0 +1,213 @@
+name: Research - WC V2 Caesar20 next-open 10bp EX3 full PIT
+run-name: WC V2 Caesar20 next-open 10bp EX3 — ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1
+    paths:
+      - '.github/workflows/wealth-core-v2-caesar20-next-open-10bp-ex3-v1.yml'
+      - 'research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1/run.py'
+      - 'research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1/EXPERIMENT_SPEC.md'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+concurrency:
+  group: wealth-core-v2-caesar20-next-open-10bp-ex3-v1
+  cancel-in-progress: false
+
+env:
+  PIT_OFFICIAL_BACKTEST: '1'
+  PIT_RUNTIME_MAIN_SHA: '887f479b15ad861313da666ad698034d3847121c'
+  EXPERIMENT_BASE_SHA: '880209078f2b4817e837431984dc0ba0bf0b9d79'
+  PIT_POINTER: 'backtester/data/canonical-pit-20y.json'
+  RESULT_DIR: 'backtester-results/wc-v2-caesar20-next-open-10bp-ex3'
+  PYTHONUNBUFFERED: '1'
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout isolated research experiment
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/wealth-core-v2-caesar20-next-open-10bp-ex3-v1.yml
+            /backtester
+            /tests
+            /services/backtester
+            /tools
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence
+            /research/strategy9-e3-broad-stability
+            /research/wealth-core-v2-formal-ab-v1
+            /research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1
+
+      - name: Prove frozen formal V2 inputs are untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = 'research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1'
+          git diff --exit-code "${EXPERIMENT_BASE_SHA}" -- \
+            backtester services/backtester tools \
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py \
+            research/sentinel-fastgate/pit-evidence \
+            research/strategy9-e3-broad-stability \
+            research/wealth-core-v2-formal-ab-v1
+          echo '[FORMAL_V2_SOURCE_PARITY] PASS'
+
+      - name: Checkout pinned runtime authority
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.PIT_RUNTIME_MAIN_SHA }}
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen replay closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C main-src rev-parse HEAD)" = "${PIT_RUNTIME_MAIN_SHA}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/services/backtester:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install -r services/backtester/requirements.txt
+
+      - name: Compile and self-test experiment transform
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            research/wealth-core-v2-formal-ab-v1/formal_ab.py \
+            research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1/run.py
+          python research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1/run.py \
+            --self-test --output /tmp/wc-v2-caesar20-nextopen-selftest
+
+      - name: Pull and verify exact canonical full-PIT package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          p=json.load(open('backtester/data/canonical-pit-20y.json'))
+          assert p['dataset_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993',p
+          assert p['window']=={'warmup_start':'2006-01-03','measurement_start':'2006-07-31','end':'2026-07-31'},p['window']
+          print('[PIT_POINTER] PASS',p['dataset_id'])
+          PY
+          PACKAGE=$(python -c "import json; print(json.load(open('${PIT_POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          rm -rf backtester-results/canonical-pit-20y && mkdir -p backtester-results/canonical-pit-20y
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${cid}:/canonical-pit/." backtester-results/canonical-pit-20y
+          docker rm "${cid}"; trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer "${PIT_POINTER}" --dataset backtester-results/canonical-pit-20y
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
+
+      - name: Run full PIT Wealth Core V2 Caesar20 plus EX3
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${RESULT_DIR}"
+          python research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1/run.py \
+            --output "${RESULT_DIR}" 2>&1 | tee wealth-core-v2-caesar20-next-open-ex3.log
+
+      - name: Validate and summarize result
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RESULT_DIR'])
+          r=json.loads((root/'RESULT.json').read_text())
+          assert r['status']=='PASS_FRESH_CAUSAL_PIT_REPLAY'
+          assert r['dataset_sha256']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993'
+          assert r['initial_capital']==100000.0
+          assert r['wealth_core']['version']=='V2'
+          assert r['wealth_core']['slots']==20
+          assert r['wealth_core']['target_entry_weight']==0.05
+          assert r['wealth_core']['cash_buffer_basis_points']==10.0
+          assert r['wealth_core']['share_quantity_bound_at_close'] is False
+          assert r['wealth_core']['median5_enabled'] is False
+          assert r['sentinel_ex3']['controller_path']=='CandidateA / A_nav'
+          assert r['sessions']==5032
+          for f in ('RESULT.json','INSIGHTS.md','daily.csv','summary.json','transactions.csv','EXPERIMENT_SHA256SUMS.txt','wealth-core-v2-caesar20-next-open-10bp-ex3-generated.py'):
+              assert (root/f).is_file(),f
+          print(json.dumps({'wealth_core_20y':r['wealth_core']['windows']['20'],'ex3_20y':r['sentinel_ex3']['windows']['20'],'execution':r['wealth_core']['next_open_telemetry'],'transactions':r['transactions']},indent=2,sort_keys=True))
+          PY
+          cat "${RESULT_DIR}/INSIGHTS.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload complete experiment evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wc-v2-caesar20-next-open-10bp-ex3-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.RESULT_DIR }}/**
+            research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1/EXPERIMENT_SPEC.md
+            wealth-core-v2-caesar20-next-open-ex3.log
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
+
+  persist:
+    needs: replay
+    if: ${{ needs.replay.result == 'success' }}
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+      actions: read
+    steps:
+      - name: Checkout experiment branch
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1
+          fetch-depth: 0
+
+      - name: Download current-run evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: wc-v2-caesar20-next-open-10bp-ex3-${{ github.run_id }}-${{ github.run_attempt }}
+          path: /tmp/evidence
+
+      - name: Persist durable headline evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          src=/tmp/evidence/backtester-results/wc-v2-caesar20-next-open-10bp-ex3
+          dst=research/wealth-core-v2-caesar20-next-open-10bp-ex3-evidence
+          mkdir -p "$dst"
+          cp "$src/RESULT.json" "$dst/RESULT.json"
+          cp "$src/INSIGHTS.md" "$dst/INSIGHTS.md"
+          cp "$src/EXPERIMENT_SHA256SUMS.txt" "$dst/EXPERIMENT_SHA256SUMS.txt"
+          cp research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1/EXPERIMENT_SPEC.md "$dst/EXPERIMENT_SPEC.md"
+          git config user.name 'github-actions[bot]'
+          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
+          git add "$dst"
+          git commit -m 'research: persist V2 Caesar20 next-open EX3 evidence'
+          git push origin HEAD:research/wealth-core-v2-caesar20-next-open-10bp-ex3-v1
