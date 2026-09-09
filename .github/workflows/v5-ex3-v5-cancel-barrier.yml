@@ -1,0 +1,17 @@
+name: V5 EX3 V5 cancellation barrier
+
+on:
+  push:
+    branches: [research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1]
+    paths:
+      - '.github/workflows/v5-ex3-v5-cancel-barrier.yml'
+
+concurrency:
+  group: wealth-core-v5-ex3-v5-adversarial-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  barrier:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Cancellation barrier completed."
