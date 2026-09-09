@@ -1,0 +1,249 @@
+name: Research - Wealth Core V5 + EX3 V5 S&P500 PIT best effort
+run-name: V5 + EX3 V5 S&P500 best-effort PIT - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/wealth-core-v5-ex3-v5-sp500-pit-best-effort-v1]
+    paths:
+      - '.github/workflows/wealth-core-v5-ex3-v5-sp500-pit-best-effort-v1.yml'
+      - 'research/wealth-core-v5-ex3-v5-sp500-pit-best-effort-v1/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+concurrency:
+  group: wealth-core-v5-ex3-v5-sp500-pit-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+  SOURCE_DIR: backtester-results/sp500-pit-source
+  MEMBERSHIP_DIR: backtester-results/sp500-pit-membership
+  IDENTITY_DIR: backtester-results/sp500-pit-identity
+  ALIAS_DIR: backtester-results/sp500-pit-alias
+  TRADING_GAP_DIR: backtester-results/sp500-pit-trading-gaps
+  WEB_ALIAS_DIR: backtester-results/sp500-pit-web-alias
+  CIK_ALIAS_DIR: backtester-results/sp500-pit-cik-alias
+  UNIVERSE_DIR: backtester-results/sp500-best-effort-universe-continuous
+  SOURCE_URL: https://raw.githubusercontent.com/fja05680/sp500/c31ac3cc56f28cf9a02b4e694eff7ceab596a0ff/sp500_ticker_start_end.csv
+
+jobs:
+  replay:
+    name: Full PIT V5 + EX3 V5 / S&P500 best effort
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-ex3-v5-sp500-pit-best-effort-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+
+      - name: Stage frozen V5 / EX3 V5 replay authority
+        uses: ./experiment-src/.github/actions/v5-ex3-v5-adversarial-setup
+
+      - name: Stage pinned S&P500 best-effort PIT materializer
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: f5c765e62d173839fd6b36c32d6422cec269d1c7
+          path: sp500-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /backtester/sp500_best_effort_universe.py
+            /backtester/sp500_pit_corpus.py
+            /backtester/sp500_pit_identity.py
+            /backtester/sp500_pit_alias_resolution.py
+            /backtester/sp500_pit_alias_resolution_v2.py
+            /backtester/sp500_pit_coverage_audit.py
+            /backtester/sp500_pit_trading_gap_filter.py
+            /backtester/sp500_pit_web_alias_resolution.py
+            /backtester/sp500_pit_cik_alias_resolution.py
+            /backtester/strict_pit_metadata.py
+            /backtester/data/sp500_official_overlay_2026.csv
+            /backtester/data/sp500_web_alias_evidence.csv
+            /research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+            /sharadar/SFP/SHARADAR_SFP.zip.*
+
+      - name: Compile replay and universe harnesses
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            experiment-src/research/wealth-core-v5-ex3-v5-sp500-pit-best-effort-v1/run_sp500_v5_ex3_v5.py \
+            experiment-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            sp500-src/backtester/sp500_best_effort_universe.py \
+            sp500-src/backtester/sp500_pit_corpus.py \
+            sp500-src/backtester/sp500_pit_identity.py
+          python - <<'PY'
+          import numpy, pandas
+          print('numpy', numpy.__version__, 'pandas', pandas.__version__)
+          PY
+
+      - name: Assemble pinned SFP archive
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git hash-object sp500-src/sharadar/SFP/SHARADAR_SFP.zip.001)" = "1b076808b3f46607c43dec4f1dd656736c4604eb"
+          test "$(git hash-object sp500-src/sharadar/SFP/SHARADAR_SFP.zip.002)" = "8ddbc007c3b57f4f344cd1740e5a0defd4ace4a4"
+          test "$(git hash-object sp500-src/sharadar/SFP/SHARADAR_SFP.zip.003)" = "73af2c3883f516421e4e42a0cd007110ff19b02e"
+          test "$(git hash-object sp500-src/sharadar/SFP/SHARADAR_SFP.zip.004)" = "28a63f62b7705abd375b8747b8a9c13bc648f27e"
+          cat \
+            sp500-src/sharadar/SFP/SHARADAR_SFP.zip.001 \
+            sp500-src/sharadar/SFP/SHARADAR_SFP.zip.002 \
+            sp500-src/sharadar/SFP/SHARADAR_SFP.zip.003 \
+            sp500-src/sharadar/SFP/SHARADAR_SFP.zip.004 \
+            > sp500-src/sharadar/SHARADAR_SFP.zip
+          unzip -t sp500-src/sharadar/SHARADAR_SFP.zip >/dev/null
+          test "$(sha256sum sp500-src/sharadar/SHARADAR_SFP.zip | awk '{print $1}')" = "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c"
+
+      - name: Rebuild pinned S&P500 membership and causal identities
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p "$SOURCE_DIR"
+          curl --fail --location --retry 4 --retry-all-errors \
+            "$SOURCE_URL" --output "$SOURCE_DIR/sp500_ticker_start_end.csv"
+          rm -rf "$MEMBERSHIP_DIR" "$IDENTITY_DIR"
+          PYTHONPATH="${GITHUB_WORKSPACE}/sp500-src:${PYTHONPATH}" \
+            python -m backtester.sp500_pit_corpus \
+              --source "$SOURCE_DIR/sp500_ticker_start_end.csv" \
+              --overlay sp500-src/backtester/data/sp500_official_overlay_2026.csv \
+              --output "$MEMBERSHIP_DIR" \
+              --start 1996-01-02 --end 2026-09-03
+          PYTHONPATH="${GITHUB_WORKSPACE}/sp500-src:${PYTHONPATH}" \
+            python -m backtester.sp500_pit_identity \
+              --membership-root "$MEMBERSHIP_DIR" \
+              --sharadar-root sp500-src/sharadar \
+              --cik-path sp500-src/research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz \
+              --output "$IDENTITY_DIR" \
+              --start-year 1997 --end-year 2026
+
+      - name: Reuse pinned green Stage-3 S&P500 identity diagnostics
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf "$ALIAS_DIR" "$TRADING_GAP_DIR" "$WEB_ALIAS_DIR" "$CIK_ALIAS_DIR"
+          gh run download 33823947011 \
+            --repo flabber1835/stocker \
+            --name sp500-pit-alias-v2-30dce7f2adedc8196bc14f73d8943786631922bb \
+            --dir backtester-results
+          for d in "$ALIAS_DIR" "$TRADING_GAP_DIR" "$WEB_ALIAS_DIR" "$CIK_ALIAS_DIR"; do
+            test -f "$d/SHA256SUMS.txt"
+            (cd "$d" && sha256sum -c SHA256SUMS.txt)
+          done
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          t=json.loads((Path(os.environ['TRADING_GAP_DIR'])/'trading-gap-summary.json').read_text())
+          assert t['status']=='TRADING_GAP_FILTER_COMPLETE'
+          assert t['market_session_end'] >= '2026-07-31'
+          PY
+
+      - name: Materialize S&P500 best-effort PIT universe
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "$UNIVERSE_DIR"
+          PYTHONPATH="${GITHUB_WORKSPACE}/sp500-src:${PYTHONPATH}" \
+            python -m backtester.sp500_best_effort_universe \
+              --membership-root "$MEMBERSHIP_DIR" \
+              --identity-root "$IDENTITY_DIR" \
+              --alias-root "$ALIAS_DIR" \
+              --trading-gap-root "$TRADING_GAP_DIR" \
+              --web-alias-root "$WEB_ALIAS_DIR" \
+              --cik-alias-root "$CIK_ALIAS_DIR" \
+              --sharadar-root sp500-src/sharadar \
+              --output "$UNIVERSE_DIR" \
+              --window-start 1997-12-31 \
+              --window-end 2026-07-31
+          (cd "$UNIVERSE_DIR" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.loads((Path(os.environ['UNIVERSE_DIR'])/'best-effort-summary.json').read_text())
+          assert s['status']=='BEST_EFFORT_RUNNABLE'
+          assert s['best_effort_pit'] is True
+          assert s['formal_pit_certified'] is False
+          assert s['window_start']=='1997-12-31' and s['window_end']=='2026-07-31'
+          assert s['membership_dataset_hash']=='1981828b71073be4d0fcf4addb37a56c844a29219090eb0c8fbc535d393bdb2d'
+          print(json.dumps(s, indent=2, sort_keys=True))
+          PY
+          echo "SP500_PIT_SEGMENTS=${GITHUB_WORKSPACE}/${UNIVERSE_DIR}/sp500-best-effort-segments.csv.gz" >> "$GITHUB_ENV"
+          echo "SP500_PIT_SUMMARY=${GITHUB_WORKSPACE}/${UNIVERSE_DIR}/best-effort-summary.json" >> "$GITHUB_ENV"
+
+      - name: Run fresh full-PIT Wealth Core V5 plus Sentinel EX3 V5 replay
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v5-sp500-pit-best-effort-v1/run_sp500_v5_ex3_v5.py" \
+            --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+            --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+            --output "${GITHUB_WORKSPACE}/experiment-results" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/experiment.log"
+          cp "${GITHUB_WORKSPACE}/package-integrity.json" "${GITHUB_WORKSPACE}/experiment-results/package-integrity.json"
+          cp "${GITHUB_WORKSPACE}/final-corpus-validation.json" "${GITHUB_WORKSPACE}/experiment-results/final-corpus-validation.json"
+          cp "${GITHUB_WORKSPACE}/experiment.log" "${GITHUB_WORKSPACE}/experiment-results/experiment.log"
+
+      - name: Publish run summary
+        if: success()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          r=json.loads(Path('experiment-results/RESULT.json').read_text())
+          m=r['metrics']['wealth_core_plus_sentinel']['20']
+          c=r['metrics']['wealth_core']['20']
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Wealth Core V5 + Sentinel EX3 V5 / S&P 500 PIT best effort\n\n')
+              f.write(f"- Full system 20y CAGR: **{m['cagr']:.2%}**\n")
+              f.write(f"- Full system max DD: **{m['max_drawdown']:.2%}**\n")
+              f.write(f"- Full system Sharpe: **{m['sharpe_daily_252']:.3f}**\n")
+              f.write(f"- Wealth Core 20y CAGR: **{c['cagr']:.2%}**\n")
+              f.write(f"- Wealth Core max DD: **{c['max_drawdown']:.2%}**\n")
+              f.write(f"- Wealth Core Sharpe: **{c['sharpe_daily_252']:.3f}**\n")
+              f.write('\nUniverse claim: **best-effort PIT viability**; formal S&P 500 PIT certification is not claimed.\n')
+          PY
+
+      - name: Preserve complete evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wealth-core-v5-ex3-v5-sp500-pit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            experiment-results/
+            experiment.log
+            package-integrity.json
+            final-corpus-validation.json
+            ${{ env.UNIVERSE_DIR }}/best-effort-summary.json
+            ${{ env.UNIVERSE_DIR }}/sp500-best-effort-segments.csv.gz
+            ${{ env.UNIVERSE_DIR }}/sp500-best-effort-excluded-sessions.csv.gz
+            ${{ env.UNIVERSE_DIR }}/SHA256SUMS.txt
+            experiment-src/research/wealth-core-v5-ex3-v5-sp500-pit-best-effort-v1/run_sp500_v5_ex3_v5.py
+          retention-days: 90
+          if-no-files-found: warn
