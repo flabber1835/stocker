@@ -1,0 +1,20 @@
+{
+  "all_buy_quantities_integer": true,
+  "blocked_open_entries": 5,
+  "buffer_basis_points": 5,
+  "buffer_fraction": 0.0005,
+  "close_cash_scarcity_q0": 745,
+  "close_decision_rows": 1246,
+  "close_q0_candidate_skips": 745,
+  "close_target_granularity_q0": 0,
+  "fractional_share_buys": false,
+  "gap_alone_would_clip_events": 15,
+  "gap_clipped_entries": 15,
+  "gap_gt_2_5pct_shortfall_events": 2,
+  "minimum_actual_cash": 49.97868668851379,
+  "minimum_post_buy_cash_excess_over_required_reserve": 0.30890440871682756,
+  "open_shortfall_events": 20,
+  "positive_gap_shortfall_events": 20,
+  "reserve_violations": 0,
+  "transaction_rows": 909
+}

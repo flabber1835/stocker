@@ -1,0 +1,43 @@
+{
+  "ambiguous_parent_tickers_observed": [],
+  "cleanup_target_count": 73,
+  "final_effective_security_count": 696,
+  "final_unresolved_count": 0,
+  "issue_count": 0,
+  "issues": [],
+  "p0_new_adjudication_count": 11,
+  "parent_family_counts": {
+    "durable": 442,
+    "leadership": 182,
+    "ranking": 61
+  },
+  "parent_unique_security_count": 685,
+  "performance_replay_executed": false,
+  "schema": "champion.final-security-truth-corpus-validation/2",
+  "source_files": [
+    "durable-shard-00.json",
+    "durable-shard-01.json",
+    "durable-shard-02.json",
+    "durable-shard-03.json",
+    "durable-shard-04.json",
+    "durable-shard-05.json",
+    "durable-shard-06.json",
+    "durable-shard-07.json",
+    "durable-shard-08.json",
+    "durable-shard-09.json",
+    "leadership-shard-00.json",
+    "leadership-shard-01.json",
+    "leadership-shard-02.json",
+    "leadership-shard-03.json",
+    "ranking-shard-00.json",
+    "ranking-shard-01.json",
+    "durable-shard-06-cleanup.json",
+    "durable-shard-07-cleanup.json",
+    "durable-shard-09-cleanup.json",
+    "leadership-shard-00-cleanup.json",
+    "leadership-shard-01-cleanup.json",
+    "ranking-shard-01-cleanup.json",
+    "p0-fresh-path-delta.json"
+  ],
+  "status": "PASS_FINAL_TRUTH_CORPUS_EXECUTABLE"
+}

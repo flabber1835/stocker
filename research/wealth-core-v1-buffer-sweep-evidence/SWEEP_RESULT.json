@@ -1,0 +1,666 @@
+{
+  "arms": {
+    "0": {
+      "authority": {
+        "baseline_artifact_id": 10073578819,
+        "baseline_daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+        "baseline_run_id": 34267327656,
+        "baseline_source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
+        "baseline_summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878",
+        "control_normalized_ast_sha256": "435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde",
+        "control_source_sha256": "bbd6783d0cd0e5d1662a0146190962e5845cc4b6bdb8feb50d0c7788f90a6077",
+        "daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+        "generated_arm_source_sha256": "c0bf7c781605e0fc6a3c47fb8e2a8b28636f7a02111275571296c5033efdc024",
+        "prior_10bp_crosscheck": null,
+        "summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878",
+        "zero_bp_exact_authority": {
+          "daily_exact_match": true,
+          "daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+          "summary_exact_match": true,
+          "summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878"
+        }
+      },
+      "buffer_basis_points": 0,
+      "buffer_fraction": 0.0,
+      "buffer_integrity": {
+        "all_buy_quantities_integer": true,
+        "fractional_share_buys": false,
+        "minimum_actual_cash": 1.270701536410975,
+        "minimum_post_buy_cash_excess_over_required_reserve": 1.270701536410975,
+        "reserve_violations": 0
+      },
+      "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+      "economic_scope": "WEALTH_CORE_V1_ONLY",
+      "entry_execution": {
+        "average_entry_fraction": 0.8495281364233336,
+        "cash_limited_close_decisions": 119,
+        "completed_entries": 523,
+        "entry_fraction_lt_10pct": 53,
+        "entry_fraction_lt_1pct": 40,
+        "entry_fraction_lt_25pct": 56,
+        "entry_fraction_lt_50pct": 72,
+        "entry_fraction_lt_5pct": 51,
+        "entry_fraction_lt_99pct": 235,
+        "gap_clipped_entries": 27,
+        "maximum_entry_fraction": 1.2412629358471419,
+        "minimum_entry_fraction": 0.0004025302532520693,
+        "one_share_entries": 28,
+        "planned_entries_fully_blocked_next_open": 0,
+        "q0_candidate_skips_close": 632,
+        "q0_cash_scarcity_close": 632,
+        "q0_target_granularity_close": 0
+      },
+      "financial_grade_dividend_lag_sessions": 1,
+      "gap_attribution": {
+        "gap_alone_would_clip_events": 27,
+        "gap_gt_2_5pct_shortfall_events": 3,
+        "max_close_to_open_gap_pct": 5.766150560597971,
+        "median_close_to_open_gap_pct": 0.8638166593212926,
+        "open_shortfall_events": 27,
+        "positive_gap_shortfall_events": 27
+      },
+      "portfolio_performance": {
+        "cagr": 0.1454603836086088,
+        "end": "2026-07-31",
+        "end_equity": 1397317.8592213374,
+        "ending_multiple": 15.122573069642186,
+        "max_drawdown": -0.4901142196226078,
+        "sessions": 5032,
+        "sharpe_daily_252": 0.7649936149589806,
+        "start": "2006-07-31",
+        "start_equity": 92399.478103788
+      },
+      "schema": "research.wealth-core-v1-buffer-sweep-arm/1",
+      "sentinel_metrics_used": false,
+      "status": "PASS",
+      "transaction_ledger": {
+        "buys": 523,
+        "columns_exact": true,
+        "rows": 969,
+        "sells": 446
+      },
+      "whole_shares_only": true
+    },
+    "10": {
+      "authority": {
+        "baseline_artifact_id": 10073578819,
+        "baseline_daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+        "baseline_run_id": 34267327656,
+        "baseline_source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
+        "baseline_summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878",
+        "control_normalized_ast_sha256": "435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde",
+        "control_source_sha256": "bbd6783d0cd0e5d1662a0146190962e5845cc4b6bdb8feb50d0c7788f90a6077",
+        "daily_sha256": "79a4e97f79885a189d4a0fa3648eac8c7916f0ea01bcf95258fbe49679b5a698",
+        "generated_arm_source_sha256": "5f61d5ed5afd784bfb247d554344199743de11dcf9b31956430c6a77b91fedf7",
+        "prior_10bp_crosscheck": {
+          "checks": {
+            "cagr": true,
+            "cash_limited_decisions": true,
+            "end_equity": true,
+            "ending_multiple": true,
+            "entries": true,
+            "entry_fraction_lt_1pct": true,
+            "gap_clipped_entries": true,
+            "max_drawdown": true,
+            "one_share_entries": true,
+            "q0_candidate_skips": true,
+            "sharpe_daily_252": true
+          },
+          "pass": true
+        },
+        "summary_sha256": "6c60a97a4f63b827fab842cd961e1fb944b533b0b9dc5826d91db369c3be2a33",
+        "zero_bp_exact_authority": null
+      },
+      "buffer_basis_points": 10,
+      "buffer_fraction": 0.001,
+      "buffer_integrity": {
+        "all_buy_quantities_integer": true,
+        "fractional_share_buys": false,
+        "minimum_actual_cash": 90.12839635307898,
+        "minimum_post_buy_cash_excess_over_required_reserve": 0.012660515522895821,
+        "reserve_violations": 0
+      },
+      "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+      "economic_scope": "WEALTH_CORE_V1_ONLY",
+      "entry_execution": {
+        "average_entry_fraction": 0.8453482148105664,
+        "cash_limited_close_decisions": 124,
+        "completed_entries": 519,
+        "entry_fraction_lt_10pct": 53,
+        "entry_fraction_lt_1pct": 33,
+        "entry_fraction_lt_25pct": 60,
+        "entry_fraction_lt_50pct": 71,
+        "entry_fraction_lt_5pct": 50,
+        "entry_fraction_lt_99pct": 231,
+        "gap_clipped_entries": 19,
+        "maximum_entry_fraction": 1.223330188509835,
+        "minimum_entry_fraction": 0.00018563010631380847,
+        "one_share_entries": 23,
+        "planned_entries_fully_blocked_next_open": 1,
+        "q0_candidate_skips_close": 1004,
+        "q0_cash_scarcity_close": 1004,
+        "q0_target_granularity_close": 0
+      },
+      "financial_grade_dividend_lag_sessions": 1,
+      "gap_attribution": {
+        "gap_alone_would_clip_events": 18,
+        "gap_gt_2_5pct_shortfall_events": 3,
+        "max_close_to_open_gap_pct": 5.766150560597971,
+        "median_close_to_open_gap_pct": 1.004182709612533,
+        "open_shortfall_events": 20,
+        "positive_gap_shortfall_events": 20
+      },
+      "portfolio_performance": {
+        "cagr": 0.15488287845556004,
+        "end": "2026-07-31",
+        "end_equity": 1646091.825445194,
+        "ending_multiple": 17.814947218600263,
+        "max_drawdown": -0.49042738751414783,
+        "sessions": 5032,
+        "sharpe_daily_252": 0.805082394739427,
+        "start": "2006-07-31",
+        "start_equity": 92399.478103788
+      },
+      "schema": "research.wealth-core-v1-buffer-sweep-arm/1",
+      "sentinel_metrics_used": false,
+      "status": "PASS",
+      "transaction_ledger": {
+        "buys": 519,
+        "columns_exact": true,
+        "rows": 961,
+        "sells": 442
+      },
+      "whole_shares_only": true
+    },
+    "15": {
+      "authority": {
+        "baseline_artifact_id": 10073578819,
+        "baseline_daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+        "baseline_run_id": 34267327656,
+        "baseline_source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
+        "baseline_summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878",
+        "control_normalized_ast_sha256": "435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde",
+        "control_source_sha256": "bbd6783d0cd0e5d1662a0146190962e5845cc4b6bdb8feb50d0c7788f90a6077",
+        "daily_sha256": "b543af2c6f2047333daa603820321f36c4ed947b2eb07f3c8f4631da4eb859ba",
+        "generated_arm_source_sha256": "0a85120a652db99316de98ca739afd412484ce0bfd90a54b3e9707805ae72999",
+        "prior_10bp_crosscheck": null,
+        "summary_sha256": "369a8c6ecf503da4ab178f9f49a728d7470f81c5cab9884c9a05e15ed72ec625",
+        "zero_bp_exact_authority": null
+      },
+      "buffer_basis_points": 15,
+      "buffer_fraction": 0.0015,
+      "buffer_integrity": {
+        "all_buy_quantities_integer": true,
+        "fractional_share_buys": false,
+        "minimum_actual_cash": 120.94001727511352,
+        "minimum_post_buy_cash_excess_over_required_reserve": 0.03411948362372641,
+        "reserve_violations": 0
+      },
+      "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+      "economic_scope": "WEALTH_CORE_V1_ONLY",
+      "entry_execution": {
+        "average_entry_fraction": 0.8463082659609211,
+        "cash_limited_close_decisions": 119,
+        "completed_entries": 502,
+        "entry_fraction_lt_10pct": 51,
+        "entry_fraction_lt_1pct": 33,
+        "entry_fraction_lt_25pct": 56,
+        "entry_fraction_lt_50pct": 73,
+        "entry_fraction_lt_5pct": 48,
+        "entry_fraction_lt_99pct": 219,
+        "gap_clipped_entries": 21,
+        "maximum_entry_fraction": 1.238523584569674,
+        "minimum_entry_fraction": 0.00017225113314289255,
+        "one_share_entries": 22,
+        "planned_entries_fully_blocked_next_open": 1,
+        "q0_candidate_skips_close": 2338,
+        "q0_cash_scarcity_close": 2338,
+        "q0_target_granularity_close": 0
+      },
+      "financial_grade_dividend_lag_sessions": 1,
+      "gap_attribution": {
+        "gap_alone_would_clip_events": 20,
+        "gap_gt_2_5pct_shortfall_events": 4,
+        "max_close_to_open_gap_pct": 7.708049113233284,
+        "median_close_to_open_gap_pct": 1.1869316810171338,
+        "open_shortfall_events": 22,
+        "positive_gap_shortfall_events": 22
+      },
+      "portfolio_performance": {
+        "cagr": 0.15133040459970415,
+        "end": "2026-07-31",
+        "end_equity": 1547726.175162139,
+        "ending_multiple": 16.750377890918937,
+        "max_drawdown": -0.4890609488494151,
+        "sessions": 5032,
+        "sharpe_daily_252": 0.805462858193327,
+        "start": "2006-07-31",
+        "start_equity": 92399.478103788
+      },
+      "schema": "research.wealth-core-v1-buffer-sweep-arm/1",
+      "sentinel_metrics_used": false,
+      "status": "PASS",
+      "transaction_ledger": {
+        "buys": 502,
+        "columns_exact": true,
+        "rows": 928,
+        "sells": 426
+      },
+      "whole_shares_only": true
+    },
+    "20": {
+      "authority": {
+        "baseline_artifact_id": 10073578819,
+        "baseline_daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+        "baseline_run_id": 34267327656,
+        "baseline_source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
+        "baseline_summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878",
+        "control_normalized_ast_sha256": "435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde",
+        "control_source_sha256": "bbd6783d0cd0e5d1662a0146190962e5845cc4b6bdb8feb50d0c7788f90a6077",
+        "daily_sha256": "c451239d429ac0ab692e23f0fa4ec0bee77012f557321c2eb4b2cc6583d120e7",
+        "generated_arm_source_sha256": "4d145f0d78449e03ac622133fac1167acd61c6d4db297125d939c13bbb37ced8",
+        "prior_10bp_crosscheck": null,
+        "summary_sha256": "77be7cb8e53f58ae51f7417a34c75b715aab2fce48e92084fc92a50e69863029",
+        "zero_bp_exact_authority": null
+      },
+      "buffer_basis_points": 20,
+      "buffer_fraction": 0.002,
+      "buffer_integrity": {
+        "all_buy_quantities_integer": true,
+        "fractional_share_buys": false,
+        "minimum_actual_cash": 159.76287488556497,
+        "minimum_post_buy_cash_excess_over_required_reserve": 0.16968228684294218,
+        "reserve_violations": 0
+      },
+      "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+      "economic_scope": "WEALTH_CORE_V1_ONLY",
+      "entry_execution": {
+        "average_entry_fraction": 0.8689702988189664,
+        "cash_limited_close_decisions": 109,
+        "completed_entries": 512,
+        "entry_fraction_lt_10pct": 39,
+        "entry_fraction_lt_1pct": 22,
+        "entry_fraction_lt_25pct": 47,
+        "entry_fraction_lt_50pct": 63,
+        "entry_fraction_lt_5pct": 34,
+        "entry_fraction_lt_99pct": 212,
+        "gap_clipped_entries": 21,
+        "maximum_entry_fraction": 1.2292739946069604,
+        "minimum_entry_fraction": 0.0005033316573815106,
+        "one_share_entries": 15,
+        "planned_entries_fully_blocked_next_open": 2,
+        "q0_candidate_skips_close": 1048,
+        "q0_cash_scarcity_close": 1048,
+        "q0_target_granularity_close": 0
+      },
+      "financial_grade_dividend_lag_sessions": 1,
+      "gap_attribution": {
+        "gap_alone_would_clip_events": 20,
+        "gap_gt_2_5pct_shortfall_events": 4,
+        "max_close_to_open_gap_pct": 12.54930082466834,
+        "median_close_to_open_gap_pct": 1.1193678863700374,
+        "open_shortfall_events": 23,
+        "positive_gap_shortfall_events": 23
+      },
+      "portfolio_performance": {
+        "cagr": 0.1479891767196344,
+        "end": "2026-07-31",
+        "end_equity": 1460326.628922735,
+        "ending_multiple": 15.804490013270623,
+        "max_drawdown": -0.4906684089259754,
+        "sessions": 5032,
+        "sharpe_daily_252": 0.7802823270571787,
+        "start": "2006-07-31",
+        "start_equity": 92399.478103788
+      },
+      "schema": "research.wealth-core-v1-buffer-sweep-arm/1",
+      "sentinel_metrics_used": false,
+      "status": "PASS",
+      "transaction_ledger": {
+        "buys": 512,
+        "columns_exact": true,
+        "rows": 942,
+        "sells": 430
+      },
+      "whole_shares_only": true
+    },
+    "25": {
+      "authority": {
+        "baseline_artifact_id": 10073578819,
+        "baseline_daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+        "baseline_run_id": 34267327656,
+        "baseline_source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
+        "baseline_summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878",
+        "control_normalized_ast_sha256": "435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde",
+        "control_source_sha256": "bbd6783d0cd0e5d1662a0146190962e5845cc4b6bdb8feb50d0c7788f90a6077",
+        "daily_sha256": "2caebe0ec2082f77520bf5826c57c1d1ed56b33868cf032d941646d3625b82f4",
+        "generated_arm_source_sha256": "8f08aaeeb7dfa853d272c623653e1febd7efef32575c46274cf2bba1c8e3f160",
+        "prior_10bp_crosscheck": null,
+        "summary_sha256": "d6e6fa0f618a24ec139a2140f4f54b4dc1047b034d3081a16e042588cc144662",
+        "zero_bp_exact_authority": null
+      },
+      "buffer_basis_points": 25,
+      "buffer_fraction": 0.0025,
+      "buffer_integrity": {
+        "all_buy_quantities_integer": true,
+        "fractional_share_buys": false,
+        "minimum_actual_cash": 204.47989733709778,
+        "minimum_post_buy_cash_excess_over_required_reserve": 0.26669367351729534,
+        "reserve_violations": 0
+      },
+      "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+      "economic_scope": "WEALTH_CORE_V1_ONLY",
+      "entry_execution": {
+        "average_entry_fraction": 0.859616789197045,
+        "cash_limited_close_decisions": 118,
+        "completed_entries": 509,
+        "entry_fraction_lt_10pct": 47,
+        "entry_fraction_lt_1pct": 29,
+        "entry_fraction_lt_25pct": 51,
+        "entry_fraction_lt_50pct": 62,
+        "entry_fraction_lt_5pct": 43,
+        "entry_fraction_lt_99pct": 219,
+        "gap_clipped_entries": 26,
+        "maximum_entry_fraction": 1.2343496764491144,
+        "minimum_entry_fraction": 0.0003437487198305245,
+        "one_share_entries": 18,
+        "planned_entries_fully_blocked_next_open": 3,
+        "q0_candidate_skips_close": 1209,
+        "q0_cash_scarcity_close": 1209,
+        "q0_target_granularity_close": 0
+      },
+      "financial_grade_dividend_lag_sessions": 1,
+      "gap_attribution": {
+        "gap_alone_would_clip_events": 23,
+        "gap_gt_2_5pct_shortfall_events": 3,
+        "max_close_to_open_gap_pct": 7.703196885690722,
+        "median_close_to_open_gap_pct": 0.4662004662004504,
+        "open_shortfall_events": 29,
+        "positive_gap_shortfall_events": 28
+      },
+      "portfolio_performance": {
+        "cagr": 0.15218146121731113,
+        "end": "2026-07-31",
+        "end_equity": 1570910.82681415,
+        "ending_multiple": 16.999765372062615,
+        "max_drawdown": -0.46178206149889445,
+        "sessions": 5032,
+        "sharpe_daily_252": 0.8088168237015968,
+        "start": "2006-07-31",
+        "start_equity": 92407.794603788
+      },
+      "schema": "research.wealth-core-v1-buffer-sweep-arm/1",
+      "sentinel_metrics_used": false,
+      "status": "PASS",
+      "transaction_ledger": {
+        "buys": 509,
+        "columns_exact": true,
+        "rows": 937,
+        "sells": 428
+      },
+      "whole_shares_only": true
+    },
+    "5": {
+      "authority": {
+        "baseline_artifact_id": 10073578819,
+        "baseline_daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+        "baseline_run_id": 34267327656,
+        "baseline_source_sha256": "32cd228010e09b5be42271cd6d0c38831fe7fbc74e725f592949146c48104e0f",
+        "baseline_summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878",
+        "control_normalized_ast_sha256": "435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde",
+        "control_source_sha256": "bbd6783d0cd0e5d1662a0146190962e5845cc4b6bdb8feb50d0c7788f90a6077",
+        "daily_sha256": "fdb3ec0cc4f7cb89cbd35b6c54947a4f0f180b85e518f89052fb02a24bb611f7",
+        "generated_arm_source_sha256": "10c4613b5419a645a504376c8bb9d22ec6c56deed5fa5daceacc81a7e253b7d4",
+        "prior_10bp_crosscheck": null,
+        "summary_sha256": "bae21743e722f98ee9f3b7aea1515fd848dfd35732f28b3756b09635b21ccd36",
+        "zero_bp_exact_authority": null
+      },
+      "buffer_basis_points": 5,
+      "buffer_fraction": 0.0005,
+      "buffer_integrity": {
+        "all_buy_quantities_integer": true,
+        "fractional_share_buys": false,
+        "minimum_actual_cash": 49.97868668851379,
+        "minimum_post_buy_cash_excess_over_required_reserve": 0.30890440871682756,
+        "reserve_violations": 0
+      },
+      "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+      "economic_scope": "WEALTH_CORE_V1_ONLY",
+      "entry_execution": {
+        "average_entry_fraction": 0.8769929975857435,
+        "cash_limited_close_decisions": 100,
+        "completed_entries": 495,
+        "entry_fraction_lt_10pct": 37,
+        "entry_fraction_lt_1pct": 23,
+        "entry_fraction_lt_25pct": 43,
+        "entry_fraction_lt_50pct": 57,
+        "entry_fraction_lt_5pct": 32,
+        "entry_fraction_lt_99pct": 192,
+        "gap_clipped_entries": 15,
+        "maximum_entry_fraction": 1.2392220736934696,
+        "minimum_entry_fraction": 0.00030503204924645745,
+        "one_share_entries": 17,
+        "planned_entries_fully_blocked_next_open": 5,
+        "q0_candidate_skips_close": 745,
+        "q0_cash_scarcity_close": 745,
+        "q0_target_granularity_close": 0
+      },
+      "financial_grade_dividend_lag_sessions": 1,
+      "gap_attribution": {
+        "gap_alone_would_clip_events": 15,
+        "gap_gt_2_5pct_shortfall_events": 2,
+        "max_close_to_open_gap_pct": 6.066914498141252,
+        "median_close_to_open_gap_pct": 1.2962162081551545,
+        "open_shortfall_events": 20,
+        "positive_gap_shortfall_events": 20
+      },
+      "portfolio_performance": {
+        "cagr": 0.14587080575698663,
+        "end": "2026-07-31",
+        "end_equity": 1407365.4935171313,
+        "ending_multiple": 15.231314314744328,
+        "max_drawdown": -0.48446694888689656,
+        "sessions": 5032,
+        "sharpe_daily_252": 0.7831897404286414,
+        "start": "2006-07-31",
+        "start_equity": 92399.478103788
+      },
+      "schema": "research.wealth-core-v1-buffer-sweep-arm/1",
+      "sentinel_metrics_used": false,
+      "status": "PASS",
+      "transaction_ledger": {
+        "buys": 495,
+        "columns_exact": true,
+        "rows": 909,
+        "sells": 414
+      },
+      "whole_shares_only": true
+    }
+  },
+  "authority": {
+    "base_evidence_head": "38eb1a0dd3ac9a37c4466198c420bd00747e6a13",
+    "canonical_pit_dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+    "classifier_source_sha": "ba74e79490beb8950611b1d17f5d124833b3d91e",
+    "final_corpus_validation_sha256": "bf326c22ea48350d0008d044f0859e92b89a112deb8fc168711af7d9bc32f976",
+    "formal_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+    "package_integrity_sha256": "be1a5a06980430e97021679f7ea875b47606268f20b994ff6da3e15322a3bae8",
+    "prior_10bp_crosscheck": {
+      "checks": {
+        "cagr": true,
+        "cash_limited_decisions": true,
+        "end_equity": true,
+        "ending_multiple": true,
+        "entries": true,
+        "entry_fraction_lt_1pct": true,
+        "gap_clipped_entries": true,
+        "max_drawdown": true,
+        "one_share_entries": true,
+        "q0_candidate_skips": true,
+        "sharpe_daily_252": true
+      },
+      "pass": true
+    },
+    "runtime_source_sha": "887f479b15ad861313da666ad698034d3847121c",
+    "zero_bp_exact_authority": {
+      "daily_exact_match": true,
+      "daily_sha256": "8a2e4f948720674a56737ee6291df0aff12e02a74d74b1ec5f0c75f9929adee6",
+      "summary_exact_match": true,
+      "summary_sha256": "929ed3baacd1bb66e8174d7a6822e362e5c90da75355177d33bab3ac9f201878"
+    }
+  },
+  "clean_enough_for_followup_production_design_discussion": true,
+  "execution_saturation": {
+    "gap_clipping_saturation_definition": "smallest tested buffer below 25bp after which every remaining +5bp step reduces gap-clipped fills by at most 1 trade",
+    "marginal_gap_clipped_reduction_per_5bp": {
+      "10": -4,
+      "15": -2,
+      "20": 0,
+      "25": -5,
+      "5": 12
+    },
+    "mechanically_sensible_buffer_if_both_criteria_met": 5,
+    "smallest_buffer_meeting_gap_clipping_saturation_definition": 5,
+    "smallest_buffer_with_zero_next_open_complete_failures": 0
+  },
+  "path_divergence_vs_0bp": {
+    "0": {
+      "buy_decisions_that_differ": 0,
+      "cumulative_days_with_differing_holdings": 0,
+      "executed_entry_dates_that_differ": 0,
+      "exits_that_differ": 0,
+      "final_holding_set_difference_count": 0,
+      "final_holdings_only_in_0bp": [],
+      "final_holdings_only_in_arm": [],
+      "first_date_holdings_diverge": null,
+      "ticker_admissions_that_differ": 0
+    },
+    "10": {
+      "buy_decisions_that_differ": 1771,
+      "cumulative_days_with_differing_holdings": 4787,
+      "executed_entry_dates_that_differ": 208,
+      "exits_that_differ": 148,
+      "final_holding_set_difference_count": 8,
+      "final_holdings_only_in_0bp": [
+        "151591024860208405",
+        "700818629905779940",
+        "870635285340846904",
+        "984501908958804567"
+      ],
+      "final_holdings_only_in_arm": [
+        "146666351462403983",
+        "187862012192350955",
+        "495161380520953778",
+        "631248103540392508"
+      ],
+      "first_date_holdings_diverge": "2006-11-02",
+      "ticker_admissions_that_differ": 276
+    },
+    "15": {
+      "buy_decisions_that_differ": 2695,
+      "cumulative_days_with_differing_holdings": 4748,
+      "executed_entry_dates_that_differ": 235,
+      "exits_that_differ": 168,
+      "final_holding_set_difference_count": 10,
+      "final_holdings_only_in_0bp": [
+        "320115775928788177",
+        "345679706151556113",
+        "700818629905779940",
+        "870635285340846904",
+        "984501908958804567"
+      ],
+      "final_holdings_only_in_arm": [
+        "1096890341814551411",
+        "146666351462403983",
+        "187862012192350955",
+        "397304374943978012",
+        "631248103540392508"
+      ],
+      "first_date_holdings_diverge": "2006-11-02",
+      "ticker_admissions_that_differ": 293
+    },
+    "20": {
+      "buy_decisions_that_differ": 2044,
+      "cumulative_days_with_differing_holdings": 4964,
+      "executed_entry_dates_that_differ": 236,
+      "exits_that_differ": 160,
+      "final_holding_set_difference_count": 8,
+      "final_holdings_only_in_0bp": [
+        "320115775928788177",
+        "700818629905779940",
+        "743492254378648171",
+        "984501908958804567"
+      ],
+      "final_holdings_only_in_arm": [
+        "166330330586039835",
+        "495161380520953778",
+        "631248103540392508",
+        "752127607694153326"
+      ],
+      "first_date_holdings_diverge": "2006-11-02",
+      "ticker_admissions_that_differ": 305
+    },
+    "25": {
+      "buy_decisions_that_differ": 2206,
+      "cumulative_days_with_differing_holdings": 4965,
+      "executed_entry_dates_that_differ": 329,
+      "exits_that_differ": 222,
+      "final_holding_set_difference_count": 10,
+      "final_holdings_only_in_0bp": [
+        "126827330787355169",
+        "151591024860208405",
+        "700818629905779940",
+        "743492254378648171",
+        "984501908958804567"
+      ],
+      "final_holdings_only_in_arm": [
+        "1022781655280462810",
+        "187862012192350955",
+        "429461440255021477",
+        "631248103540392508",
+        "914562293232156389"
+      ],
+      "first_date_holdings_diverge": "2006-11-02",
+      "ticker_admissions_that_differ": 428
+    },
+    "5": {
+      "buy_decisions_that_differ": 1653,
+      "cumulative_days_with_differing_holdings": 4965,
+      "executed_entry_dates_that_differ": 274,
+      "exits_that_differ": 194,
+      "final_holding_set_difference_count": 12,
+      "final_holdings_only_in_0bp": [
+        "320115775928788177",
+        "345679706151556113",
+        "700818629905779940",
+        "743492254378648171",
+        "870635285340846904",
+        "984501908958804567"
+      ],
+      "final_holdings_only_in_arm": [
+        "146666351462403983",
+        "187862012192350955",
+        "397304374943978012",
+        "631248103540392508",
+        "66360978776286368",
+        "914562293232156389"
+      ],
+      "first_date_holdings_diverge": "2006-11-02",
+      "ticker_admissions_that_differ": 358
+    }
+  },
+  "performance_curve_interpretation": {
+    "highest_cagr_buffer_not_used_as_selection_rule": true,
+    "shape": "non-monotonic",
+    "treated_as_path_dependent": true
+  },
+  "schema": "research.wealth-core-v1-buffer-sweep/1",
+  "status": "PASS",
+  "tested_buffer_basis_points": [
+    0,
+    5,
+    10,
+    15,
+    20,
+    25
+  ]
+}

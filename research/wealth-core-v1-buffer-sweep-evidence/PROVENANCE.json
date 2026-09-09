@@ -1,0 +1,22 @@
+{
+  "base_evidence_head": "38eb1a0dd3ac9a37c4466198c420bd00747e6a13",
+  "branch": "research/wealth-core-v1-buffer-sweep-v1",
+  "canonical_pit_dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "classifier_source_sha": "ba74e79490beb8950611b1d17f5d124833b3d91e",
+  "dividend_lag_sessions": 1,
+  "formal_source_sha": "27bb992087182c42c3c051e62bf837895f5d2ab7",
+  "initial_capital": 100000,
+  "measurement_window": {
+    "end": "2026-07-31",
+    "sessions": 5032,
+    "start": "2006-07-31"
+  },
+  "production_code_modified": false,
+  "runtime_source_sha": "887f479b15ad861313da666ad698034d3847121c",
+  "schema": "research.wealth-core-v1-buffer-sweep-provenance/1",
+  "sentinel_metrics_used": false,
+  "trigger_head_sha": "9eddb48871b0681b79a8b9eff7f725fcd05454b0",
+  "whole_shares_only": true,
+  "workflow_run_attempt": 1,
+  "workflow_run_id": 34291013480
+}
