@@ -1,0 +1,75 @@
+{
+  "schema": "research.wealth-core-v5-sentinel-ex3-impedance-final/1",
+  "status": "SELECTED_RESEARCH_CONFIGURATION",
+  "source_run_id": 34319850800,
+  "source_experiment_head": "54af0c9e50e4bf0c0d4242dafcf7fff0b75eb0f3",
+  "wealth_core": {
+    "version": "V5",
+    "median_rank_lookback": 5,
+    "slots": 20,
+    "target_entry_weight": 0.05,
+    "cash_reserve_basis_points": 10.0,
+    "affordability_cash_basis": "TOTAL_CASH",
+    "execution": "NEXT_VALID_OPEN_WHOLE_SHARES",
+    "dividend_lag_sessions": 1
+  },
+  "sentinel_ex3": {
+    "ldrc_rec_sessions": 8,
+    "ldrc_r20": -0.085,
+    "ldrc_v": 0.11,
+    "ldrc_dd": -0.10,
+    "divergence_spy_floor": 0.0,
+    "full_recovery_recent_leadership_r40_floor": -0.05,
+    "divergence_ceiling": 0.55,
+    "native_fast_damaged_breadth": 0.88,
+    "native_healthy_damaged_ceiling": 0.63
+  },
+  "change_from_current_ex3": {
+    "full_recovery_recent_leadership_r40_floor": {
+      "from": 0.0,
+      "to": -0.05
+    }
+  },
+  "selected_full_replay": {
+    "artifact_id": 10092241074,
+    "variant": "r40_m05_rec8",
+    "windows": {
+      "5y": {
+        "cagr": 0.31033743898,
+        "max_drawdown": -0.2041964497,
+        "sharpe_daily_252": 1.346561683
+      },
+      "10y": {
+        "cagr": 0.264739206,
+        "max_drawdown": -0.273755457,
+        "sharpe_daily_252": 1.246577210
+      },
+      "15y": {
+        "cagr": 0.222368330,
+        "max_drawdown": -0.273755457,
+        "sharpe_daily_252": 1.177591454
+      },
+      "20y": {
+        "cagr": 0.215572258,
+        "max_drawdown": -0.273755457,
+        "sharpe_daily_252": 1.121058119,
+        "ending_multiple": 49.619275
+      }
+    }
+  },
+  "baseline_20y": {
+    "cagr": 0.20725062417242723,
+    "max_drawdown": -0.28449191381677585,
+    "sharpe_daily_252": 1.0945954949104486,
+    "ending_multiple": 43.24962689880958
+  },
+  "selection_basis": [
+    "r40 -4% and -5% fresh full-PIT arms are exactly path/economics identical",
+    "-5% lies inside the broad frozen-signal recovery plateau and away from the active ~-4% historical boundary",
+    "REC 8 remains the centered persistence setting across the tested REC 7-10 basin",
+    "FAST 88% preserves useful marginal defensive triggers",
+    "healthy damaged ceiling 63% remains locally preferable",
+    "all Wealth Core V5 economic/parity hashes remained exact"
+  ],
+  "scope": "RESEARCH_ONLY"
+}
