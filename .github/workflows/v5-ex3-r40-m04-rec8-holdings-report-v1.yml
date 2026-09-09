@@ -171,34 +171,37 @@ jobs:
           p=Path('/tmp/run_impedance_holdings.py')
           s=p.read_text()
           anchor="    candidate = apply_variant(v5, cfg)\n"
-          inject=r'''    candidate = apply_variant(v5, cfg)
-          _init = "    rows=[]; trade_rows=[]; gap_event_rows=[]; close_decision_rows=[]; _pending_meta={};"
-          if candidate.count(_init) != 1:
-              raise RuntimeError("holdings instrumentation init seam mismatch")
-          candidate = candidate.replace(_init, "    rows=[]; holdings_rows=[]; trade_rows=[]; gap_event_rows=[]; close_decision_rows=[]; _pending_meta={};", 1)
-          _eq = "            eq,unresolved=book.equity(clraw)\n            held=[]"
-          if candidate.count(_eq) != 1:
-              raise RuntimeError("holdings instrumentation equity seam mismatch")
-          _eq_new = '''            eq,unresolved=book.equity(clraw)
-                      if date>=START:
-                          for _hs in book.slots:
-                              if not _hs.held():
-                                  continue
-                              _hp=clraw[_hs.tid]
-                              if not (finite(_hp) and _hp>0):
-                                  _hp=book.last_raw.get(_hs.tid,np.nan)
-                              _hmv=float(_hs.qty)*float(_hp) if finite(_hp) and _hp>0 else np.nan
-                              holdings_rows.append({'date':ds,'security_id':str(sid[int(_hs.tid)]),'ticker':str(tick[int(_hs.tid)]),'quantity':float(_hs.qty),'close_mark':float(_hp) if finite(_hp) else np.nan,'market_value':_hmv,'core_nav':float(eq),'core_weight':(_hmv/float(eq) if finite(_hmv) and eq>0 else np.nan)})
-                      held=[]'''
-          candidate = candidate.replace(_eq, _eq_new, 1)
-          _out = "    out.to_csv(OUT/'daily.csv',index=False)\n    pd.DataFrame(trade_rows,columns=['Transaction date','Buy or sell','Ticker','Ticker name','Amount of shares']).to_csv(OUT/'transactions.csv',index=False)"
-          if candidate.count(_out) != 1:
-              raise RuntimeError("holdings instrumentation output seam mismatch")
-          _out_new = "    out.to_csv(OUT/'daily.csv',index=False)\n    pd.DataFrame(holdings_rows,columns=['date','security_id','ticker','quantity','close_mark','market_value','core_nav','core_weight']).to_csv(OUT/'holdings-daily.csv',index=False)\n    pd.DataFrame(trade_rows,columns=['Transaction date','Buy or sell','Ticker','Ticker name','Amount of shares']).to_csv(OUT/'transactions.csv',index=False)"
-          candidate = candidate.replace(_out, _out_new, 1)
-          '''
           if s.count(anchor) != 1:
               raise SystemExit('runner candidate seam mismatch')
+          inject='''    candidate = apply_variant(v5, cfg)
+              _init = "    rows=[]; trade_rows=[]; gap_event_rows=[]; close_decision_rows=[]; _pending_meta={}"
+              if candidate.count(_init) != 1:
+                  raise RuntimeError("holdings instrumentation init seam mismatch")
+              candidate = candidate.replace(_init, "    rows=[]; holdings_rows=[]; trade_rows=[]; gap_event_rows=[]; close_decision_rows=[]; _pending_meta={}", 1)
+              _eq = "            eq,unresolved=book.equity(clraw)\\n            held=[]"
+              if candidate.count(_eq) != 1:
+                  raise RuntimeError("holdings instrumentation equity seam mismatch")
+              _eq_new = ("            eq,unresolved=book.equity(clraw)\\n"
+                  "            if date>=START:\\n"
+                  "                for _hs in book.slots:\\n"
+                  "                    if not _hs.held():\\n"
+                  "                        continue\\n"
+                  "                    _hp=clraw[_hs.tid]\\n"
+                  "                    if not (finite(_hp) and _hp>0):\\n"
+                  "                        _hp=book.last_raw.get(_hs.tid,np.nan)\\n"
+                  "                    _hmv=float(_hs.qty)*float(_hp) if finite(_hp) and _hp>0 else np.nan\\n"
+                  "                    holdings_rows.append({'date':ds,'security_id':str(sid[int(_hs.tid)]),'ticker':str(tick[int(_hs.tid)]),'quantity':float(_hs.qty),'close_mark':float(_hp) if finite(_hp) else np.nan,'market_value':_hmv,'core_nav':float(eq),'core_weight':(_hmv/float(eq) if finite(_hmv) and eq>0 else np.nan)})\\n"
+                  "            held=[]")
+              candidate = candidate.replace(_eq, _eq_new, 1)
+              _out = "    out.to_csv(OUT/'daily.csv',index=False)\\n    pd.DataFrame(trade_rows,columns=['Transaction date','Buy or sell','Ticker','Ticker name','Amount of shares']).to_csv(OUT/'transactions.csv',index=False)"
+              if candidate.count(_out) != 1:
+                  raise RuntimeError("holdings instrumentation output seam mismatch")
+              _out_new = "    out.to_csv(OUT/'daily.csv',index=False)\\n    pd.DataFrame(holdings_rows,columns=['date','security_id','ticker','quantity','close_mark','market_value','core_nav','core_weight']).to_csv(OUT/'holdings-daily.csv',index=False)\\n    pd.DataFrame(trade_rows,columns=['Transaction date','Buy or sell','Ticker','Ticker name','Amount of shares']).to_csv(OUT/'transactions.csv',index=False)"
+              candidate = candidate.replace(_out, _out_new, 1)
+          '''
+          # Normalize accidental leading spaces introduced by the workflow literal.
+          lines=inject.splitlines()
+          inject='\n'.join([lines[0]]+[ln[10:] if ln.startswith('          ') else ln for ln in lines[1:]])+'\n'
           s=s.replace(anchor,inject,1)
           p.write_text(s)
           compile(s,str(p),'exec')
@@ -222,7 +225,6 @@ jobs:
           r=json.loads((b/'RESULT.json').read_text())
           assert r['status']=='PASS_FRESH_CAUSAL_PIT_REPLAY'
           assert r['variant']=='r40_m04_rec8'
-          expected=json.loads(pathlib.Path('../holdings-results/SHA256.json').read_text())
           print('PASS exact replay; holdings rows:', sum(1 for _ in open('../holdings-results/engine/holdings-daily.csv'))-1)
           print('RESULT SHA256', hashlib.sha256((b/'RESULT.json').read_bytes()).hexdigest())
           PY
