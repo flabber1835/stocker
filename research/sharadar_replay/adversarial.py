@@ -106,7 +106,7 @@ def build_adversarial_scenarios(seed):
                          ('nan', 'NaN'), ('infinite', 'Infinity'), ('text', 'broken')]:
         fault = Fault(table='SEP', kind='set_value', field='closeunadj', value=value)
         add(f'raw_close_{label}',
-            [interrupted('invalid_raw_prices', FIRST, fault, 'RawPriceDomainUnavailable'),
+            [interrupted('invalid_raw_prices', FIRST, fault, 'FrontierDomainIncomplete'),
              step('recover', SECOND)], recovery_from='recover')
 
     for label, field, value in [
@@ -184,11 +184,21 @@ def build_adversarial_scenarios(seed):
     ]:
         name = f'sep_invalid_{field}_{"missing" if value is None else "value"}'
         fault = Fault(table='SEP', kind='set_value', field=field, value=value)
-        add(name, [interrupted('corrupted_key_or_clock', FIRST, fault, error),
+        bad = interrupted('corrupted_key_or_clock', FIRST, fault, error)
+        if field == 'lastupdated' and value is None:
+            bad = bad.model_copy(update={'expected': step('expected', FIRST).expected,
+                'error_after_daily_publication': True,
+                'required_blockers': ('SEP mutation watermark',)})
+        add(name, [bad,
                    step('recover', SECOND)], recovery_from='recover')
     for ticker in ('SPY', 'BIL'):
         fault = Fault(table='SFP', kind='omit_ticker', ticker=ticker)
+        bad = step('reference_outage', FIRST, faults=(fault,), ready=False,
+                   required_blockers=('frontier benchmark' if ticker == 'SPY' else 'defensive fund marks',))
+        field = 'spy' if ticker == 'SPY' else 'defensive'
+        bad = bad.model_copy(update={'expected': bad.expected.model_copy(
+            update={field: getattr(initial, field)})})
         add(f'missing_reference_{ticker.lower()}',
-            [interrupted('reference_outage', FIRST, fault, 'SeedHistoryIncomplete'),
+            [bad,
              step('recover', SECOND)], recovery_from='recover')
     return cases

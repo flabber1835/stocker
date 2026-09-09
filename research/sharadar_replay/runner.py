@@ -142,11 +142,17 @@ def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
                         raise StateMismatch(f"{step.name}: expected error {step.error}, actual {error}")
                     if step.error and step.error not in (error["type"] + ": " + error["detail"]):
                         raise StateMismatch(f"{step.name}: unexpected error {error}")
-                    if step.error and current.version != previous_version:
+                    if step.error and not step.error_after_daily_publication and current.version != previous_version:
                         raise StateMismatch(f"{step.name}: interrupted candidate changed publication")
+                    if step.error_after_daily_publication and current.version == previous_version:
+                        raise StateMismatch(f"{step.name}: expected completed daily publication before maintenance error")
                     compare(step.expected, corpus)
-                    compare_readiness(expected=step.ready, actual=state.ready,
-                                      required_blockers=step.required_blockers, failures=failures)
+                    try:
+                        compare_readiness(expected=step.ready, actual=state.ready,
+                                          required_blockers=step.required_blockers, failures=failures)
+                    except StateMismatch as exc:
+                        raise StateMismatch(str(exc) + '; details=' + json.dumps(
+                            [vars(c) for c in state.failures], default=str)) from exc
                     if recovery_attempts is not None and not recovered:
                         recovered = error is None and state.ready
                         if recovery_attempts >= scenario.recovery_attempt_budget and not recovered:

@@ -1,0 +1,56 @@
+"""Verify complete, passing evidence from all independent CI shards."""
+from __future__ import annotations
+
+import argparse
+from collections import Counter
+import json
+from pathlib import Path
+import re
+import xml.etree.ElementTree as ET
+
+
+def verify(root: Path, *, commit: str, shards: int = 4) -> dict:
+    manifests = sorted(root.glob('*/collection.json'))
+    assert len(manifests) == shards, 'missing or extra shard manifests'
+    collected = None
+    selected_all, indices, scenarios = [], [], []
+    for manifest in manifests:
+        data = json.loads(manifest.read_text())
+        index = data['shard']
+        assert data['shards'] == shards and 0 <= index < shards, 'invalid shard identity'
+        indices.append(index)
+        if collected is None:
+            collected = data['collected']
+        assert data['collected'] == collected, 'shards collected different tests'
+        selected = collected[index::shards]
+        assert data['selected'] == selected, 'shard selection differs from declared partition'
+        selected_all.extend(selected)
+        tests = list(ET.parse(manifest.parent / 'junit.xml').getroot().iter('testcase'))
+        assert len(tests) == len(selected), 'missing or extra JUnit tests'
+        assert all(not any(t.find(tag) is not None for tag in ('failure', 'error', 'skipped'))
+                   for t in tests), 'JUnit contains non-passing tests'
+        actual_ids = [t.attrib['classname'] + '::' + t.attrib['name'] for t in tests]
+        expected_ids = [s.replace('.py::', '::').replace('/', '.') for s in selected]
+        assert Counter(actual_ids) == Counter(expected_ids), 'JUnit test identities differ'
+        expected_scenarios = [m.group(1) for s in selected
+                              if (m := re.search(r'::test_daily_production_replay\[(.+)\]$', s))]
+        reports = [json.loads(p.read_text()) for p in manifest.parent.glob('*/report.json')]
+        assert Counter(r['scenario'] for r in reports) == Counter(expected_scenarios), 'scenario report coverage differs'
+        for report in reports:
+            assert report['commit'] == commit, 'report code commit differs'
+            assert report['verdict'] == 'PASS' and report['steps'], 'scenario failed or has no steps'
+            assert all(s['corpus_digest'] == s['expected_digest'] for s in report['steps']), 'corpus digest differs'
+        scenarios.extend(expected_scenarios)
+    assert sorted(indices) == list(range(shards)), 'duplicate or missing shard indices'
+    assert collected and len(set(collected)) == len(collected), 'empty or duplicate test collection'
+    assert Counter(selected_all) == Counter(collected), 'test partition is incomplete'
+    return {'verdict': 'PASS', 'commit': commit, 'tests': len(collected),
+            'scenarios': len(scenarios), 'shards': shards}
+
+
+if __name__ == '__main__':
+    parser = argparse.ArgumentParser()
+    parser.add_argument('root', type=Path)
+    parser.add_argument('--commit', required=True)
+    args = parser.parse_args()
+    print(json.dumps(verify(args.root, commit=args.commit), sort_keys=True))

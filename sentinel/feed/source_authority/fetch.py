@@ -63,9 +63,11 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
     def __init__(self, fetch, *, protect_sep=None,
                  corroborate_reference=None,
                  after_session: str | None = None,
-                 seed_mode: bool = False, validate_tickers: bool = False):
+                 seed_mode: bool = False, validate_tickers: bool = False,
+                 sep_update_envelope: SepUpdateEnvelope | None = None):
         self._canonical_fetch = CanonicalSourceFetch(
-            fetch, validate_tickers=(validate_tickers or fetch is snapshot_source.fetch_table))
+            fetch, validate_tickers=(validate_tickers or fetch is snapshot_source.fetch_table),
+            sep_update_envelope=sep_update_envelope)
         self._seed_projection: Optional[SeedListingProjection] = None
         self.seed_coverage_evidence: Optional[dict] = None
         super().__init__(

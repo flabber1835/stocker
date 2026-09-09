@@ -84,3 +84,30 @@ jobs:
           path: replay-evidence
           if-no-files-found: error
           retention-days: 30
+
+  complete-evidence:
+    needs: daily-replay
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+          sparse-checkout: research/sharadar_replay
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: sharadar-daily-replay-${{ github.sha }}-*
+          path: evidence
+      - name: Require complete passing evidence for the exact code commit
+        shell: bash
+        env:
+          TESTED_COMMIT: ${{ github.event.pull_request.head.sha || github.sha }}
+        run: |
+          python research/sharadar_replay/verify_evidence.py evidence --commit "$TESTED_COMMIT" | tee verified-evidence.json
+          cat verified-evidence.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sharadar-replay-verdict-${{ github.sha }}
+          path: verified-evidence.json
+          if-no-files-found: error

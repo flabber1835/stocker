@@ -51,3 +51,52 @@ def test_provider_transcript_records_late_fault_activation():
     assert provider(httpx.Request('GET', url + '?qopts.cursor_id=1')).status_code == 400
     assert provider.transcript[0]['faults'] == []
     assert provider.transcript[1]['faults'] == ['http_400']
+
+
+@pytest.mark.parametrize('value', ['Infinity', '-Infinity', 'NaN', float('inf'), float('-inf')])
+def test_nonfinite_raw_prices_fail_production_coverage(value):
+    from sentinel.feed import domains
+    report = domains.NormalisationReport()
+    rows = list(domains.normalise_sep_rows([dict(ticker='AAA', date=FIRST,
+        open=100, close=100, closeunadj=value, volume=1000)], report=report))
+    assert rows == []
+    with pytest.raises(domains.RawPriceDomainUnavailable):
+        domains.assert_raw_price_domain(report)
+
+
+def test_old_infinite_price_parser_is_killed(monkeypatch):
+    from sentinel.feed import domains
+    original = domains._f
+    monkeypatch.setattr(domains, '_f', lambda v: float('inf') if v == 'Infinity' else original(v))
+    report = domains.NormalisationReport()
+    list(domains.normalise_sep_rows([dict(ticker='AAA', date=FIRST,
+        open=100, close=100, closeunadj='Infinity', volume=1000)], report=report))
+    # The old parser advertises complete raw prices. The acceptance invariant kills it.
+    with pytest.raises(AssertionError):
+        assert report.raw_close_coverage < 0.9, 'non-finite input passed the coverage guard'
+
+
+@pytest.mark.parametrize('other_rows', [1, 2, 100])
+@pytest.mark.parametrize('kind', ['daily', 'actions_reconcile', 'sep_mutations'])
+def test_metadata_recovery_exception_cannot_admit_other_pending_rows(monkeypatch, other_rows, kind):
+    from types import SimpleNamespace
+    from sentinel.feed import ingest_authority_impl, publication, recovery
+    candidates = [recovery.FailedLiveCandidate(run_id='one', kind='daily'),
+                  recovery.FailedLiveCandidate(run_id='two', kind=kind)]
+    monkeypatch.setattr(recovery, 'failed_live_candidates', lambda conn: candidates)
+    monkeypatch.setattr(publication, 'coherence', lambda conn: SimpleNamespace(
+        unpublished_rows=2 + other_rows, unpublished_universe=2))
+    with pytest.raises(recovery.PublicationRecoveryRefused):
+        ingest_authority_impl._single_failed_live_candidate(object())
+
+
+def test_metadata_only_mixed_operation_kinds_remain_blocked(monkeypatch):
+    from types import SimpleNamespace
+    from sentinel.feed import ingest_authority_impl, publication, recovery
+    monkeypatch.setattr(recovery, 'failed_live_candidates', lambda conn: [
+        recovery.FailedLiveCandidate(run_id='one', kind='daily'),
+        recovery.FailedLiveCandidate(run_id='two', kind='seed')])
+    monkeypatch.setattr(publication, 'coherence', lambda conn: SimpleNamespace(
+        unpublished_rows=2, unpublished_universe=2))
+    with pytest.raises(recovery.PublicationRecoveryRefused):
+        ingest_authority_impl._single_failed_live_candidate(object())

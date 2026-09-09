@@ -52,6 +52,7 @@ duplication is guarded rather than trusted.
 """
 from __future__ import annotations
 
+import math
 from dataclasses import dataclass, field
 from typing import Iterable, Iterator, Mapping, Optional
 
@@ -162,7 +163,7 @@ def _f(v) -> Optional[float]:
         f = float(v)
     except (TypeError, ValueError):
         return None
-    return f if f == f else None          # NaN -> None
+    return f if math.isfinite(f) else None
 
 
 class SessionsOutOfOrder(ValueError):

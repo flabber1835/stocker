@@ -169,3 +169,35 @@ recovery path. The existing publisher still requires all prior owners cleared.
 Mixed operation kinds or any pending bars, references, repairs, actions or
 anomalies retain the existing refusal. An executable falsifier restores the old
 multi-candidate refusal and must reproduce the repeated-outage failure.
+
+### Non-finite price input
+
+The corrupted-price case reproduced acceptance of positive infinity as a raw
+close/open by the production normalizer. Finite-price arithmetic is required:
+non-finite source numbers must follow the existing missing-domain path, where
+coverage and readiness determine refusal. Extend the numeric parser's NaN
+rejection to both infinities; ordinary finite inputs retain their semantics.
+A normalizer falsifier restores the old parser and proves that the raw-price
+coverage assertion then accepts the corrupt observation.
+
+A final evidence gate verifies that shard manifests form an exact partition of
+the full collection, JUnit results contain only passes, every selected scenario
+has a passing report with matching expected/actual digests, and all reports name
+the requested code commit. Missing artifacts or duplicate/omitted test IDs fail
+this gate. This makes suite completeness an executable CI requirement.
+
+### Daily observation ceiling and publication phases
+
+A future SEP `lastupdated` value was rejected only by post-publication CDC.
+Daily date-window acquisition must apply the same frozen upper observation
+ceiling before any daily generation publishes. Extend the stable source wrapper
+with an optional SEP update envelope and supply it on production daily reads.
+Missing update dates retain the existing date-read contract; bounded CDC still
+requires them and blocks readiness when they are absent.
+
+A daily command contains multiple publication-bound operations. Scenarios that
+fail during later maintenance explicitly declare that a valid daily generation
+has already published, assert its exact corpus, and require the maintenance
+blocker. Pre-publication failures continue to require the old pointer. A missing
+reference series may similarly publish an incomplete reader view whose named
+reference readiness check must fail; a complete next-day source must restore it.

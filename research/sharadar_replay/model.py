@@ -43,6 +43,7 @@ class Step(Contract):
     required_blockers: tuple[str, ...] = ()
     faults: tuple[Fault, ...] = ()
     publication_failure: bool = False
+    error_after_daily_publication: bool = False
 
     @model_validator(mode="after")
     def causal_time(self):

@@ -486,7 +486,10 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         listing_frontier = (
             published_frontier if fetch is snapshot_source.fetch_table else None)
         guarded = source_authority.StableSharadarFetch(
-            daily_fetch, after_session=listing_frontier)
+            daily_fetch, after_session=listing_frontier,
+            sep_update_envelope=(source_authority.SepUpdateEnvelope.through(
+                source_observation_day, context="production daily SEP observation")
+                if production_snapshot else None))
         effective_overlap = recovery.extended_overlap_days(conn, overlap_days)
         progress = _impl._daily_locked(
             conn, fetch=guarded, resolve_identity=resolve_identity,

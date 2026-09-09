@@ -48,3 +48,19 @@ def test_original_repeated_metadata_failure_is_killed(monkeypatch, tmp_path):
     output = Path(os.environ.get('SHARADAR_REPLAY_EVIDENCE', str(tmp_path))) / 'falsifiers' / 'metadata_cohort'
     with pytest.raises(StateMismatch, match='original ambiguous failed daily cohort'):
         run_scenario(SCENARIOS['actions_repeated_outage'], server_dsn=dsn, output=output)
+
+
+def test_old_daily_observation_ceiling_is_killed(monkeypatch, tmp_path):
+    from sentinel.feed import source_authority
+    dsn = os.environ.get('SHARADAR_REPLAY_TEST_DSN')
+    assert dsn, 'SHARADAR_REPLAY_TEST_DSN is required'
+    original = source_authority.StableSharadarFetch
+
+    def old_source(*args, **kwargs):
+        kwargs.pop('sep_update_envelope', None)
+        return original(*args, **kwargs)
+
+    monkeypatch.setattr(source_authority, 'StableSharadarFetch', old_source)
+    output = Path(os.environ.get('SHARADAR_REPLAY_EVIDENCE', str(tmp_path))) / 'falsifiers' / 'daily_future_clock'
+    with pytest.raises(StateMismatch, match='interrupted candidate changed publication'):
+        run_scenario(SCENARIOS['sep_invalid_lastupdated_value'], server_dsn=dsn, output=output)
