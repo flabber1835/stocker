@@ -1,0 +1,146 @@
+name: Research - V5 EX3 holdings company names
+
+on:
+  push:
+    branches: [research/v5-ex3-r40-m04-rec8-holdings-report-v1]
+    paths:
+      - '.github/workflows/v5-ex3-holdings-company-names-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  actions: read
+  contents: read
+
+jobs:
+  resolve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Download exact source-run artifact
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          curl -fsSL -H "Authorization: Bearer $GH_TOKEN" -H "Accept: application/vnd.github+json" \
+            https://api.github.com/repos/flabber1835/stocker/actions/artifacts/10092241309/zip -o source.zip
+          mkdir source
+          unzip -q source.zip -d source
+          test -s source/experiment-results/transactions.csv
+
+      - name: Resolve exact ticker names from public reference sources
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import csv, io, json, time, urllib.parse, urllib.request
+          from pathlib import Path
+          import pandas as pd
+
+          tx=pd.read_csv('source/experiment-results/transactions.csv')
+          tickers=sorted(set(tx['Ticker'].dropna().astype(str)))
+          UA='Mozilla/5.0 holdings-report-research/1.0 contact=opensource@example.com'
+
+          def get(url, timeout=30):
+              req=urllib.request.Request(url,headers={'User-Agent':UA,'Accept':'application/json,text/plain,text/csv,*/*'})
+              with urllib.request.urlopen(req,timeout=timeout) as r:
+                  return r.read()
+
+          resolved={}
+          source={}
+
+          # Current SEC ticker/CIK/company-name associations.
+          try:
+              d=json.loads(get('https://www.sec.gov/files/company_tickers.json').decode())
+              for row in d.values():
+                  t=str(row.get('ticker','')).upper().strip()
+                  if t in tickers:
+                      resolved[t]=str(row.get('title','')).strip()
+                      source[t]='SEC current company_tickers.json'
+          except Exception as e:
+              print('SEC current source failed:',repr(e))
+
+          # Broad historical scraped ticker/name table. Exact symbol matches only.
+          hist_url='https://raw.githubusercontent.com/huynam1012/Projets-Jedha/e73e26de7c7683f5a2d339be9744fa9110b90546/Bloc%206_Projet%20Start-up/Scraping_company_info/scrapping_tickers.csv'
+          try:
+              h=pd.read_csv(io.BytesIO(get(hist_url)),low_memory=False)
+              for r in h.itertuples(index=False):
+                  t=str(getattr(r,'name_ticker','')).upper().strip()
+                  n=str(getattr(r,'name','')).strip()
+                  if t in tickers and t not in resolved and n and n.lower()!='nan':
+                      resolved[t]=n
+                      source[t]='historical ticker/name reference'
+          except Exception as e:
+              print('historical source failed:',repr(e))
+
+          # 2017-era CBOE symbol directory, useful for delisted names.
+          cboe_url='https://raw.githubusercontent.com/PacktPublishing/Java-EE-8-High-Performance/631f0fd7ae66649c815a14ccbf90ac480cff96bb/Chapter01/quote-manager/src/data/cboesymboldir2.csv'
+          try:
+              raw=get(cboe_url).decode('utf-8','replace')
+              c=pd.read_csv(io.StringIO(raw),skiprows=lambda x: x==0 and raw.startswith('NOTE:'))
+              cols={str(x).strip().lower():x for x in c.columns}
+              sym=cols.get('stock symbol'); nm=cols.get('company name')
+              if sym and nm:
+                  for _,r in c.iterrows():
+                      t=str(r[sym]).upper().strip(); n=str(r[nm]).strip()
+                      if t in tickers and t not in resolved and n and n.lower()!='nan':
+                          resolved[t]=n; source[t]='CBOE historical symbol directory'
+          except Exception as e:
+              print('CBOE source failed:',repr(e))
+
+          # Yahoo search fallback; accept exact returned symbols only.
+          unresolved=[t for t in tickers if t not in resolved]
+          for i,t in enumerate(unresolved,1):
+              try:
+                  url='https://query1.finance.yahoo.com/v1/finance/search?quotesCount=10&newsCount=0&q='+urllib.parse.quote(t)
+                  d=json.loads(get(url,timeout=15).decode())
+                  matches=[]
+                  for q in d.get('quotes',[]):
+                      if str(q.get('symbol','')).upper()==t:
+                          n=q.get('longname') or q.get('shortname')
+                          if n: matches.append(str(n).strip())
+                  if matches:
+                      resolved[t]=matches[0]; source[t]='Yahoo exact-symbol search'
+              except Exception as e:
+                  print('Yahoo',t,'failed',repr(e))
+              if i%25==0: print('Yahoo progress',i,'/',len(unresolved),flush=True)
+              time.sleep(0.08)
+
+          # Wikidata batch exact stock-exchange ticker fallback.
+          remaining=[t for t in tickers if t not in resolved]
+          for start in range(0,len(remaining),60):
+              batch=remaining[start:start+60]
+              values=' '.join(json.dumps(t) for t in batch)
+              query='''SELECT ?ticker ?companyLabel WHERE { VALUES ?ticker { %s } ?company wdt:P249 ?ticker . SERVICE wikibase:label { bd:serviceParam wikibase:language "en". } }'''%values
+              try:
+                  url='https://query.wikidata.org/sparql?format=json&query='+urllib.parse.quote(query)
+                  d=json.loads(get(url,timeout=45).decode())
+                  for b in d.get('results',{}).get('bindings',[]):
+                      t=b.get('ticker',{}).get('value','').upper().strip(); n=b.get('companyLabel',{}).get('value','').strip()
+                      if t in tickers and t not in resolved and n and not n.startswith('Q'):
+                          resolved[t]=n; source[t]='Wikidata exact ticker'
+              except Exception as e:
+                  print('Wikidata batch failed:',repr(e))
+              time.sleep(0.2)
+
+          rows=[]
+          for t in tickers:
+              rows.append({'ticker':t,'company_name':resolved.get(t,''),'name_source':source.get(t,''),'resolved':t in resolved})
+          out=pd.DataFrame(rows)
+          out.to_csv('company-names.csv',index=False)
+          Path('company-names-summary.json').write_text(json.dumps({
+              'ticker_count':len(tickers),'resolved':int(out.resolved.sum()),'unresolved':out.loc[~out.resolved,'ticker'].tolist(),
+              'sources':out.loc[out.resolved,'name_source'].value_counts().to_dict()
+          },indent=2,sort_keys=True)+'\n')
+          print(Path('company-names-summary.json').read_text())
+          PY
+
+      - name: Upload name map
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v5-ex3-company-names-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            company-names.csv
+            company-names-summary.json
+          retention-days: 30
+          if-no-files-found: error
