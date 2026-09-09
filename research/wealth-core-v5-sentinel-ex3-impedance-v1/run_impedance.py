@@ -28,7 +28,6 @@ from v5_execution_harness import (
 
 CONTROL_10BP_SOURCE_SHA256 = "5f61d5ed5afd784bfb247d554344199743de11dcf9b31956430c6a77b91fedf7"
 DATASET_SHA256 = "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993"
-INITIAL_CAPITAL = 100_000.0
 SLOTS = 20
 ENTRY_W = 0.05
 BASELINE_TX_SHA256 = "0e4828229c323ab029a5dfe49f258a3e2e379aee6b5e18169e72f9edc88652da"
@@ -98,10 +97,11 @@ def replace_once(src: str, old: str, new: str, label: str) -> str:
     return src.replace(old, new, 1)
 
 
-def parameterize_20_slots(src: str) -> str:
-    src = replace_once(src, "N_SLOTS = 25", "N_SLOTS = 20", "20-slot count")
-    src = replace_once(src, "ENTRY_W = 0.04", "ENTRY_W = 0.05", "20-slot equal weight")
-    return src
+def assert_frozen_20_slots(src: str, label: str) -> None:
+    for marker in ("N_SLOTS = 20", "ENTRY_W = 0.05"):
+        count = src.count(marker)
+        if count != 1:
+            raise RuntimeError(f"{label}: frozen 20-slot seam mismatch for {marker!r}: {count}")
 
 
 def apply_variant(src: str, cfg: dict) -> str:
@@ -168,11 +168,14 @@ def core_tape_hash(frame: pd.DataFrame) -> str:
 
 def allocation_counts(frame: pd.DataFrame) -> dict:
     x = frame["A_allocation"].astype(float)
-    vals = {}
-    for v in (0.0, 0.55, 0.65, 1.0):
-        vals[str(v)] = int(np.isclose(x.to_numpy(), v, atol=1e-12).sum())
-    changes = int((x.diff().abs() > 1e-12).sum())
-    return {"average": float(x.mean()), "sessions_by_level": vals, "transitions": changes}
+    levels = {}
+    for value in (0.0, 0.55, 0.65, 1.0):
+        levels[str(value)] = int(np.isclose(x.to_numpy(), value, atol=1e-12).sum())
+    return {
+        "average": float(x.mean()),
+        "sessions_by_level": levels,
+        "transitions": int((x.diff().abs() > 1e-12).sum()),
+    }
 
 
 def main() -> int:
@@ -190,8 +193,6 @@ def main() -> int:
     engine = out / "engine"
     out.mkdir(parents=True, exist_ok=False)
     engine.mkdir()
-    workspace = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
-    (workspace / "final-output").mkdir(parents=True, exist_ok=True)
 
     manifest = json.loads((Path(os.environ["CANONICAL_PIT_DATASET"]) / "manifest.json").read_text())
     if manifest.get("dataset_hash") != DATASET_SHA256:
@@ -211,9 +212,8 @@ def main() -> int:
     v4 = _V4.apply_open_time_whole_share_10bp(median5)
     v5 = apply_v5_open_time_whole_share_10bp(median5)
     assert_exact_v5_delta(v4, v5)
-    v4 = parameterize_20_slots(v4)
-    v5 = parameterize_20_slots(v5)
-    assert_exact_v5_delta(v4, v5)
+    assert_frozen_20_slots(v4, "V4 reference")
+    assert_frozen_20_slots(v5, "V5 candidate base")
     if assert_one_session_dividend_lag(v5) != 1:
         raise RuntimeError("V5 source dividend lag mismatch")
 
@@ -250,9 +250,9 @@ def main() -> int:
     tx_p = engine / "transactions.csv"
     close_p = engine / "close-decisions.csv"
     telemetry_p = engine / "open-sizing-telemetry.json"
-    for p in (daily, summary_p, tx_p, close_p, telemetry_p):
-        if not p.exists():
-            raise RuntimeError(f"required evidence missing: {p.name}")
+    for path in (daily, summary_p, tx_p, close_p, telemetry_p):
+        if not path.exists():
+            raise RuntimeError(f"required evidence missing: {path.name}")
 
     frame = pd.read_csv(daily, parse_dates=["date"])
     if len(frame) != 5032 or str(frame.date.iloc[0].date()) != "2006-07-31" or str(frame.date.iloc[-1].date()) != "2026-07-31":
@@ -282,10 +282,10 @@ def main() -> int:
     core_w = windows(frame, "shadow_equity")
     ex3_w = windows(frame, "A_nav")
     if args.variant == "baseline":
-        b = ex3_w["20"]
-        for k, expected in BASELINE_EX3_20Y.items():
-            if abs(float(b[k]) - expected) > 5e-12:
-                raise RuntimeError(f"baseline EX3 parity failed for {k}: {b[k]} vs {expected}")
+        baseline = ex3_w["20"]
+        for key, expected in BASELINE_EX3_20Y.items():
+            if abs(float(baseline[key]) - expected) > 5e-12:
+                raise RuntimeError(f"baseline EX3 parity failed for {key}: {baseline[key]} vs {expected}")
 
     result = {
         "schema": "research.wealth-core-v5-sentinel-ex3-impedance/1",
@@ -334,11 +334,17 @@ def main() -> int:
     }
     (out / "RESULT.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
 
-    for src, name in ((daily, "daily.csv"), (summary_p, "summary.json"), (tx_p, "transactions.csv"), (close_p, "close-decisions.csv"), (telemetry_p, "open-sizing-telemetry.json")):
-        shutil.copy2(src, out / name)
+    for source, name in (
+        (daily, "daily.csv"),
+        (summary_p, "summary.json"),
+        (tx_p, "transactions.csv"),
+        (close_p, "close-decisions.csv"),
+        (telemetry_p, "open-sizing-telemetry.json"),
+    ):
+        shutil.copy2(source, out / name)
     (out / "SHA256.json").write_text(json.dumps({
-        p.name: sha_bytes(p.read_bytes()) for p in sorted(out.iterdir())
-        if p.is_file() and p.name != "SHA256.json"
+        path.name: sha_bytes(path.read_bytes()) for path in sorted(out.iterdir())
+        if path.is_file() and path.name != "SHA256.json"
     }, indent=2, sort_keys=True) + "\n")
     print("[V5_EX3_IMPEDANCE_RESULT] " + json.dumps(result, sort_keys=True), flush=True)
     return 0
