@@ -1,0 +1,306 @@
+name: Research - Wealth Core V5 + Sentinel EX3 V6 adversarial v1
+run-name: V5 + EX3 V6 adversarial v1 - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1]
+    paths:
+      - '.github/workflows/wealth-core-v5-sentinel-ex3-v6-adversarial-v1.yml'
+      - '.github/actions/v5-ex3-v5-adversarial-setup/action.yml'
+      - 'research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/**'
+      - 'research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+concurrency:
+  group: wealth-core-v5-ex3-v6-adversarial-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+  V6_SELECTED_SOURCE_SHA256: '335e2ae06efd5e2ebfa11f0641029609d524f4e75e733a3dbd0a5efcf64ac42d'
+
+jobs:
+  baseline:
+    name: Hard V6 baseline + attribution jackknives
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+
+      - name: Stage pinned replay authority
+        uses: ./experiment-src/.github/actions/v5-ex3-v5-adversarial-setup
+
+      - name: Generate exact EX3 V6 runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py \
+            --source experiment-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            --output experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+          python -m py_compile \
+            experiment-src/research/wealth-core-v5-affordability-fix-v1/v5_execution_harness.py \
+            experiment-src/research/wealth-core-v5-sentinel-ex3-impedance-v1/run_impedance.py \
+            experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+
+      - name: Fresh exact V6 baseline and ex-post adversarial attribution
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py" \
+            --suite baseline \
+            --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+            --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+            --output "${GITHUB_WORKSPACE}/baseline-results" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/baseline.log"
+          cp "${GITHUB_WORKSPACE}/package-integrity.json" "${GITHUB_WORKSPACE}/baseline-results/package-integrity.json"
+          cp "${GITHUB_WORKSPACE}/final-corpus-validation.json" "${GITHUB_WORKSPACE}/baseline-results/final-corpus-validation.json"
+          cp "${GITHUB_WORKSPACE}/baseline.log" "${GITHUB_WORKSPACE}/baseline-results/baseline.log"
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          r=json.loads(Path('../baseline-results/RESULT.json').read_text())
+          assert r['status']=='PASS'
+          assert r['system']=='Wealth Core V5 + Sentinel EX3 V6'
+          assert r['selected_config']['rec']==8
+          assert r['selected_config']['r40_floor']==-0.04
+          assert r['validation']['exact_core_parity'] is True
+          assert r['validation']['exact_transactions_parity'] is True
+          assert r['validation']['exact_close_decisions_parity'] is True
+          assert r['validation']['exact_sentinel_ex3_v6_parity'] is True
+          assert r['validation']['causal_timing_guard'] is True
+          observed=Path('../baseline-results/selected-source-sha256.txt').read_text().strip()
+          assert observed==os.environ['V6_SELECTED_SOURCE_SHA256'], (observed, os.environ['V6_SELECTED_SOURCE_SHA256'])
+          print('held security ids:', r['held_security_count'])
+          print('V6 selected source SHA-256:', observed)
+          PY
+
+      - name: Baseline summary
+        if: success()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          r=json.loads(Path('baseline-results/RESULT.json').read_text())
+          m=r['baseline']['sentinel']['20']
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Frozen EX3 V6 baseline PASS\n\n')
+              f.write(f"Held security IDs for exhaustive LOO: **{r['held_security_count']}**\n\n")
+              f.write(f"20y CAGR **{m['cagr']:.2%}**, max DD **{m['max_drawdown']:.2%}**, Sharpe **{m['sharpe_daily_252']:.3f}**.\n\n")
+              f.write('Exact V6 identity: REC=8, full-recovery R40 floor=-4%.\n')
+          PY
+
+      - name: Preserve V6 baseline authority and security list
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v5-ex3-v6-adversarial-baseline
+          path: baseline-results/
+          retention-days: 90
+          if-no-files-found: error
+
+  adversarial:
+    name: V6 adversarial shard ${{ matrix.shard }} / 95
+    needs: baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        shard: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18,19,20,21,22,23,24,25,26,27,28,29,30,31,32,33,34,35,36,37,38,39,40,41,42,43,44,45,46,47,48,49,50,51,52,53,54,55,56,57,58,59,60,61,62,63,64,65,66,67,68,69,70,71,72,73,74,75,76,77,78,79,80,81,82,83,84,85,86,87,88,89,90,91,92,93,94,95]
+
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+
+      - name: Stage pinned replay authority
+        uses: ./experiment-src/.github/actions/v5-ex3-v5-adversarial-setup
+
+      - name: Retrieve frozen held-security set
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: v5-ex3-v6-adversarial-baseline
+          path: baseline-input
+
+      - name: Generate and compile exact EX3 V6 runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py \
+            --source experiment-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            --output experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+          python -m py_compile experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+          test -f baseline-input/held-security-ids.json
+
+      - name: Run non-security causal attack assigned to shard
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          suite=''
+          local_shard=0
+          local_shards=1
+          if [ "$SHARD" -le 7 ]; then
+            suite=controller; local_shard=$SHARD; local_shards=8
+          elif [ "$SHARD" -ge 8 ] && [ "$SHARD" -le 11 ]; then
+            suite=structural; local_shard=$((SHARD-8)); local_shards=4
+          elif [ "$SHARD" -ge 12 ] && [ "$SHARD" -le 14 ]; then
+            suite=execution; local_shard=$((SHARD-12)); local_shards=3
+          elif [ "$SHARD" -ge 15 ] && [ "$SHARD" -le 17 ]; then
+            suite=universe; local_shard=$((SHARD-15)); local_shards=3
+          fi
+          if [ -n "$suite" ]; then
+            cd certified-src
+            python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py" \
+              --suite "$suite" --shard "$local_shard" --shards "$local_shards" \
+              --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+              --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+              --output "${GITHUB_WORKSPACE}/nonsecurity-results" \
+              2>&1 | tee "${GITHUB_WORKSPACE}/nonsecurity.log"
+          fi
+
+      - name: Exhaustive held-security leave-one-out shard
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py" \
+            --suite security-loo --shard "$SHARD" --shards 96 \
+            --security-list "${GITHUB_WORKSPACE}/baseline-input/held-security-ids.json" \
+            --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+            --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+            --output "${GITHUB_WORKSPACE}/security-results" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/security.log"
+
+      - name: Shard summary
+        if: always()
+        shell: bash
+        env:
+          SHARD: ${{ matrix.shard }}
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write(f"## EX3 V6 adversarial shard {os.environ['SHARD']}\n\n")
+              for p in (Path('nonsecurity-results/RESULT.json'),Path('security-results/RESULT.json')):
+                  if p.exists():
+                      r=json.loads(p.read_text())
+                      f.write(f"- {r['suite']}: {r['status']}, {len(r.get('cases',[]))} cases\n")
+          PY
+
+      - name: Preserve V6 adversarial shard evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v5-ex3-v6-adversarial-shard-${{ matrix.shard }}
+          path: |
+            nonsecurity-results/
+            security-results/
+            nonsecurity.log
+            security.log
+            package-integrity.json
+            final-corpus-validation.json
+          retention-days: 90
+          if-no-files-found: warn
+
+  stability-summary:
+    name: Butterfly stability summary
+    needs: [baseline, adversarial]
+    if: ${{ always() && needs.baseline.result == 'success' && needs.adversarial.result == 'success' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          persist-credentials: false
+          sparse-checkout: |
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+
+      - name: Retrieve V6 baseline
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: v5-ex3-v6-adversarial-baseline
+          path: baseline-input
+
+      - name: Retrieve all V6 stress shards
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: v5-ex3-v6-adversarial-shard-*
+          path: shard-input
+          merge-multiple: false
+
+      - name: Build butterfly stability evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/summarize_stability.py \
+            --baseline baseline-input/RESULT.json \
+            --shards shard-input \
+            --output stability-results/butterfly-stability-summary.json
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.loads(Path('stability-results/butterfly-stability-summary.json').read_text())
+          q=s['suites']['security-loo']
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## EX3 V6 butterfly stability evidence\n\n')
+              f.write(f"Matched single-security leave-one-out cases: **{s['security_loo_case_count']}**\n\n")
+              for metric,label in [('cagr','CAGR'),('max_drawdown','max DD'),('sharpe_daily_252','Sharpe')]:
+                  x=q[f'{metric}_delta']
+                  f.write(f"- {label}: median |delta| **{x.get('abs_median',float('nan')):.6f}**, p95 **{x.get('abs_p95',float('nan')):.6f}**, max **{x.get('abs_max',float('nan')):.6f}**\n")
+              f.write('\nA solve/mitigation verdict requires matched comparison with the EX3 V5 stress campaign.\n')
+          PY
+
+      - name: Preserve V6 butterfly stability evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v5-ex3-v6-butterfly-stability-summary
+          path: stability-results/
+          retention-days: 90
+          if-no-files-found: error
