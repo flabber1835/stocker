@@ -107,9 +107,7 @@ jobs:
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: v5-ex3-v5-adversarial-baseline
-          path: |
-            baseline-results/
-            baseline.log
+          path: baseline-results/
           retention-days: 90
           if-no-files-found: error
 
