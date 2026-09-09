@@ -16,6 +16,15 @@ jobs:
     runs-on: ubuntu-24.04
     timeout-minutes: 30
     steps:
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+
+      - name: Install resolver dependency
+        shell: bash
+        run: python -m pip install pandas==2.3.2
+
       - name: Download exact source-run artifact
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -33,7 +42,7 @@ jobs:
         run: |
           set -euo pipefail
           python - <<'PY'
-          import csv, io, json, time, urllib.parse, urllib.request
+          import io, json, time, urllib.parse, urllib.request
           from pathlib import Path
           import pandas as pd
 
@@ -49,7 +58,6 @@ jobs:
           resolved={}
           source={}
 
-          # Current SEC ticker/CIK/company-name associations.
           try:
               d=json.loads(get('https://www.sec.gov/files/company_tickers.json').decode())
               for row in d.values():
@@ -60,7 +68,6 @@ jobs:
           except Exception as e:
               print('SEC current source failed:',repr(e))
 
-          # Broad historical scraped ticker/name table. Exact symbol matches only.
           hist_url='https://raw.githubusercontent.com/huynam1012/Projets-Jedha/e73e26de7c7683f5a2d339be9744fa9110b90546/Bloc%206_Projet%20Start-up/Scraping_company_info/scrapping_tickers.csv'
           try:
               h=pd.read_csv(io.BytesIO(get(hist_url)),low_memory=False)
@@ -73,11 +80,12 @@ jobs:
           except Exception as e:
               print('historical source failed:',repr(e))
 
-          # 2017-era CBOE symbol directory, useful for delisted names.
           cboe_url='https://raw.githubusercontent.com/PacktPublishing/Java-EE-8-High-Performance/631f0fd7ae66649c815a14ccbf90ac480cff96bb/Chapter01/quote-manager/src/data/cboesymboldir2.csv'
           try:
               raw=get(cboe_url).decode('utf-8','replace')
-              c=pd.read_csv(io.StringIO(raw),skiprows=lambda x: x==0 and raw.startswith('NOTE:'))
+              if raw.startswith('NOTE:'):
+                  raw='\n'.join(raw.splitlines()[1:])
+              c=pd.read_csv(io.StringIO(raw))
               cols={str(x).strip().lower():x for x in c.columns}
               sym=cols.get('stock symbol'); nm=cols.get('company name')
               if sym and nm:
@@ -88,7 +96,6 @@ jobs:
           except Exception as e:
               print('CBOE source failed:',repr(e))
 
-          # Yahoo search fallback; accept exact returned symbols only.
           unresolved=[t for t in tickers if t not in resolved]
           for i,t in enumerate(unresolved,1):
               try:
@@ -106,7 +113,6 @@ jobs:
               if i%25==0: print('Yahoo progress',i,'/',len(unresolved),flush=True)
               time.sleep(0.08)
 
-          # Wikidata batch exact stock-exchange ticker fallback.
           remaining=[t for t in tickers if t not in resolved]
           for start in range(0,len(remaining),60):
               batch=remaining[start:start+60]
