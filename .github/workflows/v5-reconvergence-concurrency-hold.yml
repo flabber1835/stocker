@@ -1,0 +1,20 @@
+name: V5 reconvergence concurrency hold
+
+on:
+  push:
+    branches: [research/wealth-core-v5-canonical-reconvergence-v1]
+    paths:
+      - '.github/workflows/v5-reconvergence-concurrency-hold.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wealth-core-v5-canonical-reconvergence-${{ github.ref }}
+  cancel-in-progress: false
+
+jobs:
+  hold:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Concurrency hold completed after the optimized experiment."
