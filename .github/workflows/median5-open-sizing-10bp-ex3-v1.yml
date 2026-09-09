@@ -2,11 +2,6 @@ name: Research - Median-5 10bp open sizing + EX3 full PIT
 run-name: Median-5 open sizing 10bp + EX3 - ${{ github.sha }}
 
 on:
-  push:
-    branches: [research/median5-open-sizing-10bp-ex3-v1]
-    paths:
-      - '.github/workflows/median5-open-sizing-10bp-ex3-v1.yml'
-      - 'research/median5-open-sizing-10bp-ex3-v1/**'
   workflow_dispatch:
 
 permissions:
