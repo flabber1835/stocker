@@ -193,6 +193,8 @@ def main() -> int:
     engine = out / "engine"
     out.mkdir(parents=True, exist_ok=False)
     engine.mkdir()
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
+    (workspace / "final-output").mkdir(parents=True, exist_ok=True)
 
     manifest = json.loads((Path(os.environ["CANONICAL_PIT_DATASET"]) / "manifest.json").read_text())
     if manifest.get("dataset_hash") != DATASET_SHA256:
