@@ -164,9 +164,11 @@ jobs:
           ROOT=/tmp/holdings-replay/research
           IMP="$ROOT/wealth-core-v5-sentinel-ex3-impedance-v1"
           V5="$ROOT/wealth-core-v5-affordability-fix-v1"
-          mkdir -p "$IMP" "$V5"
+          V4="$ROOT/median5-open-sizing-10bp-ex3-v1"
+          mkdir -p "$IMP" "$V5" "$V4"
           cp experiment-src/research/wealth-core-v5-sentinel-ex3-impedance-v1/run_impedance.py "$IMP/run_impedance_holdings.py"
           cp experiment-src/research/wealth-core-v5-affordability-fix-v1/v5_execution_harness.py "$V5/v5_execution_harness.py"
+          cp experiment-src/research/median5-open-sizing-10bp-ex3-v1/canonical_execution_harness.py "$V4/canonical_execution_harness.py"
           python - <<'PY'
           from pathlib import Path
           p=Path('/tmp/holdings-replay/research/wealth-core-v5-sentinel-ex3-impedance-v1/run_impedance_holdings.py')
