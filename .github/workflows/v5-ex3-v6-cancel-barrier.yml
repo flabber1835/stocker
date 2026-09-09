@@ -1,0 +1,20 @@
+name: Cancel V5 + EX3 V6 adversarial campaign
+
+on:
+  push:
+    branches: [research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1]
+    paths:
+      - '.github/workflows/v5-ex3-v6-cancel-barrier.yml'
+
+permissions:
+  contents: read
+
+concurrency:
+  group: wealth-core-v5-ex3-v6-adversarial-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  cancel-barrier:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo 'EX3 V6 adversarial campaign cancellation barrier acquired.'
