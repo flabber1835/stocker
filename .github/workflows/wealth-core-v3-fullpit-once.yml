@@ -86,7 +86,7 @@ jobs:
           sparse-checkout: backtester
 
       - name: Exact runtime source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364d3847121c
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: 887f479b15ad861313da666ad698034d3847121c
           path: main-src
