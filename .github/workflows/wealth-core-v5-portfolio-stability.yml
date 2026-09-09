@@ -190,7 +190,8 @@ jobs:
           set -euo pipefail
           python -m py_compile \
             experiment-src/research/wealth-core-v5-affordability-fix-v1/v5_execution_harness.py \
-            experiment-src/research/wealth-core-v5-affordability-fix-v1/run_portfolio_stability.py
+            experiment-src/research/wealth-core-v5-affordability-fix-v1/run_portfolio_stability.py \
+            experiment-src/research/wealth-core-v5-affordability-fix-v1/run_portfolio_stability_v2.py
 
       - name: Run Wealth Core V5 portfolio stability point
         env:
@@ -199,7 +200,7 @@ jobs:
         run: |
           set -euo pipefail
           cd certified-src
-          python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-affordability-fix-v1/run_portfolio_stability.py" \
+          python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-affordability-fix-v1/run_portfolio_stability_v2.py" \
             --slots "$STABILITY_SLOTS" \
             --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
             --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
@@ -256,6 +257,7 @@ jobs:
             experiment-src/research/wealth-core-v5-affordability-fix-v1/EXPERIMENT_SPEC.md
             experiment-src/research/wealth-core-v5-affordability-fix-v1/v5_execution_harness.py
             experiment-src/research/wealth-core-v5-affordability-fix-v1/run_portfolio_stability.py
+            experiment-src/research/wealth-core-v5-affordability-fix-v1/run_portfolio_stability_v2.py
             experiment-src/research/median5-open-sizing-10bp-ex3-v1/canonical_execution_harness.py
             experiment-src/research/median5-open-sizing-10bp-ex3-v1/run_experiment.py
           retention-days: 90
