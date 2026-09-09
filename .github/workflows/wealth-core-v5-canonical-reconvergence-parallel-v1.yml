@@ -1,0 +1,185 @@
+name: Research - Wealth Core V5 canonical reconvergence parallel validation
+run-name: V5 reconvergence parallel validation - ${{ github.sha }}
+
+on:
+  workflow_dispatch:
+    inputs:
+      baseline_run_id:
+        description: Run containing v5-canonical-reconvergence-baseline
+        required: true
+        default: '34399080122'
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+
+jobs:
+  matrix:
+    name: Freeze validation matrix from baseline authority
+    runs-on: ubuntu-24.04
+    outputs:
+      arms: ${{ steps.build.outputs.arms }}
+    steps:
+      - name: Retrieve baseline authority
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: v5-canonical-reconvergence-baseline
+          path: baseline-input
+          github-token: ${{ github.token }}
+          repository: flabber1835/stocker
+          run-id: ${{ inputs.baseline_run_id }}
+
+      - name: Build fixed arm matrix
+        id: build
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          r=json.load(open('baseline-input/RESULT.json'))
+          assert r['status']=='PASS'
+          ids=r['holdout_security_ids']
+          assert len(ids)==6
+          arms=[]
+          for i,sid in enumerate(ids):
+              for arm in ('old','reconvergence'):
+                  arms.append({'label':f'loo-{i}-{arm}','arm':arm,'kind':'loo','value':str(sid)})
+          for seed in (11,29,47):
+              for arm in ('old','reconvergence'):
+                  arms.append({'label':f'dropout-{seed}-{arm}','arm':arm,'kind':'dropout','value':str(seed)})
+          for bp in (15,25):
+              for arm in ('old','reconvergence'):
+                  arms.append({'label':f'cost-{bp}-{arm}','arm':arm,'kind':'cost','value':str(bp)})
+          print('arms='+json.dumps(arms,separators=(',',':')))
+          PY
+
+  validate:
+    name: ${{ matrix.item.label }}
+    needs: matrix
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 22
+      matrix:
+        item: ${{ fromJSON(needs.matrix.outputs.arms) }}
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-canonical-reconvergence-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+
+      - name: Retrieve baseline authority
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: v5-canonical-reconvergence-baseline
+          path: baseline-input
+          github-token: ${{ github.token }}
+          repository: flabber1835/stocker
+          run-id: ${{ inputs.baseline_run_id }}
+
+      - name: Stage pinned replay authority
+        uses: ./experiment-src/.github/actions/v5-ex3-v5-adversarial-setup
+
+      - name: Compile parallel runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            experiment-src/research/wealth-core-v5-canonical-reconvergence-v1/run_parallel_validation.py \
+            experiment-src/research/wealth-core-v5-canonical-reconvergence-v1/run_reconvergence.py
+
+      - name: Run one frozen validation arm
+        shell: bash
+        env:
+          ARM: ${{ matrix.item.arm }}
+          KIND: ${{ matrix.item.kind }}
+          VALUE: ${{ matrix.item.value }}
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-canonical-reconvergence-v1/run_parallel_validation.py" \
+            --suite single --arm "$ARM" --case-kind "$KIND" --case-value "$VALUE" \
+            --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+            --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+            --baseline-input "${GITHUB_WORKSPACE}/baseline-input" \
+            --output "${GITHUB_WORKSPACE}/case-results"
+
+      - name: Preserve arm evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v5-reconv-par-${{ matrix.item.label }}
+          path: case-results/
+          retention-days: 90
+          if-no-files-found: warn
+
+  aggregate:
+    name: Aggregate precommitted robustness gates
+    needs: [matrix, validate]
+    if: always() && needs.matrix.result == 'success'
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-canonical-reconvergence-v1
+
+      - name: Retrieve baseline authority
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: v5-canonical-reconvergence-baseline
+          path: baseline-input
+          github-token: ${{ github.token }}
+          repository: flabber1835/stocker
+          run-id: ${{ inputs.baseline_run_id }}
+
+      - name: Retrieve arm evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: v5-reconv-par-*
+          path: cases-input
+          merge-multiple: false
+
+      - name: Aggregate frozen gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python experiment-src/research/wealth-core-v5-canonical-reconvergence-v1/run_parallel_validation.py \
+            --suite aggregate \
+            --baseline-input baseline-input \
+            --cases-root cases-input \
+            --output aggregate-results
+          cat aggregate-results/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve final verdict
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v5-canonical-reconvergence-parallel-verdict
+          path: aggregate-results/
+          retention-days: 90
+          if-no-files-found: error
