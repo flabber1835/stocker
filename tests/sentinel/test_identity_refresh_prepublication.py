@@ -137,7 +137,7 @@ def test_production_daily_prevalidates_exact_candidate_before_publication(
         lambda conn, **kwargs: events.append("cdc-prevalidated") or [])
     monkeypatch.setattr(
         source_authority, "StableSharadarFetch",
-        lambda fetch, after_session=None: fetch)
+        lambda fetch, after_session=None, sep_update_envelope=None: fetch)
 
     def daily_locked(conn, **kwargs):
         events.append("daily-open")
