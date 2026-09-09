@@ -23,6 +23,51 @@ def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
 
 
+def replace_once(text: str, old: str, new: str, label: str) -> str:
+    count = text.count(old)
+    if count != 1:
+        raise RuntimeError(f"{label}: expected one exact source seam, got {count}")
+    return text.replace(old, new, 1)
+
+
+def apply_close_whole_share_affordability_gate(src: str) -> str:
+    """Reject close admissions that cannot fund even one whole share above the 10 bp reserve.
+
+    This keeps share quantity unbound until the next valid open. The close uses only a
+    necessary admission test: at the close price, spendable cash above the reserve must
+    cover one share including modeled transaction cost. A later extreme overnight gap
+    can still make the share unaffordable at the open; open-time sizing remains authoritative.
+    """
+    old = (
+        "                        if _buffer_available_close<=1e-12: scale_q0_candidate_skips+=1; "
+        "close_decision_rows.append({'decision_date':ds,'ticker':str(tick[tid]),'outcome':'Q0_SKIP',"
+        "'planned_shares':0,'close_price':float(px),'close_nav':float(eq),'cash_before_decision':float(book.cash),"
+        "'required_reserve':float(_buffer_required_close),'uncommitted_cash_after_reserve':float(_buffer_available_close),"
+        "'intended_capital':float(_desired),'funding_fraction':float(_funding_fraction),'q0_reason':'CASH_SCARCITY',"
+        "'buffer_basis_points':10}); continue\n"
+        "                        scale_cash_limited_decisions+=int(_funding_fraction<0.999999999); "
+    )
+    new = (
+        "                        if _buffer_available_close<=1e-12: scale_q0_candidate_skips+=1; "
+        "close_decision_rows.append({'decision_date':ds,'ticker':str(tick[tid]),'outcome':'Q0_SKIP',"
+        "'planned_shares':0,'close_price':float(px),'close_nav':float(eq),'cash_before_decision':float(book.cash),"
+        "'required_reserve':float(_buffer_required_close),'uncommitted_cash_after_reserve':float(_buffer_available_close),"
+        "'intended_capital':float(_desired),'funding_fraction':float(_funding_fraction),'q0_reason':'CASH_SCARCITY',"
+        "'buffer_basis_points':10}); continue\n"
+        "                        _one_share_close_cost=float(px)*(1+COST)\n"
+        "                        if _buffer_available_close+1e-12<_one_share_close_cost: scale_q0_candidate_skips+=1; "
+        "close_decision_rows.append({'decision_date':ds,'ticker':str(tick[tid]),'outcome':'Q0_SKIP',"
+        "'planned_shares':0,'close_price':float(px),'close_nav':float(eq),'cash_before_decision':float(book.cash),"
+        "'required_reserve':float(_buffer_required_close),'uncommitted_cash_after_reserve':float(_buffer_available_close),"
+        "'intended_capital':float(_desired),'funding_fraction':float(_funding_fraction),"
+        "'q0_reason':'WHOLE_SHARE_UNAFFORDABLE_AT_CLOSE','buffer_basis_points':10}); continue\n"
+        "                        scale_cash_limited_decisions+=int(_funding_fraction<0.999999999); "
+    )
+    out = replace_once(src, old, new, "whole-share close affordability gate")
+    compile(out, "<median5-open-sizing-close-affordability-gate>", "exec")
+    return out
+
+
 def load_module(path: Path, name: str):
     spec = importlib.util.spec_from_file_location(name, path)
     if spec is None or spec.loader is None:
@@ -104,6 +149,7 @@ def main() -> int:
         raise RuntimeError("Median-5 changed dividend semantics")
 
     variant = open_sizing.patch(median5, "whole")
+    variant = apply_close_whole_share_affordability_gate(variant)
     assert_contract(variant)
     if assert_one_session_dividend_lag(variant) != 1:
         raise RuntimeError("open sizing changed dividend semantics")
@@ -114,6 +160,8 @@ def main() -> int:
         "return _median_top3(_durable,_hist,5)",
         "for tid0 in _harden_order(durable,score,_rank_order_hist):",
         "_buffer_required_close=max(0.0,float(eq)*0.001)",
+        "_one_share_close_cost=float(px)*(1+COST)",
+        "WHOLE_SHARE_UNAFFORDABLE_AT_CLOSE",
         "outcome':'PLAN_OPEN_SIZE'",
         "q=float(math.floor(_execution_budget/(float(px)*(1+COST))))",
         "a_d,a_reason=ca.step",
@@ -140,9 +188,10 @@ def main() -> int:
     daily_path = engine / "daily.csv"
     summary_path = engine / "summary.json"
     tx_path = engine / "transactions.csv"
+    close_decisions_path = engine / "close-decisions.csv"
     open_telemetry_path = engine / "open-sizing-telemetry.json"
     events_path = engine / "open-sizing-events.csv"
-    for p in (daily_path, summary_path, tx_path, open_telemetry_path, events_path):
+    for p in (daily_path, summary_path, tx_path, close_decisions_path, open_telemetry_path, events_path):
         if not p.exists():
             raise RuntimeError(f"required evidence missing: {p.name}")
 
@@ -214,6 +263,8 @@ def main() -> int:
                 "cash_buffer_basis_points": 10.0,
                 "position_sizing": "NEXT_VALID_OPEN_WHOLE_SHARES",
                 "fractional_shares": False,
+                "close_admission_rule": "REQUIRE_ONE_WHOLE_SHARE_AFFORDABLE_AT_CLOSE_ABOVE_10BP_RESERVE",
+                "close_admission_rule_is_quantity_binding": False,
             },
             "windows": core_windows,
             "open_sizing_telemetry": telemetry,
@@ -251,6 +302,7 @@ def main() -> int:
         (daily_path, "daily.csv"),
         (summary_path, "summary.json"),
         (tx_path, "transactions.csv"),
+        (close_decisions_path, "close-decisions.csv"),
         (open_telemetry_path, "open-sizing-telemetry.json"),
         (events_path, "open-sizing-events.csv"),
     ):
