@@ -92,7 +92,7 @@ def test_pending_entry_requires_durable_sizing_before_broker_calls(conn):
     with pytest.raises(ValueError, match="opening-time projection"):
         execute(conn, b, plan, None)
     assert b.calls == []
-    assert journal.load_commands(conn, DEPLOY) == []
+    assert journal.load_commands(conn, DEPLOY) == ()
 
 
 def test_unit_projection_cannot_erase_unresolved_entry(conn):
