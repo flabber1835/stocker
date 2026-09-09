@@ -11,9 +11,30 @@ from sentinel.execution.contract import BrokerInstrument, Side
 from sentinel.execution.plan import OpeningIntent
 from sentinel.execution.simulator import FaultKind
 from sentinel.execution.states import CommandState
-from tests.sentinel.test_journal_and_reconcile import pg, conn, DEPLOY, AAA
+from tests.sentinel.test_journal_and_reconcile import pg, DEPLOY, AAA
 from tests.sentinel.test_projection_and_executor import broker, seed_held
+from tests.support.postgres import drop_public_tables
 from tests.v5.test_opening import case, base, prices
+
+
+@pytest.fixture()
+def conn(pg):
+    from sentinel import binding, schema
+    from sentinel.feed import store
+    c = store.connect(pg.sync_dsn)
+    try:
+        drop_public_tables(c)
+        schema.ensure_schema(c)
+        store.migrate_schema(c)
+        binding.bind(c, deployment_id=DEPLOY.deployment_id, broker=DEPLOY.broker,
+                     broker_account_id=DEPLOY.broker_account_id)
+        with c.cursor() as cur:
+            cur.execute("UPDATE sentinel_account_binding SET established_at=%s WHERE id=1",
+                        (broker().now,))
+        c.commit()
+        yield c
+    finally:
+        c.close()
 
 
 def setup_plan(conn, **kwargs):
