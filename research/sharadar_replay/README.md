@@ -124,3 +124,24 @@ The publication guard and reference prices retain their existing semantics.
 `incomplete_sep` exercises the original failure and first-retry convergence.
 An executable falsifier restores the old moving-window behavior and must fail
 with the original stranded-reference ownership error.
+
+## Adversarial expansion contract
+
+The additional suite crosses feed tables with malformed envelopes, interrupted
+pagination, duplicated rows and provider errors. Each transport fault declares
+its expected rejection before execution. Corrupted Exporter archives and stale
+identity snapshots are separate authority cases. Repeated failures span several
+sessions and require recovery on the first subsequent correct observation.
+
+Seeded scenarios vary response ordering, pagination size, historical correction
+date/value and repeated delivery. The seed is retained in the scenario contract.
+These schedules must reproduce exactly and preserve the independently declared
+economic corpus. Corporate-action cases exercise disagreement between action
+and price evidence, followed by correct authoritative observations. Persistent
+faults retain a specified blocked outcome across their observation horizon.
+
+Faults operate at the HTTP boundary. A page-offset threshold permits a valid
+prefix before the failure. No production exception is accepted generically;
+each case names its expected diagnostic. An unexpected exception or changed
+corpus is a failing case requiring investigation. Frozen expected snapshots
+remain independent of production output.

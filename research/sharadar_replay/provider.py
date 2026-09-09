@@ -5,6 +5,7 @@ import csv
 import datetime as dt
 import io
 import json
+import random
 import zipfile
 
 import httpx
@@ -23,10 +24,11 @@ COLUMNS = {
 
 
 class Provider:
-    def __init__(self, *, page_size: int = 53):
+    def __init__(self, *, page_size: int = 53, variation_seed: int = 0):
         if page_size < 1:
             raise ValueError("page size must be positive")
         self.page_size = page_size
+        self.variation_seed = variation_seed
         self.transcript: list[dict] = []
         self.step: Step | None = None
         self._views: dict = {}
@@ -60,8 +62,12 @@ class Provider:
                    for key in (f"{field}.{bound}",)):
                 continue
             rows.append(dict(row))
-        return sorted(rows, key=lambda r: (str(r.get("date", "")), str(r.get("ticker", "")),
-                                          json.dumps(r, sort_keys=True)))
+        rows.sort(key=lambda r: (str(r.get("date", "")), str(r.get("ticker", "")),
+                                 json.dumps(r, sort_keys=True)))
+        if self.variation_seed:
+            # Pagination requests share the same permutation of this query's rows.
+            random.Random(self.variation_seed).shuffle(rows)
+        return rows
 
     def __call__(self, request: httpx.Request) -> httpx.Response:
         if self.step is None:
@@ -82,17 +88,24 @@ class Provider:
         query = dict(request.url.params)
         channel = "export" if query.get("qopts.export") == "true" else "pages"
         rows = self.rows(table, query)
-        faults = [f for f in self.step.faults if f.table == table and f.channel == channel]
+        faults = [f for f in self.step.faults if f.table == table and f.channel == channel
+                  and int(query.get("qopts.cursor_id", "0")) >= f.after_rows]
         for fault in faults:
             if fault.kind == "omit_ticker":
                 rows = [r for r in rows if r.get("ticker") != fault.ticker]
             elif fault.kind == "duplicate_row" and rows:
                 rows.append(dict(rows[0]))
+            elif fault.kind == "conflicting_row" and rows:
+                duplicate = dict(rows[0])
+                duplicate["close"] = 999
+                rows.append(duplicate)
         entry = {"step": self.step.name, "at": self.step.at.isoformat(), "table": table,
                  "channel": channel, "query": {k: v for k, v in query.items() if k != "api_key"},
                  "rows": len(rows), "digest": digest(rows),
                  "faults": [f.kind for f in faults]}
         self.transcript.append(entry)
+        if any(f.kind == "invalid_json" for f in faults):
+            return httpx.Response(200, content=b'{"datatable":', request=request)
         if any(f.kind == "http_400" for f in faults):
             return httpx.Response(400, json={"error": "scheduled provider interruption"}, request=request)
         columns = list(COLUMNS[table])
@@ -109,6 +122,8 @@ class Provider:
                 archive.writestr(info, csv_text.getvalue())
             link = f"https://exports.sharadar-replay.invalid/{digest([self.step.name, table, query, rows])}.zip"
             self._downloads[link] = buffer.getvalue()
+            if any(f.kind == "invalid_zip" for f in faults):
+                self._downloads[link] = b"truncated ZIP archive"
             refreshed = self.step.at - dt.timedelta(minutes=1)
             snapshot = self.step.at
             if any(f.kind == "stale_export" for f in faults):
@@ -126,4 +141,8 @@ class Provider:
             payload = {"datatable": {"columns": [{"name": c} for c in columns],
                                       "data": [[r.get(c) for c in columns] for r in page]},
                        "meta": {"next_cursor_id": next_cursor}}
+            if any(f.kind == "row_width" for f in faults) and page:
+                payload["datatable"]["data"][0].pop()
+            if any(f.kind == "missing_cursor" for f in faults):
+                payload["meta"] = {}
         return httpx.Response(200, json=payload, request=request)

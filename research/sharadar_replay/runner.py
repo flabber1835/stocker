@@ -87,7 +87,7 @@ def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
               "producer_identity": "synthetic-test-only", "seed_authority": "injected-non-certifying",
               "daily_source": "production-default-tables-and-exporter", "steps": [], "verdict": "FAIL"}
     _write_new(output / "scenario.json", json.loads(scenario.model_dump_json()))
-    provider = Provider()
+    provider = Provider(page_size=scenario.page_size, variation_seed=scenario.variation_seed)
     frozen_evidence: list[tuple[Path, str]] = []
     recovery_attempts = None
     recovered = False

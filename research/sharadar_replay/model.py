@@ -22,9 +22,11 @@ class Corpus(Contract):
 class Fault(Contract):
     table: Literal["SEP", "SFP", "TICKERS", "ACTIONS"]
     kind: Literal["missing_column", "omit_ticker", "repeat_cursor", "http_400",
-                  "duplicate_row", "stale_export"]
+                  "duplicate_row", "stale_export", "invalid_json", "row_width",
+                  "missing_cursor", "invalid_zip", "conflicting_row"]
     channel: Literal["pages", "export"] = "pages"
     ticker: str | None = None
+    after_rows: int = Field(default=0, ge=0)
 
 
 class Step(Contract):
@@ -58,6 +60,8 @@ class Step(Contract):
 class Scenario(Contract):
     schema_version: Literal["sharadar-replay/1"] = "sharadar-replay/1"
     name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    variation_seed: int = 0
+    page_size: int = Field(default=53, ge=1)
     seed_start: dt.date
     seed: Step
     steps: tuple[Step, ...] = Field(min_length=1)

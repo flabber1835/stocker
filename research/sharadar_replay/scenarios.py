@@ -25,7 +25,8 @@ def sessions(through):
 
 
 def world(through: str, *, correction: int | None = None,
-          dividend: int | None = None, split: bool = False):
+          dividend: int | None = None, split: bool = False,
+          correction_date: str = OLD_CORRECTION):
     axis = sessions(through)
     sep, sfp, tickers, actions = [], [], [], []
     expected_bars, expected_sfp, expected_defensive = [], [], []
@@ -41,18 +42,18 @@ def world(through: str, *, correction: int | None = None,
         expected_actions.append((ticker, START, "listed", ticker, None, None, None))
         for day in axis:
             # Provider encoding from the fictional economic schedule.
-            price = correction if ticker == "AAA" and day == OLD_CORRECTION and correction else 100
+            price = correction if ticker == "AAA" and day == correction_date and correction else 100
             factor = 2 if split and ticker == "AAA" and day < SPLIT else 1
             if split and ticker == "AAA" and day >= SPLIT:
                 price = 50
             source_close = price / factor
-            updated = through if ticker == "AAA" and day == OLD_CORRECTION and correction else day
+            updated = through if ticker == "AAA" and ((day == correction_date and correction) or split) else day
             sep.append({"ticker": ticker, "date": day, "open": source_close, "close": source_close,
                         "closeunadj": price, "volume": 1_000_000 * factor, "lastupdated": updated})
 
             # The expected raw ledger values come directly from the economic schedule.
             expected_price = 100
-            if correction and ticker == "AAA" and day == OLD_CORRECTION:
+            if correction and ticker == "AAA" and day == correction_date:
                 expected_price = correction
             if split and ticker == "AAA" and day >= SPLIT:
                 expected_price = 50
@@ -146,4 +147,6 @@ def build_scenarios() -> dict[str, Scenario]:
         publication_failure=True, ready=False, error="scheduled publication interruption",
         expected=hidden_overlap, required_blockers=("freshness",)),
         step("recover_publication", SECOND), step("continue", THIRD)], recovery_from="recover_publication")
+    from .adversarial import build_adversarial_scenarios
+    cases.update(build_adversarial_scenarios(seed))
     return cases
