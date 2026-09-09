@@ -105,6 +105,7 @@ def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
                 print(f"[sharadar-replay] {scenario.name} {index + 1}/{len(scenario.steps) + 1} "
                       f"{step.name} at {step.at.isoformat()}", flush=True)
                 with store.connect(dsn, statement_timeout_ms=30000) as conn:
+                    previous_version = publication.require_current(conn).version if index else None
                     error = None
                     with ExitStack() as faults:
                         if step.publication_failure:
@@ -141,6 +142,8 @@ def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
                         raise StateMismatch(f"{step.name}: expected error {step.error}, actual {error}")
                     if step.error and step.error not in (error["type"] + ": " + error["detail"]):
                         raise StateMismatch(f"{step.name}: unexpected error {error}")
+                    if step.error and current.version != previous_version:
+                        raise StateMismatch(f"{step.name}: interrupted candidate changed publication")
                     compare(step.expected, corpus)
                     compare_readiness(expected=step.ready, actual=state.ready,
                                       required_blockers=step.required_blockers, failures=failures)

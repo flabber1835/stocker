@@ -17,6 +17,8 @@ sessions. Bootstrap uses the existing non-certifying injected seed entry point;
 its HTTP parsing and canonical storage still run. Production seed certification
 has a calibrated 4,000-security floor and needs a separately validated world.
 Daily replay uses the default production source and its full export checks.
+An ordinary recent BBB dividend supplies the global ACTIONS activity required
+by production readiness; its cash value is independently checked in every run.
 
 An isolated worker supplies a clearly synthetic producer identity and receipt
 key. This tests data behavior; it conveys no deployment or execution authority.
@@ -70,6 +72,11 @@ at the first scheduled attempt after correct authoritative input is available.
 Every intermediate expected blocked state is checked. Exceeding the attempt
 budget is a failure even if a later retry might succeed. An unrecoverable case
 must retain its explicitly expected blocker over the observation horizon.
+Interrupted daily writes and publication attempts must retain the prior
+publication pointer. The expected intermediate corpus explicitly accounts for
+the current in-place bar/reference writes becoming hidden while unpublished.
+Recovery must restore the complete expected reader view on the first eligible
+retry. The older captured research snapshot remains byte-stable throughout.
 
 ## Delivery stages
 

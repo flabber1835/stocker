@@ -16,6 +16,7 @@ SID = {"AAA": "SIM-AAA", "BBB": "SIM-BBB"}
 OLD_CORRECTION = "2026-03-02"
 SPLIT = "2026-08-03"  # exactly the first daily overlap's leading edge
 DIVIDEND = "2026-06-01"  # well outside the daily price overlap
+BASE_DIVIDEND = "2026-07-01"
 
 
 def sessions(through):
@@ -58,7 +59,13 @@ def world(through: str, *, correction: int | None = None,
             signal = 50 if split and ticker == "AAA" else expected_price
             expected_bars.append((sid, day, ticker, signal, expected_price, expected_price,
                 1_000_000, 2 if split and ticker == "AAA" and day == SPLIT else 1,
-                dividend if dividend and ticker == "AAA" and day == DIVIDEND else 0))
+                (dividend if dividend and ticker == "AAA" and day == DIVIDEND else
+                 0.5 if ticker == "BBB" and day == BASE_DIVIDEND else 0)))
+    # Production checks for recent global ACTIONS activity. An ordinary BBB
+    # cash dividend gives the small world that required positive source evidence.
+    actions.append({"ticker": "BBB", "date": BASE_DIVIDEND, "action": "dividend", "name": "BBB",
+                    "value": 0.5, "contraticker": None, "contraname": None})
+    expected_actions.append(("BBB", BASE_DIVIDEND, "dividend", "BBB", 0.5, None, None))
     if split:
         actions.append({"ticker": "AAA", "date": SPLIT, "action": "split", "name": "AAA",
                         "value": 2, "contraticker": None, "contraname": None})
@@ -106,6 +113,9 @@ def build_scenarios() -> dict[str, Scenario]:
         step("next_session", SECOND, correction=106)])
     add("late_dividend", [step("late_action_arrives", FIRST, dividend=1),
                            step("repeat_action", SECOND, dividend=1)])
+    add("revised_dividend", [step("initial_dividend", FIRST, dividend=1),
+                             step("correct_dividend", SECOND, dividend=2),
+                             step("repeat_correction", THIRD, dividend=2)])
     add("split_overlap_boundary", [step("replay_split_boundary", FIRST, split=True),
                                     step("repeat_split", SECOND, split=True)],
         seed=step("bootstrap", SEED, ready=False, split=True,
@@ -119,4 +129,21 @@ def build_scenarios() -> dict[str, Scenario]:
         add(name, [step("interrupted", FIRST, faults=(fault,), expected=initial,
                         ready=False, error=error, required_blockers=("freshness",)),
                    step("recover", SECOND), step("continue", THIRD)], recovery_from="recover")
+    reference_start = sessions(FIRST)[-41]
+    hidden_references = initial.model_copy(update={
+        "spy": tuple(r for r in initial.spy if r[0] < reference_start),
+        "defensive": tuple(r for r in initial.defensive if r[0] < reference_start),
+    })
+    add("incomplete_sep", [step("partial_prices", FIRST, ready=False,
+        error="SepListingPopulationIncomplete", expected=hidden_references,
+        faults=(Fault(table="SEP", kind="omit_ticker", ticker="BBB"),),
+        required_blockers=("freshness",)), step("recover", SECOND), step("continue", THIRD)],
+        recovery_from="recover")
+    hidden_overlap = hidden_references.model_copy(update={
+        "bars": tuple(r for r in initial.bars if r[1] < SPLIT),
+    })
+    add("publication_interruption", [step("publication_interrupted", FIRST,
+        publication_failure=True, ready=False, error="scheduled publication interruption",
+        expected=hidden_overlap, required_blockers=("freshness",)),
+        step("recover_publication", SECOND), step("continue", THIRD)], recovery_from="recover_publication")
     return cases
