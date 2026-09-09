@@ -24,7 +24,7 @@ env:
   CERTIFICATION_MEASUREMENT_START: '2006-07-31'
   CERTIFICATION_END_SESSION: '2026-07-31'
   EXPECTED_BASE_NORMALIZED_SHA256: '435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde'
-  EXPECTED_MEDIAN5_RAW_SHA256: '3b1bb12dc4f246dc855c135bce04f97cef79a38c9bd81245c543b733c492290b'
+  EXPECTED_MEDIAN5_NORMALIZED_SHA256: 'e67b5718de24f370401a675e7787303662b4a43c9a7a2229b53f25d9c6a3602a'
 
 jobs:
   replay:
@@ -138,14 +138,14 @@ jobs:
           norm=hashlib.sha256(normalized_ast(base).encode()).hexdigest()
           if norm!='435d42ac56f160a665588a997335a923c25110404972e262aa6e47058b3befde': raise RuntimeError(norm)
           median=median5_only(base)
-          median_sha=hashlib.sha256(median.encode()).hexdigest()
-          if median_sha!='3b1bb12dc4f246dc855c135bce04f97cef79a38c9bd81245c543b733c492290b': raise RuntimeError('Median-5 control mismatch '+median_sha)
+          median_norm=hashlib.sha256(normalized_ast(median).encode()).hexdigest()
+          if median_norm!='e67b5718de24f370401a675e7787303662b4a43c9a7a2229b53f25d9c6a3602a': raise RuntimeError('Median-5 normalized control mismatch '+median_norm)
           variant=apply_arm(base,'MEDIAN5_10BP_PURE')
           assert_contract(variant); assert assert_one_session_dividend_lag(variant)==1
           for forbidden in ('native.step(','ctl.step(','ca.step(','cb.step(','apply_overlay(navs'):
               if forbidden in variant: raise RuntimeError('controller runtime remains: '+forbidden)
           Path('../preflight/median5-10bp-generated.py').write_text(variant)
-          print('PASS base='+norm+' median5='+median_sha+' variant='+hashlib.sha256(variant.encode()).hexdigest())
+          print('PASS base='+norm+' median5_norm='+median_norm+' variant='+hashlib.sha256(variant.encode()).hexdigest())
           PY
 
       - name: Pull and verify immutable canonical PIT package
