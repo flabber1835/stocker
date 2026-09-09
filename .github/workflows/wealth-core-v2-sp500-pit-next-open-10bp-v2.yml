@@ -1,0 +1,266 @@
+name: Research - Wealth Core V2 S&P 500 PIT next-open 10bp v2
+run-name: WC V2 SP500 PIT next-open 10bp v2 — ${{ github.sha }}
+
+on:
+  push:
+    branches:
+      - research/wealth-core-v2-sp500-pit-next-open-10bp-v1
+    paths:
+      - '.github/workflows/wealth-core-v2-sp500-pit-next-open-10bp-v2.yml'
+      - 'research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run_fixed.py'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+concurrency:
+  group: wealth-core-v2-sp500-pit-next-open-10bp-v2
+  cancel-in-progress: true
+
+env:
+  PIT_OFFICIAL_BACKTEST: '1'
+  PIT_RUNTIME_MAIN_SHA: '887f479b15ad861313da666ad698034d3847121c'
+  EXPERIMENT_BASE_SHA: '880209078f2b4817e837431984dc0ba0bf0b9d79'
+  PIT_POINTER: 'backtester/data/canonical-pit-20y.json'
+  PYTHONUNBUFFERED: '1'
+  SOURCE_DIR: 'backtester-results/sp500-pit-source'
+  MEMBERSHIP_DIR: 'backtester-results/sp500-pit-membership'
+  IDENTITY_DIR: 'backtester-results/sp500-pit-identity'
+  ALIAS_DIR: 'backtester-results/sp500-pit-alias'
+  COVERAGE_DIR: 'backtester-results/sp500-pit-coverage'
+  TRADING_GAP_DIR: 'backtester-results/sp500-pit-trading-gaps'
+  WEB_ALIAS_DIR: 'backtester-results/sp500-pit-web-alias'
+  CIK_ALIAS_DIR: 'backtester-results/sp500-pit-cik-alias'
+  UNIVERSE_DIR: 'backtester-results/sp500-best-effort-universe-2006-2026'
+  RESULT_DIR: 'backtester-results/wc-v2-sp500-next-open-10bp'
+  SOURCE_URL: 'https://raw.githubusercontent.com/fja05680/sp500/c31ac3cc56f28cf9a02b4e694eff7ceab596a0ff/sp500_ticker_start_end.csv'
+
+jobs:
+  replay:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Checkout isolated research experiment
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          fetch-depth: 0
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout-cone-mode: false
+          sparse-checkout: |
+            /.github/workflows/wealth-core-v2-sp500-pit-next-open-10bp-v2.yml
+            /backtester
+            /tests
+            /services/backtester
+            /tools
+            /research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py
+            /research/sentinel-fastgate/pit-evidence
+            /research/strategy9-e3-broad-stability
+            /research/wealth-core-v2-formal-ab-v1
+            /research/wealth-core-v2-sp500-pit-next-open-10bp-v1
+            /sharadar/SHARADAR_SEP_*.csv.gz
+            /sharadar/SHARADAR_TICKERS.zip
+
+      - name: Prove frozen formal V2 inputs are untouched
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "${GITHUB_REF_NAME}" = 'research/wealth-core-v2-sp500-pit-next-open-10bp-v1'
+          git diff --exit-code "${EXPERIMENT_BASE_SHA}" -- \
+            backtester services/backtester tools \
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c/ldrc_ab_replay_20260825.py \
+            research/sentinel-fastgate/pit-evidence \
+            research/strategy9-e3-broad-stability \
+            research/wealth-core-v2-formal-ab-v1
+          echo '[FORMAL_V2_SOURCE_PARITY] PASS'
+
+      - name: Checkout pinned runtime authority
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ env.PIT_RUNTIME_MAIN_SHA }}
+          path: main-src
+          fetch-depth: 1
+          persist-credentials: false
+          filter: blob:none
+          sparse-checkout: |
+            sentinel
+            shared
+            docs/sentinel-handoff/00_README
+
+      - name: Set up Python 3.12
+        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12'
+          check-latest: false
+
+      - name: Install frozen replay closure
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C main-src rev-parse HEAD)" = "${PIT_RUNTIME_MAIN_SHA}"
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/services/backtester:${GITHUB_WORKSPACE}" >> "${GITHUB_ENV}"
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          python -m pip install -r services/backtester/requirements.txt
+
+      - name: Compile and self-test corrected experiment transform
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            research/wealth-core-v2-formal-ab-v1/formal_ab.py \
+            research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run.py \
+            research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run_fixed.py
+          python research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run_fixed.py \
+            --self-test --output /tmp/wc-v2-sp500-next-open-selftest
+
+      - name: Rebuild pinned historical S&P membership and identities
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p "${SOURCE_DIR}"
+          curl --fail --location --retry 4 --retry-all-errors \
+            "${SOURCE_URL}" --output "${SOURCE_DIR}/sp500_ticker_start_end.csv"
+          rm -rf "${MEMBERSHIP_DIR}" "${IDENTITY_DIR}"
+          python -m backtester.sp500_pit_corpus \
+            --source "${SOURCE_DIR}/sp500_ticker_start_end.csv" \
+            --overlay backtester/data/sp500_official_overlay_2026.csv \
+            --output "${MEMBERSHIP_DIR}" \
+            --start 1996-01-02 --end 2026-09-03
+          python -m backtester.sp500_pit_identity \
+            --membership-root "${MEMBERSHIP_DIR}" \
+            --sharadar-root sharadar \
+            --cik-path research/sentinel-fastgate/pit-evidence/generated/sec_cik_change_events.csv.gz \
+            --output "${IDENTITY_DIR}" \
+            --start-year 1997 --end-year 2026
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=json.loads((Path(os.environ['MEMBERSHIP_DIR'])/'manifest.json').read_text())
+          assert p['dataset_hash']=='1981828b71073be4d0fcf4addb37a56c844a29219090eb0c8fbc535d393bdb2d',p
+          print('[SP500_MEMBERSHIP_HASH] PASS',p['dataset_hash'])
+          PY
+
+      - name: Restore pinned S&P identity diagnostics
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          rm -rf "${ALIAS_DIR}" "${COVERAGE_DIR}" "${TRADING_GAP_DIR}" "${WEB_ALIAS_DIR}" "${CIK_ALIAS_DIR}"
+          gh run download 33823947011 \
+            --repo flabber1835/stocker \
+            --name sp500-pit-alias-v2-30dce7f2adedc8196bc14f73d8943786631922bb \
+            --dir backtester-results
+          for d in "${ALIAS_DIR}" "${COVERAGE_DIR}" "${TRADING_GAP_DIR}" "${WEB_ALIAS_DIR}" "${CIK_ALIAS_DIR}"; do
+            test -f "$d/SHA256SUMS.txt"
+            (cd "$d" && sha256sum -c SHA256SUMS.txt)
+          done
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          p=json.loads((Path(os.environ['TRADING_GAP_DIR'])/'trading-gap-summary.json').read_text())
+          assert p['status']=='TRADING_GAP_FILTER_COMPLETE'
+          assert p['market_session_end'] >= '2026-07-31'
+          print('[SP500_IDENTITY_DIAGNOSTICS] PASS')
+          PY
+
+      - name: Materialize S&P 500 PIT eligibility tape
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${UNIVERSE_DIR}"
+          python -m backtester.sp500_best_effort_universe \
+            --membership-root "${MEMBERSHIP_DIR}" \
+            --identity-root "${IDENTITY_DIR}" \
+            --alias-root "${ALIAS_DIR}" \
+            --trading-gap-root "${TRADING_GAP_DIR}" \
+            --web-alias-root "${WEB_ALIAS_DIR}" \
+            --cik-alias-root "${CIK_ALIAS_DIR}" \
+            --sharadar-root sharadar \
+            --output "${UNIVERSE_DIR}" \
+            --window-start 2006-01-03 \
+            --window-end 2026-07-31
+          (cd "${UNIVERSE_DIR}" && sha256sum -c SHA256SUMS.txt)
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          s=json.loads((Path(os.environ['UNIVERSE_DIR'])/'best-effort-summary.json').read_text())
+          assert s['status']=='BEST_EFFORT_RUNNABLE'
+          assert s['window_start']=='2006-01-03' and s['window_end']=='2026-07-31'
+          assert s['membership_dataset_hash']=='1981828b71073be4d0fcf4addb37a56c844a29219090eb0c8fbc535d393bdb2d'
+          print('[SP500_ELIGIBILITY] PASS',json.dumps(s['daily_constituents'],sort_keys=True))
+          PY
+
+      - name: Pull and verify exact canonical full-PIT package
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          p=json.load(open('backtester/data/canonical-pit-20y.json'))
+          assert p['dataset_hash']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993',p
+          assert p['window']=={'warmup_start':'2006-01-03','measurement_start':'2006-07-31','end':'2026-07-31'},p['window']
+          print('[PIT_POINTER] PASS',p['dataset_id'])
+          PY
+          PACKAGE=$(python -c "import json; print(json.load(open('${PIT_POINTER}'))['package'])")
+          echo "${GHCR_TOKEN}" | docker login ghcr.io -u "${GITHUB_ACTOR}" --password-stdin
+          docker pull "${PACKAGE}"
+          rm -rf backtester-results/canonical-pit-20y && mkdir -p backtester-results/canonical-pit-20y
+          cid=$(docker create "${PACKAGE}" /bin/true)
+          trap 'docker rm -f "${cid}" >/dev/null 2>&1 || true' EXIT
+          docker cp "${cid}:/canonical-pit/." backtester-results/canonical-pit-20y
+          docker rm "${cid}"; trap - EXIT
+          python backtester/canonical_pit_package.py verify --pointer "${PIT_POINTER}" --dataset backtester-results/canonical-pit-20y
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/backtester-results/canonical-pit-20y" >> "${GITHUB_ENV}"
+          echo "SP500_PIT_ELIGIBILITY=${GITHUB_WORKSPACE}/${UNIVERSE_DIR}/sp500-best-effort-eligibility.csv.gz" >> "${GITHUB_ENV}"
+          echo "SP500_PIT_SUMMARY=${GITHUB_WORKSPACE}/${UNIVERSE_DIR}/best-effort-summary.json" >> "${GITHUB_ENV}"
+
+      - name: Run Wealth Core V2 S&P 500 next-open sizing
+        shell: bash
+        run: |
+          set -euo pipefail
+          rm -rf "${RESULT_DIR}" && mkdir -p "${RESULT_DIR}"
+          python research/wealth-core-v2-sp500-pit-next-open-10bp-v1/run_fixed.py \
+            --output "${RESULT_DIR}" 2>&1 | tee wealth-core-v2-sp500-next-open.log
+
+      - name: Validate and summarize result
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          root=Path(os.environ['RESULT_DIR']); r=json.loads((root/'RESULT.json').read_text())
+          assert r['status']=='PASS'
+          assert r['canonical_pit_dataset_sha256']=='5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993'
+          assert r['experiment']['initial_capital']==100000.0
+          assert r['experiment']['buffer_basis_points']==10
+          assert r['experiment']['share_quantity_bound_at_close'] is False
+          assert r['experiment']['whole_shares'] is True
+          assert r['integrity']['financial_grade_dividend_lag_sessions']==1
+          print(json.dumps({'wealth_core':r['wealth_core_performance'],'spy':r['spy_performance'],'execution':r['execution'],'micro_positions':r['micro_positions'],'sp500_filter':r['integrity']['sp500_filter']},indent=2,sort_keys=True))
+          PY
+          cat "${RESULT_DIR}/INSIGHTS.md" >> "${GITHUB_STEP_SUMMARY}"
+
+      - name: Upload complete experiment evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wealth-core-v2-sp500-pit-next-open-10bp-v2-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            ${{ env.RESULT_DIR }}/**
+            ${{ env.UNIVERSE_DIR }}/best-effort-summary.json
+            ${{ env.UNIVERSE_DIR }}/SHA256SUMS.txt
+            ${{ env.UNIVERSE_DIR }}/sp500-best-effort-eligibility.csv.gz
+            research/wealth-core-v2-sp500-pit-next-open-10bp-v1/EXPERIMENT_SPEC.md
+            wealth-core-v2-sp500-next-open.log
+          if-no-files-found: error
+          retention-days: 90
+          compression-level: 6
