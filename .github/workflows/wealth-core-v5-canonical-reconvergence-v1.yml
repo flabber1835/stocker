@@ -1,0 +1,256 @@
+name: Research - Wealth Core V5 canonical reconvergence v1
+run-name: V5 canonical reconvergence v1 - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/wealth-core-v5-canonical-reconvergence-v1]
+    paths:
+      - '.github/workflows/wealth-core-v5-canonical-reconvergence-v1.yml'
+      - 'research/wealth-core-v5-canonical-reconvergence-v1/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+concurrency:
+  group: wealth-core-v5-canonical-reconvergence-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+
+jobs:
+  baseline:
+    name: Frozen baseline + canonical reconvergence baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    outputs:
+      case_matrix: ${{ steps.matrix.outputs.case_matrix }}
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-canonical-reconvergence-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+
+      - name: Stage pinned replay authority
+        uses: ./experiment-src/.github/actions/v5-ex3-v5-adversarial-setup
+
+      - name: Compile experiment
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            experiment-src/research/wealth-core-v5-canonical-reconvergence-v1/run_reconvergence.py \
+            experiment-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py
+
+      - name: Fresh frozen and reconvergence baselines
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-canonical-reconvergence-v1/run_reconvergence.py" \
+            --suite baseline \
+            --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+            --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+            --output "${GITHUB_WORKSPACE}/baseline-results"
+          cp "${GITHUB_WORKSPACE}/package-integrity.json" "${GITHUB_WORKSPACE}/baseline-results/package-integrity.json"
+          cp "${GITHUB_WORKSPACE}/final-corpus-validation.json" "${GITHUB_WORKSPACE}/baseline-results/final-corpus-validation.json"
+
+      - name: Freeze untouched holdout matrix
+        id: matrix
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY' >> "$GITHUB_OUTPUT"
+          import json
+          r=json.load(open('baseline-results/RESULT.json'))
+          items=[]
+          for i,sid in enumerate(r['holdout_security_ids']):
+              items.append({'label':f'loo-{i}','kind':'loo','value':str(sid)})
+          for seed in (11,29,47):
+              items.append({'label':f'dropout-{seed}','kind':'dropout','value':str(seed)})
+          items.append({'label':'execution-cost-15-25','kind':'execution','value':'15-25'})
+          print('case_matrix='+json.dumps(items,separators=(',',':')))
+          PY
+
+      - name: Baseline summary
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          r=json.load(open('baseline-results/RESULT.json'))
+          a=r['old']['sentinel']['20']; b=r['reconvergence']['sentinel']['20']
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Baseline authority PASS\n\n')
+              f.write(f"Frozen: CAGR **{a['cagr']:.2%}**, DD **{a['max_drawdown']:.2%}**, Sharpe **{a['sharpe_daily_252']:.3f}**.\n\n")
+              f.write(f"Reconvergence: CAGR **{b['cagr']:.2%}**, DD **{b['max_drawdown']:.2%}**, Sharpe **{b['sharpe_daily_252']:.3f}**.\n\n")
+              f.write('Untouched LOO IDs were frozen before any perturbation results.\n')
+          PY
+
+      - name: Preserve baseline and untouched holdout authority
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v5-canonical-reconvergence-baseline
+          path: baseline-results/
+          retention-days: 90
+          if-no-files-found: error
+
+  robustness:
+    name: Robustness ${{ matrix.item.label }}
+    needs: baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 10
+      matrix:
+        item: ${{ fromJSON(needs.baseline.outputs.case_matrix) }}
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-canonical-reconvergence-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+
+      - name: Stage pinned replay authority
+        uses: ./experiment-src/.github/actions/v5-ex3-v5-adversarial-setup
+
+      - name: Retrieve frozen baselines
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: v5-canonical-reconvergence-baseline
+          path: baseline-input
+
+      - name: Run paired causal robustness case
+        shell: bash
+        env:
+          KIND: ${{ matrix.item.kind }}
+          VALUE: ${{ matrix.item.value }}
+        run: |
+          set -euo pipefail
+          cd certified-src
+          if [ "$KIND" = execution ]; then
+            python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-canonical-reconvergence-v1/run_reconvergence.py" \
+              --suite execution \
+              --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+              --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+              --baseline-input "${GITHUB_WORKSPACE}/baseline-input" \
+              --output "${GITHUB_WORKSPACE}/case-results"
+          else
+            python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-canonical-reconvergence-v1/run_reconvergence.py" \
+              --suite case --case-kind "$KIND" --case-value "$VALUE" \
+              --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+              --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+              --baseline-input "${GITHUB_WORKSPACE}/baseline-input" \
+              --output "${GITHUB_WORKSPACE}/case-results"
+          fi
+
+      - name: Case summary
+        if: always()
+        shell: bash
+        run: |
+          if [ -f case-results/RESULT.json ]; then
+            python - <<'PY'
+          import json, os
+          r=json.load(open('case-results/RESULT.json'))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write(f"## {r.get('case_kind',r.get('suite'))} {r.get('case_value','')}\n\n")
+              if r.get('suite')=='case':
+                  a=r['old']['delta']['sentinel']['cagr_delta']; b=r['reconvergence']['delta']['sentinel']['cagr_delta']
+                  f.write(f"Full-system CAGR perturbation: old **{a:+.2%}**, reconvergence **{b:+.2%}**.\n")
+          PY
+          fi
+
+      - name: Preserve case evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v5-reconv-case-${{ matrix.item.label }}
+          path: case-results/
+          retention-days: 90
+          if-no-files-found: warn
+
+  aggregate:
+    name: Aggregate robustness verdict
+    needs: [baseline, robustness]
+    if: always() && needs.baseline.result == 'success'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-canonical-reconvergence-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+
+      - name: Stage pinned replay authority
+        uses: ./experiment-src/.github/actions/v5-ex3-v5-adversarial-setup
+
+      - name: Retrieve baseline evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: v5-canonical-reconvergence-baseline
+          path: baseline-input
+
+      - name: Retrieve robustness evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: v5-reconv-case-*
+          path: cases-input
+          merge-multiple: false
+
+      - name: Aggregate precommitted gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python experiment-src/research/wealth-core-v5-canonical-reconvergence-v1/run_reconvergence.py \
+            --suite aggregate \
+            --baseline-input baseline-input \
+            --cases-root cases-input \
+            --output aggregate-results
+          cat aggregate-results/REPORT.md >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Preserve aggregate verdict
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v5-canonical-reconvergence-verdict
+          path: aggregate-results/
+          retention-days: 90
+          if-no-files-found: error
