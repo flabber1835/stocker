@@ -1,274 +1,33 @@
-name: Research - Wealth Core V1 10bp open-time sizing A/B
-run-name: Wealth Core V1 10bp open sizing - ${{ github.sha }}
+name: RETIRED - Wealth Core V1 10bp open-time sizing A/B
+run-name: RETIRED historical open-sizing harness - ${{ github.sha }}
 
 on:
-  push:
-    branches: [research/wealth-core-v1-open-sizing-10bp-v1]
-    paths:
-      - '.github/workflows/wealth-core-v1-open-sizing-10bp-v1.yml'
-      - 'research/wealth-core-v1-open-sizing-10bp-v1/**'
   workflow_dispatch:
 
 permissions:
-  contents: write
-  packages: read
-  actions: read
-
-concurrency:
-  group: wealth-core-v1-open-sizing-10bp-v1-${{ github.ref }}
-  cancel-in-progress: false
-
-env:
-  PYTHONUNBUFFERED: '1'
-  PIT_OFFICIAL_BACKTEST: '0'
-  CERTIFICATION_WARMUP_START: '2006-01-03'
-  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
-  CERTIFICATION_END_SESSION: '2026-07-31'
+  contents: read
 
 jobs:
-  arm:
-    name: open-sizing-${{ matrix.mode }}
+  retired:
     runs-on: ubuntu-24.04
-    timeout-minutes: 180
-    strategy:
-      fail-fast: false
-      matrix:
-        mode: [whole, fractional]
-
     steps:
-      - name: Research checkout
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ github.sha }}
-          path: audit-src
-          fetch-depth: 1
-          filter: blob:none
-          persist-credentials: false
-          sparse-checkout: |
-            backtester
-            research/champion-economic-integrity
-            research/wealth-core-v1-open-sizing-10bp-v1
-            research/wealth-core-v1-buffer-sweep-evidence/arms/10bp
-
-      - name: Exact formal source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
-          path: certified-src
-          fetch-depth: 1
-          filter: blob:none
-          persist-credentials: false
-          sparse-checkout: |
-            backtester
-            research/strategy9-e3-broad-stability
-            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
-
-      - name: Exact classifier source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ba74e79490beb8950611b1d17f5d124833b3d91e
-          path: candidate-src
-          fetch-depth: 1
-          filter: blob:none
-          persist-credentials: false
-          sparse-checkout: backtester
-
-      - name: Exact runtime source
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: 887f479b15ad861313da666ad698034d3847121c
-          path: main-src
-          fetch-depth: 1
-          filter: blob:none
-          persist-credentials: false
-          sparse-checkout: |
-            sentinel
-            shared
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: '3.12.14'
-          check-latest: false
-
-      - name: Verify pins and install frozen runtime
+      - name: Historical evidence only
         shell: bash
         run: |
-          set -euo pipefail
-          test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
-          test "$(git -C candidate-src rev-parse HEAD)" = ba74e79490beb8950611b1d17f5d124833b3d91e
-          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
-          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
-          python -m pip install --no-build-isolation --no-deps -e main-src/shared
-          echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" >> "$GITHUB_ENV"
-          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "$GITHUB_ENV"
-          echo "BEST_EFFORT_SECURITY_TYPES=${GITHUB_WORKSPACE}/candidate-src/backtester/data/champion-best-effort-security-types-v1.csv" >> "$GITHUB_ENV"
-          echo "BEST_EFFORT_CLASSIFICATION_SCENARIO=reviewed_18" >> "$GITHUB_ENV"
+          cat <<'EOF'
+          This workflow is retired and must not execute an economic replay.
 
-      - name: Stage frozen corrected V1 overlays
-        shell: bash
-        run: |
-          set -euo pipefail
-          for f in \
-            champion_economic_prefix_audit.py \
-            champion_full_classification_control.py \
-            champion_security_truth_audit_v2.py \
-            champion_security_truth_overlay_v2.py \
-            champion_final_security_truth.py \
-            champion_final_truth_corpus_validator.py \
-            production_equivalent_economic_overlay.py \
-            champion_production_equivalent_build.py \
-            champion_production_equivalent_final_replay.py
-          do
-            cp "audit-src/backtester/$f" certified-src/backtester/
-          done
-          cp audit-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
-          cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
-          cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
-          for f in \
-            champion-best-effort-security-types-v1.csv \
-            champion-best-effort-security-types-v1-summary.json \
-            champion-reviewed-security-types-v1.csv \
-            champion-historical-security-type-corrections-v1.csv
-          do
-            cp "candidate-src/backtester/data/$f" certified-src/backtester/data/
-          done
-          mkdir -p certified-src/research/champion-economic-integrity/security-truth
-          cp -R audit-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
-          cd certified-src
-          python backtester/champion_final_truth_corpus_validator.py \
-            --manual research/champion-economic-integrity/security-truth/manual-review \
-            --output "${GITHUB_WORKSPACE}/final-corpus-validation.json"
+          Historical evidence authority remains pinned at:
+            3dc74a8e54fdfe6e8368a8db3be0ecd127ee4689
 
-      - name: Pull and verify exact canonical PIT package
-        env:
-          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          POINTER=certified-src/backtester/data/canonical-pit-20y.json
-          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
-          test "$PACKAGE" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
-          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
-          docker pull "$PACKAGE"
-          cid=$(docker create "$PACKAGE" /bin/true)
-          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
-          mkdir -p canonical-pit
-          docker cp "$cid:/canonical-pit/." canonical-pit/
-          docker rm "$cid"
-          trap - EXIT
-          PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" \
-            python certified-src/backtester/canonical_pit_package.py verify \
-              --pointer "$POINTER" \
-              --dataset canonical-pit \
-              > package-integrity.json
+          The active 10 bp + next-open whole-share execution contract is centralized at:
+            research/median5-open-sizing-10bp-ex3-v1/canonical_execution_harness.py
+          on branch:
+            research/median5-open-sizing-10bp-ex3-v1
 
-      - name: Run open-time sizing arm
-        shell: bash
-        run: |
-          set -euo pipefail
-          MODE='${{ matrix.mode }}'
-          OUT="${GITHUB_WORKSPACE}/experiment-results/${MODE}"
-          mkdir -p "$OUT" "${GITHUB_WORKSPACE}/final-output/engine"
-          cd certified-src
-          python "${GITHUB_WORKSPACE}/audit-src/research/wealth-core-v1-open-sizing-10bp-v1/run_open_sizing.py" \
-            --mode "$MODE" \
-            --control-source "${GITHUB_WORKSPACE}/audit-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
-            --output "$OUT" \
-            2>&1 | tee "$OUT/arm.log"
-          cp "${GITHUB_WORKSPACE}/package-integrity.json" "$OUT/package-integrity.json"
-          cp "${GITHUB_WORKSPACE}/final-corpus-validation.json" "$OUT/final-corpus-validation.json"
+          The canonical contract includes the close-time one-whole-share affordability gate:
+            cash_above_10bp_reserve >= close_price * (1 + COST)
 
-      - name: Show result
-        if: always()
-        shell: bash
-        run: |
-          MODE='${{ matrix.mode }}'
-          test -f "experiment-results/${MODE}/RESULT.json" && cat "experiment-results/${MODE}/RESULT.json" || true
-
-      - name: Preserve arm evidence
-        if: always()
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: wealth-core-open-sizing-${{ matrix.mode }}-${{ github.run_id }}-${{ github.run_attempt }}
-          path: experiment-results/${{ matrix.mode }}/
-          retention-days: 90
-          if-no-files-found: warn
-
-  collect:
-    name: analyze-and-persist
-    needs: arm
-    runs-on: ubuntu-24.04
-    timeout-minutes: 60
-
-    steps:
-      - name: Checkout research branch
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: ${{ github.sha }}
-          fetch-depth: 1
-
-      - name: Exact runtime source for analysis dependencies
-        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: 887f479b15ad861313da666ad698034d3847121c
-          path: analysis-runtime
-          fetch-depth: 1
-          filter: blob:none
-          persist-credentials: false
-          sparse-checkout: sentinel
-
-      - name: Set up Python
-        uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
-        with:
-          python-version: '3.12.14'
-          check-latest: false
-
-      - name: Install frozen analysis dependencies
-        shell: bash
-        run: |
-          set -euo pipefail
-          python -m pip install --require-hashes -r analysis-runtime/sentinel/requirements.lock
-
-      - name: Download arm artifacts
-        env:
-          GH_TOKEN: ${{ github.token }}
-        shell: bash
-        run: |
-          set -euo pipefail
-          mkdir -p collected
-          gh run download "$GITHUB_RUN_ID" --repo "$GITHUB_REPOSITORY" --dir collected --pattern 'wealth-core-open-sizing-*'
-          find collected -maxdepth 3 -type f -print | sort
-
-      - name: Analyze
-        shell: bash
-        run: |
-          set -euo pipefail
-          python research/wealth-core-v1-open-sizing-10bp-v1/analyze_open_sizing.py \
-            --collected collected \
-            --output evidence-output \
-            --run-id "$GITHUB_RUN_ID" \
-            --trigger-head "$GITHUB_SHA"
-          cp research/wealth-core-v1-open-sizing-10bp-v1/EXPERIMENT_SPEC.md evidence-output/EXPERIMENT_SPEC.md
-          cat evidence-output/INSIGHTS.md
-
-      - name: Preserve combined evidence artifact
-        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        with:
-          name: wealth-core-open-sizing-10bp-evidence-${{ github.run_id }}-${{ github.run_attempt }}
-          path: evidence-output/
-          retention-days: 90
-
-      - name: Persist evidence to research branch
-        shell: bash
-        run: |
-          set -euo pipefail
-          DEST=research/wealth-core-v1-open-sizing-10bp-evidence
-          rm -rf "$DEST"
-          mkdir -p "$DEST"
-          cp -R evidence-output/. "$DEST/"
-          git config user.name 'github-actions[bot]'
-          git config user.email '41898282+github-actions[bot]@users.noreply.github.com'
-          git add "$DEST"
-          git commit -m 'research: persist 10bp open-time sizing A/B evidence'
-          git push origin HEAD:research/wealth-core-v1-open-sizing-10bp-v1
+          Do not revive or copy this historical harness for new experiments.
+          EOF
+          exit 1
