@@ -1,0 +1,17 @@
+name: V5 reconvergence cancellation barrier
+
+on:
+  push:
+    branches: [research/wealth-core-v5-canonical-reconvergence-v1]
+    paths:
+      - '.github/workflows/v5-reconv-cancel-barrier.yml'
+
+concurrency:
+  group: wealth-core-v5-canonical-reconvergence-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  barrier:
+    runs-on: ubuntu-24.04
+    steps:
+      - run: echo "Cancel prior reconvergence workflows"
