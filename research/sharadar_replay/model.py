@@ -31,6 +31,22 @@ class Fault(Contract):
     field: str | None = None
     value: str | int | float | None = None
 
+    @model_validator(mode="after")
+    def executable_fault(self):
+        if self.kind in {"row_width", "missing_cursor", "repeat_cursor"} and self.channel != "pages":
+            raise ValueError("pagination faults require the pages channel")
+        if self.kind in {"invalid_zip", "stale_export"} and self.channel != "export":
+            raise ValueError("archive faults require the export channel")
+        if self.after_rows and self.channel != "pages":
+            raise ValueError("page offset requires the pages channel")
+        if self.kind == "set_value" and not self.field:
+            raise ValueError("value mutation requires an explicit field")
+        if self.kind == "omit_ticker" and not self.ticker:
+            raise ValueError("ticker omission requires an explicit ticker")
+        if self.kind == "conflicting_row" and self.table not in {"SEP", "SFP"}:
+            raise ValueError("conflicting price rows require SEP or SFP")
+        return self
+
 
 class Step(Contract):
     name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
@@ -47,6 +63,8 @@ class Step(Contract):
 
     @model_validator(mode="after")
     def causal_time(self):
+        if self.error_after_daily_publication and (not self.error or self.ready):
+            raise ValueError("post-publication failure requires an error and blocked readiness")
         if self.at.utcoffset() != dt.timedelta(0):
             raise ValueError("scenario clock must be explicit UTC")
         if self.through > self.at.date():

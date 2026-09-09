@@ -201,3 +201,20 @@ has already published, assert its exact corpus, and require the maintenance
 blocker. Pre-publication failures continue to require the old pointer. A missing
 reference series may similarly publish an incomplete reader view whose named
 reference readiness check must fail; a complete next-day source must restore it.
+
+### Revisit unresolved split evidence after price corrections
+
+A new split can restate older adjusted prices and create a temporary seam
+anomaly at the daily overlap boundary. CDC repairs those historical prices, but
+its price-only generation cannot supply the complete ACTIONS negative-space
+authority needed to resolve the seam. ACTIONS reconciliation previously skipped
+replay whenever its action rows were unchanged, leaving correct prices blocked.
+
+Unresolved split dispositions inside retained history now contribute their dates
+to the complete ACTIONS reconciliation replay. They override the ordinary
+same-day cadence shortcut. Each attempt obtains fresh complete action authority
+and replays the bounded predecessor/event/following windows before publishing.
+Price/source disagreements continue to block readiness until that independent
+proof resolves them. Correctly corroborated and already-resolved events do not
+trigger this additional replay. A falsifier disables unresolved-date discovery
+and must reproduce the valid-current-split readiness failure.

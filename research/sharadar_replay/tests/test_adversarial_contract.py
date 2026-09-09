@@ -100,3 +100,17 @@ def test_metadata_only_mixed_operation_kinds_remain_blocked(monkeypatch):
         unpublished_rows=2, unpublished_universe=2))
     with pytest.raises(recovery.PublicationRecoveryRefused):
         ingest_authority_impl._single_failed_live_candidate(object())
+
+
+@pytest.mark.parametrize('values', [
+    dict(table='SEP', kind='invalid_zip'),
+    dict(table='SEP', kind='missing_cursor', channel='export'),
+    dict(table='SEP', kind='set_value'),
+    dict(table='SEP', kind='omit_ticker'),
+    dict(table='TICKERS', kind='conflicting_row'),
+    dict(table='TICKERS', kind='missing_column', channel='export', after_rows=1),
+])
+def test_fault_contract_rejects_silently_inactive_configurations(values):
+    from pydantic import ValidationError
+    with pytest.raises(ValidationError):
+        Fault(**values)

@@ -452,6 +452,14 @@ def _semantic_upgrade_replay_dates(
     return sorted(dates)
 
 
+def _unresolved_split_replay_dates(conn, *, market_start: str, market_end: str) -> list[str]:
+    """Unchanged ACTIONS still need replay when corrected prices can resolve a seam."""
+    return sorted({str(row["session"]) for row in anomalies.active_rows(
+        conn, start=market_start, end=market_end,
+        kinds=("SPLIT_DISAGREEMENT", "SPLIT_ONLY_DERIVED",
+               "SEAM_SPLIT_UNCORROBORATED", "AMBIGUOUS_SPLIT_MULTIPLICITY"))})
+
+
 def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
                              through: str, force: bool = False
                              ) -> Optional[SourceCursor]:
@@ -466,7 +474,10 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             f"ACTIONS reconciliation cursor {prior_cursor.processed_through} is "
             f"ahead of requested reconciliation through {hi}; refusing to treat "
             "future durable authority as inside the reconciliation cadence")
-    if (not force and prior_cursor is not None
+    market_start, market_end = _retained_market_bounds(conn)
+    unresolved_dates = _unresolved_split_replay_dates(
+        conn, market_start=market_start, market_end=min(market_end, hi.isoformat()))
+    if (not force and not unresolved_dates and prior_cursor is not None
             and (hi - prior_cursor.processed_through).days < ACTIONS_RECONCILE_DAYS):
         return prior_cursor
 
@@ -494,7 +505,6 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             f"rows to {len(distinct):,}; refusing mass-removal authority "
             "without inspection")
     changed_dates = _action_change_dates(conn, rows)
-    market_start, market_end = _retained_market_bounds(conn)
     recovery_dates, has_outside_failed_bars = (
         _failed_action_reconcile_bar_footprint(
             conn, market_start=market_start, market_end=market_end))
@@ -503,11 +513,11 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
         current_action_rows=rows, prior_action_rows=prior_active.values())
         if prior_cursor is None else [])
     replay_dates = sorted(
-        set(changed_dates) | set(recovery_dates) | set(semantic_dates))
+        set(changed_dates) | set(recovery_dates) | set(semantic_dates) | set(unresolved_dates))
 
     current_ids = {identity for identity, _payload, _row in distinct}
     if (current_ids == set(prior_active)
-            and not recovery_dates and not semantic_dates
+            and not recovery_dates and not semantic_dates and not unresolved_dates
             and not has_outside_failed_bars):
         current = publication.require_current(conn)
         return _write_cursor(
@@ -548,6 +558,7 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             "changed_action_dates": len(set(changed_dates)),
             "recovery_bar_dates": len(set(recovery_dates)),
             "semantic_upgrade_dates": len(set(semantic_dates)),
+            "unresolved_split_dates": len(set(unresolved_dates)),
             "affected_bar_dates": len(set(replay_dates)),
             "retained_market_window": [market_start, market_end],
             "replay_windows": [list(w) for w in windows],

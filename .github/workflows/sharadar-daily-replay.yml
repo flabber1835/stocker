@@ -6,6 +6,10 @@ on:
     paths:
       - 'research/sharadar_replay/**'
       - 'sentinel/feed/**'
+      - 'shared/stock_strategy_shared/split_reconciliation.py'
+      - 'shared/stock_strategy_shared/wealth_core/sharadar_domains.py'
+      - 'sentinel/requirements.lock'
+      - 'tests/requirements.lock'
       - '.github/workflows/sharadar-daily-replay.yml'
   workflow_dispatch:
 

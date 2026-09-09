@@ -64,3 +64,13 @@ def test_old_daily_observation_ceiling_is_killed(monkeypatch, tmp_path):
     output = Path(os.environ.get('SHARADAR_REPLAY_EVIDENCE', str(tmp_path))) / 'falsifiers' / 'daily_future_clock'
     with pytest.raises(StateMismatch, match='interrupted candidate changed publication'):
         run_scenario(SCENARIOS['sep_invalid_lastupdated_value'], server_dsn=dsn, output=output)
+
+
+def test_old_unchanged_actions_fast_path_is_killed(monkeypatch, tmp_path):
+    from sentinel.feed import maintenance_impl
+    dsn = os.environ.get('SHARADAR_REPLAY_TEST_DSN')
+    assert dsn, 'SHARADAR_REPLAY_TEST_DSN is required'
+    monkeypatch.setattr(maintenance_impl, '_unresolved_split_replay_dates', lambda *a, **k: [])
+    output = Path(os.environ.get('SHARADAR_REPLAY_EVIDENCE', str(tmp_path))) / 'falsifiers' / 'unchanged_actions'
+    with pytest.raises(StateMismatch, match='split source agreement'):
+        run_scenario(SCENARIOS['split_ratio_2_20260818'], server_dsn=dsn, output=output)
