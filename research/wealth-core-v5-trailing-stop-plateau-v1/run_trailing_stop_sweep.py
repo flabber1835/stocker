@@ -1,0 +1,418 @@
+#!/usr/bin/env python3
+from __future__ import annotations
+
+import argparse
+import hashlib
+import importlib.util
+import json
+import os
+import shutil
+import sys
+import types
+from pathlib import Path
+
+import numpy as np
+import pandas as pd
+
+HERE = Path(__file__).resolve().parent
+IMPEDANCE_DIR = HERE.parent / "wealth-core-v5-sentinel-ex3-impedance-v1"
+V5_DIR = HERE.parent / "wealth-core-v5-affordability-fix-v1"
+for p in (IMPEDANCE_DIR, V5_DIR):
+    if str(p) not in sys.path:
+        sys.path.insert(0, str(p))
+
+from v5_execution_harness import (
+    CLOSE_ADMISSION_RULE,
+    _V4,
+    apply_v5_open_time_whole_share_10bp,
+    assert_exact_v5_delta,
+)
+
+CONTROL_10BP_SOURCE_SHA256 = "5f61d5ed5afd784bfb247d554344199743de11dcf9b31956430c6a77b91fedf7"
+DATASET_SHA256 = "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993"
+CURRENT_STOP_RET = 0.70
+SLOTS = 20
+ENTRY_W = 0.05
+
+STOP_SWEEP = {
+    "stop_15": 0.15,
+    "stop_20": 0.20,
+    "stop_22_5": 0.225,
+    "stop_25": 0.25,
+    "stop_27_5": 0.275,
+    "stop_30": 0.30,
+    "stop_32_5": 0.325,
+    "stop_35": 0.35,
+    "stop_40": 0.40,
+    "stop_45": 0.45,
+}
+
+SELECTED_EX3 = {
+    "rec": 8,
+    "r40_floor": -0.05,
+    "fast_damaged": 0.88,
+    "healthy_damaged": 0.63,
+}
+
+FROZEN_EX3 = {
+    "ldrc_r20": -0.085,
+    "ldrc_v": 0.11,
+    "ldrc_dd": -0.10,
+    "ldrc_ceiling": 0.55,
+    "divergence_spy_floor": 0.0,
+    "native_ordinary_dd": -0.155,
+    "native_fast_green": 0.20,
+    "native_fast_r5": -0.05,
+    "native_fast_r10": -0.08,
+    "native_fast_damaged_delta5": 0.30,
+    "native_fast_volacc": 0.04,
+    "native_fast_spy20": -0.01,
+    "native_fast_r10confirm": -0.10,
+}
+
+BASELINE_30_CORE_20Y = {
+    "cagr": 0.1707283988522943,
+    "max_drawdown": -0.5033805797189879,
+    "sharpe_daily_252": 0.839634226922239,
+}
+BASELINE_30_EX3_20Y = {
+    "cagr": 0.21557225805610547,
+    "max_drawdown": -0.2737554573856501,
+    "sharpe_daily_252": 1.1210581190467033,
+}
+BASELINE_30_CORE_TAPE_SHA256 = "3b40a23a7e499e0314f1d6e86b767fba648136758fdd106cdfd0ff27620b545f"
+BASELINE_30_TX_SHA256 = "0e4828229c323ab029a5dfe49f258a3e2e379aee6b5e18169e72f9edc88652da"
+BASELINE_30_CLOSE_SHA256 = "d1f557bd139e3445538e3f94bce90fe296eba19450d939c4160fe0880e067724"
+
+CORE_COLUMNS = [
+    "date", "shadow_equity", "open_equity", "wc_dd", "damaged", "green",
+    "eligible_count", "leadership_population", "held_count",
+    "research_eligible_universe", "research_ranking_count",
+    "research_ranking_sha256", "research_selected_positions_sha256",
+    "research_selected_positions",
+]
+
+
+def sha_bytes(data: bytes) -> str:
+    return hashlib.sha256(data).hexdigest()
+
+
+def load_module(path: Path, name: str):
+    spec = importlib.util.spec_from_file_location(name, path)
+    if spec is None or spec.loader is None:
+        raise RuntimeError(f"cannot load {path}")
+    mod = importlib.util.module_from_spec(spec)
+    sys.modules[name] = mod
+    spec.loader.exec_module(mod)
+    return mod
+
+
+def replace_once(src: str, old: str, new: str, label: str) -> str:
+    count = src.count(old)
+    if count != 1:
+        raise RuntimeError(f"{label}: expected one source seam, observed {count}")
+    return src.replace(old, new, 1)
+
+
+def assert_frozen_20_slots(src: str, label: str) -> None:
+    for marker in ("N_SLOTS = 20", "ENTRY_W = 0.05"):
+        count = src.count(marker)
+        if count != 1:
+            raise RuntimeError(f"{label}: frozen 20-slot seam mismatch for {marker!r}: {count}")
+
+
+def apply_selected_ex3(src: str) -> str:
+    out = src
+    if out.count("LDRC_REC=8") != 1:
+        raise RuntimeError(f"Sentinel EX3 REC seam mismatch: {out.count('LDRC_REC=8')}")
+    out = replace_once(
+        out,
+        "and recent_r20>0 and recent_r40>0.0)",
+        "and recent_r20>0 and recent_r40>-0.05)",
+        "Sentinel EX3 V5 full-recovery r40 floor",
+    )
+    if out.count("'dam':0.88") != 1:
+        raise RuntimeError("Sentinel EX3 V5 FAST damaged threshold seam mismatch")
+    if out.count("dam<=0.63 and green>=.20") != 1:
+        raise RuntimeError("Sentinel EX3 V5 healthy damaged ceiling seam mismatch")
+    return out
+
+
+def apply_trailing_stop(selected_src: str, stop_pct: float) -> str:
+    if not (0.0 < stop_pct < 1.0):
+        raise RuntimeError(f"invalid trailing stop percentage: {stop_pct}")
+    if selected_src.count("STOP_RET = 0.70") != 1:
+        raise RuntimeError("frozen trailing-stop seam mismatch")
+    if abs(stop_pct - 0.30) < 1e-15:
+        return selected_src
+    retention = 1.0 - stop_pct
+    replacement = f"STOP_RET = {retention:.3f}"
+    out = replace_once(selected_src, "STOP_RET = 0.70", replacement, "trailing stop")
+    expected = selected_src.replace("STOP_RET = 0.70", replacement, 1)
+    if out != expected:
+        raise RuntimeError("candidate contains changes outside trailing-stop seam")
+    return out
+
+
+def metrics(frame: pd.DataFrame, col: str) -> dict:
+    nav = frame[col].astype(float)
+    dates = pd.to_datetime(frame["date"])
+    if len(nav) < 2 or not np.isfinite(nav).all() or (nav <= 0).any():
+        raise RuntimeError(f"invalid NAV path: {col}")
+    years = (dates.iloc[-1] - dates.iloc[0]).days / 365.2425
+    multiple = float(nav.iloc[-1] / nav.iloc[0])
+    r = nav.pct_change().dropna()
+    vol = float(r.std(ddof=1))
+    return {
+        "start": str(dates.iloc[0].date()),
+        "end": str(dates.iloc[-1].date()),
+        "sessions": int(len(nav)),
+        "cagr": multiple ** (1.0 / years) - 1.0,
+        "ending_multiple": multiple,
+        "max_drawdown": float((nav / nav.cummax() - 1.0).min()),
+        "sharpe_daily_252": float(r.mean() / vol * np.sqrt(252)) if vol > 0 else None,
+    }
+
+
+def windows(frame: pd.DataFrame, col: str) -> dict:
+    dates = pd.to_datetime(frame["date"])
+    end = dates.iloc[-1]
+    out = {}
+    for years in (5, 10, 15, 20):
+        start = end - pd.DateOffset(years=years)
+        out[str(years)] = metrics(frame.loc[dates >= start].copy(), col)
+    return out
+
+
+def core_tape_hash(frame: pd.DataFrame) -> str:
+    missing = [c for c in CORE_COLUMNS if c not in frame.columns]
+    if missing:
+        raise RuntimeError(f"core parity columns missing: {missing}")
+    payload = frame[CORE_COLUMNS].to_csv(index=False, float_format="%.17g", na_rep="").encode()
+    return sha_bytes(payload)
+
+
+def allocation_counts(frame: pd.DataFrame) -> dict:
+    x = frame["A_allocation"].astype(float)
+    levels = {}
+    for value in (0.0, 0.55, 0.65, 1.0):
+        levels[str(value)] = int(np.isclose(x.to_numpy(), value, atol=1e-12).sum())
+    return {
+        "average": float(x.mean()),
+        "sessions_by_level": levels,
+        "transitions": int((x.diff().abs() > 1e-12).sum()),
+    }
+
+
+def assert_metric_parity(actual: dict, expected: dict, label: str) -> None:
+    for key, value in expected.items():
+        if abs(float(actual[key]) - float(value)) > 5e-12:
+            raise RuntimeError(f"{label} parity failed for {key}: {actual[key]} vs {value}")
+
+
+def main() -> int:
+    ap = argparse.ArgumentParser()
+    ap.add_argument("--variant", required=True, choices=sorted(STOP_SWEEP))
+    ap.add_argument("--control-source", required=True, type=Path)
+    ap.add_argument("--median-overlay", required=True, type=Path)
+    ap.add_argument("--output", required=True, type=Path)
+    args = ap.parse_args()
+
+    stop_pct = float(STOP_SWEEP[args.variant])
+    stop_ret = 1.0 - stop_pct
+
+    from backtester.production_equivalent_economic_overlay import assert_contract, assert_one_session_dividend_lag
+
+    out = args.output.resolve()
+    engine = out / "engine"
+    out.mkdir(parents=True, exist_ok=False)
+    engine.mkdir()
+    workspace = Path(os.environ.get("GITHUB_WORKSPACE", ".")).resolve()
+    (workspace / "final-output").mkdir(parents=True, exist_ok=True)
+
+    manifest = json.loads((Path(os.environ["CANONICAL_PIT_DATASET"]) / "manifest.json").read_text())
+    if manifest.get("dataset_hash") != DATASET_SHA256:
+        raise RuntimeError("canonical PIT dataset hash mismatch")
+
+    raw = args.control_source.read_text()
+    if sha_bytes(raw.encode()) != CONTROL_10BP_SOURCE_SHA256:
+        raise RuntimeError("10bp source authority mismatch")
+    assert_contract(raw)
+    if assert_one_session_dividend_lag(raw) != 1:
+        raise RuntimeError("raw source dividend lag mismatch")
+
+    median = load_module(args.median_overlay.resolve(), "trailing_stop_median5_overlay")
+    median5 = median.apply_arm(raw, "MEDIAN5_CANONICAL")
+    assert_contract(median5)
+
+    v4 = _V4.apply_open_time_whole_share_10bp(median5)
+    v5 = apply_v5_open_time_whole_share_10bp(median5)
+    assert_exact_v5_delta(v4, v5)
+    assert_frozen_20_slots(v4, "V4 reference")
+    assert_frozen_20_slots(v5, "V5 candidate base")
+    if assert_one_session_dividend_lag(v5) != 1:
+        raise RuntimeError("V5 source dividend lag mismatch")
+
+    selected = apply_selected_ex3(v5)
+    if selected.count("STOP_RET = 0.70") != 1:
+        raise RuntimeError("selected EX3 V5 source does not contain exact frozen 30% stop")
+    candidate = apply_trailing_stop(selected, stop_pct)
+
+    if abs(stop_pct - 0.30) < 1e-15:
+        if candidate != selected:
+            raise RuntimeError("30% authority arm is not byte-identical to selected EX3 V5 source")
+    else:
+        expected = selected.replace("STOP_RET = 0.70", f"STOP_RET = {stop_ret:.3f}", 1)
+        if candidate != expected:
+            raise RuntimeError("candidate source delta exceeds trailing-stop substitution")
+
+    for marker in (
+        "N_SLOTS = 20", "ENTRY_W = 0.05",
+        "if float(book.cash)+1e-12<_one_share_close_cost:",
+        "q=float(math.floor(_execution_budget/(float(px)*(1+COST))))",
+        "return _median_top3(_durable,_hist,5)",
+        "LDRC_REC=8",
+        "and recent_r20>0 and recent_r40>-0.05)",
+        "'dam':0.88",
+        "dam<=0.63 and green>=.20",
+    ):
+        if candidate.count(marker) != 1:
+            raise RuntimeError(f"frozen V5/EX3 marker missing/duplicated: {marker}")
+    assert_contract(candidate)
+
+    generated = out / f"wealth-core-v5-trailing-stop-{args.variant}.py"
+    generated.write_text(candidate)
+    compile(candidate, str(generated), "exec")
+
+    os.environ["RESEARCH_REPLAY_MODE"] = "fullpit"
+    module = types.ModuleType(f"wealth_core_v5_trailing_stop_{args.variant}")
+    module.__file__ = str(generated)
+    sys.modules[module.__name__] = module
+    exec(compile(candidate, str(generated), "exec"), module.__dict__)
+    if getattr(module, "MODE", None) != "fullpit" or getattr(module, "PIT_MODE", None) is not True:
+        raise RuntimeError("generated source did not enter full-PIT mode")
+    if abs(float(getattr(module, "STOP_RET")) - stop_ret) > 1e-15:
+        raise RuntimeError(f"generated STOP_RET mismatch: {getattr(module, 'STOP_RET', None)} vs {stop_ret}")
+    module.OUT = engine
+    module.run()
+
+    daily = engine / "daily.csv"
+    summary_p = engine / "summary.json"
+    tx_p = engine / "transactions.csv"
+    close_p = engine / "close-decisions.csv"
+    telemetry_p = engine / "open-sizing-telemetry.json"
+    for path in (daily, summary_p, tx_p, close_p, telemetry_p):
+        if not path.exists():
+            raise RuntimeError(f"required evidence missing: {path.name}")
+
+    frame = pd.read_csv(daily, parse_dates=["date"])
+    if len(frame) != 5032 or str(frame.date.iloc[0].date()) != "2006-07-31" or str(frame.date.iloc[-1].date()) != "2026-07-31":
+        raise RuntimeError("measurement horizon mismatch")
+    if frame.date.duplicated().any() or not frame.date.is_monotonic_increasing:
+        raise RuntimeError("daily tape ordering failure")
+
+    summary = json.loads(summary_p.read_text())
+    telemetry = json.loads(telemetry_p.read_text())
+    if summary.get("canonical_pit_dataset_hash") != DATASET_SHA256:
+        raise RuntimeError("summary dataset mismatch")
+    if summary.get("financial_grade_dividend_lag_sessions") != 1:
+        raise RuntimeError("summary dividend lag mismatch")
+    if telemetry.get("close_admission_rule") != CLOSE_ADMISSION_RULE or telemetry.get("close_admission_rule_cash_basis") != "TOTAL_CASH":
+        raise RuntimeError("V5 affordability contract mismatch")
+
+    core_w = windows(frame, "shadow_equity")
+    ex3_w = windows(frame, "A_nav")
+    core_hash = core_tape_hash(frame)
+    tx_hash = sha_bytes(tx_p.read_bytes())
+    close_hash = sha_bytes(close_p.read_bytes())
+
+    baseline_parity = None
+    if abs(stop_pct - 0.30) < 1e-15:
+        assert_metric_parity(core_w["20"], BASELINE_30_CORE_20Y, "30% Wealth Core V5")
+        assert_metric_parity(ex3_w["20"], BASELINE_30_EX3_20Y, "30% Sentinel EX3 V5")
+        if core_hash != BASELINE_30_CORE_TAPE_SHA256:
+            raise RuntimeError(f"30% core tape parity failed: {core_hash}")
+        if tx_hash != BASELINE_30_TX_SHA256:
+            raise RuntimeError(f"30% transactions parity failed: {tx_hash}")
+        if close_hash != BASELINE_30_CLOSE_SHA256:
+            raise RuntimeError(f"30% close-decision parity failed: {close_hash}")
+        baseline_parity = True
+
+    result = {
+        "schema": "research.wealth-core-v5-trailing-stop-plateau/1",
+        "status": "PASS_FRESH_CAUSAL_PIT_REPLAY",
+        "variant": args.variant,
+        "experiment_slot": list(STOP_SWEEP).index(args.variant) + 1,
+        "experiment_budget": 10,
+        "measurement": {"start": "2006-07-31", "end": "2026-07-31", "sessions": 5032},
+        "dataset_sha256": DATASET_SHA256,
+        "parameter": {
+            "name": "wealth_core_trailing_stop_from_peak",
+            "trailing_stop_pct": stop_pct,
+            "stop_retention_factor": stop_ret,
+            "source_seam": "STOP_RET",
+            "exit_rule": "CLOSE_LE_PEAK_TIMES_STOP_RET",
+            "current_authority_trailing_stop_pct": 0.30,
+        },
+        "wealth_core_v5": {
+            "slots": SLOTS,
+            "entry_weight": ENTRY_W,
+            "median_rank_lookback": 5,
+            "cash_buffer_basis_points": 10.0,
+            "position_sizing": "NEXT_VALID_OPEN_WHOLE_SHARES",
+            "affordability_cash_basis": "TOTAL_CASH",
+            "windows": core_w,
+            "buys": int(summary.get("buys", 0)),
+            "sells": int(summary.get("sells", 0)),
+            "core_tape_sha256": core_hash,
+            "transactions_sha256": tx_hash,
+            "close_decisions_sha256": close_hash,
+        },
+        "sentinel_ex3_v5": {
+            "configuration": {**FROZEN_EX3, **SELECTED_EX3},
+            "windows": ex3_w,
+            "allocation": allocation_counts(frame),
+            "candidate_A_episodes": summary.get("candidate_A_episodes"),
+            "candidate_A_concordance_releases": summary.get("candidate_A_concordance_releases"),
+            "transition_counts": summary.get("transition_counts"),
+            "modeled_allocation_transition_cost_sum": summary.get("modeled_allocation_transition_cost_sum"),
+        },
+        "validation": {
+            "fresh_full_pit_replay": True,
+            "single_parameter_source_delta": True,
+            "all_other_wealth_core_v5_economics_frozen": True,
+            "sentinel_ex3_v5_frozen": True,
+            "baseline_30pct_exact_parity": baseline_parity,
+            "performance_target_used_at_runtime": False,
+            "sweep_predeclared_before_results": True,
+        },
+        "source": {
+            "control_10bp_sha256": CONTROL_10BP_SOURCE_SHA256,
+            "frozen_v5_generated_sha256": sha_bytes(v5.encode()),
+            "selected_ex3_v5_generated_sha256": sha_bytes(selected.encode()),
+            "candidate_generated_sha256": sha_bytes(candidate.encode()),
+            "experiment_head": os.environ.get("GITHUB_SHA"),
+        },
+    }
+    (out / "RESULT.json").write_text(json.dumps(result, indent=2, sort_keys=True) + "\n")
+
+    for source, name in (
+        (daily, "daily.csv"),
+        (summary_p, "summary.json"),
+        (tx_p, "transactions.csv"),
+        (close_p, "close-decisions.csv"),
+        (telemetry_p, "open-sizing-telemetry.json"),
+    ):
+        shutil.copy2(source, out / name)
+
+    (out / "SHA256.json").write_text(json.dumps({
+        path.name: sha_bytes(path.read_bytes()) for path in sorted(out.iterdir())
+        if path.is_file() and path.name != "SHA256.json"
+    }, indent=2, sort_keys=True) + "\n")
+
+    print("[WEALTH_CORE_V5_TRAILING_STOP_RESULT] " + json.dumps(result, sort_keys=True), flush=True)
+    return 0
+
+
+if __name__ == "__main__":
+    raise SystemExit(main())
