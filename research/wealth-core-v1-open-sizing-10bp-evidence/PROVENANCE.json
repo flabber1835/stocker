@@ -1,0 +1,8 @@
+{
+  "base_evidence_head": "3b5d70de258dadaac6272f2bd9d682d291117d29",
+  "canonical_pit_dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "control_source_sha256": "5f61d5ed5afd784bfb247d554344199743de11dcf9b31956430c6a77b91fedf7",
+  "schema": "research.wealth-core-v1-open-sizing-10bp-provenance/1",
+  "trigger_head": "428e9792bd7c63d604a95dfc3ae40a2b0fcc1fe8",
+  "workflow_run_id": 34294467743
+}

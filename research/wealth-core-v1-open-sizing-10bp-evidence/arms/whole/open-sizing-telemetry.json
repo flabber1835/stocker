@@ -1,0 +1,22 @@
+{
+  "all_admitted_trades_executed": true,
+  "average_rounding_underfill_fraction": 0.009295045299058063,
+  "buffer_basis_points": 10,
+  "buffer_fraction": 0.001,
+  "buffer_role": "CLOSE_TIME_ADMISSION_CUSHION_RELEASED_AT_OPEN",
+  "cash_limited_open_executions": 118,
+  "close_admissions": 522,
+  "close_q0_no_cash_above_cushion": 64475,
+  "completed_entries": 521,
+  "fractional_buy_count": 0,
+  "fractional_shares_allowed": false,
+  "full_target_executions": 0,
+  "invalid_open_market_blocks": 0,
+  "minimum_actual_cash": 0.06386817837687886,
+  "mode": "whole",
+  "next_open_blocks": 0,
+  "partial_target_executions": 521,
+  "rounding_underfill_dollars_total": 21402.799181532388,
+  "schema": "research.wealth-core-v1-open-sizing-10bp/1",
+  "zero_quantity_blocks": 0
+}
