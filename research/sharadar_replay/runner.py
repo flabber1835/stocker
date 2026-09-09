@@ -122,9 +122,9 @@ def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
                         except Exception as exc:
                             conn.rollback()
                             error = {"type": type(exc).__name__, "detail": str(exc)}
-                    corpus = observed_corpus(conn)
-                    state = readiness.check_readiness(conn, today=step.at.isoformat())
-                    current = publication.require_current(conn)
+                    with publication.pinned(conn) as current:
+                        corpus = observed_corpus(conn)
+                        state = readiness.check_readiness(conn, today=step.at.isoformat())
                     failures = [check.name for check in state.failures]
                     snapshot_path = output / f"{index:03d}_{step.name}.json"
                     evidence = {"step": step.name, "at": step.at.isoformat(),

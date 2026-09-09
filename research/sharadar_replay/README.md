@@ -103,3 +103,24 @@ oracle tier locally.
 The dedicated GitHub Actions workflow runs both tiers, records progress and
 retains scenario definitions, HTTP transcripts, per-step corpus snapshots,
 readiness details, comparison failures and exact code/runtime identity.
+
+## Recovery defect discovered by the replay
+
+[Run 34414566003](https://github.com/flabber1835/stocker/actions/runs/34414566003)
+reproduced a daily recovery deadlock on the original production implementation.
+A failed SEP traversal had already committed the 41-session SPY/BIL window.
+The following day's retry requested its newly shifted 41-session window. One
+older SPY row and one older BIL row retained the failed writer identity, so the
+publication gate correctly refused the retry with `CorpusIncoherent`.
+
+The recovery contract now requires the reference request to begin at the earlier
+of its ordinary required start and the earliest reference row owned by a durably
+failed unpublished run. Both SPY and BIL contribute to that boundary. The
+complete source response rewrites the affected keys before publication. A
+failed reference row beyond the requested through-date remains an explicit
+refusal. Published owners and ordinary healthy data do not widen the request.
+The publication guard and reference prices retain their existing semantics.
+
+`incomplete_sep` exercises the original failure and first-retry convergence.
+An executable falsifier restores the old moving-window behavior and must fail
+with the original stranded-reference ownership error.

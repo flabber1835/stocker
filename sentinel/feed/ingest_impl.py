@@ -645,14 +645,17 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
             conn, action_source_rows, run_id=run.progress.run_id,
             window_start=action_start, window_end=to)
 
-    # A legacy corpus may be complete while this table is empty. Repair the
-    # exact readiness-required 41-session tail, not the 14-calendar-day equity
-    # overlap. BIL shares this bounded SFP observation so its frontier mark is
-    # published without ever entering the SEP universe.
+    # Repair the required reference tail and every older reference key still
+    # owned by a failed unpublished run. A next-day retry otherwise shifts the
+    # 41-session tail past its failed leading edge and cannot publish.
+    # BIL shares this SFP observation and remains outside the SEP universe.
     with run.chunk("spy"):
         from sentinel.feed import calendar, readiness
         spy_start = calendar.previous_sessions(
             to, readiness.REQUIRED_SPY_SESSIONS)[0]
+        from sentinel.feed import recovery
+        spy_start = recovery.reference_window_start(
+            conn, requested_start=spy_start, through=to)
         params = {"ticker": SFP_REFERENCE_TICKERS,
                   **sharadar.date_params(spy_start, to)}
         rows = fetch(sharadar.SFP, params)

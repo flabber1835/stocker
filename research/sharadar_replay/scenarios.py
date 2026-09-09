@@ -139,9 +139,9 @@ def build_scenarios() -> dict[str, Scenario]:
         faults=(Fault(table="SEP", kind="omit_ticker", ticker="BBB"),),
         required_blockers=("freshness",)), step("recover", SECOND), step("continue", THIRD)],
         recovery_from="recover")
-    hidden_overlap = hidden_references.model_copy(update={
-        "bars": tuple(r for r in initial.bars if r[1] < SPLIT),
-    })
+    # Identical previously published SEP values retain their original owner;
+    # the newly inserted session remains invisible until publication succeeds.
+    hidden_overlap = hidden_references
     add("publication_interruption", [step("publication_interrupted", FIRST,
         publication_failure=True, ready=False, error="scheduled publication interruption",
         expected=hidden_overlap, required_blockers=("freshness",)),

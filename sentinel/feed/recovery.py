@@ -570,6 +570,39 @@ def extended_overlap_days(conn, requested: int) -> int:
     return requested + (p - v).days
 
 
+def reference_window_start(conn, *, requested_start: str, through: str) -> str:
+    """Include reference keys stranded by an interrupted daily SFP write.
+
+    The ordinary 41-session tail moves forward daily. An older unpublished
+    owner just outside that new tail must be rewritten from current source
+    before the replacement generation can publish. The corpus lock binds this
+    observation to the subsequent request/write/publication sequence.
+    """
+    from sentinel.feed import store
+
+    store._assert_corpus_locked(conn)
+    start = _dt.date.fromisoformat(str(requested_start))
+    end = _dt.date.fromisoformat(str(through))
+    if start > end:
+        raise ValueError("reference recovery window is reversed")
+    for table in ("sentinel_spy_total_return", "sentinel_defensive_bars"):
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT MIN(t.session),MAX(t.session) FROM {table} t"
+                " JOIN feed_ingest_runs r ON r.run_id=t.last_written_run_id"
+                " WHERE r.status='failed'"
+                " AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
+                "                 WHERE p.run_id=t.last_written_run_id)")
+            lo, hi = cur.fetchone()
+        if hi is not None and hi > end:
+            raise PublicationRecoveryRefused(
+                f"failed {table} reference rows extend through {hi}, beyond "
+                f"requested {end}; refusing incomplete reference recovery")
+        if lo is not None:
+            start = min(start, lo)
+    return start.isoformat()
+
+
 __all__ = [
     "ActionReconcileRetirementPlan", "FailedLiveCandidate", "FullReseedPlan",
     "LiveCandidate",
@@ -579,6 +612,7 @@ __all__ = [
     "load_action_reconcile_retirement_plan", "pending_validated",
     "prepare_full_reseed", "record_action_reconcile_retirement_plan",
     "require_published",
+    "reference_window_start",
     "resume_pending_publication", "retire_failed_bars_in_stable_seed_window",
     "retire_failed_action_reconcile_bars_for_publication",
     "retire_failed_nonbar_rows_after_full_seed",
