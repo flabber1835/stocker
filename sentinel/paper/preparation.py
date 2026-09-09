@@ -114,6 +114,7 @@ from .inspection import (
 )
 
 from .validation import (
+    _latest_plan_or_refuse,
     _assert_concordance_witness_authority,
     _hash,
     _readiness_or_refuse,
@@ -351,7 +352,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 dual_shadow_observation_id=dual_shadow_observation_id,
                 dual_shadow_starting_cash=dual_shadow_starting_cash)
 
-            existing_plan = journal.latest_plan(conn)
+            existing_plan = _latest_plan_or_refuse(conn)
             dual_result = None
             dual_state = None
             if dual_mode:
@@ -719,7 +720,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 conn, through=through_date, missed=missed,
                 advance_state=advance, decide=decide, state=state.to_dict())
             final_state = SessionState.from_dict(caught.state)
-            latest = journal.latest_plan(conn)
+            latest = _latest_plan_or_refuse(conn)
             if latest is None or latest.plan_id != caught.plan.plan_id:
                 raise PaperActivationRefused(
                     "preparation did not leave exactly its plan current")
@@ -761,7 +762,7 @@ def current_paper_plan(
     dual_mode = all(value is not None for value in dual_values)
     dual_match = None
     if dual_mode:
-        plan = journal.latest_plan(conn)
+        plan = _latest_plan_or_refuse(conn)
         if plan is None:
             raise PaperActivationRefused(
                 "there is no durable current dual PAPER plan")

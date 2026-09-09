@@ -345,7 +345,8 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
                         and all(c in "0123456789abcdef" for c in suffix))
     if ((intent_fingerprint is not None and intent_fingerprint != fingerprint)
             or (deterministic_id and suffix != fingerprint)):
-        raise PlanAuthorityMissing("plan identity differs from restored opening intent economics")
+        raise PlanAuthorityMissing(
+            "stored plan does not match its deterministic economic identity or opening intent record")
     return plan
 
 

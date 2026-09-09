@@ -188,7 +188,19 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                     node, annotate_fields=True, include_attributes=False)
                 successor = record.get("successor")
                 if successor is not None:
-                    assert successor["design"] == "docs/median5-production.md"
+                    approved = {
+                        "docs/median5-production.md": {
+                            "_default_paper_strategy", "_fresh_warmed_state",
+                            "_assert_concordance_witness_authority"},
+                        "docs/wealth-core-v5-ex3-v6-production.md": {
+                            "_load_marks_and_tickers", "_preopen_active_security_ids",
+                            "_provably_clean_empty_noop", "_target_projection_or_refuse",
+                            "_execute_current_paper_plan", "_opening_prices_or_retry",
+                            "_latest_plan_or_refuse", "_state_and_plan_or_refuse",
+                            "_validate_broker_grant", "prepare_paper_plan",
+                            "current_paper_plan"},
+                    }
+                    assert node.name in approved[successor["design"]]
                     assert successor["reason"]
                     assert (ROOT / successor["design"]).is_file()
                 expected_hash = (successor["ast_sha256"] if successor

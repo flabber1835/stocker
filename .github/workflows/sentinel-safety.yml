@@ -153,6 +153,13 @@ jobs:
             /work/tests/scripts \
             /work/tools /work/repo/scripts
 
+      - name: Verify V5 opening sizing and durable recovery
+        run: |
+          set -euo pipefail
+          docker run --rm --network none sentinel-test:ci tests/v5 -q -ra
+          docker run --rm --network none --entrypoint python sentinel-test:ci \
+            /work/tools/v5_mutation_check.py
+
       - name: Run the complete Sentinel suite without network access
         run: |
           set -euo pipefail
@@ -250,9 +257,6 @@ jobs:
             tests/median5 -q -ra
           docker run --rm --network none --entrypoint python sentinel-test:ci \
             /work/tools/median5_mutation_check.py
-          docker run --rm --network none sentinel-test:ci tests/v5 -q -ra
-          docker run --rm --network none --entrypoint python sentinel-test:ci \
-            /work/tools/v5_mutation_check.py
 
       - name: Validate shell and Compose surfaces
         env:

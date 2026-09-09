@@ -272,7 +272,7 @@ def _validate_broker_grant(
                 dual_shadow_observation_id is not None
                 and dual_shadow_starting_cash is not None)
             if dual_mode:
-                plan = journal.latest_plan(conn)
+                plan = _latest_plan_or_refuse(conn)
                 if plan is None:
                     raise PaperActivationRefused(
                         "dual broker guard has no current PAPER plan")
@@ -369,8 +369,15 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
         authority_check=require_current_authority)
     return GuardedExecutionBroker(inner=broker, grant=grant, guard=guard)
 
+def _latest_plan_or_refuse(conn):
+    try:
+        return journal.latest_plan(conn)
+    except journal.PlanAuthorityMissing as exc:
+        raise PaperActivationRefused(str(exc)) from exc
+
+
 def _state_and_plan_or_refuse(conn) -> tuple[SessionState, ExecutionPlan, object]:
-    plan = journal.latest_plan(conn)
+    plan = _latest_plan_or_refuse(conn)
     if plan is None:
         raise PaperActivationRefused("there is no durable current execution plan")
     _assert_deterministic_plan_id(plan)

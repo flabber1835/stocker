@@ -507,7 +507,12 @@
         2397,
         2759
       ],
-      "owner": "execution"
+      "owner": "execution",
+      "successor": {
+        "ast_sha256": "3c70eb72699fbebd5465be509a36f1a80acfead6137ab1330580c3772eac6f33",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Resolve and persist opening intent before execution and require pre-open entry coverage."
+      }
     },
     "_execution_observation_time": {
       "generated_ast_sha256": "133e43dd466e3981231988361c40c009b55ac5cab8eb09ebd6788a7a503b427c",
@@ -604,6 +609,15 @@
       ],
       "owner": "targets"
     },
+    "_latest_plan_or_refuse": {
+      "introduced_by": "docs/wealth-core-v5-ex3-v6-production.md",
+      "owner": "validation",
+      "successor": {
+        "ast_sha256": "8ae8415d255fcca8a8010d0d175de6ff45cff00156424e22294fae8d4f9963c0",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Translate journal plan-authority errors into PaperActivationRefused."
+      }
+    },
     "_load_marks_and_tickers": {
       "generated_ast_sha256": "ca6ba67872aab988905382eda278340903befbd539c4fd23f817f9506320a7ef",
       "original_ast_sha256": "d59cd9546a2bda5952b33ad5f04d6e963c7683c70b5f6b888a16e679e52d1213",
@@ -611,7 +625,12 @@
         1122,
         1150
       ],
-      "owner": "preparation"
+      "owner": "preparation",
+      "successor": {
+        "ast_sha256": "42b330d6b41923219c27f9c341fed5f315d63e9849ae29fd0d379bd5b7beb404",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Include canonical dollar-entry identities in the close mark lookup."
+      }
     },
     "_missed_sessions": {
       "generated_ast_sha256": "5d19b9e6f29b7f6cbce5e9eaacb3a241f5badf7886aa6d2b1d75beeb247c1bca",
@@ -640,6 +659,15 @@
       ],
       "owner": "targets"
     },
+    "_opening_prices_or_retry": {
+      "introduced_by": "docs/wealth-core-v5-ex3-v6-production.md",
+      "owner": "execution",
+      "successor": {
+        "ast_sha256": "5203b0f337bc2c6b8fab3cb7c0dcbf4fcec46822f2054e94aa93479f4faa7aba",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Translate unavailable opening evidence into the retryable paper contract."
+      }
+    },
     "_plan_deltas": {
       "generated_ast_sha256": "f3c52804c70ea4fbb52fbdb8a8892a98e1a2412ffe5a241a10ae219a160eb6ff",
       "original_ast_sha256": "f3c52804c70ea4fbb52fbdb8a8892a98e1a2412ffe5a241a10ae219a160eb6ff",
@@ -665,7 +693,12 @@
         2084,
         2107
       ],
-      "owner": "targets"
+      "owner": "targets",
+      "successor": {
+        "ast_sha256": "f4d0d48fa4bb9e34a62b185b5191e54ba9a11a9352ee0f5cf7af949760431204",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Retain deferred entry and funding-exit identities for pre-open authority."
+      }
     },
     "_preopen_views_or_none": {
       "generated_ast_sha256": "f97fa7dfeddc54895ce35c65e20f1b015d405940d5049edff79aa534b9c0beb8",
@@ -683,7 +716,12 @@
         2164,
         2179
       ],
-      "owner": "targets"
+      "owner": "targets",
+      "successor": {
+        "ast_sha256": "2b05d9b81659b3bfc4dcb5dd2286f60ad6c0e59ee619e641c63fdc47308d3bea",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Pending dollar entries prevent the all-zero share-book bypass."
+      }
     },
     "_readiness_or_refuse": {
       "generated_ast_sha256": "7ab01a9041855530fb50f2986f6691aa73324f84c2895084f66bdec0f0595e79",
@@ -755,7 +793,12 @@
         1945,
         1957
       ],
-      "owner": "validation"
+      "owner": "validation",
+      "successor": {
+        "ast_sha256": "9b16b531f94de5e69fda3355fbbda3b63491ce6c66c8d3ef25f8635fe7baf314",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Refuse lost or changed plan-intent authority through the paper-domain error boundary."
+      }
     },
     "_target_action_lookup": {
       "generated_ast_sha256": "44a7037e763ec5c83bfb9e2cd9baeb1cb3c8663e4e54cac9bc4ae1ee698218b1",
@@ -782,7 +825,12 @@
         2229,
         2321
       ],
-      "owner": "targets"
+      "owner": "targets",
+      "successor": {
+        "ast_sha256": "a5abc1989f743a0e29465cf77e596090711429757f48a5b31c7afaa2dd79b0da",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Resolve dollar entries from retained opening evidence and reproduce them on recovery."
+      }
     },
     "_validate_automation_grant": {
       "generated_ast_sha256": "44b255babafd9ac3d4687aa8a299f7c3968a0ef5f4fb9ba8de95d2c11351725e",
@@ -800,7 +848,12 @@
         1309,
         1415
       ],
-      "owner": "validation"
+      "owner": "validation",
+      "successor": {
+        "ast_sha256": "c7206c26658ee7fae7dcaeee2d9f4798325b6f626ffdc11bae873eec3f6d7881",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Normalize corrupted plan identity before validating a dual execution grant."
+      }
     },
     "build_security_resolver": {
       "generated_ast_sha256": "2081ff39ad7127034e11ad3b2afc731a971ea926d9eb664546d3c0a4d6ed3a68",
@@ -818,7 +871,12 @@
         3047,
         3178
       ],
-      "owner": "preparation"
+      "owner": "preparation",
+      "successor": {
+        "ast_sha256": "36ecf40e724f6007dd50020ad8a849a06ca536946e6923cbdabaf79f62d68dec",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Normalize journal identity refusal when inspecting the current plan."
+      }
     },
     "execute_automated_paper_plan": {
       "generated_ast_sha256": "09a9f8a9096eca410fc7a60d9089c10cd04a67603e3cfa13914e8fda53a33f39",
@@ -854,7 +912,12 @@
         1441,
         1942
       ],
-      "owner": "preparation"
+      "owner": "preparation",
+      "successor": {
+        "ast_sha256": "486d1eddabe1339d0c90fe003e2d28b30b448378cb13f4c57f9c88613f6b234d",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Normalize journal identity refusal before any preparation broker read."
+      }
     },
     "recover_automated_paper_cycle": {
       "generated_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",

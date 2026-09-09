@@ -270,6 +270,17 @@ def test_opening_prices_use_fresh_execute_read_authority():
         assert _authority_operation(grant, BrokerOperation.OPENING_PRICES) == "EXECUTE_READ"
 
 
+def test_lost_plan_intent_uses_the_paper_refusal_contract(monkeypatch):
+    from sentinel.execution import journal
+    from sentinel.paper.validation import _latest_plan_or_refuse
+    from sentinel.paper.model import PaperActivationRefused
+    def corrupt(conn):
+        raise journal.PlanAuthorityMissing("opening intent record lost")
+    monkeypatch.setattr(journal, "latest_plan", corrupt)
+    with pytest.raises(PaperActivationRefused, match="opening intent record lost"):
+        _latest_plan_or_refuse(None)
+
+
 def test_entry_submit_order_preserves_slots_after_reductions():
     from sentinel.execution import commands, executor
     deltas = [commands.Delta(sid, D(0), D(0), D(0), D(remaining),

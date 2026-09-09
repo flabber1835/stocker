@@ -84,6 +84,7 @@ from .inspection import (
 )
 
 from .validation import (
+    _latest_plan_or_refuse,
     _readiness_or_refuse,
     _execution_window_or_refuse,
     _assert_deterministic_plan_id,
@@ -195,7 +196,7 @@ async def _execute_current_paper_plan(
             frontier = feed_store.latest_visible_session(conn)
             dual_result = None
             if dual_mode:
-                plan = journal.latest_plan(conn)
+                plan = _latest_plan_or_refuse(conn)
                 if plan is None:
                     raise PaperActivationRefused(
                         "there is no durable current dual PAPER plan")

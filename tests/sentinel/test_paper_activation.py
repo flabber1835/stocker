@@ -2176,9 +2176,9 @@ class TestStrictExecutionGate:
                 (json.dumps({"CORRUPTED": "1"}), durable_plan.plan_id))
         conn.commit()
 
-        corrupted = journal.latest_plan(conn)
-        assert corrupted.plan_id == durable_plan.plan_id
-        assert corrupted.fingerprint() != durable_plan.fingerprint()
+        with pytest.raises(journal.PlanAuthorityMissing,
+                           match="does not match its deterministic economic identity"):
+            journal.latest_plan(conn)
 
         with pytest.raises(
                 paper.PaperActivationRefused,

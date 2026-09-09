@@ -119,6 +119,8 @@ This uses the repository's established cursor mechanism and preserves its sealed
 behavioral schema. The record binds the full plan fingerprint and effective
 session. Deterministic plan IDs must match reconstructed economics, so a lost
 intent record refuses reload. Historical share-only plans retain their identities.
+Paper entry points translate journal identity refusals into their existing
+`PaperActivationRefused` contract before broker reads.
 
 At the effective session, execution reads raw SIP bars for the first regular
 session minute from Alpaca's market-data endpoint. The read starts after that
@@ -156,6 +158,13 @@ existing refusal boundary. A zero exposure target requires no entry price read.
 Acceptance adds price-domain/timestamp/coverage falsifiers, opening gaps, split
 units, funding and whole-share limits, immutable plan/projection persistence,
 restart after submission ambiguity, and the existing broker conformance gates.
+
+The historical paper-decomposition manifest retains its original source and AST
+hashes. Explicit successor records name this design for the changed target,
+preparation, execution and validation definitions. New opening-price and journal
+refusal helpers are recorded as introductions. The ownership test allows this
+specific successor design and checks every current AST; economic golden fixtures
+retain their original values.
 
 ## Status
 

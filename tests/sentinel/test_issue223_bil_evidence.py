@@ -215,7 +215,7 @@ def test_paper_planning_resolves_fixed_bil_mark_and_sizes_the_sleeve(
         paper_preparation, "shadow_target",
         lambda _state: SimpleNamespace(
             shares={"SEC-A": Decimal("100")},
-            tickers={"SEC-A": "AAA"}))
+            tickers={"SEC-A": "AAA"}, opening_intents=()))
 
     marks, tickers = paper_preparation._load_marks_and_tickers(  # noqa: SLF001
         conn, object(), "2026-08-20")

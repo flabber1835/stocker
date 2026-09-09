@@ -49,7 +49,7 @@ def test_lost_opening_intent_record_refuses_plan_reload(conn):
         cur.execute("DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s",
                     (f"plan-opening-intents:v1:{plan.plan_id}",))
     conn.commit()
-    with pytest.raises(journal.PlanAuthorityMissing, match="opening intent economics"):
+    with pytest.raises(journal.PlanAuthorityMissing, match="opening intent record"):
         journal.load_plan(conn, plan.plan_id)
 
 
