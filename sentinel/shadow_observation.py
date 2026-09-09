@@ -429,6 +429,10 @@ def _economic_input_identity(
             if volume > 0:
                 liquidity = _decimal_text(raw_close * volume)
         bars.append({
+            **({"signal_close": _optional_decimal_text(
+                    bar.signal_close, where=f"bar {index} signal close", positive=True),
+                "raw_compatible_volume": None if volume is None else _decimal_text(volume)}
+               if bar.signal_close is not None else {}),
             "session": str(bar.session),
             "security_id": str(bar.security_id),
             "ticker": str(bar.ticker),
@@ -578,6 +582,10 @@ def _validate_warmup_input_identity(
         "sessions_sha256", "bars_sha256", "metadata_sha256",
         "warmup_input_sha256",
     }
+    if identity.get("median5_profile") == "wealth-core-median5-v1":
+        extra_digests = {"median5_spy_sha256", "median5_terminal_sha256"}
+        fields |= extra_digests | {"median5_profile"}
+        digest_fields |= extra_digests
     payload = {key: item for key, item in identity.items()
                if key != "warmup_input_sha256"}
     first_warmup = identity.get("first_warmup_session")
@@ -1030,6 +1038,10 @@ class ShadowObserver:
             committed=False, where="shadow activation timing")
         self.warmup_input_identity = _validate_warmup_input_identity(
             warmup_input_identity, first_session=self.first_session)
+        from sentinel.controller.median5 import enabled as median5_enabled
+        if median5_enabled(self.strategy_identity) != (
+                self.warmup_input_identity.get("median5_profile") == "wealth-core-median5-v1"):
+            raise ShadowObservationRefused("warm-up economic profile differs from strategy identity")
         self.warmup_input_identity_sha256 = self.warmup_input_identity[
             "warmup_input_sha256"]
         try:
@@ -1184,7 +1196,18 @@ class ShadowObserver:
         if seed_cash != expected or peak != expected:
             raise ShadowObservationRefused(
                 "initial shadow state cash/peak differs from explicit starting cash")
-        if state.wealth_core != baseline.wealth_core:
+        cold_wealth = dict(state.wealth_core)
+        if state.median5 is not None:
+            features = cold_wealth.get("median5") or {}
+            if (features.get("last_index") != state.feed.get("session_index")
+                    or features.get("formation_started") is not False):
+                raise ShadowObservationRefused("Median-5 seed feature history is not a cold formation")
+            cold_wealth["median5"] = baseline.wealth_core["median5"]
+            feature_fields = {"witness_nav", "selected", "selected_closes", "spy_history", "last_session", "peer_keys"}
+            if any(state.median5[k] != baseline.median5[k]
+                   for k in baseline.median5 if k not in feature_fields):
+                raise ShadowObservationRefused("Median-5 seed has pre-existing recovery state")
+        if cold_wealth != baseline.wealth_core:
             raise ShadowObservationRefused(
                 "initial shadow Wealth Core book is not the exact cold seed")
         ledger = state.ledger

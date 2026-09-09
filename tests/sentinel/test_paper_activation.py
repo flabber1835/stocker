@@ -189,6 +189,10 @@ def simulator_is_certified(monkeypatch):
     monkeypatch.setattr(
         paper_preparation, "runtime_strategy_identity",
         lambda _config, **_kwargs: dict(IDENTITY))
+    # Keep the explicit synthetic strategy consistent through both preparation
+    # and execution. Production-default composition has its own regression.
+    monkeypatch.setattr("sentinel.strategy.production_strategy",
+                        lambda: (CONFIG, dict(IDENTITY)))
     authority_result = lambda *_args, **_kwargs: SimpleNamespace(
         certificate_sha256=ROLLOUT_CERTIFICATE,
         authorization_mode="PAPER_OBSERVATION_ONLY")

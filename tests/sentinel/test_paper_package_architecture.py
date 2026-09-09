@@ -186,6 +186,13 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                 record = manifest["definitions"][node.name]
                 normalized = ast.dump(
                     node, annotate_fields=True, include_attributes=False)
-                assert record["generated_ast_sha256"] == __import__(
+                successor = record.get("successor")
+                if successor is not None:
+                    assert successor["design"] == "docs/median5-production.md"
+                    assert successor["reason"]
+                    assert (ROOT / successor["design"]).is_file()
+                expected_hash = (successor["ast_sha256"] if successor
+                                 else record["generated_ast_sha256"])
+                assert expected_hash == __import__(
                     "hashlib").sha256(normalized.encode()).hexdigest()
     assert actual == expected

@@ -31,6 +31,7 @@ from sentinel.controller.ldrc import (
     state_to_dict as ldrc_state_to_dict)
 from sentinel.controller.machine import (
     Controller, validate_controller_state)
+from sentinel.controller import median5 as median5_controller
 
 ENVELOPE_VERSION = 5
 LEGACY_ENVELOPE_VERSIONS = frozenset({2, 3, 4})
@@ -101,7 +102,10 @@ def _bounded_feed_dict(raw: Mapping,
     """
     protected = set(protected_security_ids or ())
     session_index = int(raw.get("session_index", -1))
-    cutoff = session_index - FEED_RESTART_SESSIONS + 1
+    retained = raw.get("history_sessions", FEED_RESTART_SESSIONS)
+    if retained not in (FEED_RESTART_SESSIONS, 260):
+        raise ValueError("invalid feed restart history length")
+    cutoff = session_index - retained + 1
     seen: dict[str, int] = {}
     for session, index in (raw.get("seen_sessions") or {}).items():
         index = int(index)
@@ -159,11 +163,17 @@ def _bounded_feed_dict(raw: Mapping,
                 or not math.isfinite(split_factor) or split_factor <= 0):
             raise ValueError(
                 f"feed restart series {sid!r} has invalid split_factor anchor")
+        multiplier = series.get("vendor_basis_multiplier", 1.)
+        if (isinstance(multiplier, bool) or not isinstance(multiplier, (int, float))
+                or not math.isfinite(multiplier) or multiplier <= 0):
+            raise ValueError("invalid vendor-to-owned signal basis multiplier")
         compact_series[sid] = {
             "security_id": security_id,
             "ticker": ticker,
             "issuer_id": issuer_id,
             "split_factor": split_factor,
+            **({"vendor_basis_multiplier": float(series["vendor_basis_multiplier"])}
+               if series.get("vendor_basis_multiplier", 1.) != 1. else {}),
             **{name: [columns[name][i] for i in keep]
                for name in _SERIES_FIELDS},
         }
@@ -172,7 +182,8 @@ def _bounded_feed_dict(raw: Mapping,
         raise ValueError(
             "feed restart state lacks path-dependent anchors for: "
             + ", ".join(sorted(missing)))
-    return {"session_index": session_index, "seen_sessions": seen,
+    return {**({"history_sessions": retained} if retained != FEED_RESTART_SESSIONS else {}),
+            "session_index": session_index, "seen_sessions": seen,
             "series": compact_series}
 
 
@@ -233,6 +244,7 @@ class SessionState:
     recent_leadership: dict | None = None
     ldrc: dict | None = None
     concordance_witness_origin: str | None = None
+    median5: dict | None = None
     version: int = ENVELOPE_VERSION
 
     @classmethod
@@ -243,13 +255,20 @@ class SessionState:
             raise ValueError("strategy identity is incomplete: "
                              + ", ".join(sorted(missing)))
         concordance = is_concordance_identity(strategy_identity)
+        median5 = median5_controller.enabled(strategy_identity)
+        portfolio = PortfolioState.fresh(starting_cash, 20 if median5 else DEFAULT_SLOTS)
+        if median5:
+            from stock_strategy_shared.wealth_core.median5 import fresh
+            portfolio.median5 = fresh()
         return cls(
-            wealth_core=PortfolioState.fresh(starting_cash).to_dict(),
+            wealth_core=portfolio.to_dict(),
             pending=[], ledger=Ledger().to_dict(), last_known={},
-            feed={"session_index": -1, "seen_sessions": {}, "series": {}},
+            feed={"session_index": -1, "seen_sessions": {}, "series": {},
+                  **({"history_sessions": 260} if median5 else {})},
             controller=controller.initial_state(),
             shadow_peak_nav=float(starting_cash),
             strategy_identity=dict(strategy_identity),
+            median5=median5_controller.fresh() if median5 else None,
             recent_leadership=(
                 leadership_state_to_dict(RecentLeadershipState())
                 if concordance else None),
@@ -259,12 +278,13 @@ class SessionState:
             # warm-up boundary overwrites this only for the explicitly signed
             # current-only observation path.
             concordance_witness_origin=(
-                CONCORDANCE_WITNESS_HISTORICAL if concordance else None))
+                CONCORDANCE_WITNESS_HISTORICAL if concordance or median5 else None))
 
     def to_dict(self) -> dict:
         recent_leadership, ldrc = _canonical_concordance_state(
             self.strategy_identity, self.recent_leadership, self.ldrc)
-        concordance = is_concordance_identity(self.strategy_identity)
+        concordance = (is_concordance_identity(self.strategy_identity)
+                       or median5_controller.enabled(self.strategy_identity))
         origin = self.concordance_witness_origin
         if concordance and origin is None:
             # Pre-field v4 objects have the same unambiguous meaning as a
@@ -280,6 +300,14 @@ class SessionState:
             raise ValueError(
                 "non-Concordance state carries Concordance witness provenance")
         raw = asdict(self)
+        if self.median5 is None:
+            if median5_controller.enabled(self.strategy_identity):
+                raise ValueError("Median-5 controller state is required")
+            raw.pop("median5")
+        else:
+            if not median5_controller.enabled(self.strategy_identity):
+                raise ValueError("Median-5 state exists under another strategy")
+            median5_controller.validate(self.median5)
         # Backward-compatible discriminated encoding: absence is the only
         # historical formation that pre-dates this field; prospective
         # formation is always explicit. Omitting the historical/irrelevant
@@ -316,8 +344,8 @@ class SessionState:
             # migration of old evidence, not a guess about a new state.
             migrated["concordance_witness_origin"] = (
                 CONCORDANCE_WITNESS_HISTORICAL
-                if is_concordance_identity(
-                    migrated.get("strategy_identity") or {}) else None)
+                if (is_concordance_identity(migrated.get("strategy_identity") or {})
+                    or median5_controller.enabled(migrated.get("strategy_identity") or {})) else None)
         if version in LEGACY_ENVELOPE_VERSIONS:
             migrated.setdefault("recent_leadership", None)
             migrated.setdefault("ldrc", None)
@@ -335,9 +363,21 @@ class SessionState:
         json.dumps(migrated, sort_keys=True, allow_nan=False)
         state = cls(**migrated)
         portfolio = PortfolioState.from_dict(state.wealth_core)
-        if sorted(portfolio.slots) != list(range(DEFAULT_SLOTS)):
+        median5 = median5_controller.enabled(state.strategy_identity)
+        slots = 20 if median5 else DEFAULT_SLOTS
+        if median5:
+            if state.median5 is None or portfolio.median5 is None:
+                raise ValueError("Median-5 state requires numerical, rank and controller history")
+            median5_controller.validate(state.median5)
+            from stock_strategy_shared.wealth_core.median5 import validate
+            validate(portfolio.median5)
+            if state.feed.get("history_sessions") != 260:
+                raise ValueError("Median-5 state requires 260-session feed retention")
+        elif state.median5 is not None or portfolio.median5 is not None:
+            raise ValueError("Median-5 state cannot be relabelled as another strategy")
+        if sorted(portfolio.slots) != list(range(slots)):
             raise ValueError(
-                f"production Wealth Core state requires exactly {DEFAULT_SLOTS} "
+                f"production Wealth Core state requires exactly {slots} "
                 "canonical slots")
         missing = REQUIRED_IDENTITY_FIELDS - set(state.strategy_identity)
         if missing:
@@ -345,7 +385,7 @@ class SessionState:
                              + ", ".join(sorted(missing)))
         state.recent_leadership, state.ldrc = _canonical_concordance_state(
             state.strategy_identity, state.recent_leadership, state.ldrc)
-        concordance = is_concordance_identity(state.strategy_identity)
+        concordance = is_concordance_identity(state.strategy_identity) or median5
         if (concordance
                 and state.concordance_witness_origin not in
                 _CONCORDANCE_WITNESS_ORIGINS):
@@ -432,6 +472,7 @@ class PublishedSession:
 
 def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
     feed = Feed(meta, elig)
+    feed.restart_sessions = raw.get("history_sessions", FEED_RESTART_SESSIONS)
     feed._session_index = int(raw.get("session_index", -1))
     feed._seen_sessions = {str(k): int(v) for k, v in
                            (raw.get("seen_sessions") or {}).items()}
@@ -456,9 +497,13 @@ def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
 
 def _feed_to_dict(feed: Feed, protected_security_ids: set[str]) -> dict:
     return _bounded_feed_dict({
+        **({"history_sessions": feed.restart_sessions}
+           if getattr(feed, "restart_sessions", FEED_RESTART_SESSIONS) != FEED_RESTART_SESSIONS else {}),
         "session_index": feed._session_index,
         "seen_sessions": dict(feed._seen_sessions),
-        "series": {sid: asdict(s) for sid, s in sorted(feed.series.items())}},
+        # The bounding function copies every retained column. Avoid recursively
+        # copying the full cross-section a second time before that boundary.
+        "series": {sid: vars(s) for sid, s in sorted(feed.series.items())}},
         protected_security_ids)
 
 
@@ -506,14 +551,16 @@ def holdings_from_shadow(state: PortfolioState, feed: Feed,
     for slot in sorted(state.episodes):
         ep = state.episodes[slot]
         series = feed.series.get(ep.security_id)
-        close = series.signal_closes[-1] if series and series.signal_closes else None
+        current = bool(series and series.session_indices
+                       and series.session_indices[-1] == feed._session_index)
+        close = series.signal_closes[-1] if current and series.signal_closes else None
         peak = ep.episode_peak_split_adjusted_close
         own_dd = (None if close is None or peak is None or peak <= 0 else
                   float(close) / float(peak) - 1.0)
         out.append(Holding(
             ticker=ep.ticker, sector=sectors.get(ep.security_id),
-            own_dd=own_dd, r21=_return(series, 21) if series else None,
-            r63=_return(series, 63) if series else None,
+            own_dd=own_dd, r21=_return(series, 21) if current else None,
+            r63=_return(series, 63) if current else None,
             age_sessions=ep.market_sessions_held))
     return out
 

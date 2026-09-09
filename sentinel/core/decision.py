@@ -36,11 +36,13 @@ DEFENSIVE_SECURITY_ID = "SENTINEL:BIL"
 DATA_SEMANTICS_IDENTITY_SCHEMA = "sentinel-sharadar-book-semantics/v1"
 _DATA_SEMANTICS_MODULES = (
     "sentinel.breadth.classifier",
+    "sentinel.controller.median5_breadth",
     "sentinel.breadth.returns",
     "sentinel.controller.concordance",
     "sentinel.controller.concordance_parent",
     "sentinel.controller.frozen_rule",
     "sentinel.controller.ldrc",
+    "sentinel.controller.median5",
     "sentinel.controller.machine",
     "sentinel.controller.recent_leadership",
     "sentinel.core.bootstrap",
@@ -83,6 +85,7 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.regime.spy",
     "sentinel.shadow_observation",
     "sentinel.shadow_runtime",
+    "sentinel.strategy",
     "stock_strategy_shared.split_reconciliation",
     "stock_strategy_shared.terminal_coalescing",
     "stock_strategy_shared.wealth_core.sharadar_domains",
@@ -210,6 +213,17 @@ def runtime_strategy_identity(
         "data_semantics_source_sha256": str(
             data_semantics_source_identity()["sha256"]),
     }
+    from sentinel.controller.median5 import enabled as median5_enabled
+    if median5_enabled(result):
+        from stock_strategy_shared.wealth_core.median5 import config, REFERENCE_AST
+        from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
+        from dataclasses import asdict
+        for name, value in (("wealth_core_config_sha256", config()),
+                             ("eligibility_config_sha256", EligibilityConfig())):
+            result[name] = hashlib.sha256(json.dumps(asdict(value), sort_keys=True,
+                                                     separators=(",", ":")).encode()).hexdigest()
+        result["research_reference_ast_sha256"] = REFERENCE_AST
+        return result
     if not concordance:
         return result
     from sentinel.controller import ldrc as ldrc_module
