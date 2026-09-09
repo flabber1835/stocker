@@ -14,6 +14,8 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 
+from canonical_execution_harness import CONTRACT_VERSION, apply_open_time_whole_share_10bp
+
 CONTROL_10BP_SOURCE_SHA256 = "5f61d5ed5afd784bfb247d554344199743de11dcf9b31956430c6a77b91fedf7"
 DATASET_SHA256 = "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993"
 INITIAL_CAPITAL = 100_000.0
@@ -21,51 +23,6 @@ INITIAL_CAPITAL = 100_000.0
 
 def sha(data: bytes) -> str:
     return hashlib.sha256(data).hexdigest()
-
-
-def replace_once(text: str, old: str, new: str, label: str) -> str:
-    count = text.count(old)
-    if count != 1:
-        raise RuntimeError(f"{label}: expected one exact source seam, got {count}")
-    return text.replace(old, new, 1)
-
-
-def apply_close_whole_share_affordability_gate(src: str) -> str:
-    """Reject close admissions that cannot fund even one whole share above the 10 bp reserve.
-
-    This keeps share quantity unbound until the next valid open. The close uses only a
-    necessary admission test: at the close price, spendable cash above the reserve must
-    cover one share including modeled transaction cost. A later extreme overnight gap
-    can still make the share unaffordable at the open; open-time sizing remains authoritative.
-    """
-    old = (
-        "                        if _buffer_available_close<=1e-12: scale_q0_candidate_skips+=1; "
-        "close_decision_rows.append({'decision_date':ds,'ticker':str(tick[tid]),'outcome':'Q0_SKIP',"
-        "'planned_shares':0,'close_price':float(px),'close_nav':float(eq),'cash_before_decision':float(book.cash),"
-        "'required_reserve':float(_buffer_required_close),'uncommitted_cash_after_reserve':float(_buffer_available_close),"
-        "'intended_capital':float(_desired),'funding_fraction':float(_funding_fraction),'q0_reason':'CASH_SCARCITY',"
-        "'buffer_basis_points':10}); continue\n"
-        "                        scale_cash_limited_decisions+=int(_funding_fraction<0.999999999); "
-    )
-    new = (
-        "                        if _buffer_available_close<=1e-12: scale_q0_candidate_skips+=1; "
-        "close_decision_rows.append({'decision_date':ds,'ticker':str(tick[tid]),'outcome':'Q0_SKIP',"
-        "'planned_shares':0,'close_price':float(px),'close_nav':float(eq),'cash_before_decision':float(book.cash),"
-        "'required_reserve':float(_buffer_required_close),'uncommitted_cash_after_reserve':float(_buffer_available_close),"
-        "'intended_capital':float(_desired),'funding_fraction':float(_funding_fraction),'q0_reason':'CASH_SCARCITY',"
-        "'buffer_basis_points':10}); continue\n"
-        "                        _one_share_close_cost=float(px)*(1+COST)\n"
-        "                        if _buffer_available_close+1e-12<_one_share_close_cost: scale_q0_candidate_skips+=1; "
-        "close_decision_rows.append({'decision_date':ds,'ticker':str(tick[tid]),'outcome':'Q0_SKIP',"
-        "'planned_shares':0,'close_price':float(px),'close_nav':float(eq),'cash_before_decision':float(book.cash),"
-        "'required_reserve':float(_buffer_required_close),'uncommitted_cash_after_reserve':float(_buffer_available_close),"
-        "'intended_capital':float(_desired),'funding_fraction':float(_funding_fraction),"
-        "'q0_reason':'WHOLE_SHARE_UNAFFORDABLE_AT_CLOSE','buffer_basis_points':10}); continue\n"
-        "                        scale_cash_limited_decisions+=int(_funding_fraction<0.999999999); "
-    )
-    out = replace_once(src, old, new, "whole-share close affordability gate")
-    compile(out, "<median5-open-sizing-close-affordability-gate>", "exec")
-    return out
 
 
 def load_module(path: Path, name: str):
@@ -115,7 +72,6 @@ def main() -> int:
     ap = argparse.ArgumentParser()
     ap.add_argument("--control-source", required=True, type=Path)
     ap.add_argument("--median-overlay", required=True, type=Path)
-    ap.add_argument("--open-sizing-runner", required=True, type=Path)
     ap.add_argument("--output", required=True, type=Path)
     args = ap.parse_args()
 
@@ -141,18 +97,15 @@ def main() -> int:
         raise RuntimeError("10bp source dividend lag is not one session")
 
     median = load_module(args.median_overlay.resolve(), "median5_overlay_exact")
-    open_sizing = load_module(args.open_sizing_runner.resolve(), "open_sizing_exact")
-
     median5 = median.apply_arm(raw, "MEDIAN5_CANONICAL")
     assert_contract(median5)
     if assert_one_session_dividend_lag(median5) != 1:
         raise RuntimeError("Median-5 changed dividend semantics")
 
-    variant = open_sizing.patch(median5, "whole")
-    variant = apply_close_whole_share_affordability_gate(variant)
+    variant = apply_open_time_whole_share_10bp(median5)
     assert_contract(variant)
     if assert_one_session_dividend_lag(variant) != 1:
-        raise RuntimeError("open sizing changed dividend semantics")
+        raise RuntimeError("canonical execution harness changed dividend semantics")
 
     required = (
         "N_SLOTS = 20",
@@ -225,6 +178,8 @@ def main() -> int:
         raise RuntimeError("whole-share execution contract mismatch")
     if float(telemetry.get("buffer_basis_points", -1.0)) != 10.0:
         raise RuntimeError("10bp buffer telemetry mismatch")
+    if telemetry.get("close_admission_rule") != "REQUIRE_ONE_WHOLE_SHARE_AFFORDABLE_AT_CLOSE_ABOVE_10BP_RESERVE":
+        raise RuntimeError("close affordability admission rule missing")
 
     tx = pd.read_csv(tx_path)
     buys = pd.to_numeric(tx.loc[tx["Buy or sell"].eq("BUY"), "Amount of shares"], errors="raise").to_numpy()
@@ -245,7 +200,7 @@ def main() -> int:
         }
 
     result = {
-        "schema": "research.median5-open-sizing-10bp-ex3/1",
+        "schema": "research.median5-open-sizing-10bp-ex3/2",
         "status": "PASS_FRESH_CAUSAL_PIT_REPLAY",
         "economic_scope": "MEDIAN5_WEALTH_CORE_PLUS_PARALLEL_EX3",
         "initial_capital": INITIAL_CAPITAL,
@@ -254,6 +209,7 @@ def main() -> int:
         "sessions": 5032,
         "dataset_sha256": DATASET_SHA256,
         "dividend_lag_sessions": 1,
+        "execution_harness_contract": CONTRACT_VERSION,
         "wealth_core": {
             "configuration": {
                 "slots": 20,
