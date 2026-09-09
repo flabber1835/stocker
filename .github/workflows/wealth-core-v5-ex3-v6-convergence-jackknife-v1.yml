@@ -1,0 +1,244 @@
+name: Research - V5 + EX3 V6 convergence jackknife v1
+run-name: V5 + r40_m04_rec8 convergence jackknife - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/wealth-core-v5-ex3-v6-convergence-jackknife-v1]
+    paths:
+      - '.github/workflows/wealth-core-v5-ex3-v6-convergence-jackknife-v1.yml'
+      - 'research/wealth-core-v5-ex3-v6-convergence-jackknife-v1/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+concurrency:
+  group: v5-ex3-v6-convergence-jackknife-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+
+jobs:
+  baseline:
+    name: Exact 20y A/B baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-ex3-v6-convergence-jackknife-v1
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+      - name: Stage pinned replay authority
+        uses: ./experiment-src/.github/actions/v5-ex3-v5-adversarial-setup
+      - name: Generate exact r40_m04_rec8 authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py \
+            --source experiment-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            --output experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+          python -m py_compile \
+            experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py \
+            experiment-src/research/wealth-core-v5-ex3-v6-convergence-jackknife-v1/run_convergence.py
+      - name: Run exact 20-year paired baseline
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-convergence-jackknife-v1/run_convergence.py" \
+            --suite baseline \
+            --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+            --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+            --output "${GITHUB_WORKSPACE}/baseline-results" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/baseline.log"
+      - name: Select 16 deterministic held securities
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          root=Path('baseline-results')
+          r=json.loads((root/'RESULT.json').read_text())
+          assert r['validation']['exact_core_parity'] is True
+          assert r['validation']['exact_sentinel_ex3_v6_parity'] is True
+          ids=json.loads((root/'held-security-ids.json').read_text())
+          ranked=sorted(map(str,ids),key=lambda x:(hashlib.sha256(('convergence-jackknife-v1:'+x).encode()).hexdigest(),x))
+          chosen=ranked[:16]
+          assert len(chosen)==16
+          (root/'selected-16-security-ids.json').write_text(json.dumps(chosen,indent=2)+'\n')
+          b=r['baseline']
+          print('unpatched',b['sentinel']['20'])
+          print('patched',b['treatment']['20'])
+          print('selected',chosen)
+          PY
+      - name: Baseline summary
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json,os
+          r=json.load(open('baseline-results/RESULT.json')); b=r['baseline']
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('## Exact image-producing configuration\n\n')
+            f.write('Wealth Core V5 + `r40_m04_rec8`; A = untouched authority, B = research-only convergence patch.\n\n')
+            for label,key in [('Unpatched','sentinel'),('Patched','treatment')]:
+              m=b[key]['20']; f.write(f"- {label}: CAGR **{m['cagr']:.2%}**, max DD **{m['max_drawdown']:.2%}**, Sharpe **{m['sharpe_daily_252']:.3f}**\n")
+          PY
+      - name: Preserve baseline
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: convergence-baseline
+          path: |
+            baseline-results/
+            baseline.log
+          retention-days: 90
+          if-no-files-found: error
+
+  perturbations:
+    name: Perturbation ${{ matrix.index }}
+    needs: baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        index: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-ex3-v6-convergence-jackknife-v1
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+      - name: Stage pinned replay authority
+        uses: ./experiment-src/.github/actions/v5-ex3-v5-adversarial-setup
+      - name: Retrieve deterministic security set
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: convergence-baseline
+          path: baseline-input
+      - name: Generate paired runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py \
+            --source experiment-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            --output experiment-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+          python -m py_compile experiment-src/research/wealth-core-v5-ex3-v6-convergence-jackknife-v1/run_convergence.py
+      - name: Run one full-PIT perturbation
+        shell: bash
+        env:
+          IDX: ${{ matrix.index }}
+        run: |
+          set -euo pipefail
+          mkdir -p case-results
+          if [ "$IDX" -lt 16 ]; then
+            python - <<'PY'
+          import json,os
+          ids=json.load(open('baseline-input/selected-16-security-ids.json'))
+          i=int(os.environ['IDX']); json.dump([ids[i]],open('one-security.json','w'))
+          PY
+            cd certified-src
+            python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-convergence-jackknife-v1/run_convergence.py" \
+              --suite security-loo --security-list "${GITHUB_WORKSPACE}/one-security.json" \
+              --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+              --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+              --output "${GITHUB_WORKSPACE}/case-results"
+          else
+            shard=$((IDX-16))
+            cd certified-src
+            python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-convergence-jackknife-v1/run_convergence.py" \
+              --suite universe --shard "$shard" --shards 3 \
+              --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+              --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+              --output "${GITHUB_WORKSPACE}/case-results"
+          fi
+      - name: Preserve perturbation
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: case-${{ matrix.index }}
+          path: case-results/
+          retention-days: 90
+          if-no-files-found: error
+
+  summary:
+    name: Stability verdict
+    needs: [baseline, perturbations]
+    if: ${{ always() && needs.baseline.result == 'success' && needs.perturbations.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-ex3-v6-convergence-jackknife-v1
+      - name: Download baseline
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: convergence-baseline
+          path: evidence/baseline
+      - name: Download perturbations
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: case-*
+          path: evidence
+          merge-multiple: false
+      - name: Aggregate path stability
+        shell: bash
+        run: |
+          set -euo pipefail
+          python experiment-src/research/wealth-core-v5-ex3-v6-convergence-jackknife-v1/aggregate.py --root evidence --out summary
+          python - <<'PY'
+          import json,os
+          r=json.load(open('summary/SUMMARY.json'))
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+            f.write('## Convergence jackknife verdict\n\n')
+            f.write(f"**{r['verdict']}**\n\n")
+            f.write('### 16 held-security leave-one-out aggregate\n\n')
+            f.write('| Metric | Unpatched | Patched |\n|---|---:|---:|\n')
+            u=r['loo_aggregate']['unpatched']; p=r['loo_aggregate']['patched']
+            for k in ['median_abs_cagr_delta_pp','p95_abs_cagr_delta_pp','max_abs_cagr_delta_pp','median_allocation_divergence_fraction','never_reconverged','median_amplification']:
+              f.write(f"| {k} | {u.get(k)} | {p.get(k)} |\n")
+            f.write('\nPromotion remains forbidden by this experiment.\n')
+          PY
+      - name: Preserve final summary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: convergence-stability-summary
+          path: summary/
+          retention-days: 90
+          if-no-files-found: error
