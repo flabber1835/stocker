@@ -15,7 +15,7 @@ permissions:
   actions: read
 
 concurrency:
-  group: wealth-core-v5-sentinel-ex3-v6-drawdown-${{ github.ref }}
+  group: wealth-core-v5-sentinel-ex3-v6-drawdown-repair1-${{ github.ref }}
   cancel-in-progress: false
 
 env:
@@ -59,6 +59,7 @@ jobs:
             research/wealth-core-v5-sentinel-ex3-v6-drawdown-execution-v1
             research/wealth-core-v5-sentinel-ex3-impedance-v1
             research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
 
       - name: Exact economic-source authority
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
@@ -202,6 +203,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m py_compile \
+            experiment-src/research/median5-open-sizing-10bp-ex3-v1/canonical_execution_harness.py \
             experiment-src/research/wealth-core-v5-affordability-fix-v1/v5_execution_harness.py \
             experiment-src/research/wealth-core-v5-sentinel-ex3-impedance-v1/run_impedance.py \
             experiment-src/research/wealth-core-v5-sentinel-ex3-v6-drawdown-execution-v1/run_drawdown.py
@@ -279,5 +281,6 @@ jobs:
             experiment-src/research/wealth-core-v5-sentinel-ex3-v6-drawdown-execution-v1/run_drawdown.py
             experiment-src/research/wealth-core-v5-sentinel-ex3-impedance-v1/run_impedance.py
             experiment-src/research/wealth-core-v5-affordability-fix-v1/v5_execution_harness.py
+            experiment-src/research/median5-open-sizing-10bp-ex3-v1/canonical_execution_harness.py
           retention-days: 90
           if-no-files-found: warn
