@@ -65,6 +65,7 @@ class BrokerOperation(str, Enum):
     ACCOUNT_FILL_INTERVAL_EVIDENCE = "account_fill_interval_evidence"
     RESOLVE_INSTRUMENT = "resolve_instrument"
     MARKET_CLOCK = "market_clock"
+    OPENING_PRICES = "opening_prices"
     ACCOUNT_CASH_ACTIVITIES = "account_cash_activities"
     OBSERVE = "observe"
     OBSERVE_WITH_TERMINAL_RECOVERY = "observe_with_terminal_recovery"
@@ -358,6 +359,12 @@ class GuardedExecutionBroker(ExecutionBroker):
             return await self._inner.market_clock()
 
         return await self._read(BrokerOperation.MARKET_CLOCK, read)
+
+    async def opening_prices(self, *, session: date, instruments):
+        self.capabilities.require("regular_session_open_prices")
+        async def read():
+            return await self._inner.opening_prices(session=session, instruments=instruments)
+        return await self._read(BrokerOperation.OPENING_PRICES, read)
 
     async def account_cash_activities(self, *, after: datetime,
                                       through: datetime,

@@ -159,7 +159,7 @@ def _preopen_active_security_ids(
     identities = {
         str(security_id)
         for security_id, quantity in plan.target_basket.items()
-        if quantity != 0}
+        if quantity != 0 or plan.opening_intents}
     identities.update(
         str(security_id) for security_id, quantity in expected.items()
         if quantity != 0)
@@ -221,7 +221,8 @@ def _plan_deltas(
         for security_id in sorted(identities))
 
 def _provably_clean_empty_noop(
-        *, deltas, commands, observation: BrokerObservation) -> bool:
+        *, deltas, commands, observation: BrokerObservation,
+        opening_intents=()) -> bool:
     """Bypass authority only when no active share-unit domain exists.
 
     Equality between a nonzero raw plan target and a nonzero broker holding is
@@ -230,7 +231,8 @@ def _provably_clean_empty_noop(
     open-boundary meaning needs affirmative authority.
     """
     return (
-        all(delta.classification is execution_commands.DeltaClass.NONE
+        not opening_intents
+        and all(delta.classification is execution_commands.DeltaClass.NONE
             for delta in deltas)
         and all(delta.desired == 0 and delta.held == 0
                 and delta.committed == 0 for delta in deltas)
@@ -287,7 +289,8 @@ def _target_projection_or_refuse(
         require_existing: bool = False,
         persist_projection: bool = True,
         expected_projection: Optional[
-            target_reprojection.TargetProjection] = None):
+            target_reprojection.TargetProjection] = None,
+        opening_prices=None):
     """Derive the exact unit projection and bind it to durable plan state."""
     if state.state_hash != plan.shadow_snapshot_hash:
         raise PaperActivationRefused(
@@ -299,7 +302,7 @@ def _target_projection_or_refuse(
         commands, actions=actions)
     security_ids = (
         {security_id for security_id, quantity in plan.target_basket.items()
-         if quantity != 0}
+         if quantity != 0 or plan.opening_intents}
         | {security_id for security_id, quantity in target.shares.items()
            if quantity != 0}
         | set(expected_book))
@@ -333,7 +336,7 @@ def _target_projection_or_refuse(
 
     target_security_ids = tuple(
         security_id for security_id, quantity
-        in sorted(plan.target_basket.items()) if quantity != 0)
+        in sorted(plan.target_basket.items()) if quantity != 0 or plan.opening_intents)
     multipliers = {
         security_id: target_actions(security_id)
         for security_id in target_security_ids
@@ -353,6 +356,17 @@ def _target_projection_or_refuse(
             pending_close_shares=target.pending_close_shares,
             minimum_quantity_increment=(
                 broker.capabilities.minimum_quantity_increment))
+        if plan.opening_intents:
+            from sentinel.execution import opening_sizing
+            from sentinel.execution.opening_prices import OpeningPrices, OpeningPriceUnavailable
+            if opening_prices is None and plan.target_exposure > 0:
+                stored = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+                if stored is not None and stored.opening_sizing is not None:
+                    opening_prices = OpeningPrices.from_dict(stored.opening_sizing.get("prices"))
+            try:
+                projected = opening_sizing.resolve(state, plan, projected, opening_prices)
+            except OpeningPriceUnavailable as exc:
+                raise PaperRetryableRefused(str(exc)) from exc
         if (expected_projection is not None
                 and projected != expected_projection):
             raise target_reprojection.TargetProjectionRefused(

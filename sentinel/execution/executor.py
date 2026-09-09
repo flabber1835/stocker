@@ -197,7 +197,7 @@ def _execution_universe(desired: Mapping[str, Decimal], observation) -> set[str]
     )
 
 
-def order_of_operations(deltas: Sequence[C.Delta]) -> tuple:
+def order_of_operations(deltas: Sequence[C.Delta], *, opening_intents=()) -> tuple:
     """Reductions first, then increases; stable within each group.
 
     A tuple rather than a sort key, so the rule is inspectable and testable on
@@ -207,8 +207,10 @@ def order_of_operations(deltas: Sequence[C.Delta]) -> tuple:
     """
     reductions = [d for d in deltas if not d.is_increase]
     increases = [d for d in deltas if d.is_increase]
+    entry_slots = {item.security_id: item.slot_id for item in opening_intents}
     return tuple(sorted(reductions, key=lambda d: d.security_id)
-                 + sorted(increases, key=lambda d: d.security_id))
+                 + sorted(increases, key=lambda d: (
+                     entry_slots.get(d.security_id, 20), d.security_id)))
 
 
 def is_execution_window_open(plan: ExecutionPlan, today: date) -> bool:
@@ -286,7 +288,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
     unconditional extra round trip is latency for nothing.
 
     **The quantities come from `plan.target_basket` and nowhere else, except for
-    a durably verified scalar corporate-action projection.** This
+    a durably verified corporate-action/opening-intent projection.** This
     used to take a separate `desired` mapping alongside the plan, which meant
     the client key said "plan P, security S" while the quantity came from an
     argument nobody checked against P. A caller could pass 200 under a plan that
@@ -295,7 +297,8 @@ async def execute_session(*, broker: ExecutionBroker, conn,
     that does not determine the economics is not an identity — it is a label.
 
     A target projection is not a free-form desired mapping. It binds the plan
-    fingerprint, execution session, exact multipliers and action-aged basket,
+    fingerprint, execution session, exact multipliers, retained opening evidence
+    when applicable, and the resolved basket,
     and the executor reloads the identical record under its writer lock before
     using it. That preserves the original rule's purpose: command identity still
     determines command economics after a share unit changes.
@@ -332,6 +335,8 @@ async def execute_session(*, broker: ExecutionBroker, conn,
         # true for the duration of the session rather than at an instant before
         # it, because supersession requires the same lock.
         _assert_current_plan(conn, plan)
+        if plan.opening_intents and target_projection is None:
+            raise ValueError("opening dollar intents require a durable opening-time projection")
         if target_projection is not None:
             assert_projection(
                 conn, plan=plan, projection=target_projection,
@@ -494,7 +499,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
 
     # 3. PHASE ONE — REDUCTIONS. A purchase that fails must never prevent a
     #    sale, and a sale's proceeds are not spendable until they exist.
-    ordered = order_of_operations(deltas)
+    ordered = order_of_operations(deltas, opening_intents=plan.opening_intents)
     reductions = [d for d in ordered
                   if not d.is_increase and d.classification is not C.DeltaClass.NONE]
     increases = [d for d in ordered

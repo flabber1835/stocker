@@ -2,7 +2,7 @@
 
 The current selector names Wealth Core V5 with [Sentinel EX3 V6](sentinel-ex3-v6.md).
 The [implementation and release gates](wealth-core-v5-ex3-v6-production.md)
-describe the versioned canonical book and opening-time execution blocker.
+describe the versioned canonical book and opening-time execution projection.
 Historical frozen profiles below retain their original identities.
 
 > **CURRENT TARGET BOUNDARY:** Full historical replay is being separated from

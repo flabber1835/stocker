@@ -108,34 +108,73 @@ inherited opening audit records carried prices and leaves production's strict
 opening-equity result intact. A partial replay cannot produce a full-PIT PASS.
 Failures retain the first divergent session and concrete diagnostics.
 
+## Opening-time paper integration
+
+Opening sizing is part of the owner's V5 implementation instruction. Execution
+plans retain typed canonical entry dollar intents and slot order, together with
+zero provisional share targets for those entries. The plan fingerprint includes
+the intents. The existing `sentinel_processed_sessions` journal stores the
+versioned `plan-opening-intents:v1:<plan_id>` record atomically with plan adoption.
+This uses the repository's established cursor mechanism and preserves its sealed
+behavioral schema. The record binds the full plan fingerprint and effective
+session. Deterministic plan IDs must match reconstructed economics, so a lost
+intent record refuses reload. Historical share-only plans retain their identities.
+
+At the effective session, execution reads raw SIP bars for the first regular
+session minute from Alpaca's market-data endpoint. The read starts after that
+minute completes and requires the exact XNYS opening timestamp, requested symbol
+identity, positive open and volume, and complete response coverage. Unavailable
+or malformed evidence defers execution. The read passes through the broker guard.
+The endpoint contract is [Alpaca historical bars](https://docs.alpaca.markets/us/reference/stockbars).
+
+A pure execution projection resolves the canonical pending entries in slot
+order from the immutable shadow cash, due receivables and pending exit proceeds,
+using the observed opening prices and V5's 10 bp costs. It applies the existing
+account-NAV / shadow-NAV scale and Sentinel exposure to the resulting whole-share
+core targets. Prices, funding calculation, resolved quantities and the original
+plan fingerprint are persisted once in the target projection. Retry and recovery
+reproduce that projection from the retained evidence. Direct execution of a plan
+with unresolved dollar entries is refused. Deferred entry submissions follow
+canonical slot order after reductions settle. Existing holding adjustments keep
+their stable security order. An all-zero provisional basket containing dollar
+intent requires affirmative pre-open authority; it cannot use the empty-book
+no-op path. Incomplete price evidence is a retryable paper refusal.
+
+This projection expresses the canonical opening intent in account share units.
+It creates no canonical holdings or fills. Sharadar remains the source for Wealth
+Core and Sentinel. The executor retains its reduction-settlement barrier and
+fresh cash-only account authority before increases. DAY market fills remain
+broker observations; a price move after the opening print can affect fills and
+the cash-only account may reject an unaffordable order. Those observations never
+change canonical strategy state.
+
+Pre-open corporate-action coverage includes every deferred entry and pending
+exit that funds it. Scalar actions transform share quantities and raw price
+units; dollar intent is invariant. Material non-scalar actions retain the
+existing refusal boundary. A zero exposure target requires no entry price read.
+
+Acceptance adds price-domain/timestamp/coverage falsifiers, opening gaps, split
+units, funding and whole-share limits, immutable plan/projection persistence,
+restart after submission ambiguity, and the existing broker conformance gates.
+
 ## Status
 
-The deterministic core/controller port is implemented and under verification.
-The existing paper execution contract binds share quantities at the decision
-close and exposes no certified regular-session opening-price input. Until that
-contract is selected and implemented, extracting an executable target containing
-a V5 dollar entry must refuse explicitly. A zero-share placeholder must never
-silently erase an admitted entry. The same guard protects preparation, account
-projection, dual transport and restart paths that use the canonical extractor.
-
-This is a release blocker, not a paper capability certificate. A compatible
-opening-time projection must preserve slot-order funding, sell-before-buy
-sequencing, immutable Decimal command quantities after sizing, exact restart
-identity, and the account cash-only envelope. It must bind the selected price
-source and observation evidence before any order submission. Broker prices and
-fills must remain execution inputs and never change canonical Wealth Core or
-Sentinel state. A runtime API price source has not been silently selected.
+The deterministic core/controller port and opening-time paper projection are
+implemented and under verification. The atomic plan-intent record and versioned
+projection retain the original dollar intent, price evidence, and final Decimal
+quantities through journal reload and submission recovery. The earlier temporary
+entry-extraction refusal is superseded by this opening-time contract.
 
 The selected controller also requires CONTROLLER rollout: PINNED_1_00 must not
 silently override EX3 V6's selected exposure. Historical identities retain their
-existing rollout rules. Delivery remains draft until the execution blocker and
-the full-PIT and release-safety gates are resolved.
+existing rollout rules. Delivery remains draft until the full-PIT and
+release-safety gates pass for the completed source revision.
 
-Local verification after binding the V6 naming authority: 63 targeted tests
-passed (V5 core, Median-5 components, default strategy and production decision
-boundaries); all nine reviewed V5 mutations were killed. The prospective
-Wealth Core suite passed 762 tests with the same three documented historical
-deselections as CI. Full-PIT equivalence and the container/PostgreSQL safety
-workflow remain required. The local Sentinel sweep additionally encountered
-missing PostgreSQL binaries and the container-specific `repo/.env` fixture;
-it is not a substitute for the no-skip container gate.
+Local opening-integration verification passed 244 targeted tests across V5,
+Median-5, production planning, broker guards, target reprojection, and Alpaca
+boundaries; 146 PostgreSQL cases required CI. All 17 reviewed V5/opening mutants
+were killed. The prospective Wealth Core suite previously passed 762 tests with
+the same three documented historical deselections as CI. The preceding V6 source
+revision passed the complete container/PostgreSQL safety workflow on both the PR
+head and synthetic merge. Full-PIT equivalence and the completed revision's
+container/PostgreSQL safety workflow remain required.

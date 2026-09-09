@@ -211,8 +211,11 @@ def test_dollar_intent_cannot_silently_disappear_from_executable_target():
                                "2026-08-11", "ENTRY_DURABLE_RANK",
                                intended_dollars=5000.).to_dict()]
     before = env.to_dict()
-    with pytest.raises(ValueError, match="certified opening-time"):
-        decision.shadow_target(env)
+    target = decision.shadow_target(env)
+    assert len(target.opening_intents) == 1
+    assert target.opening_intents[0].intended_dollars == 5000
+    assert target.opening_intents[0].security_id == "A"
+    assert "A" not in target.shares and "A" not in target.pending_open_shares
     assert env.to_dict() == before
 
 

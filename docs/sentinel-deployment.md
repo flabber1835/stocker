@@ -1,9 +1,9 @@
 # Sentinel — operational deployment ground truth
 
 The default selector names Wealth Core V5 with [Sentinel EX3 V6](sentinel-ex3-v6.md),
-R40 -4% / REC8 on the broad universe. Its implementation and release blockers
+R40 -4% / REC8 on the broad universe. Its implementation and release gates
 are in [V5 / V6 promotion](wealth-core-v5-ex3-v6-production.md). Paper entry
-projection remains blocked pending an opening-time execution contract. Delivery
+plans retain dollar intent and resolve whole shares from retained opening-price evidence. Delivery
 is a reviewed PR; the owner merges. This revision does not activate a deployment.
 
 **Status: DIRECTION SET 2026-08-09. Stocker is retired as a runtime. Sentinel is

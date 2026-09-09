@@ -158,7 +158,8 @@ def _default_paper_strategy():
 def _load_marks_and_tickers(conn, state: SessionState, session: str
                             ) -> tuple[dict, dict]:
     target = shadow_target(state)
-    security_ids = sorted(target.shares)
+    security_ids = sorted(set(target.shares) | {
+        entry.security_id for entry in target.opening_intents})
     tickers = dict(target.tickers)
     marks: dict[str, Decimal] = {}
     visible = publication.visible_predicate("b")

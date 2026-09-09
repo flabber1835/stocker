@@ -2147,7 +2147,7 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     the broker's certified increment, but a pending OPEN that Wealth Core would
     cancel as non-integral contributes exactly zero to the executable target.
     Fractional-order support can never turn that cancelled entry into a buy.
-63  Trial account evidence binds the exact durable v2 target projection used by
+63  Trial account evidence binds the exact durable target projection used by
     execution. Its close target equals that projected basket, including pending
     OPEN cancellations, and later observation aging begins strictly after the
     projection boundary; flat plan-target aging cannot earn verification.
@@ -2159,3 +2159,31 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.
+
+## Wealth Core V5 opening-time entries
+
+The [V5 / EX3 V6 promotion contract](wealth-core-v5-ex3-v6-production.md#opening-time-paper-integration)
+extends the immutable plan with canonical dollar entry intents. Each intent
+binds security identity, slot order, and Decimal dollars; its provisional share
+target is zero. A versioned intent record in the existing processed-session
+journal commits atomically with the plan. Its session and fingerprint must match
+the reconstructed plan; deterministic plan IDs detect a lost intent record.
+Dollar intent participates in plan identity and economics immutability. The
+sealed behavioral schema and historical share-only plans remain valid.
+
+After the effective session's first regular minute completes, the guarded
+Alpaca adapter can read that minute's raw SIP open. The typed evidence binds
+source, exchange session, opening and observation timestamps, security/symbol
+mapping and complete positive prices. Incomplete evidence defers the attempt.
+Sharadar continues to drive the canonical transition.
+
+The version-3 target projection retains the observed prices, canonical funding
+calculation, exposure/account scale and final whole-share targets. Version-2
+share-only projections remain readable in the same per-plan cursor namespace.
+Opening projections preserve entry dollars across scalar actions and bind every
+funding exit's share units. Entry submissions follow slot order after reductions
+settle. Existing cash-only and UNKNOWN recovery guards apply to the final fixed
+quantities. Recovery reuses the immutable price evidence and reproduces the exact
+projection; an unresolved dollar plan requires its version-3 sizing evidence
+before execution. Pending dollar entries also prevent the empty-book authority
+bypass. Existing activation and adapter certification gates remain required.
