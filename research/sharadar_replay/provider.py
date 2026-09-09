@@ -91,7 +91,13 @@ class Provider:
         faults = [f for f in self.step.faults if f.table == table and f.channel == channel
                   and int(query.get("qopts.cursor_id", "0")) >= f.after_rows]
         for fault in faults:
-            if fault.kind == "omit_ticker":
+            if fault.kind == "set_value":
+                if fault.field not in COLUMNS[table]:
+                    raise ValueError("field mutation must name a provider column")
+                for row in rows:
+                    if fault.ticker is None or row.get("ticker") == fault.ticker:
+                        row[fault.field] = fault.value
+            elif fault.kind == "omit_ticker":
                 rows = [r for r in rows if r.get("ticker") != fault.ticker]
             elif fault.kind == "duplicate_row" and rows:
                 rows.append(dict(rows[0]))
@@ -104,6 +110,9 @@ class Provider:
                  "rows": len(rows), "digest": digest(rows),
                  "faults": [f.kind for f in faults]}
         self.transcript.append(entry)
+        if any(f.kind in {'rate_limit', 'service_unavailable'} for f in faults):
+            status = 429 if any(f.kind == 'rate_limit' for f in faults) else 503
+            return httpx.Response(status, headers={'Retry-After': '3600'}, request=request)
         if any(f.kind == "invalid_json" for f in faults):
             return httpx.Response(200, content=b'{"datatable":', request=request)
         if any(f.kind == "http_400" for f in faults):

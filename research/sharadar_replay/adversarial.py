@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+import copy
 import random
 
 from .model import Fault, Scenario
@@ -22,9 +23,17 @@ def build_adversarial_scenarios(seed):
                                seed=seed, steps=tuple(steps), **kwargs)
 
     def interrupted(name, day, fault, error):
-        return step(name, day, faults=(fault,),
+        damaged = step(name, day, faults=(fault,),
                     expected=hidden_references if fault.table == 'SEP' else initial,
                     ready=False, error=error, required_blockers=('freshness',))
+        if fault.table == 'ACTIONS' and (fault.after_rows or fault.kind in {'row_width', 'repeat_cursor'}):
+            # A valid prefix needs actual rows inside this daily request window.
+            tables = copy.deepcopy(damaged.tables)
+            tables['ACTIONS'] = (*tables['ACTIONS'], *(dict(ticker=t, date=day,
+                action='dividend', name=t, value=0.25, contraticker=None, contraname=None)
+                for t in ('AAA', 'BBB')))
+            damaged = damaged.model_copy(update={'tables': tables})
+        return damaged
 
     # An entire fault family is selected before its production execution.
     protocols = {
@@ -34,6 +43,8 @@ def build_adversarial_scenarios(seed):
         'invalid_json': 'SharadarProtocolError',
         'http_400': 'SharadarRequestError',
         'repeat_cursor': 'PaginationError',
+        'rate_limit': 'SharadarRetryDeferred',
+        'service_unavailable': 'SharadarRetryDeferred',
     }
     for table in ('TICKERS', 'ACTIONS', 'SFP', 'SEP'):
         for kind, error in protocols.items():
@@ -91,4 +102,93 @@ def build_adversarial_scenarios(seed):
         [step('split_and_restatement', FIRST, split=True),
          step('same_day_repeat', FIRST, hour=23, split=True),
          step('next_day', SECOND, split=True)])
+    for label, value in [('null', None), ('zero', 0), ('negative', -1),
+                         ('nan', 'NaN'), ('infinite', 'Infinity'), ('text', 'broken')]:
+        fault = Fault(table='SEP', kind='set_value', field='closeunadj', value=value)
+        add(f'raw_close_{label}',
+            [interrupted('invalid_raw_prices', FIRST, fault, 'RawPriceDomainUnavailable'),
+             step('recover', SECOND)], recovery_from='recover')
+
+    for label, field, value in [
+        ('empty_ticker', 'ticker', ''), ('missing_id', 'permaticker', None),
+        ('invalid_listing_date', 'firstpricedate', '2025-02-30'),
+        ('reversed_listing', 'firstpricedate', '2026-08-19'),
+        ('invalid_delisted', 'isdelisted', 'perhaps'),
+        ('overlapping_identity', 'ticker', 'AAA'),
+    ]:
+        bad = step('ambiguous_identity', FIRST, expected=initial, ready=False,
+                   error='TickersStructureInvalid', required_blockers=('freshness',))
+        tables = copy.deepcopy(bad.tables)
+        tables['TICKERS'][1][field] = value
+        bad = bad.model_copy(update={'tables': tables})
+        add(f'identity_{label}', [bad, step('recover', SECOND)], recovery_from='recover')
+
+    for label, value in [('nan', 'NaN'), ('infinite', 'Infinity'), ('text', 'broken')]:
+        bad = step('corrupted_cash_action', FIRST, expected=initial, ready=False,
+                   error='ACTIONS value is not a finite number', required_blockers=('freshness',))
+        tables = copy.deepcopy(bad.tables)
+        tables['ACTIONS'] = (*tables['ACTIONS'], dict(ticker='AAA', date=FIRST,
+            action='dividend', name='AAA', value=value, contraticker=None, contraname=None))
+        bad = bad.model_copy(update={'tables': tables})
+        add(f'action_value_{label}', [bad, step('recover', SECOND)], recovery_from='recover')
+
+    for label, values in [('unsubstantiated', (2,)), ('conflicting', (2, 3)),
+                          ('zero', (0,)), ('negative', (-2,))]:
+        bad = step('unresolved_split', FIRST, ready=False,
+                   required_blockers=('split source agreement',))
+        tables = copy.deepcopy(bad.tables)
+        rows = tuple(dict(ticker='AAA', date=FIRST, action='split', name='AAA',
+                          value=v, contraticker=None, contraname=None) for v in values)
+        tables['ACTIONS'] = (*tables['ACTIONS'], *rows)
+        expected = bad.expected.model_copy(update={'actions': (*bad.expected.actions,
+            *((r['ticker'], r['date'], r['action'], r['name'], r['value'], None, None)
+              for r in rows))})
+        bad = bad.model_copy(update={'tables': tables, 'expected': expected})
+        add(f'split_{label}_then_withdrawn', [bad, step('recover', SECOND), step('stable', THIRD)],
+            recovery_from='recover')
+
+    from .scenarios import SPLIT
+    for label in ('wrong_ratio', 'missing_action'):
+        bad = step('inconsistent_split', FIRST, split=True, ready=False,
+                   required_blockers=('split source agreement',))
+        tables = copy.deepcopy(bad.tables)
+        if label == 'wrong_ratio':
+            for row in tables['ACTIONS']:
+                if row['action'] == 'split':
+                    row['value'] = 3
+            expected_actions = tuple((*r[:4], 3, *r[5:]) if r[2] == 'split' else r
+                                     for r in bad.expected.actions)
+            expected_bars = tuple((*r[:7], 1, r[8]) if r[0] == 'SIM-AAA' and r[1] == SPLIT else r
+                                  for r in bad.expected.bars)
+        else:
+            tables['ACTIONS'] = tuple(r for r in tables['ACTIONS'] if r['action'] != 'split')
+            expected_actions = tuple(r for r in bad.expected.actions if r[2] != 'split')
+            expected_bars = bad.expected.bars
+        bad = bad.model_copy(update={'tables': tables, 'expected': bad.expected.model_copy(
+            update={'bars': expected_bars, 'actions': expected_actions})})
+        add(f'split_{label}_then_corrected', [bad, step('recover', SECOND, split=True),
+             step('stable', THIRD, split=True)], recovery_from='recover')
+    for factor in (0.25, 0.5, 2, 4, 10):
+        for effective in ('2026-08-03', '2026-08-18'):
+            label = str(factor).replace('.', '_') + '_' + effective.replace('-', '')
+            options = dict(split=True, split_factor=factor, split_date=effective)
+            add(f'split_ratio_{label}',
+                [step('authoritative_split', FIRST, **options),
+                 step('same_day_repeat', FIRST, hour=23, **options),
+                 step('continued', SECOND, **options)])
+    for field, value, error in [
+        ('lastupdated', '2099-01-01', 'SepUpdateEnvelopeViolation'),
+        ('lastupdated', None, 'SepUpdateEnvelopeViolation'),
+        ('date', 'invalid-date', 'SourceAuthorityRefused'),
+        ('ticker', '', 'SourceAuthorityRefused'),
+    ]:
+        name = f'sep_invalid_{field}_{"missing" if value is None else "value"}'
+        fault = Fault(table='SEP', kind='set_value', field=field, value=value)
+        add(name, [interrupted('corrupted_key_or_clock', FIRST, fault, error),
+                   step('recover', SECOND)], recovery_from='recover')
+    for ticker in ('SPY', 'BIL'):
+        fault = Fault(table='SFP', kind='omit_ticker', ticker=ticker)
+        add(f'missing_reference_{ticker.lower()}',
+            [interrupted('reference_outage', FIRST, fault, 'SeedHistoryIncomplete'),
+             step('recover', SECOND)], recovery_from='recover')
     return cases

@@ -23,10 +23,13 @@ class Fault(Contract):
     table: Literal["SEP", "SFP", "TICKERS", "ACTIONS"]
     kind: Literal["missing_column", "omit_ticker", "repeat_cursor", "http_400",
                   "duplicate_row", "stale_export", "invalid_json", "row_width",
-                  "missing_cursor", "invalid_zip", "conflicting_row"]
+                  "missing_cursor", "invalid_zip", "conflicting_row", "set_value",
+                  "rate_limit", "service_unavailable"]
     channel: Literal["pages", "export"] = "pages"
     ticker: str | None = None
     after_rows: int = Field(default=0, ge=0)
+    field: str | None = None
+    value: str | int | float | None = None
 
 
 class Step(Contract):

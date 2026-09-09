@@ -1,8 +1,6 @@
 name: Sharadar daily production replay
 
 on:
-  push:
-    branches: ['codex/sharadar-daily-replay-*']
   pull_request:
     branches: [main]
     paths:
@@ -20,6 +18,10 @@ concurrency:
 
 jobs:
   daily-replay:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
     runs-on: ubuntu-latest
     timeout-minutes: 20
     services:
@@ -33,6 +35,8 @@ jobs:
           --health-cmd pg_isready --health-interval 5s
           --health-timeout 5s --health-retries 10
     env:
+      SHARADAR_REPLAY_SHARD: ${{ matrix.shard }}
+      SHARADAR_REPLAY_SHARDS: '4'
       PYTHONPATH: .:shared
       SHARADAR_REPLAY_TEST_DSN: postgresql://postgres:synthetic-replay-only@127.0.0.1:5432/replay_test
       SHARADAR_REPLAY_EVIDENCE: ${{ github.workspace }}/replay-evidence
@@ -76,7 +80,7 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: sharadar-daily-replay-${{ github.sha }}
+          name: sharadar-daily-replay-${{ github.sha }}-${{ matrix.shard }}
           path: replay-evidence
           if-no-files-found: error
           retention-days: 30

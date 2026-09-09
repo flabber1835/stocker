@@ -68,6 +68,15 @@ def _finish_publication_or_refuse(conn, progress):
 def _single_failed_live_candidate(conn):
     candidates = recovery.failed_live_candidates(conn)
     if len(candidates) > 1:
+        from sentinel.feed import publication
+        report = publication.coherence(conn)
+        if (all(c.kind == "daily" for c in candidates)
+                and report.unpublished_rows == report.unpublished_universe
+                and report.unpublished_universe > 0):
+            # Repeated failures before prices may leave several dated identity
+            # snapshots. The existing validated daily publisher supersedes all
+            # such snapshots atomically and still checks every older owner.
+            return candidates[0]
         raise recovery.PublicationRecoveryRefused(
             f"{len(candidates)} failed unpublished candidates still own live "
             f"rows: {[(c.run_id, c.kind) for c in candidates]}. Their coverage "

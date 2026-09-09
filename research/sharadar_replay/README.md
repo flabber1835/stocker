@@ -145,3 +145,27 @@ prefix before the failure. No production exception is accepted generically;
 each case names its expected diagnostic. An unexpected exception or changed
 corpus is a failing case requiring investigation. Frozen expected snapshots
 remain independent of production output.
+
+CI distributes the collected test IDs deterministically over four independent
+PostgreSQL jobs. Each shard records its collected IDs and selection. Their union
+must cover the full suite exactly once. The case catalogue and seeded schedules
+are fixed for a run; an individual failure can be replayed with pytest `-k`.
+The PR workflow owns routine execution; manual dispatch supports focused runs.
+Rate-limit/service-unavailable cases honor a one-hour Retry-After deferral and
+schedule their next attempt on the following day.
+
+### Repeated pre-price failure recovery
+
+The expanded replay found that two failures after TICKERS but before reference
+writes leave two failed daily runs owning only dated universe snapshots. The
+single-candidate dispatcher rejects that state even though the existing
+publication transaction can retire every older failed universe snapshot after
+a complete, validated TICKERS replacement succeeds.
+
+Allow this precise metadata-only cohort through daily dispatch when every live
+candidate is a failed daily run and full coherence reports universe rows as its
+only pending rows. The dispatcher uses a representative only to select the daily
+recovery path. The existing publisher still requires all prior owners cleared.
+Mixed operation kinds or any pending bars, references, repairs, actions or
+anomalies retain the existing refusal. An executable falsifier restores the old
+multi-candidate refusal and must reproduce the repeated-outage failure.
