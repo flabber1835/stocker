@@ -12,6 +12,22 @@ Objective: run one fresh canonical 20-year PIT replay that records both the pure
 - one-session dividend settlement
 - existing cooldown/review/stop/liquidity/cost/security-type/PIT semantics unchanged
 
+## Canonical execution harness
+
+There is now one active research implementation of the 10 bp + next-open whole-share execution contract:
+
+`canonical_execution_harness.py`
+
+Contract version:
+
+`wealth-core.open-time-whole-shares-10bp/2`
+
+Median-5 remains a separate Wealth Core selection/configuration overlay and is applied before the canonical execution transform. Future strategy variants must reuse this execution module rather than copy its seams.
+
+The older `research/wealth-core-v1-open-sizing-10bp-v1` harness is historical evidence only. Its original evidence remains pinned to commit `3dc74a8e54fdfe6e8368a8db3be0ecd127ee4689`; its workflow has been retired from economic execution.
+
+See `HARNESS_CONSOLIDATION.md` for the audit and governance rule.
+
 ## Whole-share admission rule
 
 The first full-PIT run (`34299991647`) exposed five next-open zero-quantity blocks. Investigation showed all five were repeated AMZN admissions from 2015-12-04 through 2015-12-10 while the 19/20-slot book had only $283.521942 cash and AMZN traded above $650 per share.
@@ -41,4 +57,4 @@ The workflow is manual `workflow_dispatch` only. Changes to the research branch 
 
 No tuning. No production change. Full canonical PIT window: 2006-07-31 through 2026-07-31.
 
-Current state: the close-affordability fix is implemented and documented, but no post-fix experiment has been run yet.
+Current state: the close-affordability fix and harness consolidation are implemented and documented, but no post-fix experiment has been run yet.
