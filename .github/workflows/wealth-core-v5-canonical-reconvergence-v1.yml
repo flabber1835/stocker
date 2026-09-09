@@ -1,0 +1,99 @@
+name: Research - Wealth Core V5 canonical reconvergence full PIT
+run-name: V5 canonical reconvergence + EX3 V5 full PIT - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/wealth-core-v5-canonical-reconvergence-v1]
+    paths:
+      - '.github/workflows/wealth-core-v5-canonical-reconvergence-v1.yml'
+      - 'research/wealth-core-v5-canonical-reconvergence-v1/**'
+      - '.github/actions/v5-ex3-v5-adversarial-setup/action.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+concurrency:
+  group: wealth-core-v5-canonical-reconvergence-${{ github.ref }}
+  cancel-in-progress: false
+
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+
+jobs:
+  full-pit-ab:
+    name: Frozen V5+EX3 V5 vs canonical reconvergence
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-canonical-reconvergence-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+
+      - name: Stage pinned broad full-PIT authority
+        uses: ./experiment-src/.github/actions/v5-ex3-v5-adversarial-setup
+
+      - name: Compile research harness
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m py_compile \
+            experiment-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            experiment-src/research/wealth-core-v5-canonical-reconvergence-v1/run_reconvergence.py
+
+      - name: Run frozen baseline and patched Wealth Core V5 + Sentinel EX3 V5
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-canonical-reconvergence-v1/run_reconvergence.py" \
+            --suite baseline \
+            --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+            --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+            --output "${GITHUB_WORKSPACE}/reconvergence-results" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/reconvergence.log"
+          cp "${GITHUB_WORKSPACE}/package-integrity.json" "${GITHUB_WORKSPACE}/reconvergence-results/package-integrity.json"
+          cp "${GITHUB_WORKSPACE}/final-corpus-validation.json" "${GITHUB_WORKSPACE}/reconvergence-results/final-corpus-validation.json"
+          cp "${GITHUB_WORKSPACE}/reconvergence.log" "${GITHUB_WORKSPACE}/reconvergence-results/reconvergence.log"
+
+      - name: Result summary
+        if: success()
+        shell: bash
+        run: |
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          r=json.loads(Path('reconvergence-results/RESULT.json').read_text())
+          old=r['old']['sentinel']['20']; new=r['reconvergence']['sentinel']['20']
+          with open(os.environ['GITHUB_STEP_SUMMARY'],'a') as f:
+              f.write('## Broad full-PIT canonical reconvergence A/B\n\n')
+              f.write(f"Frozen V5+EX3 V5: CAGR **{old['cagr']:.2%}**, max DD **{old['max_drawdown']:.2%}**, Sharpe **{old['sharpe_daily_252']:.3f}**.\n\n")
+              f.write(f"Patched V5+EX3 V5: CAGR **{new['cagr']:.2%}**, max DD **{new['max_drawdown']:.2%}**, Sharpe **{new['sharpe_daily_252']:.3f}**.\n")
+          PY
+
+      - name: Preserve full-PIT evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: wealth-core-v5-canonical-reconvergence-fullpit
+          path: reconvergence-results/
+          retention-days: 90
+          if-no-files-found: warn
