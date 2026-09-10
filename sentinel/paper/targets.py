@@ -115,7 +115,7 @@ def _target_action_multipliers(plan: ExecutionPlan, actions) -> dict[str, Decima
     """
     target_ids = tuple(
         security_id for security_id, target
-        in sorted(plan.target_basket.items()) if target != 0)
+        in sorted(plan.target_basket.items()) if target != 0 or plan.opening_intents)
     evidence_reader = getattr(actions, "scalar_evidence_for", None)
     evidenced_ids = (
         {str(event.security_id) for event in evidence_reader(target_ids)}

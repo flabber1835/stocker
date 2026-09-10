@@ -142,3 +142,33 @@ def test_opening_buy_waits_for_pending_sale_settlement_and_recovers(conn):
     second = execute(conn, b, journal.load_plan(conn, plan.plan_id), restored, settle_cycles=1)
     assert [(c.security_id, c.side, c.quantity) for c in second.submitted] == [
         ("SEC-AAA", Side.BUY, D(10))]
+
+
+def test_unsent_projection_gap_reopens_sizing_after_database_reload(conn):
+    env, plan = setup_plan(conn)
+    restored = journal.load_plan(conn, plan.plan_id)
+    assert opening_sizing.requires_initial_projection(conn, plan=restored, deployment=DEPLOY)
+    original = prices(env, restored, price='50')
+    projection = projections.record_projection(conn,
+        opening_sizing.resolve(env, restored, base(env, restored), original))
+    assert not opening_sizing.requires_initial_projection(conn, plan=restored, deployment=DEPLOY)
+    b = broker()
+    outcome = execute(conn, b, restored, projection)
+    assert [c.quantity for c in outcome.submitted] == [D(99)]
+    assert len([call for call in b.calls if call.startswith('submit:')]) == 1
+
+
+def test_projection_loss_after_ambiguous_submit_is_integrity_failure(conn):
+    env, plan = setup_plan(conn)
+    projection = projections.record_projection(conn,
+        opening_sizing.resolve(env, plan, base(env, plan), prices(env, plan, price='50')))
+    b = broker().schedule_submit(FaultKind.ACCEPT_THEN_TIMEOUT)
+    result = execute(conn, b, plan, projection)
+    assert result.submitted[0].state is CommandState.UNKNOWN
+    with conn.cursor() as cur:
+        cur.execute('DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s',
+                    (projections._cursor_name(plan.plan_id),))
+    conn.commit()
+    with pytest.raises(projections.TargetProjectionRefused, match='durable commands'):
+        opening_sizing.requires_initial_projection(conn, plan=plan, deployment=DEPLOY)
+    assert len([call for call in b.calls if call.startswith('submit:')]) == 1

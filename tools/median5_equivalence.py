@@ -170,6 +170,7 @@ class Comparison:
         self.fractional_share_roundoffs = 0
         self.estimated_open_sessions = []
         self.estimated_open_transitions = []
+        self.previous_reference_witness = {}
 
     def shares(self, name, actual, expected):
         actual, expected = float(actual), float(expected)
@@ -221,6 +222,8 @@ class Comparison:
             self.restarts += 1
         wealth, ref = after.wealth_core, research["book"]
         sid = research["sid"]
+        witness_ids = (set(before.median5["selected"])
+                       | set(self.previous_reference_witness.get("closes", {})))
         self.diagnostics = {
             "session_index": research["gday"],
             "production_slots": wealth["slots"],
@@ -234,7 +237,23 @@ class Comparison:
             "reference_holding_features": research["held"],
             "opening_audit_equity": opened,
             "opening_audit_carried_security_ids": carried,
+            "production_witness_before": {
+                "selected": before.median5["selected"],
+                "closes": before.median5["selected_closes"],
+                "nav": before.median5["witness_nav"]},
+            "reference_witness_before": self.previous_reference_witness,
+            "production_witness_selected": after.median5["selected"],
+            "reference_witness_selected": [str(sid[t]) for t in research["prior_recent_sel"]],
+            "witness_current_closes": {str(sid[t]): float(research["clsig"][t])
+                for t in range(len(sid)) if str(sid[t]) in witness_ids},
+            "production_terminals": [t.security_id for t in published.terminal_events],
+            "reference_terminals": [str(sid[t]) for t in research["_leadership_terminal_tids"]],
         }
+        self.equal("recent_leadership_membership", after.median5["selected"],
+                   self.diagnostics["reference_witness_selected"])
+        self.previous_reference_witness = {
+            "closes": {str(sid[t]): v for t, v in research["prior_close_map"].items()},
+            "nav": list(research["recent_nav_hist"][-41:])}
         ref_order = [str(sid[int(t)]) for t in research["durable"]]
         self.equal("durable_order", wealth["median5"]["rank_history"][-1], ref_order)
         self.equal("eligible_population", after.last_evidence["median5_eligible_population"], len(research["et"]))

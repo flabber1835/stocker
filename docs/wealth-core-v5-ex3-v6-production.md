@@ -168,6 +168,18 @@ retain their original values.
 
 ## Status
 
+Review correction: an adopted opening-intent plan may survive a restart before
+its projection is persisted. After complete command reconciliation, an absent
+projection is resumable only when the exact plan has no durable commands.
+Recovery records no financial completion for that state. Automation returns it
+to opening sizing inside the execution window, or supersedes it after close.
+Any command for the plan makes a missing projection an integrity refusal.
+Both dual and normal execution use the persisted projection for convergence;
+zero provisional targets containing dollar intent cannot certify an empty no-op.
+Split coverage retained during sizing also participates in finalization.
+Opening asset/bar transport timeouts and HTTP 429/5xx remain retryable evidence
+unavailability; authority and identity refusals retain their terminal meaning.
+
 The deterministic core/controller port and opening-time paper projection are
 implemented and under verification. The atomic plan-intent record and versioned
 projection retain the original dollar intent, price evidence, and final Decimal

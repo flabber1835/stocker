@@ -6,6 +6,7 @@ import json
 from pathlib import Path
 import sys
 from unittest.mock import patch
+from pytest import MonkeyPatch
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
@@ -13,12 +14,20 @@ from _pytest.outcomes import Failed
 from tools.median5_mutation_check import rewritten
 from tests.v5 import test_v5 as checks
 from tests.v5 import test_opening as opening_checks
+from tests.v5 import test_review_regressions as review_checks
+from sentinel import automation_runtime
+from sentinel.paper import execution as paper_execution
 from sentinel.controller import ex3_v6
 from sentinel.core import decision
 from sentinel.execution import opening_prices, opening_sizing, executor, target_reprojection
 from sentinel.execution.plan import OpeningIntent
 from sentinel.paper import targets
 from stock_strategy_shared.wealth_core import v5, adapter
+
+
+def checked(function, *args):
+    with MonkeyPatch.context() as monkeypatch:
+        function(monkeypatch, *args)
 
 
 def run():
@@ -82,6 +91,32 @@ def run():
          opening_checks.test_persisted_unit_only_projection_is_insufficient_for_dollar_intent,
          target_reprojection, "assert_projection", rewritten(target_reprojection.assert_projection,
              "if bool(plan.opening_intents) != (projection.opening_sizing is not None):", "if False:")),
+        ("dual_opening_convergence_uses_provisional_zero",
+         lambda: checked(review_checks.test_filled_open_sized_entry_converges, True),
+         automation_runtime.ProductionAutomation, "_actionable_current_plan_deltas",
+         lambda self, conn, *, plan, effective_session, observation, minimum_quantity_increment:
+             automation_runtime._actionable_target_deltas(
+                 plan.target_basket, observation,
+                 minimum_quantity_increment=minimum_quantity_increment)),
+        ("unsized_empty_plan_certifies_convergence",
+         lambda: checked(review_checks.test_unsized_empty_basket_cannot_certify_convergence, False),
+         automation_runtime, "_actionable_projection_deltas",
+         rewritten(automation_runtime._actionable_projection_deltas,
+                   "not plan.opening_intents", "True")),
+        ("missing_projection_with_commands_resumes",
+         lambda: checked(review_checks.test_lost_opening_projection_with_any_plan_command_refuses, "UNKNOWN"),
+         opening_sizing, "requires_initial_projection",
+         rewritten(opening_sizing.requires_initial_projection,
+                   "if journal.load_commands(conn, deployment, plan_id=plan.plan_id):", "if False:")),
+        ("opening_entry_split_evidence_dropped",
+         review_checks.test_finalization_preserves_split_authority_for_opening_entry,
+         targets, "_target_action_multipliers",
+         rewritten(targets._target_action_multipliers, " or plan.opening_intents", "")),
+        ("opening_transient_failure_silently_accepted",
+         lambda: checked(review_checks.test_opening_asset_lookup_transient_failure_is_retryable, 429),
+         paper_execution, "_opening_prices_or_retry",
+         rewritten(paper_execution._opening_prices_or_retry,
+                   "except httpx.HTTPStatusError as exc:", "except httpx.HTTPStatusError as exc:\n        return None")),
     )
     results = []
     for name, falsifier, module, attribute, mutant in cases:

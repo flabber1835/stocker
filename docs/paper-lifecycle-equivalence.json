@@ -663,9 +663,9 @@
       "introduced_by": "docs/wealth-core-v5-ex3-v6-production.md",
       "owner": "execution",
       "successor": {
-        "ast_sha256": "5203b0f337bc2c6b8fab3cb7c0dcbf4fcec46822f2054e94aa93479f4faa7aba",
+        "ast_sha256": "56ea66b7de160942479d188410090abfd4aac2f1e0a4900366afdab046190d06",
         "design": "docs/wealth-core-v5-ex3-v6-production.md",
-        "reason": "Translate unavailable opening evidence into the retryable paper contract."
+        "reason": "Retry transient asset and opening-price transport failures."
       }
     },
     "_plan_deltas": {
@@ -816,7 +816,12 @@
         2044,
         2066
       ],
-      "owner": "targets"
+      "owner": "targets",
+      "successor": {
+        "ast_sha256": "f7ce458cb06de2def9aa2eb1ff7cef0077ef28096d57e94184a21ace4b6d9993",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Retain scalar authority for provisional zero-share dollar entries."
+      }
     },
     "_target_projection_or_refuse": {
       "generated_ast_sha256": "23dfec886b25ef9cb2ad3cb210347e115dd5a2eb4ecc60a7f9febe0bd4935a46",
@@ -926,7 +931,12 @@
         2800,
         3044
       ],
-      "owner": "recovery"
+      "owner": "recovery",
+      "successor": {
+        "ast_sha256": "5fbe88d16fbc1c9f375d7813b597ec65bd3434e5735227b099b9399c7884da28",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Recover unsent opening plans and require strict opening projection authority in dual mode."
+      }
     }
   },
   "dependency_edges": {

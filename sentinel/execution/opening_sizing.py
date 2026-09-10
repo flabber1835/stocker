@@ -15,6 +15,18 @@ from stock_strategy_shared.wealth_core.state import PortfolioState
 COST = Decimal("0.001")
 
 
+def requires_initial_projection(conn, *, plan, deployment):
+    """Missing V5 sizing is resumable only before any durable plan command."""
+    from sentinel.execution import journal, target_reprojection
+    if (not plan.opening_intents
+            or target_reprojection.load_projection(conn, plan_id=plan.plan_id) is not None):
+        return False
+    if journal.load_commands(conn, deployment, plan_id=plan.plan_id):
+        raise TargetProjectionRefused(
+            "opening projection is absent for a plan with durable commands")
+    return True
+
+
 def required_prices(state, plan):
     """Entry prices plus each canonical pending sale that funds the opening."""
     if not plan.opening_intents or plan.target_exposure == 0:

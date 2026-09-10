@@ -123,6 +123,7 @@ from .reconciliation_evidence import (
 from .preparation import _default_paper_strategy
 
 async def _opening_prices_or_retry(conn, *, state, plan, broker):
+    import httpx
     from sentinel.execution.opening_sizing import prices_for_plan
     from sentinel.execution.opening_prices import OpeningPriceUnavailable
     from sentinel.execution.target_reprojection import TargetProjectionRefused
@@ -132,6 +133,14 @@ async def _opening_prices_or_retry(conn, *, state, plan, broker):
         raise PaperRetryableRefused(str(exc)) from exc
     except TargetProjectionRefused as exc:
         raise PaperActivationRefused(str(exc)) from exc
+    except httpx.TransportError as exc:
+        raise PaperRetryableRefused("opening evidence transport is unavailable") from exc
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 429 or 500 <= exc.response.status_code < 600:
+            raise PaperRetryableRefused(
+                f"opening evidence HTTP {exc.response.status_code}; retry required") from exc
+        raise PaperActivationRefused(
+            f"opening evidence HTTP {exc.response.status_code} refused") from exc
 
 
 def _execution_observation_time(value: date | datetime | None) -> datetime:

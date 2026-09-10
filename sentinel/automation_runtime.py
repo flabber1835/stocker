@@ -370,7 +370,8 @@ def _actionable_projection_deltas(
         raw = _all_target_deltas(
             plan.target_basket, observation,
             minimum_quantity_increment=minimum_quantity_increment)
-        if (all(delta.classification is execution_commands.DeltaClass.NONE
+        if (not plan.opening_intents
+                and all(delta.classification is execution_commands.DeltaClass.NONE
                 for delta in raw)
                 and all(delta.desired == 0 and delta.held == 0
                         and delta.committed == 0 for delta in raw)
@@ -598,6 +599,11 @@ class ProductionAutomation:
 
         proof = self._require_dual_plan_shadow_match(
             conn, plan, pending_is_retryable=False)
+        if plan.opening_intents:
+            return _actionable_projection_deltas(
+                conn, plan=plan, effective_session=effective_session,
+                observation=observation,
+                minimum_quantity_increment=minimum_quantity_increment)
         current = publication.require_current(conn)
         frontier = feed_store.latest_visible_session(conn)
         try:
@@ -923,6 +929,19 @@ class ProductionAutomation:
                                 "name the durable current plan"),
                             diagnostic=result.to_dict())
                     try:
+                        from sentinel.execution import opening_sizing
+                        if opening_sizing.requires_initial_projection(
+                                conn, plan=plan, deployment=deployment):
+                            closed = _now_utc() >= cycle.execution_close_at
+                            return ExecuteResult(
+                                disposition=(ExecuteDisposition.SUPERSEDED if closed
+                                             else ExecuteDisposition.READY_TO_EXECUTE),
+                                last_clean_reconciliation_id=str(result.observation_id),
+                                failure_code=("EXECUTION_WINDOW_CLOSED" if closed
+                                              else "OPENING_SIZING_REQUIRED"),
+                                failure_detail=("unsent opening plan execution window closed"
+                                                if closed else "unsent plan requires opening sizing"),
+                                diagnostic=result.to_dict())
                         actionable = self._actionable_current_plan_deltas(
                             conn, plan=plan,
                             effective_session=cycle.effective_session,
