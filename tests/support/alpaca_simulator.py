@@ -69,10 +69,27 @@ class AlpacaSimulator:
         self.cancel_mode = "confirm"
         self.sequence = 0
 
+    @staticmethod
+    def _day_expiry(order) -> datetime:
+        submitted = datetime.fromisoformat(order["submitted_at"])
+        close = submitted.replace(hour=20, minute=0, second=0, microsecond=0)
+        if submitted >= close:
+            close += timedelta(days=1)
+        return close
+
+    def _expire_day_orders(self):
+        for order in self.orders.values():
+            if (self._working(order)
+                    and str(order.get("time_in_force", "day")).lower() == "day"
+                    and self.now >= self._day_expiry(order)):
+                order["status"] = "expired"
+                order["updated_at"] = self.now.isoformat()
+
     def advance(self, seconds: int = 1):
         if seconds < 0:
             raise ValueError("world time advances monotonically")
         self.now += timedelta(seconds=seconds)
+        self._expire_day_orders()
 
     def add_asset(self, symbol: str, price: str = "100"):
         if symbol in self.assets:
@@ -82,12 +99,21 @@ class AlpacaSimulator:
                                   status="active", tradable=True)
         self.prices[symbol] = D(price)
 
+    def _reserved_buy_notional(self) -> Decimal:
+        return sum(
+            ((D(order["qty"]) - D(order["filled_qty"]))
+             * self.prices[order["symbol"]])
+            for order in self.orders.values()
+            if order["side"] == "buy" and self._working(order)
+        , D(0))
+
     def account(self):
         equity = self.cash + sum((q * self.prices[s]
                                  for s, q in self.positions.items()), D(0))
+        buying_power = self.cash - self.unsettled - self._reserved_buy_notional()
         return dict(id=self.native_account_id, account_number=self.account_id,
                     currency="USD", equity=str(equity), cash=str(self.cash),
-                    buying_power=str(self.cash - self.unsettled), multiplier="1",
+                    buying_power=str(buying_power), multiplier="1",
                     status="ACTIVE", trading_blocked=False,
                     account_blocked=False, trade_suspended_by_user=False) | \
             copy.deepcopy(self.account_overrides)
@@ -237,9 +263,7 @@ class AlpacaSimulator:
                                   headers={"X-Request-ID": "sim-rejection"})
         qty = D(body["qty"])
         symbol = asset["symbol"]
-        reserved = sum((D(o["qty"]) - D(o["filled_qty"])) * self.prices[o["symbol"]]
-                       for o in self.orders.values()
-                       if o["side"] == "buy" and self._working(o))
+        reserved = self._reserved_buy_notional()
         unavailable = (not qty.is_finite() or qty <= 0
                        or not asset["tradable"] or asset["status"] != "active"
                        or self.account()["trading_blocked"]
