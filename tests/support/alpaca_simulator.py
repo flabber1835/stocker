@@ -12,6 +12,7 @@ from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
+from functools import lru_cache
 from typing import Callable
 
 import httpx
@@ -22,6 +23,28 @@ LIVE_URL = "https://api.alpaca.markets"
 EPOCH = datetime(2026, 9, 9, 14, 0, tzinfo=timezone.utc)
 ACCOUNT_UUID = "00000000-0000-4000-8000-000000000001"
 ASSET_UUID = "00000000-0000-4000-8000-000000000002"
+
+
+@lru_cache(maxsize=1)
+def _session_calendar():
+    import exchange_calendars as xcals
+
+    # Explicit bounds keep the pinned schedule independent of host wall time.
+    return xcals.get_calendar("XNYS", start="1997-01-01", end="2100-12-31")
+
+
+def _session_window(at: datetime) -> tuple[datetime, datetime]:
+    """The current eligible session, or the first session after this instant."""
+    if at.tzinfo is None:
+        raise ValueError("simulated session time must be timezone-aware")
+    at = at.astimezone(timezone.utc)
+    calendar = _session_calendar()
+    session = calendar.date_to_session(at.date(), direction="next")
+    closed = calendar.session_close(session).to_pydatetime()
+    if at >= closed:
+        session = calendar.next_session(session)
+        closed = calendar.session_close(session).to_pydatetime()
+    return calendar.session_open(session).to_pydatetime(), closed
 
 
 class Profile(str, Enum):
@@ -69,27 +92,25 @@ class AlpacaSimulator:
         self.cancel_mode = "confirm"
         self.sequence = 0
 
-    @staticmethod
-    def _day_expiry(order) -> datetime:
-        submitted = datetime.fromisoformat(order["submitted_at"])
-        close = submitted.replace(hour=20, minute=0, second=0, microsecond=0)
-        if submitted >= close:
-            close += timedelta(days=1)
-        return close
-
-    def _expire_day_orders(self):
+    def _advance_orders(self):
         for order in self.orders.values():
-            if (self._working(order)
-                    and str(order.get("time_in_force", "day")).lower() == "day"
-                    and self.now >= self._day_expiry(order)):
+            if not self._working(order):
+                continue
+            opened, closed = _session_window(
+                datetime.fromisoformat(order["submitted_at"]))
+            is_day = str(order.get("time_in_force", "day")).lower() == "day"
+            if is_day and self.now >= closed:
                 order["status"] = "expired"
-                order["updated_at"] = self.now.isoformat()
+                order["updated_at"] = closed.isoformat()
+            elif order["status"] == "accepted" and self.now >= opened:
+                order["status"] = "new"
+                order["updated_at"] = opened.isoformat()
 
     def advance(self, seconds: int = 1):
         if seconds < 0:
             raise ValueError("world time advances monotonically")
         self.now += timedelta(seconds=seconds)
-        self._expire_day_orders()
+        self._advance_orders()
 
     def add_asset(self, symbol: str, price: str = "100"):
         if symbol in self.assets:
@@ -173,9 +194,13 @@ class AlpacaSimulator:
     def fill(self, order_id: str, quantity: str | None = None,
              price: str | None = None, *, liquidity: str | None = None,
              late: bool = False):
+        self._advance_orders()
         order = self.orders[order_id]
         if order["status"] in {"filled", "rejected", "expired", "canceled"} and not late:
             raise ValueError("cannot fill a terminal order")
+        opened, closed = _session_window(self.now)
+        if not late and not (opened <= self.now < closed):
+            raise ValueError("ordinary fills require an eligible open session")
         remaining = D(order["qty"]) - D(order["filled_qty"])
         qty = remaining if quantity is None else D(quantity)
         px = self.prices[order["symbol"]] if price is None else D(price)
@@ -278,8 +303,10 @@ class AlpacaSimulator:
             return httpx.Response(403, json=dict(message="insufficient available buying power or shares"),
                                   headers={"X-Request-ID": "sim-rejection"})
         order_id = f"order-{len(self.orders) + 1:08d}"
+        opened, _closed = _session_window(self.now)
         order = copy.deepcopy(body) | dict(id=order_id, symbol=symbol,
-                  asset_id=asset["id"], status="new", filled_qty="0",
+                  asset_id=asset["id"],
+                  status="new" if self.now >= opened else "accepted", filled_qty="0",
                   filled_avg_price=None, submitted_at=self.now.isoformat(),
                   updated_at=self.now.isoformat())
         self.orders[order_id] = order
@@ -297,9 +324,12 @@ class AlpacaSimulator:
         if method == "GET" and path == "/v2/positions":
             return httpx.Response(200, json=self.position_rows())
         if method == "GET" and path == "/v2/clock":
-            payload = dict(timestamp=self.now.isoformat(), is_open=True,
-                           next_open=(self.now + timedelta(days=1)).isoformat(),
-                           next_close=self.now.replace(hour=20, minute=0).isoformat())
+            opened, closed = _session_window(self.now)
+            is_open = opened <= self.now < closed
+            next_open = _session_window(closed)[0] if is_open else opened
+            payload = dict(timestamp=self.now.isoformat(), is_open=is_open,
+                           next_open=next_open.isoformat(),
+                           next_close=closed.isoformat())
             return httpx.Response(200, json=payload | self.clock_overrides)
         if method == "GET" and path.startswith("/v2/assets/"):
             key = path.rsplit("/", 1)[-1]

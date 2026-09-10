@@ -32,6 +32,28 @@ URLs must continue to fail at construction. This does not certify or enable a
 live adapter. Activity SSE remains a candidate parser: tests may call it directly
 for wire acceptance; production capability flags and guarded refusal stay intact.
 
+## Trading-session timing
+
+Decision: 2026-09-10, PR #347 review 5162217860. Both simulator profiles use
+the locked `exchange_calendars` XNYS schedule over an explicit 1997–2100
+horizon. The simulator reads session data directly from that dependency. Its
+order lifecycle remains independent of production execution and calendar guards.
+
+One session lookup drives the market clock, queue release, DAY expiry, and
+ordinary fill eligibility. A session is open from its opening timestamp
+inclusive to its closing timestamp exclusive. Pre-open and after-close orders
+queue for their first eligible session; weekends, holidays, winter UTC offsets,
+and early closes follow that schedule. `next_open` and `next_close` always name
+future schedule boundaries. Advancing across the close expires the remaining
+DAY quantity, preserves cumulative fills, releases its buying-power reservation,
+and timestamps expiry at that session's close.
+
+Ordinary fills require an eligible open session. The existing explicit
+`late=True` fault models delayed fill reports after expiry or cancellation.
+Delivery faults and `clock_overrides` continue to inject contradictory evidence
+independently of broker truth. Literal dated regression expectations and mutation
+checks exercise these boundaries through the production adapter and broker guard.
+
 ## Failure and recovery model
 
 Fault scripts attach to a method/path/request occurrence, before or after the
@@ -110,11 +132,13 @@ Vendor contract checked 2026-09-10:
 - https://docs.alpaca.markets/us/docs/paper-trading
 - https://docs.alpaca.markets/us/docs/account-activities
 - https://docs.alpaca.markets/us/docs/working-with-orders
+- https://docs.alpaca.markets/us/docs/orders-at-alpaca#time-in-force
+- https://docs.alpaca.markets/us/reference/clock-1
 
 The default Sentinel safety suite discovers the new tests. The dedicated workflow
 runs the harness, independent command-state model, and adjacent broker tests on
 both the PR head and synthetic merge, retains JUnit results and source hashes,
-and requires at least 390 cases with zero
+and requires at least 450 cases with zero
 skips. PostgreSQL is mandatory for this gate. Install the locked Sentinel/test
 dependencies and PostgreSQL, then run from a clean checkout:
 
@@ -124,9 +148,10 @@ PYTHONPATH=shared ALPACA_HARNESS_REQUIRE_POSTGRES=1 python tools/alpaca_harness_
 ```
 
 Use a fresh output directory for each gate run. Fixed-seed sequences augment named
-scenarios; the seed and operation trace identify failures. Six mutation checks
+scenarios; the seed and operation trace identify failures. Nine mutation checks
 remove representative guards: exact-response validity, UUID routing, observation
 consistency, external-capital classification, ledger/cursor consistency, and
-UNKNOWN recovery of an observed pending cancellation. Each
+UNKNOWN recovery of an observed pending cancellation. Session mutations restore
+the fixed UTC expiry, force an always-open clock, and disable the fill-time guard. Each
 must produce an actual assertion failure in an isolated source overlay with zero
 pytest errors. The PR records the exact tested revision and results.

@@ -35,6 +35,22 @@ MUTANTS = (
            '                          S.CANCELLED, S.REJECTED}),\n',
            "tests/sentinel/test_execution_state_machine_model.py::"
            "test_command_transition_guard_matches_every_independent_model_edge"),
+    Mutant("day-expiry-uses-fixed-utc-close", "tests/support/alpaca_simulator.py",
+           '            if is_day and self.now >= closed:\n',
+           '            closed = closed.replace(hour=20)\n'
+           '            if is_day and self.now >= closed:\n',
+           "tests/sentinel/test_alpaca_simulation_sessions.py::"
+           "test_day_order_preserves_partial_fill_until_eligible_session_close"),
+    Mutant("simulated-clock-is-always-open", "tests/support/alpaca_simulator.py",
+           '            is_open = opened <= self.now < closed\n',
+           '            is_open = True\n',
+           "tests/sentinel/test_alpaca_simulation_sessions.py::"
+           "test_production_guard_refuses_closed_simulated_clock"),
+    Mutant("closed-session-fill-guard-disabled", "tests/support/alpaca_simulator.py",
+           '        if not late and not (opened <= self.now < closed):\n',
+           '        if False:\n',
+           "tests/sentinel/test_alpaca_simulation_sessions.py::"
+           "test_closed_session_fill_cannot_change_broker_economics"),
 )
 
 POSTGRES_MUTANT = Mutant(
