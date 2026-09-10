@@ -119,7 +119,7 @@ MUTANTS = (
      EXECUTION_ENVELOPE + "test_run_service_selection_is_fixed"),
     ("stale-container-revival-accepted", "scripts/sentinel-env.sh",
      'if command in {"start", "restart", "unpause", "pause"}:\n    refuse("stale-container state transitions are not allowed; use the reviewed Compose up/stop path")',
-     'if False and command in {"start", "restart", "unpause", "pause"}:\n    refuse("stale-container state transitions are not allowed; use the reviewed Compose up/stop path")',
+     'if command in {"start", "restart", "unpause", "pause"}:\n    raise SystemExit(0)',
      EXECUTION_ENVELOPE + "test_stale_container_transitions_and_exec_are_refused"),
     ("generic-compose-exec-accepted", "scripts/sentinel-env.sh",
      'if command == "exec":\n    refuse("generic Compose exec is outside the Sentinel execution envelope")',
