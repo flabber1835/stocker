@@ -81,6 +81,23 @@ service operations. Missing, empty, comment-only, whitespace-only and placeholde
 values refuse, including an explicit empty process override of a configured file.
 The setting is listed in `.env.example` and stays operator-owned.
 
+The direct automation Compose wrapper also requires that endpoint for service
+creation, startup, restart, scaling, unpause, one-off execution and other
+potentially mutating commands. It applies the dispatcher's effective callback
+deadline at the same gate. Explicit inspection commands and `stop`, `down`,
+`pause`, `rm`, and `wait` retain maintenance requirements. The host classifier
+consumes the documented [Compose global options](https://docs.docker.com/reference/cli/docker/compose/)
+before identifying the command; an unknown command or option selects the
+dispatcher requirement. The forwarded argument list has a separate parser
+boundary, so an option value named `config` cannot select inspection for `up`.
+This helper requires existing receipt authority and supports process-only
+configuration.
+
+Webhook URL parsing and property-validation errors become a safe reason code
+and key name. Malformed Unicode delimiters, IPv6 authorities and ports never
+expose parser exception text. The webhook is also part of GO's shared secret
+inventory for streaming diagnostics and validation-bundle scans.
+
 The shared automation Compose graph passes an optional webhook value to the
 dispatcher. SHADOW and maintenance also load this graph, and their configuration
 must resolve when external alert delivery is unconfigured. The dispatcher retains
@@ -109,7 +126,8 @@ existing publication-receipt key used by the Compose graph. It accepts a missing
 file when those values are supplied by the process. Broker and market-data
 credentials retain their operation-specific gates. These helpers never provision
 receipt authority. Existing immutable-image and authority-directory guards run
-after ingestion.
+after ingestion. Automation commands additionally apply the operation-aware
+dispatcher requirement above.
 
 ## Adversarial harness
 

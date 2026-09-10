@@ -619,6 +619,135 @@ class EnvHarness(unittest.TestCase):
         }
         return process, values
 
+    def test_automation_start_requires_webhook_before_docker(self):
+        process, base = self.maintenance_repo()
+        key = "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"
+        commands = (
+            ("up", "-d"), ("start",), ("restart",), ("create",),
+            ("run", "--rm", "sentinel-automation"),
+            ("exec", "sentinel-automation", "python", "-m", "sentinel.automation_worker"),
+            ("scale", "sentinel-automation=2"), ("unpause",), ("watch",),
+            ("--project-name", "config", "up", "-d"),
+            ("--file", "config", "up", "-d"),
+            ("--profile=ps", "restart"), ("-pconfig", "start"),
+            ("--ansi", "never", "--dry-run=false", "up", "-d"),
+            ("--help", "--help=false", "up"), ("--", "up"),
+            ("--unknown-option", "config", "up"), ("future-command",),
+            ("--profile", "maintenance", "--env-file", "other.env", "up"),
+        )
+        for args in commands:
+            for name, value in (("missing", None), ("empty", ""), ("whitespace", "   ")):
+                with self.subTest(args=args, case=name):
+                    values = dict(base)
+                    if value is not None:
+                        values[key] = value
+                    raw = self.write(raw="".join(
+                        k + "=" + CONVERT.quote(v) + "\n" for k, v in values.items()).encode())
+                    result = self.run_shell("sentinel-automation-compose.sh", process, *args)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn(key, result.stderr)
+                    self.assertFalse((self.root / "effects").exists())
+                    self.assertEqual(self.path.read_bytes(), raw)
+
+    def test_automation_start_valid_file_process_and_override(self):
+        process, base = self.maintenance_repo()
+        key = "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"
+        expected = "https://alerts.example.invalid:443/hook?token=$LITERAL#fragment"
+        for source in ("file", "process", "override", "process_only"):
+            with self.subTest(source=source):
+                values, overrides = dict(base), {}
+                if source == "file":
+                    values[key] = expected
+                else:
+                    overrides[key] = expected
+                    if source == "override":
+                        values[key] = ""
+                if source == "process_only":
+                    if self.path.exists():
+                        self.path.unlink()
+                    overrides.update(values)
+                else:
+                    self.write(values)
+                result = self.run_shell(
+                    "sentinel-automation-compose.sh", dict(process, **overrides), "up", "-d")
+                self.assertEqual(result.returncode, 93, result.stderr)
+                selected = json.loads((self.root / "selected.json").read_text())
+                self.assertEqual(selected[key], expected)
+                self.assertEqual(selected["COMPOSE_ENV_FILES"], "/dev/null")
+        # An explicit empty process value wins over a configured file.
+        (self.root / "effects").unlink()
+        self.write(dict(base, **{key: expected}))
+        result = self.run_shell(
+            "sentinel-automation-compose.sh", dict(process, **{key: ""}), "up", "-d")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertFalse((self.root / "effects").exists())
+
+    def test_automation_inspection_and_stop_allow_unconfigured_alerts(self):
+        process, values = self.maintenance_repo()
+        self.write(values)
+        commands = tuple((command,) for command in (
+            "config", "ps", "logs", "top", "events", "port", "images", "ls",
+            "version", "help", "stats", "volumes", "stop", "down", "pause", "rm", "wait"))
+        commands += (
+            (), ("--help",), ("--ansi", "never", "ps"),
+            ("--project-name", "up", "ps"), ("-pup", "config"),
+            ("--parallel=-1", "--compatibility", "logs"),
+            ("--profile", "automation", "--all-resources", "config"),
+            ("--project-directory", "/synthetic/project", "--progress", "plain", "ps"),
+            ("--", "stop"),
+        )
+        for args in commands:
+            with self.subTest(args=args):
+                result = self.run_shell("sentinel-automation-compose.sh", process, *args)
+                self.assertEqual(result.returncode, 93, result.stderr)
+                self.assertIn("docker", (self.root / "effects").read_text())
+
+    def test_automation_start_checks_dispatcher_callback_deadline(self):
+        process, values = self.maintenance_repo()
+        values.update({
+            "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL": BASE["SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"],
+            "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS": "1",
+            "SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS": "9",
+        })
+        self.write(values)
+        result = self.run_shell("sentinel-automation-compose.sh", process, "up", "-d")
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("ALERT_CALLBACK_BELOW_HEARTBEAT", result.stderr)
+        self.assertFalse((self.root / "effects").exists())
+
+    def test_malformed_webhook_errors_are_secret_safe(self):
+        process, maintenance = self.maintenance_repo()
+        invalid = (
+            "https://alerts.example.invalid\uff0f" + CANARY,
+            "https://alerts.example.invalid\uff1a" + CANARY,
+            "https://[" + CANARY,
+            "https://[" + CANARY + "]/hook",
+            "https://alerts.example.invalid:" + CANARY + "/hook",
+            "https://alerts.example.invalid:65536/" + CANARY,
+            "https://alerts.example.invalid:0/" + CANARY,
+        )
+        launchers = ("sentinel-compose.sh", "sentinel-autonomous-deploy.sh",
+                     "sentinel-go-validate.sh", "sentinel-bringup.sh") + MAINTENANCE_LAUNCHERS
+        for index, url in enumerate(invalid):
+            self.write(dict(BASE, **maintenance,
+                            SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL=url))
+            for launcher in launchers:
+                with self.subTest(case=index, launcher=launcher):
+                    result = self.run_shell(launcher, process, "ps")
+                    self.assertEqual(result.returncode, 2)
+                    self.assertIn("INVALID_ALERT_WEBHOOK_URL", result.stderr)
+                    self.assertNotIn("Traceback", result.stderr)
+                    self.assertNotIn(CANARY, result.stdout + result.stderr)
+                    self.assertFalse((self.root / "effects").exists())
+
+    def test_webhook_url_valid_ports_and_ipv6_remain_literal(self):
+        for url in ("https://alerts.example.invalid/hook",
+                    "https://alerts.example.invalid:443/hook?token=$VALUE#fragment",
+                    "https://[2001:db8::1]:8443/hook"):
+            candidate = dict(BASE, SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL=url)
+            env.validate(candidate, profile="install")
+            self.assertEqual(candidate["SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"], url)
+
 
 def _valid_case(loader, raw, expected):
     def test(self):
@@ -748,7 +877,8 @@ def _maintenance_case(launcher, case):
             self.write(raw=raw)
             if case == "empty_override":
                 process["SENTINEL_POSTGRES_PASSWORD"] = ""
-        args = ("status",) if "compose" in launcher or "authorized" in launcher else ()
+        args = (("ps",) if "compose" in launcher else
+                ("status",) if "authorized" in launcher else ())
         result = self.run_shell(launcher, process, *args)
         if case in ("valid", "literal_override", "process_only"):
             self.assertIn(result.returncode, (4, 93), result.stderr)

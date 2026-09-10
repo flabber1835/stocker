@@ -82,7 +82,7 @@ def test_required_service_inputs_have_preflight_or_provisioning_authority():
 
 
 @pytest.mark.parametrize("value", [None, "", "   "])
-@pytest.mark.parametrize("profile", ["install", "go", "bringup"])
+@pytest.mark.parametrize("profile", ["install", "go", "bringup", "maintenance"])
 def test_missing_webhook_refuses_at_host_and_real_dispatcher(profile, value):
     key = "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"
     candidate = dict(BASE)
@@ -91,7 +91,9 @@ def test_missing_webhook_refuses_at_host_and_real_dispatcher(profile, value):
     else:
         candidate[key] = value
     with pytest.raises(preflight.EnvRefused, match=key):
-        preflight.validate(candidate, profile=profile, target="DUAL_RUN_OBSERVATION")
+        preflight.validate(
+            dict(candidate, **GENERATED), profile=profile, target="DUAL_RUN_OBSERVATION",
+            require_alert_dispatcher=profile == "maintenance")
     deployed = service_environment("sentinel-alert-dispatcher", {}, configured=candidate)
     with mock.patch.dict(os.environ, deployed, clear=True), \
             mock.patch.object(alert_service.feed_store, "connect") as connect:
@@ -139,6 +141,7 @@ def test_alert_dispatcher_effective_heartbeat_matches_host_preflight():
 
 
 @pytest.mark.parametrize("target", ["DUAL_RUN_OBSERVATION", "HISTORICAL_PAPER_EXECUTION"])
+@pytest.mark.parametrize("profile", ["install", "maintenance"])
 @pytest.mark.parametrize("suffix,value,accepted", [
     (None, None, True),
     ("LEASE_SECONDS", "3", False),
@@ -155,9 +158,9 @@ def test_alert_dispatcher_effective_heartbeat_matches_host_preflight():
     ("CALLBACK_DEADLINE_SECONDS", "10", True),
 ])
 def test_install_preflight_agrees_with_effective_runtime(
-        target, suffix, value, accepted):
+        target, profile, suffix, value, accepted):
     overrides = {} if suffix is None else {"SENTINEL_AUTOMATION_" + suffix: value}
-    host = dict(BASE, **overrides)
+    host = dict(BASE, **GENERATED, **overrides)
     refused = []
     for service in ("sentinel-automation", "sentinel-authorized-cli", "sentinel-alert-dispatcher"):
         try:
@@ -166,7 +169,9 @@ def test_install_preflight_agrees_with_effective_runtime(
             refused.append(service)
     assert (not refused) == accepted
     if accepted:
-        preflight.validate(host, profile="install", target=target)
+        preflight.validate(host, profile=profile, target=target,
+                           require_alert_dispatcher=profile == "maintenance")
     else:
         with pytest.raises(preflight.EnvRefused):
-            preflight.validate(host, profile="install", target=target)
+            preflight.validate(host, profile=profile, target=target,
+                               require_alert_dispatcher=profile == "maintenance")

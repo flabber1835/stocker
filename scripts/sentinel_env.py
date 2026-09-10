@@ -87,6 +87,21 @@ AUTOMATION_INTEGER_DEFAULTS = {
 # uses this runtime-model heartbeat. The service differential binds that fact.
 ALERT_DISPATCHER_HEARTBEAT_SECONDS = 10
 
+# Explicit inspection/stopping commands never start an automation worker.
+# Unknown operations select the dispatcher requirement. Option arity follows
+# the Docker Compose CLI reference linked in docs/sentinel-env-contract.md.
+COMPOSE_MAINTENANCE_COMMANDS = frozenset({
+    "config", "ps", "logs", "top", "events", "port", "images", "ls",
+    "version", "help", "stats", "volumes", "stop", "down", "pause", "rm", "wait",
+})
+COMPOSE_VALUE_OPTIONS = frozenset({
+    "--ansi", "--env-file", "-f", "--file", "--parallel", "--profile",
+    "--progress", "--project-directory", "-p", "--project-name",
+})
+COMPOSE_SWITCH_OPTIONS = frozenset({
+    "--all-resources", "--compatibility", "--dry-run", "--help", "-h", "--version",
+})
+
 
 class EnvRefused(ValueError):
     """Only safe metadata belongs in this exception's message."""
@@ -284,6 +299,34 @@ def _float(value: object, *, key: str,
     return number
 
 
+def automation_requires_alerts(arguments: Sequence[str]) -> bool:
+    """Classify the actual Compose command after consuming global options."""
+    index = 0
+    while index < len(arguments):
+        argument = arguments[index]
+        if argument == "--":
+            index += 1
+            break
+        name, separator, _value = argument.partition("=")
+        if name in COMPOSE_VALUE_OPTIONS:
+            if not separator:
+                if index + 1 >= len(arguments):
+                    return True
+                index += 1
+        elif name in COMPOSE_SWITCH_OPTIONS:
+            pass
+        elif argument.startswith(("-f", "-p")) and len(argument) > 2:
+            pass  # Compose accepts attached short-option values, e.g. -pNAME.
+        elif argument.startswith("-"):
+            return True
+        else:
+            return argument not in COMPOSE_MAINTENANCE_COMMANDS
+        index += 1
+    # No command displays Compose help. '--' may expose a final command.
+    return (index < len(arguments)
+            and arguments[index] not in COMPOSE_MAINTENANCE_COMMANDS)
+
+
 def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> None:
     # Exact runtime conversion boundaries.
     if "SENTINEL_MAX_CYCLES" in env:
@@ -397,9 +440,17 @@ def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> No
     if "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL" in env:
         value = str(env["SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"]).strip()
         if value:
-            parsed = urlparse(value)
-            if (parsed.scheme != "https" or not parsed.hostname
-                    or parsed.username or parsed.password):
+            try:
+                parsed = urlparse(value)
+                port = parsed.port
+                valid_url = (parsed.scheme == "https" and bool(parsed.hostname)
+                             and not parsed.username and not parsed.password
+                             and (port is None or 1 <= port <= 65535))
+            except ValueError:
+                valid_url = False
+            # Raise outside the except block so parser exception context cannot
+            # retain the secret-bearing netloc in a later traceback.
+            if not valid_url:
                 _fail("INVALID_ALERT_WEBHOOK_URL",
                       key="SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL")
 
@@ -429,7 +480,8 @@ def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> No
             _fail("IMAGE_REPOSITORY_MUST_NOT_BE_DIGEST", key=key)
 
 
-def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = None) -> None:
+def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = None,
+             require_alert_dispatcher: bool = False) -> None:
     """No I/O: prove local prerequisites before any external operation."""
     if profile not in {"compose", "bootstrap", "install", "go", "bringup", "maintenance"}:
         _fail("INVALID_PROFILE")
@@ -440,10 +492,12 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
         "SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", "SHARADAR_API_KEY"]
     if profile == "maintenance":
         required = ["SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", RECEIPT_KEY]
-    alert_dispatcher = (profile == "bringup" or (
+    broker_credentials = (profile == "bringup" or (
         profile in {"install", "go"} and target != "SHADOW"))
-    if alert_dispatcher:
+    alert_dispatcher = broker_credentials or require_alert_dispatcher
+    if broker_credentials:
         required += ["ALPACA_API_KEY", "ALPACA_SECRET_KEY"]
+    if alert_dispatcher:
         required.append("SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL")
     invalid = [key for key in required if not usable(env.get(key, ""))]
     if invalid:
@@ -471,6 +525,17 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
+    host_args = list(sys.argv[1:] if argv is None else argv)
+    automation_args = None
+    for index, argument in enumerate(host_args):
+        if argument == "--go-args":
+            break
+        if argument == "--automation-args":
+            # argparse's optional REMAINDER drops a leading '--'. Preserve the
+            # exact command tail before parsing host options.
+            automation_args = host_args[index + 1:]
+            host_args = host_args[:index]
+            break
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
     parser.add_argument(
@@ -480,7 +545,7 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     parser.add_argument("--target", choices=TARGETS)
     parser.add_argument("--records", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--go-args", nargs=argparse.REMAINDER, default=[], help=argparse.SUPPRESS)
-    args, _remaining = parser.parse_known_args(argv)
+    args, _remaining = parser.parse_known_args(host_args)
     if args.go_args:
         target_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
         target_parser.add_argument("--target", choices=TARGETS, default=args.target)
@@ -493,7 +558,10 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
                 and (not usable(os.environ[RECEIPT_KEY])
                      or len(os.environ[RECEIPT_KEY].strip().encode("utf-8")) < 32)):
             _fail("INVALID_EXTERNAL_RECEIPT_KEY", key=RECEIPT_KEY)
-        validate(resolved, profile=args.profile, target=args.target)
+        validate(
+            resolved, profile=args.profile, target=args.target,
+            require_alert_dispatcher=(automation_args is not None
+                                      and automation_requires_alerts(automation_args)))
         if args.records:
             names = set(values) | {"COMPOSE_DISABLE_ENV_FILE", "COMPOSE_ENV_FILES"}
             if not values.get(RECEIPT_KEY) and RECEIPT_KEY not in os.environ:
