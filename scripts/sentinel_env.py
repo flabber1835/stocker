@@ -11,6 +11,7 @@ import stat
 import sys
 import unicodedata
 from typing import Dict, Mapping, Optional, Sequence
+from urllib.parse import urlparse
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_BYTES = 1024 * 1024
@@ -42,53 +43,18 @@ HEX64_OR_EMPTY = re.compile(r"(?:|[0-9a-f]{64})\Z")
 OBSERVATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,63}\Z")
 PUBLICATION_POLICY = (
     "SHARADAR_SEP_SFP_SECOND_UPDATE_PLUS_15M_2345_AMERICA_NEW_YORK_V1")
-INTEGER_BOUNDS = {
-    "SENTINEL_MAX_CYCLES": (1, 1000000),
-    "SENTINEL_SHADOW_POLL_SECONDS": (1, 86400),
-    "SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS": (1, 86400),
-    "SENTINEL_DEPLOY_BOOTSTRAP_POSTGRES_TIMEOUT_SECONDS": (1, 1800),
-    "SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS": (0, 1800),
-    "SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS": (30, 1800),
-    "SENTINEL_DEPLOY_DATA_RETRY_SECONDS": (30, 3600),
-    "SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS": (300, 86400),
-    "SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS": (0, 86400),
-    "SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS": (0, 3600),
-    "SENTINEL_AUTOMATION_LEASE_SECONDS": (1, 3600),
-    "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS": (1, 300),
-    "SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS": (1, 300),
-    "SENTINEL_AUTOMATION_RETRY_BASE_SECONDS": (1, 3600),
-    "SENTINEL_AUTOMATION_RETRY_MAX_SECONDS": (1, 86400),
-    "SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS": (1, 86400),
-    "SENTINEL_AUTOMATION_REFRESH_MAX_ATTEMPTS": (1, 1000),
-    "SENTINEL_AUTOMATION_PREFLIGHT_RECOVER_MAX_ATTEMPTS": (1, 1000),
-    "SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS": (1, 1000),
-    "SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS": (1, 1000),
-    "SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS": (1, 1000),
-    "SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS": (1, 3600),
-    "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS": (1, 10000000),
-    "SENTINEL_AUTOMATION_SUPERVISOR_POLL_SECONDS": (1, 300),
-    "SENTINEL_AUTOMATION_SUPERVISOR_STARTUP_GRACE_SECONDS": (0, 3600),
-    "SENTINEL_AUTOMATION_ALERT_WEBHOOK_TIMEOUT_SECONDS": (1, 300),
-    "SENTINEL_AUTOMATION_ALERT_POLL_SECONDS": (1, 300),
-    "SENTINEL_AUTOMATION_ALERT_PROBE_SECONDS": (1, 86400),
-    "SENTINEL_AUTOMATION_ALERT_MAX_CONSECUTIVE_FAILURES": (1, 1000),
-    "SENTINEL_AUTOMATION_ALERT_HEALTH_MAX_AGE_SECONDS": (1, 3600),
-    "SENTINEL_AUTOMATION_ALERT_STARTUP_GRACE_SECONDS": (0, 3600),
-}
-DECIMAL_BOUNDS = {
-    "SENTINEL_POLL_SECONDS": (Decimal("0.001"), Decimal("3600")),
-    "SENTINEL_BACKUP_MAX_AGE_HOURS": (Decimal("0.001"), Decimal("8760")),
-    "SENTINEL_SHADOW_STARTING_CASH": (Decimal("0.01"), Decimal("1000000000000000")),
-}
+FLEX_BOOLEAN = frozenset({
+    "", "0", "1", "false", "true", "no", "yes", "off", "on",
+})
 EXACT_BOOLEAN_KEYS = frozenset({
     "SENTINEL_FORCE_CPU_LIMITS",
     "SENTINEL_FORCE_NO_CPU_LIMITS",
     "SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED",
-    "SENTINEL_SHADOW_OBSERVATION_ENABLED",
 })
 FLEX_BOOLEAN_KEYS = frozenset({
     "SENTINEL_DEPLOY_ALLOW_EMPTY_BIND",
     "SENTINEL_DEPLOY_REVOKE_PREVIOUS_SIGNING_KEY",
+    "SENTINEL_SHADOW_OBSERVATION_ENABLED",
 })
 SHA256_KEYS = frozenset({
     "SENTINEL_SHADOW_REGENESIS_APPROVAL_SHA256",
@@ -97,6 +63,23 @@ SHA256_KEYS = frozenset({
     "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256",
     "SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256",
 })
+AUTOMATION_INTEGER_DEFAULTS = {
+    "SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS": (900, 0),
+    "SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS": (60, 0),
+    "SENTINEL_AUTOMATION_LEASE_SECONDS": (45, 3),
+    "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS": (10, 1),
+    "SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS": (900, 1),
+    "SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS": (10, 1),
+    "SENTINEL_AUTOMATION_RETRY_BASE_SECONDS": (30, 1),
+    "SENTINEL_AUTOMATION_RETRY_MAX_SECONDS": (900, 1),
+    "SENTINEL_AUTOMATION_REFRESH_MAX_ATTEMPTS": (8, 1),
+    "SENTINEL_AUTOMATION_PREFLIGHT_RECOVER_MAX_ATTEMPTS": (8, 1),
+    "SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS": (8, 1),
+    "SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS": (8, 1),
+    "SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS": (8, 1),
+    "SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS": (60, 3),
+    "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS": (8, 1),
+}
 
 
 class EnvRefused(ValueError):
@@ -247,42 +230,74 @@ def usable(value: str) -> bool:
     return bool(value.strip()) and PLACEHOLDER.fullmatch(value.strip()) is None
 
 
-def _validate_integer(env: Mapping[str, str], key: str, lower: int, upper: int) -> None:
-    if key not in env:
-        return
-    value = str(env[key]).strip()
-    if not re.fullmatch(r"[0-9]{1,10}", value):
-        _fail("INTEGER_OUT_OF_RANGE", key=key)
-    number = int(value)
-    if number < lower or number > upper:
-        _fail("INTEGER_OUT_OF_RANGE", key=key)
-
-
-def _validate_decimal(
-        env: Mapping[str, str], key: str, lower: Decimal, upper: Decimal) -> None:
-    if key not in env:
-        return
-    value = str(env[key]).strip()
+def _integer(value: object, *, key: str,
+             minimum: Optional[int] = None,
+             maximum: Optional[int] = None) -> int:
     try:
-        number = Decimal(value)
-    except (InvalidOperation, ValueError):
+        number = int(str(value).strip())
+    except (TypeError, ValueError):
+        _fail("INVALID_INTEGER", key=key)
+    if minimum is not None and number < minimum:
+        _fail("INTEGER_OUT_OF_RANGE", key=key)
+    if maximum is not None and number > maximum:
+        _fail("INTEGER_OUT_OF_RANGE", key=key)
+    return number
+
+
+def _decimal(value: object, *, key: str,
+             minimum: Optional[Decimal] = None,
+             maximum: Optional[Decimal] = None) -> Decimal:
+    try:
+        number = Decimal(str(value).strip())
+    except (InvalidOperation, TypeError, ValueError):
+        _fail("INVALID_DECIMAL", key=key)
+    if not number.is_finite():
+        _fail("INVALID_DECIMAL", key=key)
+    if minimum is not None and number < minimum:
         _fail("DECIMAL_OUT_OF_RANGE", key=key)
-    if not number.is_finite() or number < lower or number > upper:
+    if maximum is not None and number > maximum:
         _fail("DECIMAL_OUT_OF_RANGE", key=key)
+    return number
+
+
+def _float(value: object, *, key: str,
+           minimum: Optional[float] = None,
+           maximum: Optional[float] = None,
+           minimum_inclusive: bool = True) -> float:
+    try:
+        number = float(str(value).strip())
+    except (TypeError, ValueError):
+        _fail("INVALID_FLOAT", key=key)
+    if number != number or number in {float("inf"), float("-inf")}:
+        _fail("INVALID_FLOAT", key=key)
+    if minimum is not None:
+        if (number < minimum if minimum_inclusive else number <= minimum):
+            _fail("FLOAT_OUT_OF_RANGE", key=key)
+    if maximum is not None and number > maximum:
+        _fail("FLOAT_OUT_OF_RANGE", key=key)
+    return number
 
 
 def _validate_semantics(env: Mapping[str, str]) -> None:
-    for key, bounds in INTEGER_BOUNDS.items():
-        _validate_integer(env, key, bounds[0], bounds[1])
-    for key, bounds in DECIMAL_BOUNDS.items():
-        _validate_decimal(env, key, bounds[0], bounds[1])
+    # Exact runtime conversion boundaries.
+    if "SENTINEL_MAX_CYCLES" in env:
+        _integer(env["SENTINEL_MAX_CYCLES"], key="SENTINEL_MAX_CYCLES", minimum=1)
+    if "SENTINEL_POLL_SECONDS" in env:
+        _float(env["SENTINEL_POLL_SECONDS"], key="SENTINEL_POLL_SECONDS",
+               minimum=0.0, minimum_inclusive=False)
+
+    # Shell backup arithmetic accepts decimal digits only.
+    if ("SENTINEL_BACKUP_MAX_AGE_HOURS" in env
+            and re.fullmatch(r"[0-9]+", str(env["SENTINEL_BACKUP_MAX_AGE_HOURS"]).strip()) is None):
+        _fail("INVALID_INTEGER", key="SENTINEL_BACKUP_MAX_AGE_HOURS")
+
     for key in EXACT_BOOLEAN_KEYS:
         if key in env and str(env[key]).strip() not in {"0", "1"}:
             _fail("EXPECTED_0_OR_1", key=key)
     for key in FLEX_BOOLEAN_KEYS:
-        if (key in env and str(env[key]).strip().lower()
-                not in {"", "0", "1", "false", "true", "no", "yes", "off", "on"}):
+        if key in env and str(env[key]).strip().lower() not in FLEX_BOOLEAN:
             _fail("INVALID_BOOLEAN", key=key)
+
     for key in SHA256_KEYS:
         if key in env and HEX64_OR_EMPTY.fullmatch(str(env[key]).strip()) is None:
             _fail("INVALID_SHA256", key=key)
@@ -290,14 +305,112 @@ def _validate_semantics(env: Mapping[str, str]) -> None:
             and OBSERVATION_ID.fullmatch(
                 str(env["SENTINEL_SHADOW_OBSERVATION_ID"]).strip()) is None):
         _fail("INVALID_OBSERVATION_ID", key="SENTINEL_SHADOW_OBSERVATION_ID")
+    if "SENTINEL_SHADOW_STARTING_CASH" in env:
+        _decimal(env["SENTINEL_SHADOW_STARTING_CASH"],
+                 key="SENTINEL_SHADOW_STARTING_CASH",
+                 minimum=Decimal("0.000000000000000001"))
+
+    if "SENTINEL_SHADOW_POLL_SECONDS" in env:
+        _integer(env["SENTINEL_SHADOW_POLL_SECONDS"],
+                 key="SENTINEL_SHADOW_POLL_SECONDS", minimum=5, maximum=3600)
+    if "SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS" in env:
+        _float(env["SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS"],
+               key="SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS",
+               minimum=30.0, maximum=7200.0)
+    if "SENTINEL_SHADOW_FAILURE_THRESHOLD" in env:
+        _integer(env["SENTINEL_SHADOW_FAILURE_THRESHOLD"],
+                 key="SENTINEL_SHADOW_FAILURE_THRESHOLD", minimum=1, maximum=100)
+
     for key in (
             "SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY",
             "SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY"):
         if key in env and str(env[key]).strip() != PUBLICATION_POLICY:
             _fail("INVALID_PUBLICATION_TIMING_POLICY", key=key)
+
+    reviewed_mode = str(env.get("SENTINEL_REVIEWED_DEPLOYMENT_MODE", "")).strip().lower()
+    if reviewed_mode not in {"", "shadow", "dual", "paper"}:
+        _fail("INVALID_REVIEWED_DEPLOYMENT_MODE",
+              key="SENTINEL_REVIEWED_DEPLOYMENT_MODE")
+
+    automation = {}
+    for key, (default, minimum) in AUTOMATION_INTEGER_DEFAULTS.items():
+        automation[key] = _integer(
+            env.get(key, default), key=key, minimum=minimum,
+            maximum=(300 if key == "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS" else None))
+    if automation["SENTINEL_AUTOMATION_HEARTBEAT_SECONDS"] >= \
+            automation["SENTINEL_AUTOMATION_LEASE_SECONDS"]:
+        _fail("AUTOMATION_HEARTBEAT_NOT_BELOW_LEASE",
+              key="SENTINEL_AUTOMATION_HEARTBEAT_SECONDS")
+    if automation["SENTINEL_AUTOMATION_RETRY_BASE_SECONDS"] > \
+            automation["SENTINEL_AUTOMATION_RETRY_MAX_SECONDS"]:
+        _fail("AUTOMATION_RETRY_RANGE_INVALID",
+              key="SENTINEL_AUTOMATION_RETRY_BASE_SECONDS")
+    if automation["SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS"] < \
+            automation["SENTINEL_AUTOMATION_HEARTBEAT_SECONDS"]:
+        _fail("AUTOMATION_CALLBACK_BELOW_HEARTBEAT",
+              key="SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS")
+
+    if "SENTINEL_AUTOMATION_SUPERVISOR_POLL_SECONDS" in env:
+        _float(env["SENTINEL_AUTOMATION_SUPERVISOR_POLL_SECONDS"],
+               key="SENTINEL_AUTOMATION_SUPERVISOR_POLL_SECONDS",
+               minimum=0.0, minimum_inclusive=False)
+    if "SENTINEL_AUTOMATION_SUPERVISOR_STARTUP_GRACE_SECONDS" in env:
+        _float(env["SENTINEL_AUTOMATION_SUPERVISOR_STARTUP_GRACE_SECONDS"],
+               key="SENTINEL_AUTOMATION_SUPERVISOR_STARTUP_GRACE_SECONDS",
+               minimum=0.0)
+
+    alert_float_bounds = {
+        "SENTINEL_AUTOMATION_ALERT_WEBHOOK_TIMEOUT_SECONDS": (0.0, 30.0, False),
+        "SENTINEL_AUTOMATION_ALERT_POLL_SECONDS": (0.0, 60.0, False),
+        "SENTINEL_AUTOMATION_ALERT_PROBE_SECONDS": (0.0, 3600.0, False),
+        "SENTINEL_AUTOMATION_ALERT_HEALTH_MAX_AGE_SECONDS": (0.0, None, False),
+        "SENTINEL_AUTOMATION_ALERT_STARTUP_GRACE_SECONDS": (0.0, None, False),
+    }
+    for key, (minimum, maximum, inclusive) in alert_float_bounds.items():
+        if key in env:
+            _float(env[key], key=key, minimum=minimum, maximum=maximum,
+                   minimum_inclusive=inclusive)
+    if "SENTINEL_AUTOMATION_ALERT_MAX_CONSECUTIVE_FAILURES" in env:
+        _integer(env["SENTINEL_AUTOMATION_ALERT_MAX_CONSECUTIVE_FAILURES"],
+                 key="SENTINEL_AUTOMATION_ALERT_MAX_CONSECUTIVE_FAILURES", minimum=1)
+    if "SENTINEL_AUTOMATION_ALERT_DISPATCHER_ID" in env:
+        value = str(env["SENTINEL_AUTOMATION_ALERT_DISPATCHER_ID"]).strip()
+        if not value or len(value) > 128:
+            _fail("INVALID_ALERT_DISPATCHER_ID",
+                  key="SENTINEL_AUTOMATION_ALERT_DISPATCHER_ID")
+    if "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL" in env:
+        value = str(env["SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"]).strip()
+        if value:
+            parsed = urlparse(value)
+            if (parsed.scheme != "https" or not parsed.hostname
+                    or parsed.username or parsed.password):
+                _fail("INVALID_ALERT_WEBHOOK_URL",
+                      key="SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL")
+
+    deploy_ints = {
+        "SENTINEL_DEPLOY_BOOTSTRAP_POSTGRES_TIMEOUT_SECONDS": (1, None),
+        "SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS": (0, 1800),
+        "SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS": (30, 1800),
+        "SENTINEL_DEPLOY_DATA_RETRY_SECONDS": (30, 3600),
+        "SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS": (300, 86400),
+    }
+    for key, (minimum, maximum) in deploy_ints.items():
+        if key in env:
+            _integer(env[key], key=key, minimum=minimum, maximum=maximum)
+
     exposure = str(env.get("SENTINEL_DEPLOY_MAXIMUM_EXPOSURE", "1")).strip()
     if re.fullmatch(r"(?:0|1|0\.[0-9]{0,17}[1-9])", exposure) is None:
         _fail("INVALID_EXPOSURE", key="SENTINEL_DEPLOY_MAXIMUM_EXPOSURE")
+
+    for key in ("SENTINEL_DEPLOY_ACTOR", "SENTINEL_DEPLOY_REVIEWER",
+                "SENTINEL_DEPLOY_TICKET_PREFIX"):
+        if key in env and not str(env[key]).strip():
+            _fail("EMPTY_DEPLOY_IDENTITY", key=key)
+    for key in ("SENTINEL_RUNTIME_IMAGE_REPOSITORY",
+                "SENTINEL_TEST_IMAGE_REPOSITORY"):
+        value = str(env.get(key, "")).strip()
+        if value and "@" in value:
+            _fail("IMAGE_REPOSITORY_MUST_NOT_BE_DIGEST", key=key)
 
 
 def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = None) -> None:
