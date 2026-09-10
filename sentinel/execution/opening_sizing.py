@@ -50,7 +50,7 @@ async def prices_for_plan(conn, *, state, plan, broker):
         raise TargetProjectionRefused("opening price request differs from canonical intent")
     broker.capabilities.require("regular_session_open_prices")
     from sentinel.feed import universe
-    resolver = universe.load_resolver(conn)
+    resolver = universe.load_resolver(conn, execution_session=plan.effective_session.isoformat())
     instruments = {}
     for sid in required_prices(state, plan):
         symbol = resolver.ticker_for_security(sid, plan.effective_session.isoformat())

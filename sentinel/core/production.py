@@ -209,6 +209,26 @@ def load_median5_warmup_inputs(conn, window):
         window.median5_terminals.setdefault(event.session, set()).add(event.security_id)
 
 
+def load_signal_basis_anchors(conn, *, session: str, security_ids: Sequence[str]):
+    """One last positive source observation per retained security under the caller's pin."""
+    from sentinel.feed.publication import visible_predicate
+    signal_basis_anchors = {}
+    if security_ids:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT ids.security_id,b.session,b.ticker,b.close_unadjusted,b.close_signal"
+                " FROM unnest(%s::text[]) AS ids(security_id) CROSS JOIN LATERAL ("
+                " SELECT b.session,b.ticker,b.close_unadjusted,b.close_signal"
+                " FROM sentinel_bars b WHERE b.security_id=ids.security_id"
+                " AND b.session<%s AND b.close_unadjusted>0 AND b.close_signal>0 AND "
+                f"{visible_predicate('b')} ORDER BY b.session DESC LIMIT 1) b",
+                (sorted(set(security_ids)), session))
+            for sid, day, ticker, raw, signal in cur.fetchall():
+                signal_basis_anchors[str(sid)] = VendorBar(
+                    str(day), str(sid), str(ticker), raw, None, None, signal_close=signal)
+    return signal_basis_anchors
+
+
 def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES,
                            known_feed_security_ids: Sequence[str] = ()
                            ) -> PublishedSession:
@@ -356,7 +376,8 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
                 f"{session}; refusing a default split/identity anchor")
     return PublishedSession(
         session=session, data_version=publication.version, bars=bars, meta=meta,
-        sectors=sectors, spy_closeadj=spy,
+        sectors=sectors, spy_closeadj=spy, signal_basis_anchors=load_signal_basis_anchors(
+            conn, session=session, security_ids=known_feed_security_ids),
         spy_sessions=actual_spy_sessions,
         spy_expected_sessions=expected_spy_sessions,
         terminal_events=terminals,

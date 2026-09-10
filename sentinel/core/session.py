@@ -167,6 +167,26 @@ def _bounded_feed_dict(raw: Mapping,
         if (isinstance(multiplier, bool) or not isinstance(multiplier, (int, float))
                 or not math.isfinite(multiplier) or multiplier <= 0):
             raise ValueError("invalid vendor-to-owned signal basis multiplier")
+        signal_multiplier = series.get("signal_basis_multiplier", 1.)
+        if (isinstance(signal_multiplier, bool) or not isinstance(signal_multiplier, (int, float))
+                or not math.isfinite(signal_multiplier) or signal_multiplier <= 0):
+            raise ValueError("invalid publication signal basis multiplier")
+        signal_anchor = series.get("signal_basis_anchor")
+        if signal_anchor is not None:
+            if (not isinstance(signal_anchor, list) or len(signal_anchor) != 3
+                    or not isinstance(signal_anchor[0], str) or not signal_anchor[0]
+                    or any(isinstance(x, bool) or not isinstance(x, (int, float))
+                           or not math.isfinite(x) or x <= 0 for x in signal_anchor[1:])):
+                raise ValueError("invalid publication signal basis anchor")
+            latest = next(([day, raw_close, signal_close]
+                for day, raw_close, signal_close in zip(
+                    reversed(columns["sessions"]), reversed(columns["raw_closes"]),
+                    reversed(columns["signal_closes"]))
+                if raw_close is not None and signal_close is not None), None)
+            if latest is not None and signal_anchor != latest:
+                raise ValueError("publication signal anchor differs from retained history")
+        elif signal_multiplier != 1.:
+            raise ValueError("publication signal basis is missing its retained anchor")
         compact_series[sid] = {
             "security_id": security_id,
             "ticker": ticker,
@@ -174,6 +194,9 @@ def _bounded_feed_dict(raw: Mapping,
             "split_factor": split_factor,
             **({"vendor_basis_multiplier": float(series["vendor_basis_multiplier"])}
                if series.get("vendor_basis_multiplier", 1.) != 1. else {}),
+            **({"signal_basis_multiplier": float(signal_multiplier)}
+               if signal_multiplier != 1. else {}),
+            **({"signal_basis_anchor": list(signal_anchor)} if signal_anchor is not None else {}),
             **{name: [columns[name][i] for i in keep]
                for name in _SERIES_FIELDS},
         }
@@ -481,6 +504,9 @@ class PublishedSession:
     # lands; carrying yesterday's old-publication value into today's numerator
     # would turn a harmless scale revision into artificial strategy P/L.
     defensive_previous_bar: DefensiveBar | None = None
+    # Same-publication historical closes bridge a new vendor price basis into
+    # the durable per-security basis before any numerical or episode transition.
+    signal_basis_anchors: Mapping[str, VendorBar] = field(default_factory=dict)
 
 
 def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:

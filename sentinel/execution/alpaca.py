@@ -450,10 +450,15 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 or any(sid != item.security_id for sid, item in instruments.items())
                 or len({item.symbol for item in instruments.values()}) != len(instruments)):
             raise OpeningPriceUnavailable("invalid opening-price instrument request")
+        broker_symbols = {sid: self._to_symbol(item.symbol) for sid, item in instruments.items()}
+        if (len(set(broker_symbols.values())) != len(instruments)
+                or any(not symbol or self._from_symbol(symbol) != instruments[sid].symbol
+                       for sid, symbol in broker_symbols.items())):
+            raise OpeningPriceUnavailable("ambiguous opening-price broker symbols")
         try:
             async with self._httpx.AsyncClient(timeout=20.0) as client:
                 resp = await client.get(ENDPOINT, headers=self._headers(), params={
-                    "symbols": ",".join(sorted(item.symbol for item in instruments.values())),
+                    "symbols": ",".join(sorted(broker_symbols.values())),
                     "timeframe": "1Min", "feed": "sip", "adjustment": "raw",
                     "start": opened.isoformat(),
                     "end": (opened + timedelta(minutes=1, microseconds=-1)).isoformat(),
@@ -474,7 +479,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
                 raise OpeningPriceUnavailable("opening data service is temporarily unavailable") from exc
             raise
         return parse_bars(payload, session=session, instruments=instruments,
-                          observed_at=self._now())
+                          observed_at=self._now(), broker_symbols=broker_symbols)
 
     async def account_snapshot(self) -> BrokerAccountSnapshot:
         payload = await self._get("/v2/account")

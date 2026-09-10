@@ -136,6 +136,9 @@ def advance_session(
     ledger = Ledger.from_dict(env.ledger)
     last_known = dict(env.last_known)
     feed = _feed_from_dict(env.feed, published.meta, elig)
+    if median5 and env.data_version is not None and published.data_version != env.data_version:
+        for sid, series in feed.series.items():
+            series.reconcile_signal_basis(published.signal_basis_anchors.get(sid))
     _restore_missing_feed_anchors(feed, published)
     ledger_event_boundary = len(ledger.events)
     plan = plan_session(

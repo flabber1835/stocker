@@ -18,8 +18,11 @@ from tests.v5 import test_opening as opening_checks
 from tests.v5 import test_review_regressions as review_checks
 from tests.v5 import test_opening_identity as identity_checks
 from tests.v5 import test_checkout_evidence as checkout_checks
+from tests.v5 import test_publication_regressions as publication_checks
 from tools import v5_checkout_evidence
+from sentinel.feed import universe
 from sentinel.feed.universe import IdentityResolver
+from sentinel.execution.alpaca import AlpacaExecutionBroker
 from sentinel import automation_runtime
 from sentinel.paper import execution as paper_execution
 from sentinel.controller import ex3_v6
@@ -44,6 +47,31 @@ def graph_checked(function, *args):
 
 def run():
     cases = (
+        ("publication_bridge_removed",
+         lambda: publication_checks.test_daily_publication_split_preserves_book_features_and_witness_after_restart(2.),
+         SecuritySeries, "reconcile_signal_basis", lambda *a: None),
+        ("publication_signal_conversion_removed",
+         lambda: publication_checks.test_daily_publication_split_preserves_book_features_and_witness_after_restart(2.),
+         SecuritySeries, "append", rewritten(SecuritySeries.append,
+             "float(bar.signal_close) * self.signal_basis_multiplier if published_signal",
+             "float(bar.signal_close) if published_signal")),
+        ("publication_raw_revision_accepted",
+         lambda: publication_checks.test_publication_anchor_is_required_and_identity_bound("raw_revision"),
+         SecuritySeries, "reconcile_signal_basis", rewritten(SecuritySeries.reconcile_signal_basis,
+             "or float(anchor.raw_close) != float(retained[1])", "or False")),
+        ("execution_active_listing_check_removed",
+         lambda: publication_checks.test_forward_execution_identity_requires_fresh_active_unique_authority("delisted"),
+         universe, "load_resolver", rewritten(universe.load_resolver,
+             "CASE WHEN is_delisted IS FALSE", "CASE WHEN TRUE")),
+        ("execution_active_listing_freshness_removed",
+         lambda: publication_checks.test_forward_execution_identity_requires_fresh_active_unique_authority("stale_active"),
+         universe, "load_resolver", rewritten(universe.load_resolver,
+             "AND is_delisted_snapshot_date BETWEEN %s AND %s", "AND %s <= %s")),
+        ("opening_broker_symbol_conversion_removed",
+         lambda: publication_checks.test_actual_alpaca_class_share_request_and_response_conversion(False),
+         AlpacaExecutionBroker, "opening_prices", rewritten(AlpacaExecutionBroker.opening_prices,
+             '\",\".join(sorted(broker_symbols.values()))',
+             '\",\".join(sorted(item.symbol for item in instruments.values()))')),
         ("opening_reverse_identity_accepts_ambiguous_symbols",
          identity_checks.test_reverse_identity_refuses_two_symbols_and_recycled_ticker,
          IdentityResolver, "ticker_for_security", rewritten(IdentityResolver.ticker_for_security,
@@ -79,8 +107,8 @@ def run():
         ("published_signal_split_adjusted_twice",
          review_checks.test_abv_adjacent_split_rows_cannot_rescale_published_signal,
          SecuritySeries, "append", rewritten(SecuritySeries.append,
-             "float(bar.signal_close) if published_signal",
-             "float(bar.signal_close) * float(bar.split_ratio) if published_signal")),
+             "float(bar.signal_close) * self.signal_basis_multiplier if published_signal",
+             "float(bar.signal_close) * self.signal_basis_multiplier * float(bar.split_ratio) if published_signal")),
         ("close_reserve_excluded_from_one_share_feasibility",
          checks.test_agn1_uses_total_cash_and_amzn_is_rejected,
          v5, "admission", rewritten(v5.admission,

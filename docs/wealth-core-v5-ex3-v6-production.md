@@ -205,6 +205,31 @@ prices. ABV's 2013-11-11 published signal is 7.44, not the port's inferred 37.20
 Raw execution prices, split share adjustments, ranking formulas, and V6
 controller parameters retain their reference contracts.
 
+Publication continuity uses a source-observed bridge into each security's
+persisted signal basis. At a publication change the loader supplies that
+security's last positive historical raw/signal close from the held publication.
+The transition requires the same security, historical session and raw close as
+the retained anchor, then sets the incoming-signal multiplier to retained signal
+divided by the newly published historical signal. Every new signal passes through
+that multiplier. Retained history, mixed-precision accumulators, episode entry
+and peak prices, and leadership marks therefore remain in one fixed basis.
+The anchor and multiplier survive JSON restart and history eviction. Missing or
+revised raw-price anchors refuse advancement. Split ratios remain share-unit
+authority; they never infer a signal rebase. A fixed publication retains the
+ABV correction above and its frozen numerical path.
+
+Forward execution identity is an explicit, one-session extension of an active
+listing. It requires affirmative non-delisted authority observed at the decision
+close or later, last-price coverage through the preceding exchange session, and
+a snapshot dated no later than the execution session. Both resolution directions
+retain uniqueness and ticker-reuse checks. A declared successor symbol whose
+price interval covers the execution session takes precedence over extending
+its predecessor. Historical activity lookup retains
+the original price intervals. Opening sizing and the broker's independent
+instrument resolver consume the same execution identity authority. Alpaca bars
+use broker symbol spelling, with exact response coverage mapped back to the
+retained permanent IDs and internal symbols.
+
 The deterministic core/controller port and opening-time paper projection are
 implemented and under verification. The atomic plan-intent record and versioned
 projection retain the original dollar intent, price evidence, and final Decimal

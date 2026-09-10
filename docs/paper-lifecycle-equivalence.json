@@ -872,7 +872,12 @@
         3181,
         3191
       ],
-      "owner": "inspection"
+      "owner": "inspection",
+      "successor": {
+        "ast_sha256": "df31563a5df8b7ae150ec30411d51e6fca2d0a20be81214a25a7c4a63225a570",
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Use affirmative next-session execution identity while retaining historical activity intervals."
+      }
     },
     "current_paper_plan": {
       "generated_ast_sha256": "28a81ab27dc25f2b8c0734cde7e33bde9985bbb2b19bff7b0790a9a100d50a27",

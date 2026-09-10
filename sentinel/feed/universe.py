@@ -558,7 +558,7 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
     return len(payload)
 
 
-def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
+def load_resolver(conn, *, include_run_id=None, execution_session=None) -> IdentityResolver:
     """Build the resolver without aggregating retained snapshot history.
 
     `feed_universe_current` already carries one row per historical
@@ -573,7 +573,29 @@ def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
     authoritative if the same run publishes.
     """
     with conn.cursor() as cur:
-        if include_run_id is None:
+        if execution_session is not None:
+            if include_run_id is not None:
+                raise ValueError("execution identity requires published metadata")
+            from sentinel.feed.calendar import previous_sessions
+            tail = previous_sessions(execution_session, 2)
+            if len(tail) != 2 or tail[-1] != execution_session:
+                raise ValueError("execution identity requires an exchange session")
+            previous = tail[0]
+            cur.execute(
+                "SELECT permaticker,ticker,first_price_date,"
+                " CASE WHEN is_delisted IS FALSE"
+                " AND is_delisted_snapshot_date BETWEEN %s AND %s"
+                " AND snapshot_date BETWEEN %s AND %s"
+                " AND last_price_date=%s"
+                " AND NOT EXISTS (SELECT 1 FROM feed_universe_current successor"
+                " WHERE successor.permaticker=u.permaticker AND successor.ticker<>u.ticker"
+                " AND (successor.first_price_date IS NULL OR successor.first_price_date<=%s)"
+                " AND (successor.last_price_date IS NULL OR successor.last_price_date>=%s))"
+                " THEN %s::date ELSE last_price_date END AS last_price_date"
+                " FROM feed_universe_current u ORDER BY permaticker,ticker",
+                (previous, execution_session, previous, execution_session,
+                 previous, execution_session, execution_session, execution_session))
+        elif include_run_id is None:
             cur.execute(
                 "SELECT permaticker,ticker,first_price_date,last_price_date"
                 " FROM feed_universe_current"

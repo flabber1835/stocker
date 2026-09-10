@@ -348,6 +348,9 @@ def _published_input_value(
         "spy_expected_sessions": list(published.spy_expected_sessions),
         "terminal_events": terminals,
         "feed_anchors": anchors,
+        **({"signal_basis_anchors": {
+            str(key): row(value) for key, value in sorted(published.signal_basis_anchors.items())}}
+           if published.signal_basis_anchors else {}),
         "defensive_bar": (
             None if published.defensive_bar is None
             else row(published.defensive_bar)),

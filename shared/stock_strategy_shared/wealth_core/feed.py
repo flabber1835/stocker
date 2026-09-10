@@ -285,6 +285,34 @@ class SecuritySeries:
     raw_closes: list[float | None] = field(default_factory=list)
     volumes: list[float | None] = field(default_factory=list)
     vendor_basis_multiplier: float = 1.0
+    # Publication-observed conversion into the retained numerical/episode basis.
+    signal_basis_multiplier: float = 1.0
+    signal_basis_anchor: list | None = None  # session, raw close, owned signal
+
+    def reconcile_signal_basis(self, anchor: VendorBar | None) -> None:
+        retained = self.signal_basis_anchor
+        if retained is None:
+            # Books written before this bridge retain the same anchor in their
+            # history. A genuinely new series has no signal state to bridge.
+            retained = next(([session, raw, signal]
+                for session, raw, signal in zip(
+                    reversed(self.sessions), reversed(self.raw_closes), reversed(self.signal_closes))
+                if _positive(raw) and _positive(signal)), None)
+        if retained is None:
+            return
+        if (anchor is None or anchor.security_id != self.security_id
+                or anchor.session != retained[0]
+                or not _positive(anchor.raw_close)
+                or float(anchor.raw_close) != float(retained[1])
+                or not _positive(anchor.signal_close)):
+            raise FeedError(f"incomplete or revised publication signal anchor for {self.security_id}")
+        multiplier = (self.signal_basis_multiplier
+            if float(anchor.signal_close) * self.signal_basis_multiplier == float(retained[2])
+            else float(retained[2]) / float(anchor.signal_close))
+        if not _positive(multiplier):
+            raise FeedError(f"invalid publication signal basis for {self.security_id}")
+        self.signal_basis_multiplier = multiplier
+        self.signal_basis_anchor = list(retained)
 
     def contiguous(self, length: int = REQUIRED_CLOSES) -> bool:
         """Do the last `length` observations occupy consecutive market sessions?
@@ -303,6 +331,8 @@ class SecuritySeries:
             raise FeedError(
                 "published-signal history contains an inferred vendor basis; "
                 "reconstruct from the published input history")
+        if published_signal and not _positive(self.signal_basis_multiplier):
+            raise FeedError("invalid publication signal basis multiplier")
         # The TICKER tracks the bar; the SECURITY_ID never does. A ticker is an
         # observation label that can be reassigned on a rename, so the series
         # carries the CURRENT one — a series that froze the ticker at creation
@@ -321,15 +351,18 @@ class SecuritySeries:
             # The frozen feature rings consume the published adjusted close.
             # A source split is independent raw-share evidence, not authority
             # to rescale an already-adjusted signal a second time.
-            self.split_factor = float(bar.signal_close) / float(bar.raw_close)
+            self.split_factor = (float(bar.signal_close) * self.signal_basis_multiplier
+                                 / float(bar.raw_close))
         self.sessions.append(bar.session)
         self.session_indices.append(session_index)
         self.raw_closes.append(bar.raw_close)
         self.volumes.append(bar.volume)
         self.signal_closes.append(
             None if not _positive(bar.raw_close)
-            else (float(bar.signal_close) if published_signal
+            else (float(bar.signal_close) * self.signal_basis_multiplier if published_signal
                   else float(bar.raw_close) * self.split_factor))
+        if published_signal and _positive(bar.raw_close):
+            self.signal_basis_anchor = [bar.session, float(bar.raw_close), self.signal_closes[-1]]
 
     def signal_window(self, length: int = REQUIRED_CLOSES) -> list[float | None]:
         """The trailing split-adjusted window ending at t, oldest first.

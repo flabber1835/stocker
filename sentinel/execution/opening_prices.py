@@ -72,21 +72,26 @@ class OpeningPrices:
             raise OpeningPriceUnavailable("corrupt opening price evidence") from exc
 
 
-def parse_bars(payload, *, session, instruments, observed_at):
+def parse_bars(payload, *, session, instruments, observed_at, broker_symbols=None):
     """Require exact symbols, one opening minute, raw positive open and volume."""
     opened, _closed = calendar.session_window(session)
     symbols = {sid: item.symbol for sid, item in instruments.items()}
+    response_symbols = symbols if broker_symbols is None else broker_symbols
     if (not instruments or any(sid != item.security_id for sid, item in instruments.items())
             or len(set(symbols.values())) != len(symbols)):
         raise OpeningPriceUnavailable("opening request instrument identities are ambiguous")
+    if (set(response_symbols) != set(symbols)
+            or any(not isinstance(symbol, str) or not symbol for symbol in response_symbols.values())
+            or len(set(response_symbols.values())) != len(symbols)):
+        raise OpeningPriceUnavailable("opening request broker symbols are ambiguous")
     if (not isinstance(payload, dict) or "next_page_token" not in payload
             or payload.get("next_page_token") is not None
             or not isinstance(payload.get("bars"), dict)
-            or set(payload["bars"]) != set(symbols.values())):
+            or set(payload["bars"]) != set(response_symbols.values())):
         raise OpeningPriceUnavailable("opening bar response coverage is incomplete")
     prices = {}
     try:
-        for sid, symbol in symbols.items():
+        for sid, symbol in response_symbols.items():
             rows = payload["bars"][symbol]
             if not isinstance(rows, list) or len(rows) != 1:
                 raise ValueError("expected exactly one opening bar")
