@@ -78,8 +78,9 @@ publication, before atomic generation promotion. Explicit backup initialization
 also migrates completed retained generations. Routine validation remains read-only.
 The grant verifies regular, root-owned paths and rejects symlinks and hard-linked
 metadata before changing permissions. A real Docker composition gate runs the
-actual producer, connects the production Python guard to PostgreSQL against the
-same media, checks payload/write denial, injects media loss and verifies repair.
+actual producer, connects the production Python guard to PostgreSQL over a local
+Unix socket against the same media, checks payload/write denial, injects media
+loss and verifies repair.
 
 ## Required fault families
 

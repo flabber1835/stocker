@@ -24,13 +24,15 @@ cleanup() {
   rm -rf "$work"
 }
 trap cleanup EXIT
-mkdir -p "$repo/scripts" "$SENTINEL_BACKUP_DIR"/{base,wal}
+mkdir -p "$repo/scripts" "$work/socket" "$SENTINEL_BACKUP_DIR"/{base,wal}
 for name in sentinel-base-backup.sh sentinel-backup-status.sh sentinel-backup-lib.sh \
             sentinel-backup-metadata-access.sh sentinel-archive-wal.sh \
             sentinel_host_python.py sentinel_backup_lock.py; do
   cp "scripts/$name" "$repo/scripts/$name"
 done
 cp docker-compose.sentinel-backup.yml "$repo/"
+printf "%s\n" "ALTER SYSTEM SET unix_socket_directories = '/var/run/postgresql,/lab/socket';" \
+  > "$repo/socket.sql"
 cat > "$repo/docker-compose.sentinel.yml" <<EOF
 services:
   sentinel-postgres:
@@ -42,8 +44,8 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/sentinel-backup-metadata-access.sh:/lab/metadata-access.sh:ro
-    ports:
-      - "127.0.0.1::5432"
+      - ./socket.sql:/docker-entrypoint-initdb.d/socket.sql:ro
+      - $work/socket:/lab/socket
 networks:
   default:
     internal: true
@@ -53,6 +55,8 @@ EOF
 docker run --rm --network none -v "$SENTINEL_BACKUP_DIR:/probe" --entrypoint sh "$image" \
   -ceu 'chown postgres:postgres /probe/wal; chmod 0700 /probe/wal;
         chown 0:0 /probe/base; chmod 0700 /probe/base'
+docker run --rm --network none -v "$work/socket:/socket" --entrypoint sh "$image" \
+  -ceu 'chown postgres:postgres /socket; chmod 0755 /socket'
 initialize() { (cd "$repo"; . scripts/sentinel-backup-lib.sh; sentinel_backup_root --initialize-markers); }
 initialize
 "${compose[@]}" up -d --wait --wait-timeout 90 sentinel-postgres
@@ -63,8 +67,8 @@ printf '%s\n' "$created"
 backup="$(printf '%s\n' "$created" | sed -n 's/^verified_base_backup://p')"
 name="${backup##*/}"
 [[ "$name" =~ ^base-[0-9]{8}T[0-9]{6}Z$ ]] || fail "missing completed production base"
-binding="$("${compose[@]}" port sentinel-postgres 5432)"
-url="postgresql://sentinel:synthetic-runtime-probe@$binding/sentinel"
+# The host probe reaches the network-isolated database through its Unix socket.
+url="host=$work/socket user=sentinel dbname=sentinel"
 probe() { "$SENTINEL_HOST_PYTHON" tests/backup/physical_runtime_probe.py "$url" "$1"; }
 probe ready
 (cd "$repo"; bash scripts/sentinel-backup-status.sh --backup "$backup")
