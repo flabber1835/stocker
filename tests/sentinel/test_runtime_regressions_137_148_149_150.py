@@ -143,7 +143,10 @@ def test_149_host_emergency_path_needs_no_backup_or_authorized_environment(
     argv_file = tmp_path / "docker-argv"
     docker = fakebin / "docker"
     docker.write_text(
-        "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$DOCKER_ARGV_FILE\"\n")
+        "#!/usr/bin/env bash\n"
+        "if [ \"$1\" = --context ] && [ \"$2\" = default ] && "
+        "[ \"$3\" = ps ]; then echo pg-test; exit 0; fi\n"
+        "printf '%s\\n' \"$@\" > \"$DOCKER_ARGV_FILE\"\n")
     docker.chmod(0o755)
     env = os.environ.copy()
     for name in (
@@ -166,9 +169,10 @@ def test_149_host_emergency_path_needs_no_backup_or_authorized_environment(
     joined = " ".join(argv)
     assert "docker-compose.sentinel-backup.yml" not in joined
     assert "docker-compose.sentinel-automation.yml" not in joined
-    assert "--no-deps" in argv
-    assert "sentinel" in argv
-    assert "engage-paper-automation-kill-switch" in argv
+    assert argv[:3] == ["--context", "default", "exec"]
+    assert "-i" in argv
+    assert "pg-test" in argv
+    assert "psql" in argv
 
 
 def test_150_require_leader_leaves_backend_idle_not_idle_in_transaction(
