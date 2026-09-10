@@ -49,15 +49,24 @@ else
 fi
 
 target="$archive_dir/$wal_name"
+checksum_target="$target.sha256"
 temporary=""
+checksum_temporary=""
 cleanup() {
   [ -z "$temporary" ] || rm -f -- "$temporary"
+  [ -z "$checksum_temporary" ] || rm -f -- "$checksum_temporary"
 }
 trap cleanup EXIT
 trap 'exit 1' HUP INT TERM
 
 source_size_before="$(stat -c %s -- "$source_wal")" || \
   refuse "could not stat source: $source_wal"
+source_sha256="$(sha256sum -- "$source_wal" | awk '{print $1}')" || \
+  refuse "could not hash source WAL $wal_name"
+case "$source_sha256" in
+  ""|*[!0-9a-f]* ) refuse "source WAL SHA-256 is malformed: $wal_name" ;;
+esac
+[ "${#source_sha256}" -eq 64 ] || refuse "source WAL SHA-256 length is invalid: $wal_name"
 
 final_matches_source() {
   candidate="$1"
@@ -69,13 +78,58 @@ final_matches_source() {
   cmp -s -- "$source_wal" "$candidate"
 }
 
+checksum_matches_source() {
+  candidate="$1"
+  [ ! -L "$candidate" ] && [ -f "$candidate" ] && [ -r "$candidate" ] || return 1
+  [ "$(cat "$candidate")" = "sha256=$source_sha256" ]
+}
+
+publish_checksum() {
+  if [ -e "$checksum_target" ] || [ -L "$checksum_target" ]; then
+    checksum_matches_source "$checksum_target" || \
+      refuse "existing WAL checksum differs from source: $checksum_target"
+    sync "$checksum_target" || refuse "could not fsync existing WAL checksum: $checksum_target"
+    sync "$archive_dir" || refuse "could not fsync archive directory: $archive_dir"
+    checksum_matches_source "$checksum_target" || \
+      refuse "existing WAL checksum changed during durable validation: $checksum_target"
+    return 0
+  fi
+
+  checksum_temporary="$(mktemp "$archive_dir/.${wal_name}.sha256.part.XXXXXX")" || \
+    refuse "could not create same-directory WAL checksum temporary file"
+  printf 'sha256=%s\n' "$source_sha256" > "$checksum_temporary" || \
+    refuse "could not write WAL checksum temporary file"
+  chmod 0600 "$checksum_temporary" || refuse "could not protect WAL checksum temporary file"
+  sync "$checksum_temporary" || refuse "could not fsync WAL checksum temporary file"
+  [ "$(cat "$checksum_temporary")" = "sha256=$source_sha256" ] || \
+    refuse "WAL checksum temporary file changed after fsync"
+
+  if ! mv -T --no-clobber -- "$checksum_temporary" "$checksum_target"; then
+    [ -f "$checksum_temporary" ] && checksum_matches_source "$checksum_target" || \
+      refuse "atomic WAL checksum publication failed for $wal_name"
+  fi
+  if [ -e "$checksum_temporary" ]; then
+    checksum_matches_source "$checksum_target" || \
+      refuse "concurrent WAL checksum publication differs from source: $checksum_target"
+    rm -f -- "$checksum_temporary"
+  else
+    checksum_temporary=""
+  fi
+  checksum_matches_source "$checksum_target" || \
+    refuse "published WAL checksum differs from source: $checksum_target"
+  sync "$checksum_target" || refuse "could not fsync published WAL checksum: $checksum_target"
+  sync "$archive_dir" || refuse "could not fsync archive directory: $archive_dir"
+  checksum_matches_source "$checksum_target" || \
+    refuse "published WAL checksum changed during durable validation: $checksum_target"
+}
+
 # PostgreSQL retries an archive command after any nonzero result. An existing
 # immutable final is idempotent only when it is the exact completed source.
 if [ -e "$target" ] || [ -L "$target" ]; then
   final_matches_source "$target" || \
     refuse "existing archive differs from source: $target"
   sync "$target" || refuse "could not fsync existing archive: $target"
-  sync "$archive_dir" || refuse "could not fsync archive directory: $archive_dir"
+  publish_checksum
   final_matches_source "$target" || \
     refuse "existing archive changed during durable validation: $target"
   exit 0
@@ -119,7 +173,9 @@ fi
 final_matches_source "$target" || \
   refuse "published archive differs from source: $target"
 sync "$target" || refuse "could not fsync published archive: $target"
-sync "$archive_dir" || refuse "could not fsync archive directory: $archive_dir"
+publish_checksum
 final_matches_source "$target" || \
   refuse "published archive changed during durable validation: $target"
+checksum_matches_source "$checksum_target" || \
+  refuse "published WAL checksum changed during final validation: $checksum_target"
 exit 0
