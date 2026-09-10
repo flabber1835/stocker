@@ -72,6 +72,10 @@ permissions and ownership are preserved. PostgreSQL can enumerate generations
 and read these four files; it cannot list or read payload directories, write
 metadata, create generations or delete backups. The host account retains no
 access through other-user permissions.
+Bind mounts identify groups numerically. A host account sharing PostgreSQL's
+numeric group receives the same metadata read grant. Payload read denial and
+base/metadata write denial still apply. The physical gate records both identities
+and separately checks an unrelated UID/GID.
 
 The production producer grants this access after verification and metadata
 publication, before atomic generation promotion. Explicit backup initialization

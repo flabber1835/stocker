@@ -1689,6 +1689,9 @@ use root ownership, group `postgres`, and mode 0710. The four files
 Payload files and nested directories retain their private root permissions.
 PostgreSQL has metadata read authority; container root retains backup write and
 deletion authority. NAS host access is not required.
+Bind-mounted groups are numeric: a host account sharing PostgreSQL's group ID
+can also read these four metadata files. Backup payload reads and backup writes
+remain restricted by their root ownership and private permissions.
 
 The producer applies the metadata grant before publishing each generation. On
 upgrade from root-only backup directories, run

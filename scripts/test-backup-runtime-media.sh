@@ -112,7 +112,20 @@ probe ready
     test ! -w "$base/$name"
   done
 ' sh "$name"
-if cat "$backup/backup_manifest" >/dev/null 2>&1; then fail "host can read private backup metadata"; fi
+printf 'BACKUP_RUNTIME_IDENTITIES host_uid=%s host_groups=%s\n' "$(id -u)" "$(id -G)"
+"${compose[@]}" exec -T sentinel-postgres id postgres
+"${compose[@]}" exec -T sentinel-postgres stat -c 'metadata_owner=%u:%g mode=%a' \
+  "/sentinel-backup/base/$name/backup_manifest"
+# Bind mounts use numeric groups. A host in PostgreSQL's numeric group receives
+# the same metadata read grant. Payload reads and all backup writes stay denied.
+if cat "$backup/global/pg_control" >/dev/null 2>&1; then fail "host can read private backup payload"; fi
+test ! -w "$backup/backup_manifest"
+test ! -w "$SENTINEL_BACKUP_DIR/base"
+"${compose[@]}" exec -T -u 65534:65534 sentinel-postgres sh -ceu '
+  test ! -r "/sentinel-backup/base/$1/backup_manifest"
+  test ! -w /sentinel-backup/base
+' sh "$name"
+echo 'BACKUP_RUNTIME_PASS host_payload_and_write_denial unrelated_uid_metadata_denial'
 
 # Reproduce the previous root-only layout, then exercise the supported upgrade.
 "${compose[@]}" exec -T sentinel-postgres chmod 0700 /sentinel-backup/base "/sentinel-backup/base/$name"
