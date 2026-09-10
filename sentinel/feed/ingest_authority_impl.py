@@ -6,6 +6,7 @@ used by that canonical owner; it exposes no seed/daily production entrypoint.
 """
 from __future__ import annotations
 
+from sentinel import backup_runtime_authority
 from sentinel.feed import (
     coherence, identity_rebuild, identity_refresh, ingest_impl as _impl,
     maintenance, recent_reconciliation, recovery, reseed, sep_reconciliation,
@@ -35,12 +36,16 @@ def _validate_source_before_run(fetch) -> None:
 
 
 def _recover_before_run(conn) -> None:
+    backup_runtime_authority.require(
+        conn, operation="canonical daily feed mutation")
     _impl.feed_store.reclaim_orphans(conn)
     recovery.resume_pending_publication(conn)
 
 
 def _recover_before_seed(conn, *, date_from: str,
                          date_to: str) -> recovery.FullReseedPlan:
+    backup_runtime_authority.require(
+        conn, operation="canonical seed/reseed feed mutation")
     _impl.feed_store.reclaim_orphans(conn)
     pending = recovery.pending_validated(conn)
     live = recovery.live_candidates(conn)
