@@ -36,7 +36,8 @@ class ShellLab:
         for name in ("sentinel-base-backup.sh", "sentinel-backup-status.sh",
                      "sentinel-backup-verify-chain.py", "sentinel-backup-verify-chain.sh",
                      "sentinel-restore-drill.sh", "sentinel_host_python.py",
-                     "sentinel_backup_lock.py", "sentinel-backup-metadata-access.sh"):
+                     "sentinel_backup_lock.py", "sentinel-backup-metadata-access.sh",
+                     "sentinel-env.sh", "sentinel_env.py"):
             shutil.copy2(ROOT / "scripts" / name, self.scripts / name)
         # Separate mount-validation tests execute the real backup library.
         (self.scripts / "sentinel-backup-lib.sh").write_text(
@@ -51,7 +52,10 @@ class ShellLab:
             path.chmod(0o755)
         self.env = {"PATH": f"{bin_path}:{os.environ['PATH']}", "LANG": "C",
                     "BACKUP_LAB_ROOT": str(root), "SENTINEL_HOST_PYTHON": sys.executable,
-                    "PYTHONPATH": str(ROOT),
+                    "PYTHONPATH": str(ROOT), "SENTINEL_BACKUP_DIR": str(self.media),
+                    "SENTINEL_POSTGRES_PASSWORD": "synthetic-only",
+                    "SENTINEL_PUBLICATION_RECEIPT_KEY":
+                        "synthetic-backup-lab-receipt-key-0123456789abcdef",
                     "POSTGRES_PASSWORD": "synthetic-only"}
 
     @property
