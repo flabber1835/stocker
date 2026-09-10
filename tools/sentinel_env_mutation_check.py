@@ -11,6 +11,7 @@ import tempfile
 
 ROOT = Path(__file__).resolve().parents[1]
 HARNESS = "tests.host_python38.test_env_ingestion.EnvHarness."
+REVIEW_FIXES = "tests.host_python38.test_env_review_fixes"
 MUTANTS = (
     ("duplicate-last-wins", "scripts/sentinel_env.py",
      "if name in values:", "if False and name in values:",
@@ -47,6 +48,15 @@ MUTANTS = (
 
 
 def main() -> int:
+    review = subprocess.run(
+        [sys.executable, "-m", "unittest", "-v", REVIEW_FIXES],
+        cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
+        text=True, timeout=60)
+    if review.returncode != 0:
+        sys.stderr.write(review.stdout)
+        print("REFUSED: PR346 review-fix regressions are not green", file=sys.stderr)
+        return 2
+
     baseline = subprocess.run(
         [sys.executable, "-m", "unittest"] + [HARNESS + item[4] for item in MUTANTS],
         cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
