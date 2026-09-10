@@ -4,22 +4,28 @@ The host provisioning scripts prove that the configured path is an independent
 durable target. Unattended services cannot trust a path string after a reboot:
 a missing external mount can expose the underlying local directory. When the
 reviewed production mode is enabled, ask PostgreSQL to prove the durable-target
-markers and a contiguous full-size external WAL chain from the newest base
-backup's exact manifest End-LSN through the archiver's latest successful
-segment. Every WAL object also carries an atomically published SHA-256 sidecar;
-runtime authority recomputes each digest in PostgreSQL so same-size corruption
-cannot masquerade as a complete restore chain. The retained post-base recovery
-marker must lie inside the same chain.
+markers and a contiguous external WAL chain from the newest base backup's exact
+manifest End-LSN through the archiver's latest successful segment.
+
+Each archived object carries an atomically published SHA-256 sidecar. Runtime
+performs a complete byte scrub on first use and at a bounded renewal interval.
+Between full scrubs, immutable objects whose size/mtime/ctime/sidecar identity is
+unchanged reuse that proof; newly appended or metadata-changed objects are hashed
+again. A fixed byte/object ceiling bounds the worst-case synchronous proof cost.
+The PostgreSQL OS identity also lstat-checks every required object so a symlink or
+hardlink cannot substitute storage outside the reviewed durable namespace.
 
 The ordinary backup guard deliberately allows a short DEGRADED grace period.
 Unattended financial mutation is stricter: the first unresolved archive failure
 fences new feed/plan/order mutation while read-only broker recovery stays live.
-This prevents a long outage from consuming the primary disk with retained WAL.
 """
 from __future__ import annotations
 
+import hashlib
 import os
 import re
+import shlex
+import time
 
 from sentinel import backup_guard
 
@@ -29,11 +35,15 @@ MARKER = ".sentinel-independent-durable-target-v1"
 MARKER_CONTENT = "sentinel-independent-durable-target-v1"
 BASE_ROOT = "/sentinel-backup/base"
 WAL_ROOT = "/sentinel-backup/wal"
+RUNTIME_FULL_SCRUB_MAX_AGE_SECONDS = 300.0
+RUNTIME_MAX_VERIFIED_BYTES = 1024 * 1024 * 1024
+RUNTIME_MAX_ARCHIVE_OBJECTS = 1024
 _BASE_NAME = re.compile(r"base-[0-9]{8}T[0-9]{6}Z\Z")
 _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 _RECOVERY_WAL = re.compile(r"^wal=([0-9A-F]{24})$", re.MULTILINE)
 _LSN = re.compile(r"^([0-9A-F]+)/([0-9A-F]+)$")
 _SHA256 = re.compile(r"^sha256=([0-9a-f]{64})\s*\Z")
+_PROOF_CACHE: dict[tuple, dict] = {}
 
 
 class BackupRuntimeUnavailable(backup_guard.BackupUnavailable, ConnectionError):
@@ -231,13 +241,208 @@ def _expected_wals(start: str, end: str, *, segment_size: int) -> tuple[str, ...
     return tuple(out)
 
 
+def _connection_scope(conn) -> str:
+    info = getattr(conn, "info", None)
+    dsn = getattr(info, "dsn", None)
+    if dsn:
+        return hashlib.sha256(str(dsn).encode("utf-8")).hexdigest()
+    return f"{type(conn).__module__}.{type(conn).__qualname__}:{id(conn)}"
+
+
+def _sql_literal(value: str) -> str:
+    return "'" + value.replace("'", "''") + "'"
+
+
+def _require_no_aliases(conn, *, base: str, system_id: str,
+                        objects: tuple[str, ...]) -> None:
+    """Use the PostgreSQL OS identity to lstat required private-media objects."""
+    if _BASE_NAME.fullmatch(base) is None or not system_id.isdigit():
+        raise BackupRuntimeRefused("backup alias probe received malformed identity")
+    for name in objects:
+        if (_WAL_NAME.fullmatch(name) is None
+                and re.fullmatch(r"[0-9A-F]{8}\.history", name) is None):
+            raise BackupRuntimeRefused(
+                f"backup alias probe received malformed archive object {name!r}")
+    array = ",".join(_sql_literal(name) for name in objects)
+    base_path = f"{BASE_ROOT}/{base}"
+    namespace = f"{WAL_ROOT}/cluster-{system_id}"
+    script = f"""
+set -eu
+for d in {shlex.quote(BASE_ROOT)} {shlex.quote(WAL_ROOT)} {shlex.quote(base_path)} {shlex.quote(namespace)}; do
+  [ ! -L "$d" ] || exit 41
+done
+for p in \
+  {shlex.quote(BASE_ROOT + '/' + MARKER)} \
+  {shlex.quote(WAL_ROOT + '/' + MARKER)} \
+  {shlex.quote(base_path + '/backup_manifest')} \
+  {shlex.quote(base_path + '/backup_label')} \
+  {shlex.quote(base_path + '/sentinel-recovery-marker')} \
+  {shlex.quote(base_path + '/sentinel-pitr-base-identity')}; do
+  [ ! -L "$p" ] || exit 42
+  [ ! -e "$p" ] || [ "$(stat -c %h -- "$p")" -eq 1 ] || exit 43
+done
+while IFS= read -r name; do
+  for p in "{namespace}/$name" "{namespace}/$name.sha256"; do
+    [ ! -L "$p" ] || exit 44
+    [ ! -e "$p" ] || [ "$(stat -c %h -- "$p")" -eq 1 ] || exit 45
+  done
+done
+""".strip()
+    program = "sh -ceu " + shlex.quote(script)
+    query = (
+        f"COPY (SELECT name FROM unnest(ARRAY[{array}]::text[]) "
+        f"AS entries(name)) TO PROGRAM {_sql_literal(program)}")
+    try:
+        with conn.cursor() as cur:
+            cur.execute(query)
+    except Exception as exc:
+        raise BackupRuntimeRefused(
+            "backup runtime alias/hardlink proof failed under PostgreSQL OS authority") from exc
+
+
+def _archive_metadata(conn, *, root: str,
+                      objects: tuple[str, ...]) -> dict[str, tuple]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT name,(pg_stat_file(%s || '/' || name,true)).size,"
+            " (pg_stat_file(%s || '/' || name,true)).modification,"
+            " (pg_stat_file(%s || '/' || name,true)).change,"
+            " pg_read_file(%s || '/' || name || '.sha256',0,80,true),"
+            " (pg_stat_file(%s || '/' || name || '.sha256',true)).modification,"
+            " (pg_stat_file(%s || '/' || name || '.sha256',true)).change"
+            " FROM unnest(%s::text[]) AS entries(name)",
+            (root, root, root, root, root, root, list(objects)))
+        rows = cur.fetchall()
+    return {
+        str(name): (
+            None if size is None else int(size), modification, change,
+            None if checksum is None else str(checksum),
+            side_modification, side_change,
+        )
+        for (name, size, modification, change, checksum,
+             side_modification, side_change) in rows
+    }
+
+
+def _hash_objects(conn, *, root: str,
+                  objects: tuple[str, ...]) -> dict[str, str | None]:
+    if not objects:
+        return {}
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT name,encode(sha256(pg_read_binary_file("
+            "%s || '/' || name,0,(pg_stat_file(%s || '/' || name,true)).size,true)),'hex')"
+            " FROM unnest(%s::text[]) AS entries(name)",
+            (root, root, list(objects)))
+        return {
+            str(name): (None if digest is None else str(digest))
+            for name, digest in cur.fetchall()
+        }
+
+
+def _validate_archive_objects(
+        conn, *, operation: str, system_id: str, base: str,
+        wal_root: str, wal_objects: tuple[str, ...],
+        history_object: str | None, segment_size: int,
+        start: str, end: str) -> tuple[dict[str, tuple], int, bool]:
+    objects = wal_objects + ((history_object,) if history_object else ())
+    if len(objects) > RUNTIME_MAX_ARCHIVE_OBJECTS:
+        raise BackupRuntimeRefused(
+            f"{operation}: restore horizon contains {len(objects)} archive objects; "
+            f"reviewed runtime bound is {RUNTIME_MAX_ARCHIVE_OBJECTS}. Create a fresh base backup.")
+
+    actual = _archive_metadata(conn, root=wal_root, objects=objects)
+    missing = [
+        name for name in wal_objects
+        if name not in actual or actual[name][0] != segment_size]
+    if history_object is not None:
+        if (history_object not in actual or actual[history_object][0] is None
+                or actual[history_object][0] <= 0):
+            missing.append(history_object)
+    if missing:
+        sample = ", ".join(missing[:5])
+        raise BackupRuntimeUnavailable(
+            f"{operation}: external WAL restore chain is incomplete from "
+            f"{start} through {end}; missing/truncated {sample}"
+            + (f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""))
+
+    missing_checksums = [
+        name for name in objects
+        if actual.get(name) is None or actual[name][3] is None]
+    if missing_checksums:
+        sample = ", ".join(missing_checksums[:5])
+        raise BackupRuntimeUnavailable(
+            f"{operation}: external WAL integrity evidence is incomplete; "
+            f"missing SHA-256 sidecar for {sample}"
+            + (f" (+{len(missing_checksums) - 5} more)"
+               if len(missing_checksums) > 5 else ""))
+
+    for name in objects:
+        checksum = actual[name][3]
+        assert checksum is not None
+        if _SHA256.fullmatch(checksum) is None:
+            raise BackupRuntimeRefused(
+                f"archived object {name} has malformed SHA-256 integrity evidence")
+
+    total_bytes = sum(int(actual[name][0] or 0) for name in objects)
+    if total_bytes > RUNTIME_MAX_VERIFIED_BYTES:
+        raise BackupRuntimeRefused(
+            f"{operation}: restore horizon requires {total_bytes} bytes of runtime "
+            f"integrity proof; reviewed bound is {RUNTIME_MAX_VERIFIED_BYTES}. "
+            "Create a fresh base backup before further mutation.")
+
+    _require_no_aliases(
+        conn, base=base, system_id=system_id, objects=objects)
+
+    scope = _connection_scope(conn)
+    cache_key = (scope, system_id, base, start, segment_size)
+    now = time.monotonic()
+    cached = _PROOF_CACHE.get(cache_key)
+    full_scrub = (
+        cached is None
+        or now - float(cached["full_scrub_at"])
+        >= RUNTIME_FULL_SCRUB_MAX_AGE_SECONDS)
+    if cached is not None and not full_scrub:
+        previous_names = tuple(cached["objects"])
+        if any(name not in objects for name in previous_names):
+            raise BackupRuntimeRefused(
+                f"{operation}: archived frontier moved behind an already verified restore horizon")
+        hash_names = tuple(
+            name for name in objects
+            if name not in cached["metadata"]
+            or cached["metadata"][name] != actual[name])
+    else:
+        hash_names = objects
+
+    digests = _hash_objects(conn, root=wal_root, objects=hash_names)
+    for name in hash_names:
+        checksum = actual[name][3]
+        assert checksum is not None
+        match = _SHA256.fullmatch(checksum)
+        assert match is not None
+        digest = digests.get(name)
+        if digest is None or match.group(1) != digest:
+            raise BackupRuntimeRefused(
+                f"archived object {name} failed SHA-256 integrity validation")
+
+    full_at = now if full_scrub else float(cached["full_scrub_at"])
+    _PROOF_CACHE[cache_key] = {
+        "full_scrub_at": full_at,
+        "objects": objects,
+        "metadata": actual,
+        "end": end,
+    }
+    if len(_PROOF_CACHE) > 16:
+        oldest = min(_PROOF_CACHE, key=lambda key: _PROOF_CACHE[key]["full_scrub_at"])
+        if oldest != cache_key:
+            _PROOF_CACHE.pop(oldest, None)
+    return actual, len(hash_names), full_scrub
+
+
 def _require(conn, *, operation: str,
              base_backup: str | None = None) -> dict:
     if not enabled():
         return {"enabled": False}
-    # A retained chain proves past recovery. New writes also require the
-    # current archiver to be enabled and live; the canonical guard owns its
-    # age checks and active probe for a quiet database.
     try:
         backup_guard.require_writes_permitted(conn, operation=operation)
     except backup_guard.BackupConfigurationRefused as exc:
@@ -274,51 +479,12 @@ def _require(conn, *, operation: str,
             f"base backup {base} recovery marker WAL {marker_wal} is outside "
             f"the retained restore chain {start}..{end}")
 
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT name,(pg_stat_file(%s || '/' || name,true)).size,"
-            " pg_read_file(%s || '/' || name || '.sha256',0,80,true),"
-            " encode(sha256(pg_read_binary_file(%s || '/' || name,0,%s,true)),'hex')"
-            " FROM unnest(%s::text[]) AS entries(name)",
-            (wal_root, wal_root, wal_root, segment_size, list(expected)))
-        actual = {
-            str(name): (
-                None if size is None else int(size),
-                None if checksum is None else str(checksum),
-                None if digest is None else str(digest),
-            )
-            for name, size, checksum, digest in cur.fetchall()
-        }
-    missing = [
-        name for name in expected
-        if name not in actual or actual[name][0] != segment_size]
-    if missing:
-        sample = ", ".join(missing[:5])
-        raise BackupRuntimeUnavailable(
-            f"{operation}: external WAL restore chain is incomplete from "
-            f"{start} through {end}; missing/truncated {sample}"
-            + (f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""))
-
-    missing_checksums = [name for name in expected if actual[name][1] is None]
-    if missing_checksums:
-        sample = ", ".join(missing_checksums[:5])
-        raise BackupRuntimeUnavailable(
-            f"{operation}: external WAL integrity evidence is incomplete; "
-            f"missing SHA-256 sidecar for {sample}"
-            + (f" (+{len(missing_checksums) - 5} more)"
-               if len(missing_checksums) > 5 else ""))
-
-    for name in expected:
-        checksum = actual[name][1]
-        digest = actual[name][2]
-        assert checksum is not None
-        match = _SHA256.fullmatch(checksum)
-        if match is None:
-            raise BackupRuntimeRefused(
-                f"archived WAL {name} has malformed SHA-256 integrity evidence")
-        if digest is None or match.group(1) != digest:
-            raise BackupRuntimeRefused(
-                f"archived WAL {name} failed SHA-256 integrity validation")
+    timeline = int(end[:8], 16)
+    history = f"{timeline:08X}.history" if timeline > 1 else None
+    _metadata, hashed_objects, full_scrub = _validate_archive_objects(
+        conn, operation=operation, system_id=system_id, base=base,
+        wal_root=wal_root, wal_objects=expected, history_object=history,
+        segment_size=segment_size, start=start, end=end)
 
     return {
         "enabled": True,
@@ -328,7 +494,10 @@ def _require(conn, *, operation: str,
         "recovery_marker_wal": marker_wal,
         "recoverable_through_wal": end,
         "wal_segments": len(expected),
+        "timeline_history": history,
         "wal_integrity": "sha256-sidecar-v1",
+        "integrity_objects_hashed": hashed_objects,
+        "integrity_full_scrub": full_scrub,
     }
 
 
@@ -341,8 +510,6 @@ def require(conn, *, operation: str,
     except (BackupRuntimeUnavailable, BackupRuntimeRefused):
         raise
     except Exception as exc:
-        # PostgreSQL reports filesystem disappearance/permissions/I/O through
-        # SQLSTATE. A transient media fault must not terminalize automation.
         if _is_media_error(exc):
             raise BackupRuntimeUnavailable(
                 f"{operation}: backup media could not be read ({type(exc).__name__})") from exc
@@ -351,5 +518,7 @@ def require(conn, *, operation: str,
 
 __all__ = [
     "AUTHORITY_ENV", "AUTHORITY_VALUE", "BackupRuntimeRefused",
-    "BackupRuntimeUnavailable", "enabled", "require",
+    "BackupRuntimeUnavailable", "RUNTIME_FULL_SCRUB_MAX_AGE_SECONDS",
+    "RUNTIME_MAX_ARCHIVE_OBJECTS", "RUNTIME_MAX_VERIFIED_BYTES",
+    "current_system_id", "enabled", "require",
 ]
