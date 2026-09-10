@@ -81,12 +81,13 @@ service operations. Missing, empty, comment-only, whitespace-only and placeholde
 values refuse, including an explicit empty process override of a configured file.
 The setting is listed in `.env.example` and stays operator-owned.
 
-The direct automation Compose wrapper also requires that endpoint for service
-creation, startup, restart, scaling, unpause, one-off execution and other
-potentially mutating commands. It applies the dispatcher's effective callback
-deadline at the same gate. Explicit inspection commands and `stop`, `down`,
-`pause`, `rm`, and `wait` retain maintenance requirements. The host classifier
-consumes the documented [Compose global options](https://docs.docker.com/reference/cli/docker/compose/)
+The direct automation Compose wrapper applies the external-alert endpoint and
+dispatcher timing prerequisites to potentially mutating or unknown commands before
+Docker. The subsequent execution envelope permits the reviewed `up`, `create`,
+and `run` surfaces and refuses stale-container transitions (`start`, `restart`,
+`unpause`, `pause`) plus generic `exec`. Explicit inspection commands and
+`stop`, `down`, `rm`, and `wait` retain maintenance-only prerequisites. The host
+classifier consumes the documented [Compose global options](https://docs.docker.com/reference/cli/docker/compose/)
 before identifying the command; an unknown command or option selects the
 dispatcher requirement. The forwarded argument list has a separate parser
 boundary, so an option value named `config` cannot select inspection for `up`.
