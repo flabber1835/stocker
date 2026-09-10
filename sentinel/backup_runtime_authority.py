@@ -6,7 +6,10 @@ a missing external mount can expose the underlying local directory. When the
 reviewed production mode is enabled, ask PostgreSQL to prove the durable-target
 markers and a contiguous full-size external WAL chain from the newest base
 backup's exact manifest End-LSN through the archiver's latest successful
-segment. The retained post-base recovery marker must lie inside the same chain.
+segment. Every WAL object also carries an atomically published SHA-256 sidecar;
+runtime authority recomputes each digest in PostgreSQL so same-size corruption
+cannot masquerade as a complete restore chain. The retained post-base recovery
+marker must lie inside the same chain.
 
 The ordinary backup guard deliberately allows a short DEGRADED grace period.
 Unattended financial mutation is stricter: the first unresolved archive failure
@@ -29,6 +32,7 @@ _BASE_NAME = re.compile(r"base-[0-9]{8}T[0-9]{6}Z\Z")
 _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 _RECOVERY_WAL = re.compile(r"^wal=([0-9A-F]{24})$", re.MULTILINE)
 _LSN = re.compile(r"^([0-9A-F]+)/([0-9A-F]+)$")
+_SHA256 = re.compile(r"^sha256=([0-9a-f]{64})\s*\Z")
 
 
 class BackupRuntimeUnavailable(RuntimeError):
@@ -241,21 +245,51 @@ def _require(conn, *, operation: str) -> dict:
 
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT name,(pg_stat_file(%s || '/' || name,true)).size"
+            "SELECT name,(pg_stat_file(%s || '/' || name,true)).size,"
+            " pg_read_file(%s || '/' || name || '.sha256',0,80,true),"
+            " encode(sha256(pg_read_binary_file(%s || '/' || name,0,%s,true)),'hex')"
             " FROM pg_ls_dir(%s) AS entries(name)"
             " WHERE name ~ '^[0-9A-F]{24}$'",
-            (wal_root, wal_root))
+            (wal_root, wal_root, wal_root, segment_size, wal_root))
         actual = {
-            str(name): (None if size is None else int(size))
-            for name, size in cur.fetchall()
+            str(name): (
+                None if size is None else int(size),
+                None if checksum is None else str(checksum),
+                None if digest is None else str(digest),
+            )
+            for name, size, checksum, digest in cur.fetchall()
         }
-    missing = [name for name in expected if actual.get(name) != segment_size]
+    missing = [
+        name for name in expected
+        if name not in actual or actual[name][0] != segment_size]
     if missing:
         sample = ", ".join(missing[:5])
         raise BackupRuntimeUnavailable(
             f"{operation}: external WAL restore chain is incomplete from "
             f"{start} through {end}; missing/truncated {sample}"
             + (f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""))
+
+    missing_checksums = [name for name in expected if actual[name][1] is None]
+    if missing_checksums:
+        sample = ", ".join(missing_checksums[:5])
+        raise BackupRuntimeUnavailable(
+            f"{operation}: external WAL integrity evidence is incomplete; "
+            f"missing SHA-256 sidecar for {sample}"
+            + (f" (+{len(missing_checksums) - 5} more)"
+               if len(missing_checksums) > 5 else ""))
+
+    for name in expected:
+        checksum = actual[name][1]
+        digest = actual[name][2]
+        assert checksum is not None
+        match = _SHA256.fullmatch(checksum)
+        if match is None:
+            raise BackupRuntimeRefused(
+                f"archived WAL {name} has malformed SHA-256 integrity evidence")
+        if digest is None or match.group(1) != digest:
+            raise BackupRuntimeRefused(
+                f"archived WAL {name} failed SHA-256 integrity validation")
+
     return {
         "enabled": True,
         "system_identifier": system_id,
@@ -264,6 +298,7 @@ def _require(conn, *, operation: str) -> dict:
         "recovery_marker_wal": marker_wal,
         "recoverable_through_wal": end,
         "wal_segments": len(expected),
+        "wal_integrity": "sha256-sidecar-v1",
     }
 
 
