@@ -163,15 +163,14 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
   refuse "BASE_BACKUP_RECOVERY_MARKER_MISSING" 4 \
     "latest backup lacks a post-base recovery marker"
 
-# Reuse the exact production runtime authority through PostgreSQL. The Sentinel
-# container never receives the private backup bind mount; PostgreSQL performs
-# the permitted metadata/WAL reads. This proves manifest End-LSN through the
-# current archive frontier, including every middle segment and SHA-256 sidecar.
-if ! CHAIN="$(${COMPOSE[@]} run --rm --no-deps --entrypoint python \
-    -e SENTINEL_RUNTIME_BACKUP_AUTHORITY=REQUIRED_V1 \
-    sentinel -m sentinel.backup_runtime_probe --base "$NAME")"; then
+# Prove the same restore-horizon invariants as runtime authority while remaining
+# inside the private-media boundary. PostgreSQL parses its own manifest; the
+# postgres OS identity verifies every WAL byte against its durable sidecar.
+if ! CHAIN="$(${COMPOSE[@]} exec -T -u postgres sentinel-postgres \
+    sh -s -- "$NAME" "$WAL_NAMESPACE" "$SYSTEM_ID" "$LAST_WAL" "$WAL_BYTES" \
+    < scripts/sentinel-backup-verify-chain.sh)"; then
   refuse "BASE_BACKUP_RECOVERY_EVIDENCE_INVALID" 4 \
-    "complete base/WAL restore horizon failed runtime validation"
+    "complete base/WAL restore horizon failed validation"
 fi
 printf '%s\n' "$CHAIN"
 echo "backup_ready:true base=$LATEST age_hours=$AGE_HOURS wal_age_hours=$WAL_AGE_HOURS system_id=$SYSTEM_ID"
