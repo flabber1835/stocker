@@ -100,12 +100,12 @@ class AlpacaSimulator:
         self.prices[symbol] = D(price)
 
     def _reserved_buy_notional(self) -> Decimal:
-        return sum(
+        return sum([
             ((D(order["qty"]) - D(order["filled_qty"]))
              * self.prices[order["symbol"]])
             for order in self.orders.values()
             if order["side"] == "buy" and self._working(order)
-        , D(0))
+        ], D(0))
 
     def account(self):
         equity = self.cash + sum((q * self.prices[s]
