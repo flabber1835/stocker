@@ -50,7 +50,7 @@ and `https://github.com/flabber1835/stocker/pull/<number>` respectively.
    PostgreSQL/root media ownership model, immutable archived objects, production
    strategy economics and broker authorization boundaries.
 
-## Review repairs: clocks, media errors and metadata authority
+## Review repairs: clocks, media errors, metadata authority and restore horizon
 
 Archive timestamps are compared to the database clock at full precision. Epoch
 seconds used for age arithmetic are floored consistently. Manifest age uses a
@@ -81,22 +81,54 @@ and separately checks an unrelated UID/GID.
 
 The production producer grants this access after verification and metadata
 publication, before atomic generation promotion. Explicit backup initialization
-also migrates completed retained generations. Routine validation remains read-only.
-The grant verifies regular, root-owned paths and rejects symlinks and hard-linked
-metadata before changing permissions. A real Docker composition gate runs the
-actual producer, connects the production Python guard to PostgreSQL over a local
-Unix socket against the same media, checks payload/write denial, injects media
-loss and verifies repair.
+migrates only the metadata-read permissions of completed retained generations.
+Routine validation remains read-only. The grant verifies regular, root-owned paths
+and rejects symlinks and hard-linked metadata before changing permissions. A real
+Docker composition gate runs the actual producer, connects the production Python
+guard to PostgreSQL over a local Unix socket against the same media, checks
+payload/write denial, injects media loss and verifies repair.
+
+PR #344 review found that the full restore-horizon authority existed but was not
+on every production feed/plan/order entrypoint. Canonical feed seed/daily recovery
+and the public paper preparation/manual-execution/automated-execution gateways now
+require it before their first mutation. The backup Compose overlay enables that
+authority for supported manual CLI operation, while unattended services retain the
+same required authority. Read-only broker recovery stays available during a backup
+outage.
+
+Every newly archived WAL now carries an atomically published `.<none>`-free
+companion named `<24-hex-WAL>.sha256`. The sidecar contains one lowercase SHA-256
+of the immutable source WAL. Archive success is withheld until the WAL, sidecar,
+and containing directory have been durably synchronized and revalidated. Runtime
+authority recomputes SHA-256 from every WAL byte in the complete manifest-End-LSN
+to `last_archived_wal` chain. A full-size post-publication bit flip therefore
+fails integrity validation just like a missing or truncated segment.
+
+Checksum authority is never synthesized for retained WAL. An upgrade may grant
+PostgreSQL read access to old backup metadata, but it does not hash old WAL and
+call those hashes historical evidence. After deploying the checksum-aware archive
+command, create a fresh verified base backup. Its required WAL horizon was archived
+under the new producer and therefore has provenance-bearing sidecars. A missing
+sidecar remains a write fence until such a fresh recovery horizon exists.
+
+Operator `sentinel-backup-status.sh` now proves that same complete chain before it
+can print `backup_ready:true`. It requires `backup_label` as part of a complete base,
+derives the first required WAL from the selected base manifest, walks every segment
+to the current archive frontier, requires the retained recovery-marker WAL to fall
+inside that sequence, verifies every segment's exact configured size, and hashes
+every segment against its sidecar. The proof executes under the PostgreSQL OS
+identity inside the private-media boundary.
 
 ## Required fault families
 
 Missing/remounted media; invalid or symlinked attestation; permissions, ENOSPC,
 short writes, EIO, failed fsync and rename; interruption before/after publication;
 identical/conflicting retries and simultaneous writers; cluster identity and WAL
-timeline changes; missing/truncated middle or marker WAL; malformed/duplicate
-metadata; stale/future timestamps; delayed successful archive and unresolved newer
-failure; interrupted base creation and exact backup selection; post-creation bit
-rot; semantic corruption; repeated outage and eventual recovery.
+timeline changes; missing/truncated middle or marker WAL; same-size WAL corruption;
+missing/malformed checksum evidence; malformed/duplicate metadata; stale/future
+timestamps; delayed successful archive and unresolved newer failure; interrupted
+base creation and exact backup selection; post-creation bit rot; semantic corruption;
+repeated outage and eventual recovery.
 
 The output records failures separately from prerequisites that could not run.
 The harness must never silently skip a required physical gate in CI.
@@ -135,8 +167,15 @@ restore or broker takeover. Those remain the deployment runbook's separate gates
   unique identities now precede the contiguous WAL proof.
 - A backwards clock jump could turn future archive evidence into age zero. It
   now refuses. Status also rejects future manifest mtimes and checks age in seconds.
-- Status could report ready for partial markers and truncated required WAL. It
-  now validates the marker and full-size regular marker/latest WAL objects.
+- Production feed/plan/order mutations could proceed while the full retained WAL
+  chain was broken. Their canonical production gateways now require the complete
+  restore horizon before mutation.
+- Full-size WAL corruption could pass runtime authority because size was treated
+  as integrity. Archive publication now emits durable SHA-256 evidence and runtime
+  authority recomputes every required segment before accepting the horizon.
+- Status could report ready for a missing middle segment while its recovery-marker
+  and latest WAL objects were intact. It now walks and hashes the complete selected
+  base-to-frontier chain and requires `backup_label` during base selection.
 - Restore copied a previously verified base and started recovery before checking
   current checksums. It now verifies the disposable copy before altering it.
 - Coreutils no-clobber exit behavior could reject an identical concurrent writer.
