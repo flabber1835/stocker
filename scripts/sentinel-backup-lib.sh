@@ -240,58 +240,16 @@ sentinel_backup_root() {
   done
 
   if [ "$initialize_markers" -eq 1 ]; then
-    # Explicit provisioning also upgrades the retained metadata reader grant.
+    # Explicit provisioning upgrades only the retained metadata read grant.
+    # WAL integrity evidence is never synthesized from retained bytes: doing so
+    # could bless pre-existing same-size corruption. The upgraded archive command
+    # creates SHA-256 evidence as each immutable source WAL is archived; create a
+    # fresh base backup before relying on checksum-backed runtime authority.
     docker run --rm -i --network none \
       -v "$root/base:/probe" --entrypoint sh \
       "$SENTINEL_BACKUP_POSTGRES_IMAGE" -s -- /probe \
       < "$(dirname "${BASH_SOURCE[0]}")/sentinel-backup-metadata-access.sh" || {
         echo "REFUSED: could not provision runtime backup metadata access" >&2
-        return 2
-      }
-
-    # Older retained WAL objects predate content-integrity sidecars. Migrate
-    # them only during this explicit verified-target ceremony. Existing
-    # sidecars are immutable evidence: a disagreement is a refusal, never a
-    # reason to rewrite the claimed checksum.
-    docker run --rm --network none --user "$uid" \
-      -v "$root/wal:/probe" --entrypoint sh \
-      "$SENTINEL_BACKUP_POSTGRES_IMAGE" -ceu '
-        for namespace in /probe/cluster-*; do
-          [ -e "$namespace" ] || continue
-          [ -d "$namespace" ] && [ ! -L "$namespace" ] || exit 31
-          for wal in "$namespace"/*; do
-            [ -e "$wal" ] || continue
-            [ -f "$wal" ] && [ ! -L "$wal" ] || continue
-            name="${wal##*/}"
-            printf "%s\n" "$name" | grep -Eq "^[0-9A-F]{24}$" || continue
-            sha="$(sha256sum -- "$wal")" || exit 32
-            sha="${sha%% *}"
-            printf "%s\n" "$sha" | grep -Eq "^[0-9a-f]{64}$" || exit 33
-            sidecar="$wal.sha256"
-            if [ -e "$sidecar" ] || [ -L "$sidecar" ]; then
-              [ -f "$sidecar" ] && [ ! -L "$sidecar" ] || exit 34
-              [ "$(cat "$sidecar")" = "sha256=$sha" ] || exit 35
-              continue
-            fi
-            tmp="$(mktemp "$namespace/.${name}.sha256.part.XXXXXX")" || exit 36
-            trap "rm -f \"$tmp\"" EXIT HUP INT TERM
-            printf "sha256=%s\n" "$sha" > "$tmp" || exit 37
-            chmod 0600 "$tmp" || exit 38
-            sync "$tmp" || exit 39
-            if ! mv -T --no-clobber -- "$tmp" "$sidecar"; then
-              [ -f "$tmp" ] && [ -f "$sidecar" ] && [ ! -L "$sidecar" ] \
-                && [ "$(cat "$sidecar")" = "sha256=$sha" ] || exit 40
-            fi
-            rm -f -- "$tmp"
-            trap - EXIT HUP INT TERM
-            [ "$(cat "$sidecar")" = "sha256=$sha" ] || exit 41
-            sync "$sidecar" || exit 42
-            sync "$namespace" || exit 43
-          done
-        done
-        sync /probe
-      ' || {
-        echo "REFUSED: could not provision retained WAL SHA-256 integrity evidence" >&2
         return 2
       }
   fi
