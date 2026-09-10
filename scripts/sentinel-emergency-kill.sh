@@ -18,6 +18,14 @@ trap cleanup EXIT
   echo "REFUSED: host Python is incompatible; minimum Python is 3.8.15" >&2
   exit 1
 }
+# Emergency fencing always targets the local default Docker daemon and the
+# canonical Sentinel project, even when the invoking shell carries stale Docker
+# or Compose selectors.
+unset DOCKER_HOST DOCKER_CONFIG DOCKER_CERT_PATH DOCKER_TLS_VERIFY DOCKER_TLS \
+  DOCKER_API_VERSION DOCKER_DEFAULT_PLATFORM BUILDKIT_HOST BUILDX_BUILDER
+unset COMPOSE_FILE COMPOSE_PATH_SEPARATOR COMPOSE_PROJECT_NAME COMPOSE_PROFILES
+export DOCKER_CONTEXT=default
+
 # Do not preflight SENTINEL_POSTGRES_PASSWORD in the shell. Compose owns
 # configuration resolution and may load it from the repository's normal .env;
 # requiring it to be exported here recreates the emergency-path guard inversion
@@ -28,11 +36,11 @@ if [ "${SENTINEL_FORCE_CPU_LIMITS:-0}" = "1" ] && \
   exit 2
 fi
 
-COMPOSE_ARGS=(-f "$CANONICAL")
+COMPOSE_ARGS=(--project-name sentinel --project-directory "$(pwd -P)" -f "$CANONICAL")
 if [ "${SENTINEL_FORCE_NO_CPU_LIMITS:-0}" = "1" ]; then
   GENERATED="$(mktemp "${TMPDIR:-/tmp}/sentinel-emergency-nocpu.XXXXXX.yml")"
   "$PYTHON" scripts/sentinel_strip_cpu_limits.py "$CANONICAL" "$GENERATED" >&2
-  COMPOSE_ARGS=(--project-directory "$(pwd -P)" -f "$GENERATED")
+  COMPOSE_ARGS=(--project-name sentinel --project-directory "$(pwd -P)" -f "$GENERATED")
 elif [ "${SENTINEL_FORCE_CPU_LIMITS:-0}" != "1" ]; then
   CAPS="$("$PYTHON" scripts/sentinel_host_capabilities.py --json 2>/dev/null || echo '{}')"
   USABLE="$(printf '%s' "$CAPS" | "$PYTHON" -c \
@@ -44,12 +52,12 @@ print("1" if d.get("cpu_limits_usable", True) else "0")' \
   if [ "$USABLE" != "1" ]; then
     GENERATED="$(mktemp "${TMPDIR:-/tmp}/sentinel-emergency-nocpu.XXXXXX.yml")"
     "$PYTHON" scripts/sentinel_strip_cpu_limits.py "$CANONICAL" "$GENERATED" >&2
-    COMPOSE_ARGS=(--project-directory "$(pwd -P)" -f "$GENERATED")
+    COMPOSE_ARGS=(--project-name sentinel --project-directory "$(pwd -P)" -f "$GENERATED")
   fi
 fi
 
 # --no-deps is intentional: an emergency fence may use only the already
 # running behavioral PostgreSQL service. Starting/recreating deployment or
 # backup services would add exactly the dependencies this path removes.
-docker compose "${COMPOSE_ARGS[@]}" --profile cli run --rm --no-deps sentinel \
+docker --context default compose "${COMPOSE_ARGS[@]}" --profile cli run --rm --no-deps sentinel \
   engage-paper-automation-kill-switch "$@"

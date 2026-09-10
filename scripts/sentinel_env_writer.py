@@ -2,6 +2,7 @@
 """Race-aware, permission-preserving writer for Sentinel's secrets-bearing .env."""
 from __future__ import annotations
 
+import fcntl
 import os
 from pathlib import Path
 import re
@@ -95,52 +96,62 @@ def safe_update_dotenv(
         updates: Mapping[str, str],
         *,
         before_commit: Optional[Callable[[], None]] = None) -> None:
-    """Commit only when the exact source observation is still current.
+    """Serialize managed writers and commit only a still-current observation.
 
     Existing permission bits are preserved exactly. A newly created file is 0600.
-    The second observation immediately before replace catches replacement and
-    in-place edits, including edits that keep the same byte length.
+    The lock serializes all supported managed writers; the final stable-source
+    observation still refuses concurrent external replacement or in-place edits.
     """
     path = Path(path)
-    original, identity, mode = _snapshot(path)
-    payload = _render(original, updates)
-    temporary = path.with_name(path.name + ".deploy-safe.%d.tmp" % os.getpid())
-
+    lock_path = path.with_name(path.name + ".deploy-safe.lock")
+    lock_fd = os.open(str(lock_path), os.O_RDWR | os.O_CREAT, 0o600)
     try:
-        fd = os.open(
-            str(temporary),
-            os.O_WRONLY | os.O_CREAT | os.O_EXCL,
-            mode if identity is not None else 0o600,
-        )
-        with os.fdopen(fd, "wb") as handle:
-            handle.write(payload)
-            handle.flush()
-            os.fsync(handle.fileno())
-        os.chmod(str(temporary), mode if identity is not None else 0o600)
+        os.fchmod(lock_fd, 0o600)
+        fcntl.flock(lock_fd, fcntl.LOCK_EX)
+        original, identity, mode = _snapshot(path)
+        payload = _render(original, updates)
+        temporary = path.with_name(path.name + ".deploy-safe.%d.tmp" % os.getpid())
 
-        if before_commit is not None:
-            before_commit()
-
-        current, current_identity, _current_mode = _snapshot(path)
-        if identity is None:
-            if current_identity is not None:
-                raise EnvWriteRefused(
-                    ".env appeared concurrently; refusing to overwrite a new operator file")
-        elif current_identity != identity or current != original:
-            raise EnvWriteRefused(
-                ".env changed after the managed update snapshot; refusing stale replacement")
-
-        os.replace(str(temporary), str(path))
-        os.chmod(str(path), mode if identity is not None else 0o600)
-
-        directory_fd = os.open(
-            str(path.parent), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
         try:
-            os.fsync(directory_fd)
+            fd = os.open(
+                str(temporary),
+                os.O_WRONLY | os.O_CREAT | os.O_EXCL,
+                mode if identity is not None else 0o600,
+            )
+            with os.fdopen(fd, "wb") as handle:
+                handle.write(payload)
+                handle.flush()
+                os.fsync(handle.fileno())
+            os.chmod(str(temporary), mode if identity is not None else 0o600)
+
+            if before_commit is not None:
+                before_commit()
+
+            current, current_identity, _current_mode = _snapshot(path)
+            if identity is None:
+                if current_identity is not None:
+                    raise EnvWriteRefused(
+                        ".env appeared concurrently; refusing to overwrite a new operator file")
+            elif current_identity != identity or current != original:
+                raise EnvWriteRefused(
+                    ".env changed after the managed update snapshot; refusing stale replacement")
+
+            os.replace(str(temporary), str(path))
+            os.chmod(str(path), mode if identity is not None else 0o600)
+
+            directory_fd = os.open(
+                str(path.parent), os.O_RDONLY | getattr(os, "O_DIRECTORY", 0))
+            try:
+                os.fsync(directory_fd)
+            finally:
+                os.close(directory_fd)
         finally:
-            os.close(directory_fd)
+            try:
+                temporary.unlink()
+            except FileNotFoundError:
+                pass
     finally:
         try:
-            temporary.unlink()
-        except FileNotFoundError:
-            pass
+            fcntl.flock(lock_fd, fcntl.LOCK_UN)
+        finally:
+            os.close(lock_fd)
