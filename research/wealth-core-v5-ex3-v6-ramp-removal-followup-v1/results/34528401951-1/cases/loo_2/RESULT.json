@@ -1,0 +1,731 @@
+{
+  "case": "loo_2",
+  "checks": {
+    "compact_original_no_ramp": {
+      "allocation": 0.0,
+      "close_desired": 0.0,
+      "effective_native": 0.0,
+      "native_close_target": 0.0,
+      "nav": 0.0,
+      "reason_mismatches": 0
+    },
+    "compact_original_no_ramp_restart": {
+      "allocation": 0.0,
+      "checkpoints": 75,
+      "close_desired": 0.0,
+      "effective_native": 0.0,
+      "native_close_target": 0.0,
+      "nav": 0.0,
+      "reason_mismatches": 0
+    },
+    "compact_simplified_no_ramp": {
+      "allocation": 0.0,
+      "close_desired": 0.0,
+      "effective_native": 0.0,
+      "native_close_target": 0.0,
+      "nav": 0.0,
+      "reason_mismatches": 0
+    },
+    "compact_simplified_no_ramp_restart": {
+      "allocation": 0.0,
+      "checkpoints": 75,
+      "close_desired": 0.0,
+      "effective_native": 0.0,
+      "native_close_target": 0.0,
+      "nav": 0.0,
+      "reason_mismatches": 0
+    },
+    "engine_reconstruction": {
+      "allocation": 0.0,
+      "effective_native": 0.0,
+      "native_close_target": 0.0,
+      "nav": 0.0,
+      "reason_mismatches": 0
+    },
+    "legacy_ramp_ablation": {
+      "allocation": 0.0,
+      "close_desired": 0.0,
+      "effective_native": 0.0,
+      "native_close_target": 0.0,
+      "nav": 0.0,
+      "reason_mismatches": 0
+    }
+  },
+  "core": {
+    "allocation": {
+      "average": 0.8587142289348172,
+      "sessions_by_level": {
+        "0.0": 622,
+        "0.55": 151,
+        "0.65": 60,
+        "1.0": 4199
+      },
+      "transitions": 24
+    },
+    "blocked_open_entries": null,
+    "buys": 422,
+    "candidate_A_concordance_releases": 1,
+    "candidate_A_episodes": 8,
+    "close_decisions_sha256": "6450a53ce5473bde0c6999116aaea0a591e8050f679f45ab38f62d3adcf24222",
+    "core": {
+      "10": {
+        "cagr": 0.16095029853579668,
+        "end": "2026-07-31",
+        "ending_multiple": 4.445119123265469,
+        "max_drawdown": -0.3052835505079281,
+        "sessions": 2514,
+        "sharpe_daily_252": 0.7848645852692135,
+        "start": "2016-08-01"
+      },
+      "15": {
+        "cagr": 0.14174804976963729,
+        "end": "2026-07-31",
+        "ending_multiple": 7.302199480774601,
+        "max_drawdown": -0.3052835505079281,
+        "sessions": 3772,
+        "sharpe_daily_252": 0.7550884726054164,
+        "start": "2011-08-01"
+      },
+      "20": {
+        "cagr": 0.13398115576057856,
+        "end": "2026-07-31",
+        "ending_multiple": 12.36343580175764,
+        "max_drawdown": -0.5033805797189879,
+        "sessions": 5032,
+        "sharpe_daily_252": 0.7028612336053247,
+        "start": "2006-07-31"
+      },
+      "5": {
+        "cagr": 0.16546164829002485,
+        "end": "2026-07-31",
+        "ending_multiple": 2.148261347962979,
+        "max_drawdown": -0.30011562849796103,
+        "sessions": 1255,
+        "sharpe_daily_252": 0.8025020172964233,
+        "start": "2021-08-02"
+      }
+    },
+    "core_tape_sha256": "0e8b1a9ff37641f585c497d6cd40149a751a0d708470533864dc61730b64910a",
+    "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+    "gap_clipped_entries": null,
+    "sells": 354,
+    "sentinel": {
+      "10": {
+        "cagr": 0.17783367158327867,
+        "end": "2026-07-31",
+        "ending_multiple": 5.135258630869287,
+        "max_drawdown": -0.2687426424037087,
+        "sessions": 2514,
+        "sharpe_daily_252": 0.9167674418582651,
+        "start": "2016-08-01"
+      },
+      "15": {
+        "cagr": 0.1617315372872694,
+        "end": "2026-07-31",
+        "ending_multiple": 9.472684038594645,
+        "max_drawdown": -0.2687426424037087,
+        "sessions": 3772,
+        "sharpe_daily_252": 0.9197625014835944,
+        "start": "2011-08-01"
+      },
+      "20": {
+        "cagr": 0.17006722942915076,
+        "end": "2026-07-31",
+        "ending_multiple": 23.133659242440235,
+        "max_drawdown": -0.2687426424037087,
+        "sessions": 5032,
+        "sharpe_daily_252": 0.932783172478112,
+        "start": "2006-07-31"
+      },
+      "5": {
+        "cagr": 0.1750197205428623,
+        "end": "2026-07-31",
+        "ending_multiple": 2.2376979841249596,
+        "max_drawdown": -0.2285730047842729,
+        "sessions": 1255,
+        "sharpe_daily_252": 0.8676599145403512,
+        "start": "2021-08-02"
+      }
+    },
+    "status": "PASS_FRESH_CAUSAL_PIT_REPLAY",
+    "tag": "loo_2",
+    "transactions_sha256": "f8a0c7f7382f4d3c3a3591ce1dfb592c1f61284859deb698b41d72f9a9e32e44",
+    "transition_counts": {
+      "A": 24,
+      "B": 20,
+      "control": 24
+    }
+  },
+  "fault": {
+    "security_id": "827375650881331035",
+    "type": "security_exclusion"
+  },
+  "peer_checks": {
+    "cached_stats": {
+      "accepted_peer_edges": 27454,
+      "breadth_sessions": 5049,
+      "holding_observations": 90815,
+      "insufficient_residual_histories": 0,
+      "neighborhood_size_sum": 41716,
+      "pair_correlations": 226574
+    },
+    "calls": 5176,
+    "mismatches": 0,
+    "original_stats": {
+      "accepted_peer_edges": 180003,
+      "breadth_sessions": 5049,
+      "holding_observations": 90815,
+      "insufficient_residual_histories": 0,
+      "neighborhood_size_sum": 270818,
+      "pair_correlations": 1567994
+    },
+    "residual_cache_hits": 165811,
+    "residual_lookups": 90815,
+    "zero_red_integer_stats": {
+      "accepted_peer_edges": 26495,
+      "breadth_sessions": 5049,
+      "holding_observations": 90815,
+      "insufficient_residual_histories": 0,
+      "neighborhood_size_sum": 40223,
+      "pair_correlations": 218228
+    }
+  },
+  "slot": {
+    "case": "loo_2",
+    "ref": "refs/heads/research-budget/simplification-ramp-v1/slot-04",
+    "run_attempt": "1",
+    "run_id": "34528401951",
+    "sha": "f6ad7b543fbd20ffe363127d1120f4472caa9360",
+    "slot": 4
+  },
+  "sources": {
+    "compact_original_no_ramp": {
+      "ex3_fields": [
+        "_audit",
+        "episode",
+        "full_streak",
+        "latched",
+        "previous_native_was_full",
+        "recent_positive_streak"
+      ],
+      "native_fields": [
+        "base_anchor",
+        "base_dur",
+        "base_fast",
+        "base_fast_age",
+        "base_fast_armed",
+        "base_fast_h",
+        "binary_armed",
+        "fast",
+        "fast_age",
+        "fast_armed",
+        "fast_h",
+        "ordinary",
+        "ordinary_age",
+        "ordinary_h",
+        "slow",
+        "slow_age",
+        "slow_h"
+      ],
+      "sha256": "350aaebb3d9257eeebdb8dc6776853f35e38d42975ae711ff28a1f6418170c62"
+    },
+    "compact_simplified_no_ramp": {
+      "ex3_fields": [
+        "_audit",
+        "episode",
+        "full_streak",
+        "latched",
+        "previous_native_was_full",
+        "recent_positive_streak"
+      ],
+      "native_fields": [
+        "base_anchor",
+        "base_dur",
+        "base_fast",
+        "base_fast_age",
+        "base_fast_armed",
+        "base_fast_h",
+        "binary_armed",
+        "fast",
+        "fast_age",
+        "fast_armed",
+        "fast_h",
+        "ordinary",
+        "ordinary_age",
+        "ordinary_h",
+        "slow",
+        "slow_age",
+        "slow_h"
+      ],
+      "sha256": "3fcf274dc5dba5b01ff3c637b62922f27c5dfe2e3b28e7f3a416e1bfeba09663"
+    },
+    "original": {
+      "ex3_fields": [
+        "concordance_releases",
+        "episode",
+        "episodes",
+        "full_streak",
+        "latched",
+        "prev_desired",
+        "prev_native",
+        "recent_positive_streak"
+      ],
+      "native_fields": [
+        "base_anchor",
+        "base_dur",
+        "base_fast",
+        "base_fast_age",
+        "base_fast_armed",
+        "base_fast_h",
+        "binary_armed",
+        "fast",
+        "fast_age",
+        "fast_armed",
+        "fast_h",
+        "ordinary",
+        "ordinary_age",
+        "ordinary_h",
+        "r40hist",
+        "ramp",
+        "ramp_h",
+        "ramp_idx",
+        "slow",
+        "slow_age",
+        "slow_h"
+      ],
+      "sha256": "335e2ae06efd5e2ebfa11f0641029609d524f4e75e733a3dbd0a5efcf64ac42d"
+    },
+    "original_no_ramp": {
+      "ex3_fields": [
+        "concordance_releases",
+        "episode",
+        "episodes",
+        "full_streak",
+        "latched",
+        "prev_desired",
+        "prev_native",
+        "recent_positive_streak"
+      ],
+      "native_fields": [
+        "base_anchor",
+        "base_dur",
+        "base_fast",
+        "base_fast_age",
+        "base_fast_armed",
+        "base_fast_h",
+        "binary_armed",
+        "fast",
+        "fast_age",
+        "fast_armed",
+        "fast_h",
+        "ordinary",
+        "ordinary_age",
+        "ordinary_h",
+        "slow",
+        "slow_age",
+        "slow_h"
+      ],
+      "sha256": "7b3657824161ac5a7a126f016105e3013b3ffd8f63a0b4c734111597db591a0c"
+    },
+    "simplified": {
+      "ex3_fields": [
+        "concordance_releases",
+        "episode",
+        "episodes",
+        "full_streak",
+        "latched",
+        "prev_desired",
+        "prev_native",
+        "recent_positive_streak"
+      ],
+      "native_fields": [
+        "base_anchor",
+        "base_dur",
+        "base_fast",
+        "base_fast_age",
+        "base_fast_armed",
+        "base_fast_h",
+        "binary_armed",
+        "fast",
+        "fast_age",
+        "fast_armed",
+        "fast_h",
+        "ordinary",
+        "ordinary_age",
+        "ordinary_h",
+        "r40hist",
+        "ramp",
+        "ramp_h",
+        "slow",
+        "slow_age",
+        "slow_h"
+      ],
+      "sha256": "2f3e0a6d2fbeb2704e0ea61972a4c8509a6d75462cb7ecb69b56afedb8637c2c"
+    },
+    "simplified_no_ramp": {
+      "ex3_fields": [
+        "concordance_releases",
+        "episode",
+        "episodes",
+        "full_streak",
+        "latched",
+        "prev_desired",
+        "prev_native",
+        "recent_positive_streak"
+      ],
+      "native_fields": [
+        "base_anchor",
+        "base_dur",
+        "base_fast",
+        "base_fast_age",
+        "base_fast_armed",
+        "base_fast_h",
+        "binary_armed",
+        "fast",
+        "fast_age",
+        "fast_armed",
+        "fast_h",
+        "ordinary",
+        "ordinary_age",
+        "ordinary_h",
+        "slow",
+        "slow_age",
+        "slow_h"
+      ],
+      "sha256": "1366db85d7c74bbf7705146923724bf8b81b92f4da817bfefa8180086b2a4d21"
+    }
+  },
+  "status": "PASS",
+  "tracks": {
+    "compact_original_no_ramp": {
+      "allocation": {
+        "average": 0.8590719395866455,
+        "sessions_by_level": {
+          "0.0": 661,
+          "0.55": 107,
+          "0.65": 0,
+          "1.0": 4264
+        },
+        "transitions": 20
+      },
+      "audit": {
+        "concordance_releases": 1,
+        "episodes": 8,
+        "restarts": 0
+      },
+      "metrics": {
+        "10": {
+          "cagr": 0.17641492800843772,
+          "end": "2026-07-31",
+          "ending_multiple": 5.073760638808162,
+          "max_drawdown": -0.2950113660810313,
+          "sessions": 2514,
+          "sharpe_daily_252": 0.9069630612818423,
+          "start": "2016-08-01"
+        },
+        "15": {
+          "cagr": 0.16079870665436413,
+          "end": "2026-07-31",
+          "ending_multiple": 9.35924261535238,
+          "max_drawdown": -0.2950113660810313,
+          "sessions": 3772,
+          "sharpe_daily_252": 0.9120984188328414,
+          "start": "2011-08-01"
+        },
+        "20": {
+          "cagr": 0.17367554494382853,
+          "end": "2026-07-31",
+          "ending_multiple": 24.60309106780008,
+          "max_drawdown": -0.2950113660810313,
+          "sessions": 5032,
+          "sharpe_daily_252": 0.9478984122176131,
+          "start": "2006-07-31"
+        },
+        "5": {
+          "cagr": 0.17218839357408067,
+          "end": "2026-07-31",
+          "ending_multiple": 2.210900125875776,
+          "max_drawdown": -0.2562847294787908,
+          "sessions": 1255,
+          "sharpe_daily_252": 0.8501537966350027,
+          "start": "2021-08-02"
+        }
+      }
+    },
+    "compact_simplified_no_ramp": {
+      "allocation": {
+        "average": 0.8546999205087441,
+        "sessions_by_level": {
+          "0.0": 683,
+          "0.55": 107,
+          "0.65": 0,
+          "1.0": 4242
+        },
+        "transitions": 20
+      },
+      "audit": {
+        "concordance_releases": 5,
+        "episodes": 8,
+        "restarts": 0
+      },
+      "metrics": {
+        "10": {
+          "cagr": 0.17619436276824674,
+          "end": "2026-07-31",
+          "ending_multiple": 5.06425960599766,
+          "max_drawdown": -0.2994982153272324,
+          "sessions": 2514,
+          "sharpe_daily_252": 0.9074804145298152,
+          "start": "2016-08-01"
+        },
+        "15": {
+          "cagr": 0.16065365027130651,
+          "end": "2026-07-31",
+          "ending_multiple": 9.341716666159973,
+          "max_drawdown": -0.2994982153272324,
+          "sessions": 3772,
+          "sharpe_daily_252": 0.912641871331982,
+          "start": "2011-08-01"
+        },
+        "20": {
+          "cagr": 0.17535449239806833,
+          "end": "2026-07-31",
+          "ending_multiple": 25.31665069565045,
+          "max_drawdown": -0.2994982153272324,
+          "sessions": 5032,
+          "sharpe_daily_252": 0.9574010264217384,
+          "start": "2006-07-31"
+        },
+        "5": {
+          "cagr": 0.17069070555511368,
+          "end": "2026-07-31",
+          "ending_multiple": 2.1968290116961464,
+          "max_drawdown": -0.2610180516068038,
+          "sessions": 1255,
+          "sharpe_daily_252": 0.8442077507378283,
+          "start": "2021-08-02"
+        }
+      }
+    },
+    "original": {
+      "allocation": {
+        "average": 0.8587142289348172,
+        "sessions_by_level": {
+          "0.0": 622,
+          "0.55": 151,
+          "0.65": 60,
+          "1.0": 4199
+        },
+        "transitions": 24
+      },
+      "audit": {
+        "concordance_releases": 1,
+        "episodes": 8,
+        "restarts": 0
+      },
+      "metrics": {
+        "10": {
+          "cagr": 0.17783367158327867,
+          "end": "2026-07-31",
+          "ending_multiple": 5.135258630869287,
+          "max_drawdown": -0.2687426424037087,
+          "sessions": 2514,
+          "sharpe_daily_252": 0.9167674418582649,
+          "start": "2016-08-01"
+        },
+        "15": {
+          "cagr": 0.1617315372872694,
+          "end": "2026-07-31",
+          "ending_multiple": 9.472684038594645,
+          "max_drawdown": -0.2687426424037087,
+          "sessions": 3772,
+          "sharpe_daily_252": 0.9197625014835952,
+          "start": "2011-08-01"
+        },
+        "20": {
+          "cagr": 0.17006722942915076,
+          "end": "2026-07-31",
+          "ending_multiple": 23.133659242440235,
+          "max_drawdown": -0.2687426424037087,
+          "sessions": 5032,
+          "sharpe_daily_252": 0.9327831724781126,
+          "start": "2006-07-31"
+        },
+        "5": {
+          "cagr": 0.1750197205428623,
+          "end": "2026-07-31",
+          "ending_multiple": 2.23769798412496,
+          "max_drawdown": -0.2285730047842729,
+          "sessions": 1255,
+          "sharpe_daily_252": 0.8676599145403492,
+          "start": "2021-08-02"
+        }
+      }
+    },
+    "original_no_ramp": {
+      "allocation": {
+        "average": 0.8590719395866455,
+        "sessions_by_level": {
+          "0.0": 661,
+          "0.55": 107,
+          "0.65": 0,
+          "1.0": 4264
+        },
+        "transitions": 20
+      },
+      "audit": {
+        "concordance_releases": 1,
+        "episodes": 8,
+        "restarts": 0
+      },
+      "metrics": {
+        "10": {
+          "cagr": 0.17641492800843772,
+          "end": "2026-07-31",
+          "ending_multiple": 5.073760638808162,
+          "max_drawdown": -0.2950113660810313,
+          "sessions": 2514,
+          "sharpe_daily_252": 0.9069630612818423,
+          "start": "2016-08-01"
+        },
+        "15": {
+          "cagr": 0.16079870665436413,
+          "end": "2026-07-31",
+          "ending_multiple": 9.35924261535238,
+          "max_drawdown": -0.2950113660810313,
+          "sessions": 3772,
+          "sharpe_daily_252": 0.9120984188328414,
+          "start": "2011-08-01"
+        },
+        "20": {
+          "cagr": 0.17367554494382853,
+          "end": "2026-07-31",
+          "ending_multiple": 24.60309106780008,
+          "max_drawdown": -0.2950113660810313,
+          "sessions": 5032,
+          "sharpe_daily_252": 0.9478984122176131,
+          "start": "2006-07-31"
+        },
+        "5": {
+          "cagr": 0.17218839357408067,
+          "end": "2026-07-31",
+          "ending_multiple": 2.210900125875776,
+          "max_drawdown": -0.2562847294787908,
+          "sessions": 1255,
+          "sharpe_daily_252": 0.8501537966350027,
+          "start": "2021-08-02"
+        }
+      }
+    },
+    "simplified": {
+      "allocation": {
+        "average": 0.8589129570747218,
+        "sessions_by_level": {
+          "0.0": 642,
+          "0.55": 151,
+          "0.65": 0,
+          "1.0": 4239
+        },
+        "transitions": 23
+      },
+      "audit": {
+        "concordance_releases": 4,
+        "episodes": 8,
+        "restarts": 0
+      },
+      "metrics": {
+        "10": {
+          "cagr": 0.17891161862555505,
+          "end": "2026-07-31",
+          "ending_multiple": 5.182431772446763,
+          "max_drawdown": -0.2831523286751775,
+          "sessions": 2514,
+          "sharpe_daily_252": 0.9189197608782573,
+          "start": "2016-08-01"
+        },
+        "15": {
+          "cagr": 0.1624400420686296,
+          "end": "2026-07-31",
+          "ending_multiple": 9.559701323875103,
+          "max_drawdown": -0.2831523286751775,
+          "sessions": 3772,
+          "sharpe_daily_252": 0.9210962184910516,
+          "start": "2011-08-01"
+        },
+        "20": {
+          "cagr": 0.1723867229039271,
+          "end": "2026-07-31",
+          "ending_multiple": 24.068343219747348,
+          "max_drawdown": -0.2831523286751775,
+          "sessions": 5032,
+          "sharpe_daily_252": 0.9428552056580134,
+          "start": "2006-07-31"
+        },
+        "5": {
+          "cagr": 0.17611049981061488,
+          "end": "2026-07-31",
+          "ending_multiple": 2.2480910053196372,
+          "max_drawdown": -0.2437742480496261,
+          "sessions": 1255,
+          "sharpe_daily_252": 0.8657529257654133,
+          "start": "2021-08-02"
+        }
+      }
+    },
+    "simplified_no_ramp": {
+      "allocation": {
+        "average": 0.8546999205087441,
+        "sessions_by_level": {
+          "0.0": 683,
+          "0.55": 107,
+          "0.65": 0,
+          "1.0": 4242
+        },
+        "transitions": 20
+      },
+      "audit": {
+        "concordance_releases": 5,
+        "episodes": 8,
+        "restarts": 0
+      },
+      "metrics": {
+        "10": {
+          "cagr": 0.17619436276824674,
+          "end": "2026-07-31",
+          "ending_multiple": 5.06425960599766,
+          "max_drawdown": -0.2994982153272324,
+          "sessions": 2514,
+          "sharpe_daily_252": 0.9074804145298152,
+          "start": "2016-08-01"
+        },
+        "15": {
+          "cagr": 0.16065365027130651,
+          "end": "2026-07-31",
+          "ending_multiple": 9.341716666159973,
+          "max_drawdown": -0.2994982153272324,
+          "sessions": 3772,
+          "sharpe_daily_252": 0.912641871331982,
+          "start": "2011-08-01"
+        },
+        "20": {
+          "cagr": 0.17535449239806833,
+          "end": "2026-07-31",
+          "ending_multiple": 25.31665069565045,
+          "max_drawdown": -0.2994982153272324,
+          "sessions": 5032,
+          "sharpe_daily_252": 0.9574010264217384,
+          "start": "2006-07-31"
+        },
+        "5": {
+          "cagr": 0.17069070555511368,
+          "end": "2026-07-31",
+          "ending_multiple": 2.1968290116961464,
+          "max_drawdown": -0.2610180516068038,
+          "sessions": 1255,
+          "sharpe_daily_252": 0.8442077507378283,
+          "start": "2021-08-02"
+        }
+      }
+    }
+  }
+}

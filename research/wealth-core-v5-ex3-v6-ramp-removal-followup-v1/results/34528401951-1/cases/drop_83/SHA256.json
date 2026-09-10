@@ -1,0 +1,19 @@
+{
+  "CORE_RESULT.json": "072f6e90d9eb43eb848fed7da9eddea1081cc90f4dd93acc06cd6eae7569ab87",
+  "PEER_CHECKS.json": "63bf2ddef0262060e84cf1add63a022b7d1259c2240f95054749cae0b5b6b464",
+  "PROVENANCE.json": "ae1394c594a522cc7642a4decec0b2f8e0815dd6a9a63c5d4275ce314a0d34f9",
+  "RESULT.json": "769eb644349ab1e7f8d8587a02671e3bcd9d3348d06af93835afd849a4f6f6ba",
+  "SLOT.json": "512ae2caefda185ad169f422b973fa46b9c317c75d31efacac4573d5c05180f4",
+  "core/drop_83.py": "dd220462b7be5469de566046c45c5b367194de6f2d2a98c0ad832eda7a5257dc",
+  "core/engine/ablation-observations.csv": "d1b6773187bcd0b6dd6e6c7a2a9ee8589cdf63b8bdd6ee02c5d0b769098a08c4",
+  "core/engine/buffer-telemetry.json": "656771745a51cc6dffca46dd8cca0967366673455cb055270714b8cd2864b6b6",
+  "core/engine/close-decisions.csv": "b0f4324761a2ba126d1f1dc454ae699b89fe2aaba530581e1633a355cc53f500",
+  "core/engine/daily.csv": "28574c8f4e2c235f1c8cdfe30c976450d01e9b22954b75cb0bed3bf26a0ae6a6",
+  "core/engine/gap-events.csv": "93513eb2a69d5a060a3ca52a2f5688cd2eb1ace5000d0819c6d15ccb8bb8dd5f",
+  "core/engine/open-sizing-events.csv": "5b49d9f3cc9af96c9b50df433d371086845e913c643e4a09c3598dcc2d8adfcd",
+  "core/engine/open-sizing-telemetry.json": "03bda457314c77858059e8d44cbb6af620fd6c8f25235c6e26f62661e168f5d1",
+  "core/engine/summary.json": "f20ec04cbb8075f9dd2abd6b455d6aab7af9d949cf3db3f35e1007d60b6b130d",
+  "core/engine/transactions.csv": "1623568e8f145981a5b212ee1a7e8d26686eb4b2ad9e43d1085b3d4946bfb89f",
+  "daily-tracks.csv": "4bce0fe39fe596d3332dc166ceddeb25bc4686cff47a28a0a928614bf2731b3b",
+  "observations.csv": "d1b6773187bcd0b6dd6e6c7a2a9ee8589cdf63b8bdd6ee02c5d0b769098a08c4"
+}

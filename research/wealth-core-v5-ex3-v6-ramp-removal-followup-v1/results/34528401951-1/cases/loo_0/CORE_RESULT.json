@@ -1,0 +1,105 @@
+{
+  "allocation": {
+    "average": 0.8532193958664546,
+    "sessions_by_level": {
+      "0.0": 637,
+      "0.55": 169,
+      "0.65": 73,
+      "1.0": 4153
+    },
+    "transitions": 29
+  },
+  "blocked_open_entries": null,
+  "buys": 409,
+  "candidate_A_concordance_releases": 2,
+  "candidate_A_episodes": 9,
+  "close_decisions_sha256": "fe860d3ab19114c9abaa3d6eb47f62b5ee27e2ab6cecbb83c1ac7438230c9470",
+  "core": {
+    "10": {
+      "cagr": 0.2180164755918097,
+      "end": "2026-07-31",
+      "ending_multiple": 7.181207093837653,
+      "max_drawdown": -0.2804655618268691,
+      "sessions": 2514,
+      "sharpe_daily_252": 0.9940033386629147,
+      "start": "2016-08-01"
+    },
+    "15": {
+      "cagr": 0.1777257408909334,
+      "end": "2026-07-31",
+      "ending_multiple": 11.628896567354685,
+      "max_drawdown": -0.2804655618268691,
+      "sessions": 3772,
+      "sharpe_daily_252": 0.9030094735864636,
+      "start": "2011-08-01"
+    },
+    "20": {
+      "cagr": 0.16067297070012776,
+      "end": "2026-07-31",
+      "ending_multiple": 19.689015143217958,
+      "max_drawdown": -0.5033805797189879,
+      "sessions": 5032,
+      "sharpe_daily_252": 0.8103748639228601,
+      "start": "2006-07-31"
+    },
+    "5": {
+      "cagr": 0.26420326669342176,
+      "end": "2026-07-31",
+      "ending_multiple": 3.22454003192935,
+      "max_drawdown": -0.26586028883903046,
+      "sessions": 1255,
+      "sharpe_daily_252": 1.1349682406137502,
+      "start": "2021-08-02"
+    }
+  },
+  "core_tape_sha256": "0ad33e561e4f1e72e1b0ecbe3c2d7b6489d399efa5c168cac080d42d3f6fc8fc",
+  "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "gap_clipped_entries": null,
+  "sells": 346,
+  "sentinel": {
+    "10": {
+      "cagr": 0.2089189964980973,
+      "end": "2026-07-31",
+      "ending_multiple": 6.662704400045495,
+      "max_drawdown": -0.27584622537061965,
+      "sessions": 2514,
+      "sharpe_daily_252": 1.0488407449837134,
+      "start": "2016-08-01"
+    },
+    "15": {
+      "cagr": 0.18159411498126032,
+      "end": "2026-07-31",
+      "ending_multiple": 12.215135862060993,
+      "max_drawdown": -0.27584622537061965,
+      "sessions": 3772,
+      "sharpe_daily_252": 1.016477247599015,
+      "start": "2011-08-01"
+    },
+    "20": {
+      "cagr": 0.1850371495140266,
+      "end": "2026-07-31",
+      "ending_multiple": 29.831121726609787,
+      "max_drawdown": -0.27584622537061965,
+      "sessions": 5032,
+      "sharpe_daily_252": 1.0027055417384296,
+      "start": "2006-07-31"
+    },
+    "5": {
+      "cagr": 0.22085099854078538,
+      "end": "2026-07-31",
+      "ending_multiple": 2.708871127737086,
+      "max_drawdown": -0.22873300815530495,
+      "sessions": 1255,
+      "sharpe_daily_252": 1.0257609764521947,
+      "start": "2021-08-02"
+    }
+  },
+  "status": "PASS_FRESH_CAUSAL_PIT_REPLAY",
+  "tag": "loo_0",
+  "transactions_sha256": "7601c661b2ac7ced50bf5c335f9b60ab25d0e436e438214d607e0c18a22b58f4",
+  "transition_counts": {
+    "A": 29,
+    "B": 24,
+    "control": 29
+  }
+}
