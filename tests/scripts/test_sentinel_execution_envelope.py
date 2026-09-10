@@ -3,22 +3,41 @@ from __future__ import annotations
 
 import os
 from pathlib import Path
+import subprocess
 import sys
 import unittest
 
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 SCRIPTS = ROOT / "scripts"
-if str(SCRIPTS) not in sys.path:
-    sys.path.insert(0, str(SCRIPTS))
-
-import sentinel_execution_envelope as envelope  # noqa: E402
+ENV_BRIDGE = SCRIPTS / "sentinel-env.sh"
 
 
 class ExecutionEnvelope(unittest.TestCase):
-    def assert_env_refused(self, key, value):
-        with self.assertRaises(envelope.ExecutionEnvelopeRefused):
-            envelope.validate_environment({key: value})
+    def run_environment(self, extra_env=None):
+        process = {"PATH": os.environ.get("PATH", "/usr/bin:/bin")}
+        if extra_env:
+            process.update(extra_env)
+        return subprocess.run(
+            ["bash", "-c",
+             '. "$1"; PYTHON="$2"; sentinel_require_execution_environment',
+             "sentinel-envelope-test", str(ENV_BRIDGE), sys.executable],
+            cwd=str(ROOT), env=process, stdout=subprocess.PIPE,
+            stderr=subprocess.PIPE, text=True, timeout=10)
+
+    def run_compose(self, surface, *arguments):
+        return subprocess.run(
+            ["bash", "-c",
+             '. "$1"; PYTHON="$2"; shift 2; sentinel_require_compose_envelope "$@"',
+             "sentinel-envelope-test", str(ENV_BRIDGE), sys.executable,
+             surface, *arguments],
+            cwd=str(ROOT), env={"PATH": os.environ.get("PATH", "/usr/bin:/bin")},
+            stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True, timeout=10)
+
+    def assert_compose_refused(self, surface, *arguments):
+        result = self.run_compose(surface, *arguments)
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertIn("REFUSED", result.stderr)
 
     def test_environment_rejects_all_authority_selectors(self):
         cases = (
@@ -40,31 +59,48 @@ class ExecutionEnvelope(unittest.TestCase):
         )
         for key, value in cases:
             with self.subTest(key=key):
-                self.assert_env_refused(key, value)
+                result = self.run_environment({key: value})
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn(key if key != "DOCKER_CONTEXT" else "Docker context",
+                              result.stderr)
 
     def test_environment_accepts_only_canonical_runtime_controls(self):
-        envelope.validate_environment({
+        result = self.run_environment({
             "DOCKER_CONTEXT": "default",
             "COMPOSE_DISABLE_ENV_FILE": "1",
             "COMPOSE_ENV_FILES": "/dev/null",
         })
+        self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_base_rejects_every_global_graph_escape(self):
+    def test_operational_global_graph_escapes_are_refused(self):
         cases = (
             ("--profile", "cli", "run", "sentinel", "status"),
-            ("--env-file", "other.env", "config"),
-            ("-f", "other.yml", "config"),
-            ("-fother.yml", "config"),
-            ("-p", "other", "ps"),
-            ("-pother", "ps"),
-            ("--project-name=other", "ps"),
-            ("--project-directory=/tmp", "ps"),
-            ("--ansi", "never", "ps"),
+            ("--env-file", "other.env", "up"),
+            ("-f", "other.yml", "up"),
+            ("-fother.yml", "restart"),
+            ("-p", "other", "start"),
+            ("-pother", "up"),
+            ("--project-name=other", "restart"),
+            ("--project-directory=/tmp", "up"),
+            ("--compatibility", "up"),
         )
         for arguments in cases:
             with self.subTest(arguments=arguments):
-                with self.assertRaises(envelope.ExecutionEnvelopeRefused):
-                    envelope.validate_compose_arguments("base", arguments)
+                self.assert_compose_refused("base", *arguments)
+
+    def test_read_only_inspection_has_no_operational_authority(self):
+        cases = (
+            ("--env-file", "other.env", "config"),
+            ("-fother.yml", "config"),
+            ("--project-name=other", "ps"),
+            ("--project-directory=/tmp", "logs"),
+            ("--profile", "shadow", "config"),
+            ("--compatibility", "images"),
+        )
+        for arguments in cases:
+            with self.subTest(arguments=arguments):
+                result = self.run_compose("automation", *arguments)
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_run_execution_overrides_are_refused(self):
         options = (
@@ -79,15 +115,15 @@ class ExecutionEnvelope(unittest.TestCase):
         )
         for option, value in options:
             with self.subTest(option=option):
-                with self.assertRaises(envelope.ExecutionEnvelopeRefused):
-                    envelope.validate_compose_arguments(
-                        "automation", ("run", option, value, "sentinel-automation"))
+                self.assert_compose_refused(
+                    "automation", "run", option, value, "sentinel-automation")
 
     def test_application_arguments_begin_after_service(self):
-        envelope.validate_compose_arguments(
-            "automation",
-            ("run", "--rm", "-T", "--no-deps", "sentinel-automation",
-             "--", "--profile", "application-value", "-e", "application-value"))
+        result = self.run_compose(
+            "automation", "run", "--rm", "-T", "--no-deps",
+            "sentinel-automation", "--", "--profile", "application-value",
+            "-e", "application-value")
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_destructive_volume_and_orphan_flags_are_refused(self):
         cases = (
@@ -97,8 +133,7 @@ class ExecutionEnvelope(unittest.TestCase):
         )
         for arguments in cases:
             with self.subTest(arguments=arguments):
-                with self.assertRaises(envelope.ExecutionEnvelopeRefused):
-                    envelope.validate_compose_arguments("automation", arguments)
+                self.assert_compose_refused("automation", *arguments)
 
     def test_startup_identity_changing_flags_are_refused(self):
         cases = (
@@ -108,8 +143,7 @@ class ExecutionEnvelope(unittest.TestCase):
         )
         for arguments in cases:
             with self.subTest(arguments=arguments):
-                with self.assertRaises(envelope.ExecutionEnvelopeRefused):
-                    envelope.validate_compose_arguments("automation", arguments)
+                self.assert_compose_refused("automation", *arguments)
 
     def test_supported_fixed_operations_pass(self):
         cases = (
@@ -123,24 +157,23 @@ class ExecutionEnvelope(unittest.TestCase):
         )
         for surface, arguments in cases:
             with self.subTest(surface=surface, arguments=arguments):
-                envelope.validate_compose_arguments(surface, arguments)
+                result = self.run_compose(surface, *arguments)
+                self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_wrappers_bind_guard_project_and_context(self):
         base = (SCRIPTS / "sentinel-compose.sh").read_text(encoding="utf-8")
         automation = (SCRIPTS / "sentinel-automation-compose.sh").read_text(encoding="utf-8")
-        env_bridge = (SCRIPTS / "sentinel-env.sh").read_text(encoding="utf-8")
+        env_bridge = ENV_BRIDGE.read_text(encoding="utf-8")
         emergency = (SCRIPTS / "sentinel-emergency-kill.sh").read_text(encoding="utf-8")
         volume = (SCRIPTS / "sentinel-state-volume-permissions.sh").read_text(encoding="utf-8")
 
-        self.assertIn("sentinel_execution_envelope.py", base)
-        self.assertIn('compose --surface base -- "$@"', base)
-        self.assertIn("sentinel_execution_envelope.py", automation)
-        self.assertIn('compose --surface automation -- "$@"', automation)
+        self.assertIn('sentinel_require_compose_envelope base "$@"', base)
+        self.assertIn('sentinel_require_compose_envelope automation "$@"', automation)
         self.assertIn("--project-name sentinel", base)
         self.assertIn("--project-name sentinel", automation)
         self.assertIn("docker --context default compose", base)
         self.assertIn("docker --context default compose", automation)
-        self.assertIn("sentinel_execution_envelope.py environment", env_bridge)
+        self.assertIn("sentinel_require_execution_environment", env_bridge)
         self.assertIn("export DOCKER_CONTEXT=default", env_bridge)
         self.assertIn("docker --context default compose", emergency)
         self.assertIn("--project-name sentinel", emergency)
