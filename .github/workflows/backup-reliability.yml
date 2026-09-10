@@ -24,7 +24,8 @@ jobs:
         with:
           python-version: '3.12'
       - name: Install pinned test runner
-        run: python -m pip install --require-hashes --only-binary=:all: --no-deps -r tests/requirements.lock
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r tests/requirements.lock
       - name: Simulate media faults and replay backup lifecycles
         run: |
           mkdir -p evidence
