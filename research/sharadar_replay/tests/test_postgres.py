@@ -106,7 +106,12 @@ def test_production_price_field_substitution_is_killed(monkeypatch, tmp_path, fi
 
     monkeypatch.setattr(ingest, 'daily', broken_daily)
     output = Path(os.environ.get('SHARADAR_REPLAY_EVIDENCE', str(tmp_path))) / 'falsifiers' / field
-    with pytest.raises(StateMismatch, match='first_difference'):
+    # SEP reconciliation detects the mutated normalizer against the correctly
+    # seeded history before the final corpus comparison. SFP substitutions
+    # reach that comparison and must expose an exact field difference.
+    mismatch = (r"day_one: expected error None, actual .*SepValueDrift"
+                if field == 'raw_open' else 'first_difference')
+    with pytest.raises(StateMismatch, match=mismatch):
         run_scenario(SCENARIOS['happy_daily'], server_dsn=dsn, output=output)
 
 
@@ -123,5 +128,8 @@ def test_disabled_source_stability_guard_is_killed(monkeypatch, tmp_path):
 
     monkeypatch.setattr(ingest, 'daily', broken_daily)
     output = Path(os.environ.get('SHARADAR_REPLAY_EVIDENCE', str(tmp_path))) / 'falsifiers' / 'source_stability'
-    with pytest.raises(StateMismatch, match='expected error VendorPublicationUnstable'):
+    # Removing source stability lets the changed vintage reach reconciliation;
+    # its independent value guard catches the drift at the wrong authority
+    # boundary. The replay must reject this changed error contract.
+    with pytest.raises(StateMismatch, match=r'source_changes: unexpected error .*SepValueDrift'):
         run_scenario(SCENARIOS['sep_between_observations'], server_dsn=dsn, output=output)
