@@ -519,8 +519,30 @@ def test_optional_key_rotation_revokes_only_different_predecessor_after_rotation
     assert revoke[0][1][:3] == ["revoke-system-key", "--key-id", "old-key"]
 
 
-def test_bootstrap_is_the_launcher_target():
+@pytest.mark.parametrize("argv,mode", [
+    ([], None),
+    (["--mode", "shadow"], "shadow"),
+    (["--mode=dual", "--ticket", "fixture-ticket"], "dual"),
+    (["--mode", "paper"], "paper"),
+])
+def test_launcher_entry_installs_guards_before_delegating_to_bootstrap(
+        monkeypatch, argv, mode):
     launcher = SCRIPTS / "sentinel-autonomous-deploy.sh"
     source = launcher.read_text(encoding="utf-8")
-    assert "scripts/sentinel_autonomous_deploy_bootstrap.py" in source
-    assert "scripts/sentinel_autonomous_deploy_driver.py" not in source
+    assert 'exec "$PYTHON" scripts/sentinel_autonomous_deploy_entry.py "$@"' in source
+
+    import sentinel_autonomous_deploy_entry as entry
+
+    calls = []
+    monkeypatch.setattr(
+        entry, "install_runtime_guards",
+        lambda requested: calls.append(("guards", requested)))
+
+    def bootstrap_main(forwarded):
+        assert forwarded is argv
+        calls.append(("bootstrap", forwarded))
+        return 77
+
+    monkeypatch.setattr(entry.bootstrap, "main", bootstrap_main)
+    assert entry.main(argv) == 77
+    assert calls == [("guards", mode), ("bootstrap", argv)]

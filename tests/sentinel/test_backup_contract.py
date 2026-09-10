@@ -463,7 +463,7 @@ def test_supported_compose_wrapper_always_includes_backup_and_preserves_refusal(
     resolver = _read("scripts/sentinel-compose.sh")
     assert 'BACKUP="docker-compose.sentinel-backup.yml"' in resolver
     assert "sentinel_backup_root >/dev/null" in resolver
-    assert 'exec docker compose "${COMPOSE_ARGS[@]}" "$@"' in resolver
+    assert 'exec docker --context default compose "${COMPOSE_ARGS[@]}" "$@"' in resolver
     for relative in ("Makefile", "scripts/sentinel-measure.sh",
                      "docs/sentinel-paper-activation.md"):
         assert "sentinel-compose.sh --run" in _read(relative), relative

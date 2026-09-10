@@ -16,9 +16,9 @@ ROOT = Path(__file__).resolve().parents[2]
 def test_149_emergency_wrapper_allows_password_only_in_dotenv(tmp_path):
     """The emergency wrapper must not require an exported DB password.
 
-    Compose normally resolves SENTINEL_POSTGRES_PASSWORD from .env. Requiring
-    shell export before invoking Compose would recreate #149's exact guard
-    inversion during an emergency.
+    The direct emergency path discovers the already-running canonical PostgreSQL
+    container and executes psql inside it. Repository .env contents therefore
+    remain irrelevant to the host-side fence.
     """
     repo = ROOT / "repo"
     dotenv = repo / ".env"
@@ -28,7 +28,10 @@ def test_149_emergency_wrapper_allows_password_only_in_dotenv(tmp_path):
     argv_file = tmp_path / "docker-argv"
     docker = fakebin / "docker"
     docker.write_text(
-        "#!/usr/bin/env bash\nprintf '%s\\n' \"$@\" > \"$DOCKER_ARGV_FILE\"\n")
+        "#!/usr/bin/env bash\n"
+        "if [ \"$1\" = --context ] && [ \"$2\" = default ] && "
+        "[ \"$3\" = ps ]; then echo pg-test; exit 0; fi\n"
+        "printf '%s\\n' \"$@\" > \"$DOCKER_ARGV_FILE\"\n")
     docker.chmod(0o755)
 
     env = os.environ.copy()
@@ -52,10 +55,13 @@ def test_149_emergency_wrapper_allows_password_only_in_dotenv(tmp_path):
             dotenv.write_bytes(previous)
 
     argv = argv_file.read_text().splitlines()
-    assert "--no-deps" in argv
-    assert "engage-paper-automation-kill-switch" in argv
-    assert "docker-compose.sentinel-backup.yml" not in " ".join(argv)
-    assert "docker-compose.sentinel-automation.yml" not in " ".join(argv)
+    joined = " ".join(argv)
+    assert argv[:3] == ["--context", "default", "exec"]
+    assert "-i" in argv
+    assert "pg-test" in argv
+    assert "psql" in argv
+    assert "docker-compose.sentinel-backup.yml" not in joined
+    assert "docker-compose.sentinel-automation.yml" not in joined
 
 
 def _view(state: ownership_view.Ownership, detail: str = "fixture"):

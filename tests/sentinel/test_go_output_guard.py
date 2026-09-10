@@ -61,6 +61,22 @@ def test_run_guarded_preserves_child_exit_code(monkeypatch, capsys):
     assert "typed refusal" in capsys.readouterr().err
 
 
+def test_webhook_is_redacted_from_streams_and_scanned_in_bundles(monkeypatch, capsys):
+    secret = "https://alerts.example.invalid/private-webhook-canary-346"
+    configured = {"SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL": secret}
+    monkeypatch.setattr(guard.go, "merged_environment", lambda: configured)
+    rc = guard.run_guarded([
+        sys.executable, "-c",
+        "import sys; print(%r); print(%r, file=sys.stderr)" % (secret, secret),
+    ])
+    assert rc == 0
+    captured = capsys.readouterr()
+    assert secret not in captured.out + captured.err
+    assert "[REDACTED]" in captured.out
+    assert "[REDACTED]" in captured.err
+    assert secret.encode() in guard.go.secret_candidates(configured, {})
+
+
 def test_output_guard_preserves_exact_inherited_lifecycle_lock_descriptor():
     child = (
         "import sys; "

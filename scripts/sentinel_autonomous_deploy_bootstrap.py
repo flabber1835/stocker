@@ -207,13 +207,13 @@ def _safe_update_dotenv(path: Path, updates: Mapping[str, str]) -> None:
     bits are preserved; a newly created .env starts at 0600.
     """
     path = Path(path)
-    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    lines = path.read_text(encoding="utf-8-sig").splitlines() if path.is_file() else []
     managed = {str(k): str(v) for k, v in updates.items()}
     emitted = set()
     out = []
     for line in lines:
         stripped = line.strip()
-        candidate = stripped[7:].lstrip() if stripped.startswith("export ") else stripped
+        candidate = re.sub(r"^export[ \t]+", "", stripped)
         key = candidate.split("=", 1)[0].strip() if "=" in candidate else None
         if key in managed:
             if key not in emitted:

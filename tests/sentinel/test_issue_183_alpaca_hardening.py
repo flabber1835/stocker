@@ -386,6 +386,14 @@ class MemoryCursor:
             count = sum(fid.startswith(prefix) for fid in self.conn.cash_flows)
             self.one = (count,)
             return
+        if q.startswith("select coalesce(sum(amount),0)"):
+            last_flow, prefix, same_prefix = params
+            assert prefix == same_prefix
+            rows = {fid: row for fid, row in self.conn.cash_flows.items()
+                    if fid.startswith(prefix)}
+            self.one = (sum((row[1] for row in rows.values()), Decimal(0)),
+                        last_flow in rows)
+            return
         if q.startswith("insert into sentinel_cash_flows"):
             fid, session, amount, detail = params
             if fid not in self.conn.cash_flows:

@@ -15,6 +15,11 @@ being deployed, in what order, and what "done" means.
 
 ## 1. Stocker is retired
 
+Host environment ingestion and the adversarial installation preflight are
+specified in [sentinel-env-contract.md](sentinel-env-contract.md). Supported
+installation entry points validate local prerequisites before provisioning or
+changing the deployment.
+
 Stocker is no longer the production runtime. Concretely:
 
 ```text

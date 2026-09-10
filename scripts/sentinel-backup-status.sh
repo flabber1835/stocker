@@ -3,6 +3,11 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
+"$PYTHON" scripts/sentinel_host_python.py >/dev/null
+. scripts/sentinel-env.sh
+sentinel_load_environment --profile maintenance
+
 . scripts/sentinel-backup-lib.sh
 BACKUP_ROOT="$(sentinel_backup_root)"
 MAX_AGE_HOURS="${SENTINEL_BACKUP_MAX_AGE_HOURS:-30}"

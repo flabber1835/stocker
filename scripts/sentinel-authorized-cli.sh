@@ -5,6 +5,10 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
+"$PYTHON" scripts/sentinel_host_python.py >/dev/null
+. scripts/sentinel-env.sh
+sentinel_load_environment --profile maintenance
 
 : "${SENTINEL_RUNTIME_IMAGE_DIGEST:?set sha256 runtime image digest}"
 : "${SENTINEL_TEST_IMAGE_DIGEST:?set sha256 test image digest}"

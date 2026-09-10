@@ -53,6 +53,11 @@ for ARG in "$@"; do
 done
 
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
+  . scripts/sentinel-env.sh
+  sentinel_load_environment --profile go --go-args "${FORWARDED_ARGS[@]}"
+fi
+
+if [ "$PRODUCTION_RUN" -eq 1 ]; then
   go_phase "DEPLOYMENT SECRETS BOOTSTRAP"
   "$PYTHON" scripts/sentinel_deployment_bootstrap.py
 

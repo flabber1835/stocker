@@ -20,10 +20,27 @@ def test_mutating_feed_commands_are_classified_at_the_compose_boundary():
         "run", "-T", "--env", "X=1", "sentinel", "feed-seed"])
     assert gate.is_feed_mutation([
         "run", "--rm", "sentinel", "feed-repair", "--apply"])
+    assert gate.is_feed_mutation([
+        "--ansi", "never", "run", "--rm", "sentinel", "feed-daily"])
+    assert gate.is_feed_mutation([
+        "--progress=plain", "--parallel", "2", "run", "--rm", "sentinel",
+        "feed-seed"])
+    assert gate.feed_run_position([
+        "--ansi", "never", "run", "--rm", "sentinel", "feed-daily"]) == 3
+    assert gate.feed_run_position([
+        "--progress=plain", "run", "--rm", "sentinel", "feed-seed"]) == 2
+    assert not gate.is_feed_mutation([
+        "--ansi", "never", "run", "--rm", "sentinel", "feed-repair"])
     assert not gate.is_feed_mutation([
         "run", "--rm", "sentinel", "feed-repair"])
     assert not gate.is_feed_mutation([
         "run", "--rm", "sentinel", "identity"])
+
+
+def test_feed_run_position_refuses_non_mutation():
+    with pytest.raises(gate.FeedGateRefused, match="not a supported feed mutation"):
+        gate.feed_run_position([
+            "--ansi", "never", "run", "--rm", "sentinel", "identity"])
 
 
 def test_old_image_A_cannot_run_feed_daily_after_source_advances_to_B():

@@ -102,6 +102,6 @@ def test_compose_prefers_validated_runtime_pointer_before_resolution():
     text = (ROOT / "scripts" / "sentinel-compose.sh").read_text(encoding="utf-8")
     pointer = text.index("validated-runtime.env")
     export = text.index("export SENTINEL_RUNTIME_IMAGE_REF")
-    compose = text.index("docker compose", export)
+    compose = text.index("docker --context default compose", export)
     assert pointer < export < compose
     assert "sha256:[0-9a-f]{64}" in text
