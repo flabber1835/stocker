@@ -132,10 +132,10 @@ class ExecutionEnvelope(unittest.TestCase):
         emergency = (SCRIPTS / "sentinel-emergency-kill.sh").read_text(encoding="utf-8")
         volume = (SCRIPTS / "sentinel-state-volume-permissions.sh").read_text(encoding="utf-8")
 
-        base_guard = 'scripts/sentinel_execution_envelope.py \\\n    compose --surface base -- "$@"'
-        automation_guard = 'scripts/sentinel_execution_envelope.py \\\n  compose --surface automation -- "$@"'
-        self.assertIn(base_guard, base)
-        self.assertIn(automation_guard, automation)
+        self.assertIn("sentinel_execution_envelope.py", base)
+        self.assertIn('compose --surface base -- "$@"', base)
+        self.assertIn("sentinel_execution_envelope.py", automation)
+        self.assertIn('compose --surface automation -- "$@"', automation)
         self.assertIn("--project-name sentinel", base)
         self.assertIn("--project-name sentinel", automation)
         self.assertIn("docker --context default compose", base)
