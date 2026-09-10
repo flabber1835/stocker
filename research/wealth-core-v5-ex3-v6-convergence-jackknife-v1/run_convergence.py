@@ -1,10 +1,7 @@
 #!/usr/bin/env python3
 from __future__ import annotations
 
-import argparse
-import hashlib
 import importlib.util
-import json
 import sys
 from pathlib import Path
 
@@ -13,7 +10,7 @@ import pandas as pd
 
 HERE = Path(__file__).resolve().parent
 V6_RUNNER = HERE.parent / "wealth-core-v5-sentinel-ex3-v6-adversarial-v1" / "run_adversarial_v6.generated.py"
-SCHEMA = "research.wealth-core-v5-ex3-v6-convergence-jackknife/1"
+SCHEMA = "research.wealth-core-v5-ex3-v6-convergence-jackknife/2"
 PATCH_NAME = "neutral-full-native-rec8-canonicalization"
 EXPECTED_V6_SELECTED_SOURCE_SHA256 = "335e2ae06efd5e2ebfa11f0641029609d524f4e75e733a3dbd0a5efcf64ac42d"
 
@@ -38,35 +35,15 @@ OLD_B = '''class CandidateB:
         return float(desired),'|'.join(reasons) if reasons else 'NORMAL'
 '''
 
-NEW_B = '''class CandidateB:
-    """Exact CandidateA economics plus research-only finite-memory convergence."""
+NEW_B = '''class CandidateB(CandidateA):
+    """Exact CandidateA controller plus one research-only finite-memory release."""
     def __init__(self):
-        self.episode=False; self.latched=False
-        self.full_streak=0; self.recent_positive_streak=0; self.neutral_streak=0
-        self.prev_native=1.; self.prev_desired=1.; self.episodes=0
-        self.concordance_releases=0; self.convergence_releases=0
+        super().__init__()
+        self.neutral_streak=0
+        self.convergence_releases=0
 
     def step(self,native,effective_native,wcdd,recent_r20,recent_r40,spy20,wc_r20):
-        full_healthy=(finite(recent_r20) and finite(recent_r40)
-                      and recent_r20>0 and recent_r40>-0.04)
-        self.full_streak=self.full_streak+1 if full_healthy else 0
-        vre=finite(spy20) and spy20>LDRC_V
-        reasons=[]
-
-        if self.prev_native>=1-1e-12 and native<1-1e-12:
-            if not self.episode: self.episodes+=1
-            self.episode=True
-            self.recent_positive_streak=0; self.neutral_streak=0
-            reasons.append('RECOVERY_EPISODE_START')
-
-        if self.episode:
-            if native>0 and finite(recent_r20) and recent_r20>0:
-                self.recent_positive_streak+=1
-            else:
-                self.recent_positive_streak=0
-        else:
-            self.recent_positive_streak=0
-
+        desired,reason=super().step(native,effective_native,wcdd,recent_r20,recent_r40,spy20,wc_r20)
         avail=(finite(wcdd) and finite(recent_r20) and finite(spy20)
                and effective_native is not None and finite(effective_native))
         divergence=(
@@ -76,58 +53,29 @@ NEW_B = '''class CandidateB:
             and avail and wcdd<=LDRC_DD
             and recent_r20<=LDRC_R20 and spy20>=0.0
         )
-        neutral=(native>=1-1e-12
-                 and effective_native is not None and finite(effective_native)
-                 and effective_native>=1-1e-12
-                 and avail and not divergence)
+        neutral=(
+            native>=1-1e-12
+            and effective_native is not None and finite(effective_native)
+            and effective_native>=1-1e-12
+            and avail and not divergence
+        )
         self.neutral_streak=self.neutral_streak+1 if neutral else 0
-        converged=self.neutral_streak>=LDRC_REC
-
-        cleared=self.latched and (self.full_streak>=LDRC_REC or vre or converged)
-        if cleared:
+        if self.neutral_streak>=LDRC_REC and desired<native-1e-12:
+            self.episode=False
             self.latched=False
-            if converged and self.full_streak<LDRC_REC and not vre:
-                self.convergence_releases+=1; reasons.append('DIVERGENCE_CLEAR_CONVERGENCE_REC8')
-            else:
-                reasons.append('DIVERGENCE_CLEAR')
-
-        desired=native
-        if self.episode and native>=1-1e-12:
-            concordant=(
-                self.recent_positive_streak>=LDRC_REC
-                and finite(wc_r20) and wc_r20>0
-                and finite(recent_r20) and recent_r20>=wc_r20
-                and finite(spy20) and spy20>=wc_r20
-            )
-            if self.full_streak>=LDRC_REC or vre or concordant or converged:
-                self.episode=False; desired=1.
-                if converged and self.full_streak<LDRC_REC and not vre and not concordant:
-                    self.convergence_releases+=1; reasons.append('FULL_RISK_CERTIFIED_CONVERGENCE_REC8')
-                elif concordant and self.full_streak<LDRC_REC and not vre:
-                    self.concordance_releases+=1; reasons.append('FULL_RISK_CERTIFIED_CROSS_SURFACE')
-                elif self.full_streak>=LDRC_REC:
-                    reasons.append('FULL_RISK_CERTIFIED_PERSISTENCE')
-                else:
-                    reasons.append('FULL_RISK_CERTIFIED_SPY_V_REBOUND')
-                self.recent_positive_streak=0
-            else:
-                desired=self.prev_desired
-                reasons.append('FULL_RISK_HELD')
-
-        if not self.latched and not cleared and divergence:
-            self.latched=True
-            self.neutral_streak=0
-            reasons.append('LD_ENTER_DIVERGENCE')
-
-        if self.latched:
-            desired=min(desired,LDRC_CEIL)
-        desired=min(native,desired)
-        self.prev_native=native; self.prev_desired=desired
-        return float(desired), '|'.join(reasons) if reasons else 'NORMAL'
+            self.recent_positive_streak=0
+            desired=float(native)
+            self.prev_desired=desired
+            self.convergence_releases+=1
+            extra='FULL_RISK_CERTIFIED_CONVERGENCE_REC8'
+            reason=extra if reason=='NORMAL' else reason+'|'+extra
+        return float(min(native,desired)),reason
 '''
 
 OLD_CALL = "b_d,b_reason=cb.step(native_target,recent_r20,spy20)"
 NEW_CALL = "b_d,b_reason=cb.step(native_target,effective_native,dd,recent_r20,recent_r40,spy20,r20)"
+A_CALL = "a_d,a_reason=ca.step(native_target,effective_native,dd,recent_r20,recent_r40,spy20,r20)"
+PENDING = "pending_native=native_target; pend['control']=a_d; pend['A']=a_d; pend['B']=b_d"
 
 
 def load(path: Path):
@@ -147,15 +95,29 @@ def replace_once(src: str, old: str, new: str, label: str) -> str:
     return src.replace(old, new, 1)
 
 
+def candidate_a_block(src: str) -> str:
+    start = src.index("class CandidateA:")
+    end = src.index("class CandidateB", start)
+    return src[start:end]
+
+
 def treatment_source(src: str) -> str:
-    # A remains byte-for-byte exact EX3 V6. Only B is replaced.
+    # The control (CandidateA) remains byte-identical. Only CandidateB and its call signature move.
+    a_before = candidate_a_block(src)
+    if src.count(A_CALL) != 1 or src.count(PENDING) != 1:
+        raise RuntimeError("exact A/timing seam missing before treatment")
     out = replace_once(src, OLD_B, NEW_B, "CandidateB convergence treatment")
     out = replace_once(out, OLD_CALL, NEW_CALL, "CandidateB full-input call")
+    if candidate_a_block(out) != a_before:
+        raise RuntimeError("CandidateA changed while inserting convergence treatment")
+    if out.count(A_CALL) != 1 or out.count(PENDING) != 1:
+        raise RuntimeError("exact A/timing seam changed by treatment")
+    if "eff['B']=b_d" in out:
+        raise RuntimeError("treatment introduced illegal same-session B allocation")
     for marker in (
-        "recent_r40>-0.04)",
-        "LDRC_REC=8",
-        "DIVERGENCE_CLEAR_CONVERGENCE_REC8",
+        "class CandidateB(CandidateA):",
         "FULL_RISK_CERTIFIED_CONVERGENCE_REC8",
+        "LDRC_REC=8",
     ):
         if marker not in out:
             raise RuntimeError(f"convergence authority marker missing: {marker}")
@@ -188,7 +150,8 @@ def main() -> int:
     if not V6_RUNNER.exists():
         raise RuntimeError(f"generate V6 runner first: {V6_RUNNER}")
     base = load(V6_RUNNER)
-    if base.SELECTED != {"rec": 8, "r40_floor": -0.04, "fast_damaged": 0.88, "healthy_damaged": 0.63}:
+    expected = {"rec": 8, "r40_floor": -0.04, "fast_damaged": 0.88, "healthy_damaged": 0.63}
+    if base.SELECTED != expected:
         raise RuntimeError(f"wrong V6 config: {base.SELECTED}")
 
     original_build = base.build_selected
@@ -196,10 +159,11 @@ def main() -> int:
 
     def patched_build(control_source: Path, median_overlay: Path) -> str:
         exact = original_build(control_source, median_overlay)
-        # Exact A authority must still be present before treatment insertion.
         if base.sha(exact.encode()) != EXPECTED_V6_SELECTED_SOURCE_SHA256:
             raise RuntimeError("exact V6 source authority mismatch before convergence patch")
-        return treatment_source(exact)
+        patched = treatment_source(exact)
+        base.timing_guard(patched)
+        return patched
 
     def patched_execute(src: str, outdir: Path, tag: str, keep_raw: bool = False) -> dict:
         result = original_execute(src, outdir, tag, keep_raw)
@@ -207,12 +171,15 @@ def main() -> int:
         result["treatment"] = base.imp.windows(frame, "B_nav")
         result["treatment_allocation"] = b_allocation_counts(frame)
         result["paired_direct"] = paired_direct(frame)
+        release_mask = frame["B_reason"].fillna("").astype(str).str.contains("CONVERGENCE_REC8", regex=False)
         result["convergence_patch"] = {
             "name": PATCH_NAME,
             "research_only": True,
             "neutral_sessions_required": 8,
             "future_data": False,
             "baseline_path_access": False,
+            "release_sessions": int(release_mask.sum()),
+            "candidate_a_reused_by_inheritance": True,
         }
         cols = ["date","research_selected_positions","A_allocation","B_allocation","A_nav","B_nav","native_close_target","effective_native","A_reason","B_reason"]
         frame[cols].to_csv(outdir / "paired-daily.csv", index=False)
@@ -228,7 +195,6 @@ def main() -> int:
         ("drop_01pct_seed47", .01, 47),
     ]
 
-    # Baseline A parity assertion still validates the untouched controller.
     return base.main()
 
 
