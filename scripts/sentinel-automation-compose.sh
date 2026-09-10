@@ -10,11 +10,7 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
 sentinel_load_environment --profile maintenance --automation-args "$@"
 
 # One parser owns the complete post-validation Docker/Compose authority boundary.
-# It rejects alternate files/env, project identity, project directories, extra
-# profiles, command-local env/entrypoint/volume/user overrides, destructive
-# volume removal and unknown execution-shaping options before Docker runs.
-"$PYTHON" scripts/sentinel_execution_envelope.py \
-  compose --surface automation -- "$@"
+sentinel_require_compose_envelope automation "$@"
 
 : "${SENTINEL_RUNTIME_IMAGE_DIGEST:?set sha256 runtime image digest}"
 : "${SENTINEL_TEST_IMAGE_DIGEST:?set sha256 test image digest}"
