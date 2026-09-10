@@ -154,7 +154,7 @@ def docker():
             stage = "wal-proof"
         elif command[:3] == ["stat", "-c", "%Y"]:
             stage = "status-manifest-stat"
-        elif command[:3] == ["sh", "-s", "--"] and len(command) == 8:
+        elif command[:3] == ["bash", "-s", "--"] and len(command) == 8:
             stage = "wal-chain-proof"
             return event(stage, lambda: _python_chain_probe(
                 base=command[3], system_id=command[5], last_wal=command[6],
