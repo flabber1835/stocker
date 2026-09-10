@@ -296,6 +296,8 @@ done
         with conn.cursor() as cur:
             cur.execute(query)
     except Exception as exc:
+        if _is_media_error(exc):
+            raise
         raise BackupRuntimeRefused(
             "backup runtime alias/hardlink proof failed under PostgreSQL OS authority") from exc
 
