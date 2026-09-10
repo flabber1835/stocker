@@ -14,16 +14,18 @@ activities. The production `AlpacaExecutionBroker` consumes simulated HTTP
 responses through its existing `http_provider` seam using `httpx.MockTransport`.
 No listener, real credential, network fallback or brokerage connection exists.
 The existing generic `SimulatedBroker` remains the broker-independent contract
-oracle. This harness exercises Alpaca serialization, pagination, parsing and
-reconciliation as an assembled path.
+oracle. This harness exercises Alpaca serialization, pagination, parsing,
+reconciliation and the public `execute_session` entry point as an assembled path.
 
 Two economic profiles are required: PAPER and LIVE_CASH. PAPER models omitted
 dividends/fees, quote fills independent of displayed size, and account replacement.
 LIVE_CASH adds limited fill liquidity, explicit fees/dividends, deposits,
-withdrawals and settlement holds. These are deterministic stress assumptions,
-not forecasts of exchange fills, broker fees or settlement policy. Cash movements
-can also be injected adversarially into PAPER. Margin-capable and blocked account
-payloads must be refused by the existing cash-only gate.
+withdrawals and settlement holds. Pending buy orders reserve buying power in both
+profiles. Unfilled DAY orders expire at the modeled market close. These are
+deterministic stress assumptions, not forecasts of exchange fills, broker fees or
+settlement policy. Cash movements can also be injected adversarially into PAPER.
+Margin-capable and blocked account payloads must be refused by the existing
+cash-only gate.
 
 Both profiles feed the paper adapter through an in-memory transport. Actual live
 URLs must continue to fail at construction. This does not certify or enable a
@@ -42,19 +44,27 @@ inspectable. Restart recreates the adapter while retaining broker truth.
 Required assertions include:
 
 - exact client-key retries create at most one broker order;
-- uncertain POSTs remain UNKNOWN until positive exact-key recovery;
+- uncertain POSTs recover from positive account-bound broker evidence;
+- an exact-key 404 cannot cancel a live order present in a complete observation;
 - partial fills conserve cash/shares and preserve pending quantity;
+- pending buys reduce reported buying power and DAY orders expire at close;
 - cancel acceptance is not cancellation; cancel/fill races reconcile;
 - mismatched accounts/assets, malformed values, partial pagination, repeated
   identities and inconsistent reads cannot authorize increased exposure;
 - late and duplicate cash events are booked once by native identity, with
   deposits/withdrawals/journals excluded from strategy P&L;
+- zero-value legacy activities may advance traversal state without requiring a
+  nonexistent cash-ledger row;
 - corrections, busts and unsupported in-kind transfers retain explicit refusal;
 - deposits/withdrawals during an immutable plan cause a cash mismatch; the
   current gateway requires resolution and a later decision-session plan;
 - recovery across a fresh PostgreSQL connection reproduces the broker book and
   retains command economics/history; retry after convergence submits nothing;
+- public `execute_session` coverage proves reduction-before-increase ordering,
+  overlap prevention after UNKNOWN recovery, and terminal convergence;
 - loss of cash ledger/cursor state and changed native activity economics refuse;
+- mutation certification requires an actual pytest assertion failure with zero
+  pytest errors, so fixture/setup failures cannot kill a mutant;
 - safety gates remain closed for unapproved live and source capabilities.
 
 Existing incident coverage to compose with this harness: #124 (asset identity),
@@ -70,17 +80,23 @@ not authenticated paper-account acceptance or live-money approval.
 
 ## Defects exercised by this harness
 
-An exact client-order lookup may establish absence only through its explicit
-404 result. Empty or non-object successful responses are corrupt evidence and
-must preserve UNKNOWN. The harness reproduces an accepted order omitted from
-the open view while the exact 200 response is `{}`.
+An exact client-order lookup may establish negative-space absence only when an
+explicit 404 agrees with a complete account-bound observation containing no such
+client key. Positive order evidence always wins over a conflicting 404. Empty or
+non-object successful exact responses are corrupt evidence and preserve UNKNOWN.
 
 Before cash-cursor reuse, including a same-time no-op, reconcile the persisted
-account-specific ledger total and last native identity to that cursor. A missing
-or mismatched ledger refuses before any new activity is inserted. This detects
-nonzero loss and loss of the last activity; arbitrary offsetting historical
-deletions still require independent backup/integrity evidence. A total alone is
-not a complete event-set witness and earns no new source capability.
+account-specific ledger total to the durable cursor. A missing durable last-id is
+accepted only when a complete replay proves that identity is a zero-value event.
+New cursor state retains a last activity id only for a materialized nonzero cash
+row. Missing nonzero rows and total mismatches refuse recovery. Arbitrary offsetting
+historical deletions still require independent backup/integrity evidence. A total
+alone is not a complete event-set witness and earns no new source capability.
+
+Mutation evidence is parsed from pytest JUnit output. A killed mutant requires a
+pytest exit code for test failure, at least one `<failure>`, and zero `<error>`
+records. PostgreSQL startup, fixture setup, collection and other harness errors are
+therefore certification failures.
 
 ## Sources and execution
 
@@ -92,7 +108,7 @@ Vendor contract checked 2026-09-10:
 
 The default Sentinel safety suite discovers the new tests. The dedicated workflow
 runs the harness and adjacent broker tests on both the PR head and synthetic merge,
-retains JUnit results and source hashes, and requires at least 353 cases with zero
+retains JUnit results and source hashes, and requires at least 370 cases with zero
 skips. PostgreSQL is mandatory for this gate. Install the locked Sentinel/test
 dependencies and PostgreSQL, then run from a clean checkout:
 
@@ -105,5 +121,5 @@ Use a fresh output directory for each gate run. Fixed-seed sequences augment nam
 scenarios; the seed and operation trace identify failures. Five mutation checks
 remove representative guards: exact-response validity, UUID routing, observation
 consistency, external-capital classification and ledger/cursor consistency. Each
-must produce an actual test failure in an isolated source overlay. The PR records
-the exact tested revision and results.
+must produce an actual assertion failure in an isolated source overlay with zero
+pytest errors. The PR records the exact tested revision and results.
