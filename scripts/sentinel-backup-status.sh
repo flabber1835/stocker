@@ -3,12 +3,6 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
-PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
-"$PYTHON" scripts/sentinel_host_python.py >/dev/null || {
-  echo "REFUSED: host Python is incompatible; minimum Python is 3.8.15" >&2
-  exit 2
-}
-
 . scripts/sentinel-backup-lib.sh
 BACKUP_ROOT="$(sentinel_backup_root)"
 MAX_AGE_HOURS="${SENTINEL_BACKUP_MAX_AGE_HOURS:-30}"
@@ -169,16 +163,15 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
   refuse "BASE_BACKUP_RECOVERY_MARKER_MISSING" 4 \
     "latest backup lacks a post-base recovery marker"
 
-# This is the same complete restore-horizon claim used by runtime authority:
-# manifest End-LSN through last_archived_wal, with the recovery marker inside
-# the chain, every segment full-sized, and every SHA-256 sidecar matching the
-# archived bytes. A missing middle segment or same-size bit flip therefore
-# cannot produce backup_ready:true.
-if ! CHAIN="$($PYTHON scripts/sentinel-backup-verify-chain.py \
-    --root "$BACKUP_ROOT" --base "$NAME" --system-id "$SYSTEM_ID" \
-    --last-wal "$LAST_WAL" --segment-size "$WAL_BYTES")"; then
+# Reuse the exact production runtime authority through PostgreSQL. The Sentinel
+# container never receives the private backup bind mount; PostgreSQL performs
+# the permitted metadata/WAL reads. This proves manifest End-LSN through the
+# current archive frontier, including every middle segment and SHA-256 sidecar.
+if ! CHAIN="$(${COMPOSE[@]} run --rm --no-deps --entrypoint python \
+    -e SENTINEL_RUNTIME_BACKUP_AUTHORITY=REQUIRED_V1 \
+    sentinel -m sentinel.backup_runtime_probe --base "$NAME")"; then
   refuse "BASE_BACKUP_RECOVERY_EVIDENCE_INVALID" 4 \
-    "complete base/WAL restore horizon failed validation"
+    "complete base/WAL restore horizon failed runtime validation"
 fi
 printf '%s\n' "$CHAIN"
 echo "backup_ready:true base=$LATEST age_hours=$AGE_HOURS wal_age_hours=$WAL_AGE_HOURS system_id=$SYSTEM_ID"
