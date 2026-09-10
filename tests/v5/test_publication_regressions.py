@@ -305,3 +305,10 @@ def test_changing_publications_preserve_nonflat_mixed_precision_features():
             features = deepcopy(feeds[0].median5_state)
             feeds[0] = _feed_from_dict(_feed_to_dict(feeds[0], set()), meta, EligibilityConfig())
             feeds[0].median5_state = features
+
+
+def test_nontrading_day_inspection_preserves_historical_identity():
+    conn = MetadataConnection([metadata_row('SEC-AAA', 'AAA', last='2026-08-14', observed='2026-08-14')])
+    resolver = build_security_resolver(conn, '2026-08-16')
+    assert resolver('AAA', '2026-08-14') == 'SEC-AAA'
+    assert resolver('AAA') is None

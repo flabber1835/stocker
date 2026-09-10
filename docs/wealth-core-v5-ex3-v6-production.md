@@ -225,7 +225,8 @@ a snapshot dated no later than the execution session. Both resolution directions
 retain uniqueness and ticker-reuse checks. A declared successor symbol whose
 price interval covers the execution session takes precedence over extending
 its predecessor. Historical activity lookup retains
-the original price intervals. Opening sizing and the broker's independent
+the original price intervals. General inspection on non-trading dates retains
+historical resolution. Opening sizing and the broker's independent
 instrument resolver consume the same execution identity authority. Alpaca bars
 use broker symbol spelling, with exact response coverage mapped back to the
 retained permanent IDs and internal symbols.

@@ -874,7 +874,7 @@
       ],
       "owner": "inspection",
       "successor": {
-        "ast_sha256": "df31563a5df8b7ae150ec30411d51e6fca2d0a20be81214a25a7c4a63225a570",
+        "ast_sha256": "25a8c2fcd2a10dde322451d90c693185c6e15737212f6f499db2c09eca985ae7",
         "design": "docs/wealth-core-v5-ex3-v6-production.md",
         "reason": "Use affirmative next-session execution identity while retaining historical activity intervals."
       }
