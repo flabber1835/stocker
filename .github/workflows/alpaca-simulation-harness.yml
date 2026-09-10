@@ -1,0 +1,68 @@
+name: Alpaca simulation harness
+
+on:
+  push:
+    branches: ['codex/alpaca-simulation-harness']
+  pull_request:
+    branches: [main]
+    paths:
+      - 'sentinel/execution/**'
+      - 'sentinel/paper/**'
+      - 'sentinel/core/cashflow.py'
+      - 'sentinel/config.py'
+      - 'sentinel/binding.py'
+      - 'sentinel/schema*'
+      - 'tests/support/alpaca_simulator.py'
+      - 'tests/sentinel/test_alpaca*'
+      - 'tests/sentinel/test_issue_183_alpaca_hardening.py'
+      - 'tools/alpaca_harness.py'
+      - 'tools/alpaca_harness_mutations.py'
+      - '.github/workflows/alpaca-simulation-harness.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: alpaca-harness-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  alpaca:
+    name: alpaca-${{ matrix.scope }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: ${{ fromJSON(github.event_name == 'pull_request' && '["exact-head","synthetic-merge"]' || '["exact-head"]') }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.13'
+      - name: Install locked test dependencies and PostgreSQL
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r sentinel/requirements.lock -r tests/requirements.lock
+          python -m pip check
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+      - name: Run wire, cash, PostgreSQL recovery and adjacent regression suites
+        env:
+          PYTHONPATH: shared
+          ALPACA_HARNESS_REQUIRE_POSTGRES: '1'
+        run: python tools/alpaca_harness.py --output artifacts/alpaca
+      - name: Falsify representative safety guards
+        env:
+          PYTHONPATH: shared
+          ALPACA_HARNESS_REQUIRE_POSTGRES: '1'
+        run: python tools/alpaca_harness_mutations.py --include-postgres --output artifacts/alpaca/mutations.json
+      - name: Retain scenario results and exact source identity
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: alpaca-harness-${{ matrix.scope }}
+          path: artifacts/alpaca/
+          if-no-files-found: error

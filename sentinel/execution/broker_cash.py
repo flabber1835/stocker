@@ -373,6 +373,26 @@ async def ingest_account_cash(
             "an authoritative Activity-SSE cash cursor cannot be downgraded "
             "to timestamp-paged activity ingestion")
     if prior is not None:
+        # A cursor survives a table-selective restore independently of its
+        # ledger. Reusing it would either forget prior cash or count replayed
+        # activities twice. Check even a same-time no-op before trusting it.
+        prefix = f"{FLOW_PREFIX}{broker}:{account_id}:"
+        last_flow = (broker_flow_id(broker=broker, account_id=account_id,
+                                   activity_id=prior.last_activity_id)
+                     if prior.last_activity_id is not None else None)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT COALESCE(SUM(amount),0),"
+                " COALESCE(BOOL_OR(flow_id=%s),false)"
+                " FROM sentinel_cash_flows"
+                " WHERE LEFT(flow_id,LENGTH(%s))=%s",
+                (last_flow, prefix, prefix))
+            ledger_total, has_last = cur.fetchone()
+        if (Decimal(str(ledger_total)) != prior.balance_total
+                or (last_flow is not None and not has_last)):
+            raise BrokerCashAuthorityRefused(
+                "broker cash ledger disagrees with its durable cursor; "
+                "restore the complete behavioral state")
         if upper < prior.processed_through:
             raise BrokerCashAuthorityRefused(
                 "broker cash ingestion clock moved behind its durable cursor")
