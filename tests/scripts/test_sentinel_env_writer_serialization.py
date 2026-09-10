@@ -32,6 +32,7 @@ class EnvWriterSerialization(unittest.TestCase):
         with tempfile.TemporaryDirectory() as temporary:
             path = Path(temporary) / ".env"
             path.write_text("BASE=1\n", encoding="utf-8")
+            path.chmod(0o600)
             first_ready = threading.Event()
             release_first = threading.Event()
             second_reached_commit = threading.Event()
