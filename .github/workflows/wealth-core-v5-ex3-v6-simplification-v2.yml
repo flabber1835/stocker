@@ -1,0 +1,468 @@
+name: Research - V5 EX3 V6 simplification round 2
+run-name: Simplification round 2 - ten additional slots - ${{ github.sha }}
+'on':
+  push:
+    branches:
+    - research/wealth-core-v5-ex3-v6-simplification-v1
+    paths:
+    - research/wealth-core-v5-ex3-v6-simplification-v2/LAUNCH.json
+permissions:
+  contents: read
+  packages: read
+  actions: read
+concurrency:
+  group: wealth-core-v5-ex3-v6-simplification-v2
+  cancel-in-progress: false
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+jobs:
+  baseline:
+    name: Round 2 - baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    permissions:
+      contents: write
+      packages: read
+      actions: read
+    steps:
+    - name: Experiment checkout
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: ${{ github.sha }}
+        path: experiment-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |
+          research/wealth-core-v5-ex3-v6-simplification-v1
+          research/wealth-core-v5-ex3-v6-simplification-v2
+    - name: Exact economic-source authority
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: 3dc74a8e54fdfe6e8368a8db3be0ecd127ee4689
+        path: open-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |
+          backtester
+          research/champion-economic-integrity
+          research/wealth-core-v1-buffer-sweep-evidence/arms/10bp
+    - name: Exact formal source
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+        path: certified-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |
+          backtester
+          research/strategy9-e3-broad-stability
+          research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+    - name: Exact classifier source
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: ba74e79490beb8950611b1d17f5d124833b3d91e
+        path: candidate-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: backtester
+    - name: Exact runtime source
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: 887f479b15ad861313da666ad698034d3847121c
+        path: main-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |
+          sentinel
+          shared
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: 3.12.14
+        check-latest: false
+    - name: Verify pins and install frozen runtime
+      shell: bash
+      run: |
+        set -euo pipefail
+        test "$(git -C open-src rev-parse HEAD)" = 3dc74a8e54fdfe6e8368a8db3be0ecd127ee4689
+        test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
+        test "$(git -C candidate-src rev-parse HEAD)" = ba74e79490beb8950611b1d17f5d124833b3d91e
+        test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+        python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+        python -m pip install --no-build-isolation --no-deps -e main-src/shared
+        echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" >> "$GITHUB_ENV"
+        echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "$GITHUB_ENV"
+        echo "BEST_EFFORT_SECURITY_TYPES=${GITHUB_WORKSPACE}/candidate-src/backtester/data/champion-best-effort-security-types-v1.csv" >> "$GITHUB_ENV"
+        echo "BEST_EFFORT_CLASSIFICATION_SCENARIO=reviewed_18" >> "$GITHUB_ENV"
+    - name: Stage exact corrected economic overlays
+      shell: bash
+      run: |
+        set -euo pipefail
+        for f in \
+          champion_economic_prefix_audit.py \
+          champion_full_classification_control.py \
+          champion_security_truth_audit_v2.py \
+          champion_security_truth_overlay_v2.py \
+          champion_final_security_truth.py \
+          champion_final_truth_corpus_validator.py \
+          production_equivalent_economic_overlay.py \
+          champion_production_equivalent_build.py \
+          champion_production_equivalent_final_replay.py
+        do
+          cp "open-src/backtester/$f" certified-src/backtester/
+        done
+        cp open-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
+        cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
+        cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
+        for f in \
+          champion-best-effort-security-types-v1.csv \
+          champion-best-effort-security-types-v1-summary.json \
+          champion-reviewed-security-types-v1.csv \
+          champion-historical-security-type-corrections-v1.csv
+        do
+          cp "candidate-src/backtester/data/$f" certified-src/backtester/data/
+        done
+        mkdir -p certified-src/research/champion-economic-integrity/security-truth
+        cp -R open-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
+        cd certified-src
+        python backtester/champion_final_truth_corpus_validator.py \
+          --manual research/champion-economic-integrity/security-truth/manual-review \
+          --output "${GITHUB_WORKSPACE}/final-corpus-validation.json"
+    - name: Preflight all ten transformations
+      run: |
+        python experiment-src/research/wealth-core-v5-ex3-v6-simplification-v1/preflight.py
+        python experiment-src/research/wealth-core-v5-ex3-v6-simplification-v1/test_followup.py
+        python experiment-src/research/wealth-core-v5-ex3-v6-simplification-v2/preflight_round2.py
+    - name: Pull and verify immutable canonical PIT package
+      env:
+        GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        POINTER=certified-src/backtester/data/canonical-pit-20y.json
+        PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+        test "$PACKAGE" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+        echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        docker pull "$PACKAGE"
+        cid=$(docker create "$PACKAGE" /bin/true)
+        trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+        mkdir -p canonical-pit
+        docker cp "$cid:/canonical-pit/." canonical-pit/
+        docker rm "$cid"
+        trap - EXIT
+        PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" \
+          python certified-src/backtester/canonical_pit_package.py verify \
+            --pointer "$POINTER" \
+            --dataset canonical-pit \
+            > package-integrity.json
+    - name: Download exact prior candidate reference
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: simplification-candidate-followup
+        path: reference-input
+        run-id: 34441488484
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Claim one slot and run full PIT
+      shell: bash
+      env:
+        SIMPLIFICATION_VARIANT: baseline
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+        cd certified-src
+        python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-simplification-v2/run_round2.py" \
+          --variant "$SIMPLIFICATION_VARIANT" \
+          --reference "${GITHUB_WORKSPACE}/reference-input" \
+          --output "${GITHUB_WORKSPACE}/experiment-results" \
+          2>&1 | tee "${GITHUB_WORKSPACE}/experiment.log"
+    - name: Collect staging and failure evidence
+      if: always()
+      shell: bash
+      run: |
+        mkdir -p experiment-results
+        for f in round2-driver.py experiment.log package-integrity.json final-corpus-validation.json; do
+          if [ -f "$f" ]; then cp "$f" experiment-results/; fi
+        done
+    - name: Preserve replay evidence
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: simplification-baseline
+        path: experiment-results/
+        retention-days: 90
+        if-no-files-found: error
+  treatments:
+    name: Round 2 - ${{ matrix.variant }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    permissions:
+      contents: write
+      packages: read
+      actions: read
+    steps:
+    - name: Experiment checkout
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: ${{ github.sha }}
+        path: experiment-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |
+          research/wealth-core-v5-ex3-v6-simplification-v1
+          research/wealth-core-v5-ex3-v6-simplification-v2
+    - name: Exact economic-source authority
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: 3dc74a8e54fdfe6e8368a8db3be0ecd127ee4689
+        path: open-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |
+          backtester
+          research/champion-economic-integrity
+          research/wealth-core-v1-buffer-sweep-evidence/arms/10bp
+    - name: Exact formal source
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+        path: certified-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |
+          backtester
+          research/strategy9-e3-broad-stability
+          research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+    - name: Exact classifier source
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: ba74e79490beb8950611b1d17f5d124833b3d91e
+        path: candidate-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: backtester
+    - name: Exact runtime source
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: 887f479b15ad861313da666ad698034d3847121c
+        path: main-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |
+          sentinel
+          shared
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: 3.12.14
+        check-latest: false
+    - name: Verify pins and install frozen runtime
+      shell: bash
+      run: |
+        set -euo pipefail
+        test "$(git -C open-src rev-parse HEAD)" = 3dc74a8e54fdfe6e8368a8db3be0ecd127ee4689
+        test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
+        test "$(git -C candidate-src rev-parse HEAD)" = ba74e79490beb8950611b1d17f5d124833b3d91e
+        test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+        python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+        python -m pip install --no-build-isolation --no-deps -e main-src/shared
+        echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" >> "$GITHUB_ENV"
+        echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "$GITHUB_ENV"
+        echo "BEST_EFFORT_SECURITY_TYPES=${GITHUB_WORKSPACE}/candidate-src/backtester/data/champion-best-effort-security-types-v1.csv" >> "$GITHUB_ENV"
+        echo "BEST_EFFORT_CLASSIFICATION_SCENARIO=reviewed_18" >> "$GITHUB_ENV"
+    - name: Stage exact corrected economic overlays
+      shell: bash
+      run: |
+        set -euo pipefail
+        for f in \
+          champion_economic_prefix_audit.py \
+          champion_full_classification_control.py \
+          champion_security_truth_audit_v2.py \
+          champion_security_truth_overlay_v2.py \
+          champion_final_security_truth.py \
+          champion_final_truth_corpus_validator.py \
+          production_equivalent_economic_overlay.py \
+          champion_production_equivalent_build.py \
+          champion_production_equivalent_final_replay.py
+        do
+          cp "open-src/backtester/$f" certified-src/backtester/
+        done
+        cp open-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
+        cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
+        cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
+        for f in \
+          champion-best-effort-security-types-v1.csv \
+          champion-best-effort-security-types-v1-summary.json \
+          champion-reviewed-security-types-v1.csv \
+          champion-historical-security-type-corrections-v1.csv
+        do
+          cp "candidate-src/backtester/data/$f" certified-src/backtester/data/
+        done
+        mkdir -p certified-src/research/champion-economic-integrity/security-truth
+        cp -R open-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
+        cd certified-src
+        python backtester/champion_final_truth_corpus_validator.py \
+          --manual research/champion-economic-integrity/security-truth/manual-review \
+          --output "${GITHUB_WORKSPACE}/final-corpus-validation.json"
+    - name: Preflight all ten transformations
+      run: |
+        python experiment-src/research/wealth-core-v5-ex3-v6-simplification-v1/preflight.py
+        python experiment-src/research/wealth-core-v5-ex3-v6-simplification-v1/test_followup.py
+        python experiment-src/research/wealth-core-v5-ex3-v6-simplification-v2/preflight_round2.py
+    - name: Pull and verify immutable canonical PIT package
+      env:
+        GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      shell: bash
+      run: |
+        set -euo pipefail
+        POINTER=certified-src/backtester/data/canonical-pit-20y.json
+        PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+        test "$PACKAGE" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+        echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+        docker pull "$PACKAGE"
+        cid=$(docker create "$PACKAGE" /bin/true)
+        trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+        mkdir -p canonical-pit
+        docker cp "$cid:/canonical-pit/." canonical-pit/
+        docker rm "$cid"
+        trap - EXIT
+        PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" \
+          python certified-src/backtester/canonical_pit_package.py verify \
+            --pointer "$POINTER" \
+            --dataset canonical-pit \
+            > package-integrity.json
+    - name: Download verified baseline
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: simplification-baseline
+        path: baseline-input
+    - name: Download exact prior candidate reference
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: simplification-candidate-followup
+        path: reference-input
+        run-id: 34441488484
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Claim one slot and run full PIT
+      shell: bash
+      env:
+        SIMPLIFICATION_VARIANT: ${{ matrix.variant }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        set -euo pipefail
+        cd certified-src
+        python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-simplification-v2/run_round2.py" \
+          --variant "$SIMPLIFICATION_VARIANT" --baseline "${GITHUB_WORKSPACE}/baseline-input" \
+          --reference "${GITHUB_WORKSPACE}/reference-input" \
+          --output "${GITHUB_WORKSPACE}/experiment-results" \
+          2>&1 | tee "${GITHUB_WORKSPACE}/experiment.log"
+    - name: Collect staging and failure evidence
+      if: always()
+      shell: bash
+      run: |
+        mkdir -p experiment-results
+        for f in round2-driver.py experiment.log package-integrity.json final-corpus-validation.json; do
+          if [ -f "$f" ]; then cp "$f" experiment-results/; fi
+        done
+    - name: Preserve replay evidence
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: simplification-${{ matrix.variant }}
+        path: experiment-results/
+        retention-days: 90
+        if-no-files-found: error
+    needs:
+    - baseline
+    strategy:
+      fail-fast: false
+      max-parallel: 9
+      matrix:
+        variant:
+        - cleanup_state
+        - symmetric_peers
+        - clean_cached
+        - no_peers
+        - fixed_ramp10
+        - persistence_only
+        - no_peers_fixed_ramp
+        - no_peers_persistence
+        - minimal_recovery
+  summary:
+    name: Round 2 - compare and preserve sources
+    needs:
+    - baseline
+    - treatments
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    permissions:
+      contents: write
+      actions: read
+      issues: write
+    steps:
+    - name: Experiment checkout
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: ${{ github.sha }}
+        path: experiment-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |
+          research/wealth-core-v5-ex3-v6-simplification-v1
+          research/wealth-core-v5-ex3-v6-simplification-v2
+    - name: Exact runtime source
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: 887f479b15ad861313da666ad698034d3847121c
+        path: main-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |
+          sentinel
+          shared
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: 3.12.14
+        check-latest: false
+    - name: Install locked analysis dependencies
+      run: python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+    - name: Download all available arm evidence
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        pattern: simplification-*
+        path: evidence
+        merge-multiple: false
+    - name: Download original V5 V6 baseline
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: simplification-baseline
+        path: original-input
+        run-id: 34436432038
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Publish complete or incomplete outcome
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: python experiment-src/research/wealth-core-v5-ex3-v6-simplification-v2/aggregate_round2.py --root evidence --original
+        original-input --out summary --publish
+    - name: Preserve combined results
+      if: always()
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: round2-summary
+        path: summary/
+        retention-days: 90
+        if-no-files-found: error
