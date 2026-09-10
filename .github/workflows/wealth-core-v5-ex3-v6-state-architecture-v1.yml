@@ -1,0 +1,276 @@
+name: Research - Sentinel state architecture v1
+run-name: V5 + EX3 V6 state architecture - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/wealth-core-v5-ex3-v6-state-architecture-v1]
+    paths:
+      - '.github/workflows/wealth-core-v5-ex3-v6-state-architecture-v1.yml'
+      - 'research/wealth-core-v5-ex3-v6-state-architecture-v1/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+concurrency:
+  group: v5-ex3-v6-state-architecture-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+  HARNESS_AUTHORITY: eaddca3f04f279e99663f832bf7293e92ee15662
+
+jobs:
+  baseline:
+    name: Baseline - current vs bounded vs stateless
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Current experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-ex3-v6-state-architecture-v1
+      - name: Pinned replay-harness checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: eaddca3f04f279e99663f832bf7293e92ee15662
+          path: harness-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+      - name: Stage pinned full-PIT replay authority
+        uses: ./harness-src/.github/actions/v5-ex3-v5-adversarial-setup
+      - name: Generate exact V6 runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py \
+            --source harness-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            --output harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+          python -m py_compile \
+            experiment-src/research/wealth-core-v5-ex3-v6-state-architecture-v1/run_state_architecture.py \
+            experiment-src/research/wealth-core-v5-ex3-v6-state-architecture-v1/aggregate_state_architecture.py
+      - name: Run no-fault full-PIT architecture baseline
+        shell: bash
+        env:
+          STATE_ARCH_V6_RUNNER: ${{ github.workspace }}/harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-state-architecture-v1/run_state_architecture.py" \
+            --suite baseline \
+            --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+            --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+            --output "${GITHUB_WORKSPACE}/baseline-results" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/baseline.log"
+      - name: Verify current track remains authoritative
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          r=json.load(open('baseline-results/RESULT.json'))
+          assert r['status']=='PASS'
+          a=r['baseline']['architectures']['current']['metrics']['20']
+          assert abs(a['cagr']-0.215572258056)<5e-10,a
+          assert abs(a['max_drawdown']-(-0.273755457386))<5e-10,a
+          assert abs(a['sharpe_daily_252']-1.1210581190)<5e-10,a
+          assert r['baseline']['architecture_contract']['current_track_byte_preserved'] is True
+          PY
+      - name: Package baseline evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p baseline-package
+          cp baseline-results/baseline-run/architecture-daily.csv baseline-package/architecture-daily.csv
+          cp baseline-results/RESULT.json baseline-package/RESULT.json
+          cp baseline-results/selected-source-sha256.txt baseline-package/selected-source-sha256.txt
+          cp baseline.log baseline-package/baseline.log
+          python - <<'PY'
+          import json
+          json.dump({'kind':'baseline','case':'no_fault','index':-1},open('baseline-package/metadata.json','w'),indent=2)
+          PY
+      - name: Preserve baseline
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: state-arch-baseline
+          path: baseline-package/
+          retention-days: 90
+          if-no-files-found: error
+
+  faults:
+    name: Fault ${{ matrix.index }} - architecture comparison
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      max-parallel: 7
+      matrix:
+        index: [0,1,2,3,4,5,6]
+    steps:
+      - name: Current experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-ex3-v6-state-architecture-v1
+      - name: Pinned replay-harness checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: eaddca3f04f279e99663f832bf7293e92ee15662
+          path: harness-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+      - name: Stage pinned full-PIT replay authority
+        uses: ./harness-src/.github/actions/v5-ex3-v5-adversarial-setup
+      - name: Generate exact V6 runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py \
+            --source harness-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            --output harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+      - name: Run deterministic fault
+        shell: bash
+        env:
+          IDX: ${{ matrix.index }}
+          STATE_ARCH_V6_RUNNER: ${{ github.workspace }}/harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+        run: |
+          set -euo pipefail
+          ids=(
+            301606049357818446
+            1040633074096912075
+            277347208162984956
+            727329233939509358
+            425931792436652190
+            311453645065866101
+          )
+          cd certified-src
+          if [ "$IDX" -lt 6 ]; then
+            sid="${ids[$IDX]}"
+            printf '["%s"]\n' "$sid" > "${GITHUB_WORKSPACE}/security-list.json"
+            python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-state-architecture-v1/run_state_architecture.py" \
+              --suite security-loo \
+              --security-list "${GITHUB_WORKSPACE}/security-list.json" \
+              --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+              --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+              --output "${GITHUB_WORKSPACE}/case-results" \
+              2>&1 | tee "${GITHUB_WORKSPACE}/case.log"
+          else
+            python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-state-architecture-v1/run_state_architecture.py" \
+              --suite universe \
+              --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+              --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+              --output "${GITHUB_WORKSPACE}/case-results" \
+              2>&1 | tee "${GITHUB_WORKSPACE}/case.log"
+          fi
+      - name: Package fault evidence
+        shell: bash
+        env:
+          IDX: ${{ matrix.index }}
+        run: |
+          set -euo pipefail
+          ids=(
+            301606049357818446
+            1040633074096912075
+            277347208162984956
+            727329233939509358
+            425931792436652190
+            311453645065866101
+          )
+          mkdir -p case-package
+          mapfile -t daily < <(find case-results/runs -name architecture-daily.csv -type f)
+          test "${#daily[@]}" -eq 1
+          cp "${daily[0]}" case-package/architecture-daily.csv
+          cp case-results/RESULT.json case-package/RESULT.json
+          cp case-results/selected-source-sha256.txt case-package/selected-source-sha256.txt
+          cp case.log case-package/case.log
+          python - <<PY
+          import json,os
+          idx=int(os.environ['IDX'])
+          ids=['301606049357818446','1040633074096912075','277347208162984956','727329233939509358','425931792436652190','311453645065866101']
+          if idx<6:
+              meta={'kind':'case','index':idx,'case':f'loo_{ids[idx]}','fault':{'type':'security_leave_one_out','security_id':ids[idx]}}
+          else:
+              meta={'kind':'case','index':idx,'case':'drop_01pct_seed11','fault':{'type':'universe_dropout','fraction':0.01,'seed':11}}
+          json.dump(meta,open('case-package/metadata.json','w'),indent=2)
+          PY
+      - name: Preserve fault evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: state-arch-case-${{ matrix.index }}
+          path: case-package/
+          retention-days: 90
+          if-no-files-found: error
+
+  aggregate:
+    name: Aggregate architecture robustness
+    needs: [baseline, faults]
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - name: Current experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-ex3-v6-state-architecture-v1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Retrieve all architecture evidence
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: state-arch-*
+          path: inputs
+          merge-multiple: false
+      - name: Aggregate causal robustness and economics
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check numpy==2.4.6 pandas==3.0.5
+          python experiment-src/research/wealth-core-v5-ex3-v6-state-architecture-v1/aggregate_state_architecture.py \
+            --inputs inputs --out final-summary | tee aggregate.log
+          cat final-summary/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve final summary
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: state-arch-summary
+          path: |
+            final-summary/
+            aggregate.log
+          retention-days: 90
+          if-no-files-found: error
