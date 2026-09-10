@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -22,6 +23,10 @@ BASE = "base-20260910T110000Z"
 def wal_name(index: int, timeline: int = 1) -> str:
     log, segment = divmod(index, 4096)
     return f"{timeline:08X}{log:08X}{segment:08X}"
+
+
+def checksum_text(path: Path) -> str:
+    return f"sha256={hashlib.sha256(path.read_bytes()).hexdigest()}\n"
 
 
 class Media:
@@ -54,6 +59,7 @@ class Media:
         path = self.namespace / wal_name(index)
         with path.open("wb") as handle:
             handle.truncate(SEGMENT_SIZE)
+        (self.namespace / f"{path.name}.sha256").write_text(checksum_text(path))
         return path
 
     def path(self, absolute: str) -> Path:
@@ -114,9 +120,19 @@ class Cursor:
             record = data.get("WAL-Ranges", [{}])[-1]
             self.rows = [(record.get("Timeline"), record.get("End-LSN"))]
         elif query.startswith("SELECT name,(pg_stat_file"):
-            paths = db.media.path(params[1]).iterdir()
-            self.rows = [(p.name, p.stat().st_size) for p in paths
-                         if len(p.name) == 24 and all(c in "0123456789ABCDEF" for c in p.name)]
+            paths = db.media.path(params[-1]).iterdir()
+            rows = []
+            for p in paths:
+                if len(p.name) != 24 or any(c not in "0123456789ABCDEF" for c in p.name):
+                    continue
+                sidecar = p.with_name(p.name + ".sha256")
+                rows.append((
+                    p.name,
+                    p.stat().st_size,
+                    sidecar.read_text() if sidecar.exists() else None,
+                    hashlib.sha256(p.read_bytes()).hexdigest(),
+                ))
+            self.rows = rows
         elif query.startswith("SELECT current_setting('archive_mode')"):
             self.rows = [(db.mode, db.last_ok, db.last_fail, db.failed_count, db.now)]
         elif query.startswith("SELECT last_archived_wal,last_archived_time,last_failed_time,"):
@@ -151,6 +167,7 @@ class Archive:
         self.namespace = self.archive / f"cluster-{SYSTEM_ID}"
         self.namespace.mkdir()
         self.target = self.namespace / self.name
+        self.checksum = self.namespace / f"{self.name}.sha256"
         self.bin = root / "bin"
         self.bin.mkdir()
         # Construct a minimal, credential-free child environment.
@@ -195,3 +212,4 @@ class Archive:
 
     def assert_exact(self):
         assert self.target.read_bytes() == self.source.read_bytes()
+        assert self.checksum.read_text() == checksum_text(self.source)
