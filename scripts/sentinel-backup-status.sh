@@ -3,6 +3,12 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
+"$PYTHON" scripts/sentinel_host_python.py >/dev/null || {
+  echo "REFUSED: host Python is incompatible; minimum Python is 3.8.15" >&2
+  exit 2
+}
+
 . scripts/sentinel-backup-lib.sh
 BACKUP_ROOT="$(sentinel_backup_root)"
 MAX_AGE_HOURS="${SENTINEL_BACKUP_MAX_AGE_HOURS:-30}"
@@ -95,9 +101,11 @@ backup_matches_current_cluster() {
   ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
     name="$1" expected="$2"
     manifest="/sentinel-backup/base/$name/backup_manifest"
+    label="/sentinel-backup/base/$name/backup_label"
     marker="/sentinel-backup/base/$name/sentinel-recovery-marker"
     identity="/sentinel-backup/base/$name/sentinel-pitr-base-identity"
     test -f "$manifest"
+    test -f "$label"
     test -f "$marker"
     test -f "$identity"
     observed="$(sed -n "s/^system_identifier=//p" "$identity")"
@@ -117,7 +125,7 @@ if [ -n "$EXPECTED" ]; then
       "requested backup is outside the Sentinel base-backup root"
   backup_matches_current_cluster "$NAME" ||
     refuse "BASE_BACKUP_SYSTEM_ID_MISMATCH" 4 \
-      "requested backup is not bound to the current PostgreSQL cluster"
+      "requested backup is incomplete or not bound to the current PostgreSQL cluster"
 else
   if ! CANDIDATES="$(${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
     find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d \
@@ -160,29 +168,17 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
   test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker" ||
   refuse "BASE_BACKUP_RECOVERY_MARKER_MISSING" 4 \
     "latest backup lacks a post-base recovery marker"
-if ! ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
-  name="$1" namespace="$2" expected_size="$3" latest_wal="$4"
-  base="/sentinel-backup/base/$name"
-  file="$base/sentinel-recovery-marker"
-  test ! -L "$base"
-  test ! -L "$base/backup_manifest"
-  test ! -L "$base/sentinel-pitr-base-identity"
-  test ! -L "$file"
-  test "$(wc -l < "$file")" -eq 4
-  test "$(grep -Ec "^marker=sentinel-backup-[0-9]{8}T[0-9]{6}Z-[0-9]+$" "$file")" -eq 1
-  test "$(grep -Ec "^lsn=[0-9A-F]{1,8}/[0-9A-F]{1,8}$" "$file")" -eq 1
-  test "$(grep -Ec "^wal=[0-9A-F]{24}$" "$file")" -eq 1
-  test "$(grep -Ec "^system_identifier=[0-9]+$" "$file")" -eq 1
-  marker_wal="$(sed -n "s/^wal=//p" "$file")"
-  for wal in "$marker_wal" "$latest_wal"; do
-    path="/sentinel-backup/wal/$namespace/$wal"
-    test -f "$path"
-    test ! -L "$path"
-    test -r "$path"
-    test "$(stat -c %s "$path")" -eq "$expected_size"
-  done
-' sh "$NAME" "$WAL_NAMESPACE" "$WAL_BYTES" "$LAST_WAL"; then
+
+# This is the same complete restore-horizon claim used by runtime authority:
+# manifest End-LSN through last_archived_wal, with the recovery marker inside
+# the chain, every segment full-sized, and every SHA-256 sidecar matching the
+# archived bytes. A missing middle segment or same-size bit flip therefore
+# cannot produce backup_ready:true.
+if ! CHAIN="$($PYTHON scripts/sentinel-backup-verify-chain.py \
+    --root "$BACKUP_ROOT" --base "$NAME" --system-id "$SYSTEM_ID" \
+    --last-wal "$LAST_WAL" --segment-size "$WAL_BYTES")"; then
   refuse "BASE_BACKUP_RECOVERY_EVIDENCE_INVALID" 4 \
-    "backup marker or required archived WAL is malformed, missing, or truncated"
+    "complete base/WAL restore horizon failed validation"
 fi
+printf '%s\n' "$CHAIN"
 echo "backup_ready:true base=$LATEST age_hours=$AGE_HOURS wal_age_hours=$WAL_AGE_HOURS system_id=$SYSTEM_ID"
