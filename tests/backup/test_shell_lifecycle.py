@@ -27,7 +27,7 @@ class ShellLab:
         self.scripts.mkdir(parents=True)
         for name in ("sentinel-base-backup.sh", "sentinel-backup-status.sh",
                      "sentinel-restore-drill.sh", "sentinel_host_python.py",
-                     "sentinel_backup_lock.py"):
+                     "sentinel_backup_lock.py", "sentinel-backup-metadata-access.sh"):
             shutil.copy2(ROOT / "scripts" / name, self.scripts / name)
         # Separate mount-validation tests execute the real backup library.
         (self.scripts / "sentinel-backup-lib.sh").write_text(
@@ -36,7 +36,7 @@ class ShellLab:
         bin_path.mkdir()
         adapter = Path(__file__).with_name("command_adapter.py").read_text()
         adapter = adapter.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1)
-        for command in ("docker", "psql", "pg_basebackup", "pg_verifybackup", "date", "sleep"):
+        for command in ("docker", "psql", "pg_basebackup", "pg_verifybackup", "date", "sleep", "id", "chown", "stat"):
             path = bin_path / command
             path.write_text(adapter)
             path.chmod(0o755)
@@ -56,7 +56,7 @@ class ShellLab:
 
 @pytest.mark.parametrize("stage", [
     "base-copy", "base-verify", "base-identity", "marker-row", "wal-proof",
-    "marker-file", "base-publish",
+    "marker-file", "metadata-access", "base-publish",
 ])
 @pytest.mark.parametrize("moment", ["before", "after"])
 def test_interrupted_backup_preserves_old_generation_and_retry(tmp_path, stage, moment):
@@ -126,3 +126,48 @@ def test_status_never_claims_ready_for_invalid_recovery_point(tmp_path, fault):
     result = lab.run("sentinel-backup-status.sh", "--backup", str(final))
     assert result.returncode != 0, result.stdout
     assert "backup_ready:true" not in result.stdout
+
+
+@pytest.mark.parametrize("last_ok,now,expected_ready", [
+    ("1789041600.6", "1789041600.8", True),
+    ("1789041600.1", "1789041600.0", False),
+    ("1789041600.8", "1789041600.8", True),
+])
+def test_status_archive_clock_preserves_subsecond_order(tmp_path, last_ok, now, expected_ready):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    final = lab.base / "base-20260910T120000Z"
+    os.utime(final / "backup_manifest", (1789041600, 1789041600))
+    lab.env.update(BACKUP_LAB_LAST_OK=last_ok, BACKUP_LAB_DB_NOW=now)
+    result = lab.run("sentinel-backup-status.sh", "--backup", str(final))
+    assert (result.returncode == 0) == expected_ready, (result.stdout, result.stderr)
+    if not expected_ready:
+        assert "ARCHIVE_CLOCK_INVALID" in result.stderr
+
+
+def test_status_resamples_clock_after_concurrent_manifest_publication(tmp_path):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    final = lab.base / "base-20260910T120000Z"
+    os.utime(final / "backup_manifest", (1789041601, 1789041601))
+    lab.env["BACKUP_LAB_PUBLISH_DURING_STATUS"] = "1"
+    result = lab.run("sentinel-backup-status.sh", "--backup", str(final))
+    assert result.returncode == 0, result.stderr
+    assert "backup_ready:true" in result.stdout
+
+
+@pytest.mark.parametrize("last_ok,last_fail,ready", [
+    ("1789041600.1", "1789041600.2", False),
+    ("1789041600.3", "1789041600.2", True),
+])
+def test_status_preserves_subsecond_archive_failure_order(tmp_path, last_ok, last_fail, ready):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    final = lab.base / "base-20260910T120000Z"
+    os.utime(final / "backup_manifest", (1789041600, 1789041600))
+    lab.env.update(BACKUP_LAB_LAST_OK=last_ok, BACKUP_LAB_LAST_FAIL=last_fail,
+                   BACKUP_LAB_DB_NOW="1789041600.4")
+    result = lab.run("sentinel-backup-status.sh", "--backup", str(final))
+    assert (result.returncode == 0) == ready, (result.stdout, result.stderr)
+    if not ready:
+        assert "WAL_ARCHIVE_UNRESOLVED_FAILURE" in result.stderr

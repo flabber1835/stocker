@@ -50,6 +50,37 @@ and `https://github.com/flabber1835/stocker/pull/<number>` respectively.
    PostgreSQL/root media ownership model, immutable archived objects, production
    strategy economics and broker authorization boundaries.
 
+## Review repairs: clocks, media errors and metadata authority
+
+Archive timestamps are compared to the database clock at full precision. Epoch
+seconds used for age arithmetic are floored consistently. Manifest age uses a
+host-clock sample taken after the manifest stat, so publication during a status
+check does not look future-dated. Tests include subsecond archive success,
+subsecond future evidence and publication across a second boundary.
+
+Filesystem SQLSTATEs `58P01`, `42501` and `58030`, and OS I/O errors, retain
+`BackupRuntimeUnavailable` through every metadata read, including manifest JSON
+parsing. Malformed JSON and contradictory metadata retain integrity refusal.
+Faults at every SQL read must fence writes and heal after the fault clears.
+
+Issue #345 requires a narrow metadata-read grant. Container root remains the
+base-backup writer. The base parent is root-owned, group `postgres`, mode 0750;
+completed base directories are root-owned, group `postgres`, mode 0710. Exactly
+`backup_manifest`, `backup_label`, `sentinel-recovery-marker` and
+`sentinel-pitr-base-identity` receive mode 0640 and group `postgres`. Payload
+permissions and ownership are preserved. PostgreSQL can enumerate generations
+and read these four files; it cannot list or read payload directories, write
+metadata, create generations or delete backups. The host account retains no
+access through other-user permissions.
+
+The production producer grants this access after verification and metadata
+publication, before atomic generation promotion. Explicit backup initialization
+also migrates completed retained generations. Routine validation remains read-only.
+The grant verifies regular, root-owned paths and rejects symlinks and hard-linked
+metadata before changing permissions. A real Docker composition gate runs the
+actual producer, connects the production Python guard to PostgreSQL against the
+same media, checks payload/write denial, injects media loss and verifies repair.
+
 ## Required fault families
 
 Missing/remounted media; invalid or symlinked attestation; permissions, ENOSPC,

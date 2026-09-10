@@ -88,8 +88,7 @@ docker run --rm --network none \
     test "$(stat -c %a "/probe/$MARKER")" = 444
   '
 
-# Provisioning must not loosen directory ownership or permissions merely to make
-# the host initializer succeed.
+# The metadata reader grant retains the host-user write denial.
 if { : > "$work/wal/.host-write-probe-2"; } 2>/dev/null; then
   echo "REFUSED: WAL directory permissions were weakened by marker bootstrap" >&2
   exit 1

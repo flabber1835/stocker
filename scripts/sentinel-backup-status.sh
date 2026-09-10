@@ -33,14 +33,18 @@ COMPOSE=(docker compose -f docker-compose.sentinel.yml \
   -f docker-compose.sentinel-backup.yml)
 if ! ARCHIVER="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel -Atc \
   "SELECT current_setting('archive_mode'), coalesce(last_archived_wal,''),
-          coalesce(extract(epoch from last_archived_time)::bigint,0),
-          coalesce(extract(epoch from last_failed_time)::bigint,0),
-          failed_count, system_identifier::text
+          coalesce(floor(extract(epoch from last_archived_time))::bigint,0),
+          coalesce(floor(extract(epoch from last_failed_time))::bigint,0),
+          failed_count, system_identifier::text,
+          (coalesce(last_archived_time > clock_timestamp(),false) OR
+           coalesce(last_failed_time > clock_timestamp(),false)),
+          floor(extract(epoch from clock_timestamp()))::bigint,
+          coalesce(last_failed_time > last_archived_time,false)
      FROM pg_stat_archiver, pg_control_system()")"; then
   refuse "ARCHIVER_STATUS_UNAVAILABLE" 4 \
     "PostgreSQL archive status could not be read"
 fi
-IFS='|' read -r MODE LAST_WAL LAST_OK LAST_FAIL FAILED_COUNT SYSTEM_ID <<EOF
+IFS='|' read -r MODE LAST_WAL LAST_OK LAST_FAIL FAILED_COUNT SYSTEM_ID ARCHIVE_FUTURE ARCHIVE_NOW UNRESOLVED <<EOF
 $ARCHIVER
 EOF
 [ "$MODE" = "on" ] ||
@@ -52,7 +56,11 @@ WAL_NAMESPACE="cluster-$SYSTEM_ID"
 [ -n "$LAST_WAL" ] && [ "${LAST_OK:-0}" -gt 0 ] ||
   refuse "WAL_ARCHIVE_UNINITIALIZED" 4 \
     "no successful WAL archive is recorded"
-[ "${LAST_FAIL:-0}" -le "${LAST_OK:-0}" ] ||
+[ "$ARCHIVE_FUTURE" = f ] ||
+  refuse "ARCHIVE_CLOCK_INVALID" 4 "archive evidence is future-dated or its clock is unavailable"
+[[ "$ARCHIVE_NOW" =~ ^[0-9]+$ ]] ||
+  refuse "ARCHIVE_CLOCK_INVALID" 4 "database archive clock is unavailable"
+[ "$UNRESOLVED" = f ] ||
   refuse "WAL_ARCHIVE_UNRESOLVED_FAILURE" 4 \
     "an unresolved archive failure is newer than the last success"
 [[ "$LAST_WAL" =~ ^[0-9A-F]{24}$ ]] ||
@@ -72,11 +80,8 @@ if ! ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   refuse "WAL_NAMESPACE_MISSING" 4 \
     "last archived WAL is not present in current PostgreSQL system-id namespace"
 fi
-NOW="$(date +%s)"
-[ "$LAST_OK" -le "$NOW" ] && [ "${LAST_FAIL:-0}" -le "$NOW" ] ||
-  refuse "ARCHIVE_CLOCK_INVALID" 4 "archive evidence is future-dated"
-WAL_AGE_HOURS="$(( (NOW - LAST_OK) / 3600 ))"
-[ "$((NOW - LAST_OK))" -le "$((MAX_AGE_HOURS * 3600))" ] ||
+WAL_AGE_HOURS="$(( (ARCHIVE_NOW - LAST_OK) / 3600 ))"
+[ "$((ARCHIVE_NOW - LAST_OK))" -le "$((MAX_AGE_HOURS * 3600))" ] ||
   refuse "WAL_ARCHIVE_STALE" 4 \
     "last WAL archive is ${WAL_AGE_HOURS}h old"
 
@@ -138,6 +143,8 @@ ${COMPOSE[@]} exec -T sentinel-postgres test -f "/sentinel-backup/base/$NAME/bac
     "latest backup has no manifest: $LATEST"
 MTIME="$(${COMPOSE[@]} exec -T sentinel-postgres \
   stat -c %Y "/sentinel-backup/base/$NAME/backup_manifest")"
+# A completed generation may have been published while it was enumerated.
+NOW="$(date +%s)"
 AGE_HOURS="$(( (NOW - MTIME) / 3600 ))"
 [ "$MTIME" -le "$NOW" ] ||
   refuse "BASE_BACKUP_CLOCK_INVALID" 4 "base backup manifest is future-dated"

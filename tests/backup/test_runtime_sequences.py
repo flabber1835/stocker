@@ -8,6 +8,7 @@ import pytest
 from sentinel import backup_guard as guard
 from sentinel import backup_runtime_authority as authority
 from lab import BASE, CONTENT, Database, MARKER, Media, NOW, SEGMENT_SIZE, SYSTEM_ID, wal_name
+from lab import Cursor
 
 
 @pytest.fixture
@@ -151,6 +152,43 @@ def test_namespace_disappears_between_marker_check_and_scan_then_recovers(world)
     with pytest.raises(authority.BackupRuntimeUnavailable, match="media"):
         ready(world)
     moved.rename(world.media.namespace)
+    ready(world)
+
+
+@pytest.mark.parametrize("read_index", range(12))
+@pytest.mark.parametrize("sqlstate", ["58P01", "42501", "58030", None])
+def test_media_error_at_every_runtime_read_fences_then_heals(world, monkeypatch, read_index, sqlstate):
+    ready(world)
+    assert len(world.statements) == 12
+    original = Cursor.execute
+    count = 0
+
+    def execute(cursor, sql, params=()):
+        nonlocal count
+        current = count
+        count += 1
+        if current == read_index:
+            error = OSError("injected media interruption") if sqlstate is None else RuntimeError(
+                "injected PostgreSQL filesystem error")
+            if sqlstate is not None:
+                error.sqlstate = sqlstate
+            raise error
+        return original(cursor, sql, params)
+
+    with monkeypatch.context() as patch:
+        patch.setattr(Cursor, "execute", execute)
+        with pytest.raises(authority.BackupRuntimeUnavailable):
+            ready(world)
+    assert ready(world)["wal_segments"] == 4
+
+
+def test_malformed_manifest_remains_integrity_refusal(world):
+    path = world.media.backup / "backup_manifest"
+    original = path.read_bytes()
+    path.write_text('{"WAL-Ranges": broken JSON')
+    with pytest.raises(authority.BackupRuntimeRefused, match="manifest"):
+        ready(world)
+    path.write_bytes(original)
     ready(world)
 
 

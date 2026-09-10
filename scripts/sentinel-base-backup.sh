@@ -166,6 +166,10 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
   test -f "/sentinel-backup/base/$STAGING/sentinel-recovery-marker" || {
   echo "REFUSED: marker WAL $MARKER_WAL was not archived in $WAL_NAMESPACE" >&2; exit 4; }
 
+# Grant only the PostgreSQL runtime's four metadata reads before promotion.
+${COMPOSE[@]} exec -T sentinel-postgres sh -s -- /sentinel-backup/base "$STAGING" \
+  < scripts/sentinel-backup-metadata-access.sh
+
 ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   staging="$1" final="$2"
   test -d "/sentinel-backup/base/$staging"

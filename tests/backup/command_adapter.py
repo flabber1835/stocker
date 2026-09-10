@@ -12,6 +12,8 @@ from pathlib import Path
 import re
 import subprocess
 import sys
+import shutil
+from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
 
 ROOT = Path(os.environ["BACKUP_LAB_ROOT"])
 MEDIA = ROOT / "media"
@@ -42,7 +44,16 @@ def sql():
     elif query == "SELECT pg_size_bytes(current_setting('wal_segment_size'))":
         print(16 * 1024 * 1024)
     elif "pg_stat_archiver" in query:
-        print(f"on|{WAL}|1789038000|0|0|{SYSTEM_ID}")
+        now = Decimal(os.environ.get("BACKUP_LAB_DB_NOW", "1789041600"))
+        last_ok = Decimal(os.environ.get("BACKUP_LAB_LAST_OK", "1789038000"))
+        last_fail = Decimal(os.environ.get("BACKUP_LAB_LAST_FAIL", "0"))
+        rounding = ROUND_FLOOR if "floor(extract" in query else ROUND_HALF_UP
+        epoch = lambda value: str(value.to_integral_value(rounding=rounding))
+        row = f"on|{WAL}|{epoch(last_ok)}|{epoch(last_fail)}|0|{SYSTEM_ID}"
+        if "clock_timestamp()" in query:
+            row += f"|{'t' if max(last_ok, last_fail) > now else 'f'}|{epoch(now)}"
+            row += f"|{'t' if last_fail > last_ok else 'f'}"
+        print(row)
     elif "pg_snapshot_xmax" in query:
         print("1000|00000001")
     elif "CREATE TABLE IF NOT EXISTS sentinel_backup_recovery_markers" in query:
@@ -95,6 +106,10 @@ def docker():
             stage = "base-publish"
         elif 'namespace="$1" wal="$2"' in source:
             stage = "wal-proof"
+        elif command[:3] == ["stat", "-c", "%Y"]:
+            stage = "status-manifest-stat"
+        elif command[:3] == ["sh", "-s", "--"]:
+            stage = "metadata-access"
         return event(stage, lambda: shell(command))
     if args[:2] in (["volume", "create"], ["network", "create"]):
         if args[0] == "volume":
@@ -134,8 +149,31 @@ elif name == "pg_basebackup":
 elif name == "pg_verifybackup":
     sys.exit(event("base-verify", verify))
 elif name == "date":
-    print("1789041600" if args == ["+%s"] else "20260910T120000Z")
+    if args == ["+%s"]:
+        count_file = ROOT / "clock-reads"
+        count = int(count_file.read_text()) if count_file.exists() else 0
+        count_file.write_text(str(count + 1))
+        # A generation published while the status command is enumerating it.
+        if os.environ.get("BACKUP_LAB_PUBLISH_DURING_STATUS"):
+            observed = any(json.loads(line)["stage"] == "status-manifest-stat"
+                           for line in (ROOT / "events.jsonl").read_text().splitlines())
+            print(1789041601 if observed else 1789041600)
+        else:
+            print(int(Decimal(os.environ.get("BACKUP_LAB_DB_NOW", "1789041600"))))
+    else:
+        print("20260910T120000Z")
 elif name == "sleep":
     pass  # No wall-clock delay in the finite archive polling loop.
+elif name == "id":
+    # Ownership authority is exercised by the mandatory real Docker gate.
+    assert args in (["-u"], ["-g", "postgres"])
+    print(0 if args == ["-u"] else os.getgid())
+elif name == "chown":
+    pass  # The temporary filesystem has the invoking test user's ownership.
+elif name == "stat":
+    if args[:2] == ["-c", "%u"]:
+        print(0)  # Container-root ownership; real authority has a Docker gate.
+    else:
+        os.execv(shutil.which("stat", path=os.defpath), ["stat", *args])
 else:
     raise AssertionError("unexpected command " + name)

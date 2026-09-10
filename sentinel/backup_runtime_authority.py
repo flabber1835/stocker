@@ -39,6 +39,11 @@ class BackupRuntimeRefused(RuntimeError):
     """The retained backup evidence is contradictory or malformed."""
 
 
+def _is_media_error(exc: Exception) -> bool:
+    return (isinstance(exc, OSError)
+            or getattr(exc, "sqlstate", None) in {"58P01", "42501", "58030"})
+
+
 def enabled() -> bool:
     return str(os.environ.get(AUTHORITY_ENV, "")).strip() == AUTHORITY_VALUE
 
@@ -134,6 +139,8 @@ def _manifest_end_wal(conn, base: str, *, segment_size: int) -> str:
                 (path,))
             row = cur.fetchone()
     except Exception as exc:
+        if _is_media_error(exc):
+            raise
         raise BackupRuntimeRefused(
             f"base backup {base} manifest cannot establish WAL range") from exc
     if row is None or row[0] is None or row[1] is None:
@@ -269,8 +276,7 @@ def require(conn, *, operation: str) -> dict:
     except Exception as exc:
         # PostgreSQL reports filesystem disappearance/permissions/I/O through
         # SQLSTATE. A transient media fault must not terminalize automation.
-        if (isinstance(exc, OSError)
-                or getattr(exc, "sqlstate", None) in {"58P01", "42501", "58030"}):
+        if _is_media_error(exc):
             raise BackupRuntimeUnavailable(
                 f"{operation}: backup media could not be read ({type(exc).__name__})") from exc
         raise

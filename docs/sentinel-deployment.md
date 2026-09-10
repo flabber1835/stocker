@@ -1680,6 +1680,22 @@ verify independent durability and set
 `SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1`. The scripts also run a write probe
 as the PostgreSQL container uid; host-root writability is not sufficient.
 
+Container root creates physical bases. Runtime restore-horizon checks run inside
+PostgreSQL and need read access to recovery metadata. The base parent therefore
+uses root ownership, group `postgres`, and mode 0750. Published base directories
+use root ownership, group `postgres`, and mode 0710. The four files
+`backup_manifest`, `backup_label`, `sentinel-recovery-marker`, and
+`sentinel-pitr-base-identity` use root ownership, group `postgres`, and mode 0640.
+Payload files and nested directories retain their private root permissions.
+PostgreSQL has metadata read authority; container root retains backup write and
+deletion authority. NAS host access is not required.
+
+The producer applies the metadata grant before publishing each generation. On
+upgrade from root-only backup directories, run
+`bash scripts/sentinel-compose.sh --initialize-backup` while the verified
+external target is mounted. This idempotent provisioning step also grants access
+to retained completed generations. Invalid metadata paths refuse migration.
+
 The inside-Docker-root comparison is lexical and runs before traversal, so an
 attestation can never authorize a child of the daemon root. When that root is a
 protected Synology path, validation does not attempt to traverse it after an
