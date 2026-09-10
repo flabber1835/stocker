@@ -34,11 +34,10 @@ MUTANTS = (
 
 POSTGRES_MUTANT = Mutant(
     "cash-cursor-reused-after-ledger-loss", "sentinel/execution/broker_cash.py",
-    '        if (Decimal(str(ledger_total)) != prior.balance_total\n'
-    '                or (last_flow is not None and not has_last)):\n',
+    '        if Decimal(str(ledger_total)) != prior.balance_total:\n',
     '        if False:\n',
-    "tests/sentinel/test_alpaca_simulation_durability.py::"
-    "test_partial_cash_state_loss_refuses_recovery")
+    "tests/sentinel/test_alpaca_execution_entrypoint.py::"
+    "test_cash_cursor_total_detects_nonlast_ledger_loss")
 
 
 def main():
