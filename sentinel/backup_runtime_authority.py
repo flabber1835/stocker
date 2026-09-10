@@ -91,6 +91,21 @@ def _metadata_fields(value: str) -> dict[str, str]:
     return fields
 
 
+def _base_is_complete(conn, name: str, *, system_id: str) -> bool:
+    manifest = _read_text(
+        conn, f"{BASE_ROOT}/{name}/backup_manifest", missing_ok=True)
+    recovery = _read_text(
+        conn, f"{BASE_ROOT}/{name}/sentinel-recovery-marker", missing_ok=True)
+    label = _read_text(
+        conn, f"{BASE_ROOT}/{name}/backup_label", missing_ok=True)
+    identity = _read_text(
+        conn, f"{BASE_ROOT}/{name}/sentinel-pitr-base-identity", missing_ok=True)
+    return (
+        manifest is not None and recovery is not None and label is not None
+        and identity is not None
+        and _metadata_fields(identity).get("system_identifier") == system_id)
+
+
 def _latest_complete_base(conn, *, system_id: str) -> str:
     with conn.cursor() as cur:
         cur.execute("SELECT pg_ls_dir(%s)", (BASE_ROOT,))
@@ -98,19 +113,23 @@ def _latest_complete_base(conn, *, system_id: str) -> str:
     candidates = sorted(
         (name for name in names if _BASE_NAME.fullmatch(name)), reverse=True)
     for name in candidates:
-        manifest = _read_text(
-            conn, f"{BASE_ROOT}/{name}/backup_manifest", missing_ok=True)
-        recovery = _read_text(
-            conn, f"{BASE_ROOT}/{name}/sentinel-recovery-marker", missing_ok=True)
-        label = _read_text(
-            conn, f"{BASE_ROOT}/{name}/backup_label", missing_ok=True)
-        identity = _read_text(
-            conn, f"{BASE_ROOT}/{name}/sentinel-pitr-base-identity", missing_ok=True)
-        if (manifest is not None and recovery is not None and label is not None
-                and identity is not None
-                and _metadata_fields(identity).get("system_identifier") == system_id):
+        if _base_is_complete(conn, name, system_id=system_id):
             return name
     raise BackupRuntimeUnavailable("no complete physical base backup is present")
+
+
+def _selected_base(conn, *, system_id: str,
+                   base_backup: str | None) -> str:
+    if base_backup is None:
+        return _latest_complete_base(conn, system_id=system_id)
+    name = str(base_backup)
+    if _BASE_NAME.fullmatch(name) is None:
+        raise BackupRuntimeRefused(
+            f"requested base backup name {name!r} is malformed")
+    if not _base_is_complete(conn, name, system_id=system_id):
+        raise BackupRuntimeUnavailable(
+            f"requested base backup {name} is incomplete or belongs to another cluster")
+    return name
 
 
 def _recovery_wal(conn, base: str, *, system_id: str) -> str:
@@ -211,14 +230,16 @@ def _expected_wals(start: str, end: str, *, segment_size: int) -> tuple[str, ...
     return tuple(out)
 
 
-def _require(conn, *, operation: str) -> dict:
+def _require(conn, *, operation: str,
+             base_backup: str | None = None) -> dict:
     if not enabled():
         return {"enabled": False}
     _require_marker(conn, WAL_ROOT)
     _require_marker(conn, BASE_ROOT)
     system_id = current_system_id(conn)
     wal_root = f"{WAL_ROOT}/cluster-{system_id}"
-    base = _latest_complete_base(conn, system_id=system_id)
+    base = _selected_base(
+        conn, system_id=system_id, base_backup=base_backup)
     marker_wal = _recovery_wal(conn, base, system_id=system_id)
     with conn.cursor() as cur:
         cur.execute(
@@ -302,10 +323,12 @@ def _require(conn, *, operation: str) -> dict:
     }
 
 
-def require(conn, *, operation: str) -> dict:
+def require(conn, *, operation: str,
+            base_backup: str | None = None) -> dict:
     """Prove the restore horizon; disappearing media remains a retryable fence."""
     try:
-        return _require(conn, operation=operation)
+        return _require(
+            conn, operation=operation, base_backup=base_backup)
     except (BackupRuntimeUnavailable, BackupRuntimeRefused):
         raise
     except Exception as exc:
