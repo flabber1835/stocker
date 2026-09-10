@@ -19,8 +19,8 @@ This is research-only. It does not modify or promote production/main behavior.
 The exact Wealth Core observation tape is shared by all three tracks inside each replay.
 
 1. **Current** — authoritative Native + EX3 V6 with its normal carried state. This remains byte-preserved as track `A`.
-2. **State-minimal 60** — the exact Native + CandidateA transition logic is reconstructed from scratch each session using only the most recent 60 observable sessions. No hidden controller state older than 60 sessions can affect the decision. Sixty sessions deliberately spans the major existing time constants: 30-session slow qualification, 20-session slow recovery age, and the recovery ramp/confirmation horizon.
-3. **Stateless 1** — the exact Native + CandidateA transition logic is reconstructed from scratch from the current observable session only. No hidden Sentinel state crosses a session boundary.
+2. **State-minimal 60 / bounded-state proxy** — exact Native + CandidateA transition logic is reconstructed from scratch each session using only the most recent 60 observable sessions. No hidden controller state older than 60 sessions can affect the decision. Sixty sessions deliberately spans the major nominal controller time constants, but this is an intervention rather than a claim that 60 sessions is optimal or semantically equivalent to current Sentinel. Long-lived episodes and anchors are intentionally forgotten once their initiating evidence is more than 60 sessions old.
+3. **Stateless 1** — exact Native + CandidateA transition logic is reconstructed from scratch from the current observable session only. No hidden Sentinel state crosses a session boundary.
 
 `Stateless` does **not** mean that rolling features are forbidden. R5/R10/R20/R40, breadth, drawdown and SPY features are observable inputs and may summarize market history. What is removed is hidden controller state such as anchors, episode flags, latches, duration counters and recovery/ramp history.
 
@@ -28,7 +28,7 @@ Both treatment tracks preserve the source's one-session application timing and u
 
 ## Fault set
 
-Eight full-PIT replay slots are used: one no-fault baseline plus the same seven deterministic Stage-3 perturbations used in convergence V2.
+Eight full-PIT replay slots are used after validation: one no-fault baseline plus the same seven deterministic Stage-3 perturbations used in convergence V2.
 
 Six leave-one-out security faults:
 
@@ -45,6 +45,17 @@ One deterministic 1% universe dropout:
 
 The fault remains upstream in Wealth Core. No later Sentinel state or output is forced.
 
+## Execution gates
+
+The workflow is deliberately serialized at the validation boundaries:
+
+1. **Preflight first.** Construct the exact pinned V6 source without running the historical replay; verify selected-source hash, byte preservation of authoritative Native and CandidateA, close-decision/application/pending-write ordering, absence of same-session treatment writes, the 60-session memory bound, and stateless cross-call independence.
+2. **No-fault baseline second.** Only after preflight passes, run one full 20-year PIT baseline containing all three architectures. The authoritative current track must reproduce the frozen V6 CAGR, maximum drawdown and Sharpe.
+3. **Fault fan-out last.** Only after baseline parity passes, launch the six LOO cases and one 1% dropout case in parallel.
+4. **Fail-closed aggregation.** Every package must bind to the same preflight treatment-source hash and exact V6 config. Metadata, fault identity, date tape, allocation domain, positive NAV paths and every holdings JSON row are validated. LOO cases must prove that the excluded baseline-held security never appears in the faulted holdings.
+
+This ordering prevents a harness/source defect from consuming all replay slots and prevents malformed evidence from producing a plausible-looking aggregate.
+
 ## Primary measurements
 
 For each architecture and fault:
@@ -54,10 +65,12 @@ For each architecture and fault:
 - first/last divergence and terminal reconvergence;
 - CAGR, maximum drawdown, Sharpe and ending multiple;
 - economic delta from the architecture's no-fault baseline;
-- Wealth Core holding-set divergence to verify the initiating perturbation.
+- Wealth Core holding-set and economic divergence to verify the initiating perturbation.
 
 The final aggregate reports robustness improvement relative to current Sentinel and the economic cost/benefit of each architecture. There is no automatic promotion threshold.
 
 ## Interpretation
 
 This experiment answers a causal architecture question: whether bounded or absent hidden Sentinel state materially reduces the downstream amplification of identical Wealth Core perturbations. It does not establish that a lower-state controller is economically superior. Any candidate redesign would require a separate optimization and certification campaign before promotion.
+
+See `CODE_REVIEW.md` for the pre-run review scope, defects found, and invariants required before historical execution.
