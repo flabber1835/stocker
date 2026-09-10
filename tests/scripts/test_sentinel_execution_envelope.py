@@ -118,6 +118,19 @@ class ExecutionEnvelope(unittest.TestCase):
                 self.assert_compose_refused(
                     "automation", "run", option, value, "sentinel-automation")
 
+    def test_run_service_selection_is_fixed(self):
+        cases = (
+            ("base", "sentinel-postgres"),
+            ("base", "sentinel-panel"),
+            ("automation", "sentinel-postgres"),
+            ("automation", "sentinel-authorized-cli"),
+            ("automation", "sentinel-authority-permissions"),
+            ("automation", "sentinel-shadow"),
+        )
+        for surface, service in cases:
+            with self.subTest(surface=surface, service=service):
+                self.assert_compose_refused(surface, "run", "--rm", service, "status")
+
     def test_application_arguments_begin_after_service(self):
         result = self.run_compose(
             "automation", "run", "--rm", "-T", "--no-deps",
@@ -140,10 +153,28 @@ class ExecutionEnvelope(unittest.TestCase):
             ("up", "--build"), ("up", "--pull", "always"),
             ("up", "--remove-orphans"), ("up", "--renew-anon-volumes"),
             ("up", "--scale", "sentinel-automation=2"),
+            ("up", "--no-recreate", "sentinel-automation"),
+            ("up", "--watch", "sentinel-automation"),
         )
         for arguments in cases:
             with self.subTest(arguments=arguments):
                 self.assert_compose_refused("automation", *arguments)
+
+    def test_stale_container_revival_and_exec_are_refused(self):
+        for command in ("start", "restart", "unpause"):
+            with self.subTest(command=command):
+                self.assert_compose_refused("automation", command, "sentinel-automation")
+                self.assert_compose_refused("base", command, "sentinel-postgres")
+        self.assert_compose_refused(
+            "automation", "exec", "sentinel-automation", "python", "-c", "pass")
+        self.assert_compose_refused(
+            "base", "exec", "sentinel-postgres", "psql", "-U", "sentinel")
+
+    def test_automation_profile_cannot_explicitly_activate_other_profile_services(self):
+        for service in ("sentinel-authorized-cli", "sentinel-authority-permissions", "sentinel-shadow"):
+            with self.subTest(service=service):
+                self.assert_compose_refused("automation", "up", "-d", service)
+                self.assert_compose_refused("automation", "create", service)
 
     def test_supported_fixed_operations_pass(self):
         cases = (
