@@ -20,6 +20,14 @@ from typing import Mapping, Sequence
 
 _GIT_OBJECT = re.compile(r"[0-9a-f]{40}(?:[0-9a-f]{24})?")
 _DIGEST = re.compile(r"sha256:[0-9a-f]{64}")
+_GLOBAL_VALUE_OPTIONS = {
+    "--ansi", "--env-file", "-f", "--file", "--parallel", "--profile",
+    "--progress", "--project-directory", "-p", "--project-name",
+}
+_GLOBAL_SWITCH_OPTIONS = {
+    "--all-resources", "--compatibility", "--dry-run", "--help", "-h",
+    "--version",
+}
 _RUN_FLAGS = {
     "--build", "--detach", "-d", "--interactive", "-i", "--no-deps",
     "--no-TTY", "-T", "--quiet", "-q", "--quiet-build", "--quiet-pull",
@@ -36,16 +44,52 @@ class FeedGateRefused(RuntimeError):
     """The selected image is not authorized to mutate this checkout."""
 
 
-def _run_service_command(argv: Sequence[str]) -> tuple[str, tuple[str, ...]] | None:
-    """Return ``(service, command)`` for a Compose ``run`` invocation.
+def _compose_run(argv: Sequence[str]) -> tuple[int, str, tuple[str, ...]] | None:
+    """Return ``(run_index, service, command)`` for a Compose ``run`` invocation.
 
-    Unknown run options refuse classification.  Silently treating a new
-    value-taking option as a service could let a mutating command miss the host
-    gate; a wrapper update is cheaper than that ambiguity.
+    Global Compose options are consumed before locating ``run``.  The central
+    execution envelope decides which of those options are legal for an
+    operational command; this parser only has to preserve their arity so a
+    legal cosmetic option such as ``--ansi never`` cannot hide a feed writer
+    from the host authorization gate.
     """
-    if not argv or argv[0] != "run":
+    i = 0
+    while i < len(argv):
+        token = argv[i]
+        if token == "--":
+            return None
+        if not token.startswith("-") or token == "-":
+            break
+        name = token.split("=", 1)[0]
+        attached_short = ((token.startswith("-f") and token != "-f")
+                          or (token.startswith("-p") and token != "-p"))
+        if attached_short:
+            i += 1
+            continue
+        if name in _GLOBAL_VALUE_OPTIONS:
+            if "=" in token:
+                if not token.split("=", 1)[1]:
+                    raise FeedGateRefused(
+                        f"Compose global option {name} has no value")
+                i += 1
+                continue
+            if i + 1 >= len(argv):
+                raise FeedGateRefused(
+                    f"Compose global option {name} has no value")
+            i += 2
+            continue
+        if name in _GLOBAL_SWITCH_OPTIONS:
+            i += 1
+            continue
+        # The execution envelope runs before this classifier.  Any unknown
+        # operational global has already been refused there.  Returning None
+        # keeps read-only inspection forward-compatible.
         return None
-    i = 1
+
+    if i >= len(argv) or argv[i] != "run":
+        return None
+    run_index = i
+    i += 1
     while i < len(argv):
         token = argv[i]
         if token == "--":
@@ -69,7 +113,16 @@ def _run_service_command(argv: Sequence[str]) -> tuple[str, tuple[str, ...]] | N
         break
     if i >= len(argv):
         raise FeedGateRefused("Compose run invocation has no service")
-    return argv[i], tuple(argv[i + 1:])
+    return run_index, argv[i], tuple(argv[i + 1:])
+
+
+def _run_service_command(argv: Sequence[str]) -> tuple[str, tuple[str, ...]] | None:
+    """Return ``(service, command)`` for a Compose ``run`` invocation."""
+    parsed = _compose_run(argv)
+    if parsed is None:
+        return None
+    _run_index, service, command = parsed
+    return service, command
 
 
 def is_feed_mutation(argv: Sequence[str]) -> bool:
@@ -82,6 +135,15 @@ def is_feed_mutation(argv: Sequence[str]) -> bool:
     if command[0] in {"feed-seed", "feed-daily"}:
         return True
     return command[0] == "feed-repair" and "--apply" in command[1:]
+
+
+def feed_run_position(argv: Sequence[str]) -> int:
+    """Return the 1-based position of ``run`` for a feed mutation."""
+    parsed = _compose_run(argv)
+    if parsed is None or not is_feed_mutation(argv):
+        raise FeedGateRefused("Compose invocation is not a supported feed mutation")
+    run_index, _service, _command = parsed
+    return run_index + 1
 
 
 def selected_digest(image_ref: str, image_id: str) -> str:
@@ -185,20 +247,29 @@ def _parser() -> argparse.ArgumentParser:
     sub = parser.add_subparsers(dest="action", required=True)
     classify = sub.add_parser("classify")
     classify.add_argument("compose_args", nargs=argparse.REMAINDER)
+    locate = sub.add_parser("locate")
+    locate.add_argument("compose_args", nargs=argparse.REMAINDER)
     binding = sub.add_parser("bind")
     binding.add_argument("--repo", type=Path, required=True)
     binding.add_argument("--image", required=True)
     return parser
 
 
+def _compose_args(args) -> list[str]:
+    compose_args = list(args.compose_args)
+    if compose_args[:1] == ["--"]:
+        compose_args = compose_args[1:]
+    return compose_args
+
+
 def main(argv: Sequence[str] | None = None) -> int:
     args = _parser().parse_args(argv)
     try:
         if args.action == "classify":
-            compose_args = list(args.compose_args)
-            if compose_args[:1] == ["--"]:
-                compose_args = compose_args[1:]
-            return 0 if is_feed_mutation(compose_args) else 1
+            return 0 if is_feed_mutation(_compose_args(args)) else 1
+        if args.action == "locate":
+            print(feed_run_position(_compose_args(args)))
+            return 0
         commit, digest = bind(args.repo.resolve(), args.image)
         print(commit)
         print(digest)
