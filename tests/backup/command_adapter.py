@@ -60,9 +60,9 @@ def sql():
         return event("marker-row", lambda: 0)
     elif "pg_current_wal_lsn()::text" in query:
         marker = re.search(r"SELECT '([^|]+)\|'", query).group(1)
-        print(f"{marker}|0/300040|{WAL}")
+        print(f"{marker}|0/03000040|{WAL}")
     elif "pg_switch_wal" in query:
-        print("0/400000")
+        print("0/04000000")
     else:
         raise AssertionError("unexpected simulated SQL: " + query)
     return 0
@@ -73,15 +73,24 @@ def basebackup():
     path.mkdir()
     data = path / "relation-data"
     data.write_bytes(b"complete-base-backup-data")
-    (path / "backup_manifest").write_text(hashlib.sha256(data.read_bytes()).hexdigest())
+    manifest = {
+        "WAL-Ranges": [{"Timeline": 1, "End-LSN": "0/03000040"}],
+        "Synthetic-Data-SHA256": hashlib.sha256(data.read_bytes()).hexdigest(),
+    }
+    (path / "backup_manifest").write_text(json.dumps(manifest, sort_keys=True))
     (path / "backup_label").write_text("simulated-base")
     return 0
 
 
 def verify():
     path = Path(args[-1])
-    if (path / "backup_manifest").read_text() != hashlib.sha256(
-            (path / "relation-data").read_bytes()).hexdigest():
+    try:
+        manifest = json.loads((path / "backup_manifest").read_text())
+        expected = manifest["Synthetic-Data-SHA256"]
+    except (OSError, KeyError, TypeError, ValueError):
+        print("simulated manifest checksum mismatch", file=sys.stderr)
+        return 1
+    if expected != hashlib.sha256((path / "relation-data").read_bytes()).hexdigest():
         print("simulated manifest checksum mismatch", file=sys.stderr)
         return 1
     return 0
