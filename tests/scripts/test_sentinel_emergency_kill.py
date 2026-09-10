@@ -93,7 +93,11 @@ class EmergencyKillBoundary(unittest.TestCase):
         })
         self.assertEqual(result.returncode, 0, result.stderr)
         calls = (self.root / "docker-calls").read_text(encoding="utf-8")
-        self.assertNotIn("compose", calls)
+        for line in calls.splitlines():
+            fields = line.split()
+            self.assertGreaterEqual(len(fields), 3)
+            self.assertEqual(fields[:2], ["--context", "default"])
+            self.assertNotEqual(fields[2], "compose")
         self.assertNotIn("evil", calls)
         self.assertNotIn("remote", calls)
         self.assertIn("--context default", calls)
