@@ -30,6 +30,7 @@ for metadata in backup_manifest backup_label sentinel-recovery-marker sentinel-p
   path="$base/$metadata"
   [ -f "$path" ] && [ ! -L "$path" ] && [ -r "$path" ] || \
     refuse "base backup metadata is missing, unreadable, or aliased: $metadata"
+  [ "$(stat -c %h "$path")" -eq 1 ] || refuse "base backup metadata is hard-linked: $metadata"
 done
 
 identity_id="$(sed -n 's/^system_identifier=//p' "$base/sentinel-pitr-base-identity")"
@@ -48,8 +49,6 @@ marker_id="$(sed -n 's/^system_identifier=//p' "$marker")"
 [ "$marker_id" = "$system_id" ] || refuse "recovery marker belongs to another PostgreSQL cluster"
 marker_wal="$(sed -n 's/^wal=//p' "$marker")"
 
-# Let PostgreSQL parse its own JSON manifest. This is a read-only server-side
-# file read under the same OS authority the runtime checker uses.
 manifest_sql="SELECT (j->'WAL-Ranges'->-1->>'Timeline') || '|' || (j->'WAL-Ranges'->-1->>'End-LSN') FROM (SELECT pg_read_file('$base/backup_manifest')::jsonb AS j) AS m"
 manifest_range="$(psql -U sentinel -d sentinel -Atq -v ON_ERROR_STOP=1 -c "$manifest_sql")" || \
   refuse "base backup manifest cannot establish its final WAL range"
@@ -81,6 +80,29 @@ last_index=$((last_log * segments_per_log + last_segment))
 [ "$last_index" -ge "$first_index" ] || refuse "archived WAL frontier precedes base recovery horizon"
 [ $((last_index - first_index)) -le 1000000 ] || refuse "backup WAL chain exceeds reviewed bound"
 
+verify_checksum_object() {
+  local path="$1" label="$2" expected_size="${3:-}"
+  local sidecar checksum observed
+  sidecar="$path.sha256"
+  [ -f "$path" ] && [ ! -L "$path" ] && [ -r "$path" ] || \
+    refuse "$label is missing, unreadable, or aliased: ${path##*/}"
+  [ "$(stat -c %h "$path")" -eq 1 ] || refuse "$label is hard-linked: ${path##*/}"
+  if [ -n "$expected_size" ]; then
+    [ "$(stat -c %s "$path")" -eq "$expected_size" ] || refuse "$label is truncated: ${path##*/}"
+  else
+    [ "$(stat -c %s "$path")" -gt 0 ] || refuse "$label is empty: ${path##*/}"
+  fi
+  [ -f "$sidecar" ] && [ ! -L "$sidecar" ] && [ -r "$sidecar" ] || \
+    refuse "$label SHA-256 sidecar is missing, unreadable, or aliased: ${path##*/}"
+  [ "$(stat -c %h "$sidecar")" -eq 1 ] || refuse "$label SHA-256 sidecar is hard-linked: ${path##*/}"
+  [ "$(wc -l < "$sidecar")" -eq 1 ] || refuse "$label SHA-256 sidecar has invalid field count: ${path##*/}"
+  checksum="$(sed -n 's/^sha256=//p' "$sidecar")"
+  [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || refuse "$label SHA-256 sidecar is malformed: ${path##*/}"
+  observed="$(sha256sum -- "$path")" || refuse "$label could not be hashed: ${path##*/}"
+  observed="${observed%% *}"
+  [ "$observed" = "$checksum" ] || refuse "$label failed SHA-256 integrity validation: ${path##*/}"
+}
+
 marker_seen=0
 count=0
 index="$first_index"
@@ -88,23 +110,18 @@ while [ "$index" -le "$last_index" ]; do
   log=$((index / segments_per_log))
   segment=$((index % segments_per_log))
   printf -v wal '%08X%08X%08X' "$start_timeline" "$log" "$segment"
-  path="$wal_root/$wal"
-  sidecar="$path.sha256"
-  [ -f "$path" ] && [ ! -L "$path" ] && [ -r "$path" ] || \
-    refuse "archived WAL is missing, unreadable, or aliased: $wal"
-  [ "$(stat -c %s "$path")" -eq "$wal_bytes" ] || refuse "archived WAL is truncated: $wal"
-  [ -f "$sidecar" ] && [ ! -L "$sidecar" ] && [ -r "$sidecar" ] || \
-    refuse "archived WAL SHA-256 sidecar is missing, unreadable, or aliased: $wal"
-  [ "$(wc -l < "$sidecar")" -eq 1 ] || refuse "archived WAL SHA-256 sidecar has invalid field count: $wal"
-  checksum="$(sed -n 's/^sha256=//p' "$sidecar")"
-  [[ "$checksum" =~ ^[0-9a-f]{64}$ ]] || refuse "archived WAL SHA-256 sidecar is malformed: $wal"
-  observed="$(sha256sum -- "$path")" || refuse "archived WAL could not be hashed: $wal"
-  observed="${observed%% *}"
-  [ "$observed" = "$checksum" ] || refuse "archived WAL failed SHA-256 integrity validation: $wal"
+  verify_checksum_object "$wal_root/$wal" "archived WAL" "$wal_bytes"
   if [ "$wal" = "$marker_wal" ]; then marker_seen=1; fi
   count=$((count + 1))
   index=$((index + 1))
 done
 [ "$marker_seen" -eq 1 ] || refuse "recovery marker WAL is outside the retained restore chain"
-printf 'wal_chain_ready:true start_index=%s end=%s segments=%s marker=%s\n' \
-  "$first_index" "$last_wal" "$count" "$marker_wal"
+
+history=""
+if [ "$start_timeline" -gt 1 ]; then
+  printf -v history '%08X.history' "$start_timeline"
+  verify_checksum_object "$wal_root/$history" "timeline history"
+fi
+
+printf 'wal_chain_ready:true start_index=%s end=%s segments=%s marker=%s history=%s\n' \
+  "$first_index" "$last_wal" "$count" "$marker_wal" "${history:-none}"
