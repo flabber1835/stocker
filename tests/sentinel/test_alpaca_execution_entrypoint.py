@@ -10,11 +10,11 @@ import pytest
 
 from sentinel import binding, schema
 from sentinel.execution import alpaca, broker_cash, executor, journal
-from sentinel.execution.contract import BrokerInstrument
+from sentinel.execution.contract import BrokerInstrument, Completeness
 from sentinel.execution.plan import ExecutionPlan
 from sentinel.execution.states import CommandState as S
 from sentinel.feed import store
-from tests.support.alpaca_simulator import ASSET_UUID, AlpacaSimulator, EPOCH, Profile
+from tests.support.alpaca_simulator import AlpacaSimulator, EPOCH, Profile
 from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 from test_alpaca_simulation_harness import DEPLOY, INSTRUMENT, run
 
@@ -82,10 +82,10 @@ def plan(plan_id: str, basket: dict[str, D]) -> ExecutionPlan:
     )
 
 
-def execute(conn, world, current_plan, *, instruments=None, broker=None):
+def execute(conn, world, current_plan, *, instruments=None):
     executor.adopt_plan(conn, current_plan)
     return run(executor.execute_session(
-        broker=broker or world.adapter(),
+        broker=world.adapter(),
         conn=conn,
         deployment=DEPLOY,
         plan=current_plan,
@@ -95,10 +95,10 @@ def execute(conn, world, current_plan, *, instruments=None, broker=None):
     ))
 
 
-def ingest(conn, world):
+def ingest(conn, world, *, adapter=None):
     state = run(broker_cash.ingest_account_cash(
         conn,
-        broker_adapter=world.adapter(),
+        broker_adapter=adapter or world.adapter(),
         broker="alpaca",
         account_id=DEPLOY.broker_account_id,
         through=world.now,
@@ -148,26 +148,23 @@ def test_public_execute_session_sells_before_buy_and_converges(conn, world):
     assert len(seed.submitted) == 1
     world.fill(seed.submitted[0].broker_order_id)
 
-    broker = world.adapter()
-    real_observe = broker.observe
-
-    async def observe_after_settling_working_sell():
-        for order_id, order in list(world.orders.items()):
-            if order["side"] == "sell" and world._working(order):
-                world.fill(order_id)
-                break
-        return await real_observe()
-
-    broker.observe = observe_after_settling_working_sell
-    result = execute(
+    reduction = execute(
         conn, world,
-        plan("entry-order-transition", {"SEC-AAA": D(5), "SEC-BBB": D(0)}),
-        instruments=instruments, broker=broker)
+        plan("entry-order-reduce", {"SEC-AAA": D(5), "SEC-BBB": D(0)}),
+        instruments=instruments)
+    assert len(reduction.submitted) == 1
+    assert world.orders[reduction.submitted[0].broker_order_id]["side"] == "sell"
+    assert not any(order["side"] == "buy" and order["symbol"] == "AAA"
+                   for order in world.orders.values())
+    world.fill(reduction.submitted[0].broker_order_id)
 
-    assert len(result.submitted) == 2
-    assert [world.orders[item.broker_order_id]["side"]
-            for item in result.submitted] == ["sell", "buy"]
-    world.fill(result.submitted[1].broker_order_id)
+    increase = execute(
+        conn, world,
+        plan("entry-order-increase", {"SEC-AAA": D(5), "SEC-BBB": D(0)}),
+        instruments=instruments)
+    assert len(increase.submitted) == 1
+    assert world.orders[increase.submitted[0].broker_order_id]["side"] == "buy"
+    world.fill(increase.submitted[0].broker_order_id)
 
     final = execute(
         conn, world,
@@ -179,13 +176,31 @@ def test_public_execute_session_sells_before_buy_and_converges(conn, world):
 
 
 def test_zero_value_legacy_cursor_without_cash_row_is_accepted(conn, world):
-    event = world.cash_event("SPLIT", "0", adversarial=True)
+    activity = broker_cash.BrokerCashActivity(
+        activity_id="legacy-zero-split",
+        activity_type="SPLIT",
+        activity_date=world.now.date(),
+        net_amount=D(0),
+        raw={"source": "legacy-rest"},
+    )
+
+    class LegacyZeroReplay:
+        financial_activity_sse = False
+
+        async def account_cash_activities(self, *, after, through):
+            return broker_cash.BrokerCashActivityBatch(
+                activities=(activity,),
+                processed_through=through,
+                completeness=Completeness.COMPLETE,
+                last_activity_id=activity.activity_id,
+            )
+
     cursor = {
         "kind": "broker-cash-activity/v2",
         "broker": "alpaca",
         "account_id": DEPLOY.broker_account_id,
         "processed_through": world.now.isoformat(),
-        "last_activity_id": event["ref_id"],
+        "last_activity_id": activity.activity_id,
         "last_event_id": None,
         "balance_total": "0",
     }
@@ -198,7 +213,7 @@ def test_zero_value_legacy_cursor_without_cash_row_is_accepted(conn, world):
     conn.commit()
     world.advance(60)
 
-    state = ingest(conn, world)
+    state = ingest(conn, world, adapter=LegacyZeroReplay())
 
     assert state.balance_total == 0
     assert state.last_activity_id is None
