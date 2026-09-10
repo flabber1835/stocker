@@ -129,10 +129,9 @@ if [ "$RUN" -eq 1 ]; then
   . scripts/sentinel-backup-lib.sh
   sentinel_backup_root >/dev/null
 
-  # No post-validation Compose option may reinterpret the reviewed graph,
-  # project, state namespace or container execution environment.
-  "$PYTHON" scripts/sentinel_execution_envelope.py \
-    compose --surface base -- "$@"
+  # No operational command may reinterpret the reviewed graph, project, state
+  # namespace or container execution environment after host validation.
+  sentinel_require_compose_envelope base "$@"
 
   # An immutable image identity is not authorization to mutate the CURRENT
   # checkout's corpus. Resolve the image exactly as Compose will, then bind feed
