@@ -101,8 +101,29 @@ def shell(command):
     return subprocess.call(mapped)
 
 
+def runtime_backup_probe():
+    base = args[args.index("--base") + 1]
+    helper = ROOT / "repo" / "scripts" / "sentinel-backup-verify-chain.py"
+    result = subprocess.run([
+        sys.executable, str(helper),
+        "--root", str(MEDIA),
+        "--base", base,
+        "--system-id", SYSTEM_ID,
+        "--last-wal", WAL,
+        "--segment-size", str(16 * 1024 * 1024),
+    ], capture_output=True, text=True)
+    if result.stdout:
+        print("backup_runtime_authority_ready:true " + result.stdout.strip())
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+    return result.returncode
+
+
 def docker():
     if args[:1] == ["compose"]:
+        if ("run" in args and "sentinel.backup_runtime_probe" in args
+                and "sentinel-postgres" not in args):
+            return event("runtime-backup-probe", runtime_backup_probe)
         index = args.index("sentinel-postgres")
         command = args[index + 1:]
         source = " ".join(command)
