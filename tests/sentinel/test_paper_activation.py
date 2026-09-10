@@ -2196,7 +2196,12 @@ class TestStrictExecutionGate:
         with pytest.raises(
                 paper.PaperActivationRefused,
                 match="does not match its deterministic economic identity"):
-            _execute(conn, execute_broker)
+            asyncio.run(paper.execute_paper_plan(
+                conn=conn, broker=execute_broker,
+                base_url=DEFAULT_BASE_URL, confirm_account=ACCOUNT,
+                confirm_plan_id=durable_plan.plan_id,
+                confirm_effective_session=EFFECTIVE,
+                confirm_submit=True, today=EFFECTIVE))
         assert execute_broker.calls == []
         assert _mutations(execute_broker) == []
 

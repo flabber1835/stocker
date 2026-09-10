@@ -51,6 +51,7 @@ docs/
 !docs/sentinel-stage-4-automation.md
 !docs/paper-lifecycle-equivalence.json
 !docs/median5-production.md
+!docs/wealth-core-v5-ex3-v6-production.md
 
 # Runtime artifacts (written at runtime, not part of any build)
 artifacts/
