@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import os
-from dataclasses import replace
 from datetime import timedelta
 from decimal import Decimal as D
 
@@ -125,7 +124,7 @@ def test_foreign_fill_is_reported_and_does_not_become_owned_history(conn, world)
     result = run(reconcile.reconcile(broker=world.adapter(), conn=conn,
                  binding=None, deployment=DEPLOY))
     assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY, result.detail
-    assert journal.load_commands(conn, DEPLOY) == []
+    assert not journal.load_commands(conn, DEPLOY)
     assert world.counts[("POST", "/v2/orders")] == 1
 
 

@@ -52,7 +52,7 @@ def main():
     stable = (git("rev-parse", "HEAD") == started_sha
               and git("rev-parse", "HEAD^{tree}") == started_tree
               and not git("status", "--porcelain", "--untracked-files=no"))
-    passed = (result.returncode == 0 and len(cases) >= 264 and stable
+    passed = (result.returncode == 0 and len(cases) >= 353 and stable
               and not dirty_before and not any(counts[t] for t in ("failure", "error", "skipped")))
     files = [ROOT / "tests/support/alpaca_simulator.py",
              ROOT / "sentinel/execution/alpaca.py",
