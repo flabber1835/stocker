@@ -167,7 +167,7 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
 # inside the private-media boundary. PostgreSQL parses its own manifest; the
 # postgres OS identity verifies every WAL byte against its durable sidecar.
 if ! CHAIN="$(${COMPOSE[@]} exec -T -u postgres sentinel-postgres \
-    sh -s -- "$NAME" "$WAL_NAMESPACE" "$SYSTEM_ID" "$LAST_WAL" "$WAL_BYTES" \
+    bash -s -- "$NAME" "$WAL_NAMESPACE" "$SYSTEM_ID" "$LAST_WAL" "$WAL_BYTES" \
     < scripts/sentinel-backup-verify-chain.sh)"; then
   refuse "BASE_BACKUP_RECOVERY_EVIDENCE_INVALID" 4 \
     "complete base/WAL restore horizon failed validation"
