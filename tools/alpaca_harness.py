@@ -15,6 +15,8 @@ SUITES = (
     "test_alpaca_simulation_harness.py",
     "test_alpaca_simulation_cash.py",
     "test_alpaca_simulation_durability.py",
+    "test_alpaca_simulation_review_regressions.py",
+    "test_alpaca_execution_entrypoint.py",
     "test_issue_183_alpaca_hardening.py",
     "test_issue_209_alpaca_asset_id.py",
     "test_alpaca_activity_sse_accounting.py",
@@ -52,7 +54,7 @@ def main():
     stable = (git("rev-parse", "HEAD") == started_sha
               and git("rev-parse", "HEAD^{tree}") == started_tree
               and not git("status", "--porcelain", "--untracked-files=no"))
-    passed = (result.returncode == 0 and len(cases) >= 353 and stable
+    passed = (result.returncode == 0 and len(cases) >= 370 and stable
               and not dirty_before and not any(counts[t] for t in ("failure", "error", "skipped")))
     files = [ROOT / "tests/support/alpaca_simulator.py",
              ROOT / "sentinel/execution/alpaca.py",
