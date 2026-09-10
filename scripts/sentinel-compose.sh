@@ -144,6 +144,23 @@ if [ "$RUN" -eq 1 ]; then
   FEED_CLASSIFICATION=$?
   set -e
   if [ "$FEED_CLASSIFICATION" -eq 0 ]; then
+    RUN_POSITION="$(
+      "$PYTHON" scripts/sentinel_feed_gate.py locate -- "$@"
+    )" || {
+      echo "REFUSED: feed command boundary could not be reconstructed" >&2
+      exit 2
+    }
+    case "$RUN_POSITION" in
+      ''|*[!0-9]*)
+        echo "REFUSED: feed command boundary was invalid" >&2
+        exit 2
+        ;;
+    esac
+    [ "$RUN_POSITION" -ge 1 ] && [ "$RUN_POSITION" -le "$#" ] || {
+      echo "REFUSED: feed command boundary was outside the invocation" >&2
+      exit 2
+    }
+
     COMPOSE_MODEL="$(
       docker --context default compose "${COMPOSE_ARGS[@]}" --profile cli config --format json
     )" || {
@@ -174,14 +191,23 @@ print(image.strip())')" || exit 2
     export SENTINEL_GIT_COMMIT SENTINEL_RUNTIME_IMAGE_DIGEST
     export SENTINEL_FEED_AUTHORIZED SENTINEL_FEED_GIT_COMMIT
     export SENTINEL_FEED_RUNTIME_IMAGE_DIGEST
+
+    RUN_PREFIX_COUNT=$((RUN_POSITION - 1))
+    RUN_PREFIX=()
+    if [ "$RUN_PREFIX_COUNT" -gt 0 ]; then
+      RUN_PREFIX=("${@:1:$RUN_PREFIX_COUNT}")
+    fi
+    RUN_TAIL_OFFSET=$((RUN_POSITION + 1))
+    RUN_TAIL=("${@:$RUN_TAIL_OFFSET}")
     RUN_ARGS=(
+      "${RUN_PREFIX[@]}"
       run
       --env SENTINEL_GIT_COMMIT
       --env SENTINEL_RUNTIME_IMAGE_DIGEST
       --env SENTINEL_FEED_AUTHORIZED
       --env SENTINEL_FEED_GIT_COMMIT
       --env SENTINEL_FEED_RUNTIME_IMAGE_DIGEST
-      "${@:2}"
+      "${RUN_TAIL[@]}"
     )
     exec docker --context default compose "${COMPOSE_ARGS[@]}" "${RUN_ARGS[@]}"
   elif [ "$FEED_CLASSIFICATION" -ne 1 ]; then
