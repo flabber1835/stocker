@@ -70,12 +70,19 @@ def _single_failed_live_candidate(conn):
     if len(candidates) > 1:
         from sentinel.feed import publication
         report = publication.coherence(conn)
+        daily_recoverable_rows = (
+            report.unpublished_universe
+            + report.unpublished_spy
+            + report.unpublished_defensive)
         if (all(c.kind == "daily" for c in candidates)
-                and report.unpublished_rows == report.unpublished_universe
+                and report.unpublished_rows == daily_recoverable_rows
                 and report.unpublished_universe > 0):
-            # Repeated failures before prices may leave several dated identity
-            # snapshots. The existing validated daily publisher supersedes all
-            # such snapshots atomically and still checks every older owner.
+            # Repeated daily failures may leave several dated identity snapshots
+            # plus reference rows written before a later SEP failure. The next
+            # complete daily attempt rewrites every stranded SPY/BIL key through
+            # reference_window_start(), while publication atomically retires the
+            # older universe snapshots. Bars, actions, repairs and anomalies are
+            # deliberately excluded from this narrow recovery cohort.
             return candidates[0]
         raise recovery.PublicationRecoveryRefused(
             f"{len(candidates)} failed unpublished candidates still own live "
