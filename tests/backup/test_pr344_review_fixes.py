@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import asyncio
+import importlib
 from datetime import date
 from decimal import Decimal
 from pathlib import Path
@@ -52,36 +53,51 @@ def test_missing_wal_checksum_is_a_retryable_restore_horizon_fence(world):
 
 def test_production_mutation_surfaces_are_wired_to_full_chain_authority():
     root = Path(__file__).resolve().parents[2]
-    paper_source = (root / "sentinel" / "paper" / "__init__.py").read_text()
+    validation = (root / "sentinel" / "paper" / "validation.py").read_text()
+    preparation = (root / "sentinel" / "paper" / "preparation.py").read_text()
+    execution = (root / "sentinel" / "paper" / "execution.py").read_text()
     ingest = (root / "sentinel" / "feed" / "ingest_authority_impl.py").read_text()
     compose = (root / "docker-compose.sentinel-backup.yml").read_text()
 
-    assert '_backup_runtime_authority.require(conn, operation=operation)' in paper_source
-    assert 'operation="paper plan preparation"' in paper_source
-    assert 'operation="paper order execution"' in paper_source
-    assert 'operation="automated paper order execution"' in paper_source
+    assert 'backup_runtime_authority.require(conn, operation=operation)' in validation
+    assert 'operation="paper plan preparation"' in preparation
+    assert 'operation="paper order execution"' in execution
+    assert 'operation="automated paper order execution"' in execution
     assert 'operation="canonical daily feed mutation"' in ingest
     assert 'operation="canonical seed/reseed feed mutation"' in ingest
     assert "SENTINEL_RUNTIME_BACKUP_AUTHORITY: REQUIRED_V1" in compose
 
 
-@pytest.mark.parametrize("surface", [
-    "prepare_paper_plan",
-    "execute_paper_plan",
-    "execute_automated_paper_plan",
+@pytest.mark.parametrize("import_path", ["public", "owner"])
+@pytest.mark.parametrize("backup_error,paper_error", [
+    (authority.BackupRuntimeUnavailable, paper.PaperRetryableRefused),
+    (authority.BackupRuntimeRefused, paper.PaperActivationRefused),
+])
+@pytest.mark.parametrize("surface,owner,arguments", [
+    ("prepare_paper_plan", "preparation", {"through": date(2026, 9, 10)}),
+    ("execute_paper_plan", "execution", {
+        "confirm_account": "paper-account", "confirm_plan_id": "plan",
+        "confirm_effective_session": date(2026, 9, 10), "confirm_submit": True}),
+    ("execute_automated_paper_plan", "execution", {
+        "grant": object(), "automation_config_sha256": "config"}),
 ])
 def test_paper_mutation_surfaces_fence_before_entering_inner_gateway(
-        monkeypatch, surface):
+        monkeypatch, surface, owner, arguments, import_path, backup_error,
+        paper_error):
     observed = []
 
     def unavailable(conn, *, operation):
         observed.append((conn, operation))
-        raise authority.BackupRuntimeUnavailable("simulated missing middle WAL")
+        raise backup_error("simulated missing middle WAL")
 
-    monkeypatch.setattr(paper._backup_runtime_authority, "require", unavailable)
+    monkeypatch.setattr(authority, "require", unavailable)
     conn = object()
-    with pytest.raises(paper.PaperRetryableRefused, match="missing middle WAL"):
-        asyncio.run(getattr(paper, surface)(conn=conn))
+    module = paper if import_path == "public" else importlib.import_module(
+        f"sentinel.paper.{owner}")
+    with pytest.raises(paper_error, match="missing middle WAL"):
+        asyncio.run(getattr(module, surface)(
+            conn=conn, broker=object(), base_url="https://paper.example",
+            **arguments))
     assert observed and observed[0][0] is conn
 
 

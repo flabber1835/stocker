@@ -96,6 +96,15 @@ authority for supported manual CLI operation, while unattended services retain t
 same required authority. Read-only broker recovery stays available during a backup
 outage.
 
+The paper package initializer remains declarative. The canonical preparation
+and execution functions call the paper validation helper directly, preserving
+their explicit signatures and identical public/submodule function ownership.
+The helper translates runtime backup exceptions into the established paper
+retryable/permanent refusals. The historical decomposition AST fingerprints
+remain frozen: the architecture test checks the exact added gate statements and
+recovery lock keyword, then proves the remaining lifecycle bodies still match.
+The new helper is covered by refusal tests through both import paths.
+
 The common corpus writer lock and execution/plan writer lock independently
 recheck the complete restore horizon after acquiring exclusivity and before
 yielding mutation authority. Direct internal imports therefore retain the gate.
