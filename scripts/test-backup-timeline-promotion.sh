@@ -67,10 +67,21 @@ EOF
 touch "$restored/recovery.signal"
 pg_ctl -D "$restored" -l "$work/restored.log" -w start >/dev/null || {
   cat "$work/restored.log" >&2
-  fail "restored cluster did not promote"
+  fail "restored cluster did not start"
+}
+promoted=0
+for _ in $(seq 1 80); do
+  if [ "$(sql 'SELECT pg_is_in_recovery()' 2>/dev/null || true)" = f ]; then
+    promoted=1
+    break
+  fi
+  sleep 0.1
+done
+[ "$promoted" -eq 1 ] || {
+  cat "$work/restored.log" >&2
+  fail "restored cluster remained in recovery"
 }
 
-[ "$(sql 'SELECT pg_is_in_recovery()')" = f ] || fail "restored cluster remained in recovery"
 new_wal="$(sql 'SELECT pg_walfile_name(pg_switch_wal())')"
 new_timeline="${new_wal:0:8}"
 [ "$new_timeline" = "00000002" ] || fail "promotion did not create timeline 2: $new_wal"
