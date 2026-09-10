@@ -13,13 +13,19 @@ import sys
 import tempfile
 from typing import Mapping, Sequence
 
+# Resolve identically as a direct host script and in the isolated test lens.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+import sentinel_env
+
+
 ROOT = Path(__file__).resolve().parents[1]
 POINTER = ROOT / "artifacts" / "sentinel" / "deployment" / "validated-runtime.env"
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _IMMUTABLE_REF = re.compile(
     r"^ghcr\.io/[A-Za-z0-9._/-]+@sha256:[0-9a-f]{64}$")
 _COMMIT = re.compile(r"^[0-9a-f]{40}$")
-_ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
 
 class RuntimeSelectionRefused(RuntimeError):
@@ -48,33 +54,11 @@ def _refresh_origin_main() -> None:
 
 
 def _load_dotenv_literal(path: Path = ROOT / ".env") -> dict:
-    values = {}
-    if not path.is_file():
-        return values
+    """Use the canonical bounded, literal environment parser."""
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
-        raise RuntimeSelectionRefused("local environment file is unreadable") from exc
-    for raw in lines:
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            raise RuntimeSelectionRefused("local environment file has a malformed line")
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if _ENV_KEY.fullmatch(key) is None:
-            raise RuntimeSelectionRefused("local environment file has an invalid key")
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            quote_char = value[0]
-            value = value[1:-1]
-            if quote_char == '"':
-                value = value.replace('\\"', '"').replace("\\\\", "\\")
-        values[key] = value
-    return values
+        return sentinel_env.load(path, required=False)
+    except sentinel_env.EnvRefused as exc:
+        raise RuntimeSelectionRefused(str(exc)) from None
 
 
 def _valid_reference(value: str) -> bool:
@@ -103,7 +87,10 @@ def _pointer_digest(path: Path = POINTER):
 
 def _merged_environment() -> dict:
     values = _load_dotenv_literal()
-    values.update(os.environ)
+    try:
+        values = sentinel_env.merge(values, os.environ)
+    except sentinel_env.EnvRefused as exc:
+        raise RuntimeSelectionRefused(str(exc)) from None
     pointer = _pointer_digest()
     if pointer is not None:
         values["SENTINEL_RUNTIME_IMAGE_REF"] = pointer

@@ -346,4 +346,4 @@ def test_supported_launchers_bootstrap_before_compose_dependent_work():
     assert deploy.index("sentinel_deployment_bootstrap.py") < deploy.index(
         "sentinel-state-volume-permissions.sh")
     assert deploy.index("sentinel_deployment_bootstrap.py") < deploy.index(
-        "sentinel_autonomous_deploy_bootstrap.py")
+        "sentinel_autonomous_deploy_entry.py")

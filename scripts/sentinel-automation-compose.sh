@@ -4,6 +4,13 @@
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
+PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
+"$PYTHON" scripts/sentinel_host_python.py >/dev/null
+. scripts/sentinel-env.sh
+sentinel_load_environment --profile maintenance --automation-args "$@"
+
+# One parser owns the complete post-validation Docker/Compose authority boundary.
+sentinel_require_compose_envelope automation "$@"
 
 : "${SENTINEL_RUNTIME_IMAGE_DIGEST:?set sha256 runtime image digest}"
 : "${SENTINEL_TEST_IMAGE_DIGEST:?set sha256 test image digest}"
@@ -22,7 +29,9 @@ cd "$(dirname "$0")/.."
   exit 2
 }
 
-exec docker compose \
+exec docker --context default compose \
+  --project-name sentinel \
+  --project-directory "$(pwd -P)" \
   -f docker-compose.sentinel.yml \
   -f docker-compose.sentinel-backup.yml \
   -f docker-compose.sentinel-automation.yml \

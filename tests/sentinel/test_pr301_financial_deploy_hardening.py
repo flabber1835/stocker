@@ -175,7 +175,7 @@ def test_autonomous_deploy_migrates_existing_audit_volume_before_bootstrap():
     call = "bash scripts/sentinel-state-volume-permissions.sh"
     assert call in launcher
     assert launcher.index(call) < launcher.index(
-        'exec "$PYTHON" scripts/sentinel_autonomous_deploy_bootstrap.py')
+        'exec "$PYTHON" scripts/sentinel_autonomous_deploy_entry.py')
     assert 'VOLUME="sentinel_sentinel_state"' in migration
     assert 'chown -R 10001:10001 /sentinel-state' in migration
     assert '--network none' in migration

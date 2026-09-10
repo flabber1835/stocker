@@ -12,7 +12,7 @@ HELPER_IMAGE="postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b6
 
 # First installation has no volume yet. Docker will initialize the new named
 # volume from /var/lib/sentinel in the hardened image, preserving uid/gid 10001.
-if ! docker volume inspect "$VOLUME" >/dev/null 2>&1; then
+if ! docker --context default volume inspect "$VOLUME" >/dev/null 2>&1; then
   exit 0
 fi
 
@@ -20,7 +20,7 @@ fi
 # Repair numeric ownership before the first non-root runtime starts. The helper
 # has no network and receives only this audit volume; the canonical behavioral
 # database is a separate volume and is never mounted here.
-docker run --rm --network none --user 0:0 \
+docker --context default run --rm --network none --user 0:0 \
   -v "$VOLUME:/sentinel-state" \
   --entrypoint sh "$HELPER_IMAGE" -ceu '
     chown -R 10001:10001 /sentinel-state

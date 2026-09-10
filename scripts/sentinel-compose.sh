@@ -32,6 +32,9 @@ note() { [ "$EXPLAIN" -eq 1 ] && printf '%s\n' "$*" >&2 || true; }
   exit 1
 }
 
+. scripts/sentinel-env.sh
+sentinel_load_environment --profile compose
+
 # Successful GO validation atomically writes one non-secret immutable runtime
 # selector. Prefer it over shell/.env state so an old operator export cannot
 # silently resurrect a stale image. The selector may be a local immutable image
@@ -88,6 +91,7 @@ if [ "$INITIALIZE_BACKUP" -eq 1 ]; then
   exit 0
 fi
 
+FIXED_COMPOSE=(--project-name sentinel --project-directory "$(pwd -P)")
 if [ "${SENTINEL_FORCE_CPU_LIMITS:-0}" = "1" ] && \
    [ "${SENTINEL_FORCE_NO_CPU_LIMITS:-0}" = "1" ]; then
   echo "REFUSED: CPU-limit force modes are mutually exclusive" >&2
@@ -97,10 +101,10 @@ elif [ "${SENTINEL_FORCE_NO_CPU_LIMITS:-0}" = "1" ]; then
   mkdir -p "$(dirname "$GENERATED")"
   "$PYTHON" scripts/sentinel_strip_cpu_limits.py "$CANONICAL" "$GENERATED" \
     >&2 || { echo "could not generate the CPU-free compose file" >&2; exit 1; }
-  COMPOSE_ARGS=(--project-directory "$(pwd -P)" -f "$GENERATED" -f "$BACKUP")
+  COMPOSE_ARGS=("${FIXED_COMPOSE[@]}" -f "$GENERATED" -f "$BACKUP")
 elif [ "${SENTINEL_FORCE_CPU_LIMITS:-0}" = "1" ]; then
   note "SENTINEL_FORCE_CPU_LIMITS=1 - canonical CPU limits"
-  COMPOSE_ARGS=(-f "$CANONICAL" -f "$BACKUP")
+  COMPOSE_ARGS=("${FIXED_COMPOSE[@]}" -f "$CANONICAL" -f "$BACKUP")
 else
   CAPS="$("$PYTHON" scripts/sentinel_host_capabilities.py --json 2>/dev/null || echo '{}')"
   USABLE="$(printf '%s' "$CAPS" | "$PYTHON" -c \
@@ -111,19 +115,23 @@ print("1" if d.get("cpu_limits_usable", True) else "0")' \
     2>/dev/null || echo 1)"
   if [ "$USABLE" = "1" ]; then
     note "CPU quota ENFORCED - canonical deployment"
-    COMPOSE_ARGS=(-f "$CANONICAL" -f "$BACKUP")
+    COMPOSE_ARGS=("${FIXED_COMPOSE[@]}" -f "$CANONICAL" -f "$BACKUP")
   else
     note "CPU quota UNSUPPORTED - generating CPU-free deployment"
     mkdir -p "$(dirname "$GENERATED")"
     "$PYTHON" scripts/sentinel_strip_cpu_limits.py "$CANONICAL" "$GENERATED" \
       >&2 || { echo "could not generate the CPU-free compose file" >&2; exit 1; }
-    COMPOSE_ARGS=(--project-directory "$(pwd -P)" -f "$GENERATED" -f "$BACKUP")
+    COMPOSE_ARGS=("${FIXED_COMPOSE[@]}" -f "$GENERATED" -f "$BACKUP")
   fi
 fi
 
 if [ "$RUN" -eq 1 ]; then
   . scripts/sentinel-backup-lib.sh
   sentinel_backup_root >/dev/null
+
+  # No operational command may reinterpret the reviewed graph, project, state
+  # namespace or container execution environment after host validation.
+  sentinel_require_compose_envelope base "$@"
 
   # An immutable image identity is not authorization to mutate the CURRENT
   # checkout's corpus. Resolve the image exactly as Compose will, then bind feed
@@ -136,8 +144,25 @@ if [ "$RUN" -eq 1 ]; then
   FEED_CLASSIFICATION=$?
   set -e
   if [ "$FEED_CLASSIFICATION" -eq 0 ]; then
+    RUN_POSITION="$(
+      "$PYTHON" scripts/sentinel_feed_gate.py locate -- "$@"
+    )" || {
+      echo "REFUSED: feed command boundary could not be reconstructed" >&2
+      exit 2
+    }
+    case "$RUN_POSITION" in
+      ''|*[!0-9]*)
+        echo "REFUSED: feed command boundary was invalid" >&2
+        exit 2
+        ;;
+    esac
+    [ "$RUN_POSITION" -ge 1 ] && [ "$RUN_POSITION" -le "$#" ] || {
+      echo "REFUSED: feed command boundary was outside the invocation" >&2
+      exit 2
+    }
+
     COMPOSE_MODEL="$(
-      docker compose "${COMPOSE_ARGS[@]}" --profile cli config --format json
+      docker --context default compose "${COMPOSE_ARGS[@]}" --profile cli config --format json
     )" || {
       echo "REFUSED: Compose could not resolve the selected Sentinel image" >&2
       exit 2
@@ -166,20 +191,29 @@ print(image.strip())')" || exit 2
     export SENTINEL_GIT_COMMIT SENTINEL_RUNTIME_IMAGE_DIGEST
     export SENTINEL_FEED_AUTHORIZED SENTINEL_FEED_GIT_COMMIT
     export SENTINEL_FEED_RUNTIME_IMAGE_DIGEST
+
+    RUN_PREFIX_COUNT=$((RUN_POSITION - 1))
+    RUN_PREFIX=()
+    if [ "$RUN_PREFIX_COUNT" -gt 0 ]; then
+      RUN_PREFIX=("${@:1:$RUN_PREFIX_COUNT}")
+    fi
+    RUN_TAIL_OFFSET=$((RUN_POSITION + 1))
+    RUN_TAIL=("${@:$RUN_TAIL_OFFSET}")
     RUN_ARGS=(
+      "${RUN_PREFIX[@]}"
       run
       --env SENTINEL_GIT_COMMIT
       --env SENTINEL_RUNTIME_IMAGE_DIGEST
       --env SENTINEL_FEED_AUTHORIZED
       --env SENTINEL_FEED_GIT_COMMIT
       --env SENTINEL_FEED_RUNTIME_IMAGE_DIGEST
-      "${@:2}"
+      "${RUN_TAIL[@]}"
     )
-    exec docker compose "${COMPOSE_ARGS[@]}" "${RUN_ARGS[@]}"
+    exec docker --context default compose "${COMPOSE_ARGS[@]}" "${RUN_ARGS[@]}"
   elif [ "$FEED_CLASSIFICATION" -ne 1 ]; then
     exit "$FEED_CLASSIFICATION"
   fi
-  exec docker compose "${COMPOSE_ARGS[@]}" "$@"
+  exec docker --context default compose "${COMPOSE_ARGS[@]}" "$@"
 fi
 
 # Compatibility/inspection output only. Production callers use --run so a
