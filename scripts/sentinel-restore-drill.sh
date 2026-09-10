@@ -121,7 +121,14 @@ docker network create --internal "$NETWORK" >/dev/null
 docker run --rm --network none \
   -v "$LATEST:/source:ro" -v "$VOLUME:/target" \
   --entrypoint sh postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
-  -ceu 'cp -a /source/. /target/; chown -R postgres:postgres /target; chmod 700 /target; touch /target/recovery.signal; chown postgres:postgres /target/recovery.signal'
+  -ceu '
+    cp -a /source/. /target/
+    pg_verifybackup --ignore=sentinel-recovery-marker --ignore=sentinel-pitr-base-identity /target
+    chown -R postgres:postgres /target
+    chmod 700 /target
+    touch /target/recovery.signal
+    chown postgres:postgres /target/recovery.signal
+  '
 
 docker run -d --name "$CONTAINER" --network "$NETWORK" \
   --network-alias restored-postgres \

@@ -55,19 +55,28 @@ WAL_NAMESPACE="cluster-$SYSTEM_ID"
 [ "${LAST_FAIL:-0}" -le "${LAST_OK:-0}" ] ||
   refuse "WAL_ARCHIVE_UNRESOLVED_FAILURE" 4 \
     "an unresolved archive failure is newer than the last success"
+[[ "$LAST_WAL" =~ ^[0-9A-F]{24}$ ]] ||
+  refuse "WAL_OBJECT_INVALID" 4 "last archived WAL name is malformed"
+WAL_BYTES="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel -Atc \
+  "SELECT pg_size_bytes(current_setting('wal_segment_size'))")"
+[[ "$WAL_BYTES" =~ ^[0-9]+$ ]] && [ "$WAL_BYTES" -gt 0 ] ||
+  refuse "CONFIGURATION_INVALID" 4 "WAL segment size is unavailable"
 if ! ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   namespace="$1" wal="$2"
   test -d "/sentinel-backup/wal/$namespace"
   test ! -L "/sentinel-backup/wal/$namespace"
   test -f "/sentinel-backup/wal/$namespace/$wal"
+  test ! -L "/sentinel-backup/wal/$namespace/$wal"
   test -r "/sentinel-backup/wal/$namespace/$wal"
 ' sh "$WAL_NAMESPACE" "$LAST_WAL" >/dev/null 2>&1; then
   refuse "WAL_NAMESPACE_MISSING" 4 \
     "last archived WAL is not present in current PostgreSQL system-id namespace"
 fi
 NOW="$(date +%s)"
+[ "$LAST_OK" -le "$NOW" ] && [ "${LAST_FAIL:-0}" -le "$NOW" ] ||
+  refuse "ARCHIVE_CLOCK_INVALID" 4 "archive evidence is future-dated"
 WAL_AGE_HOURS="$(( (NOW - LAST_OK) / 3600 ))"
-[ "$WAL_AGE_HOURS" -le "$MAX_AGE_HOURS" ] ||
+[ "$((NOW - LAST_OK))" -le "$((MAX_AGE_HOURS * 3600))" ] ||
   refuse "WAL_ARCHIVE_STALE" 4 \
     "last WAL archive is ${WAL_AGE_HOURS}h old"
 
@@ -130,11 +139,38 @@ ${COMPOSE[@]} exec -T sentinel-postgres test -f "/sentinel-backup/base/$NAME/bac
 MTIME="$(${COMPOSE[@]} exec -T sentinel-postgres \
   stat -c %Y "/sentinel-backup/base/$NAME/backup_manifest")"
 AGE_HOURS="$(( (NOW - MTIME) / 3600 ))"
-[ "$AGE_HOURS" -le "$MAX_AGE_HOURS" ] ||
+[ "$MTIME" -le "$NOW" ] ||
+  refuse "BASE_BACKUP_CLOCK_INVALID" 4 "base backup manifest is future-dated"
+[ "$((NOW - MTIME))" -le "$((MAX_AGE_HOURS * 3600))" ] ||
   refuse "BASE_BACKUP_STALE" 4 \
     "latest base backup is ${AGE_HOURS}h old (max ${MAX_AGE_HOURS}h)"
 ${COMPOSE[@]} exec -T sentinel-postgres \
   test -f "/sentinel-backup/base/$NAME/sentinel-recovery-marker" ||
   refuse "BASE_BACKUP_RECOVERY_MARKER_MISSING" 4 \
     "latest backup lacks a post-base recovery marker"
+if ! ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+  name="$1" namespace="$2" expected_size="$3" latest_wal="$4"
+  base="/sentinel-backup/base/$name"
+  file="$base/sentinel-recovery-marker"
+  test ! -L "$base"
+  test ! -L "$base/backup_manifest"
+  test ! -L "$base/sentinel-pitr-base-identity"
+  test ! -L "$file"
+  test "$(wc -l < "$file")" -eq 4
+  test "$(grep -Ec "^marker=sentinel-backup-[0-9]{8}T[0-9]{6}Z-[0-9]+$" "$file")" -eq 1
+  test "$(grep -Ec "^lsn=[0-9A-F]{1,8}/[0-9A-F]{1,8}$" "$file")" -eq 1
+  test "$(grep -Ec "^wal=[0-9A-F]{24}$" "$file")" -eq 1
+  test "$(grep -Ec "^system_identifier=[0-9]+$" "$file")" -eq 1
+  marker_wal="$(sed -n "s/^wal=//p" "$file")"
+  for wal in "$marker_wal" "$latest_wal"; do
+    path="/sentinel-backup/wal/$namespace/$wal"
+    test -f "$path"
+    test ! -L "$path"
+    test -r "$path"
+    test "$(stat -c %s "$path")" -eq "$expected_size"
+  done
+' sh "$NAME" "$WAL_NAMESPACE" "$WAL_BYTES" "$LAST_WAL"; then
+  refuse "BASE_BACKUP_RECOVERY_EVIDENCE_INVALID" 4 \
+    "backup marker or required archived WAL is malformed, missing, or truncated"
+fi
 echo "backup_ready:true base=$LATEST age_hours=$AGE_HOURS wal_age_hours=$WAL_AGE_HOURS system_id=$SYSTEM_ID"

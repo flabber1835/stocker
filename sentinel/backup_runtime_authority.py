@@ -62,7 +62,27 @@ def _require_marker(conn, root: str) -> None:
             f"independent durable-target marker is invalid under {root}")
 
 
-def _latest_complete_base(conn) -> str:
+def current_system_id(conn) -> str:
+    with conn.cursor() as cur:
+        cur.execute("SELECT system_identifier::text FROM pg_control_system()")
+        row = cur.fetchone()
+    value = str(row[0]) if row else ""
+    if re.fullmatch(r"[0-9]{1,20}", value) is None or not 0 < int(value) < 2**64:
+        raise BackupRuntimeRefused("current PostgreSQL system identifier is invalid")
+    return value
+
+
+def _metadata_fields(value: str) -> dict[str, str]:
+    fields = {}
+    for line in value.splitlines():
+        key, separator, content = line.partition("=")
+        if not separator or not key or key in fields or not content:
+            raise BackupRuntimeRefused("backup metadata is incomplete or duplicated")
+        fields[key] = content
+    return fields
+
+
+def _latest_complete_base(conn, *, system_id: str) -> str:
     with conn.cursor() as cur:
         cur.execute("SELECT pg_ls_dir(%s)", (BASE_ROOT,))
         names = [str(row[0]) for row in cur.fetchall()]
@@ -75,15 +95,26 @@ def _latest_complete_base(conn) -> str:
             conn, f"{BASE_ROOT}/{name}/sentinel-recovery-marker", missing_ok=True)
         label = _read_text(
             conn, f"{BASE_ROOT}/{name}/backup_label", missing_ok=True)
-        if manifest is not None and recovery is not None and label is not None:
+        identity = _read_text(
+            conn, f"{BASE_ROOT}/{name}/sentinel-pitr-base-identity", missing_ok=True)
+        if (manifest is not None and recovery is not None and label is not None
+                and identity is not None
+                and _metadata_fields(identity).get("system_identifier") == system_id):
             return name
     raise BackupRuntimeUnavailable("no complete physical base backup is present")
 
 
-def _recovery_wal(conn, base: str) -> str:
+def _recovery_wal(conn, base: str, *, system_id: str) -> str:
     metadata = _read_text(
         conn, f"{BASE_ROOT}/{base}/sentinel-recovery-marker", missing_ok=False)
     assert metadata is not None
+    fields = _metadata_fields(metadata)
+    if (set(fields) != {"marker", "lsn", "wal", "system_identifier"}
+            or fields["system_identifier"] != system_id
+            or re.fullmatch(r"sentinel-backup-[0-9]{8}T[0-9]{6}Z-[0-9]+",
+                            fields["marker"]) is None
+            or re.fullmatch(r"[0-9A-F]{1,8}/[0-9A-F]{1,8}", fields["lsn"]) is None):
+        raise BackupRuntimeRefused(f"base backup {base} recovery metadata is invalid")
     matches = _RECOVERY_WAL.findall(metadata)
     if len(matches) != 1:
         raise BackupRuntimeRefused(
@@ -169,14 +200,15 @@ def _expected_wals(start: str, end: str, *, segment_size: int) -> tuple[str, ...
     return tuple(out)
 
 
-def require(conn, *, operation: str) -> dict:
-    """Prove mount identity and a complete WAL chain for production mutation."""
+def _require(conn, *, operation: str) -> dict:
     if not enabled():
         return {"enabled": False}
     _require_marker(conn, WAL_ROOT)
     _require_marker(conn, BASE_ROOT)
-    base = _latest_complete_base(conn)
-    marker_wal = _recovery_wal(conn, base)
+    system_id = current_system_id(conn)
+    wal_root = f"{WAL_ROOT}/cluster-{system_id}"
+    base = _latest_complete_base(conn, system_id=system_id)
+    marker_wal = _recovery_wal(conn, base, system_id=system_id)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT last_archived_wal,last_archived_time,last_failed_time,"
@@ -205,7 +237,7 @@ def require(conn, *, operation: str) -> dict:
             "SELECT name,(pg_stat_file(%s || '/' || name,true)).size"
             " FROM pg_ls_dir(%s) AS entries(name)"
             " WHERE name ~ '^[0-9A-F]{24}$'",
-            (WAL_ROOT, WAL_ROOT))
+            (wal_root, wal_root))
         actual = {
             str(name): (None if size is None else int(size))
             for name, size in cur.fetchall()
@@ -219,12 +251,29 @@ def require(conn, *, operation: str) -> dict:
             + (f" (+{len(missing) - 5} more)" if len(missing) > 5 else ""))
     return {
         "enabled": True,
+        "system_identifier": system_id,
         "base_backup": base,
         "recoverable_from_wal": start,
         "recovery_marker_wal": marker_wal,
         "recoverable_through_wal": end,
         "wal_segments": len(expected),
     }
+
+
+def require(conn, *, operation: str) -> dict:
+    """Prove the restore horizon; disappearing media remains a retryable fence."""
+    try:
+        return _require(conn, operation=operation)
+    except (BackupRuntimeUnavailable, BackupRuntimeRefused):
+        raise
+    except Exception as exc:
+        # PostgreSQL reports filesystem disappearance/permissions/I/O through
+        # SQLSTATE. A transient media fault must not terminalize automation.
+        if (isinstance(exc, OSError)
+                or getattr(exc, "sqlstate", None) in {"58P01", "42501", "58030"}):
+            raise BackupRuntimeUnavailable(
+                f"{operation}: backup media could not be read ({type(exc).__name__})") from exc
+        raise
 
 
 __all__ = [

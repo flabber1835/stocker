@@ -1,0 +1,128 @@
+from __future__ import annotations
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import sys
+
+import pytest
+
+from lab import ROOT, SYSTEM_ID, wal_name
+
+
+class ShellLab:
+    def __init__(self, root: Path):
+        self.root = root
+        self.repo = root / "repo"
+        self.media = root / "media"
+        self.base = self.media / "base"
+        self.base.mkdir(parents=True)
+        namespace = self.media / "wal" / f"cluster-{SYSTEM_ID}"
+        namespace.mkdir(parents=True)
+        with (namespace / wal_name(3)).open("wb") as stream:
+            stream.truncate(16 * 1024 * 1024)
+        self.scripts = self.repo / "scripts"
+        self.scripts.mkdir(parents=True)
+        for name in ("sentinel-base-backup.sh", "sentinel-backup-status.sh",
+                     "sentinel-restore-drill.sh", "sentinel_host_python.py",
+                     "sentinel_backup_lock.py"):
+            shutil.copy2(ROOT / "scripts" / name, self.scripts / name)
+        # Separate mount-validation tests execute the real backup library.
+        (self.scripts / "sentinel-backup-lib.sh").write_text(
+            'sentinel_backup_root() { printf "%s\\n" "$BACKUP_LAB_ROOT/media"; }\n')
+        bin_path = root / "bin"
+        bin_path.mkdir()
+        adapter = Path(__file__).with_name("command_adapter.py").read_text()
+        adapter = adapter.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1)
+        for command in ("docker", "psql", "pg_basebackup", "pg_verifybackup", "date", "sleep"):
+            path = bin_path / command
+            path.write_text(adapter)
+            path.chmod(0o755)
+        self.env = {"PATH": f"{bin_path}:{os.environ['PATH']}", "LANG": "C",
+                    "BACKUP_LAB_ROOT": str(root), "SENTINEL_HOST_PYTHON": sys.executable,
+                    "PYTHONPATH": str(ROOT),
+                    "POSTGRES_PASSWORD": "synthetic-only"}
+
+    def run(self, script="sentinel-base-backup.sh", *args):
+        return subprocess.run(["bash", str(self.scripts / script), *args],
+                              env=self.env, capture_output=True, text=True, timeout=20)
+
+    def events(self):
+        return [json.loads(line)["stage"] for line in
+                (self.root / "events.jsonl").read_text().splitlines()]
+
+
+@pytest.mark.parametrize("stage", [
+    "base-copy", "base-verify", "base-identity", "marker-row", "wal-proof",
+    "marker-file", "base-publish",
+])
+@pytest.mark.parametrize("moment", ["before", "after"])
+def test_interrupted_backup_preserves_old_generation_and_retry(tmp_path, stage, moment):
+    lab = ShellLab(tmp_path)
+    old = lab.base / "base-20260909T120000Z"
+    old.mkdir()
+    (old / "retained").write_bytes(b"last-known-recovery-point")
+    lab.env["BACKUP_LAB_FAULT"] = f"{stage}:{moment}"
+    result = lab.run()
+    assert result.returncode != 0, (stage, moment, result)
+    assert "verified_base_backup:" not in result.stdout
+    assert (old / "retained").read_bytes() == b"last-known-recovery-point"
+    assert not list(lab.base.glob(".base-*.part-*"))
+    del lab.env["BACKUP_LAB_FAULT"]
+    final = lab.base / "base-20260910T120000Z"
+    if final.exists():
+        # Crash after promotion may leave a completed recovery point. The
+        # producer must preserve it and refuse a same-name second publication.
+        assert (final / "sentinel-recovery-marker").is_file()
+        assert lab.run().returncode != 0
+    else:
+        retry = lab.run()
+        assert retry.returncode == 0, retry.stderr
+        assert f"verified_base_backup:{final}" in retry.stdout
+
+
+def test_abandoned_staging_reaped_only_under_real_lock(tmp_path):
+    lab = ShellLab(tmp_path)
+    (lab.base / ".base-20260901T000000Z.part-123").mkdir()
+    assert lab.run().returncode == 0
+    assert not list(lab.base.glob(".base-*.part-*"))
+    stages = lab.events()
+    assert stages.index("base-copy") < stages.index("base-verify")
+    assert stages.index("base-verify") < stages.index("marker-file") < stages.index("base-publish")
+
+
+def test_restore_rechecks_manifest_after_storage_corruption(tmp_path):
+    lab = ShellLab(tmp_path)
+    result = lab.run()
+    assert result.returncode == 0, result.stderr
+    final = lab.base / "base-20260910T120000Z"
+    (final / "relation-data").write_bytes(b"bit rot after initial verification")
+    result = lab.run("sentinel-restore-drill.sh", "--backup", str(final), "--physical-only")
+    assert result.returncode != 0
+    assert "manifest checksum mismatch" in result.stderr
+    assert "restore-start" not in lab.events()
+    assert "physical_wal_replay_ready:true" not in result.stdout
+    assert "cleanup" in lab.events()
+
+
+@pytest.mark.parametrize("fault", ["partial-marker", "missing-wal", "truncated-wal", "future-mtime"])
+def test_status_never_claims_ready_for_invalid_recovery_point(tmp_path, fault):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    final = lab.base / "base-20260910T120000Z"
+    # Set the otherwise-valid manifest mtime to the deterministic current time.
+    os.utime(final / "backup_manifest", (1789041600, 1789041600))
+    wal = lab.media / "wal" / f"cluster-{SYSTEM_ID}" / wal_name(3)
+    if fault == "partial-marker":
+        (final / "sentinel-recovery-marker").write_text(f"system_identifier={SYSTEM_ID}\n")
+    elif fault == "missing-wal":
+        wal.unlink()
+    elif fault == "truncated-wal":
+        wal.write_bytes(b"truncated")
+    else:
+        os.utime(final / "backup_manifest", (1789041600 + 3600, 1789041600 + 3600))
+    result = lab.run("sentinel-backup-status.sh", "--backup", str(final))
+    assert result.returncode != 0, result.stdout
+    assert "backup_ready:true" not in result.stdout

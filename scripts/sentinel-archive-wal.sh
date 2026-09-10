@@ -103,7 +103,10 @@ final_matches_source "$temporary" || \
   refuse "temporary archive changed after fsync"
 
 if ! mv -T --no-clobber -- "$temporary" "$target"; then
-  refuse "atomic publication failed for $wal_name"
+  # Coreutils versions differ on the exit status of a no-clobber name race.
+  # Only an intact temporary plus an exact competing final proves that case.
+  [ -f "$temporary" ] && final_matches_source "$target" || \
+    refuse "atomic publication failed for $wal_name"
 fi
 if [ -e "$temporary" ]; then
   final_matches_source "$target" || \
