@@ -25,6 +25,7 @@ from contextlib import contextmanager
 from dataclasses import dataclass
 from typing import Any, Iterable, Iterator, Optional, Sequence
 
+from sentinel import backup_runtime_authority
 from sentinel.feed.schema import RECLAIM_ORPHANS, RESTART_ABORT_MARKER
 from sentinel.feed.publication_visibility import retired_predicate
 
@@ -219,7 +220,11 @@ def corpus_write_lock(conn):
                 "— the version would not move and the snapshot would.")
     conn.commit()
     try:
+        backup_runtime_authority.require(conn, operation="corpus writer mutation")
         yield
+    except BaseException:
+        conn.rollback()
+        raise
     finally:
         with conn.cursor() as cur:
             cur.execute("SELECT pg_advisory_unlock(%s)", (CORPUS_LOCK_KEY,))

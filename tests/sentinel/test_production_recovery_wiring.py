@@ -44,7 +44,9 @@ class _ProbeCursor:
 
     def execute(self, statement, *_args, **_kwargs):
         text = str(statement)
-        if "pg_create_restore_point" in text:
+        if "pg_control_system()" in text:
+            self.kind = "system"
+        elif "pg_create_restore_point" in text:
             self.kind = "restore"
         elif "pg_switch_wal" in text:
             self.kind = "switch"
@@ -58,6 +60,8 @@ class _ProbeCursor:
             raise AssertionError(text)
 
     def fetchone(self):
+        if self.kind == "system":
+            return ("7377777777777777777",)
         if self.kind == "restore":
             return ("0/1FFFFFF",)
         if self.kind == "switch":

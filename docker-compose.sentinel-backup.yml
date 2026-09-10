@@ -45,3 +45,10 @@ services:
       interval: 5s
       timeout: 5s
       retries: 20
+
+  # Every supported CLI invocation includes this overlay. Feed seed/daily and
+  # paper preparation/execution therefore receive the same restore-horizon
+  # authority required by unattended automation.
+  sentinel:
+    environment:
+      SENTINEL_RUNTIME_BACKUP_AUTHORITY: REQUIRED_V1

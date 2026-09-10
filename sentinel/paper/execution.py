@@ -84,6 +84,7 @@ from .inspection import (
 )
 
 from .validation import (
+    _require_mutation_backup,
     _readiness_or_refuse,
     _execution_window_or_refuse,
     _assert_deterministic_plan_id,
@@ -513,6 +514,7 @@ async def execute_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                              today: date | datetime | None = None
                              ) -> ExecutionResult:
     """Execute the current plan only with the exact manual confirmations."""
+    _require_mutation_backup(conn, operation="paper order execution")
     if not confirm_submit:
         raise PaperActivationRefused("--confirm-submit-paper-orders is required")
     effective = (confirm_effective_session
@@ -536,6 +538,7 @@ async def execute_automated_paper_plan(
         dual_shadow_starting_cash: Decimal | str | None = None
         ) -> ExecutionResult:
     """Execute the same current plan through a fenced automation grant."""
+    _require_mutation_backup(conn, operation="automated paper order execution")
     return await _execute_current_paper_plan(
         conn=conn, broker=broker, base_url=base_url, grant=grant,
         today=today, automation_config_sha256=automation_config_sha256,

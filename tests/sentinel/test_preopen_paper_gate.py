@@ -117,7 +117,12 @@ def _install_recovery_harness(
     monkeypatch.setattr(
         paper_recovery, "_require_certified_paper_broker", lambda *_: None)
     monkeypatch.setattr(schema, "require_runtime_schema", lambda *_: None)
-    monkeypatch.setattr(journal, "writer_lock", lambda *_: nullcontext())
+
+    def recovery_lock(_conn, *, recovery_only=False):
+        assert recovery_only is True
+        return nullcontext()
+
+    monkeypatch.setattr(journal, "writer_lock", recovery_lock)
     monkeypatch.setattr(
         handover, "assert_no_legacy_path", lambda *_: binding)
     monkeypatch.setattr(

@@ -1685,6 +1685,25 @@ verify independent durability and set
 `SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1`. The scripts also run a write probe
 as the PostgreSQL container uid; host-root writability is not sufficient.
 
+Container root creates physical bases. Runtime restore-horizon checks run inside
+PostgreSQL and need read access to recovery metadata. The base parent therefore
+uses root ownership, group `postgres`, and mode 0750. Published base directories
+use root ownership, group `postgres`, and mode 0710. The four files
+`backup_manifest`, `backup_label`, `sentinel-recovery-marker`, and
+`sentinel-pitr-base-identity` use root ownership, group `postgres`, and mode 0640.
+Payload files and nested directories retain their private root permissions.
+PostgreSQL has metadata read authority; container root retains backup write and
+deletion authority. NAS host access is not required.
+Bind-mounted groups are numeric: a host account sharing PostgreSQL's group ID
+can also read these four metadata files. Backup payload reads and backup writes
+remain restricted by their root ownership and private permissions.
+
+The producer applies the metadata grant before publishing each generation. On
+upgrade from root-only backup directories, run
+`bash scripts/sentinel-compose.sh --initialize-backup` while the verified
+external target is mounted. This idempotent provisioning step also grants access
+to retained completed generations. Invalid metadata paths refuse migration.
+
 The inside-Docker-root comparison is lexical and runs before traversal, so an
 attestation can never authorize a child of the daemon root. When that root is a
 protected Synology path, validation does not attempt to traverse it after an
@@ -1759,6 +1778,21 @@ drill after every schema/certification change and at least monthly. Retention is
 owned by the second target: keep at least seven daily and four weekly verified
 base backups plus all WAL needed from the oldest retained base. Never prune WAL
 until a newer base has passed both `pg_verifybackup` and the restore drill.
+
+The supported backup overlay sets `SENTINEL_RUNTIME_BACKUP_AUTHORITY=REQUIRED_V1`
+for the CLI; unattended services carry the same requirement. New feed, plan and
+execution mutations prove the complete selected base-to-archived-frontier WAL
+chain at their common writer locks. Each broker submit/cancel repeats that proof
+on a fresh authority connection. Broker observations, recovery-journal updates,
+lease coordination, and emergency fencing remain available during media loss.
+
+The archive producer durably publishes a `<WAL>.sha256` sidecar for every newly
+archived WAL object. Runtime and operator status rehash every required segment;
+missing evidence or a size-preserving bit flip fences mutation. After upgrading
+from an archive producer that predates sidecars, create a fresh verified base
+with `scripts/sentinel-base-backup.sh`, then run status and the restore drill
+above. Retained WAL is never retroactively granted checksum authority. A fresh
+base establishes a recovery horizon archived by the checksum-aware producer.
 
 ### 10h. The panel reports durable facts, never deployment-stage placeholders
 

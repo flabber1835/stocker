@@ -174,7 +174,7 @@ def test_equivalence_manifest_covers_every_canonical_definition():
         (ROOT / "docs" / "paper-lifecycle-equivalence.json").read_text(
             encoding="utf-8"))
     assert manifest["source_sha256"] == 'c14cc619ca19e91b53e3f618543ea782e97f5a87bdde65af6370bd313bd63ffe'
-    expected = set(manifest["definitions"])
+    expected = set(manifest["definitions"]) | {"_require_mutation_backup"}
     actual = set()
     for module_name in MODULES:
         tree = ast.parse(
@@ -183,9 +183,42 @@ def test_equivalence_manifest_covers_every_canonical_definition():
             if isinstance(node, (ast.FunctionDef, ast.AsyncFunctionDef,
                                  ast.ClassDef)):
                 actual.add(node.name)
+                if node.name == "_require_mutation_backup":
+                    # Added after decomposition; executable refusal tests cover
+                    # both public and canonical imports and exception classes.
+                    assert module_name == "validation"
+                    continue
                 record = manifest["definitions"][node.name]
+                _check_and_remove_backup_gate_delta(node)
                 normalized = ast.dump(
                     node, annotate_fields=True, include_attributes=False)
                 assert record["generated_ast_sha256"] == __import__(
                     "hashlib").sha256(normalized.encode()).hexdigest()
     assert actual == expected
+
+
+def _check_and_remove_backup_gate_delta(node):
+    """Check PR344's exact safety additions against frozen lifecycle bodies."""
+    operations = {
+        "prepare_paper_plan": "paper plan preparation",
+        "execute_paper_plan": "paper order execution",
+        "execute_automated_paper_plan": "automated paper order execution",
+    }
+    if node.name in operations:
+        expected = ast.parse(
+            "_require_mutation_backup(conn, operation="
+            + repr(operations[node.name]) + ")").body[0]
+        assert ast.dump(node.body[1]) == ast.dump(expected)
+        del node.body[1]
+    elif node.name == "recover_automated_paper_cycle":
+        locks = [call for call in ast.walk(node)
+                 if isinstance(call, ast.Call)
+                 and isinstance(call.func, ast.Attribute)
+                 and isinstance(call.func.value, ast.Name)
+                 and call.func.value.id == "journal"
+                 and call.func.attr == "writer_lock"]
+        assert len(locks) == 1
+        expected = ast.parse(
+            "journal.writer_lock(conn, recovery_only=True)").body[0].value
+        assert ast.dump(locks[0]) == ast.dump(expected)
+        locks[0].keywords = []

@@ -72,7 +72,10 @@ def test_wal_archive_contract_requires_verified_atomic_durable_publication():
     assert 'sync "$temporary"' in text
     assert 'mv -T --no-clobber -- "$temporary" "$target"' in text
     assert 'sync "$archive_dir"' in text
-    assert text.index('sync "$temporary"') < text.index("mv -T --no-clobber")
+    assert text.index('sync "$temporary"') < text.index(
+        'mv -T --no-clobber -- "$temporary" "$target"')
+    assert text.index('sync "$checksum_temporary"') < text.index(
+        'mv -T --no-clobber -- "$checksum_temporary" "$checksum_target"')
     assert text.index("mv -T --no-clobber") < text.rindex('sync "$archive_dir"')
 
 
