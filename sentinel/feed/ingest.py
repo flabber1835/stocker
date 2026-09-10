@@ -487,6 +487,7 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             published_frontier if fetch is snapshot_source.fetch_table else None)
         guarded = source_authority.StableSharadarFetch(
             daily_fetch, after_session=listing_frontier,
+            reference_recovery=(failed is not None and failed.kind == "daily"),
             sep_update_envelope=(source_authority.SepUpdateEnvelope.through(
                 source_observation_day, context="production daily SEP observation")
                 if production_snapshot else None))

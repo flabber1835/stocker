@@ -74,18 +74,21 @@ def _mixed_daily_recovery_scenario() -> Scenario:
         recovery_from="clean_daily_supersedes_both")
 
 
-def _partial_sfp_recovery_scenario() -> Scenario:
+def _partial_sfp_recovery_scenario(*, same_day: bool = False) -> Scenario:
     seed = _seed()
     hidden = _hidden_references(seed.expected)
     first = _sep_failure_after_sfp(seed)
     second = step(
-        "partial_sfp_retry_is_refused", SECOND, expected=hidden,
+        "partial_sfp_retry_is_refused", FIRST if same_day else SECOND, expected=hidden,
         ready=False, error="SourceAuthorityRefused",
         required_blockers=("freshness",),
         faults=(Fault(table="SFP", kind="omit_ticker", ticker="BIL"),))
-    recover = step("clean_retry_converges", THIRD)
+    recover = step("clean_retry_converges", FIRST if same_day else THIRD)
+    if same_day:
+        second = second.model_copy(update={"at": first.at + dt.timedelta(minutes=15)})
+        recover = recover.model_copy(update={"at": first.at + dt.timedelta(minutes=30)})
     return Scenario(
-        name="partial_sfp_recovery_converges",
+        name="partial_sfp_recovery_converges" + ("_same_day" if same_day else ""),
         seed_start=dt.date.fromisoformat(START), seed=seed,
         steps=(first, second, recover),
         recovery_from="clean_retry_converges")
@@ -128,12 +131,24 @@ def test_mixed_sep_then_sfp_failures_converge_on_next_clean_daily(tmp_path):
     assert result["recovery_attempts"] == 1
 
 
-def test_partial_sfp_retry_stays_failed_and_next_clean_daily_converges(tmp_path):
-    scenario = _partial_sfp_recovery_scenario()
+@pytest.mark.parametrize("same_day", [False, True], ids=["next_day", "same_day"])
+def test_partial_sfp_retry_stays_failed_and_next_clean_daily_converges(tmp_path, same_day):
+    scenario = _partial_sfp_recovery_scenario(same_day=same_day)
     result = run_scenario(
         scenario, server_dsn=_dsn(), output=Path(tmp_path) / scenario.name)
     assert result["verdict"] == "PASS"
     assert result["recovery_attempts"] == 1
+
+
+def test_disabled_same_day_reference_guard_is_killed(monkeypatch, tmp_path):
+    from sentinel.feed.source_authority import fetch
+    from research.sharadar_replay.oracle import StateMismatch
+
+    monkeypatch.setattr(fetch, "_require_complete_recovery_reference_tail",
+                        lambda rows, params: rows)
+    scenario = _partial_sfp_recovery_scenario(same_day=True)
+    with pytest.raises(StateMismatch, match="partial_sfp_retry_is_refused"):
+        run_scenario(scenario, server_dsn=_dsn(), output=Path(tmp_path) / scenario.name)
 
 
 def test_persistent_unresolved_split_replays_historical_sep_only_once(

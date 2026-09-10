@@ -309,6 +309,39 @@ class TestFailedCandidate:
 
 
 class TestExplicitResolvedDispositions:
+    @pytest.mark.parametrize("outcome", ["publish", "fail", "foreign"])
+    def test_candidate_split_cleanup_obeys_writer_and_publication_authority(
+            self, conn, outcome):
+        publish_observation(conn, "SEAM_SPLIT_UNCORROBORATED", "old seam")
+        retry = S.IngestRun(conn, "corrected-split")
+        owner = (S.IngestRun(conn, "foreign-candidate")
+                 if outcome == "foreign" else retry)
+        report = domains.NormalisationReport()
+        report.split_no_event_evidence.add(("AAA", EVENT))
+        with S.corpus_write_lock(conn):
+            S.write_actions(conn, [], run_id=retry.progress.run_id,
+                            window_start=START, window_end=END)
+            S.write_bars(conn, [current_bar()], run_id=owner.progress.run_id,
+                         require_lock=True)
+            tombstones = ingest._resolution_tombstones(
+                conn, retry, lo=START, hi=END, report=report,
+                emitted=[], current_action_rows=[])
+            assert [row["kind"] for row in tombstones] == (
+                [] if outcome == "foreign" else ["SPLIT_RESOLVED_NO_EVENT"])
+            S.write_anomalies(conn, tombstones, run_id=retry.progress.run_id,
+                              require_lock=True)
+            assert [row["kind"] for row in active(conn)] == [
+                "SEAM_SPLIT_UNCORROBORATED"]
+            if outcome == "publish":
+                retry.finish("success")
+                P.publish(conn, run_id=retry.progress.run_id,
+                          window_start=START, window_end=END)
+            else:
+                retry.finish("failed", "candidate did not publish")
+        assert [row["kind"] for row in active(conn)] == (
+            ["SPLIT_RESOLVED_NO_EVENT"] if outcome == "publish"
+            else ["SEAM_SPLIT_UNCORROBORATED"])
+
     def test_corrected_unusable_dividend_emits_published_tombstone(self, conn):
         S.write_anomalies(conn, [{
             "kind": "UNUSABLE_DIVIDEND", "ticker": "AAA",

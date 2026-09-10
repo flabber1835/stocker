@@ -92,7 +92,8 @@ def test_ingest_daily_passes_explicit_session_verbatim(monkeypatch):
         ingest.recovery, "extended_overlap_days", lambda conn, requested: requested)
     monkeypatch.setattr(
         ingest.source_authority, "StableSharadarFetch",
-        lambda fetch, after_session=None, sep_update_envelope=None: fetch)
+        lambda fetch, after_session=None, sep_update_envelope=None,
+        reference_recovery=False: fetch)
 
     def daily_locked(conn, **kwargs):
         observed.update(kwargs)

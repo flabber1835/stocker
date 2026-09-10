@@ -57,13 +57,13 @@ def _merge_seed_coverage(current: Optional[dict], chunk: dict) -> dict:
     }
 
 
-def _require_complete_expanded_reference_tail(rows, params):
-    """Fail a daily retry if its widened SPY/BIL replacement is incomplete.
+def _require_complete_recovery_reference_tail(rows, params):
+    """Fail a daily retry if its SPY/BIL replacement is incomplete.
 
     Ordinary daily acquisition asks for exactly the readiness-required tail.
-    ``reference_window_start`` widens that request only when a failed unpublished
-    daily run still owns older SFP keys.  Once widened, every requested XNYS
-    session for both reference tickers is replacement authority: accepting a
+    ``reference_window_start`` includes any older failed SFP keys. Every
+    requested XNYS session for both reference tickers is replacement authority,
+    including the ordinary tail on a same-day retry: accepting a
     partial response can leave an old failed owner behind after the new daily run
     has already reached durable SUCCESS, which wedges startup publication before
     another source observation can repair it.
@@ -81,11 +81,9 @@ def _require_complete_expanded_reference_tail(rows, params):
     if not start or not end:
         return rows
 
-    from sentinel.feed import calendar, readiness
+    from sentinel.feed import calendar
 
     expected = tuple(calendar.sessions_in_range(start, end))
-    if len(expected) <= readiness.REQUIRED_SPY_SESSIONS:
-        return rows
 
     expected_set = set(expected)
     observed = {"SPY": set(), "BIL": set()}
@@ -105,7 +103,7 @@ def _require_complete_expanded_reference_tail(rows, params):
     }
     if missing or unexpected:
         raise SourceAuthorityRefused(
-            "expanded daily SFP recovery is incomplete: "
+            "daily SFP recovery is incomplete: "
             f"window={start}..{end}, missing={missing}, "
             f"unexpected={unexpected[:8]}")
     return rows
@@ -118,6 +116,7 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                  corroborate_reference=None,
                  after_session: str | None = None,
                  seed_mode: bool = False, validate_tickers: bool = False,
+                 reference_recovery: bool = False,
                  sep_update_envelope: SepUpdateEnvelope | None = None):
         self._canonical_fetch = CanonicalSourceFetch(
             fetch, validate_tickers=(validate_tickers or fetch is snapshot_source.fetch_table),
@@ -125,6 +124,7 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
         self._seed_projection: Optional[SeedListingProjection] = None
         self.seed_coverage_evidence: Optional[dict] = None
         self._seed_mode = bool(seed_mode)
+        self._reference_recovery = bool(reference_recovery)
         super().__init__(
             self._canonical_fetch, protect_sep=protect_sep,
             corroborate_reference=corroborate_reference,
@@ -140,9 +140,9 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
             self._seed_projection = SeedListingProjection(
                 material, source_digest=self._tickers_first.digest)
             return material
-        if table == sharadar.SFP and not self._seed_mode:
+        if table == sharadar.SFP and self._reference_recovery:
             material = list(rows)
-            return _require_complete_expanded_reference_tail(material, params)
+            return _require_complete_recovery_reference_tail(material, params)
         return rows
 
     def _validated_seed_replay(self, rows, params):

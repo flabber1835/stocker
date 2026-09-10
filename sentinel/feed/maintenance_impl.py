@@ -55,7 +55,7 @@ _UNRESOLVED_SPLIT_KINDS = (
     "SPLIT_DISAGREEMENT", "SPLIT_ONLY_DERIVED",
     "SEAM_SPLIT_UNCORROBORATED", "AMBIGUOUS_SPLIT_MULTIPLICITY")
 _UNRESOLVED_SPLIT_REPLAY_PREFIX = "sharadar-unresolved-split-replay:v1:"
-_UNRESOLVED_SPLIT_REPLAY_SCHEMA = "sharadar-unresolved-split-replay/v1"
+_UNRESOLVED_SPLIT_REPLAY_SCHEMA = "sharadar-unresolved-split-replay/v2"
 
 
 class MutationCursorUnavailable(RuntimeError):
@@ -476,6 +476,25 @@ def _unresolved_split_signature(row: Mapping) -> str:
     return hashlib.sha256(payload).hexdigest()
 
 
+def _unresolved_split_source_digest(conn, row: Mapping) -> str:
+    """Bind retry authority to local economics, independent of writer churn."""
+    start, end = renormalize.correction_windows([str(row["session"])])[0]
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT b.security_id,b.session,b.close_signal,b.close_unadjusted,"
+            " b.open_unadjusted,b.volume,"
+            + publication.effective_split_ratio("b") + ",b.dividend_per_share"
+            " FROM sentinel_bars b WHERE b.ticker=%s"
+            " AND b.session BETWEEN %s AND %s AND "
+            + publication.visible_predicate("b")
+            + " ORDER BY b.security_id,b.session",
+            (str(row["ticker"]).upper(), start, end))
+        rows = cur.fetchall()
+    payload = json.dumps(rows, default=str, separators=(",", ":"),
+                         allow_nan=False).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
 def _load_unresolved_split_markers(conn) -> dict[str, dict]:
     """Load durable per-disposition replay authority from the cursor ledger."""
     _ensure_cursor_table(conn)
@@ -492,8 +511,12 @@ def _load_unresolved_split_markers(conn) -> dict[str, dict]:
         "observation_publication_version", "replayed_publication_version"}
     for name, row_session, raw in rows:
         state = raw if isinstance(raw, dict) else json.loads(str(raw))
-        if (not isinstance(state, dict) or set(state) != expected_fields
-                or state.get("schema") != _UNRESOLVED_SPLIT_REPLAY_SCHEMA):
+        legacy = (isinstance(state, dict) and state.get("schema")
+                  == "sharadar-unresolved-split-replay/v1")
+        fields = expected_fields if legacy else expected_fields | {"source_sha256"}
+        if (not isinstance(state, dict) or set(state) != fields
+                or (not legacy and state.get("schema")
+                    != _UNRESOLVED_SPLIT_REPLAY_SCHEMA)):
             raise SharadarMutationRefused(
                 f"unresolved split replay marker {name} has invalid durable state")
         try:
@@ -506,10 +529,13 @@ def _load_unresolved_split_markers(conn) -> dict[str, dict]:
                 from exc
         reconstructed = _unresolved_split_marker_name(state)
         signature = str(state["signature_sha256"])
+        source = signature if legacy else str(state["source_sha256"])
         if (str(name) != reconstructed
                 or str(row_session) != marker_session
                 or len(signature) != 64
                 or any(ch not in "0123456789abcdef" for ch in signature)
+                or len(source) != 64
+                or any(ch not in "0123456789abcdef" for ch in source)
                 or observed_version > replayed_version
                 or replayed_version > current.version):
             raise SharadarMutationRefused(
@@ -525,9 +551,8 @@ def _unresolved_split_replay_rows(
 
     A published unresolved disposition is replayed once. Re-emitting the same
     disposition on a later daily publication does not create new historical
-    work. A changed kind/detail has a new signature and therefore earns one more
-    bounded replay; changed ACTIONS rows independently enter through
-    ``changed_dates``.
+    work. A changed disposition or local bar content earns one more bounded
+    replay; changed ACTIONS rows independently enter through ``changed_dates``.
     """
     rows = anomalies.active_rows(
         conn, start=market_start, end=market_end,
@@ -537,7 +562,9 @@ def _unresolved_split_replay_rows(
     for row in rows:
         marker = markers.get(_unresolved_split_marker_name(row))
         signature = _unresolved_split_signature(row)
-        if marker is None or str(marker["signature_sha256"]) != signature:
+        if (marker is None or str(marker["signature_sha256"]) != signature
+                or marker.get("source_sha256")
+                != _unresolved_split_source_digest(conn, row)):
             pending.append(row)
     return pending
 
@@ -573,12 +600,17 @@ def _record_unresolved_split_replay_markers(
             raise SharadarMutationRefused(
                 "unresolved split marker observation is newer than the replay "
                 f"publication v{replayed_version}")
+        if observed_version != replayed_version:
+            # An older blocker surviving the window is not proof that this
+            # replay actually evaluated it. Leave its retry authority pending.
+            continue
         state = {
             "schema": _UNRESOLVED_SPLIT_REPLAY_SCHEMA,
             "kind": str(row["kind"]),
             "ticker": str(row["ticker"]).upper(),
             "session": session,
             "signature_sha256": _unresolved_split_signature(row),
+            "source_sha256": _unresolved_split_source_digest(conn, row),
             "observation_publication_version": observed_version,
             "replayed_publication_version": replayed_version,
         }

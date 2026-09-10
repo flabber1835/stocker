@@ -1364,6 +1364,21 @@ is corrected by an append-only `1.0` repair overlay published atomically with
 the action removal and resolved disposition. Silence, incomplete coverage, or a
 missing repair leaves the old blocker active.
 
+Split resolution evaluates published bars and bars owned by its own candidate
+run. It never adopts another unpublished writer. Its tombstone and any required
+repair overlay become active together at publication. A durable unresolved
+replay marker is earned only by a disposition evaluated and published by that
+covering replay. The marker binds the disposition and the economic bar content
+in its predecessor/event/following window. Identical observations remain bounded
+to one replay; changed local price evidence earns another evaluation. Earlier
+markers lacking this binding must re-earn it once.
+
+Daily reference recovery is an explicit acquisition context. Every retry with
+failed daily owners requires complete SPY/BIL coverage of the recovery request,
+including a same-day 41-session tail. Incomplete coverage fails the ingest before
+durable success, allowing the next source attempt to repair it. Seed acquisition,
+including injected seeds, retains its own source contract.
+
 Every ACTIONS generation also carries an append-only lifecycle. Failed or
 reclaimed candidates are `ABORTED`; a successfully published covering retry
 marks an older publication-failed candidate `SUPERSEDED`; and only a live
