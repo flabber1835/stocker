@@ -60,6 +60,16 @@ for the existing ancestry-locked bootstrap. CPU force flags and backup attestati
 use the shell's exact 0/1 spelling. Installation retry/timeout and exposure knobs
 are checked before side effects using the existing deployment bounds.
 
+Automation interval checks use the effective service defaults from
+`docker-compose.sentinel-automation.yml`: lease 12 seconds, heartbeat and control
+poll 3 seconds, retry base 5 seconds, retry maximum and callback deadline 900
+seconds, and alert maximum attempts 1,000,000. Every validation compares heartbeat
+against lease, retry base against maximum, and callback deadline against
+heartbeat, including when an operator supplies just one member of a pair.
+Regression tests independently resolve the Compose environment and call the real
+runtime configuration validator to bind these host defaults to the deployed
+service. The standalone runtime model retains its existing defaults.
+
 Durably recoverable account/deployment/image identities and discovered signing
 keys retain their existing later discovery gate. Configuration validation does
 not claim that market data is ready or that a backup mount is durable.

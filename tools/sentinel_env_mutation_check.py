@@ -44,7 +44,33 @@ MUTANTS = (
         for name in ("sentinel-base-backup", "sentinel-backup-status", "sentinel-restore-drill",
                      "sentinel-automation-compose", "sentinel-authorized-cli")
     ),
+    *tuple(
+        ("automation-" + suffix.lower() + "-guard-removed", "scripts/sentinel_env.py",
+         'if (automation["SENTINEL_AUTOMATION_' + suffix + '"]',
+         'if False and (automation["SENTINEL_AUTOMATION_' + suffix + '"]',
+         REVIEW_FIXES + ".EnvReviewFixes."
+         "test_single_automation_override_refuses_conflict_with_service_default")
+        for suffix in ("HEARTBEAT_SECONDS", "RETRY_BASE_SECONDS", "CALLBACK_DEADLINE_SECONDS")
+    ),
+    ("automation-lease-model-default", "scripts/sentinel_env.py",
+     '"SENTINEL_AUTOMATION_LEASE_SECONDS": (12, 3)',
+     '"SENTINEL_AUTOMATION_LEASE_SECONDS": (45, 3)',
+     REVIEW_FIXES + ".EnvReviewFixes."
+     "test_single_automation_override_refuses_conflict_with_service_default"),
+    *tuple(
+        ("automation-" + suffix.lower() + "-model-default", "scripts/sentinel_env.py",
+         '"SENTINEL_AUTOMATION_' + suffix + '": (' + str(default) + ', 1)',
+         '"SENTINEL_AUTOMATION_' + suffix + '": (' + str(model_default) + ', 1)',
+         REVIEW_FIXES + ".EnvReviewFixes."
+         "test_service_defaults_and_valid_partial_automation_overrides")
+        for suffix, default, model_default in (
+            ("HEARTBEAT_SECONDS", 3, 10), ("RETRY_BASE_SECONDS", 5, 30))
+    ),
 )
+
+
+def _test_id(test: str) -> str:
+    return test if test.startswith("tests.") else HARNESS + test
 
 
 def main() -> int:
@@ -58,7 +84,7 @@ def main() -> int:
         return 2
 
     baseline = subprocess.run(
-        [sys.executable, "-m", "unittest"] + [HARNESS + item[4] for item in MUTANTS],
+        [sys.executable, "-m", "unittest"] + [_test_id(item[4]) for item in MUTANTS],
         cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if baseline.returncode != 0:
         print("REFUSED: env mutant baseline is not green", file=sys.stderr)
@@ -75,10 +101,11 @@ def main() -> int:
             path.write_text(original.replace(old, new, 1), encoding="utf-8")
             process = dict(os.environ, SENTINEL_REPO_ROOT=str(mutant))
             result = subprocess.run(
-                [sys.executable, "-m", "unittest", HARNESS + test], cwd=str(ROOT),
+                [sys.executable, "-m", "unittest", _test_id(test)], cwd=str(ROOT),
                 env=process, stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
                 text=True, timeout=30)
-            if result.returncode != 1 or "FAIL: " + test not in result.stdout or "ERROR:" in result.stdout:
+            method = test.rsplit(".", 1)[-1]
+            if result.returncode != 1 or "FAIL: " + method not in result.stdout or "ERROR:" in result.stdout:
                 print("REFUSED: mutant survived or harness errored: " + name, file=sys.stderr)
                 return 1
             print("KILLED: " + name)

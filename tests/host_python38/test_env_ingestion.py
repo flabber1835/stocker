@@ -610,6 +610,10 @@ def _shell_case(launcher, case):
 def _semantic_case(key, value, accepted):
     def test(self):
         values = dict(BASE, **{key: value})
+        if key == "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS":
+            # Exercise the 1..300 numeric bound with a coherent lease. Partial
+            # overrides against the service defaults have separate regressions.
+            values["SENTINEL_AUTOMATION_LEASE_SECONDS"] = "301"
         if accepted:
             env.validate(values, profile="install")
         else:
