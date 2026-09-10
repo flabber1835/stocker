@@ -2,11 +2,6 @@ name: Research - V5 + EX3 V6 convergence jackknife v1
 run-name: V5 + r40_m04_rec8 convergence jackknife - ${{ github.sha }}
 
 on:
-  push:
-    branches: [research/wealth-core-v5-ex3-v6-convergence-jackknife-v1]
-    paths:
-      - '.github/workflows/wealth-core-v5-ex3-v6-convergence-jackknife-v1.yml'
-      - 'research/wealth-core-v5-ex3-v6-convergence-jackknife-v1/**'
   workflow_dispatch:
 
 permissions:
@@ -152,7 +147,7 @@ jobs:
           set -euo pipefail
           test -f baseline-input/baseline-results/RESULT.json
           test -f baseline-input/baseline-results/selected-16-security-ids.json
-          test -f baseline-input/baseline-results/paired-daily.csv
+          test -f baseline-input/baseline-results/baseline-run/paired-daily.csv
       - name: Generate paired runner
         shell: bash
         run: |
@@ -223,8 +218,9 @@ jobs:
         run: |
           set -euo pipefail
           test -f evidence/baseline/baseline-results/RESULT.json
+          test -f evidence/baseline/baseline-results/baseline-run/paired-daily.csv
           cp evidence/baseline/baseline-results/RESULT.json evidence/baseline/RESULT.json
-          cp evidence/baseline/baseline-results/paired-daily.csv evidence/baseline/paired-daily.csv
+          cp evidence/baseline/baseline-results/baseline-run/paired-daily.csv evidence/baseline/paired-daily.csv
       - name: Download perturbations
         uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
