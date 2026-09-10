@@ -13,6 +13,9 @@ ROOT = Path(__file__).resolve().parents[1]
 HARNESS = "tests.host_python38.test_env_ingestion.EnvHarness."
 REVIEW_FIXES = "tests.host_python38.test_env_review_fixes"
 EXECUTION_ENVELOPE = "tests.scripts.test_sentinel_execution_envelope.ExecutionEnvelope."
+AUTOMATION_BOUNDARY = (
+    "tests.scripts.test_sentinel_automation_compose_argument_boundary."
+    "AutomationComposeArgumentBoundary.")
 WRITER_SERIALIZATION = "tests.scripts.test_sentinel_env_writer_serialization.EnvWriterSerialization."
 MUTANTS = (
     ("duplicate-last-wins", "scripts/sentinel_env.py",
@@ -87,16 +90,16 @@ MUTANTS = (
             ("HEARTBEAT_SECONDS", 3, 10), ("RETRY_BASE_SECONDS", 5, 30))
     ),
     ("execution-environment-handoff-removed", "scripts/sentinel-env.sh",
-     '  "$PYTHON" scripts/sentinel_execution_envelope.py environment || return $?',
-     '  : # removed execution environment handoff',
-     EXECUTION_ENVELOPE + "test_wrappers_bind_guard_project_and_context"),
+     "  sentinel_require_execution_environment || return $?",
+     "  : # removed execution environment handoff",
+     AUTOMATION_BOUNDARY + "test_ambient_docker_and_compose_selectors_are_refused"),
     ("base-compose-envelope-removed", "scripts/sentinel-compose.sh",
-     '    compose --surface base -- "$@"',
-     '    environment # removed Compose execution envelope',
+     '  sentinel_require_compose_envelope base "$@"',
+     '  : # removed base Compose execution envelope',
      EXECUTION_ENVELOPE + "test_wrappers_bind_guard_project_and_context"),
     ("automation-compose-envelope-removed", "scripts/sentinel-automation-compose.sh",
-     '  compose --surface automation -- "$@"',
-     '  environment # removed Compose execution envelope',
+     'sentinel_require_compose_envelope automation "$@"',
+     ': # removed automation Compose execution envelope',
      EXECUTION_ENVELOPE + "test_wrappers_bind_guard_project_and_context"),
     ("canonical-project-removed", "scripts/sentinel-compose.sh",
      'FIXED_COMPOSE=(--project-name sentinel --project-directory "$(pwd -P)")',
@@ -105,13 +108,13 @@ MUTANTS = (
     ("canonical-docker-context-removed", "scripts/sentinel-env.sh",
      '  export DOCKER_CONTEXT=default', '  export DOCKER_CONTEXT=',
      EXECUTION_ENVELOPE + "test_wrappers_bind_guard_project_and_context"),
-    ("run-override-accepted", "scripts/sentinel_execution_envelope.py",
-     'if token in RUN_SAFE_FLAGS:',
-     'if token in RUN_SAFE_FLAGS or name in RUN_FORBIDDEN_VALUE_OPTIONS:',
+    ("run-override-accepted", "scripts/sentinel-env.sh",
+     '        if name in forbidden_values:\n            refuse("Compose run execution override is not allowed: " + name)',
+     '        if name in forbidden_values:\n            raise SystemExit(0)',
      EXECUTION_ENVELOPE + "test_run_execution_overrides_are_refused"),
-    ("destructive-down-options-accepted", "scripts/sentinel_execution_envelope.py",
-     'DOWN_FORBIDDEN = frozenset({"-v", "--volumes", "--remove-orphans", "--rmi"})',
-     'DOWN_FORBIDDEN = frozenset()',
+    ("destructive-down-options-accepted", "scripts/sentinel-env.sh",
+     '    forbidden = {"-v", "--volumes", "--remove-orphans", "--rmi"}',
+     '    forbidden = set()',
      EXECUTION_ENVELOPE + "test_destructive_volume_and_orphan_flags_are_refused"),
     ("managed-writer-lock-removed", "scripts/sentinel_env_writer.py",
      '        fcntl.flock(lock_fd, fcntl.LOCK_EX)',
@@ -138,6 +141,7 @@ def main() -> int:
         [sys.executable, "-m", "unittest"] + [_test_id(item[4]) for item in MUTANTS],
         cwd=str(ROOT), stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True)
     if baseline.returncode != 0:
+        sys.stderr.write(baseline.stdout)
         print("REFUSED: env mutant baseline is not green", file=sys.stderr)
         return 2
     for name, relative, old, new, test in MUTANTS:
