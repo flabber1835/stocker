@@ -12,7 +12,8 @@ import unittest
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 WRAPPER = ROOT / "scripts" / "sentinel-automation-compose.sh"
-ENVELOPE = ROOT / "scripts" / "sentinel_execution_envelope.py"
+ENV_BRIDGE = ROOT / "scripts" / "sentinel-env.sh"
+ENV_PARSER = ROOT / "scripts" / "sentinel_env.py"
 
 
 class AutomationComposeArgumentBoundary(unittest.TestCase):
@@ -23,11 +24,14 @@ class AutomationComposeArgumentBoundary(unittest.TestCase):
         scripts = self.root / "scripts"
         scripts.mkdir()
         shutil.copyfile(WRAPPER, scripts / WRAPPER.name)
-        shutil.copyfile(ENVELOPE, scripts / ENVELOPE.name)
+        shutil.copyfile(ENV_BRIDGE, scripts / ENV_BRIDGE.name)
+        shutil.copyfile(ENV_PARSER, scripts / ENV_PARSER.name)
         (scripts / "sentinel_host_python.py").write_text(
             "raise SystemExit(0)\n", encoding="utf-8")
-        (scripts / "sentinel-env.sh").write_text(
-            "sentinel_load_environment() { printf 'preflight\\n' >> effects; return 0; }\n",
+        (self.root / ".env").write_text(
+            "SENTINEL_BACKUP_DIR=/synthetic/external/backup\n"
+            "SENTINEL_POSTGRES_PASSWORD=synthetic-db-password\n"
+            "SENTINEL_PUBLICATION_RECEIPT_KEY=" + "r" * 64 + "\n",
             encoding="utf-8")
         binary = self.root / "bin"
         binary.mkdir()
@@ -45,6 +49,8 @@ class AutomationComposeArgumentBoundary(unittest.TestCase):
             "SENTINEL_RUNTIME_IMAGE_DIGEST": "sha256:" + "a" * 64,
             "SENTINEL_TEST_IMAGE_DIGEST": "sha256:" + "b" * 64,
             "SENTINEL_GIT_COMMIT": "c" * 40,
+            "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL":
+                "https://alerts.example.invalid/sentinel",
         }
 
     def run_wrapper(self, *arguments, extra_env=None):
@@ -64,9 +70,8 @@ class AutomationComposeArgumentBoundary(unittest.TestCase):
         self.assertEqual(result.returncode, 2, result.stderr)
         self.assertIn("REFUSED", result.stderr)
         self.assertFalse(marker.exists(), result.stderr)
-        self.assertTrue((self.root / "effects").exists())
 
-    def test_explicit_env_file_cannot_replace_validated_interpolation(self):
+    def test_explicit_env_file_cannot_replace_validated_interpolation_for_start(self):
         for arguments in (
                 ("--env-file", "other.env", "up", "-d"),
                 ("--env-file=other.env", "up", "-d"),
@@ -74,29 +79,41 @@ class AutomationComposeArgumentBoundary(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 self.assert_refused_before_docker(*arguments)
 
-    def test_extra_compose_file_cannot_replace_validated_service_graph(self):
+    def test_extra_compose_file_cannot_replace_validated_service_graph_for_start(self):
         for arguments in (
                 ("-f", "other.yml", "up", "-d"),
                 ("-fother.yml", "up", "-d"),
-                ("--file", "other.yml", "up", "-d"),
-                ("--file=other.yml", "up", "-d")):
+                ("--file", "other.yml", "restart"),
+                ("--file=other.yml", "start")):
             with self.subTest(arguments=arguments):
                 self.assert_refused_before_docker(*arguments)
 
-    def test_project_identity_and_directory_are_fixed(self):
+    def test_operational_project_identity_and_directory_are_fixed(self):
+        for arguments in (
+                ("--project-name", "sentinel-test", "up", "-d"),
+                ("--project-name=sentinel-test", "restart"),
+                ("-psentinel-test", "start"),
+                ("--project-directory", "/synthetic/project", "up"),
+                ("--project-directory=/synthetic/project", "restart")):
+            with self.subTest(arguments=arguments):
+                self.assert_refused_before_docker(*arguments)
+
+    def test_read_only_inspection_may_name_an_explicit_project(self):
         for arguments in (
                 ("--project-name", "sentinel-test", "config"),
-                ("--project-name=sentinel-test", "ps"),
-                ("-psentinel-test", "logs"),
-                ("--project-directory", "/synthetic/project", "logs"),
-                ("--project-directory=/synthetic/project", "config")):
+                ("-psentinel-test", "ps"),
+                ("--project-directory", "/synthetic/project", "logs")):
             with self.subTest(arguments=arguments):
-                self.assert_refused_before_docker(*arguments)
+                marker = self.root / "docker-ran"
+                marker.unlink(missing_ok=True)
+                result = self.run_wrapper(*arguments)
+                self.assertEqual(result.returncode, 93, result.stderr)
+                self.assertTrue(marker.exists(), result.stderr)
 
-    def test_only_the_fixed_automation_profile_may_be_forwarded(self):
+    def test_only_the_fixed_automation_profile_may_operate(self):
         for arguments in (
                 ("--profile", "shadow", "up"),
-                ("--profile=authorized-cli", "up"),
+                ("--profile=authorized-cli", "restart"),
                 ("--profile", "automation", "--profile", "shadow", "up")):
             with self.subTest(arguments=arguments):
                 self.assert_refused_before_docker(*arguments)
