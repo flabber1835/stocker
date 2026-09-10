@@ -51,6 +51,11 @@ ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v6"
 ACTIONS_RECONCILE_DAYS = int(os.getenv("SHARADAR_ACTIONS_RECONCILE_DAYS", "1"))
 ACTIONS_FULL_WINDOW_START = "1900-01-01"
 _SPLIT_SEMANTIC_ACTIONS = frozenset(SHARE_SPLIT_ACTIONS) | {"adrratiosplit"}
+_UNRESOLVED_SPLIT_KINDS = (
+    "SPLIT_DISAGREEMENT", "SPLIT_ONLY_DERIVED",
+    "SEAM_SPLIT_UNCORROBORATED", "AMBIGUOUS_SPLIT_MULTIPLICITY")
+_UNRESOLVED_SPLIT_REPLAY_PREFIX = "sharadar-unresolved-split-replay:v1:"
+_UNRESOLVED_SPLIT_REPLAY_SCHEMA = "sharadar-unresolved-split-replay/v1"
 
 
 class MutationCursorUnavailable(RuntimeError):
@@ -452,60 +457,139 @@ def _semantic_upgrade_replay_dates(
     return sorted(dates)
 
 
-def _latest_split_disposition_matches(
-        conn, row: Mapping, *, through_version: int) -> bool:
-    """Whether cursor authority already covered this exact unresolved state."""
-    kinds = tuple(anomalies.SPLIT_DISPOSITION_KINDS)
-    placeholders = ",".join(["%s"] * len(kinds))
+def _unresolved_split_marker_name(row: Mapping) -> str:
+    key = json.dumps({
+        "kind": str(row["kind"]),
+        "ticker": str(row["ticker"]).upper(),
+        "session": str(row["session"]),
+    }, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return _UNRESOLVED_SPLIT_REPLAY_PREFIX + hashlib.sha256(key).hexdigest()
+
+
+def _unresolved_split_signature(row: Mapping) -> str:
+    payload = json.dumps({
+        "kind": str(row["kind"]),
+        "ticker": str(row["ticker"]).upper(),
+        "session": str(row["session"]),
+        "detail": None if row.get("detail") is None else str(row["detail"]),
+    }, sort_keys=True, separators=(",", ":")).encode("utf-8")
+    return hashlib.sha256(payload).hexdigest()
+
+
+def _load_unresolved_split_markers(conn) -> dict[str, dict]:
+    """Load durable per-disposition replay authority from the cursor ledger."""
+    _ensure_cursor_table(conn)
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT p.version,a.kind,a.detail"
-            " FROM sentinel_corpus_anomalies a"
-            " JOIN sentinel_corpus_publications p"
-            "   ON p.run_id=a.last_written_run_id"
-            " WHERE UPPER(a.ticker)=%s AND a.session=%s"
-            f" AND a.kind IN ({placeholders}) AND p.version<=%s"
-            " ORDER BY p.version DESC,a.observation_id DESC",
-            (str(row["ticker"]).upper(), str(row["session"]),
-             *kinds, int(through_version)))
-        history = cur.fetchall()
-    if not history:
-        return False
-    latest = int(history[0][0])
-    expected_kind = str(row["kind"])
-    expected_detail = row.get("detail")
-    return any(
-        int(version) == latest
-        and str(kind) == expected_kind
-        and detail == expected_detail
-        for version, kind, detail in history)
+            "SELECT cursor_name,session,state FROM sentinel_processed_sessions"
+            " WHERE cursor_name LIKE %s ORDER BY cursor_name",
+            (_UNRESOLVED_SPLIT_REPLAY_PREFIX + "%",))
+        rows = cur.fetchall()
+    current = publication.require_current(conn)
+    out: dict[str, dict] = {}
+    expected_fields = {
+        "schema", "kind", "ticker", "session", "signature_sha256",
+        "observation_publication_version", "replayed_publication_version"}
+    for name, row_session, raw in rows:
+        state = raw if isinstance(raw, dict) else json.loads(str(raw))
+        if (not isinstance(state, dict) or set(state) != expected_fields
+                or state.get("schema") != _UNRESOLVED_SPLIT_REPLAY_SCHEMA):
+            raise SharadarMutationRefused(
+                f"unresolved split replay marker {name} has invalid durable state")
+        try:
+            observed_version = int(state["observation_publication_version"])
+            replayed_version = int(state["replayed_publication_version"])
+            marker_session = dt.date.fromisoformat(str(state["session"])).isoformat()
+        except (TypeError, ValueError) as exc:
+            raise SharadarMutationRefused(
+                f"unresolved split replay marker {name} has invalid version/date") \
+                from exc
+        reconstructed = _unresolved_split_marker_name(state)
+        signature = str(state["signature_sha256"])
+        if (str(name) != reconstructed
+                or str(row_session) != marker_session
+                or len(signature) != 64
+                or any(ch not in "0123456789abcdef" for ch in signature)
+                or observed_version > replayed_version
+                or replayed_version > current.version):
+            raise SharadarMutationRefused(
+                f"unresolved split replay marker {name} is incoherent with "
+                "published corpus authority")
+        out[str(name)] = state
+    return out
 
 
-def _unresolved_split_replay_dates(conn, *, market_start: str, market_end: str) -> list[str]:
-    """Replay unresolved splits once per changed published semantic state.
+def _unresolved_split_replay_rows(
+        conn, *, market_start: str, market_end: str) -> list[dict]:
+    """Return unresolved dispositions whose economic evidence changed.
 
-    The ACTIONS cursor's publication version is durable retry authority. A newer
-    daily publication can restamp an identical unresolved anomaly; that does not
-    earn another historical SEP replay when the latest split disposition at the
-    cursor version has the same kind/detail. A changed disposition does earn one
-    new replay. Changed ACTIONS rows independently enter through ``changed_dates``.
+    A published unresolved disposition is replayed once. Re-emitting the same
+    disposition on a later daily publication does not create new historical
+    work. A changed kind/detail has a new signature and therefore earns one more
+    bounded replay; changed ACTIONS rows independently enter through
+    ``changed_dates``.
     """
     rows = anomalies.active_rows(
         conn, start=market_start, end=market_end,
-        kinds=("SPLIT_DISAGREEMENT", "SPLIT_ONLY_DERIVED",
-               "SEAM_SPLIT_UNCORROBORATED", "AMBIGUOUS_SPLIT_MULTIPLICITY"))
-    prior_cursor = load_actions_cursor(conn)
-    if prior_cursor is None:
-        return sorted({str(row["session"]) for row in rows})
-    dates = set()
+        kinds=_UNRESOLVED_SPLIT_KINDS)
+    markers = _load_unresolved_split_markers(conn)
+    pending = []
     for row in rows:
-        if int(row["publication_version"]) <= prior_cursor.publication_version:
+        marker = markers.get(_unresolved_split_marker_name(row))
+        signature = _unresolved_split_signature(row)
+        if marker is None or str(marker["signature_sha256"]) != signature:
+            pending.append(row)
+    return pending
+
+
+def _record_unresolved_split_replay_markers(
+        conn, *, replay_windows: Iterable[tuple[str, str]],
+        replayed_publication_version: int) -> None:
+    """Advance retry authority only after the covering replay is published."""
+    windows = tuple((str(start), str(end)) for start, end in replay_windows)
+    if not windows:
+        return
+    for start, end in windows:
+        if start > end:
+            raise SharadarMutationRefused(
+                f"unresolved split marker replay window is reversed: {start}>{end}")
+    _ensure_cursor_table(conn)
+    replayed_version = int(replayed_publication_version)
+    with conn.cursor() as cur:
+        for start, end in windows:
+            cur.execute(
+                "DELETE FROM sentinel_processed_sessions"
+                " WHERE cursor_name LIKE %s AND session BETWEEN %s AND %s",
+                (_UNRESOLVED_SPLIT_REPLAY_PREFIX + "%", start, end))
+    active = anomalies.active_rows(
+        conn, start=min(start for start, _ in windows),
+        end=max(end for _, end in windows), kinds=_UNRESOLVED_SPLIT_KINDS)
+    for row in active:
+        session = str(row["session"])
+        if not any(start <= session <= end for start, end in windows):
             continue
-        if _latest_split_disposition_matches(
-                conn, row, through_version=prior_cursor.publication_version):
-            continue
-        dates.add(str(row["session"]))
-    return sorted(dates)
+        observed_version = int(row["publication_version"])
+        if observed_version > replayed_version:
+            raise SharadarMutationRefused(
+                "unresolved split marker observation is newer than the replay "
+                f"publication v{replayed_version}")
+        state = {
+            "schema": _UNRESOLVED_SPLIT_REPLAY_SCHEMA,
+            "kind": str(row["kind"]),
+            "ticker": str(row["ticker"]).upper(),
+            "session": session,
+            "signature_sha256": _unresolved_split_signature(row),
+            "observation_publication_version": observed_version,
+            "replayed_publication_version": replayed_version,
+        }
+        with conn.cursor() as cur:
+            cur.execute(
+                "INSERT INTO sentinel_processed_sessions"
+                " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
+                " ON CONFLICT (cursor_name) DO UPDATE SET"
+                " session=EXCLUDED.session,state=EXCLUDED.state,updated_at=NOW()",
+                (_unresolved_split_marker_name(row), session,
+                 json.dumps(state, sort_keys=True)))
 
 
 def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
@@ -523,8 +607,10 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             f"ahead of requested reconciliation through {hi}; refusing to treat "
             "future durable authority as inside the reconciliation cadence")
     market_start, market_end = _retained_market_bounds(conn)
-    unresolved_dates = _unresolved_split_replay_dates(
-        conn, market_start=market_start, market_end=min(market_end, hi.isoformat()))
+    unresolved_rows = _unresolved_split_replay_rows(
+        conn, market_start=market_start,
+        market_end=min(market_end, hi.isoformat()))
+    unresolved_dates = sorted({str(row["session"]) for row in unresolved_rows})
     if (not force and not unresolved_dates and prior_cursor is not None
             and (hi - prior_cursor.processed_through).days < ACTIONS_RECONCILE_DAYS):
         return prior_cursor
@@ -611,6 +697,9 @@ def reconcile_actions_if_due(conn, *, fetch=sharadar.fetch_table,
             "retained_market_window": [market_start, market_end],
             "replay_windows": [list(w) for w in windows],
         })
+    _record_unresolved_split_replay_markers(
+        conn, replay_windows=windows,
+        replayed_publication_version=published.version)
     return _write_cursor(
         conn, name=ACTIONS_CURSOR_NAME, kind=ACTIONS_CURSOR_KIND,
         through=hi, publication_version=published.version)
