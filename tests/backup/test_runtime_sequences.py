@@ -118,7 +118,8 @@ def test_seeded_repeated_outage_campaign(world, seed):
     for i in range(2, 6):
         world.media.segment(i)
     (world.media.wal / MARKER).write_text(CONTENT)
-    world.last_ok = world.now + timedelta(seconds=1)
+    world.now += timedelta(seconds=1)
+    world.last_ok = world.now
     assert ready(world)["wal_segments"] == 4
 
 
@@ -155,11 +156,11 @@ def test_namespace_disappears_between_marker_check_and_scan_then_recovers(world)
     ready(world)
 
 
-@pytest.mark.parametrize("read_index", range(12))
+@pytest.mark.parametrize("read_index", range(13))
 @pytest.mark.parametrize("sqlstate", ["58P01", "42501", "58030", None])
 def test_media_error_at_every_runtime_read_fences_then_heals(world, monkeypatch, read_index, sqlstate):
     ready(world)
-    assert len(world.statements) == 12
+    assert len(world.statements) == 13
     original = Cursor.execute
     count = 0
 

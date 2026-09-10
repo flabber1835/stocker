@@ -269,6 +269,24 @@ def test_runtime_reads_only_required_horizon(world):
     assert params[-1] == [wal_name(index) for index in range(2, 6)]
 
 
+@pytest.mark.parametrize("boundary", [feed_store.corpus_write_lock, journal.writer_lock])
+def test_retained_complete_chain_cannot_authorize_disabled_archiving(world, boundary):
+    world.mode = "off"
+    with pytest.raises(authority.BackupRuntimeRefused, match="archive_mode=off"):
+        with boundary(world):
+            pytest.fail("retained WAL authorized writes with archive_mode=off")
+    assert world.locks == {}
+    world.mode = "on"
+    with boundary(world):
+        pass
+
+
+def test_runtime_preserves_current_archiver_clock_refusal(world):
+    world.now = world.last_ok.replace(year=2025)
+    with pytest.raises(authority.BackupRuntimeRefused, match="future"):
+        authority.require(world, operation="future-dated archive")
+
+
 def test_recovery_lock_exemptions_are_limited_to_observation_and_lease():
     import ast
     root = Path(__file__).resolve().parents[2]

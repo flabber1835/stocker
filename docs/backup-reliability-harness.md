@@ -112,6 +112,10 @@ contradictory integrity evidence retains permanent backup refusal.
 Runtime hashing reads only the required manifest-to-frontier WAL names. Older
 retention and later concurrently archived segments are outside this proof's
 scope. Every required segment is hashed again on each mutation check.
+The same runtime authority also requires current archiver liveness through
+`backup_guard`, including archive mode, timestamp validity and its active probe
+for stale evidence. A complete retained chain cannot authorize new writes after
+archiving is disabled. These checks retain the existing typed retry/refusal split.
 
 Every newly archived WAL now carries an atomically published `.<none>`-free
 companion named `<24-hex-WAL>.sha256`. The sidecar contains one lowercase SHA-256

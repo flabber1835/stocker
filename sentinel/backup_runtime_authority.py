@@ -235,6 +235,15 @@ def _require(conn, *, operation: str,
              base_backup: str | None = None) -> dict:
     if not enabled():
         return {"enabled": False}
+    # A retained chain proves past recovery. New writes also require the
+    # current archiver to be enabled and live; the canonical guard owns its
+    # age checks and active probe for a quiet database.
+    try:
+        backup_guard.require_writes_permitted(conn, operation=operation)
+    except backup_guard.BackupConfigurationRefused as exc:
+        raise BackupRuntimeRefused(str(exc)) from exc
+    except backup_guard.BackupUnavailable as exc:
+        raise BackupRuntimeUnavailable(str(exc)) from exc
     _require_marker(conn, WAL_ROOT)
     _require_marker(conn, BASE_ROOT)
     system_id = current_system_id(conn)
