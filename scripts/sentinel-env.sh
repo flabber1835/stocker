@@ -63,6 +63,9 @@ read_only = {
     "version", "help", "stats", "volumes", "wait",
 }
 risk_reducing = {"stop", "pause", "kill"}
+forbidden_automation_services = {
+    "sentinel-authorized-cli", "sentinel-authority-permissions", "sentinel-shadow",
+}
 
 def refuse(message):
     print("REFUSED: " + message, file=sys.stderr)
@@ -148,16 +151,19 @@ if command == "rm":
 
 if command in {"up", "create"}:
     forbidden = {
-        "--build", "--pull", "--remove-orphans", "--renew-anon-volumes", "-V", "--scale",
+        "--build", "--pull", "--remove-orphans", "--renew-anon-volumes", "-V",
+        "--scale", "--no-recreate", "--watch",
     }
     for token in tail:
         name = option_name(token)
         if token in forbidden or name in forbidden:
             refuse("Compose startup option can change reviewed runtime/state identity: " + name)
+        if surface == "automation" and token in forbidden_automation_services:
+            refuse("automation surface cannot activate a service outside its authority profile: " + token)
     raise SystemExit(0)
 
 if command in {"start", "restart", "unpause"}:
-    raise SystemExit(0)
+    refuse("stale-container revival is not allowed; use the reviewed Compose up path")
 
 if command == "run":
     safe_flags = {"--rm", "-T", "--no-deps", "--quiet", "-q", "--interactive", "-i"}
@@ -172,6 +178,10 @@ if command == "run":
         if token == "--":
             refuse("Compose run requires a service before application arguments")
         if not token.startswith("-") or token == "-":
+            service = token
+            expected = "sentinel" if surface == "base" else "sentinel-automation"
+            if service != expected:
+                refuse("Compose run service is outside the Sentinel execution envelope: " + service)
             raise SystemExit(0)
         name = option_name(token)
         if token in safe_flags:
@@ -183,23 +193,7 @@ if command == "run":
     refuse("Compose run invocation has no service")
 
 if command == "exec":
-    safe_flags = {"-T"}
-    forbidden_values = {"--env", "-e", "--env-file", "--user", "-u", "--workdir", "-w"}
-    j = 0
-    while j < len(tail):
-        token = tail[j]
-        if token == "--":
-            refuse("Compose exec requires a service before application arguments")
-        if not token.startswith("-") or token == "-":
-            raise SystemExit(0)
-        name = option_name(token)
-        if token in safe_flags:
-            j += 1
-            continue
-        if name in forbidden_values or token == "--privileged":
-            refuse("Compose exec execution override is not allowed: " + name)
-        refuse("Compose exec option is outside the Sentinel execution envelope: " + token)
-    refuse("Compose exec invocation has no service")
+    refuse("generic Compose exec is outside the Sentinel execution envelope")
 
 refuse("Compose command is outside the Sentinel operational envelope: " + command)
 PY
