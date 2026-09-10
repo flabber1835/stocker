@@ -149,19 +149,31 @@ class AutomationComposeArgumentBoundary(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 self.assert_refused_before_docker(*arguments)
 
-    def test_destructive_volume_removal_is_refused(self):
+    def test_destructive_or_unknown_operational_options_are_refused(self):
         for arguments in (
                 ("down", "-v"), ("down", "--volumes"),
                 ("down", "--remove-orphans"), ("down", "--rmi", "all"),
-                ("rm", "-v", "sentinel-automation")):
+                ("rm", "-v", "sentinel-automation"),
+                ("wait", "--down-project", "sentinel-automation"),
+                ("up", "--future-dangerous-option", "sentinel-automation")):
             with self.subTest(arguments=arguments):
                 self.assert_refused_before_docker(*arguments)
+
+    def test_automation_worker_requires_alert_dispatcher_when_explicitly_targeted(self):
+        self.assert_refused_before_docker("up", "-d", "sentinel-automation")
+        marker = self.root / "docker-ran"
+        marker.unlink(missing_ok=True)
+        result = self.run_wrapper(
+            "up", "-d", "sentinel-automation", "sentinel-alert-dispatcher")
+        self.assertEqual(result.returncode, 93, result.stderr)
+        self.assertTrue(marker.exists(), result.stderr)
 
     def test_benign_options_and_application_arguments_still_reach_compose(self):
         cases = (
             ("--ansi", "never", "--progress=plain", "ps"),
             ("run", "--rm", "sentinel-automation", "--", "--profile", "application-value"),
-            ("up", "-d", "--no-deps", "--force-recreate", "sentinel-automation"),
+            ("up", "-d", "--no-deps", "--force-recreate",
+             "sentinel-automation", "sentinel-alert-dispatcher"),
             ("stop", "sentinel-automation"),
         )
         for arguments in cases:
