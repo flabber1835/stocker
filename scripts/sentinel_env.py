@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+from decimal import Decimal, InvalidOperation
 import os
 from pathlib import Path
 import re
@@ -28,10 +29,73 @@ UNSAFE_KEYS = frozenset({
     "SENTINEL_DEPLOY_LOCK_FD", "SENTINEL_GO_LOCK_HELD", "SENTINEL_GO_LOCK_FD",
     "SENTINEL_GO_RUN_TOKEN", "SENTINEL_BASE_BACKUP_LOCK_HELD",
     "SENTINEL_BASE_BACKUP_LOCK_FD", "SENTINEL_BASE_BACKUP_LOCK_ROOT",
+    "SENTINEL_FEED_AUTHORIZED", "SENTINEL_FEED_SERVICE_MODE",
+    "SENTINEL_FEED_GIT_COMMIT", "SENTINEL_FEED_RUNTIME_IMAGE_DIGEST",
+    "SENTINEL_AUTHORIZED_RUNTIME", "SENTINEL_RUNTIME_BACKUP_AUTHORITY",
+    "SENTINEL_RECOVERED_ORDER_AUTHORITY",
 })
 FILE_PREFIXES = ("SENTINEL_", "SHARADAR_", "ALPACA_", "NDL_")
 FILE_EXTRA_KEYS = frozenset({
     "GITHUB_TOKEN", "GH_TOKEN", "COMPOSE_DISABLE_ENV_FILE", "COMPOSE_ENV_FILES",
+})
+HEX64_OR_EMPTY = re.compile(r"(?:|[0-9a-f]{64})\Z")
+OBSERVATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,63}\Z")
+PUBLICATION_POLICY = (
+    "SHARADAR_SEP_SFP_SECOND_UPDATE_PLUS_15M_2345_AMERICA_NEW_YORK_V1")
+INTEGER_BOUNDS = {
+    "SENTINEL_MAX_CYCLES": (1, 1000000),
+    "SENTINEL_SHADOW_POLL_SECONDS": (1, 86400),
+    "SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS": (1, 86400),
+    "SENTINEL_DEPLOY_BOOTSTRAP_POSTGRES_TIMEOUT_SECONDS": (1, 1800),
+    "SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS": (0, 1800),
+    "SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS": (30, 1800),
+    "SENTINEL_DEPLOY_DATA_RETRY_SECONDS": (30, 3600),
+    "SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS": (300, 86400),
+    "SENTINEL_AUTOMATION_PUBLICATION_DELAY_SECONDS": (0, 86400),
+    "SENTINEL_AUTOMATION_EXECUTION_DELAY_SECONDS": (0, 3600),
+    "SENTINEL_AUTOMATION_LEASE_SECONDS": (1, 3600),
+    "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS": (1, 300),
+    "SENTINEL_AUTOMATION_CONTROL_POLL_SECONDS": (1, 300),
+    "SENTINEL_AUTOMATION_RETRY_BASE_SECONDS": (1, 3600),
+    "SENTINEL_AUTOMATION_RETRY_MAX_SECONDS": (1, 86400),
+    "SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS": (1, 86400),
+    "SENTINEL_AUTOMATION_REFRESH_MAX_ATTEMPTS": (1, 1000),
+    "SENTINEL_AUTOMATION_PREFLIGHT_RECOVER_MAX_ATTEMPTS": (1, 1000),
+    "SENTINEL_AUTOMATION_PREPARE_MAX_ATTEMPTS": (1, 1000),
+    "SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS": (1, 1000),
+    "SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS": (1, 1000),
+    "SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS": (1, 3600),
+    "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS": (1, 10000000),
+    "SENTINEL_AUTOMATION_SUPERVISOR_POLL_SECONDS": (1, 300),
+    "SENTINEL_AUTOMATION_SUPERVISOR_STARTUP_GRACE_SECONDS": (0, 3600),
+    "SENTINEL_AUTOMATION_ALERT_WEBHOOK_TIMEOUT_SECONDS": (1, 300),
+    "SENTINEL_AUTOMATION_ALERT_POLL_SECONDS": (1, 300),
+    "SENTINEL_AUTOMATION_ALERT_PROBE_SECONDS": (1, 86400),
+    "SENTINEL_AUTOMATION_ALERT_MAX_CONSECUTIVE_FAILURES": (1, 1000),
+    "SENTINEL_AUTOMATION_ALERT_HEALTH_MAX_AGE_SECONDS": (1, 3600),
+    "SENTINEL_AUTOMATION_ALERT_STARTUP_GRACE_SECONDS": (0, 3600),
+}
+DECIMAL_BOUNDS = {
+    "SENTINEL_POLL_SECONDS": (Decimal("0.001"), Decimal("3600")),
+    "SENTINEL_BACKUP_MAX_AGE_HOURS": (Decimal("0.001"), Decimal("8760")),
+    "SENTINEL_SHADOW_STARTING_CASH": (Decimal("0.01"), Decimal("1000000000000000")),
+}
+EXACT_BOOLEAN_KEYS = frozenset({
+    "SENTINEL_FORCE_CPU_LIMITS",
+    "SENTINEL_FORCE_NO_CPU_LIMITS",
+    "SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED",
+    "SENTINEL_SHADOW_OBSERVATION_ENABLED",
+})
+FLEX_BOOLEAN_KEYS = frozenset({
+    "SENTINEL_DEPLOY_ALLOW_EMPTY_BIND",
+    "SENTINEL_DEPLOY_REVOKE_PREVIOUS_SIGNING_KEY",
+})
+SHA256_KEYS = frozenset({
+    "SENTINEL_SHADOW_REGENESIS_APPROVAL_SHA256",
+    "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256",
+    "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256",
+    "SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256",
+    "SENTINEL_REVIEWED_VALIDATION_BUNDLE_SHA256",
 })
 
 
@@ -99,7 +163,6 @@ def _unsafe_character(char: str) -> bool:
 
 
 def _value(raw: str, number: int) -> str:
-    # Keep leading whitespace until comment recognition: '= # comment' is empty.
     if raw.lstrip(" \t")[:1] not in {"'", '"'}:
         return re.split(r"[ \t]+#", raw, maxsplit=1)[0].strip(" \t")
     raw = raw.strip(" \t")
@@ -167,16 +230,12 @@ def load(path: Path, *, required: bool = False) -> Dict[str, str]:
 
 
 def merge(values: Mapping[str, str], process: Mapping[str, str]) -> Dict[str, str]:
-    # Parsed legacy data is broader than executable command configuration.
-    # Validate every file key before merging, even if the process overrides it.
     for key in values:
         if (key in UNSAFE_KEYS or KEY.fullmatch(key) is None
                 or not (key.startswith(FILE_PREFIXES) or key in FILE_EXTRA_KEYS)):
             _fail("FILE_COMMAND_KEY_REFUSED", key=key)
     result = dict(values)
     result.update(process)
-    # Compose receives the literal values already resolved here. A second parser
-    # must not reinterpret '$', override the chosen file, or observe later bytes.
     if result.get("COMPOSE_ENV_FILES", "").strip() not in {"", "/dev/null"}:
         _fail("ALTERNATE_COMPOSE_ENV_FILES_REFUSED", key="COMPOSE_ENV_FILES")
     result["COMPOSE_DISABLE_ENV_FILE"] = "1"
@@ -186,6 +245,59 @@ def merge(values: Mapping[str, str], process: Mapping[str, str]) -> Dict[str, st
 
 def usable(value: str) -> bool:
     return bool(value.strip()) and PLACEHOLDER.fullmatch(value.strip()) is None
+
+
+def _validate_integer(env: Mapping[str, str], key: str, lower: int, upper: int) -> None:
+    if key not in env:
+        return
+    value = str(env[key]).strip()
+    if not re.fullmatch(r"[0-9]{1,10}", value):
+        _fail("INTEGER_OUT_OF_RANGE", key=key)
+    number = int(value)
+    if number < lower or number > upper:
+        _fail("INTEGER_OUT_OF_RANGE", key=key)
+
+
+def _validate_decimal(
+        env: Mapping[str, str], key: str, lower: Decimal, upper: Decimal) -> None:
+    if key not in env:
+        return
+    value = str(env[key]).strip()
+    try:
+        number = Decimal(value)
+    except (InvalidOperation, ValueError):
+        _fail("DECIMAL_OUT_OF_RANGE", key=key)
+    if not number.is_finite() or number < lower or number > upper:
+        _fail("DECIMAL_OUT_OF_RANGE", key=key)
+
+
+def _validate_semantics(env: Mapping[str, str]) -> None:
+    for key, bounds in INTEGER_BOUNDS.items():
+        _validate_integer(env, key, bounds[0], bounds[1])
+    for key, bounds in DECIMAL_BOUNDS.items():
+        _validate_decimal(env, key, bounds[0], bounds[1])
+    for key in EXACT_BOOLEAN_KEYS:
+        if key in env and str(env[key]).strip() not in {"0", "1"}:
+            _fail("EXPECTED_0_OR_1", key=key)
+    for key in FLEX_BOOLEAN_KEYS:
+        if (key in env and str(env[key]).strip().lower()
+                not in {"", "0", "1", "false", "true", "no", "yes", "off", "on"}):
+            _fail("INVALID_BOOLEAN", key=key)
+    for key in SHA256_KEYS:
+        if key in env and HEX64_OR_EMPTY.fullmatch(str(env[key]).strip()) is None:
+            _fail("INVALID_SHA256", key=key)
+    if ("SENTINEL_SHADOW_OBSERVATION_ID" in env
+            and OBSERVATION_ID.fullmatch(
+                str(env["SENTINEL_SHADOW_OBSERVATION_ID"]).strip()) is None):
+        _fail("INVALID_OBSERVATION_ID", key="SENTINEL_SHADOW_OBSERVATION_ID")
+    for key in (
+            "SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY",
+            "SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY"):
+        if key in env and str(env[key]).strip() != PUBLICATION_POLICY:
+            _fail("INVALID_PUBLICATION_TIMING_POLICY", key=key)
+    exposure = str(env.get("SENTINEL_DEPLOY_MAXIMUM_EXPOSURE", "1")).strip()
+    if re.fullmatch(r"(?:0|1|0\.[0-9]{0,17}[1-9])", exposure) is None:
+        _fail("INVALID_EXPOSURE", key="SENTINEL_DEPLOY_MAXIMUM_EXPOSURE")
 
 
 def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = None) -> None:
@@ -199,7 +311,7 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
         "SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", "SHARADAR_API_KEY"]
     if profile == "maintenance":
         required = ["SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", RECEIPT_KEY]
-    if profile in {"install", "bringup"} or (profile == "go" and target != "SHADOW"):
+    if profile == "bringup" or (profile in {"install", "go"} and target != "SHADOW"):
         required += ["ALPACA_API_KEY", "ALPACA_SECRET_KEY"]
     invalid = [key for key in required if not usable(env.get(key, ""))]
     if invalid:
@@ -214,42 +326,25 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
         password = env["SENTINEL_POSTGRES_PASSWORD"]
         if any(c in password for c in ":/@?#[]%") or any(c.isspace() for c in password):
             _fail("UNSAFE_DSN_PASSWORD", key="SENTINEL_POSTGRES_PASSWORD")
-    if "ALPACA_API_KEY" in required and env.get("ALPACA_BASE_URL", PAPER_URL).rstrip("/") != PAPER_URL:
+    if ("ALPACA_API_KEY" in required
+            and env.get("ALPACA_BASE_URL", PAPER_URL).rstrip("/") != PAPER_URL):
         _fail("PAPER_ENDPOINT_REQUIRED", key="ALPACA_BASE_URL")
     receipt = env.get(RECEIPT_KEY, "")
-    if profile != "bootstrap" and receipt and (not usable(receipt) or len(receipt.strip().encode("utf-8")) < 32):
+    if (profile != "bootstrap" and receipt
+            and (not usable(receipt) or len(receipt.strip().encode("utf-8")) < 32)):
         _fail("INVALID_RECEIPT_KEY", key=RECEIPT_KEY)
-    for key in ("SENTINEL_FORCE_CPU_LIMITS", "SENTINEL_FORCE_NO_CPU_LIMITS",
-                "SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED"):
-        if key in env and env[key] not in {"0", "1"}:
-            _fail("EXPECTED_0_OR_1", key=key)
+    _validate_semantics(env)
     if env.get("SENTINEL_FORCE_CPU_LIMITS") == env.get("SENTINEL_FORCE_NO_CPU_LIMITS") == "1":
         _fail("CONFLICTING_CPU_MODES; force modes are mutually exclusive")
-    if profile == "install":
-        bounds = {
-            "SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS": (0, 1800),
-            "SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS": (30, 1800),
-            "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS": (1, 300),
-            "SENTINEL_DEPLOY_DATA_RETRY_SECONDS": (30, 3600),
-            "SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS": (300, 86400),
-        }
-        for key, (lower, upper) in bounds.items():
-            if key not in env:
-                continue
-            value = env[key].strip()
-            if not re.fullmatch(r"[0-9]{1,8}", value) or not lower <= int(value) <= upper:
-                _fail("INTEGER_OUT_OF_RANGE", key=key)
-        for key in ("SENTINEL_DEPLOY_ALLOW_EMPTY_BIND", "SENTINEL_DEPLOY_REVOKE_PREVIOUS_SIGNING_KEY"):
-            if key in env and env[key].strip().lower() not in {"", "0", "1", "false", "true", "no", "yes", "off", "on"}:
-                _fail("INVALID_BOOLEAN", key=key)
-        if re.fullmatch(r"(?:0|1|0\.[0-9]{0,17}[1-9])", env.get("SENTINEL_DEPLOY_MAXIMUM_EXPOSURE", "1")) is None:
-            _fail("INVALID_EXPOSURE", key="SENTINEL_DEPLOY_MAXIMUM_EXPOSURE")
 
 
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
-    parser.add_argument("--profile", choices=("compose", "bootstrap", "install", "go", "bringup", "maintenance"), required=True)
+    parser.add_argument(
+        "--profile",
+        choices=("compose", "bootstrap", "install", "go", "bringup", "maintenance"),
+        required=True)
     parser.add_argument("--target", choices=TARGETS)
     parser.add_argument("--records", action="store_true", help=argparse.SUPPRESS)
     parser.add_argument("--go-args", nargs=argparse.REMAINDER, default=[], help=argparse.SUPPRESS)
@@ -262,16 +357,13 @@ def main(argv: Optional[Sequence[str]] = None) -> int:
     try:
         values = load(args.env_file, required=args.profile not in {"compose", "maintenance"})
         resolved = merge(values, os.environ)
-        if RECEIPT_KEY in os.environ and (not usable(os.environ[RECEIPT_KEY])
-                                         or len(os.environ[RECEIPT_KEY].strip().encode("utf-8")) < 32):
+        if (RECEIPT_KEY in os.environ
+                and (not usable(os.environ[RECEIPT_KEY])
+                     or len(os.environ[RECEIPT_KEY].strip().encode("utf-8")) < 32)):
             _fail("INVALID_EXTERNAL_RECEIPT_KEY", key=RECEIPT_KEY)
         validate(resolved, profile=args.profile, target=args.target)
         if args.records:
-            # Private shell-loader protocol: no bytes are published until every
-            # check passes, and an incomplete pipe cannot be accepted as success.
             names = set(values) | {"COMPOSE_DISABLE_ENV_FILE", "COMPOSE_ENV_FILES"}
-            # A fresh blank file slot remains unprovisioned. Exporting it would
-            # turn it into an explicit invalid process override at bootstrap.
             if not values.get(RECEIPT_KEY) and RECEIPT_KEY not in os.environ:
                 names.discard(RECEIPT_KEY)
             for key in names:
