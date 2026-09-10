@@ -28,7 +28,10 @@ def test_original_reference_window_defect_is_killed(monkeypatch, tmp_path):
     monkeypatch.setattr(recovery, "reference_window_start",
                         lambda conn, *, requested_start, through: requested_start)
     output = Path(os.environ.get("SHARADAR_REPLAY_EVIDENCE", str(tmp_path))) / "falsifiers" / "old_reference_window"
-    with pytest.raises(StateMismatch, match="older unpublished run"):
+    with pytest.raises(
+        StateMismatch,
+        match=r"recover: expected error None, actual .*SourceAuthorityRefused.*missing_failed_keys=2",
+    ):
         run_scenario(SCENARIOS["incomplete_sep"], server_dsn=dsn, output=output)
 
 
