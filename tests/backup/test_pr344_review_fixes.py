@@ -58,3 +58,13 @@ def test_read_only_recovery_surface_remains_outside_backup_mutation_gate():
     paper = (root / "sentinel" / "paper" / "__init__.py").read_text()
     assert "from .recovery import recover_automated_paper_cycle" in paper
     assert "async def recover_automated_paper_cycle" not in paper
+
+
+def test_retained_wal_is_never_granted_new_integrity_authority_by_initialization():
+    root = Path(__file__).resolve().parents[2]
+    backup_lib = (root / "scripts" / "sentinel-backup-lib.sh").read_text()
+    archive = (root / "scripts" / "sentinel-archive-wal.sh").read_text()
+
+    assert "sha256sum" not in backup_lib
+    assert "publish_checksum" in archive
+    assert 'checksum_target="$target.sha256"' in archive
