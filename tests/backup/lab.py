@@ -6,6 +6,7 @@ import hashlib
 import json
 import os
 from pathlib import Path
+import re
 import shutil
 import struct
 import subprocess
@@ -55,8 +56,8 @@ class Media:
         for i in range(2, 6):
             self.segment(i)
 
-    def segment(self, index: int):
-        path = self.namespace / wal_name(index)
+    def segment(self, index: int, *, timeline: int = 1):
+        path = self.namespace / wal_name(index, timeline=timeline)
         with path.open("wb") as handle:
             handle.truncate(SEGMENT_SIZE)
         (self.namespace / f"{path.name}.sha256").write_text(checksum_text(path))
@@ -142,19 +143,46 @@ class Cursor:
             self.rows = [(record.get("Timeline"), record.get("End-LSN"))]
         elif query.startswith("SELECT name,(pg_stat_file"):
             assert "FROM unnest(%s::text[])" in query, query
-            paths = [db.media.path(params[0]) / name for name in params[-1]]
+            root = db.media.path(params[0])
             rows = []
-            for p in paths:
-                if len(p.name) != 24 or any(c not in "0123456789ABCDEF" for c in p.name):
-                    continue
+            for name in params[-1]:
+                p = root / name
                 sidecar = p.with_name(p.name + ".sha256")
+                pstat = p.stat() if p.exists() else None
+                sstat = sidecar.stat() if sidecar.exists() else None
                 rows.append((
-                    p.name,
-                    p.stat().st_size if p.exists() else None,
+                    name,
+                    pstat.st_size if pstat else None,
+                    pstat.st_mtime_ns if pstat else None,
+                    pstat.st_ctime_ns if pstat else None,
                     sidecar.read_text() if sidecar.exists() else None,
-                    hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None,
+                    sstat.st_mtime_ns if sstat else None,
+                    sstat.st_ctime_ns if sstat else None,
                 ))
             self.rows = rows
+        elif query.startswith("SELECT name,encode(sha256(pg_read_binary_file("):
+            root = db.media.path(params[0])
+            self.rows = [
+                (name, hashlib.sha256((root / name).read_bytes()).hexdigest()
+                 if (root / name).exists() else None)
+                for name in params[-1]
+            ]
+        elif query.startswith("COPY (SELECT name FROM unnest(ARRAY["):
+            names = re.findall(r"'([0-9A-F]{24}|[0-9A-F]{8}\.history)'", query)
+            checks = [db.media.base, db.media.wal, db.media.backup, db.media.namespace]
+            checks.extend((db.media.base / MARKER, db.media.wal / MARKER))
+            checks.extend(
+                db.media.backup / name for name in (
+                    "backup_manifest", "backup_label", "sentinel-recovery-marker",
+                    "sentinel-pitr-base-identity"))
+            for name in names:
+                checks.extend((db.media.namespace / name,
+                               db.media.namespace / f"{name}.sha256"))
+            for path in checks:
+                if path.is_symlink():
+                    raise RuntimeError(f"alias probe rejected symlink: {path}")
+                if path.exists() and path.is_file() and path.stat().st_nlink != 1:
+                    raise RuntimeError(f"alias probe rejected hardlink: {path}")
         elif query.startswith("SELECT current_setting('archive_mode')"):
             self.rows = [(db.mode, db.last_ok, db.last_fail, db.failed_count, db.now)]
         elif query.startswith("SELECT last_archived_wal,last_archived_time,last_failed_time,"):
@@ -192,7 +220,6 @@ class Archive:
         self.checksum = self.namespace / f"{self.name}.sha256"
         self.bin = root / "bin"
         self.bin.mkdir()
-        # Construct a minimal, credential-free child environment.
         self.env = {"PATH": os.environ["PATH"], "LANG": "C", "LC_ALL": "C"}
 
     def fault(self, command: str, phase: str, mode: str):
