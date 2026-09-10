@@ -1,0 +1,109 @@
+{
+  "configuration": [
+    "selective_peers",
+    "bounded_counters",
+    "ramp10",
+    "no_spy_rebound"
+  ],
+  "result": {
+    "allocation_counts": {
+      "0.0": 650,
+      "0.55": 256,
+      "0.65": 0,
+      "1.0": 4126
+    },
+    "close_decisions_sha256": "d1f557bd139e3445538e3f94bce90fe296eba19450d939c4160fe0880e067724",
+    "core_economic_sha256": "dd4f3e6582a57fd36bd56286993a1c8564006c93fe1cdb44a64aa8f7bfc3b4f2",
+    "core_full_sha256": "3b40a23a7e499e0314f1d6e86b767fba648136758fdd106cdfd0ff27620b545f",
+    "cross_surface_releases": 5,
+    "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+    "elapsed_seconds": 1533.823710383,
+    "episodes": 8,
+    "exact_simplification_path": null,
+    "experiment_budget": 1,
+    "experiment_slot": 1,
+    "peer_stats": {
+      "accepted_peer_edges": 27878,
+      "breadth_sessions": 5049,
+      "holding_observations": 91004,
+      "insufficient_residual_histories": 0,
+      "neighborhood_size_sum": 42142,
+      "pair_correlations": 248321
+    },
+    "schema": "research.v5-ex3-v6-simplification/1",
+    "source": {
+      "candidate_sha256": "26b99f4a5f7fefc9d295479cc604e85a761db64cc5416664145fdd1b94b72939",
+      "experiment_head": "8d03d04c0787ddd9b1bed7ecef58183f22288a47",
+      "numpy": "2.4.6",
+      "oracle_sha256": "335e2ae06efd5e2ebfa11f0641029609d524f4e75e733a3dbd0a5efcf64ac42d",
+      "pandas": "3.0.5",
+      "python": "3.12.14",
+      "run_id": "34441488484",
+      "variant": "candidate"
+    },
+    "status": "PASS_FRESH_CAUSAL_PIT_REPLAY",
+    "transactions_sha256": "0e4828229c323ab029a5dfe49f258a3e2e379aee6b5e18169e72f9edc88652da",
+    "transitions": 26,
+    "variant": "candidate",
+    "windows": {
+      "5": {
+        "allocation_turnover": 2.9000000000000004,
+        "cagr": 0.31040732649513436,
+        "end": "2026-07-31",
+        "ending_multiple": 3.857628131343849,
+        "expected_shortfall_5pct": -0.03266509195275384,
+        "longest_underwater_sessions": 402,
+        "max_drawdown": -0.20398446130470593,
+        "sessions": 1255,
+        "sharpe_daily_252": 1.3466190245876544,
+        "start": "2021-08-02",
+        "worst_daily_return": -0.0608863269361819
+      },
+      "10": {
+        "allocation_turnover": 10.25,
+        "cagr": 0.2666242290658152,
+        "end": "2026-07-31",
+        "ending_multiple": 10.618848655718574,
+        "expected_shortfall_5pct": -0.03091610604269891,
+        "longest_underwater_sessions": 640,
+        "max_drawdown": -0.2735619982948002,
+        "sessions": 2514,
+        "sharpe_daily_252": 1.2551064288915026,
+        "start": "2016-08-01",
+        "worst_daily_return": -0.06870833414956334
+      },
+      "15": {
+        "allocation_turnover": 14.25,
+        "cagr": 0.22358227688318166,
+        "end": "2026-07-31",
+        "ending_multiple": 20.62266135264281,
+        "expected_shortfall_5pct": -0.027863476909654277,
+        "longest_underwater_sessions": 640,
+        "max_drawdown": -0.2735619982948002,
+        "sessions": 3772,
+        "sharpe_daily_252": 1.1839464857895778,
+        "start": "2011-08-01",
+        "worst_daily_return": -0.06870833414956334
+      },
+      "20": {
+        "allocation_turnover": 19.35,
+        "cagr": 0.21833176632696083,
+        "end": "2026-07-31",
+        "ending_multiple": 51.92142251352529,
+        "expected_shortfall_5pct": -0.02884297525091708,
+        "longest_underwater_sessions": 640,
+        "max_drawdown": -0.2735619982948002,
+        "sessions": 5032,
+        "sharpe_daily_252": 1.1347969380446716,
+        "start": "2006-07-31",
+        "worst_daily_return": -0.09320182662970888
+      }
+    }
+  },
+  "schema": "research.simplified-candidate-snapshot/1",
+  "source_head": "8d03d04c0787ddd9b1bed7ecef58183f22288a47",
+  "status": "RESEARCH_CANDIDATE_ORIGINAL_PRESERVATION_SCREEN_FAIL",
+  "strategy_source_sha256": "26b99f4a5f7fefc9d295479cc604e85a761db64cc5416664145fdd1b94b72939",
+  "verified_job_id": 102757271609,
+  "verified_run_id": 34441488484
+}
