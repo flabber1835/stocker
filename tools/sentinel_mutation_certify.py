@@ -10,6 +10,7 @@ import shutil
 import subprocess
 import sys
 import tempfile
+import xml.etree.ElementTree as ET
 from dataclasses import dataclass
 from pathlib import Path
 
@@ -188,6 +189,41 @@ def _apply_once(path: Path, original: str, replacement: str) -> None:
     path.write_text(text.replace(original, replacement), encoding="utf-8")
 
 
+def _pytest_counts(junit: Path) -> dict[str, object]:
+    counts: dict[str, object] = {
+        "valid": False, "total": 0, "failures": 0, "errors": 0,
+        "skipped": 0,
+    }
+    if not junit.exists():
+        counts["parse_error"] = "JUnit report was not produced"
+        return counts
+    try:
+        cases = list(ET.parse(junit).getroot().iter("testcase"))
+    except (ET.ParseError, OSError) as exc:
+        counts["parse_error"] = f"{type(exc).__name__}: {exc}"
+        return counts
+    counts.update(
+        valid=True,
+        total=len(cases),
+        failures=sum(case.find("failure") is not None for case in cases),
+        errors=sum(case.find("error") is not None for case in cases),
+        skipped=sum(case.find("skipped") is not None for case in cases),
+    )
+    return counts
+
+
+def _mutation_verdict(returncode: int, junit: Path) -> tuple[bool, dict[str, object]]:
+    """A mutant dies only from an assertion failure, never harness breakage."""
+    counts = _pytest_counts(junit)
+    killed = (
+        returncode == 1
+        and counts["valid"] is True
+        and int(counts["failures"]) > 0
+        and int(counts["errors"]) == 0
+    )
+    return killed, counts
+
+
 def _run(mutant: Mutant) -> dict[str, object]:
     with tempfile.TemporaryDirectory(prefix=f"sentinel-mutant-{mutant.name}-") as raw:
         overlay = Path(raw)
@@ -214,8 +250,10 @@ def _run(mutant: Mutant) -> dict[str, object]:
             + inherited)
         relative_test, *selectors = mutant.test.split("::")
         test = "::".join((str(overlay / relative_test), *selectors))
+        junit = overlay / "mutation-junit.xml"
         completed = subprocess.run(
-            [sys.executable, "-m", "pytest", test, "-q", "-ra"],
+            [sys.executable, "-m", "pytest", test, "-q", "-ra",
+             f"--junitxml={junit}"],
             cwd=overlay,
             env=env,
             capture_output=True,
@@ -223,7 +261,7 @@ def _run(mutant: Mutant) -> dict[str, object]:
             timeout=180,
         )
         output = (completed.stdout + completed.stderr)[-12000:]
-        killed = completed.returncode == 1 and " failed" in output
+        killed, counts = _mutation_verdict(completed.returncode, junit)
         return {
             "name": mutant.name,
             "source": mutant.relative_path,
@@ -231,6 +269,7 @@ def _run(mutant: Mutant) -> dict[str, object]:
             "mutant_sha256": after,
             "test": mutant.test,
             "pytest_exit_code": completed.returncode,
+            "pytest_counts": counts,
             "mutant_killed": killed,
             "output_tail": output,
         }
