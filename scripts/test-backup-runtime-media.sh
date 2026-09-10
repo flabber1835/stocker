@@ -31,8 +31,6 @@ for name in sentinel-base-backup.sh sentinel-backup-status.sh sentinel-backup-li
   cp "scripts/$name" "$repo/scripts/$name"
 done
 cp docker-compose.sentinel-backup.yml "$repo/"
-printf "%s\n" "ALTER SYSTEM SET unix_socket_directories = '/var/run/postgresql,/lab/socket';" \
-  > "$repo/socket.sql"
 cat > "$repo/docker-compose.sentinel.yml" <<EOF
 services:
   sentinel-postgres:
@@ -44,8 +42,7 @@ services:
     volumes:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/sentinel-backup-metadata-access.sh:/lab/metadata-access.sh:ro
-      - ./socket.sql:/docker-entrypoint-initdb.d/socket.sql:ro
-      - $work/socket:/lab/socket
+      - $work/socket:/var/run/postgresql
 networks:
   default:
     internal: true
