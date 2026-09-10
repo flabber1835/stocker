@@ -26,8 +26,8 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$repo/scripts" "$work/socket" "$SENTINEL_BACKUP_DIR"/{base,wal}
 for name in sentinel-base-backup.sh sentinel-backup-status.sh sentinel-backup-lib.sh \
-            sentinel-backup-metadata-access.sh sentinel-archive-wal.sh \
-            sentinel_host_python.py sentinel_backup_lock.py; do
+            sentinel-backup-metadata-access.sh sentinel-backup-verify-chain.sh \
+            sentinel-archive-wal.sh sentinel_host_python.py sentinel_backup_lock.py; do
   cp "scripts/$name" "$repo/scripts/$name"
 done
 cp docker-compose.sentinel-backup.yml "$repo/"
