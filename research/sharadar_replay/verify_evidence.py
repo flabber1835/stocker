@@ -10,19 +10,35 @@ import xml.etree.ElementTree as ET
 
 
 CATALOGUE = Path(__file__).with_name('scenario_catalogue.json')
+REQUIRED_RECOVERY_TESTS = Path(__file__).with_name('required_recovery_tests.json')
 
 
-def _require_catalogue_coverage(scenarios, collected, catalogue):
+def _load_required_recovery_tests(path: Path) -> list[str]:
+    authority = json.loads(path.read_text())
+    assert authority.get('schema') == 'sharadar-replay-required-recovery-tests/1', \
+        'invalid required recovery-test schema'
+    required = authority.get('required_tests')
+    assert isinstance(required, list) and required, 'empty required recovery-test inventory'
+    assert all(isinstance(item, str) and item for item in required), \
+        'invalid required recovery-test id'
+    assert len(required) == len(set(required)), 'duplicate required recovery-test id'
+    return required
+
+
+def _require_catalogue_coverage(scenarios, collected, catalogue, required_recovery):
     assert catalogue['schema'] == 'sharadar-replay-catalogue/1', 'invalid catalogue schema'
     declared = catalogue['scenarios']
     assert declared, 'empty scenario catalogue'
     assert Counter(scenarios) == Counter(declared.keys()), 'declared scenario coverage differs'
     assert set(catalogue['required_tests']).issubset(collected), 'required falsifier coverage differs'
+    assert set(required_recovery).issubset(collected), 'required recovery-test coverage differs'
 
 
 def verify(root: Path, *, commit: str, shards: int = 4,
-           catalogue_path: Path = CATALOGUE) -> dict:
+           catalogue_path: Path = CATALOGUE,
+           required_recovery_path: Path = REQUIRED_RECOVERY_TESTS) -> dict:
     catalogue = json.loads(catalogue_path.read_text())
+    required_recovery = _load_required_recovery_tests(required_recovery_path)
     manifests = sorted(root.glob('*/collection.json'))
     assert len(manifests) == shards, 'missing or extra shard manifests'
     collected = None
@@ -58,7 +74,7 @@ def verify(root: Path, *, commit: str, shards: int = 4,
     assert sorted(indices) == list(range(shards)), 'duplicate or missing shard indices'
     assert collected and len(set(collected)) == len(collected), 'empty or duplicate test collection'
     assert Counter(selected_all) == Counter(collected), 'test partition is incomplete'
-    _require_catalogue_coverage(scenarios, collected, catalogue)
+    _require_catalogue_coverage(scenarios, collected, catalogue, required_recovery)
     return {'verdict': 'PASS', 'commit': commit, 'tests': len(collected),
             'scenarios': len(scenarios), 'shards': shards}
 
