@@ -3,12 +3,13 @@
 ## Purpose and acceptance contract
 
 Exercise the production backup implementation against deterministic media faults,
-invalid retained evidence, process interruption, scheduling collisions and recovery.
-Each repairable scenario must prove refusal during the fault and successful retry
-after it clears. A successful command must preserve exact source bytes. A failed
-attempt must preserve older recovery points. Simulation success is software
-evidence; physical PostgreSQL replay and restored application semantics have
-separate gates. NAS media durability and broker takeover remain operational gates.
+invalid retained evidence, process interruption, scheduling collisions, timeline
+changes and recovery. Each repairable scenario must prove refusal during the fault
+and successful retry after repair. A successful archive command must preserve exact
+source bytes and durable integrity evidence. A failed attempt must preserve older
+recovery points. Simulation success is software evidence; physical PostgreSQL replay,
+timeline promotion, restored application semantics, NAS durability and broker takeover
+retain separate gates.
 
 Base reviewed: `df4683b8bf1c80453b8f542f4e3ed441387ad3f5`.
 
@@ -16,7 +17,7 @@ Base reviewed: `df4683b8bf1c80453b8f542f4e3ed441387ad3f5`.
 
 Issue bodies and discussion logs reviewed on 2026-09-10:
 
-| History | Failure to retain as a regression |
+| History | Failure retained as a regression |
 | --- | --- |
 | #95, #145, #149 | Shared durability checks; emergency fencing remains reachable |
 | #102, #112, #140 | Interrupted staging/metadata; concurrent writers; premature readiness |
@@ -26,191 +27,210 @@ Issue bodies and discussion logs reviewed on 2026-09-10:
 | PR #281, #300, #313 | Stale/uninitialized archival, outage recovery, fresh post-refresh proof |
 | PR #316 | Recreated PostgreSQL clusters reuse WAL filenames |
 
-Repository links use `https://github.com/flabber1835/stocker/issues/<number>`
-and `https://github.com/flabber1835/stocker/pull/<number>` respectively.
+## Design
 
-## Design decided before implementation
+1. The deterministic harness lives under `tests/backup`. It imports production
+   guards and invokes the production archive and backup scripts. Fault injection
+   replaces operating-system commands only at external process boundaries.
+2. A strict database adapter represents PostgreSQL observations of temporary backup
+   media. Unknown SQL fails the test. Production code owns all readiness decisions.
+3. Fixed-seed campaigns retain their seed and event trace. They repeatedly lose and
+   restore media, markers, archive objects and frontier observations against an
+   independent expected-state oracle.
+4. Physical gates use isolated PostgreSQL 16.14 instances, real base backups,
+   manifests, archive commands and WAL recovery. Resources are uniquely named and
+   cleanup is restricted to resources created by the harness.
+5. Existing backup-root, GO-refresh, lock, emergency-fence and semantic-restore
+   regressions remain part of the complete Sentinel safety suite.
+6. The harness fixes reproduced defects while preserving PostgreSQL/root ownership,
+   immutable archive publication, strategy economics and broker authority boundaries.
 
-1. Keep the harness under `tests/backup`. It imports production guards and invokes
-   the actual archive shell entrypoint. Fault injection replaces operating-system
-   commands only at the external process boundary. No production test-mode switch.
-2. A strict database-observation adapter represents PostgreSQL reads of a temporary
-   backup filesystem. Unknown SQL fails the test. It does not decide readiness;
-   production code does. A controlled clock supports repeatable timing sequences.
-3. Seeded multi-event campaigns retain their seed and failing event trace in
-   pytest/JUnit output. They test repeated loss and restoration of media, markers,
-   segments and frontier observations, with an independent expected-state oracle.
-4. The physical gate uses an isolated PostgreSQL environment, real base backups,
-   manifest verification, WAL replay and exact SQL contents. Every resource has a
-   unique test name. Cleanup is scoped to resources created by the harness.
-5. Reuse existing backup-root, GO-refresh, lock, emergency-fence and semantic
-   restore regressions in the dedicated command. Keep each layer's evidence
-   explicit. Never report simulated I/O as physical recovery proof.
-6. Fix defects reproduced by the harness on this PR. Preserve the documented
-   PostgreSQL/root media ownership model, immutable archived objects, production
-   strategy economics and broker authorization boundaries.
+## Private-media authority
 
-## Review repairs: clocks, media errors, metadata authority and restore horizon
+Container root remains the physical-base writer. The base parent is root-owned,
+group `postgres`, mode 0750; completed base directories are root-owned, group
+`postgres`, mode 0710. Exactly `backup_manifest`, `backup_label`,
+`sentinel-recovery-marker` and `sentinel-pitr-base-identity` receive mode 0640 and
+group `postgres`. Payload permissions remain private.
 
-Archive timestamps are compared to the database clock at full precision. Epoch
-seconds used for age arithmetic are floored consistently. Manifest age uses a
-host-clock sample taken after the manifest stat, so publication during a status
-check does not look future-dated. Tests include subsecond archive success,
-subsecond future evidence and publication across a second boundary.
-The status age limit is decimal, including leading-zero inputs. Values longer
-than 15 digits refuse configuration before arithmetic can overflow.
+PostgreSQL may enumerate base generations and read those four metadata files. It
+cannot list or read base payload directories, write metadata, create generations or
+delete backups. Explicit backup initialization migrates only this metadata-read
+grant. The grant validates root ownership, regular path identity and single-link
+metadata before changing permissions. Symlink, hardlink and ownership drift are
+falsified in the real Docker composition gate.
 
-Filesystem SQLSTATEs `58P01`, `42501` and `58030`, and OS I/O errors, retain
-`BackupRuntimeUnavailable` through every metadata read, including manifest JSON
-parsing. Malformed JSON and contradictory metadata retain integrity refusal.
-Faults at every SQL read must fence writes and heal after the fault clears.
+The durable-target markers remain cold-boot mount fences. Routine validation never
+recreates a missing marker. Filesystem SQLSTATEs `58P01`, `42501` and `58030`, plus
+OS I/O errors, retain `BackupRuntimeUnavailable`; malformed or contradictory
+integrity evidence retains permanent `BackupRuntimeRefused`.
 
-Issue #345 requires a narrow metadata-read grant. Container root remains the
-base-backup writer. The base parent is root-owned, group `postgres`, mode 0750;
-completed base directories are root-owned, group `postgres`, mode 0710. Exactly
-`backup_manifest`, `backup_label`, `sentinel-recovery-marker` and
-`sentinel-pitr-base-identity` receive mode 0640 and group `postgres`. Payload
-permissions and ownership are preserved. PostgreSQL can enumerate generations
-and read these four files; it cannot list or read payload directories, write
-metadata, create generations or delete backups. The host account retains no
-access through other-user permissions.
-Bind mounts identify groups numerically. A host account sharing PostgreSQL's
-numeric group receives the same metadata read grant. Payload read denial and
-base/metadata write denial still apply. The physical gate records both identities
-and separately checks an unrelated UID/GID.
+## Production mutation authority
 
-The production producer grants this access after verification and metadata
-publication, before atomic generation promotion. Explicit backup initialization
-migrates only the metadata-read permissions of completed retained generations.
-Routine validation remains read-only. The grant verifies regular, root-owned paths
-and rejects symlinks and hard-linked metadata before changing permissions. A real
-Docker composition gate runs the actual producer, connects the production Python
-guard to PostgreSQL over a local Unix socket against the same media, checks
-payload/write denial, injects media loss and verifies repair.
+Canonical feed seed/daily recovery and paper preparation/manual execution/automated
+execution require a valid runtime restore horizon before their first mutation. The
+common corpus writer lock and plan/execution writer lock independently repeat that
+proof after acquiring exclusivity and before yielding mutation authority. Direct
+internal imports therefore retain the same gate.
 
-PR #344 review found that the full restore-horizon authority existed but was not
-on every production feed/plan/order entrypoint. Canonical feed seed/daily recovery
-and the public paper preparation/manual-execution/automated-execution gateways now
-require it before their first mutation. The backup Compose overlay enables that
-authority for supported manual CLI operation, while unattended services retain the
-same required authority. Read-only broker recovery stays available during a backup
-outage.
+Every broker `SUBMIT` and `CANCEL` also rechecks backup authority through its fresh
+PostgreSQL authority connection. Media loss after plan preparation therefore fences
+the next transport operation. Read-only broker observation/recovery and the scheduler
+lease needed to reach it use the explicit `writer_lock(..., recovery_only=True)`
+scope. Nested ordinary writer locks still require full mutation authority. Emergency
+kill, disable and revocation retain their independent existing paths.
 
-The paper package initializer remains declarative. The canonical preparation
-and execution functions call the paper validation helper directly, preserving
-their explicit signatures and identical public/submodule function ownership.
-The helper translates runtime backup exceptions into the established paper
-retryable/permanent refusals. The historical decomposition AST fingerprints
-remain frozen: the architecture test checks the exact added gate statements and
-recovery lock keyword, then proves the remaining lifecycle bodies still match.
-The new helper is covered by refusal tests through both import paths.
+Runtime authority also requires current archiver health through `backup_guard`.
+Disabled archiving, future-dated evidence, unresolved failures and failed active
+liveness probes cannot be masked by an intact retained chain.
 
-The common corpus writer lock and execution/plan writer lock independently
-recheck the complete restore horizon after acquiring exclusivity and before
-yielding mutation authority. Direct internal imports therefore retain the gate.
-Each broker SUBMIT or CANCEL also rechecks the horizon on its fresh authority
-connection. A loss after plan preparation fences the next transport operation.
-Only broker-observation recovery and the scheduler lease needed to reach that
-recovery may request `writer_lock(..., recovery_only=True)`. That scope retains
-serialization for observed history and coordination; it grants no plan or broker
-mutation authority, and nested ordinary writer locks still recheck the horizon.
-Emergency kill, disable and revocation keep their independent existing locks.
-Temporary media loss retains the retryable backup/connection-error identity;
-contradictory integrity evidence retains permanent backup refusal.
+## Archive identity and integrity
 
-Runtime hashing reads only the required manifest-to-frontier WAL names. Older
-retention and later concurrently archived segments are outside this proof's
-scope. Every required segment is hashed again on each mutation check.
-The same runtime authority also requires current archiver liveness through
-`backup_guard`, including archive mode, timestamp validity and its active probe
-for stale evidence. A complete retained chain cannot authorize new writes after
-archiving is disabled. These checks retain the existing typed retry/refusal split.
+Each PostgreSQL cluster owns `wal/cluster-<system_identifier>`. A normal 24-hex WAL
+segment carries the system identifier in its long page header and the archive command
+uses that value as its namespace authority. PostgreSQL timeline-history and backup-
+history files are text metadata and have no WAL long-page header. For those objects,
+the archive command reads `pg_control` from the server data directory identified by
+PostgreSQL's `%p`/working-directory contract. A normal WAL segment is cross-checked
+against the same control identity when available.
 
-Every newly archived WAL now carries an atomically published `.<none>`-free
-companion named `<24-hex-WAL>.sha256`. The sidecar contains one lowercase SHA-256
-of the immutable source WAL. Archive success is withheld until the WAL, sidecar,
-and containing directory have been durably synchronized and revalidated. Runtime
-authority recomputes SHA-256 from every WAL byte in the complete manifest-End-LSN
-to `last_archived_wal` chain. A full-size post-publication bit flip therefore
-fails integrity validation just like a missing or truncated segment.
+Supported archive objects are:
 
-Checksum authority is never synthesized for retained WAL. An upgrade may grant
-PostgreSQL read access to old backup metadata, but it does not hash old WAL and
-call those hashes historical evidence. After deploying the checksum-aware archive
-command, create a fresh verified base backup. Its required WAL horizon was archived
-under the new producer and therefore has provenance-bearing sidecars. A missing
-sidecar remains a write fence until such a fresh recovery horizon exists.
+- `<24-hex-WAL>`
+- `<8-hex-timeline>.history`
+- `<24-hex-WAL>.<8-hex-offset>.backup`
 
-Operator `sentinel-backup-status.sh` now proves that same complete chain before it
-can print `backup_ready:true`. It requires `backup_label` as part of a complete base,
-derives the first required WAL from the selected base manifest, walks every segment
-to the current archive frontier, requires the retained recovery-marker WAL to fall
-inside that sequence, verifies every segment's exact configured size, and hashes
-every segment against its sidecar. The proof executes under the PostgreSQL OS
-identity inside the private-media boundary.
+Every supported object is atomically published together with a companion
+`<archive-object>.sha256`. Publication succeeds only after source stability, exact
+copy comparison, object fsync, sidecar fsync, directory fsync and final revalidation.
+Identical concurrent writers converge; conflicting writers preserve the winning
+immutable object and fail closed.
+
+Retained pre-upgrade WAL is never retroactively granted checksum authority. After
+installing the checksum-aware archive command, create a fresh verified base so its
+required restore horizon consists of provenance-bearing archive objects.
+
+## Bounded runtime integrity proof
+
+The runtime proves only the archive objects required by the selected base-to-frontier
+restore horizon. Older retained generations and later concurrently arriving objects
+are outside that decision.
+
+A complete SHA-256 byte scrub occurs on first use and at least every 300 seconds.
+Between complete scrubs, each mutation check re-reads every required object's size,
+mtime, ctime, sidecar contents and sidecar timestamps, and re-hashes every new or
+metadata-changed object. The cache is scoped to the PostgreSQL target, system
+identifier, selected base, restore start and WAL geometry. A recreated database,
+new base, changed frontier object, changed metadata or expired scrub interval cannot
+inherit an unrelated proof.
+
+The runtime additionally executes a filesystem-identity probe under PostgreSQL's OS
+identity on every check. Required base/WAL directories must not be symlinks; durable-
+target markers, selected base metadata, required WAL/history objects and sidecars
+must be non-symlink single-link files. Runtime and operator status therefore share
+the same alias/hardlink acceptance contract.
+
+Synchronous mutation-path proof is bounded to 1,024 required archive objects and
+1 GiB of archive bytes. Exceeding either bound is a permanent fail-closed condition
+with an instruction to create a fresh base backup. This caps restart/full-scrub cost
+and prevents an arbitrarily old base from turning a broker mutation into an
+unbounded historical scan.
+
+## Timeline recovery
+
+A recovered PostgreSQL cluster promoted after archive recovery creates a new timeline.
+Its `<timeline>.history` file is recovery-critical and passes through the same
+`archive_command` as WAL. The archive command now publishes that history file into
+the current system-id namespace with the same atomic SHA-256 contract.
+
+A base whose manifest names timeline 2 or later is accepted only when the matching
+`<timeline>.history` object and checksum are present and valid. Runtime authority,
+operator status and the standalone Python chain verifier enforce the same rule.
+
+`tests/backup/test_pr344_final_seams.py` falsifies history loss, repair, aliasing,
+bounded proof cost, incremental revalidation and forced periodic full scrubs.
+`scripts/test-backup-timeline-promotion.sh` performs the real PostgreSQL sequence:
+base on timeline 1 -> archive recovery -> promotion -> timeline-history archival ->
+timeline-2 WAL archival -> fresh verified timeline-2 base.
+
+## Operator status and restore
+
+`sentinel-backup-status.sh` can print `backup_ready:true` only after it selects a
+complete current-cluster base, checks age/archiver state, derives the first required
+WAL from the base manifest, walks every segment through `last_archived_wal`, requires
+the recovery-marker WAL inside the interval, verifies exact WAL size, validates all
+sidecars, checks hardlink/symlink identity and, on timeline 2+, verifies the required
+timeline-history object.
+
+The restore drill copies the selected base into a disposable volume and runs
+`pg_verifybackup` before changing the copy or beginning recovery. It replays through
+the exact post-base marker, validates canonical Sentinel tables, promotes the
+isolated database and runs semantic validation using the digest-qualified Sentinel
+runtime image. Base-payload bit rot is therefore detected before restore execution.
+
+`backup_ready:true` is a chain/readiness checkpoint; full base-payload manifest
+verification remains a restore-drill checkpoint.
 
 ## Required fault families
 
-Missing/remounted media; invalid or symlinked attestation; permissions, ENOSPC,
-short writes, EIO, failed fsync and rename; interruption before/after publication;
-identical/conflicting retries and simultaneous writers; cluster identity and WAL
-timeline changes; missing/truncated middle or marker WAL; same-size WAL corruption;
-missing/malformed checksum evidence; malformed/duplicate metadata; stale/future
-timestamps; delayed successful archive and unresolved newer failure; interrupted
-base creation and exact backup selection; post-creation bit rot; semantic corruption;
-repeated outage and eventual recovery.
+Missing/remounted media; invalid or aliased attestation; permissions; ENOSPC; short
+writes; EIO; failed fsync/rename; interruption around publication; simultaneous
+identical/conflicting writers; source mutation during copy; PostgreSQL cluster
+identity changes; timeline promotion/history loss; missing/truncated middle or marker
+WAL; same-size corruption; missing/malformed checksum evidence; metadata aliases and
+hardlinks; malformed/duplicate metadata; stale/future timestamps; delayed archive
+success; unresolved archive failure; interrupted base creation; exact base selection;
+post-creation base bit rot; semantic corruption; repeated outage and eventual repair.
 
-The output records failures separately from prerequisites that could not run.
-The harness must never silently skip a required physical gate in CI.
+Required physical gates must fail when prerequisites cannot run; they may not silently
+skip.
 
-## Commands and evidence
+## Commands and CI evidence
 
-`python -m pytest tests/backup -q -ra --junitxml=backup.xml` runs the deterministic
-media, process, lifecycle and clock scenarios. Three fixed seeds each advance
-120 events; failed assertions retain their seed and event trace. Shell lifecycle
-tests execute copied production scripts with a strict command adapter, actual
-temporary filesystem operations and the real kernel lock. Their PostgreSQL
-observations and checksum oracle are explicitly simulated.
+`python -m pytest tests/backup -q -ra --junitxml=backup.xml` runs deterministic media,
+process, lifecycle, alias, integrity-cache and clock scenarios. Fixed seeds each
+advance 120 events and preserve the failing event trace.
 
-`bash scripts/test-backup-physical.sh` runs PostgreSQL 16.14 from the repository's
-pinned image in one disposable network-isolated container. It creates a physical
-base with streamed WAL, archives post-base transactions through the production
-archive script, detects post-creation relation corruption, refuses a missing
-middle segment and a truncated marker segment, restores after repair, and compares
-every probe row and decimal amount to the original database.
-It first runs the retained NAS permission regression: the host account cannot
-write either private backup directory, while the correct PostgreSQL/root
-container authorities can initialize and verify their markers.
+`bash scripts/test-backup-physical.sh` creates a real physical base, archives
+post-base transactions through the production archive command, detects post-creation
+base corruption, refuses missing/truncated WAL, repairs the media, restores and
+compares exact SQL contents.
 
-The `Backup reliability` workflow runs both commands and retains JUnit and physical
-logs. The existing `Sentinel safety` workflow retains the wider backup-root,
-private-authority, GO refresh, emergency-fence, lock and semantic-restore tests.
-The physical probe table does not certify a populated trading account's semantic
-restore or broker takeover. Those remain the deployment runbook's separate gates.
+`bash scripts/test-backup-timeline-promotion.sh` exercises real archive recovery and
+promotion to a new PostgreSQL timeline with archiving enabled and requires durable
+history-file publication before accepting a fresh base on the new timeline.
+
+`bash scripts/test-backup-runtime-media.sh` runs the real production base producer and
+runtime SQL guard against the same private bind-mounted media, checks payload/write
+permissions, middle-chain loss, same-size corruption, status parity, media loss and
+repair.
+
+The `Backup reliability` workflow executes all of these gates on both the exact PR
+head and GitHub's synthetic merge tree. `Sentinel safety` supplies the wider runtime,
+recovery, authority, operator-script, Python-3.8 host and mutation-test coverage.
 
 ## Defects exposed and fixed
 
-- Runtime restore-horizon scans and active WAL probes still used the flat archive
-  path after PR #316 introduced cluster namespaces. Both now bind to the current
-  PostgreSQL system identity; old-cluster base evidence cannot authorize writes.
-- The runtime accepted incomplete recovery metadata. Exact required fields and
-  unique identities now precede the contiguous WAL proof.
-- A backwards clock jump could turn future archive evidence into age zero. It
-  now refuses. Status also rejects future manifest mtimes and checks age in seconds.
-- Production feed/plan/order mutations could proceed while the full retained WAL
-  chain was broken. Their canonical production gateways now require the complete
-  restore horizon before mutation.
-- Full-size WAL corruption could pass runtime authority because size was treated
-  as integrity. Archive publication now emits durable SHA-256 evidence and runtime
-  authority recomputes every required segment before accepting the horizon.
-- Status could report ready for a missing middle segment while its recovery-marker
-  and latest WAL objects were intact. It now walks and hashes the complete selected
-  base-to-frontier chain and requires `backup_label` during base selection.
-- Restore copied a previously verified base and started recovery before checking
-  current checksums. It now verifies the disposable copy before altering it.
-- Coreutils no-clobber exit behavior could reject an identical concurrent writer.
-  The archive script accepts that race only when the temporary survives and the
-  competing final exactly matches the complete source.
-- A disappearing directory during runtime scanning could escape as an untyped
-  filesystem/database exception. It now remains a retryable, write-fencing media
-  failure. Malformed evidence continues to refuse.
+- Flat archive scans after cluster namespaces were introduced: runtime and active
+  probes now bind to the current PostgreSQL system identifier.
+- Incomplete recovery metadata: exact required fields and identities precede the
+  contiguous chain proof.
+- Backwards clock jumps: future archive evidence is refused.
+- Missing mutation wiring: canonical feed/plan/order gateways and common writer locks
+  now require complete runtime backup authority.
+- Full-size WAL corruption: archive objects carry SHA-256 evidence and runtime
+  periodically re-scrubs bytes while revalidating metadata on every mutation gate.
+- Unbounded broker-path hashing: proof reuse is metadata-bound and time-bounded, with
+  hard byte/object ceilings and forced full-scrub renewal.
+- Runtime/operator alias mismatch: both now refuse symlinks and hardlinks for required
+  recovery objects.
+- Missing middle WAL in status: status walks the complete selected base-to-frontier
+  chain.
+- Recovery promotion seam: timeline-history files are archived, checksummed and
+  required for timeline-2+ restore authority.
+- Restore after base bit rot: the disposable base copy is manifest-verified before
+  recovery begins.
+- Concurrent no-clobber differences: an identical writer is accepted only after the
+  competing final is proven byte-identical and durable.
+- Filesystem disappearance during runtime reads: media errors retain retryable,
+  write-fencing identity.
