@@ -1,13 +1,14 @@
 """Regressions for review-discovered Alpaca harness authority gaps."""
 from __future__ import annotations
 
+from datetime import timedelta
 from decimal import Decimal as D
 
 import pytest
 
 from sentinel.execution import recovery
 from sentinel.execution.states import CommandState as S
-from tests.support.alpaca_simulator import AlpacaSimulator, Profile
+from tests.support.alpaca_simulator import AlpacaSimulator, EPOCH, Profile
 from test_alpaca_simulation_harness import command, run, submit
 from tools import sentinel_mutation_certify
 
@@ -34,6 +35,38 @@ def test_exact_404_cannot_cancel_order_present_in_complete_observation(world):
     assert resolved.state is S.ACKNOWLEDGED
     assert resolved.broker_order_id == next(iter(world.orders))
     assert next(iter(world.orders.values()))["status"] == "new"
+
+
+@pytest.mark.parametrize("terminal", ["canceled", "filled"])
+def test_unknown_pending_cancel_recovery_preserves_terminal_race(world, terminal):
+    world.timeout(after_effect=True)
+    unknown = run(recovery.dispatch(
+        world.adapter(), recovery.prepare_send(command())))
+    assert unknown.state is S.UNKNOWN
+    order_id = next(iter(world.orders))
+
+    # The original POST landed and a cancellation was initiated while Sentinel
+    # still held only UNKNOWN evidence from the lost submit response.
+    world.orders[order_id]["status"] = "pending_cancel"
+    pending_observation = run(world.adapter().observe())
+    pending = run(recovery.resolve_unknown(
+        world.adapter(), unknown, pending_observation))
+
+    assert pending.state is S.CANCEL_PENDING
+    assert pending.broker_order_id == order_id
+
+    if terminal == "canceled":
+        world.orders[order_id]["status"] = "canceled"
+    else:
+        world.fill(order_id)
+
+    terminal_observation = run(world.adapter().observe_with_terminal_recovery(
+        submitted_after=EPOCH - timedelta(days=1), processed_through=EPOCH))
+    settled = recovery.confirm_cancellation(pending, terminal_observation)
+
+    assert settled.state is (S.CANCELLED if terminal == "canceled" else S.FILLED)
+    if terminal == "filled":
+        assert settled.filled_quantity == D(10)
 
 
 @pytest.mark.parametrize("profile", list(Profile), ids=lambda profile: profile.value)
