@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 from concurrent.futures import ThreadPoolExecutor
+import hashlib
 import signal
 import subprocess
 
 import pytest
 
 from lab import Archive, CONTENT, MARKER
+
+
+def _assert_wal_bytes_only(lab):
+    assert lab.target.read_bytes() == lab.source.read_bytes()
 
 
 @pytest.mark.parametrize("command,phase,mode", [
@@ -30,14 +35,17 @@ def test_io_fault_refuses_then_retry_converges(tmp_path, command, phase, mode):
     assert older.read_bytes() == b"older-recovery-point"
     assert not list(lab.namespace.glob(".*.part.*"))
     if lab.target.exists():
-        lab.assert_exact()
+        _assert_wal_bytes_only(lab)
     lab.clear()
     assert lab.run().returncode == 0
     lab.assert_exact()
-    # Repeated success must preserve the immutable published object.
+    # Repeated success must preserve the immutable published object and digest.
     inode = lab.target.stat().st_ino
+    checksum_inode = lab.checksum.stat().st_ino
     assert lab.run().returncode == 0
     assert lab.target.stat().st_ino == inode
+    assert lab.checksum.stat().st_ino == checksum_inode
+    lab.assert_exact()
 
 
 @pytest.mark.parametrize("command,phase", [
@@ -49,7 +57,7 @@ def test_sigkill_at_publication_boundaries_then_restart(tmp_path, command, phase
     lab.fault(command, phase, "kill")
     assert lab.run().returncode == -signal.SIGKILL
     if lab.target.exists():
-        lab.assert_exact()
+        _assert_wal_bytes_only(lab)
     lab.clear()
     assert lab.run().returncode == 0
     lab.assert_exact()
@@ -113,4 +121,7 @@ def test_simultaneous_conflicting_writers_preserve_one_complete_winner(tmp_path)
                              capture_output=True, text=True, timeout=10)
         results = [first.result(), second.result()]
     assert sorted(r.returncode == 0 for r in results) == [False, True]
-    assert lab.target.read_bytes() in (original, other.read_bytes())
+    winner = lab.target.read_bytes()
+    assert winner in (original, other.read_bytes())
+    checksum = lab.checksum.read_text().strip()
+    assert checksum == "sha256=" + hashlib.sha256(winner).hexdigest()
