@@ -42,17 +42,15 @@ else
 fi
 
 # WAL segments carry the 64-bit database-system identifier in their long page
-# header. Timeline/backup-history files are text metadata and do not. For those
-# objects, derive identity from the running cluster's pg_control. Cross-check a
-# normal segment against pg_control whenever that control file is reachable.
-control_dir="${PGDATA:-}"
-if [ -z "$control_dir" ]; then
-  case "$source_wal" in
-    */pg_wal/*) control_dir="${source_wal%/pg_wal/*}" ;;
-    pg_wal/*) control_dir="." ;;
-    *) control_dir="." ;;
-  esac
-fi
+# header. Timeline/backup-history files are text metadata and do not. PostgreSQL
+# defines archive_command %p relative to the server working directory, which is
+# the cluster data directory. Derive pg_control from that exact path first; use
+# PGDATA only for explicit non-%p invocations such as standalone harness calls.
+case "$source_wal" in
+  */pg_wal/*) control_dir="${source_wal%/pg_wal/*}" ;;
+  pg_wal/*) control_dir="." ;;
+  *) control_dir="${PGDATA:-.}" ;;
+esac
 control_system_id=""
 if [ -d "$control_dir" ] && command -v pg_controldata >/dev/null 2>&1; then
   control_system_id="$(pg_controldata "$control_dir" 2>/dev/null \
