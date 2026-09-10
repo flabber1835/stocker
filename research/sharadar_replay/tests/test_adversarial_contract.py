@@ -85,7 +85,8 @@ def test_metadata_recovery_exception_cannot_admit_other_pending_rows(monkeypatch
                   recovery.FailedLiveCandidate(run_id='two', kind=kind)]
     monkeypatch.setattr(recovery, 'failed_live_candidates', lambda conn: candidates)
     monkeypatch.setattr(publication, 'coherence', lambda conn: SimpleNamespace(
-        unpublished_rows=2 + other_rows, unpublished_universe=2))
+        unpublished_rows=2 + other_rows, unpublished_universe=2,
+        unpublished_spy=0, unpublished_defensive=0))
     with pytest.raises(recovery.PublicationRecoveryRefused):
         ingest_authority_impl._single_failed_live_candidate(object())
 
@@ -97,7 +98,8 @@ def test_metadata_only_mixed_operation_kinds_remain_blocked(monkeypatch):
         recovery.FailedLiveCandidate(run_id='one', kind='daily'),
         recovery.FailedLiveCandidate(run_id='two', kind='seed')])
     monkeypatch.setattr(publication, 'coherence', lambda conn: SimpleNamespace(
-        unpublished_rows=2, unpublished_universe=2))
+        unpublished_rows=2, unpublished_universe=2,
+        unpublished_spy=0, unpublished_defensive=0))
     with pytest.raises(recovery.PublicationRecoveryRefused):
         ingest_authority_impl._single_failed_live_candidate(object())
 
