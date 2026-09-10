@@ -1,0 +1,499 @@
+name: Research - V5 + EX3 V6 convergence v2
+run-name: V5 + r40_m04_rec8 semantic convergence V2 - ${{ github.sha }}
+
+on:
+  push:
+    branches: [research/wealth-core-v5-ex3-v6-convergence-v2]
+    paths:
+      - '.github/workflows/wealth-core-v5-ex3-v6-convergence-v2.yml'
+      - 'research/wealth-core-v5-ex3-v6-convergence-v2/**'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+  actions: read
+
+concurrency:
+  group: v5-ex3-v6-convergence-v2-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+  HARNESS_AUTHORITY: eaddca3f04f279e99663f832bf7293e92ee15662
+
+jobs:
+  state-tests:
+    name: Stage 1 - semantic state tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Current experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            research/wealth-core-v5-ex3-v6-convergence-v2
+            docs/sentinel-ex3-v6.md
+      - name: Pinned replay-harness checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: eaddca3f04f279e99663f832bf7293e92ee15662
+          path: harness-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Verify published and harness authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C experiment-src rev-parse HEAD)" = "${GITHUB_SHA}"
+          test "$(git -C harness-src rev-parse HEAD)" = "${HARNESS_AUTHORITY}"
+          grep -q 'r40_m04_rec8' experiment-src/docs/sentinel-ex3-v6.md
+          grep -q '335e2ae06efd5e2ebfa11f0641029609d524f4e75e733a3dbd0a5efcf64ac42d' experiment-src/docs/sentinel-ex3-v6.md
+      - name: Generate exact V6 research runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py \
+            --source harness-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            --output harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+          python -m py_compile \
+            experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/run_v2.py \
+            experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/aggregate_v2.py \
+            experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/trace_prior_slices.py
+      - name: Run independent semantic invariants
+        shell: bash
+        env:
+          V2_V6_RUNNER: ${{ github.workspace }}/harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check numpy==2.4.6 pandas==3.0.5
+          python experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/run_v2.py --self-test | tee state-tests.json
+      - name: Preserve stage 1
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v2-state-tests
+          path: state-tests.json
+          retention-days: 90
+          if-no-files-found: error
+
+  prior-slices:
+    name: Stage 2 - prior historical causal slices
+    needs: state-tests
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Current experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-ex3-v6-convergence-v2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Retrieve immutable completed V1 slices
+        shell: bash
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          gh api repos/${GITHUB_REPOSITORY}/actions/artifacts/10133875815/zip > v1-baseline.zip
+          gh api repos/${GITHUB_REPOSITORY}/actions/artifacts/10134672706/zip > v1-high-case0.zip
+          gh api repos/${GITHUB_REPOSITORY}/actions/artifacts/10134745936/zip > v1-ordinary-case1.zip
+          gh api repos/${GITHUB_REPOSITORY}/actions/artifacts/10134551681/zip > v1-ordinary-case2.zip
+          echo 'acdd602b34fc16e3a9cf9e608fb21515f50b5451ab91dc41273358793a0f084a  v1-baseline.zip' | sha256sum -c -
+          echo '6b5017c71f2b2ae4bb88add3940796a5446a5faef6855135d6e60a3eefe9c858  v1-high-case0.zip' | sha256sum -c -
+          echo 'acdffb12a6832834fe420bffd6407e24a694ceacc05435df4dbc8acdb44102d6  v1-ordinary-case1.zip' | sha256sum -c -
+          echo '347ac25751e36c26ec1c5bdc56d9e447388b261a6faf4d1b976770af13d3bdc2  v1-ordinary-case2.zip' | sha256sum -c -
+      - name: Audit causal historical slices
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check numpy==2.4.6 pandas==3.0.5
+          python experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/trace_prior_slices.py \
+            --baseline v1-baseline.zip --high v1-high-case0.zip \
+            --ordinary1 v1-ordinary-case1.zip --ordinary2 v1-ordinary-case2.zip \
+            --out prior-slices
+      - name: Preserve causal trace
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v2-prior-slices
+          path: prior-slices/
+          retention-days: 90
+          if-no-files-found: error
+
+  baseline:
+    name: Economic safety - exact 20y A/B baseline
+    needs: prior-slices
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    steps:
+      - name: Current experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-ex3-v6-convergence-v2
+      - name: Pinned replay-harness checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: eaddca3f04f279e99663f832bf7293e92ee15662
+          path: harness-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+      - name: Stage pinned full-PIT replay authority
+        uses: ./harness-src/.github/actions/v5-ex3-v5-adversarial-setup
+      - name: Generate exact r40_m04_rec8 authority
+        shell: bash
+        run: |
+          set -euo pipefail
+          python harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py \
+            --source harness-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            --output harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+      - name: Run exact 20-year V6 / V2 baseline
+        shell: bash
+        env:
+          V2_V6_RUNNER: ${{ github.workspace }}/harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/run_v2.py" \
+            --suite baseline \
+            --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+            --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+            --output "${GITHUB_WORKSPACE}/baseline-results" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/baseline.log"
+      - name: Exact economic-safety gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/aggregate_v2.py \
+            --baseline baseline-results --out baseline-gate
+      - name: Freeze deterministic case sets before treatment outcomes
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib,json
+          from pathlib import Path
+          root=Path('baseline-results')
+          held=list(map(str,json.loads((root/'held-security-ids.json').read_text())))
+          ranked=sorted(held,key=lambda x:(hashlib.sha256(('convergence-jackknife-v1:'+x).encode()).hexdigest(),x))
+          chosen=ranked[:16]
+          expected=['301606049357818446','425931792436652190','311453645065866101','647878730222364752','741035362761868119','477008601146089039','1040633074096912075','277347208162984956','226714775113304174','530096994681580629','266855227169442591','727329233939509358','1007915758142459381','234519598613096064','541294246083247236','475154314395267726']
+          assert chosen==expected,(chosen,expected)
+          screen=['301606049357818446','1040633074096912075','277347208162984956','727329233939509358','425931792436652190','311453645065866101']
+          assert all(x in held for x in screen)
+          (root/'selected-16-security-ids.json').write_text(json.dumps(chosen,indent=2)+'\n')
+          (root/'screen-6-security-ids.json').write_text(json.dumps(screen,indent=2)+'\n')
+          PY
+      - name: Preserve baseline authority and gate
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v2-baseline
+          path: |
+            baseline-results/
+            baseline-gate/
+            baseline.log
+          retention-days: 90
+          if-no-files-found: error
+
+  screen:
+    name: Stage 3 - small screen ${{ matrix.index }}
+    needs: baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        index: [0,1,2,3,4,5,6]
+    steps:
+      - name: Current experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-ex3-v6-convergence-v2
+      - name: Pinned replay-harness checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: eaddca3f04f279e99663f832bf7293e92ee15662
+          path: harness-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+      - name: Stage pinned full-PIT replay authority
+        uses: ./harness-src/.github/actions/v5-ex3-v5-adversarial-setup
+      - name: Retrieve V2 baseline
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: v2-baseline
+          path: baseline-input
+      - name: Generate paired V2 runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py \
+            --source harness-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            --output harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+      - name: Run deterministic screen case
+        shell: bash
+        env:
+          IDX: ${{ matrix.index }}
+          V2_V6_RUNNER: ${{ github.workspace }}/harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+        run: |
+          set -euo pipefail
+          mkdir -p screen-results
+          if [ "$IDX" -lt 6 ]; then
+            python - <<'PY'
+          import json,os
+          ids=json.load(open('baseline-input/baseline-results/screen-6-security-ids.json'))
+          json.dump([ids[int(os.environ['IDX'])]],open('one-security.json','w'))
+          PY
+            cd certified-src
+            python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/run_v2.py" \
+              --suite security-loo --security-list "${GITHUB_WORKSPACE}/one-security.json" \
+              --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+              --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+              --output "${GITHUB_WORKSPACE}/screen-results"
+          else
+            cd certified-src
+            python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/run_v2.py" \
+              --suite universe --shard 0 --shards 3 \
+              --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+              --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+              --output "${GITHUB_WORKSPACE}/screen-results"
+          fi
+      - name: Preserve screen case
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v2-screen-${{ matrix.index }}
+          path: screen-results/
+          retention-days: 90
+          if-no-files-found: error
+
+  screen-summary:
+    name: Stage 3 verdict and full-campaign gate
+    needs: [baseline, screen]
+    runs-on: ubuntu-24.04
+    outputs:
+      proceed: ${{ steps.gate.outputs.proceed }}
+    steps:
+      - name: Current experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-ex3-v6-convergence-v2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Download baseline
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: v2-baseline
+          path: evidence/baseline
+      - name: Download screen cases
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: v2-screen-*
+          path: evidence/cases
+          merge-multiple: false
+      - name: Aggregate screen
+        id: gate
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check numpy==2.4.6 pandas==3.0.5
+          python experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/aggregate_v2.py \
+            --baseline evidence/baseline --cases evidence/cases --out screen-summary --screen
+          echo "proceed=$(cat screen-summary/PROCEED_FULL_CAMPAIGN.txt)" >> "$GITHUB_OUTPUT"
+          cat screen-summary/SUMMARY.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve screen verdict
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v2-screen-summary
+          path: screen-summary/
+          retention-days: 90
+          if-no-files-found: error
+
+  full-campaign:
+    name: Stage 4 - full campaign ${{ matrix.index }}
+    needs: [baseline, screen-summary]
+    if: ${{ needs.screen-summary.outputs.proceed == 'true' }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    strategy:
+      fail-fast: false
+      matrix:
+        index: [0,1,2,3,4,5,6,7,8,9,10,11,12,13,14,15,16,17,18]
+    steps:
+      - name: Current experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-ex3-v6-convergence-v2
+      - name: Pinned replay-harness checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: eaddca3f04f279e99663f832bf7293e92ee15662
+          path: harness-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+      - name: Stage pinned full-PIT replay authority
+        uses: ./harness-src/.github/actions/v5-ex3-v5-adversarial-setup
+      - name: Retrieve V2 baseline
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          name: v2-baseline
+          path: baseline-input
+      - name: Generate paired V2 runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          python harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py \
+            --source harness-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py \
+            --output harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+      - name: Run full deterministic case
+        shell: bash
+        env:
+          IDX: ${{ matrix.index }}
+          V2_V6_RUNNER: ${{ github.workspace }}/harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+        run: |
+          set -euo pipefail
+          mkdir -p full-results
+          if [ "$IDX" -lt 16 ]; then
+            python - <<'PY'
+          import json,os
+          ids=json.load(open('baseline-input/baseline-results/selected-16-security-ids.json'))
+          json.dump([ids[int(os.environ['IDX'])]],open('one-security.json','w'))
+          PY
+            cd certified-src
+            python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/run_v2.py" \
+              --suite security-loo --security-list "${GITHUB_WORKSPACE}/one-security.json" \
+              --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+              --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+              --output "${GITHUB_WORKSPACE}/full-results"
+          else
+            shard=$((IDX-16))
+            cd certified-src
+            python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/run_v2.py" \
+              --suite universe --shard "$shard" --shards 3 \
+              --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+              --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+              --output "${GITHUB_WORKSPACE}/full-results"
+          fi
+      - name: Preserve full case
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v2-full-${{ matrix.index }}
+          path: full-results/
+          retention-days: 90
+          if-no-files-found: error
+
+  final-summary:
+    name: Final V2 verdict
+    needs: [baseline, screen-summary, full-campaign]
+    if: ${{ always() && needs.baseline.result == 'success' && needs.screen-summary.result == 'success' }}
+    runs-on: ubuntu-24.04
+    steps:
+      - name: Current experiment checkout
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-ex3-v6-convergence-v2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+      - name: Download baseline and screen summary
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: v2-*
+          path: evidence
+          merge-multiple: false
+      - name: Produce final decision artifact
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --disable-pip-version-check numpy==2.4.6 pandas==3.0.5
+          if compgen -G 'evidence/v2-full-*' > /dev/null; then
+            mkdir -p final-cases
+            for d in evidence/v2-full-*; do cp -R "$d" "final-cases/$(basename "$d")"; done
+            python experiment-src/research/wealth-core-v5-ex3-v6-convergence-v2/aggregate_v2.py \
+              --baseline evidence/v2-baseline --cases final-cases --out final-summary
+          else
+            mkdir -p final-summary
+            cp evidence/v2-screen-summary/SUMMARY.json final-summary/SUMMARY.json
+            cp evidence/v2-screen-summary/PROCEED_FULL_CAMPAIGN.txt final-summary/PROCEED_FULL_CAMPAIGN.txt
+          fi
+          cat final-summary/SUMMARY.json >> "$GITHUB_STEP_SUMMARY"
+      - name: Preserve final evidence
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v2-final-summary
+          path: final-summary/
+          retention-days: 90
+          if-no-files-found: error
