@@ -108,7 +108,8 @@ def aggregate_side(xs: list[dict], side: str) -> dict:
         return {}
     ac = np.array([abs(x[f"{side}_perf_delta"]["cagr"]) for x in xs], float)
     fr = np.array([x[side]["divergence_fraction"] for x in xs], float)
-    amps = np.array([x.get(f"{side}_amplification", np.nan) for x in xs], float)
+    path_amps = np.array([x.get(f"{side}_path_amplification", np.nan) for x in xs], float)
+    econ_amps = np.array([x.get(f"{side}_economic_amplification", np.nan) for x in xs], float)
     post = np.array([x[side].get("post_excluded_gone_divergence_fraction", np.nan) for x in xs], float)
     return {
         "cases": len(xs),
@@ -120,7 +121,8 @@ def aggregate_side(xs: list[dict], side: str) -> dict:
         "median_allocation_divergence_fraction": float(np.median(fr)),
         "never_20_session_reconverged": int(sum(x[side]["never_20_session_reconverged"] for x in xs)),
         "not_terminally_reconverged": int(sum(not x[side]["terminally_reconverged"] for x in xs)),
-        "median_amplification": float(np.nanmedian(amps)) if np.isfinite(amps).any() else None,
+        "median_path_amplification": float(np.nanmedian(path_amps)) if np.isfinite(path_amps).any() else None,
+        "median_economic_amplification": float(np.nanmedian(econ_amps)) if np.isfinite(econ_amps).any() else None,
         "first_divergence_after_excluded_security_gone": int(sum(x[side].get("first_divergence_after_excluded_security_gone", False) for x in xs)),
         "median_post_excluded_gone_divergence_fraction": float(np.nanmedian(post)) if np.isfinite(post).any() else None,
     }
@@ -129,6 +131,7 @@ def aggregate_side(xs: list[dict], side: str) -> dict:
 def core_aggregate(xs: list[dict]) -> dict:
     if not xs:
         return {}
+    ac = np.array([abs(x["core_perf_delta"]["cagr"]) for x in xs], float)
     return {
         "cases": len(xs),
         "median_exact_fraction": float(np.median([x["core"]["core_exact_fraction"] for x in xs])),
@@ -136,27 +139,34 @@ def core_aggregate(xs: list[dict]) -> dict:
         "max_differing_holdings": int(max(x["core"]["max_differing_holdings"] for x in xs)),
         "never_20_session_reconverged": int(sum(x["core"]["never_20_session_reconverged"] for x in xs)),
         "not_terminally_reconverged": int(sum(not x["core"]["terminally_reconverged"] for x in xs)),
+        "median_abs_cagr_delta_pp": float(np.median(ac) * 100),
+        "p95_abs_cagr_delta_pp": float(np.quantile(ac, 0.95) * 100),
+        "max_abs_cagr_delta_pp": float(ac.max() * 100),
     }
 
 
-def robustness_verdict(unpatched: dict, patched: dict, rows: list[dict]) -> tuple[str, dict]:
+def robustness_verdict(unpatched: dict, patched: dict, rows: list[dict], dropouts: list[dict]) -> tuple[str, dict]:
     if not unpatched or not patched or not rows:
         return "MIXED / REQUIRES REVIEW", {"reason": "incomplete evidence"}
 
     udiv = unpatched["median_allocation_divergence_fraction"]
     pdiv = patched["median_allocation_divergence_fraction"]
-    uamp = unpatched.get("median_amplification")
-    pamp = patched.get("median_amplification")
+    uamp = unpatched.get("median_path_amplification")
+    pamp = patched.get("median_path_amplification")
     div_reduction = None if udiv <= 0 else (udiv - pdiv) / udiv
     amp_reduction = None if uamp is None or uamp <= 0 or pamp is None else (uamp - pamp) / uamp
     case_wins = sum(r["patched"]["divergence_fraction"] < r["unpatched"]["divergence_fraction"] - 1e-15 for r in rows)
     case_losses = sum(r["patched"]["divergence_fraction"] > r["unpatched"]["divergence_fraction"] + 1e-15 for r in rows)
+    dropout_wins = sum(r["patched"]["divergence_fraction"] < r["unpatched"]["divergence_fraction"] - 1e-15 for r in dropouts)
+    dropout_losses = sum(r["patched"]["divergence_fraction"] > r["unpatched"]["divergence_fraction"] + 1e-15 for r in dropouts)
 
     detail = {
         "median_allocation_divergence_reduction_fraction": div_reduction,
         "median_amplification_reduction_fraction": amp_reduction,
         "case_level_divergence_wins": int(case_wins),
         "case_level_divergence_losses": int(case_losses),
+        "dropout_divergence_wins": int(dropout_wins),
+        "dropout_divergence_losses": int(dropout_losses),
         "evaluation_basis": "path stability and Sentinel amplification; performance diagnostics excluded",
     }
 
@@ -166,16 +176,19 @@ def robustness_verdict(unpatched: dict, patched: dict, rows: list[dict]) -> tupl
         and patched["never_20_session_reconverged"] <= unpatched["never_20_session_reconverged"]
         and case_wins >= 12
         and case_losses <= 4
+        and dropout_losses <= 1
     )
     worse = (
         pdiv > udiv
         and uamp is not None and pamp is not None and pamp > uamp
         and case_losses > case_wins
+        and dropout_losses >= dropout_wins
     )
     some = (
         pdiv < udiv
         and (uamp is None or pamp is None or pamp < uamp)
         and case_wins > case_losses
+        and dropout_losses <= 1
     )
     if material:
         return "MATERIAL ROBUSTNESS IMPROVEMENT", detail
@@ -225,6 +238,7 @@ def main() -> None:
 
     br = load_result(a.root / "baseline" / "RESULT.json")
     bd = pd.read_csv(a.root / "baseline" / "paired-daily.csv", parse_dates=["date"])
+    bpc = br["baseline"]["core"]["20"]
     bpa = br["baseline"]["sentinel"]["20"]
     bpb = br["baseline"]["treatment"]["20"]
     rows = []
@@ -246,20 +260,27 @@ def main() -> None:
         ps = path_stats(bd, cd)
         sa, da = alloc_stats(bd, cd, "A_allocation")
         sb, db = alloc_stats(bd, cd, "B_allocation")
+        ccore = c["result"]["core"]["20"]
         pa = perf20(c["result"], "unpatched")
         pb = perf20(c["result"], "patched")
+        core_delta = delta(ccore, bpc)
         row = {
             "case": tag,
             "security_id": c.get("security_id"),
             "core": ps,
             "unpatched": sa,
             "patched": sb,
+            "core_perf_delta": core_delta,
             "unpatched_perf_delta": delta(pa, bpa),
             "patched_perf_delta": delta(pb, bpb),
         }
         if ps["core_divergence_fraction"] > 0:
-            row["unpatched_amplification"] = sa["divergence_fraction"] / ps["core_divergence_fraction"]
-            row["patched_amplification"] = sb["divergence_fraction"] / ps["core_divergence_fraction"]
+            row["unpatched_path_amplification"] = sa["divergence_fraction"] / ps["core_divergence_fraction"]
+            row["patched_path_amplification"] = sb["divergence_fraction"] / ps["core_divergence_fraction"]
+        core_cagr_delta = core_delta.get("cagr")
+        if core_cagr_delta is not None and abs(core_cagr_delta) > 1e-12:
+            row["unpatched_economic_amplification"] = abs(row["unpatched_perf_delta"]["cagr"]) / abs(core_cagr_delta)
+            row["patched_economic_amplification"] = abs(row["patched_perf_delta"]["cagr"]) / abs(core_cagr_delta)
 
         sid = c.get("security_id")
         if sid:
@@ -289,11 +310,12 @@ def main() -> None:
     au = aggregate_side(loo, "unpatched")
     apc = aggregate_side(loo, "patched")
     core = core_aggregate(loo)
-    verdict, verdict_detail = robustness_verdict(au, apc, loo)
+    verdict, verdict_detail = robustness_verdict(au, apc, loo, drops)
     baseline_delta = delta(bpb, bpa)
     out = {
         "schema": SCHEMA,
         "baseline": {
+            "core": bpc,
             "unpatched": bpa,
             "patched": bpb,
             "patched_minus_unpatched": baseline_delta,
