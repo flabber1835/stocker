@@ -440,8 +440,11 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
         "SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", "SHARADAR_API_KEY"]
     if profile == "maintenance":
         required = ["SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", RECEIPT_KEY]
-    if profile == "bringup" or (profile in {"install", "go"} and target != "SHADOW"):
+    alert_dispatcher = (profile == "bringup" or (
+        profile in {"install", "go"} and target != "SHADOW"))
+    if alert_dispatcher:
         required += ["ALPACA_API_KEY", "ALPACA_SECRET_KEY"]
+        required.append("SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL")
     invalid = [key for key in required if not usable(env.get(key, ""))]
     if invalid:
         raise EnvRefused(".env REQUIRED_VALUES_MISSING_OR_PLACEHOLDER: " + ", ".join(invalid))
@@ -462,9 +465,7 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
     if (profile != "bootstrap" and receipt
             and (not usable(receipt) or len(receipt.strip().encode("utf-8")) < 32)):
         _fail("INVALID_RECEIPT_KEY", key=RECEIPT_KEY)
-    _validate_semantics(
-        env, alert_dispatcher=(profile == "bringup" or (
-            profile in {"install", "go"} and target != "SHADOW")))
+    _validate_semantics(env, alert_dispatcher=alert_dispatcher)
     if env.get("SENTINEL_FORCE_CPU_LIMITS") == env.get("SENTINEL_FORCE_NO_CPU_LIMITS") == "1":
         _fail("CONFLICTING_CPU_MODES; force modes are mutually exclusive")
 

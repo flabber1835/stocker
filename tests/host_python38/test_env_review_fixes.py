@@ -260,7 +260,8 @@ class EnvReviewFixes(unittest.TestCase):
 
     def test_broker_deployment_callback_respects_alert_dispatcher_heartbeat(self):
         candidate = dict(BASE_SHADOW, ALPACA_API_KEY="synthetic-paper-key",
-                         ALPACA_SECRET_KEY="synthetic-paper-secret")
+                         ALPACA_SECRET_KEY="synthetic-paper-secret",
+                         SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL="https://alerts.example.invalid/sentinel")
         # The dispatcher does not receive this low automation heartbeat.
         candidate["SENTINEL_AUTOMATION_HEARTBEAT_SECONDS"] = "1"
         for profile in ("install", "go", "bringup"):

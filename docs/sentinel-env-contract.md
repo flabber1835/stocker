@@ -75,6 +75,18 @@ and GO for paper/dual targets, plus broker bring-up, also validate its callback
 deadline against that effective heartbeat. SHADOW retains its broker-free
 preflight and does not require an alert dispatcher.
 
+Broker installation, GO and bring-up require a usable HTTPS
+`SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL` before Git, receipt provisioning or
+service operations. Missing, empty, comment-only, whitespace-only and placeholder
+values refuse, including an explicit empty process override of a configured file.
+The setting is listed in `.env.example` and stays operator-owned.
+
+The shared automation Compose graph passes an optional webhook value to the
+dispatcher. SHADOW and maintenance also load this graph, and their configuration
+must resolve when external alert delivery is unconfigured. The dispatcher retains
+its mandatory startup validation. Host regressions compare required service inputs
+and the real dispatcher startup contract in addition to automation timing fields.
+
 Durably recoverable account/deployment/image identities and discovered signing
 keys retain their existing later discovery gate. Configuration validation does
 not claim that market data is ready or that a backup mount is durable.

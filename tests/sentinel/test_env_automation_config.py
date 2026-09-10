@@ -2,9 +2,11 @@
 from __future__ import annotations
 
 import importlib.util
+import asyncio
 import os
 from pathlib import Path
 import re
+from unittest import mock
 
 import pytest
 import yaml
@@ -12,6 +14,7 @@ import yaml
 from sentinel.automation_runtime import (
     AUTOMATION_CONFIG_ENV_BY_FIELD, config_from_env,
 )
+from sentinel import alert_service
 
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
@@ -27,25 +30,91 @@ BASE = {
     "SENTINEL_BACKUP_DIR": "/synthetic/external/backup",
     "ALPACA_API_KEY": "synthetic-paper-key",
     "ALPACA_SECRET_KEY": "synthetic-paper-secret",
+    "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL": "https://alerts.example.invalid/sentinel",
+}
+
+# Supplied by receipt bootstrap and verified image promotion after host preflight.
+GENERATED = {
+    "SENTINEL_PUBLICATION_RECEIPT_KEY": "synthetic-receipt-key-0123456789abcdef",
+    "SENTINEL_GIT_COMMIT": "a" * 40,
+    "SENTINEL_RUNTIME_IMAGE_DIGEST": "sha256:" + "a" * 64,
+    "SENTINEL_TEST_IMAGE_DIGEST": "sha256:" + "b" * 64,
 }
 
 
-def service_environment(service, overrides):
-    """Resolve the real simple Compose defaults; refuse unexpected syntax."""
-    compose = yaml.safe_load(
+def compose_model():
+    return yaml.safe_load(
         (ROOT / "docker-compose.sentinel-automation.yml").read_text(encoding="utf-8"))
-    templates = compose["services"][service]["environment"]
+
+
+def service_environment(service, overrides, *, configured=None):
+    """Resolve every service env field, including mandatory and embedded inputs."""
+    templates = compose_model()["services"][service].get("environment") or {}
+    configured = dict(BASE if configured is None else configured)
+    configured.update(GENERATED)
+    configured.update(overrides)
+
+    def resolve(match):
+        variable, operator, default = match.groups()
+        value = configured.get(variable, "")
+        if operator == ":?" and not value:
+            raise ValueError("required Compose input: " + variable)
+        return value or default
+
     result = {}
-    for name in AUTOMATION_CONFIG_ENV_BY_FIELD.values():
-        if name not in templates:
-            continue  # The runtime model supplies fields omitted by the service.
-        template = templates[name]
-        match = re.fullmatch(r"\$\{([A-Z_]+):-([^}]*)\}", template)
-        assert match is not None, (name, template)
-        variable, default = match.groups()
-        assert variable == name
-        result[name] = overrides.get(variable) or default
+    for name, template in templates.items():
+        value = re.sub(r"\$\{([A-Z0-9_]+)(:-|:\?)([^}]*)\}", resolve, str(template))
+        assert "${" not in value, name
+        result[name] = value
     return result
+
+
+def test_required_service_inputs_have_preflight_or_provisioning_authority():
+    required = set()
+    for service in compose_model()["services"].values():
+        for template in (service.get("environment") or {}).values():
+            required.update(re.findall(r"\$\{([A-Z0-9_]+):\?", str(template)))
+    assert set(GENERATED) <= required
+    for name in required - set(GENERATED):
+        candidate = {key: value for key, value in BASE.items() if key != name}
+        with pytest.raises(preflight.EnvRefused, match=name):
+            preflight.validate(candidate, profile="install", target="DUAL_RUN_OBSERVATION")
+
+
+@pytest.mark.parametrize("value", [None, "", "   "])
+@pytest.mark.parametrize("profile", ["install", "go", "bringup"])
+def test_missing_webhook_refuses_at_host_and_real_dispatcher(profile, value):
+    key = "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"
+    candidate = dict(BASE)
+    if value is None:
+        candidate.pop(key)
+    else:
+        candidate[key] = value
+    with pytest.raises(preflight.EnvRefused, match=key):
+        preflight.validate(candidate, profile=profile, target="DUAL_RUN_OBSERVATION")
+    deployed = service_environment("sentinel-alert-dispatcher", {}, configured=candidate)
+    with mock.patch.dict(os.environ, deployed, clear=True), \
+            mock.patch.object(alert_service.feed_store, "connect") as connect:
+        assert asyncio.run(alert_service.run()) == 2
+        connect.assert_not_called()
+
+
+def test_shared_graph_resolves_for_shadow_and_maintenance_before_alert_setup():
+    candidate = {key: value for key, value in BASE.items()
+                 if not key.startswith("ALPACA_")
+                 and key != "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}
+    for service in compose_model()["services"]:
+        service_environment(service, {}, configured=candidate)
+    shadow = service_environment("sentinel-shadow", {}, configured=candidate)
+    assert "ALPACA_API_KEY" not in shadow
+    assert "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL" not in shadow
+
+
+def test_valid_webhook_agrees_with_dispatcher_configuration():
+    deployed = service_environment("sentinel-alert-dispatcher", {})
+    alert_service.WebhookAlertAdapter(deployed["SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"])
+    config_from_env(deployed)
+    preflight.validate(BASE, profile="install", target="DUAL_RUN_OBSERVATION")
 
 
 @pytest.mark.parametrize("service", ["sentinel-automation", "sentinel-authorized-cli"])

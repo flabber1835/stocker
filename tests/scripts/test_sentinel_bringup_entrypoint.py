@@ -108,7 +108,9 @@ def _run(tmp_path: Path, scenario: str, *args: str):
         "SENTINEL_BACKUP_DIR=/tmp/sentinel-fixture-backup\n"
         "SHARADAR_API_KEY=fixture-sharadar\n"
         "ALPACA_API_KEY=fixture-alpaca\n"
-        "ALPACA_SECRET_KEY=fixture-alpaca-secret\n", encoding="utf-8")
+        "ALPACA_SECRET_KEY=fixture-alpaca-secret\n"
+        "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL=https://alerts.example.invalid/fixture\n",
+        encoding="utf-8")
     env = dict(os.environ)
     env.update({
         "SENTINEL_REPO_ROOT": str(ROOT),

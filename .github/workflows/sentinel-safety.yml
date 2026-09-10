@@ -279,6 +279,16 @@ jobs:
             -f docker-compose.sentinel-backup.yml \
             -f docker-compose.sentinel-automation.yml \
             --profile authorized-cli config --quiet
+          env -u SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL docker compose \
+            -f docker-compose.sentinel.yml \
+            -f docker-compose.sentinel-backup.yml \
+            -f docker-compose.sentinel-automation.yml \
+            --profile shadow config --quiet
+          env -u SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL docker compose \
+            -f docker-compose.sentinel.yml \
+            -f docker-compose.sentinel-backup.yml \
+            -f docker-compose.sentinel-automation.yml \
+            --profile authorized-cli config --quiet
           if [ '${{ matrix.scope }}' = 'synthetic-merge' ]; then
             git diff --check HEAD^1 HEAD
           else

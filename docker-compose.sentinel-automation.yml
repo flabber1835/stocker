@@ -125,7 +125,9 @@ services:
     environment:
       ALPACA_BASE_URL: https://paper-api.alpaca.markets
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
-      SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL: ${SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL:?set external HTTPS alert webhook}
+      # Broker host preflight and dispatcher startup require this endpoint.
+      # SHADOW and maintenance also resolve this shared graph.
+      SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL: ${SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL:-}
       SENTINEL_AUTOMATION_ALERT_DISPATCHER_ID: primary
       SENTINEL_AUTOMATION_ALERT_WEBHOOK_TIMEOUT_SECONDS: ${SENTINEL_AUTOMATION_ALERT_WEBHOOK_TIMEOUT_SECONDS:-10}
       SENTINEL_AUTOMATION_ALERT_POLL_SECONDS: ${SENTINEL_AUTOMATION_ALERT_POLL_SECONDS:-2}

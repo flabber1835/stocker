@@ -6,6 +6,7 @@ Each generated case is a separately reported regression, also collected by pytes
 from __future__ import annotations
 
 import errno
+import fcntl
 import importlib.util
 import json
 import os
@@ -52,6 +53,7 @@ BASE = {
     "ALPACA_API_KEY": CANARY + "_alpaca",
     "ALPACA_SECRET_KEY": CANARY + "_secret",
     "ALPACA_BASE_URL": env.PAPER_URL,
+    "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL": "https://alerts.example.invalid/sentinel",
     "SENTINEL_FORCE_CPU_LIMITS": "1",
 }
 MAINTENANCE_LAUNCHERS = (
@@ -351,9 +353,97 @@ class EnvHarness(unittest.TestCase):
         return {"PATH": str(binary) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
                 "SENTINEL_HOST_PYTHON": sys.executable, "SENTINEL_GO_LOCK_HELD": "1"}
 
-    def run_shell(self, launcher, process, *args):
+    def run_shell(self, launcher, process, *args, pass_fds=()):
         return subprocess.run(["bash", "scripts/" + launcher] + list(args), cwd=str(self.root),
-                              env=process, capture_output=True, text=True, timeout=10)
+                              env=process, pass_fds=pass_fds, capture_output=True, text=True, timeout=10)
+
+    def test_webhook_refuses_before_launcher_side_effects(self):
+        process = self.shell_repo()
+        key = "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"
+        base = {k: v for k, v in BASE.items() if k != key}
+        invalid = (
+            ("absent", b"", {}),
+            ("empty", (key + "=\n").encode(), {}),
+            ("comment", (key + "= # configure endpoint\n").encode(), {}),
+            ("tab_comment_crlf", (key + "=\t# configure endpoint\r\n").encode(), {}),
+            ("quoted_whitespace", (key + "='   '\n").encode(), {}),
+            ("placeholder", (key + "=changeme\n").encode(), {}),
+            ("http", (key + "=http://alerts.example.invalid\n").encode(), {}),
+            ("userinfo", (key + "=https://user:secret@alerts.example.invalid\n").encode(), {}),
+            ("empty_process_override", (key + "=" + BASE[key] + "\n").encode(), {key: ""}),
+        )
+        launchers = (
+            ("sentinel-autonomous-deploy.sh", ()),
+            ("sentinel-autonomous-deploy.sh", ("--mode", "dual")),
+            ("sentinel-autonomous-deploy.sh", ("--mode=paper",)),
+            ("sentinel-go-validate.sh", ("--target", "DUAL_RUN_OBSERVATION")),
+            ("sentinel-go-validate.sh", ("--target=HISTORICAL_PAPER_EXECUTION",)),
+            ("sentinel-bringup.sh", ()),
+        )
+        with tempfile.TemporaryFile() as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            process["SENTINEL_DEPLOY_LOCK_FD"] = str(lock.fileno())
+            for launcher, args in launchers:
+                for name, suffix, overrides in invalid:
+                    with self.subTest(launcher=launcher, args=args, case=name):
+                        raw = self.write(base) + suffix
+                        self.write(raw=raw)
+                        result = self.run_shell(
+                            launcher, dict(process, **overrides), *args,
+                            pass_fds=(lock.fileno(),))
+                        self.assertEqual(result.returncode, 2, result.stderr)
+                        self.assertIn(key, result.stderr)
+                        self.assertFalse((self.root / "effects").exists())
+                        self.assertEqual(self.path.read_bytes(), raw)
+                        self.assertNotIn("user:secret", result.stderr)
+
+    def test_webhook_valid_file_and_process_reach_bootstrap(self):
+        process = self.shell_repo()
+        key = "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"
+        expected = "https://alerts.example.invalid/hook?token=$LITERAL#fragment"
+        launchers = (
+            ("sentinel-autonomous-deploy.sh", ("--mode", "dual")),
+            ("sentinel-go-validate.sh", ()),
+            ("sentinel-bringup.sh", ()),
+        )
+        with tempfile.TemporaryFile() as lock:
+            fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
+            process["SENTINEL_DEPLOY_LOCK_FD"] = str(lock.fileno())
+            for launcher, args in launchers:
+                for source in ("file", "process", "process_override"):
+                    with self.subTest(launcher=launcher, source=source):
+                        candidate = dict(BASE)
+                        overrides = {}
+                        if source == "file":
+                            candidate[key] = expected
+                        else:
+                            candidate.pop(key)
+                            if source == "process_override":
+                                candidate[key] = ""
+                            overrides[key] = expected
+                        self.write(candidate)
+                        (self.root / "scripts/sentinel_deployment_bootstrap.py").write_text(
+                            "import os\nfrom pathlib import Path\n"
+                            "assert os.environ[%r] == %r\n"
+                            "Path('bootstrap-reached').write_text('yes')\n"
+                            "raise SystemExit(93)\n" % (key, expected))
+                        marker = self.root / "bootstrap-reached"
+                        if marker.exists():
+                            marker.unlink()
+                        result = self.run_shell(
+                            launcher, dict(process, **overrides), *args,
+                            pass_fds=(lock.fileno(),))
+                        self.assertEqual(result.returncode, 93, result.stderr)
+                        self.assertTrue(marker.exists())
+
+    def test_webhook_remains_optional_for_shadow_and_maintenance(self):
+        candidate = {k: v for k, v in BASE.items()
+                     if not k.startswith("ALPACA_")
+                     and k != "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}
+        for profile in ("install", "go", "bootstrap", "compose"):
+            env.validate(candidate, profile=profile, target="SHADOW")
+        env.validate(dict(candidate, **{env.RECEIPT_KEY: "r" * 32}),
+                     profile="maintenance")
 
     def test_compose_consumes_file_values_literally_and_process_wins(self):
         process = self.shell_repo()
