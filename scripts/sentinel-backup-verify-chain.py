@@ -117,6 +117,26 @@ def _sha256(path):
     return digest.hexdigest()
 
 
+def _verify_checksum_object(path, *, label, exact_size=None):
+    info = _regular(path, label=label)
+    if exact_size is not None:
+        if info.st_size != exact_size:
+            raise ChainRefused("%s %s is missing or truncated" % (label, path.name))
+    elif info.st_size <= 0:
+        raise ChainRefused("%s %s is empty" % (label, path.name))
+    sidecar = path.with_name(path.name + ".sha256")
+    _regular(sidecar, label=label + " SHA-256 sidecar")
+    try:
+        text = sidecar.read_text(encoding="ascii")
+    except (OSError, UnicodeError) as exc:
+        raise ChainRefused("%s %s SHA-256 sidecar is unreadable" % (label, path.name)) from exc
+    match = SHA_RE.fullmatch(text)
+    if match is None:
+        raise ChainRefused("%s %s SHA-256 sidecar is malformed" % (label, path.name))
+    if _sha256(path) != match.group(1):
+        raise ChainRefused("%s %s failed SHA-256 integrity validation" % (label, path.name))
+
+
 def verify(root, base_name, system_id, last_wal, segment_size):
     if BASE_RE.fullmatch(base_name) is None:
         raise ChainRefused("base backup name is malformed")
@@ -166,21 +186,13 @@ def verify(root, base_name, system_id, last_wal, segment_size):
         raise ChainRefused("recovery marker WAL is outside the retained restore chain")
 
     for wal in expected:
-        path = namespace / wal
-        info = _regular(path, label="archived WAL")
-        if info.st_size != segment_size:
-            raise ChainRefused("archived WAL %s is missing or truncated" % wal)
-        sidecar = namespace / (wal + ".sha256")
-        _regular(sidecar, label="archived WAL SHA-256 sidecar")
-        try:
-            text = sidecar.read_text(encoding="ascii")
-        except (OSError, UnicodeError) as exc:
-            raise ChainRefused("archived WAL %s SHA-256 sidecar is unreadable" % wal) from exc
-        match = SHA_RE.fullmatch(text)
-        if match is None:
-            raise ChainRefused("archived WAL %s SHA-256 sidecar is malformed" % wal)
-        if _sha256(path) != match.group(1):
-            raise ChainRefused("archived WAL %s failed SHA-256 integrity validation" % wal)
+        _verify_checksum_object(
+            namespace / wal, label="archived WAL", exact_size=segment_size)
+
+    timeline = int(start[:8], 16)
+    if timeline > 1:
+        _verify_checksum_object(
+            namespace / ("%08X.history" % timeline), label="timeline history")
     return start, expected
 
 
