@@ -55,7 +55,10 @@ def stateless_step(ob,wcdd,recent_r20,recent_r40,spy20,wc_r20,measured):
 OLD_B_CALL = "b_d,b_reason=cb.step(native_target,recent_r20,spy20)"
 NEW_B_CALL = """_arch_ob=(dd,r5,r10,r20,r40,dam_b,green_b,ddam5,spy20,volacc,stops20,eq)\n            b_d,b_reason=cb.step(_arch_ob,dd,recent_r20,recent_r40,spy20,r20,date>=START)\n            c_d,c_reason,c_native=stateless_step(_arch_ob,dd,recent_r20,recent_r40,spy20,r20,date>=START)"""
 OLD_PENDING = "pending_native=native_target; pend['control']=a_d; pend['A']=a_d; pend['B']=b_d"
-NEW_PENDING = "pending_native=native_target; pend['control']=c_d; pend['A']=a_d; pend['B']=b_d"
+# Keep the authoritative pending-allocation marker byte-for-byte so the inherited
+# causal-timing guard continues to prove the production track. The research-only
+# stateless track then overwrites only its own control slot at the same close.
+NEW_PENDING = OLD_PENDING + "; pend['control']=c_d"
 OLD_ROW = "'recent_r20':recent_r20,'recent_r40':recent_r40,'spy_r20':spy20,'native_close_target':native_target,\n                             'effective_native':effective_native,'control_allocation':eff['control'],'A_allocation':eff['A'],'B_allocation':eff['B'],"
 NEW_ROW = "'recent_r20':recent_r20,'recent_r40':recent_r40,'spy_r20':spy20,'native_close_target':native_target,'minimal_native_close_target':cb.last_native,'stateless_native_close_target':c_native,\n                             'effective_native':effective_native,'control_allocation':eff['control'],'A_allocation':eff['A'],'B_allocation':eff['B'],"
 OLD_REASONS = "'control_reason':a_reason,'A_reason':a_reason,'B_reason':b_reason"
@@ -103,6 +106,8 @@ def treatment_source(src: str) -> str:
         raise RuntimeError("authoritative Native implementation changed")
     if block(out, "class CandidateA:", "def _arch_replay") != original_a:
         raise RuntimeError("authoritative CandidateA implementation changed")
+    if out.count(OLD_PENDING) != 1:
+        raise RuntimeError("authoritative causal timing marker was not preserved exactly once")
     if out.count("pend['control']=c_d") != 1 or out.count("pend['A']=a_d") != 1 or out.count("pend['B']=b_d") != 1:
         raise RuntimeError("architecture allocation timing seam changed")
     if "eff['control']=c_d" in out or "eff['B']=b_d" in out:
