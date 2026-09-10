@@ -1,0 +1,17 @@
+{
+  "schema": "research.simplification-candidate-launch/1",
+  "authorized_by": "User: Ok test the simplification candidate",
+  "additional_full_pit_starts": 1,
+  "original_slots_consumed": 10,
+  "preregistered_commit": "4c5fd5652fc882bb50ffafcb76a703e819ee11b8",
+  "baseline_run": 34436432038,
+  "baseline_head": "f769623e86e949c35a0ddf7dc7df29744c298eae",
+  "components": [
+    "selective_peers",
+    "bounded_counters",
+    "ramp10",
+    "no_spy_rebound"
+  ],
+  "tracking_issue": 349,
+  "pr": 350
+}
