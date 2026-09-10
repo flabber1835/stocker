@@ -1033,6 +1033,12 @@ class AlpacaExecutionBroker(ExecutionBroker):
             payload = await self._get(
                 "/v2/orders:by_client_order_id",
                 {"client_order_id": client_key})
+            # Only the endpoint's explicit 404 establishes absence. A damaged
+            # successful response must not cancel UNKNOWN while an accepted
+            # order may still exist behind a lagging open-order view.
+            if not isinstance(payload, dict) or not payload:
+                raise MalformedBrokerPayload(
+                    "successful exact order lookup must return an order object")
         except Exception as exc:  # noqa: BLE001
             if _is_not_found(exc):
                 payload = None
