@@ -2,6 +2,8 @@
 
 Status: research experiments completed; production implementation and certification remain separate work. Tracking: [issue #349](https://github.com/flabber1835/stocker/issues/349) and [PR #350](https://github.com/flabber1835/stocker/pull/350).
 
+Update after round 2: the campaign now has 21 completed starts. See the [ten-arm round-2 report](../wealth-core-v5-ex3-v6-simplification-v2/results/34480037109-1/RESULTS.md) and [further simplification analysis with synthetic evidence](../wealth-core-v5-ex3-v6-simplification-v2/FURTHER_SIMPLIFICATION_ANALYSIS.md). The results and future-work descriptions below preserve the checkpoint after the first eleven starts.
+
 ## Objective and architecture
 
 Reduce mechanics and operational complexity while preserving economic output. Wealth Core decides what to hold and maintains its immutable independent shadow book. Sentinel consumes observations and decides exposure. Execution places orders and reconciles broker outcomes. Broker state remains confined to execution and reconciliation.
@@ -169,4 +171,3 @@ Peer pair calculations: 248,321 (baseline 1,574,966).
 Candidate: selective peers + bounded counters + one-stage 55%-to-100% recovery after ten healthy closes + removal of SPY rebound release. Cross-surface recovery retained.
 
 Acceptance in every 5/10/15/20y window: absolute CAGR delta <= 0.25 pp/year, drawdown deterioration <= 1 pp, absolute multiple change <= 5%. Detailed JSON includes tail returns, underwater periods, turnover and crisis diagnostics. Historical screening precedes a separately reviewed production implementation.
-

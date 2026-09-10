@@ -1,0 +1,35 @@
+{
+  "checks": {
+    "fragility_observation_clock": {
+      "observations": 2001,
+      "wrong_current_close_mismatches": 1955
+    },
+    "mandatory_ramp_interaction": {
+      "claim": "Synthetic mechanism; historical session attribution remains separate.",
+      "mandatory_ramp": {"final": 0.55, "native": 0.55},
+      "reference": {"final": 0.0, "native": 1.0}
+    },
+    "rebound_enabled_counterexample": {
+      "incorrect_guard_removal_target": 0.55,
+      "rebound_enabled_target": 1.0
+    },
+    "peer_vote_information": {
+      "red_peer_falsifier": "detected",
+      "vote_combinations": 30,
+      "zero_red_books": 1000
+    },
+    "reduced_candidate_information": {
+      "audit": {"concordance_releases": 209, "episodes": 417},
+      "claim": "Information-reduction check; enum transition implementation remains proposed.",
+      "reconstructed_before_every_step": true,
+      "recovery_states_seen": ["CLEAR", "HOLD_55", "HOLD_ZERO"],
+      "steps": 25000
+    },
+    "redundant_guards": {"candidate_steps": 10000, "native_steps": 10000}
+  },
+  "full_pit_starts": 0,
+  "numpy": "2.4.6",
+  "python": "3.12.14",
+  "source_sha256": "2f3e0a6d2fbeb2704e0ea61972a4c8509a6d75462cb7ecb69b56afedb8637c2c",
+  "status": "PASS_SYNTHETIC_REASONING_CHECKS"
+}
