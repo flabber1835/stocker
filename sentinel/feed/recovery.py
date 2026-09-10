@@ -570,6 +570,26 @@ def extended_overlap_days(conn, requested: int) -> int:
     return requested + (p - v).days
 
 
+def failed_reference_keys(conn) -> frozenset[tuple[str, str]]:
+    """Exact SFP economic keys that a failed daily retry must replace."""
+    from sentinel.feed import store
+
+    store._assert_corpus_locked(conn)
+    keys = set()
+    for table, ticker in (("sentinel_spy_total_return", "SPY"),
+                          ("sentinel_defensive_bars", "BIL")):
+        with conn.cursor() as cur:
+            cur.execute(
+                f"SELECT t.session FROM {table} t"
+                " JOIN feed_ingest_runs r ON r.run_id=t.last_written_run_id"
+                " WHERE r.status='failed'"
+                " AND NOT EXISTS (SELECT 1 FROM sentinel_corpus_publications p"
+                "                 WHERE p.run_id=t.last_written_run_id)"
+                " ORDER BY t.session")
+            keys.update((ticker, str(row[0])) for row in cur.fetchall())
+    return frozenset(keys)
+
+
 def reference_window_start(conn, *, requested_start: str, through: str) -> str:
     """Include reference keys stranded by an interrupted daily SFP write.
 
@@ -608,7 +628,7 @@ __all__ = [
     "LiveCandidate",
     "PendingPublication", "PublicationRecoveryRefused",
     "assert_full_reseed_covered_live_rows", "extended_overlap_days",
-    "failed_live_candidates", "live_candidates",
+    "failed_live_candidates", "failed_reference_keys", "live_candidates",
     "load_action_reconcile_retirement_plan", "pending_validated",
     "prepare_full_reseed", "record_action_reconcile_retirement_plan",
     "require_published",

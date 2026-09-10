@@ -504,6 +504,8 @@ def _load_unresolved_split_markers(conn) -> dict[str, dict]:
             " WHERE cursor_name LIKE %s ORDER BY cursor_name",
             (_UNRESOLVED_SPLIT_REPLAY_PREFIX + "%",))
         rows = cur.fetchall()
+    if not rows:
+        return {}
     current = publication.require_current(conn)
     out: dict[str, dict] = {}
     expected_fields = {

@@ -1373,11 +1373,12 @@ in its predecessor/event/following window. Identical observations remain bounded
 to one replay; changed local price evidence earns another evaluation. Earlier
 markers lacking this binding must re-earn it once.
 
-Daily reference recovery is an explicit acquisition context. Every retry with
-failed daily owners requires complete SPY/BIL coverage of the recovery request,
-including a same-day 41-session tail. Incomplete coverage fails the ingest before
-durable success, allowing the next source attempt to repair it. Seed acquisition,
-including injected seeds, retains its own source contract.
+Daily reference recovery is an explicit acquisition context containing the
+SPY/BIL economic keys still owned by failed unpublished writers. Every such key
+must be replaced, including on a same-day 41-session retry. Missing replacement
+keys fail the ingest before durable success, allowing the next source attempt
+to repair them. Metadata-only recovery and seed acquisition retain their own
+source contracts. The ordinary reference tail retains its readiness checks.
 
 Every ACTIONS generation also carries an append-only lifecycle. Failed or
 reclaimed candidates are `ABORTED`; a successfully published covering retry

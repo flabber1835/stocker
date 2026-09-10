@@ -145,7 +145,7 @@ def test_disabled_same_day_reference_guard_is_killed(monkeypatch, tmp_path):
     from research.sharadar_replay.oracle import StateMismatch
 
     monkeypatch.setattr(fetch, "_require_complete_recovery_reference_tail",
-                        lambda rows, params: rows)
+                        lambda rows, params, required: rows)
     scenario = _partial_sfp_recovery_scenario(same_day=True)
     with pytest.raises(StateMismatch, match="partial_sfp_retry_is_refused"):
         run_scenario(scenario, server_dsn=_dsn(), output=Path(tmp_path) / scenario.name)

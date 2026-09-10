@@ -319,8 +319,10 @@ class TestExplicitResolvedDispositions:
         report = domains.NormalisationReport()
         report.split_no_event_evidence.add(("AAA", EVENT))
         with S.corpus_write_lock(conn):
+            from sentinel.feed import calendar
+            raw_start, _ = calendar.action_date_window(START, END)
             S.write_actions(conn, [], run_id=retry.progress.run_id,
-                            window_start=START, window_end=END)
+                            window_start=raw_start, window_end=END)
             S.write_bars(conn, [current_bar()], run_id=owner.progress.run_id,
                          require_lock=True)
             tombstones = ingest._resolution_tombstones(

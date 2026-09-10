@@ -18,7 +18,9 @@ def _reference_rows(days, tickers=("SPY", "BIL")):
 
 def _read_recovery(rows, days):
     guarded = source_authority.StableSharadarFetch(
-        lambda *args, **kwargs: iter(rows), reference_recovery=True)
+        lambda *args, **kwargs: iter(rows),
+        reference_recovery=frozenset((ticker, day) for day in days
+                                    for ticker in ("SPY", "BIL")))
     return list(guarded(sharadar.SFP, {
         "ticker": "SPY,BIL", "date.gte": days[0], "date.lte": days[-1]}))
 
@@ -43,7 +45,7 @@ def test_complete_daily_recovery_passes(count):
 
 def test_same_day_guard_falsifier_reaches_missing_bil(monkeypatch):
     monkeypatch.setattr(source_fetch, "_require_complete_recovery_reference_tail",
-                        lambda rows, params: rows)
+                        lambda rows, params, required: rows)
     with pytest.raises(pytest.fail.Exception, match="DID NOT RAISE"):
         test_daily_recovery_requires_both_reference_boundaries(41, "BIL", 0)
 
@@ -55,6 +57,16 @@ def test_injected_seed_retains_its_explicit_source_contract():
     assert list(tracked(sharadar.SFP, {
         "ticker": "SPY,BIL", "date.gte": "2021-01-01",
         "date.lte": "2021-12-31"})) == rows
+
+
+@pytest.mark.parametrize("required", [frozenset(), frozenset({("SPY", "2026-08-18")})])
+def test_reference_recovery_requires_only_failed_economic_keys(required):
+    rows = _reference_rows(["2026-08-18"], tickers=("SPY",))
+    guarded = source_authority.StableSharadarFetch(
+        lambda *args, **kwargs: iter(rows), reference_recovery=required)
+    assert list(guarded(sharadar.SFP, {
+        "ticker": "SPY,BIL", "date.gte": "2026-06-01",
+        "date.lte": "2026-08-18"})) == rows
 
 
 class _MarkerConnection:
@@ -121,6 +133,25 @@ def _record(conn, version):
 def _pending(conn):
     return maintenance._unresolved_split_replay_rows(
         conn, market_start="2026-03-02", market_end="2026-03-04")
+
+
+def test_empty_marker_ledger_does_not_require_a_prior_publication(marker_state, monkeypatch):
+    conn, _ = marker_state
+    monkeypatch.setattr(maintenance.publication, "require_current",
+                        lambda conn: pytest.fail("empty marker ledger has no authority to validate"))
+    assert maintenance._load_unresolved_split_markers(conn) == {}
+
+
+def test_existing_markers_still_require_published_authority(marker_state, monkeypatch):
+    conn, _ = marker_state
+    _record(conn, 7)
+
+    def unpublished(conn):
+        raise maintenance.publication.NoPublishedVersion("no corpus generation has been published")
+
+    monkeypatch.setattr(maintenance.publication, "require_current", unpublished)
+    with pytest.raises(maintenance.publication.NoPublishedVersion):
+        maintenance._load_unresolved_split_markers(conn)
 
 
 def test_old_blocker_cannot_earn_completed_replay_authority(marker_state):

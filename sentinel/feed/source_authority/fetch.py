@@ -57,55 +57,22 @@ def _merge_seed_coverage(current: Optional[dict], chunk: dict) -> dict:
     }
 
 
-def _require_complete_recovery_reference_tail(rows, params):
-    """Fail a daily retry if its SPY/BIL replacement is incomplete.
+def _require_complete_recovery_reference_tail(rows, params, required_keys):
+    """Require replacement of every failed SFP key before durable SUCCESS.
 
-    Ordinary daily acquisition asks for exactly the readiness-required tail.
-    ``reference_window_start`` includes any older failed SFP keys. Every
-    requested XNYS session for both reference tickers is replacement authority,
-    including the ordinary tail on a same-day retry: accepting a
-    partial response can leave an old failed owner behind after the new daily run
-    has already reached durable SUCCESS, which wedges startup publication before
-    another source observation can repair it.
+    The caller freezes these keys under the corpus writer lock. This applies to
+    every retry window, including same-day acquisition. Ordinary tail readiness
+    remains separate from replacement of failed destructive writes.
     """
-    request = dict(params or {})
-    requested_tickers = {
-        value.strip().upper()
-        for value in str(request.get("ticker") or "").split(",")
-        if value.strip()
-    }
-    if requested_tickers != {"SPY", "BIL"}:
-        return rows
-    start = str(request.get("date.gte") or "")
-    end = str(request.get("date.lte") or "")
-    if not start or not end:
-        return rows
-
-    from sentinel.feed import calendar
-
-    expected = tuple(calendar.sessions_in_range(start, end))
-
-    expected_set = set(expected)
-    observed = {"SPY": set(), "BIL": set()}
-    unexpected = []
-    for row in rows:
-        ticker = str(row.get("ticker") or "").strip().upper()
-        session = str(row.get("date") or "")
-        if ticker not in observed or session not in expected_set:
-            unexpected.append((ticker, session))
-            continue
-        observed[ticker].add(session)
-
-    missing = {
-        ticker: sorted(expected_set - observed[ticker])
-        for ticker in ("SPY", "BIL")
-        if expected_set - observed[ticker]
-    }
-    if missing or unexpected:
+    observed = {(str(row.get("ticker") or "").strip().upper(),
+                 str(row.get("date") or "")) for row in rows}
+    missing = sorted(set(required_keys) - observed)
+    if missing:
+        request = dict(params or {})
         raise SourceAuthorityRefused(
             "daily SFP recovery is incomplete: "
-            f"window={start}..{end}, missing={missing}, "
-            f"unexpected={unexpected[:8]}")
+            f"window={request.get('date.gte')}..{request.get('date.lte')}, "
+            f"missing_failed_keys={len(missing)}, examples={missing[:8]}")
     return rows
 
 
@@ -116,7 +83,7 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                  corroborate_reference=None,
                  after_session: str | None = None,
                  seed_mode: bool = False, validate_tickers: bool = False,
-                 reference_recovery: bool = False,
+                 reference_recovery: frozenset[tuple[str, str]] = frozenset(),
                  sep_update_envelope: SepUpdateEnvelope | None = None):
         self._canonical_fetch = CanonicalSourceFetch(
             fetch, validate_tickers=(validate_tickers or fetch is snapshot_source.fetch_table),
@@ -124,7 +91,7 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
         self._seed_projection: Optional[SeedListingProjection] = None
         self.seed_coverage_evidence: Optional[dict] = None
         self._seed_mode = bool(seed_mode)
-        self._reference_recovery = bool(reference_recovery)
+        self._reference_recovery = frozenset(reference_recovery)
         super().__init__(
             self._canonical_fetch, protect_sep=protect_sep,
             corroborate_reference=corroborate_reference,
@@ -142,7 +109,8 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
             return material
         if table == sharadar.SFP and self._reference_recovery:
             material = list(rows)
-            return _require_complete_recovery_reference_tail(material, params)
+            return _require_complete_recovery_reference_tail(
+                material, params, self._reference_recovery)
         return rows
 
     def _validated_seed_replay(self, rows, params):

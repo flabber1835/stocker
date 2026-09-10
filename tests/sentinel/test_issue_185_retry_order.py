@@ -22,6 +22,7 @@ def _base(monkeypatch, events, failed_provider, *, on_publish=None):
     monkeypatch.setattr(
         maintenance, "load_sep_cursor", lambda conn: object())
     monkeypatch.setattr(recovery, "failed_live_candidates", failed_provider)
+    monkeypatch.setattr(recovery, "failed_reference_keys", lambda conn: frozenset())
     monkeypatch.setattr(
         ingest._impl.feed_store, "latest_visible_session",
         lambda conn: "2026-08-17")
