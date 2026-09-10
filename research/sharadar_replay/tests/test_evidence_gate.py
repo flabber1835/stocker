@@ -8,7 +8,12 @@ from research.sharadar_replay import verify_evidence
 
 
 def verify(root, **kwargs):
-    return verify_evidence.verify(root, catalogue_path=root / 'catalogue.json', **kwargs)
+    return verify_evidence.verify(
+        root,
+        catalogue_path=root / 'catalogue.json',
+        required_recovery_path=root / 'required_recovery_tests.json',
+        **kwargs,
+    )
 
 
 def fixture(root):
@@ -16,14 +21,28 @@ def fixture(root):
     (root / 'catalogue.json').write_text(json.dumps(dict(
         schema='sharadar-replay-catalogue/1',
         scenarios={n: ['bootstrap', 'recover'] for n in names}, required_tests=[])))
-    ids = [f'research/sharadar_replay/tests/test_postgres.py::test_daily_production_replay[{n}]' for n in names]
+    scenario_ids = [f'research/sharadar_replay/tests/test_postgres.py::test_daily_production_replay[{n}]' for n in names]
+    recovery_id = (
+        'research/sharadar_replay/tests/test_recovery_authority.py::'
+        'test_critical_recovery_contract'
+    )
+    ids = [*scenario_ids, recovery_id]
+    (root / 'required_recovery_tests.json').write_text(json.dumps(dict(
+        schema='sharadar-replay-required-recovery-tests/1',
+        required_tests=[recovery_id],
+    )))
     for i, name in enumerate(names):
         shard = root / str(i)
         shard.mkdir()
-        (shard / 'collection.json').write_text(json.dumps(dict(shard=i, shards=2, collected=ids, selected=[ids[i]])))
+        selected = ids[i::2]
+        (shard / 'collection.json').write_text(json.dumps(dict(
+            shard=i, shards=2, collected=ids, selected=selected)))
         suite = ET.Element('testsuite')
-        ET.SubElement(suite, 'testcase', classname='research.sharadar_replay.tests.test_postgres',
-                      name=f'test_daily_production_replay[{name}]')
+        for item in selected:
+            path, test_name = item.split('::')
+            ET.SubElement(
+                suite, 'testcase', classname=path[:-3].replace('/', '.'),
+                name=test_name)
         ET.ElementTree(suite).write(shard / 'junit.xml')
         report = shard / name
         report.mkdir()
@@ -35,7 +54,7 @@ def fixture(root):
 
 def test_complete_evidence_passes(tmp_path):
     result = verify(fixture(tmp_path), commit='abc', shards=2)
-    assert result == dict(verdict='PASS', commit='abc', tests=2, scenarios=2, shards=2)
+    assert result == dict(verdict='PASS', commit='abc', tests=3, scenarios=2, shards=2)
 
 
 @pytest.mark.parametrize('mutation', ['missing_manifest', 'duplicate_index', 'omit_test',
@@ -115,4 +134,24 @@ def test_required_falsifier_cannot_disappear(tmp_path):
     data['required_tests'] = ['research/sharadar_replay/tests/test_postgres.py::test_required_falsifier']
     path.write_text(json.dumps(data))
     with pytest.raises(AssertionError, match='required falsifier'):
+        verify(tmp_path, commit='abc', shards=2)
+
+
+def test_coordinated_required_recovery_omission_is_rejected(tmp_path):
+    fixture(tmp_path)
+    authority = json.loads((tmp_path / 'required_recovery_tests.json').read_text())
+    recovery_id = authority['required_tests'][0]
+    for i in range(2):
+        folder = tmp_path / str(i)
+        manifest = folder / 'collection.json'
+        data = json.loads(manifest.read_text())
+        data['collected'] = [item for item in data['collected'] if item != recovery_id]
+        data['selected'] = data['collected'][i::2]
+        manifest.write_text(json.dumps(data))
+        suite = ET.Element('testsuite')
+        for item in data['selected']:
+            path, name = item.split('::')
+            ET.SubElement(suite, 'testcase', classname=path[:-3].replace('/', '.'), name=name)
+        ET.ElementTree(suite).write(folder / 'junit.xml')
+    with pytest.raises(AssertionError, match='required recovery-test coverage'):
         verify(tmp_path, commit='abc', shards=2)
