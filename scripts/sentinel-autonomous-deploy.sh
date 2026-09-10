@@ -16,8 +16,34 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
   exit 1
 }
 
+# Resolve the deployment mode before the first installation preflight. SHADOW is
+# intentionally broker-free; dual/paper installation requires paper credentials.
+INSTALL_TARGET="DUAL_RUN_OBSERVATION"
+EXPECT_MODE=0
+for ARG in "$@"; do
+  if [ "$EXPECT_MODE" -eq 1 ]; then
+    case "$ARG" in
+      shadow) INSTALL_TARGET="SHADOW" ;;
+      dual|paper) INSTALL_TARGET="DUAL_RUN_OBSERVATION" ;;
+      *) echo "REFUSED: invalid --mode '$ARG'" >&2; exit 2 ;;
+    esac
+    EXPECT_MODE=0
+    continue
+  fi
+  case "$ARG" in
+    --mode) EXPECT_MODE=1 ;;
+    --mode=shadow) INSTALL_TARGET="SHADOW" ;;
+    --mode=dual|--mode=paper) INSTALL_TARGET="DUAL_RUN_OBSERVATION" ;;
+    --mode=*) echo "REFUSED: invalid ${ARG}" >&2; exit 2 ;;
+  esac
+done
+[ "$EXPECT_MODE" -eq 0 ] || {
+  echo "REFUSED: --mode requires shadow, dual, or paper" >&2
+  exit 2
+}
+
 . scripts/sentinel-env.sh
-sentinel_load_environment --profile install
+sentinel_load_environment --profile install --target "$INSTALL_TARGET"
 
 # Serialize the whole deployment, including the Git update. Python owns the
 # flock because fcntl is already part of Sentinel's supported Linux host
@@ -88,4 +114,4 @@ fi
 # installations have no volume yet and this helper exits successfully.
 bash scripts/sentinel-state-volume-permissions.sh
 
-exec "$PYTHON" scripts/sentinel_autonomous_deploy_bootstrap.py "$@"
+exec "$PYTHON" scripts/sentinel_autonomous_deploy_entry.py "$@"
