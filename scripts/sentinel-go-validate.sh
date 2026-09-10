@@ -54,7 +54,7 @@ done
 
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   . scripts/sentinel-env.sh
-  sentinel_load_environment --profile go "${FORWARDED_ARGS[@]}"
+  sentinel_load_environment --profile go --go-args "${FORWARDED_ARGS[@]}"
 fi
 
 if [ "$PRODUCTION_RUN" -eq 1 ]; then

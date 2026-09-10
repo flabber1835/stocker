@@ -24,6 +24,14 @@ TARGETS = ("SHADOW", "DUAL_RUN_OBSERVATION", "HISTORICAL_PAPER_EXECUTION")
 UNSAFE_KEYS = frozenset({
     "BASH_ENV", "ENV", "IFS", "SHELLOPTS", "BASHOPTS", "CDPATH", "PATH",
     "PYTHON", "PYTHONPATH", "PYTHONHOME", "LD_PRELOAD", "LD_LIBRARY_PATH",
+    "SENTINEL_HOST_PYTHON", "SENTINEL_PYTHON", "SENTINEL_REPO_ROOT",
+    "SENTINEL_DEPLOY_LOCK_FD", "SENTINEL_GO_LOCK_HELD", "SENTINEL_GO_LOCK_FD",
+    "SENTINEL_GO_RUN_TOKEN", "SENTINEL_BASE_BACKUP_LOCK_HELD",
+    "SENTINEL_BASE_BACKUP_LOCK_FD", "SENTINEL_BASE_BACKUP_LOCK_ROOT",
+})
+FILE_PREFIXES = ("SENTINEL_", "SHARADAR_", "ALPACA_", "NDL_")
+FILE_EXTRA_KEYS = frozenset({
+    "GITHUB_TOKEN", "GH_TOKEN", "COMPOSE_DISABLE_ENV_FILE", "COMPOSE_ENV_FILES",
 })
 
 
@@ -91,11 +99,10 @@ def _unsafe_character(char: str) -> bool:
 
 
 def _value(raw: str, number: int) -> str:
+    # Keep leading whitespace until comment recognition: '= # comment' is empty.
+    if raw.lstrip(" \t")[:1] not in {"'", '"'}:
+        return re.split(r"[ \t]+#", raw, maxsplit=1)[0].strip(" \t")
     raw = raw.strip(" \t")
-    if not raw:
-        return ""
-    if raw[0] not in "\"'":
-        return re.split(r"[ \t]+#", raw, maxsplit=1)[0].rstrip(" \t")
     quote = raw[0]
     out = []
     index = 1
@@ -160,6 +167,12 @@ def load(path: Path, *, required: bool = False) -> Dict[str, str]:
 
 
 def merge(values: Mapping[str, str], process: Mapping[str, str]) -> Dict[str, str]:
+    # Parsed legacy data is broader than executable command configuration.
+    # Validate every file key before merging, even if the process overrides it.
+    for key in values:
+        if (key in UNSAFE_KEYS or KEY.fullmatch(key) is None
+                or not (key.startswith(FILE_PREFIXES) or key in FILE_EXTRA_KEYS)):
+            _fail("FILE_COMMAND_KEY_REFUSED", key=key)
     result = dict(values)
     result.update(process)
     # Compose receives the literal values already resolved here. A second parser
@@ -177,13 +190,15 @@ def usable(value: str) -> bool:
 
 def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = None) -> None:
     """No I/O: prove local prerequisites before any external operation."""
-    if profile not in {"compose", "bootstrap", "install", "go", "bringup"}:
+    if profile not in {"compose", "bootstrap", "install", "go", "bringup", "maintenance"}:
         _fail("INVALID_PROFILE")
     target = target if target is not None else env.get("SENTINEL_GO_TARGET", TARGETS[1])
-    if target not in TARGETS:
+    if profile != "maintenance" and target not in TARGETS:
         _fail("INVALID_TARGET", key="SENTINEL_GO_TARGET")
     required = ["SENTINEL_BACKUP_DIR"] if profile == "compose" else [
         "SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", "SHARADAR_API_KEY"]
+    if profile == "maintenance":
+        required = ["SENTINEL_BACKUP_DIR", "SENTINEL_POSTGRES_PASSWORD", RECEIPT_KEY]
     if profile in {"install", "bringup"} or (profile == "go" and target != "SHADOW"):
         required += ["ALPACA_API_KEY", "ALPACA_SECRET_KEY"]
     invalid = [key for key in required if not usable(env.get(key, ""))]
@@ -234,12 +249,18 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
 def main(argv: Optional[Sequence[str]] = None) -> int:
     parser = argparse.ArgumentParser(description=__doc__, allow_abbrev=False)
     parser.add_argument("--env-file", type=Path, default=ROOT / ".env")
-    parser.add_argument("--profile", choices=("compose", "bootstrap", "install", "go", "bringup"), required=True)
+    parser.add_argument("--profile", choices=("compose", "bootstrap", "install", "go", "bringup", "maintenance"), required=True)
     parser.add_argument("--target", choices=TARGETS)
     parser.add_argument("--records", action="store_true", help=argparse.SUPPRESS)
+    parser.add_argument("--go-args", nargs=argparse.REMAINDER, default=[], help=argparse.SUPPRESS)
     args, _remaining = parser.parse_known_args(argv)
+    if args.go_args:
+        target_parser = argparse.ArgumentParser(add_help=False, allow_abbrev=False)
+        target_parser.add_argument("--target", choices=TARGETS, default=args.target)
+        target_args, _remaining = target_parser.parse_known_args(args.go_args)
+        args.target = target_args.target
     try:
-        values = load(args.env_file, required=args.profile != "compose")
+        values = load(args.env_file, required=args.profile not in {"compose", "maintenance"})
         resolved = merge(values, os.environ)
         if RECEIPT_KEY in os.environ and (not usable(os.environ[RECEIPT_KEY])
                                          or len(os.environ[RECEIPT_KEY].strip().encode("utf-8")) < 32):

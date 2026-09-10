@@ -26,6 +26,8 @@ an escaped single quote; double quotes support escaped quote/backslash. Escaped
 control characters in double quotes are refused. Dollar references, backticks
 and command substitutions are literal data and are never expanded or executed.
 Quote a value containing a whitespace-prefixed hash.
+An assignment containing only whitespace and an unquoted comment has an empty
+value, including `KEY= # enter the value here` and its tab/CRLF variants.
 
 The entire file is validated even when process variables override its values.
 Process environment takes precedence, including an explicit empty override;
@@ -33,6 +35,18 @@ required empty values then fail validation. Missing optional env files remain
 supported by read-only Python loaders and the ordinary Compose wrapper, with
 configuration supplied by the process. Installation requires its persistent
 `.env`. Host interpreter/shell injection variables in an env file are refused.
+
+Merging file data into a command environment accepts only `SENTINEL_`,
+`SHARADAR_`, `ALPACA_`, and `NDL_` configuration names, plus `GITHUB_TOKEN`,
+`GH_TOKEN`, `COMPOSE_DISABLE_ENV_FILE`, and `COMPOSE_ENV_FILES`. Host interpreter
+selectors and internal lock/run capabilities are process-only. Other file keys
+refuse before any records are exported, even when the process overrides them.
+The standalone parser still accepts general identifiers for legacy conversion.
+This boundary protects launcher variables, runtime-pointer selection, and host
+command execution from file assignments.
+GO forwards its command arguments through a separate parser boundary. Only the
+requested target affects env preflight; those arguments cannot select a weaker
+profile or another env file.
 
 ## Stage-specific preflight
 
@@ -60,6 +74,15 @@ Compose's implicit env-file reload is disabled after ingestion so interpolation
 and a second file read cannot change the selected values. Alternate Compose env
 files must be resolved explicitly before invoking these supported entry points.
 The emergency kill script retains its minimal independent configuration path.
+
+Standalone base-backup, backup-status, restore-drill, automation-compose, and
+authorized-CLI entry points ingest the same file before their host guards. Their
+maintenance profile requires the absolute backup path, PostgreSQL password, and
+existing publication-receipt key used by the Compose graph. It accepts a missing
+file when those values are supplied by the process. Broker and market-data
+credentials retain their operation-specific gates. These helpers never provision
+receipt authority. Existing immutable-image and authority-directory guards run
+after ingestion.
 
 ## Adversarial harness
 

@@ -20,6 +20,10 @@ root = Path(os.environ["SENTINEL_REPO_ROOT"])
 target = Path(sys.argv[1]).name if len(sys.argv) > 1 else ""
 scenario = os.environ.get("BRINGUP_SCENARIO", "pass")
 
+if target == "sentinel_env.py":
+    os.execv(sys.executable, [sys.executable, str(root / "scripts" / target)]
+             + sys.argv[2:] + ["--env-file", os.environ["BRINGUP_ENV_FILE"]])
+
 if target in {
     "sentinel_host_python.py",
     "sentinel_deployment_bootstrap.py",
@@ -98,12 +102,20 @@ def _run(tmp_path: Path, scenario: str, *args: str):
     shim = tmp_path / "bringup-python-shim"
     shim.write_text(_SHIM, encoding="utf-8")
     shim.chmod(0o755)
+    env_file = tmp_path / "bringup.env"
+    env_file.write_text(
+        "SENTINEL_POSTGRES_PASSWORD=fixture-postgres\n"
+        "SENTINEL_BACKUP_DIR=/tmp/sentinel-fixture-backup\n"
+        "SHARADAR_API_KEY=fixture-sharadar\n"
+        "ALPACA_API_KEY=fixture-alpaca\n"
+        "ALPACA_SECRET_KEY=fixture-alpaca-secret\n", encoding="utf-8")
     env = dict(os.environ)
     env.update({
         "SENTINEL_REPO_ROOT": str(ROOT),
         "SENTINEL_HOST_PYTHON": str(shim),
         "SENTINEL_GO_LOCK_HELD": "1",
         "BRINGUP_SCENARIO": scenario,
+        "BRINGUP_ENV_FILE": str(env_file),
     })
     return subprocess.run(
         ["bash", str(LAUNCHER), *args],

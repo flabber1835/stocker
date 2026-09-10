@@ -27,6 +27,22 @@ MUTANTS = (
     ("installer-preflight-removed", "scripts/sentinel-autonomous-deploy.sh",
      "sentinel_load_environment --profile install", ": # removed preflight",
      "test_launcher_sentinel_autonomous_deploy_sh_missing_required"),
+    ("file-command-keys-unrestricted", "scripts/sentinel_env.py",
+     "for key in values:", "for key in ():",
+     "test_control_sentinel_compose_sh_RUN"),
+    ("comment-whitespace-lost", "scripts/sentinel_env.py",
+     'raw, maxsplit=1)[0].strip(" \\t")', 'raw.strip(" \\t"), maxsplit=1)[0].strip(" \\t")',
+     "test_empty_commented_credentials_block_install_before_git"),
+    ("go-arguments-reinterpret-preflight", "scripts/sentinel-go-validate.sh",
+     "--profile go --go-args", "--profile go",
+     "test_go_arguments_cannot_weaken_preflight_or_select_another_file"),
+    *tuple(
+        (name + "-ingestion-removed", "scripts/" + name + ".sh",
+         "sentinel_load_environment --profile maintenance", ": # removed preflight",
+         "test_maintenance_" + name.replace("-", "_") + "_sh_valid")
+        for name in ("sentinel-base-backup", "sentinel-backup-status", "sentinel-restore-drill",
+                     "sentinel-automation-compose", "sentinel-authorized-cli")
+    ),
 )
 
 

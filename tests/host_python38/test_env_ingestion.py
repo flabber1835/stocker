@@ -54,6 +54,10 @@ BASE = {
     "ALPACA_BASE_URL": env.PAPER_URL,
     "SENTINEL_FORCE_CPU_LIMITS": "1",
 }
+MAINTENANCE_LAUNCHERS = (
+    "sentinel-base-backup.sh", "sentinel-backup-status.sh", "sentinel-restore-drill.sh",
+    "sentinel-automation-compose.sh", "sentinel-authorized-cli.sh",
+)
 VALID = {
     "lf": (b"A=one\nB=two\n", {"A": "one", "B": "two"}),
     "crlf": (b"A=one\r\nB=two\r\n", {"A": "one", "B": "two"}),
@@ -66,6 +70,10 @@ VALID = {
     "spacing": (b" \texport\t A \t= one  \t\n", {"A": "one"}),
     "embedded_hash": (b"A=one#two\n", {"A": "one#two"}),
     "inline_comment": (b"A=one \t# comment\n", {"A": "one"}),
+    "empty_inline_comment": (b"A= # enter value\n", {"A": ""}),
+    "empty_tab_comment_crlf": (b"A=\t# enter value\r\n", {"A": ""}),
+    "empty_comment_no_newline": (b"A=  # enter value", {"A": ""}),
+    "leading_literal_hash": (b"A=#literal\nB=' # literal'\n", {"A": "#literal", "B": " # literal"}),
     "single_quote_hash": (b"A='one # two' # comment\n", {"A": "one # two"}),
     "double_quote_hash": (b'A="one # two" # comment\n', {"A": "one # two"}),
     "equals": (b"A=one=two==\n", {"A": "one=two=="}),
@@ -446,6 +454,81 @@ class EnvHarness(unittest.TestCase):
         self.assertEqual(result.returncode, 93, result.stderr)
         self.assertIn("sentinel_deployment_bootstrap.py", (self.root / "effects").read_text())
 
+    def test_command_merge_refuses_file_control_keys_even_with_process_override(self):
+        for key in ("RUN", "PRODUCTION_RUN", "FORWARDED_ARGS", "RUNTIME_POINTER",
+                    "CANONICAL", "BACKUP", "GENERATED", "INITIALIZE_BACKUP",
+                    "record", "records", "BASH_XTRACEFD", "GIT_CONFIG_COUNT",
+                    "DOCKER_HOST", "COMPOSE_FILE", "SENTINEL_HOST_PYTHON",
+                    "SENTINEL_GO_LOCK_HELD", "SENTINEL_BASE_BACKUP_LOCK_FD"):
+            with self.subTest(key=key):
+                with self.assertRaises(env.EnvRefused):
+                    env.merge(dict(BASE, **{key: CANARY}), {key: "safe-process"})
+
+    def test_go_arguments_cannot_weaken_preflight_or_select_another_file(self):
+        process = self.shell_repo()
+        other = self.root / "other.env"
+        other.write_bytes(self.write())
+        self.write({k: v for k, v in BASE.items() if k != "ALPACA_API_KEY"})
+        for args in (("--profile", "compose"), ("--env-file", str(other))):
+            with self.subTest(option=args[0]):
+                result = self.run_shell("sentinel-go-validate.sh", process, *args)
+                self.assertEqual(result.returncode, 2, result.stderr)
+                self.assertIn("ALPACA_API_KEY", result.stderr)
+                self.assertFalse((self.root / "effects").exists())
+
+    def test_command_merge_preserves_application_extensions_and_external_controls(self):
+        values = dict(BASE, SENTINEL_FUTURE_SETTING="literal", GITHUB_TOKEN=CANARY)
+        resolved = env.merge(values, {"PATH": "/usr/bin", "SENTINEL_HOST_PYTHON": sys.executable})
+        self.assertEqual(resolved["SENTINEL_FUTURE_SETTING"], "literal")
+        self.assertEqual(resolved["GITHUB_TOKEN"], CANARY)
+        self.assertEqual(resolved["PATH"], "/usr/bin")
+        self.assertEqual(resolved["SENTINEL_HOST_PYTHON"], sys.executable)
+
+    def test_python_command_loaders_refuse_shell_control_assignments(self):
+        self.write(dict(BASE, RUN="0"))
+        with mock.patch.dict(os.environ, {}, clear=True):
+            for loader in (GO.merged_environment, DEPLOY.merged_environment):
+                with self.assertRaises(ERRORS):
+                    loader(self.path)
+            with mock.patch.object(RUNTIME, "_load_dotenv_literal", lambda: env.load(self.path)):
+                with self.assertRaises(RUNTIME.RuntimeSelectionRefused):
+                    RUNTIME._merged_environment()
+
+    def test_empty_commented_credentials_block_install_before_git(self):
+        process = self.shell_repo()
+        for key in ("SHARADAR_API_KEY", "ALPACA_API_KEY", "ALPACA_SECRET_KEY"):
+            for suffix in (" # enter value\n", "\t# enter value\r\n", "  # enter value"):
+                with self.subTest(key=key, ending=repr(suffix[-2:])):
+                    raw = self.write({k: v for k, v in BASE.items() if k != key})
+                    self.write(raw=raw + (key + "=" + suffix).encode())
+                    result = self.run_shell("sentinel-autonomous-deploy.sh", process)
+                    self.assertEqual(result.returncode, 2, result.stderr)
+                    self.assertIn(key, result.stderr)
+                    self.assertFalse((self.root / "effects").exists())
+
+    def maintenance_repo(self):
+        process = self.shell_repo()
+        for name in MAINTENANCE_LAUNCHERS:
+            shutil.copyfile(ROOT / "scripts" / name, self.root / "scripts" / name)
+        (self.root / "scripts/sentinel-backup-lib.sh").write_text(
+            'sentinel_backup_root() { echo backup >> effects; printf "%s\\n" "$SENTINEL_BACKUP_DIR"; }\n')
+        (self.root / "scripts/sentinel_backup_lock.py").write_text("pass\n")
+        docker = self.root / "bin/docker"
+        docker.write_text(docker.read_text() + "raise SystemExit(93)\n")
+        authority = self.root / "authority"
+        authority.mkdir(exist_ok=True)
+        # Maintenance must work while broker/data credentials are unavailable.
+        values = {
+            "SENTINEL_BACKUP_DIR": BASE["SENTINEL_BACKUP_DIR"],
+            "SENTINEL_POSTGRES_PASSWORD": BASE["SENTINEL_POSTGRES_PASSWORD"],
+            env.RECEIPT_KEY: CANARY + "_receipt_0123456789abcdef",
+            "SENTINEL_RUNTIME_IMAGE_DIGEST": "sha256:" + "a" * 64,
+            "SENTINEL_TEST_IMAGE_DIGEST": "sha256:" + "b" * 64,
+            "SENTINEL_GIT_COMMIT": "c" * 40,
+            "SENTINEL_AUTHORITY_ARTIFACTS_DIR": str(authority),
+        }
+        return process, values
+
 
 def _valid_case(loader, raw, expected):
     def test(self):
@@ -535,6 +618,59 @@ def _semantic_case(key, value, accepted):
     return test
 
 
+def _shell_control_case(launcher, key):
+    def test(self):
+        if launcher in MAINTENANCE_LAUNCHERS:
+            process, values = self.maintenance_repo()
+        else:
+            process, values = self.shell_repo(), dict(BASE)
+        values[key] = "0"
+        self.write(values)
+        result = self.run_shell(launcher, process, *(('--run', 'up') if launcher == 'sentinel-compose.sh' else ()))
+        self.assertEqual(result.returncode, 2, result.stderr)
+        self.assertFalse((self.root / "effects").exists())
+        self.assertIn("REFUSED", result.stderr)
+        self.assertNotIn(CANARY, result.stdout + result.stderr)
+    return test
+
+
+def _maintenance_case(launcher, case):
+    def test(self):
+        process, values = self.maintenance_repo()
+        expected = dict(values)
+        if case == "process_only":
+            process.update(values)
+        else:
+            if case.startswith("missing_"):
+                del values[case[len("missing_"):]]
+            if case == "literal_override":
+                values["SENTINEL_POSTGRES_PASSWORD"] = "db$UNSET"
+                values[env.RECEIPT_KEY] += " # literal $HOME `text`"
+                process["SENTINEL_BACKUP_DIR"] = "/process/backup"
+                expected = dict(values, SENTINEL_BACKUP_DIR="/process/backup")
+            raw = "".join(k + "=" + CONVERT.quote(v) + "\r\n" for k, v in values.items()).encode()
+            if case in INVALID:
+                raw += INVALID[case]
+            self.write(raw=raw)
+            if case == "empty_override":
+                process["SENTINEL_POSTGRES_PASSWORD"] = ""
+        args = ("status",) if "compose" in launcher or "authorized" in launcher else ()
+        result = self.run_shell(launcher, process, *args)
+        if case in ("valid", "literal_override", "process_only"):
+            self.assertIn(result.returncode, (4, 93), result.stderr)
+            self.assertIn("docker", (self.root / "effects").read_text())
+            selected = json.loads((self.root / "selected.json").read_text())
+            for key, value in expected.items():
+                self.assertEqual(selected[key], value, key)
+            self.assertEqual(selected["COMPOSE_ENV_FILES"], "/dev/null")
+            self.assertEqual(selected["COMPOSE_DISABLE_ENV_FILE"], "1")
+        else:
+            self.assertEqual(result.returncode, 2, result.stderr)
+            self.assertFalse((self.root / "effects").exists(), result.stderr)
+        self.assertNotIn(CANARY, result.stdout + result.stderr)
+    return test
+
+
 # Generated unittest methods are individually reported in both the 3.8 CI lane
 # and pytest/JUnit. IDs contain scenario names only, never environment values.
 for loader_name, loader in LOADERS.items():
@@ -550,6 +686,19 @@ for key in ("SENTINEL_POSTGRES_PASSWORD", "SHARADAR_API_KEY", "SENTINEL_BACKUP_D
 for launcher in ("sentinel-compose.sh", "sentinel-autonomous-deploy.sh", "sentinel-go-validate.sh", "sentinel-bringup.sh"):
     for case in ("valid", "missing_file", "missing_required", "empty_override", "duplicate_conflict", "nul", "invalid_utf8", "unclosed_double", "control_in_comment"):
         setattr(EnvHarness, "test_launcher_%s_%s" % (launcher.replace('-', '_').replace('.', '_'), case), _shell_case(launcher, case))
+for launcher in ("sentinel-compose.sh", "sentinel-autonomous-deploy.sh", "sentinel-go-validate.sh", "sentinel-bringup.sh") + MAINTENANCE_LAUNCHERS:
+    for key in ("RUN", "PRODUCTION_RUN", "FORWARDED_ARGS", "LOCAL_FULL", "RUNTIME_POINTER",
+                "CANONICAL", "BACKUP", "INITIALIZE_BACKUP", "record", "records",
+                "SENTINEL_HOST_PYTHON", "SENTINEL_PYTHON", "SENTINEL_GO_LOCK_HELD",
+                "SENTINEL_GO_RUN_TOKEN", "SENTINEL_DEPLOY_LOCK_FD",
+                "SENTINEL_BASE_BACKUP_LOCK_HELD"):
+        setattr(EnvHarness, "test_control_%s_%s" % (launcher.replace('-', '_').replace('.', '_'), key), _shell_control_case(launcher, key))
+for launcher in MAINTENANCE_LAUNCHERS:
+    for case in ("valid", "literal_override", "process_only", "empty_override",
+                 "missing_SENTINEL_BACKUP_DIR", "missing_SENTINEL_POSTGRES_PASSWORD",
+                 "missing_SENTINEL_PUBLICATION_RECEIPT_KEY", "duplicate_conflict",
+                 "nul", "invalid_utf8", "unclosed_double", "control_in_comment"):
+        setattr(EnvHarness, "test_maintenance_%s_%s" % (launcher.replace('-', '_').replace('.', '_'), case), _maintenance_case(launcher, case))
 for key, lower, upper in (
         ("SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS", 30, 1800),
         ("SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS", 0, 1800),
