@@ -24,6 +24,11 @@ if target == "sentinel_env.py":
     os.execv(sys.executable, [sys.executable, str(root / "scripts" / target)]
              + sys.argv[2:] + ["--env-file", os.environ["BRINGUP_ENV_FILE"]])
 
+if target == "-":
+    code = sys.stdin.read()
+    sys.argv = [sys.argv[0]] + sys.argv[2:]
+    exec(compile(code, "<bringup-inline-python>", "exec"), {"__name__": "__main__"})
+
 if target in {
     "sentinel_host_python.py",
     "sentinel_deployment_bootstrap.py",
