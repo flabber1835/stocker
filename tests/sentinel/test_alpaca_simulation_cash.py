@@ -149,11 +149,16 @@ def test_late_fill_after_terminal_order_aged_out_is_discovered(world):
     run(world.adapter().cancel(oid))
     world.advance(5)
     world.fill(oid, "2", late=True)
+    # The late report revises cumulative fills without reopening the order.
+    # Its old submitted_at excludes it from the closed-order recovery window.
+    world.orders[oid]["status"] = "canceled"
     observed = run(world.adapter().observe_with_terminal_recovery(
         submitted_after=EPOCH - timedelta(days=1), processed_through=EPOCH))
     assert observed.orders[0].broker_order_id == oid
     assert observed.orders[0].filled_quantity == D(2)
     assert observed.positions[0].quantity == D(2)
+    assert observed.orders[0].state is alpaca.CommandState.CANCELLED
+    assert world.counts[("GET", f"/v2/orders/{oid}")] == 1
 
 
 def test_candidate_capabilities_are_refused_at_real_guard_before_http(world):
