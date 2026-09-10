@@ -1,0 +1,27 @@
+{
+  "independent_peer_cases": 2000,
+  "invalid_snapshot_rejections": 142,
+  "paired_controller_steps": 120000,
+  "reasons_seen": [
+    "DIVERGENCE_CLEAR",
+    "FULL_RISK_CERTIFIED_CROSS_SURFACE",
+    "FULL_RISK_CERTIFIED_PERSISTENCE",
+    "FULL_RISK_CERTIFIED_SPY_V_REBOUND",
+    "FULL_RISK_HELD",
+    "LD_ENTER_DIVERGENCE",
+    "NORMAL",
+    "RECOVERY_EPISODE_START"
+  ],
+  "scope": "Synthetic checks; fresh PIT and historical artifact comparisons pending.",
+  "snapshot_restarts": 620,
+  "source_sha256": {
+    "compact_original_no_ramp": "350aaebb3d9257eeebdb8dc6776853f35e38d42975ae711ff28a1f6418170c62",
+    "compact_simplified_no_ramp": "3fcf274dc5dba5b01ff3c637b62922f27c5dfe2e3b28e7f3a416e1bfeba09663",
+    "original": "335e2ae06efd5e2ebfa11f0641029609d524f4e75e733a3dbd0a5efcf64ac42d",
+    "original_no_ramp": "7b3657824161ac5a7a126f016105e3013b3ffd8f63a0b4c734111597db591a0c",
+    "simplified": "2f3e0a6d2fbeb2704e0ea61972a4c8509a6d75462cb7ecb69b56afedb8637c2c",
+    "simplified_no_ramp": "1366db85d7c74bbf7705146923724bf8b81b92f4da817bfefa8180086b2a4d21"
+  },
+  "status": "PASS",
+  "synthetic_observations": 30000
+}

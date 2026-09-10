@@ -1,0 +1,12 @@
+{
+  "campaign": "wealth-core-v5-ex3-v6-ramp-removal-followup-v1",
+  "authorized_additional_full_pit_slots": 7,
+  "cases": ["baseline", "loo_0", "loo_1", "loo_2", "drop_29", "drop_47", "drop_83"],
+  "controller_tracks_per_case": 6,
+  "slot_ref_namespace": "research-budget/simplification-ramp-v1",
+  "automatic_core_retries": false,
+  "hardening_proposal_reviewed": "44be8212c01dcdab4c913cb1b03ef28ef6c293da",
+  "research_pr": 350,
+  "research_issue": 349,
+  "production_promotion": false
+}

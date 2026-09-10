@@ -1,0 +1,11 @@
+{
+  "compact_accounting_restarts": 20,
+  "controller_tracks": 6,
+  "full_pit_starts": 0,
+  "future_suffix_prefix_invariant": true,
+  "incomplete_reporting_and_lossless_tape_checks": true,
+  "original_reference_clock_exact": true,
+  "same_session_allocation_mutant_rejected": true,
+  "status": "PASS",
+  "synthetic_sessions": 260
+}

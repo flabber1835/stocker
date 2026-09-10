@@ -1,0 +1,271 @@
+name: Research - Ramp removal follow-up
+run-name: Seven-slot ramp follow-up - ${{ github.sha }}
+'on':
+  push:
+    branches:
+    - research/wealth-core-v5-ex3-v6-simplification-v1
+    paths:
+    - research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/LAUNCH.json
+permissions:
+  contents: read
+  packages: read
+  actions: read
+concurrency:
+  group: ramp-followup-v1
+  cancel-in-progress: false
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+    - name: Frozen experiment checkout
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: ${{ github.sha }}
+        path: experiment-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |-
+          research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1
+          research/wealth-core-v5-ex3-v6-simplification-v1
+          research/wealth-core-v5-ex3-v6-simplification-v2
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: 3.12.14
+        check-latest: false
+    - name: Analysis dependencies
+      run: python -m pip install --disable-pip-version-check numpy==2.4.6 pandas==3.0.5
+    - name: Boundary, exactness, snapshot and peer checks
+      run: |
+        python experiment-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/preflight.py
+        python -m py_compile experiment-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/run_experiment.py experiment-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/publish.py
+        python experiment-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/test_replay_contract.py
+    - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: ramp-preflight
+        path: experiment-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/PREFLIGHT.json
+        retention-days: 90
+  baseline:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: write
+      packages: read
+      actions: read
+      issues: write
+    steps:
+    - name: Frozen experiment checkout
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: ${{ github.sha }}
+        path: experiment-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |-
+          research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1
+          research/wealth-core-v5-ex3-v6-simplification-v1
+          research/wealth-core-v5-ex3-v6-simplification-v2
+    - name: Pinned replay harness
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: eaddca3f04f279e99663f832bf7293e92ee15662
+        path: harness-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |-
+          .github/actions/v5-ex3-v5-adversarial-setup
+          research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+          research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+          research/wealth-core-v5-sentinel-ex3-impedance-v1
+          research/wealth-core-v5-affordability-fix-v1
+          research/median5-open-sizing-10bp-ex3-v1
+    - name: Stage frozen runtime and full-PIT data
+      uses: ./harness-src/.github/actions/v5-ex3-v5-adversarial-setup
+    - name: Generate exact V6 driver
+      run: python harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py --source harness-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py
+        --output harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+    - name: Prior hardening baseline
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: state-component-baseline
+        path: old-ablation
+        run-id: 34515342448
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Prior 51.9x baseline
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: simplification-clean_cached
+        path: old-simplified
+        run-id: 34480037109
+        github-token: ${{ secrets.GITHUB_TOKEN }}
+    - name: Claim one slot and replay Core plus six controllers
+      env:
+        CASE: baseline
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        RAMP_V6_RUNNER: ${{ github.workspace }}/harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd certified-src
+        python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/run_experiment.py" --case "$CASE" --output "${GITHUB_WORKSPACE}/result" --old-ablation "${GITHUB_WORKSPACE}/old-ablation" --old-simplified "${GITHUB_WORKSPACE}/old-simplified" 2>&1 | tee "${GITHUB_WORKSPACE}/experiment.log"
+    - name: Collect failure evidence
+      if: ${{ always() }}
+      run: |
+        mkdir -p result
+        for file in experiment.log package-integrity.json final-corpus-validation.json; do
+          if [ -f "$file" ]; then cp "$file" result/; fi
+        done
+    - name: Preserve complete replay evidence
+      if: ${{ always() }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: ramp-baseline
+        path: result/
+        retention-days: 90
+        if-no-files-found: error
+    - name: Publish fresh baseline headlines and tapes
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        python experiment-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/publish.py --root result --out baseline-summary --publish
+        cat baseline-summary/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+  faults:
+    needs: baseline
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: write
+      packages: read
+      actions: read
+    strategy:
+      fail-fast: false
+      max-parallel: 6
+      matrix:
+        case:
+        - loo_0
+        - loo_1
+        - loo_2
+        - drop_29
+        - drop_47
+        - drop_83
+    steps:
+    - name: Frozen experiment checkout
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: ${{ github.sha }}
+        path: experiment-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |-
+          research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1
+          research/wealth-core-v5-ex3-v6-simplification-v1
+          research/wealth-core-v5-ex3-v6-simplification-v2
+    - name: Pinned replay harness
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: eaddca3f04f279e99663f832bf7293e92ee15662
+        path: harness-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |-
+          .github/actions/v5-ex3-v5-adversarial-setup
+          research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+          research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+          research/wealth-core-v5-sentinel-ex3-impedance-v1
+          research/wealth-core-v5-affordability-fix-v1
+          research/median5-open-sizing-10bp-ex3-v1
+    - name: Stage frozen runtime and full-PIT data
+      uses: ./harness-src/.github/actions/v5-ex3-v5-adversarial-setup
+    - name: Generate exact V6 driver
+      run: python harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py --source harness-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py
+        --output harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+    - name: Qualified baseline and frozen fault list
+      uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        name: ramp-baseline
+        path: baseline-input
+    - name: Claim one slot and replay Core plus six controllers
+      env:
+        CASE: ${{ matrix.case }}
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        RAMP_V6_RUNNER: ${{ github.workspace }}/harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+      shell: bash
+      run: |
+        set -euo pipefail
+        cd certified-src
+        python "${GITHUB_WORKSPACE}/experiment-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/run_experiment.py" --case "$CASE" --output "${GITHUB_WORKSPACE}/result" --baseline "${GITHUB_WORKSPACE}/baseline-input" 2>&1 | tee "${GITHUB_WORKSPACE}/experiment.log"
+    - name: Collect failure evidence
+      if: ${{ always() }}
+      run: |
+        mkdir -p result
+        for file in experiment.log package-integrity.json final-corpus-validation.json; do
+          if [ -f "$file" ]; then cp "$file" result/; fi
+        done
+    - name: Preserve complete replay evidence
+      if: ${{ always() }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: ramp-${{ matrix.case }}
+        path: result/
+        retention-days: 90
+        if-no-files-found: error
+  summary:
+    needs:
+    - baseline
+    - faults
+    if: ${{ always() }}
+    runs-on: ubuntu-24.04
+    timeout-minutes: 25
+    permissions:
+      contents: write
+      actions: read
+      issues: write
+    steps:
+    - name: Frozen experiment checkout
+      uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      with:
+        ref: ${{ github.sha }}
+        path: experiment-src
+        fetch-depth: 1
+        filter: blob:none
+        persist-credentials: false
+        sparse-checkout: |-
+          research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1
+          research/wealth-core-v5-ex3-v6-simplification-v1
+          research/wealth-core-v5-ex3-v6-simplification-v2
+    - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+      with:
+        python-version: 3.12.14
+        check-latest: false
+    - name: Analysis dependencies
+      run: python -m pip install --disable-pip-version-check numpy==2.4.6 pandas==3.0.5
+    - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+      with:
+        pattern: ramp-*
+        path: evidence
+        merge-multiple: false
+    - name: Publish complete or incomplete results
+      env:
+        GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      run: |
+        python experiment-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/publish.py --root evidence --out summary --publish
+        cat summary/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+    - if: ${{ always() }}
+      uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+      with:
+        name: ramp-summary
+        path: summary/
+        retention-days: 90
+        if-no-files-found: error
