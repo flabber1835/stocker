@@ -235,7 +235,7 @@ def promote_to_unknown(command: Command) -> Command:
 
 async def resolve_unknown(broker: ExecutionBroker, command: Command,
                           observation: BrokerObservation) -> Command:
-    """Resolve UNKNOWN by exact key; absence is usable only with completeness."""
+    """Resolve UNKNOWN by key while preserving positive account-bound evidence."""
     if command.state is not S.UNKNOWN:
         raise ValueError(f"not UNKNOWN: {command.state.value}")
 
@@ -249,6 +249,21 @@ async def resolve_unknown(broker: ExecutionBroker, command: Command,
             filled_quantity=found.filled_quantity,
             filled_average_price=found.filled_average_price,
             detail="resolved by key lookup")
+
+    # Exact-key absence can lag another complete broker read. Positive evidence
+    # that the durable key exists always outranks negative-space evidence from a
+    # single endpoint. This also closes the restart path where a transient exact
+    # 404 previously rewrote a live order to CANCELLED.
+    observed = observation.by_client_key(command.client_key)
+    if observed is not None:
+        _assert_order_matches_command(
+            command, observed, where="account-bound observation")
+        return command.transition(
+            observed.state, broker_order_id=observed.broker_order_id,
+            filled_quantity=observed.filled_quantity,
+            filled_average_price=observed.filled_average_price,
+            detail=("exact client-key lookup reported absence while the "
+                    "account-bound observation contained the durable key"))
 
     if command.broker_order_id:
         return command
