@@ -321,11 +321,16 @@ def _validate_semantics(env: Mapping[str, str]) -> None:
         _integer(env["SENTINEL_SHADOW_FAILURE_THRESHOLD"],
                  key="SENTINEL_SHADOW_FAILURE_THRESHOLD", minimum=1, maximum=100)
 
-    for key in (
-            "SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY",
-            "SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY"):
-        if key in env and str(env[key]).strip() != PUBLICATION_POLICY:
-            _fail("INVALID_PUBLICATION_TIMING_POLICY", key=key)
+    if ("SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY" in env
+            and str(env["SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY"]).strip()
+            != PUBLICATION_POLICY):
+        _fail("INVALID_PUBLICATION_TIMING_POLICY",
+              key="SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY")
+    if ("SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY" in env
+            and str(env["SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY"]).strip()
+            not in {"", PUBLICATION_POLICY}):
+        _fail("INVALID_PUBLICATION_TIMING_POLICY",
+              key="SENTINEL_AUTOMATION_PUBLICATION_TIMING_POLICY")
 
     reviewed_mode = str(env.get("SENTINEL_REVIEWED_DEPLOYMENT_MODE", "")).strip().lower()
     if reviewed_mode not in {"", "shadow", "dual", "paper"}:
@@ -337,16 +342,22 @@ def _validate_semantics(env: Mapping[str, str]) -> None:
         automation[key] = _integer(
             env.get(key, default), key=key, minimum=minimum,
             maximum=(300 if key == "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS" else None))
-    if automation["SENTINEL_AUTOMATION_HEARTBEAT_SECONDS"] >= \
-            automation["SENTINEL_AUTOMATION_LEASE_SECONDS"]:
+    if ({"SENTINEL_AUTOMATION_HEARTBEAT_SECONDS",
+             "SENTINEL_AUTOMATION_LEASE_SECONDS"} <= set(env)
+            and automation["SENTINEL_AUTOMATION_HEARTBEAT_SECONDS"]
+            >= automation["SENTINEL_AUTOMATION_LEASE_SECONDS"]):
         _fail("AUTOMATION_HEARTBEAT_NOT_BELOW_LEASE",
               key="SENTINEL_AUTOMATION_HEARTBEAT_SECONDS")
-    if automation["SENTINEL_AUTOMATION_RETRY_BASE_SECONDS"] > \
-            automation["SENTINEL_AUTOMATION_RETRY_MAX_SECONDS"]:
+    if ({"SENTINEL_AUTOMATION_RETRY_BASE_SECONDS",
+             "SENTINEL_AUTOMATION_RETRY_MAX_SECONDS"} <= set(env)
+            and automation["SENTINEL_AUTOMATION_RETRY_BASE_SECONDS"]
+            > automation["SENTINEL_AUTOMATION_RETRY_MAX_SECONDS"]):
         _fail("AUTOMATION_RETRY_RANGE_INVALID",
               key="SENTINEL_AUTOMATION_RETRY_BASE_SECONDS")
-    if automation["SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS"] < \
-            automation["SENTINEL_AUTOMATION_HEARTBEAT_SECONDS"]:
+    if ({"SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS",
+             "SENTINEL_AUTOMATION_HEARTBEAT_SECONDS"} <= set(env)
+            and automation["SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS"]
+            < automation["SENTINEL_AUTOMATION_HEARTBEAT_SECONDS"]):
         _fail("AUTOMATION_CALLBACK_BELOW_HEARTBEAT",
               key="SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS")
 
