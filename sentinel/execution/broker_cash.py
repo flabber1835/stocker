@@ -424,13 +424,15 @@ async def ingest_account_cash(
                     "broker cash activity rows exist without their durable "
                     "cursor; restore the complete behavioral state")
 
-    if financial_sse:
+    if financial_sse or missing_last_flow:
         # Capturing the bounded upper event_id must cover the whole owned
         # account interval so a newly published event with old business time is
-        # visible. The follow-up replay is still narrowed by since_event_id.
+        # visible. A missing ledger witness also needs the owned interval:
+        # its last zero-value activity may predate the normal overlap.
         after = established
     activity_kwargs = {"after": after, "through": upper}
-    if (prior is not None and prior.last_event_id is not None and financial_sse):
+    if (prior is not None and prior.last_event_id is not None and financial_sse
+            and not missing_last_flow):
         activity_kwargs["since_event_id"] = prior.last_event_id
     batch = await broker_adapter.account_cash_activities(**activity_kwargs)
     if not isinstance(batch, BrokerCashActivityBatch):

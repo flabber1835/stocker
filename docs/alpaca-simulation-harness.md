@@ -46,6 +46,8 @@ Required assertions include:
 - exact client-key retries create at most one broker order;
 - uncertain POSTs recover from positive account-bound broker evidence;
 - an exact-key 404 cannot cancel a live order present in a complete observation;
+- UNKNOWN recovery adopts an observed pending cancellation and preserves both
+  cancellation and fill outcomes, including after a contradictory exact-key 404;
 - partial fills conserve cash/shares and preserve pending quantity;
 - pending buys reduce reported buying power and DAY orders expire at close;
 - cancel acceptance is not cancellation; cancel/fill races reconcile;
@@ -88,6 +90,9 @@ non-object successful exact responses are corrupt evidence and preserve UNKNOWN.
 Before cash-cursor reuse, including a same-time no-op, reconcile the persisted
 account-specific ledger total to the durable cursor. A missing durable last-id is
 accepted only when a complete replay proves that identity is a zero-value event.
+That compatibility replay starts at account binding and omits the SSE resume
+cursor, so an old zero-value event remains discoverable after idle periods or
+cursor advancement. Successful normalization restores ordinary incremental replay.
 New cursor state retains a last activity id only for a materialized nonzero cash
 row. Missing nonzero rows and total mismatches refuse recovery. Arbitrary offsetting
 historical deletions still require independent backup/integrity evidence. A total
@@ -107,8 +112,9 @@ Vendor contract checked 2026-09-10:
 - https://docs.alpaca.markets/us/docs/working-with-orders
 
 The default Sentinel safety suite discovers the new tests. The dedicated workflow
-runs the harness and adjacent broker tests on both the PR head and synthetic merge,
-retains JUnit results and source hashes, and requires at least 370 cases with zero
+runs the harness, independent command-state model, and adjacent broker tests on
+both the PR head and synthetic merge, retains JUnit results and source hashes,
+and requires at least 390 cases with zero
 skips. PostgreSQL is mandatory for this gate. Install the locked Sentinel/test
 dependencies and PostgreSQL, then run from a clean checkout:
 
@@ -118,8 +124,9 @@ PYTHONPATH=shared ALPACA_HARNESS_REQUIRE_POSTGRES=1 python tools/alpaca_harness_
 ```
 
 Use a fresh output directory for each gate run. Fixed-seed sequences augment named
-scenarios; the seed and operation trace identify failures. Five mutation checks
+scenarios; the seed and operation trace identify failures. Six mutation checks
 remove representative guards: exact-response validity, UUID routing, observation
-consistency, external-capital classification and ledger/cursor consistency. Each
+consistency, external-capital classification, ledger/cursor consistency, and
+UNKNOWN recovery of an observed pending cancellation. Each
 must produce an actual assertion failure in an isolated source overlay with zero
 pytest errors. The PR records the exact tested revision and results.

@@ -30,6 +30,11 @@ MUTANTS = (
            '        return ("EXTERNAL" if False\n',
            "tests/sentinel/test_alpaca_simulation_cash.py::"
            "test_deposit_withdrawal_fees_and_dividends_have_distinct_attribution"),
+    Mutant("unknown-pending-cancel-recovery-disabled", "sentinel/execution/states.py",
+           '                          S.CANCEL_PENDING, S.CANCELLED, S.REJECTED}),\n',
+           '                          S.CANCELLED, S.REJECTED}),\n',
+           "tests/sentinel/test_execution_state_machine_model.py::"
+           "test_command_transition_guard_matches_every_independent_model_edge"),
 )
 
 POSTGRES_MUTANT = Mutant(

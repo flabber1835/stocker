@@ -17,6 +17,7 @@ on:
       - 'tests/sentinel/test_issue_183_alpaca_hardening.py'
       - 'tests/sentinel/test_issue_209_alpaca_asset_id.py'
       - 'tests/sentinel/test_guarded_execution_broker.py'
+      - 'tests/sentinel/test_execution_state_machine_model.py'
       - 'tools/alpaca_harness.py'
       - 'tools/alpaca_harness_mutations.py'
       - 'tools/sentinel_mutation_certify.py'

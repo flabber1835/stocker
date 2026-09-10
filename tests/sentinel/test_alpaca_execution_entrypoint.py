@@ -175,11 +175,13 @@ def test_public_execute_session_sells_before_buy_and_converges(conn, world):
     assert world.positions.get("AAA", D(0)) == D(5)
 
 
-def test_zero_value_legacy_cursor_without_cash_row_is_accepted(conn, world):
+@pytest.mark.parametrize("idle_seconds", [0, 3600], ids=["recent", "older-than-overlap"])
+def test_zero_value_legacy_cursor_without_cash_row_is_accepted(conn, world, idle_seconds):
+    activity_at = world.now - timedelta(seconds=idle_seconds)
     activity = broker_cash.BrokerCashActivity(
         activity_id="legacy-zero-split",
         activity_type="SPLIT",
-        activity_date=world.now.date(),
+        activity_date=activity_at.date(),
         net_amount=D(0),
         raw={"source": "legacy-rest"},
     )
@@ -188,11 +190,12 @@ def test_zero_value_legacy_cursor_without_cash_row_is_accepted(conn, world):
         financial_activity_sse = False
 
         async def account_cash_activities(self, *, after, through):
+            activities = (activity,) if after <= activity_at <= through else ()
             return broker_cash.BrokerCashActivityBatch(
-                activities=(activity,),
+                activities=activities,
                 processed_through=through,
                 completeness=Completeness.COMPLETE,
-                last_activity_id=activity.activity_id,
+                last_activity_id=activity.activity_id if activities else None,
             )
 
     cursor = {
