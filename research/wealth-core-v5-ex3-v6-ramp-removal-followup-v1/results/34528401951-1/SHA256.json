@@ -1,0 +1,13 @@
+{
+  "SUMMARY.json": "8b78e2ea1bec0da38410b9fbe559c8637abd9ae690c099c7b0d2a5fa1188cff5",
+  "SUMMARY.md": "92425b1f706917c9e5f77f0bcadca63631d9e8473f624f70b23934344d10cb8b",
+  "cases/baseline/CORE_RESULT.json": "18904272a703af9a42e5c96b3f813b2685ac386bd39097518e1f5094b451b93b",
+  "cases/baseline/FAULT_SELECTION.json": "805c3042658844a40cf2ea2d0750c1cdab62a8fea8e3c08d6cde5dcf096c27ea",
+  "cases/baseline/PEER_CHECKS.json": "34b3fa242ecb624daa2f09410ff0ba4a835dec36778f54ae11c1f42b93584a87",
+  "cases/baseline/PROVENANCE.json": "cd36d69f0c968fc0662b3513a08a7d5660442519124d67ff930c9ac392ec5018",
+  "cases/baseline/RESULT.json": "012d6b9aeaaf0b1c42f29dbd0a57e8fd4d3f7734eb1783bd1862b9171eec00e4",
+  "cases/baseline/SLOT.json": "f0fed8176e4f2c62675aa3fe6cba3503e9518c91dd72547aa7aa9c6b6568183d",
+  "cases/baseline/daily-tracks.csv.gz": "3c41e62578f242770044aef446db85c36aeac00cff1d83c90f95240a565b596a",
+  "cases/baseline/engine-daily.csv.gz": "9e742adb8bf177b1a9e429ef86142baf010c7c2e418ae0f66f5b9d5982a70b5e",
+  "cases/baseline/observations.csv.gz": "039083f52b54a826d396613e4340273159eab85ca169eb6a40b334a8539782b8"
+}

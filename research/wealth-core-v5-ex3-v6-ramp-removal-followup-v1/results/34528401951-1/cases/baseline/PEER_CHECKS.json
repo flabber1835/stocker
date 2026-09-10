@@ -1,0 +1,30 @@
+{
+  "cached_stats": {
+    "accepted_peer_edges": 27878,
+    "breadth_sessions": 5049,
+    "holding_observations": 91004,
+    "insufficient_residual_histories": 0,
+    "neighborhood_size_sum": 42142,
+    "pair_correlations": 226626
+  },
+  "calls": 5176,
+  "mismatches": 0,
+  "original_stats": {
+    "accepted_peer_edges": 182829,
+    "breadth_sessions": 5049,
+    "holding_observations": 91004,
+    "insufficient_residual_histories": 0,
+    "neighborhood_size_sum": 273833,
+    "pair_correlations": 1574966
+  },
+  "residual_cache_hits": 164661,
+  "residual_lookups": 91004,
+  "zero_red_integer_stats": {
+    "accepted_peer_edges": 26587,
+    "breadth_sessions": 5049,
+    "holding_observations": 91004,
+    "insufficient_residual_histories": 0,
+    "neighborhood_size_sum": 40163,
+    "pair_correlations": 215868
+  }
+}

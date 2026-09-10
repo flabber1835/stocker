@@ -1,0 +1,30 @@
+{
+  "dropout_seeds": [
+    29,
+    47,
+    83
+  ],
+  "prior_excluded": [
+    "1040633074096912075",
+    "277347208162984956",
+    "301606049357818446",
+    "311453645065866101",
+    "425931792436652190",
+    "727329233939509358"
+  ],
+  "rule": "Top three measured holding-session counts excluding prior six; permanent-ID lexical ties",
+  "selected": [
+    {
+      "holding_sessions": 2653,
+      "security_id": "146666351462403983"
+    },
+    {
+      "holding_sessions": 2640,
+      "security_id": "952846900641587896"
+    },
+    {
+      "holding_sessions": 1976,
+      "security_id": "827375650881331035"
+    }
+  ]
+}
