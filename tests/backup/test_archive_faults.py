@@ -48,6 +48,26 @@ def test_io_fault_refuses_then_retry_converges(tmp_path, command, phase, mode):
     lab.assert_exact()
 
 
+def test_same_size_source_change_after_copy_refuses_publication(tmp_path):
+    lab = Archive(tmp_path)
+    original = lab.source.read_bytes()
+    original_size = len(original)
+    lab.fault("cp", "any", "mutate-source")
+
+    result = lab.run()
+
+    assert result.returncode != 0
+    assert lab.source.stat().st_size == original_size
+    assert not lab.target.exists()
+    assert not lab.checksum.exists()
+    assert not list(lab.namespace.glob(".*.part.*"))
+
+    lab.source.write_bytes(original)
+    lab.clear()
+    assert lab.run().returncode == 0
+    lab.assert_exact()
+
+
 @pytest.mark.parametrize("command,phase", [
     ("cp", "any"), ("sync", "temporary"), ("mv", "any"),
     ("sync", "final"), ("sync", "directory"),
