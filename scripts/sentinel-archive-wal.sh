@@ -1,7 +1,7 @@
 #!/bin/sh
-# Publish one completed PostgreSQL WAL object without exposing a partial final
-# pathname. Each PostgreSQL cluster gets an immutable system-id namespace so a
-# recreated cluster can never collide with an older cluster's WAL filenames.
+# Publish one completed PostgreSQL archive object without exposing a partial
+# final pathname. Each PostgreSQL cluster gets an immutable system-id namespace
+# so a recreated cluster can never collide with an older cluster's WAL/history.
 set -eu
 
 refuse() {
@@ -28,15 +28,58 @@ esac
 [ "$(cat "$marker")" = "$marker_content" ] || \
   refuse "independent durable-target marker is invalid: $marker"
 
-# PostgreSQL writes the 64-bit database-system identifier into the long WAL
-# page header at byte offset 24 of every segment's first page. Read the identity
-# from the immutable source itself; archive_command therefore cannot be pointed
-# at the wrong cluster namespace by configuration or environment drift.
-system_id="$(od -An -t u8 -j 24 -N 8 -- "$source_wal" 2>/dev/null | tr -d '[:space:]')" || \
-  refuse "could not read PostgreSQL system identifier from $wal_name"
-case "$system_id" in
-  ""|*[!0-9]*) refuse "invalid PostgreSQL system identifier in $wal_name" ;;
+is_segment=0
+is_history=0
+is_backup_history=0
+if printf '%s\n' "$wal_name" | grep -Eq '^[0-9A-F]{24}$'; then
+  is_segment=1
+elif printf '%s\n' "$wal_name" | grep -Eq '^[0-9A-F]{8}\.history$'; then
+  is_history=1
+elif printf '%s\n' "$wal_name" | grep -Eq '^[0-9A-F]{24}\.[0-9A-F]{8}\.backup$'; then
+  is_backup_history=1
+else
+  refuse "unsupported PostgreSQL archive object name: $wal_name"
+fi
+
+# WAL segments carry the 64-bit database-system identifier in their long page
+# header. Timeline/backup-history files are text metadata and do not. For those
+# objects, derive identity from the running cluster's pg_control. Cross-check a
+# normal segment against pg_control whenever that control file is reachable.
+control_dir="${PGDATA:-}"
+if [ -z "$control_dir" ]; then
+  case "$source_wal" in
+    */pg_wal/*) control_dir="${source_wal%/pg_wal/*}" ;;
+    pg_wal/*) control_dir="." ;;
+    *) control_dir="." ;;
+  esac
+fi
+control_system_id=""
+if [ -d "$control_dir" ] && command -v pg_controldata >/dev/null 2>&1; then
+  control_system_id="$(pg_controldata "$control_dir" 2>/dev/null \
+    | awk -F: '/Database system identifier/ {gsub(/[[:space:]]/,"",$2); print $2; exit}')" || true
+fi
+case "$control_system_id" in
+  "") ;;
+  *[!0-9]*) refuse "invalid PostgreSQL system identifier from pg_control" ;;
 esac
+
+source_system_id=""
+if [ "$is_segment" -eq 1 ]; then
+  source_system_id="$(od -An -t u8 -j 24 -N 8 -- "$source_wal" 2>/dev/null | tr -d '[:space:]')" || \
+    refuse "could not read PostgreSQL system identifier from $wal_name"
+  case "$source_system_id" in
+    ""|*[!0-9]*) refuse "invalid PostgreSQL system identifier in $wal_name" ;;
+  esac
+  if [ -n "$control_system_id" ] && [ "$control_system_id" != "$source_system_id" ]; then
+    refuse "WAL source system identifier differs from running PostgreSQL cluster"
+  fi
+  system_id="$source_system_id"
+else
+  [ -n "$control_system_id" ] || \
+    refuse "could not establish PostgreSQL system identifier for history object $wal_name"
+  system_id="$control_system_id"
+fi
+
 namespace_name="cluster-$system_id"
 archive_dir="$archive_root/$namespace_name"
 if [ -e "$archive_dir" ] || [ -L "$archive_dir" ]; then
@@ -61,6 +104,7 @@ trap 'exit 1' HUP INT TERM
 
 source_size_before="$(stat -c %s -- "$source_wal")" || \
   refuse "could not stat source: $source_wal"
+[ "$source_size_before" -gt 0 ] || refuse "archive source is empty: $wal_name"
 source_sha256="$(sha256sum -- "$source_wal" | awk '{print $1}')" || \
   refuse "could not hash source WAL $wal_name"
 case "$source_sha256" in
