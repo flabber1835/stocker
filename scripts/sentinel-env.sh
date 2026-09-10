@@ -33,6 +33,7 @@ for key, value in os.environ.items():
     elif observed:
         print("REFUSED: ambient Compose control is not allowed: " + key, file=sys.stderr)
         raise SystemExit(2)
+raise SystemExit(0)
 PY
 }
 
