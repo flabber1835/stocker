@@ -78,6 +78,9 @@ base with streamed WAL, archives post-base transactions through the production
 archive script, detects post-creation relation corruption, refuses a missing
 middle segment and a truncated marker segment, restores after repair, and compares
 every probe row and decimal amount to the original database.
+It first runs the retained NAS permission regression: the host account cannot
+write either private backup directory, while the correct PostgreSQL/root
+container authorities can initialize and verify their markers.
 
 The `Backup reliability` workflow runs both commands and retains JUnit and physical
 logs. The existing `Sentinel safety` workflow retains the wider backup-root,

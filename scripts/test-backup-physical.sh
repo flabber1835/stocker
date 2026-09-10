@@ -3,6 +3,8 @@
 set -euo pipefail
 cd "$(dirname "$0")/.."
 POSTGRES_IMAGE="postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b"
+# Replay the actual NAS ownership incident under Docker before physical replay.
+bash scripts/test-backup-marker-container-authority.sh
 docker run --rm -i --network none --user postgres \
   -v "$PWD/scripts/sentinel-archive-wal.sh:/lab/archive.sh:ro" \
   --entrypoint bash "$POSTGRES_IMAGE" -seu <<'BACKUP_PHYSICAL_INNER'
