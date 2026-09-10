@@ -49,7 +49,8 @@ def sql():
         last_fail = Decimal(os.environ.get("BACKUP_LAB_LAST_FAIL", "0"))
         rounding = ROUND_FLOOR if "floor(extract" in query else ROUND_HALF_UP
         epoch = lambda value: str(value.to_integral_value(rounding=rounding))
-        row = f"on|{WAL}|{epoch(last_ok)}|{epoch(last_fail)}|0|{SYSTEM_ID}"
+        frontier = os.environ.get("BACKUP_LAB_FRONTIER", WAL)
+        row = f"on|{frontier}|{epoch(last_ok)}|{epoch(last_fail)}|0|{SYSTEM_ID}"
         if "clock_timestamp()" in query:
             row += f"|{'t' if max(last_ok, last_fail) > now else 'f'}|{epoch(now)}"
             row += f"|{'t' if last_fail > last_ok else 'f'}"
@@ -63,6 +64,10 @@ def sql():
         print(f"{marker}|0/03000040|{WAL}")
     elif "pg_switch_wal" in query:
         print("0/04000000")
+    elif "j->'WAL-Ranges'" in query:
+        path = re.search(r"pg_read_file\('([^']+)'\)", query).group(1)
+        record = json.loads(Path(path).read_text())["WAL-Ranges"][-1]
+        print(f"{record['Timeline']}|{record['End-LSN']}")
     else:
         raise AssertionError("unexpected simulated SQL: " + query)
     return 0
@@ -156,9 +161,11 @@ def docker():
             stage = "status-manifest-stat"
         elif command[:3] == ["bash", "-s", "--"] and len(command) == 8:
             stage = "wal-chain-proof"
-            return event(stage, lambda: _python_chain_probe(
-                base=command[3], system_id=command[5], last_wal=command[6],
-                segment_size=command[7]))
+            # Execute the actual stdin validator used by production status.
+            # Map only the container mount; psql remains the SQL boundary double.
+            script = sys.stdin.read().replace("/sentinel-backup", str(MEDIA))
+            return event(stage, lambda: subprocess.run(
+                command, input=script, text=True).returncode)
         elif command[:3] == ["sh", "-s", "--"]:
             stage = "metadata-access"
         return event(stage, lambda: shell(command))

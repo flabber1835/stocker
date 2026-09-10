@@ -82,9 +82,21 @@ class Database:
         self.system_id = SYSTEM_ID
         self.frontier = wal_name(5)
         self.statements = []
+        self.locks = {}
+        self.commits = 0
+        self.rollbacks = 0
 
     def cursor(self):
         return Cursor(self)
+
+    def commit(self):
+        self.commits += 1
+
+    def rollback(self):
+        self.rollbacks += 1
+
+    def close(self):
+        pass
 
 
 class Cursor:
@@ -103,7 +115,16 @@ class Cursor:
         query = " ".join(sql.split())
         db = self.db
         self.rows = []
-        if query == "SELECT system_identifier::text FROM pg_control_system()":
+        if query == "SELECT pg_try_advisory_lock(%s)":
+            db.locks[params[0]] = db.locks.get(params[0], 0) + 1
+            self.rows = [(True,)]
+        elif query == "SELECT pg_advisory_unlock(%s)":
+            assert db.locks[params[0]] > 0
+            db.locks[params[0]] -= 1
+            if not db.locks[params[0]]:
+                del db.locks[params[0]]
+            self.rows = [(True,)]
+        elif query == "SELECT system_identifier::text FROM pg_control_system()":
             self.rows = [(str(db.system_id),)]
         elif query.startswith("SELECT pg_read_file(%s,0,1048576,"):
             path = db.media.path(params[0])
@@ -120,7 +141,8 @@ class Cursor:
             record = data.get("WAL-Ranges", [{}])[-1]
             self.rows = [(record.get("Timeline"), record.get("End-LSN"))]
         elif query.startswith("SELECT name,(pg_stat_file"):
-            paths = db.media.path(params[-1]).iterdir()
+            assert "FROM unnest(%s::text[])" in query, query
+            paths = [db.media.path(params[0]) / name for name in params[-1]]
             rows = []
             for p in paths:
                 if len(p.name) != 24 or any(c not in "0123456789ABCDEF" for c in p.name):
@@ -128,9 +150,9 @@ class Cursor:
                 sidecar = p.with_name(p.name + ".sha256")
                 rows.append((
                     p.name,
-                    p.stat().st_size,
+                    p.stat().st_size if p.exists() else None,
                     sidecar.read_text() if sidecar.exists() else None,
-                    hashlib.sha256(p.read_bytes()).hexdigest(),
+                    hashlib.sha256(p.read_bytes()).hexdigest() if p.exists() else None,
                 ))
             self.rows = rows
         elif query.startswith("SELECT current_setting('archive_mode')"):

@@ -96,6 +96,23 @@ authority for supported manual CLI operation, while unattended services retain t
 same required authority. Read-only broker recovery stays available during a backup
 outage.
 
+The common corpus writer lock and execution/plan writer lock independently
+recheck the complete restore horizon after acquiring exclusivity and before
+yielding mutation authority. Direct internal imports therefore retain the gate.
+Each broker SUBMIT or CANCEL also rechecks the horizon on its fresh authority
+connection. A loss after plan preparation fences the next transport operation.
+Only broker-observation recovery and the scheduler lease needed to reach that
+recovery may request `writer_lock(..., recovery_only=True)`. That scope retains
+serialization for observed history and coordination; it grants no plan or broker
+mutation authority, and nested ordinary writer locks still recheck the horizon.
+Emergency kill, disable and revocation keep their independent existing locks.
+Temporary media loss retains the retryable backup/connection-error identity;
+contradictory integrity evidence retains permanent backup refusal.
+
+Runtime hashing reads only the required manifest-to-frontier WAL names. Older
+retention and later concurrently archived segments are outside this proof's
+scope. Every required segment is hashed again on each mutation check.
+
 Every newly archived WAL now carries an atomically published `.<none>`-free
 companion named `<24-hex-WAL>.sha256`. The sidecar contains one lowercase SHA-256
 of the immutable source WAL. Archive success is withheld until the WAL, sidecar,

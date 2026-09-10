@@ -823,7 +823,7 @@ async def resolve_outstanding(*, broker: ExecutionBroker, conn,
     command state, and a second process resolving the same UNKNOWN concurrently
     would race the resolution rather than the order.
     """
-    with journal.writer_lock(conn):
+    with journal.writer_lock(conn, recovery_only=True):
         observation = await broker.observe()
         resolved = []
         for command in journal.load_commands(

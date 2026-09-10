@@ -23,6 +23,10 @@ def main():
             assert expected == "unavailable", "healthy private media was fenced"
             print("BACKUP_RUNTIME_PASS unavailable")
             return
+        except authority.BackupRuntimeRefused:
+            assert expected == "refused", "healthy private media failed integrity"
+            print("BACKUP_RUNTIME_PASS integrity_refused")
+            return
         assert expected == "ready", "media fault falsely authorized mutation"
         assert result["enabled"] and result["wal_segments"] > 0
         assert status.writes_permitted

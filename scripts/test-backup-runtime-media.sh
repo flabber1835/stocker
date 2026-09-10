@@ -77,6 +77,45 @@ probe() { "$SENTINEL_HOST_PYTHON" tests/backup/physical_runtime_probe.py "$url" 
 probe ready
 (cd "$repo"; bash scripts/sentinel-backup-status.sh --backup "$backup")
 
+# Extend the real archive beyond the recovery marker: marker < middle < latest.
+# Both runtime SQL and operator status must reject damage to that middle WAL.
+system_id="$(sql 'SELECT system_identifier::text FROM pg_control_system()')"
+sql "SELECT pg_create_restore_point('backup-horizon-middle')" >/dev/null
+middle="$(sql 'SELECT pg_walfile_name(pg_switch_wal())')"
+sql "SELECT pg_create_restore_point('backup-horizon-latest')" >/dev/null
+latest="$(sql 'SELECT pg_walfile_name(pg_switch_wal())')"
+[[ "$middle" < "$latest" ]] || fail "probe WAL frontier did not advance"
+for attempt in $(seq 1 60); do
+  archived="$(sql "SELECT coalesce(last_archived_wal,'') FROM pg_stat_archiver")"
+  if [[ "$archived" == "$latest" || "$archived" > "$latest" ]]; then break; fi
+  sleep 1
+done
+[[ "$archived" == "$latest" || "$archived" > "$latest" ]] || fail "probe WAL did not archive"
+marker_wal="$("${compose[@]}" exec -T -u postgres sentinel-postgres \
+  sed -n 's/^wal=//p' "/sentinel-backup/base/$name/sentinel-recovery-marker")"
+[[ "$marker_wal" < "$middle" ]] || fail "middle WAL does not follow the recovery marker"
+probe ready
+wal_path="/sentinel-backup/wal/cluster-$system_id/$middle"
+"${compose[@]}" exec -T sentinel-postgres mv "$wal_path" "$wal_path.retained"
+probe unavailable
+if (cd "$repo"; bash scripts/sentinel-backup-status.sh --backup "$backup"); then
+  fail "operator status accepted a missing middle WAL"
+fi
+"${compose[@]}" exec -T sentinel-postgres cp -p "$wal_path.retained" "$wal_path"
+"${compose[@]}" exec -T sentinel-postgres sh -ceu '
+  before="$(stat -c %s "$1")"
+  printf injected-wal-corruption | dd of="$1" bs=1 seek=4096 conv=notrunc status=none
+  test "$(stat -c %s "$1")" = "$before"
+' sh "$wal_path"
+probe refused
+if (cd "$repo"; bash scripts/sentinel-backup-status.sh --backup "$backup"); then
+  fail "operator status accepted same-size middle WAL corruption"
+fi
+"${compose[@]}" exec -T sentinel-postgres mv "$wal_path.retained" "$wal_path"
+probe ready
+(cd "$repo"; bash scripts/sentinel-backup-status.sh --backup "$backup")
+echo 'BACKUP_RUNTIME_PASS middle_gap_same_size_corruption_and_repair'
+
 # Reject aliasing and ownership drift before applying any metadata grant.
 "${compose[@]}" exec -T sentinel-postgres sh -ceu '
   work="$(mktemp -d)"

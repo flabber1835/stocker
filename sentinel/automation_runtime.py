@@ -120,6 +120,12 @@ def require_observation_integrity(conn) -> None:
 def classify_dependency_failure(
         exc: BaseException) -> AutomationRefused | None:
     """Map reviewed dependency failures; leave programming defects unknown."""
+    from sentinel.backup_guard import BackupConfigurationRefused, BackupUnavailable
+
+    if isinstance(exc, BackupConfigurationRefused):
+        return PermanentOperationalRefusal(f"backup integrity refused: {exc}")
+    if isinstance(exc, BackupUnavailable):
+        return TransientInfrastructureFailure(f"backup temporarily unavailable: {exc}")
     if isinstance(exc, AutomationRefused):
         return exc
     if isinstance(exc, REFRESH_TRANSIENT_FAILURES):

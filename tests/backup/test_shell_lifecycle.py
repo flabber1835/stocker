@@ -193,6 +193,42 @@ def test_status_resamples_clock_after_concurrent_manifest_publication(tmp_path):
     assert "wal_chain_ready:true" in result.stdout
 
 
+@pytest.mark.parametrize("fault", ["missing-middle", "corrupt-middle", "missing-checksum"])
+def test_status_proves_marker_through_later_frontier_and_repairs(tmp_path, fault):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    final = lab.base / "base-20260910T120000Z"
+    os.utime(final / "backup_manifest", (1789041600, 1789041600))
+    for index in (4, 5):
+        path = lab.namespace / wal_name(index)
+        with path.open("wb") as stream:
+            stream.truncate(16 * 1024 * 1024)
+        _write_checksum(path)
+    lab.env["BACKUP_LAB_FRONTIER"] = wal_name(5)
+    middle = lab.namespace / wal_name(4)
+    assert wal_name(3) < middle.name < wal_name(5)
+    healthy = lab.run("sentinel-backup-status.sh", "--backup", str(final))
+    assert healthy.returncode == 0, healthy.stderr
+    if fault == "missing-middle":
+        middle.unlink()
+    elif fault == "missing-checksum":
+        middle.with_name(middle.name + ".sha256").unlink()
+    else:
+        with middle.open("r+b") as stream:
+            stream.seek(4096)
+            stream.write(b"SAME-SIZE-BIT-ROT")
+    result = lab.run("sentinel-backup-status.sh", "--backup", str(final))
+    assert result.returncode != 0
+    assert "backup_ready:true" not in result.stdout
+    assert middle.name in result.stderr
+    with middle.open("wb") as stream:
+        stream.truncate(16 * 1024 * 1024)
+    _write_checksum(middle)
+    repaired = lab.run("sentinel-backup-status.sh", "--backup", str(final))
+    assert repaired.returncode == 0, repaired.stderr
+    assert "backup_ready:true" in repaired.stdout
+
+
 @pytest.mark.parametrize("last_ok,last_fail,ready", [
     ("1789041600.1", "1789041600.2", False),
     ("1789041600.3", "1789041600.2", True),

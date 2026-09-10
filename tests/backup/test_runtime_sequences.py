@@ -149,7 +149,7 @@ def test_forward_then_backward_clock_jump_cannot_create_fresh_evidence(world):
 def test_namespace_disappears_between_marker_check_and_scan_then_recovers(world):
     moved = world.media.namespace.with_name("temporarily-disconnected")
     world.media.namespace.rename(moved)
-    with pytest.raises(authority.BackupRuntimeUnavailable, match="media"):
+    with pytest.raises(authority.BackupRuntimeUnavailable, match="missing/truncated"):
         ready(world)
     moved.rename(world.media.namespace)
     ready(world)

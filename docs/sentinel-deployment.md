@@ -1774,6 +1774,21 @@ owned by the second target: keep at least seven daily and four weekly verified
 base backups plus all WAL needed from the oldest retained base. Never prune WAL
 until a newer base has passed both `pg_verifybackup` and the restore drill.
 
+The supported backup overlay sets `SENTINEL_RUNTIME_BACKUP_AUTHORITY=REQUIRED_V1`
+for the CLI; unattended services carry the same requirement. New feed, plan and
+execution mutations prove the complete selected base-to-archived-frontier WAL
+chain at their common writer locks. Each broker submit/cancel repeats that proof
+on a fresh authority connection. Broker observations, recovery-journal updates,
+lease coordination, and emergency fencing remain available during media loss.
+
+The archive producer durably publishes a `<WAL>.sha256` sidecar for every newly
+archived WAL object. Runtime and operator status rehash every required segment;
+missing evidence or a size-preserving bit flip fences mutation. After upgrading
+from an archive producer that predates sidecars, create a fresh verified base
+with `scripts/sentinel-base-backup.sh`, then run status and the restore drill
+above. Retained WAL is never retroactively granted checksum authority. A fresh
+base establishes a recovery horizon archived by the checksum-aware producer.
+
 ### 10h. The panel reports durable facts, never deployment-stage placeholders
 
 The read-only panel is an operational projection of the canonical PostgreSQL

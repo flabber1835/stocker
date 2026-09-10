@@ -21,6 +21,7 @@ from __future__ import annotations
 import os
 import re
 
+from sentinel import backup_guard
 
 AUTHORITY_ENV = "SENTINEL_RUNTIME_BACKUP_AUTHORITY"
 AUTHORITY_VALUE = "REQUIRED_V1"
@@ -35,11 +36,11 @@ _LSN = re.compile(r"^([0-9A-F]+)/([0-9A-F]+)$")
 _SHA256 = re.compile(r"^sha256=([0-9a-f]{64})\s*\Z")
 
 
-class BackupRuntimeUnavailable(RuntimeError):
+class BackupRuntimeUnavailable(backup_guard.BackupUnavailable, ConnectionError):
     """The durable target/restore chain may heal without changing authority."""
 
 
-class BackupRuntimeRefused(RuntimeError):
+class BackupRuntimeRefused(backup_guard.BackupConfigurationRefused):
     """The retained backup evidence is contradictory or malformed."""
 
 
@@ -269,9 +270,8 @@ def _require(conn, *, operation: str,
             "SELECT name,(pg_stat_file(%s || '/' || name,true)).size,"
             " pg_read_file(%s || '/' || name || '.sha256',0,80,true),"
             " encode(sha256(pg_read_binary_file(%s || '/' || name,0,%s,true)),'hex')"
-            " FROM pg_ls_dir(%s) AS entries(name)"
-            " WHERE name ~ '^[0-9A-F]{24}$'",
-            (wal_root, wal_root, wal_root, segment_size, wal_root))
+            " FROM unnest(%s::text[]) AS entries(name)",
+            (wal_root, wal_root, wal_root, segment_size, list(expected)))
         actual = {
             str(name): (
                 None if size is None else int(size),

@@ -314,7 +314,9 @@ def acquire_lease(
     holder_id = _require_text(holder_id, "holder_id")
     if lease_seconds < 1:
         raise ValueError("lease_seconds must be positive")
-    with writer_lock(conn):
+    # Leadership is also required to observe/reconcile previously sent orders
+    # during backup loss. New work is fenced at its own mutation boundaries.
+    with writer_lock(conn, recovery_only=True):
         control = load_control(conn, for_update=True)
         if not control.enabled:
             raise AutomationRefused("automation is disabled")
