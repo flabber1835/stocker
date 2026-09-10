@@ -68,6 +68,17 @@ case "$source_sha256" in
 esac
 [ "${#source_sha256}" -eq 64 ] || refuse "source WAL SHA-256 length is invalid: $wal_name"
 
+hash_matches_source() {
+  candidate="$1"
+  [ ! -L "$candidate" ] && [ -f "$candidate" ] && [ -r "$candidate" ] || return 1
+  observed_sha256="$(sha256sum -- "$candidate" | awk '{print $1}')" || return 1
+  [ "$observed_sha256" = "$source_sha256" ]
+}
+
+source_hash_unchanged() {
+  hash_matches_source "$source_wal"
+}
+
 final_matches_source() {
   candidate="$1"
   [ ! -L "$candidate" ] && [ -f "$candidate" ] || return 1
@@ -75,7 +86,7 @@ final_matches_source() {
   source_size_now="$(stat -c %s -- "$source_wal")" || return 1
   [ "$source_size_before" = "$source_size_now" ] || return 1
   [ "$candidate_size" = "$source_size_now" ] || return 1
-  cmp -s -- "$source_wal" "$candidate"
+  cmp -s -- "$source_wal" "$candidate" && hash_matches_source "$candidate"
 }
 
 checksum_matches_source() {
@@ -85,6 +96,7 @@ checksum_matches_source() {
 }
 
 publish_checksum() {
+  source_hash_unchanged || refuse "source WAL changed after initial hash: $wal_name"
   if [ -e "$checksum_target" ] || [ -L "$checksum_target" ]; then
     checksum_matches_source "$checksum_target" || \
       refuse "existing WAL checksum differs from source: $checksum_target"
@@ -121,6 +133,7 @@ publish_checksum() {
   sync "$archive_dir" || refuse "could not fsync archive directory: $archive_dir"
   checksum_matches_source "$checksum_target" || \
     refuse "published WAL checksum changed during durable validation: $checksum_target"
+  source_hash_unchanged || refuse "source WAL changed while publishing checksum: $wal_name"
 }
 
 # PostgreSQL retries an archive command after any nonzero result. An existing
@@ -132,6 +145,8 @@ if [ -e "$target" ] || [ -L "$target" ]; then
   publish_checksum
   final_matches_source "$target" || \
     refuse "existing archive changed during durable validation: $target"
+  checksum_matches_source "$checksum_target" || \
+    refuse "existing WAL checksum changed during durable validation: $checksum_target"
   exit 0
 fi
 
@@ -147,10 +162,13 @@ source_size_after="$(stat -c %s -- "$source_wal")" || \
   refuse "could not restat source"
 [ "$source_size_before" = "$source_size_after" ] || \
   refuse "source size changed during copy"
+source_hash_unchanged || refuse "source WAL contents changed during copy: $wal_name"
 [ "$temporary_size" = "$source_size_after" ] || \
   refuse "temporary archive size differs from source"
 cmp -s -- "$source_wal" "$temporary" || \
   refuse "temporary archive contents differ from source"
+hash_matches_source "$temporary" || \
+  refuse "temporary archive hash differs from initial source hash"
 
 sync "$temporary" || refuse "could not fsync temporary archive"
 final_matches_source "$temporary" || \
@@ -178,4 +196,5 @@ final_matches_source "$target" || \
   refuse "published archive changed during durable validation: $target"
 checksum_matches_source "$checksum_target" || \
   refuse "published WAL checksum changed during final validation: $checksum_target"
+source_hash_unchanged || refuse "source WAL changed before archive success: $wal_name"
 exit 0
