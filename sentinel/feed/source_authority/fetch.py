@@ -57,6 +57,60 @@ def _merge_seed_coverage(current: Optional[dict], chunk: dict) -> dict:
     }
 
 
+def _require_complete_expanded_reference_tail(rows, params):
+    """Fail a daily retry if its widened SPY/BIL replacement is incomplete.
+
+    Ordinary daily acquisition asks for exactly the readiness-required tail.
+    ``reference_window_start`` widens that request only when a failed unpublished
+    daily run still owns older SFP keys.  Once widened, every requested XNYS
+    session for both reference tickers is replacement authority: accepting a
+    partial response can leave an old failed owner behind after the new daily run
+    has already reached durable SUCCESS, which wedges startup publication before
+    another source observation can repair it.
+    """
+    request = dict(params or {})
+    requested_tickers = {
+        value.strip().upper()
+        for value in str(request.get("ticker") or "").split(",")
+        if value.strip()
+    }
+    if requested_tickers != {"SPY", "BIL"}:
+        return rows
+    start = str(request.get("date.gte") or "")
+    end = str(request.get("date.lte") or "")
+    if not start or not end:
+        return rows
+
+    from sentinel.feed import calendar, readiness
+
+    expected = tuple(calendar.sessions_in_range(start, end))
+    if len(expected) <= readiness.REQUIRED_SPY_SESSIONS:
+        return rows
+
+    expected_set = set(expected)
+    observed = {"SPY": set(), "BIL": set()}
+    unexpected = []
+    for row in rows:
+        ticker = str(row.get("ticker") or "").strip().upper()
+        session = str(row.get("date") or "")
+        if ticker not in observed or session not in expected_set:
+            unexpected.append((ticker, session))
+            continue
+        observed[ticker].add(session)
+
+    missing = {
+        ticker: sorted(expected_set - observed[ticker])
+        for ticker in ("SPY", "BIL")
+        if expected_set - observed[ticker]
+    }
+    if missing or unexpected:
+        raise SourceAuthorityRefused(
+            "expanded daily SFP recovery is incomplete: "
+            f"window={start}..{end}, missing={missing}, "
+            f"unexpected={unexpected[:8]}")
+    return rows
+
+
 class StableSharadarFetch(coherence.StableSharadarFetch):
     """Coherence guard with canonical-key and exact seed-membership authority."""
 
@@ -70,6 +124,7 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
             sep_update_envelope=sep_update_envelope)
         self._seed_projection: Optional[SeedListingProjection] = None
         self.seed_coverage_evidence: Optional[dict] = None
+        self._seed_mode = bool(seed_mode)
         super().__init__(
             self._canonical_fetch, protect_sep=protect_sep,
             corroborate_reference=corroborate_reference,
@@ -85,6 +140,9 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
             self._seed_projection = SeedListingProjection(
                 material, source_digest=self._tickers_first.digest)
             return material
+        if table == sharadar.SFP and not self._seed_mode:
+            material = list(rows)
+            return _require_complete_expanded_reference_tail(material, params)
         return rows
 
     def _validated_seed_replay(self, rows, params):
