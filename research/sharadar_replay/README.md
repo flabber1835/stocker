@@ -221,8 +221,39 @@ and must reproduce the valid-current-split readiness failure.
 
 ## Current adversarial inventory
 
-The suite contains 118 independently checked PostgreSQL scenarios and 229 tests
-in total, including four end-to-end recovery falsifiers.
+### Review repair contracts
+
+The fictional economic schedule specifies raw closes, raw opens, raw volume and
+raw dividends. A split changes the subsequent per-share price level and the
+provider's historical adjustment basis. Historical corrections remain visible
+in both raw and adjusted prices. Provider dividends before a later split are
+encoded on the adjusted share basis; the expected ledger retains the declared
+raw cash amount. Combined correction/split/dividend cases must agree on all
+fields. The expected state is calculated from the economic schedule independently
+of production normalizers.
+
+Every world includes changing raw opens distinct from raw closes, changing raw
+volumes, and distinct SFP open/close/adjusted/raw prices. Production field
+substitution falsifiers must fail against these worlds.
+
+Within an attempt, a declared provider revision activates at an exact traversal
+number and page offset for a matching table/channel/query. It persists for the
+remainder of that attempt and applies to subsequent observations of the table.
+Each request records its traversal, page offset and activated revisions. Export
+downloads remain frozen to the bytes captured when their URL was issued.
+Scheduled revisions cover pagination, repeated complete observations and
+cross-table corroboration. The next daily step supplies an explicit stable view
+and requires recovery. A scheduled revision that never activates fails the test.
+
+`scenario_catalogue.json` is the committed CI inventory of scenario names, step
+names and required end-to-end falsifier IDs. A unit test binds it to the scenario
+factory. The evidence gate loads this code-owned inventory separately from shard
+manifests and requires exact coverage and step ordering. Empty replay evidence,
+coordinated omissions across all shards and missing recovery steps are failures.
+Catalogue updates accompany intentional scenario additions.
+
+The suite contains 139 independently checked PostgreSQL scenarios and 271 tests
+in total, including eight end-to-end recovery and field/stability falsifiers.
 
 | Area | Variations |
 |---|---|
@@ -234,6 +265,8 @@ in total, including four end-to-end recovery falsifiers.
 | Identity | Missing keys, impossible/reversed listing dates, invalid delisted state and overlapping ticker ownership |
 | Actions | Invalid dividend numbers; missing, conflicting, zero, negative and unsubstantiated split records |
 | Split economics | Late restatements; 1-for-4, 1-for-2, 2-for-1, 4-for-1 and 10-for-1 splits at overlap and current-session boundaries |
+| Combined events | 15 forward/reverse split cases with simultaneous old-price corrections, late raw cash dividends and subsequent revisions |
+| Publication changes | Mid-pagination SEP revisions, unequal SEP/TICKERS observations, and ACTIONS/SFP/TICKERS changes during cross-table corroboration |
 | Recovery | Consecutive outages, first-correct-attempt recovery, repeated same-day input, persistent incomplete identity and publication interruption |
 | Test sensitivity | Restored production defects, corrupted expected-state comparisons, incomplete/forged CI evidence and inactive fault definitions |
 

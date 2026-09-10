@@ -9,7 +9,20 @@ import re
 import xml.etree.ElementTree as ET
 
 
-def verify(root: Path, *, commit: str, shards: int = 4) -> dict:
+CATALOGUE = Path(__file__).with_name('scenario_catalogue.json')
+
+
+def _require_catalogue_coverage(scenarios, collected, catalogue):
+    assert catalogue['schema'] == 'sharadar-replay-catalogue/1', 'invalid catalogue schema'
+    declared = catalogue['scenarios']
+    assert declared, 'empty scenario catalogue'
+    assert Counter(scenarios) == Counter(declared.keys()), 'declared scenario coverage differs'
+    assert set(catalogue['required_tests']).issubset(collected), 'required falsifier coverage differs'
+
+
+def verify(root: Path, *, commit: str, shards: int = 4,
+           catalogue_path: Path = CATALOGUE) -> dict:
+    catalogue = json.loads(catalogue_path.read_text())
     manifests = sorted(root.glob('*/collection.json'))
     assert len(manifests) == shards, 'missing or extra shard manifests'
     collected = None
@@ -39,11 +52,13 @@ def verify(root: Path, *, commit: str, shards: int = 4) -> dict:
         for report in reports:
             assert report['commit'] == commit, 'report code commit differs'
             assert report['verdict'] == 'PASS' and report['steps'], 'scenario failed or has no steps'
+            assert [s['step'] for s in report['steps']] == catalogue['scenarios'].get(report['scenario']), 'declared step coverage differs'
             assert all(s['corpus_digest'] == s['expected_digest'] for s in report['steps']), 'corpus digest differs'
         scenarios.extend(expected_scenarios)
     assert sorted(indices) == list(range(shards)), 'duplicate or missing shard indices'
     assert collected and len(set(collected)) == len(collected), 'empty or duplicate test collection'
     assert Counter(selected_all) == Counter(collected), 'test partition is incomplete'
+    _require_catalogue_coverage(scenarios, collected, catalogue)
     return {'verdict': 'PASS', 'commit': commit, 'tests': len(collected),
             'scenarios': len(scenarios), 'shards': shards}
 

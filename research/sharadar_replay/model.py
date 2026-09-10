@@ -48,6 +48,25 @@ class Fault(Contract):
         return self
 
 
+class Revision(Contract):
+    name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    table: Literal["SEP", "SFP", "TICKERS", "ACTIONS"]
+    channel: Literal["pages", "export"] = "pages"
+    observation: int = Field(default=2, ge=1)
+    after_rows: int = Field(default=0, ge=0)
+    query: dict[str, str] = Field(default_factory=dict)
+    rows: tuple[dict, ...]
+
+    @model_validator(mode="after")
+    def executable_revision(self):
+        if self.after_rows and self.channel != "pages":
+            raise ValueError("page offset requires the pages channel")
+        if set(self.query) - {"ticker", "table", "date.gte", "date.lte",
+                              "lastupdated.gte", "lastupdated.lte"}:
+            raise ValueError("revision query must use source filters")
+        return self
+
+
 class Step(Contract):
     name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     at: dt.datetime
@@ -58,6 +77,7 @@ class Step(Contract):
     error: str | None = None
     required_blockers: tuple[str, ...] = ()
     faults: tuple[Fault, ...] = ()
+    revisions: tuple[Revision, ...] = ()
     publication_failure: bool = False
     error_after_daily_publication: bool = False
 
@@ -71,7 +91,10 @@ class Step(Contract):
             raise ValueError("market frontier exceeds source clock")
         if set(self.tables) != {"SEP", "SFP", "TICKERS", "ACTIONS"}:
             raise ValueError("all four provider tables must be explicit")
-        for table, rows in self.tables.items():
+        if len({r.name for r in self.revisions}) != len(self.revisions):
+            raise ValueError("revision names must be unique")
+        sources = [*self.tables.items(), *((r.table, r.rows) for r in self.revisions)]
+        for table, rows in sources:
             for row in rows:
                 for field in (("date", "lastupdated") if table == "SEP" else ("date",)):
                     if row.get(field) and dt.date.fromisoformat(str(row[field])) > self.at.date():

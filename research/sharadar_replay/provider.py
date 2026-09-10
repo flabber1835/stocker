@@ -33,6 +33,8 @@ class Provider:
         self.step: Step | None = None
         self._views: dict = {}
         self._downloads: dict[str, bytes] = {}
+        self._traversals: dict[str, int] = {}
+        self._applied: set[str] = set()
 
     def advance(self, step: Step) -> None:
         if self.step is not None and step.at <= self.step.at:
@@ -41,6 +43,33 @@ class Provider:
         self.step = Step.model_validate_json(step.model_dump_json())
         self._views = json.loads(json.dumps(self.step.tables))
         self._downloads = {}
+        self._traversals = {}
+        self._applied = set()
+
+    def assert_revisions_applied(self) -> None:
+        missing = {r.name for r in self.step.revisions} - self._applied
+        if missing:
+            raise AssertionError(f"scheduled provider revisions never activated: {sorted(missing)}")
+
+    def _observation(self, table, channel, query):
+        filters = {k: v for k, v in query.items() if k not in {"api_key", "qopts.cursor_id"}}
+        key = json.dumps([table, channel, filters], sort_keys=True)
+        if "qopts.cursor_id" not in query:
+            self._traversals[key] = self._traversals.get(key, 0) + 1
+        if key not in self._traversals:
+            raise ValueError("cursor has no active source traversal")
+        observation = self._traversals[key]
+        offset = int(query.get("qopts.cursor_id", "0"))
+        activated = []
+        for revision in self.step.revisions:
+            if (revision.name not in self._applied and revision.table == table
+                    and revision.channel == channel and revision.observation == observation
+                    and offset >= revision.after_rows
+                    and all(query.get(k) == v for k, v in revision.query.items())):
+                self._views[table] = json.loads(json.dumps(revision.rows))
+                self._applied.add(revision.name)
+                activated.append(revision.name)
+        return observation, offset, activated
 
     def rows(self, table: str, query: dict[str, str]) -> list[dict]:
         if table not in COLUMNS:
@@ -87,6 +116,7 @@ class Provider:
         table = request.url.path.rsplit("/", 1)[-1].removesuffix(".json")
         query = dict(request.url.params)
         channel = "export" if query.get("qopts.export") == "true" else "pages"
+        observation, offset, activated = self._observation(table, channel, query)
         rows = self.rows(table, query)
         faults = [f for f in self.step.faults if f.table == table and f.channel == channel
                   and int(query.get("qopts.cursor_id", "0")) >= f.after_rows]
@@ -108,6 +138,8 @@ class Provider:
         entry = {"step": self.step.name, "at": self.step.at.isoformat(), "table": table,
                  "channel": channel, "query": {k: v for k, v in query.items() if k != "api_key"},
                  "rows": len(rows), "digest": digest(rows),
+                 "observation": observation, "offset": offset,
+                 "activated_revisions": activated, "revision_state": sorted(self._applied),
                  "faults": [f.kind for f in faults]}
         self.transcript.append(entry)
         if any(f.kind in {'rate_limit', 'service_unavailable'} for f in faults):

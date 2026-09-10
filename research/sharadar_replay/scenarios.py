@@ -41,26 +41,33 @@ def world(through: str, *, correction: int | None = None,
         actions.append({"ticker": ticker, "date": START, "action": "listed", "name": ticker,
                         "value": None, "contraticker": None, "contraname": None})
         expected_actions.append((ticker, START, "listed", ticker, None, None, None))
-        for day in axis:
+        for index, day in enumerate(axis):
             # Provider encoding from the fictional economic schedule.
-            price = correction if ticker == "AAA" and day == correction_date and correction else 100
+            price = 100
             factor = split_factor if split and ticker == "AAA" and day < split_date else 1
             if split and ticker == "AAA" and day >= split_date:
                 price = 100 / split_factor
+            if correction is not None and ticker == "AAA" and day == correction_date:
+                price = correction
+            raw_open = price + (index % 5 + 1) * (1 if ticker == "AAA" else -1)
+            raw_volume = 1_000_000 + index * 100 + (0 if ticker == "AAA" else 50)
             source_close = price / factor
             updated = through if ticker == "AAA" and ((day == correction_date and correction) or split) else day
-            sep.append({"ticker": ticker, "date": day, "open": source_close, "close": source_close,
-                        "closeunadj": price, "volume": 1_000_000 * factor, "lastupdated": updated})
+            sep.append({"ticker": ticker, "date": day, "open": raw_open / factor, "close": source_close,
+                        "closeunadj": price, "volume": raw_volume * factor, "lastupdated": updated})
 
             # The expected raw ledger values come directly from the economic schedule.
             expected_price = 100
-            if correction and ticker == "AAA" and day == correction_date:
-                expected_price = correction
             if split and ticker == "AAA" and day >= split_date:
                 expected_price = 100 / split_factor
-            signal = 100 / split_factor if split and ticker == "AAA" else expected_price
-            expected_bars.append((sid, day, ticker, signal, expected_price, expected_price,
-                1_000_000, split_factor if split and ticker == "AAA" and day == split_date else 1,
+            if correction is not None and ticker == "AAA" and day == correction_date:
+                expected_price = correction
+            signal = (expected_price / split_factor
+                      if split and ticker == "AAA" and day < split_date else expected_price)
+            expected_open = expected_price + (index % 5 + 1) * (1 if ticker == "AAA" else -1)
+            expected_bars.append((sid, day, ticker, signal, expected_price, expected_open,
+                1_000_000 + index * 100 + (0 if ticker == "AAA" else 50),
+                split_factor if split and ticker == "AAA" and day == split_date else 1,
                 (dividend if dividend and ticker == "AAA" and day == DIVIDEND else
                  0.5 if ticker == "BBB" and day == BASE_DIVIDEND else 0)))
     # Production checks for recent global ACTIONS activity. An ordinary BBB
@@ -73,15 +80,22 @@ def world(through: str, *, correction: int | None = None,
                         "value": split_factor, "contraticker": None, "contraname": None})
         expected_actions.append(("AAA", split_date, "split", "AAA", split_factor, None, None))
     if dividend:
+        source_dividend = (dividend / split_factor
+                           if split and DIVIDEND < split_date else dividend)
         actions.append({"ticker": "AAA", "date": DIVIDEND, "action": "dividend", "name": "AAA",
-                        "value": dividend, "contraticker": None, "contraname": None})
-        expected_actions.append(("AAA", DIVIDEND, "dividend", "AAA", dividend, None, None))
-    for day in axis:
-        for ticker, price in (("SPY", 400), ("BIL", 100)):
-            sfp.append({"ticker": ticker, "date": day, "open": price, "close": price,
-                        "closeadj": price, "closeunadj": price})
-        expected_sfp.append((day, 400))
-        expected_defensive.append((day, "SENTINEL:BIL", "BIL", 100, 100, 100, 100))
+                        "value": source_dividend, "contraticker": None, "contraname": None})
+        expected_actions.append(("AAA", DIVIDEND, "dividend", "AAA",
+                                 dividend / split_factor if split and DIVIDEND < split_date else dividend,
+                                 None, None))
+    for index, day in enumerate(axis):
+        for ticker, base in (("SPY", 400), ("BIL", 100)):
+            close = base + index / 4
+            sfp.append({"ticker": ticker, "date": day, "open": close - 0.5, "close": close,
+                        "closeadj": close * 1.25, "closeunadj": close * 2})
+        expected_sfp.append((day, 500 + index * 0.3125))
+        expected_defensive.append((day, "SENTINEL:BIL", "BIL",
+            99.5 + index / 4, 100 + index / 4,
+            125 + index * 0.3125, 200 + index / 2))
     return ({"SEP": tuple(sep), "SFP": tuple(sfp), "TICKERS": tuple(tickers), "ACTIONS": tuple(actions)},
             Corpus(bars=tuple(expected_bars), actions=tuple(expected_actions),
                    identities=tuple(expected_identities), spy=tuple(expected_sfp),
@@ -150,4 +164,6 @@ def build_scenarios() -> dict[str, Scenario]:
         step("recover_publication", SECOND), step("continue", THIRD)], recovery_from="recover_publication")
     from .adversarial import build_adversarial_scenarios
     cases.update(build_adversarial_scenarios(seed))
+    from .review_cases import build_review_scenarios
+    cases.update(build_review_scenarios(seed))
     return cases

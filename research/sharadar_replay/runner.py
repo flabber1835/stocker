@@ -147,6 +147,7 @@ def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
                     if step.error_after_daily_publication and current.version == previous_version:
                         raise StateMismatch(f"{step.name}: expected completed daily publication before maintenance error")
                     compare(step.expected, corpus)
+                    provider.assert_revisions_applied()
                     try:
                         compare_readiness(expected=step.ready, actual=state.ready,
                                           required_blockers=step.required_blockers, failures=failures)

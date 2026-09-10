@@ -1,0 +1,834 @@
+{
+  "required_tests": [
+    "research/sharadar_replay/tests/test_postgres.py::test_original_reference_window_defect_is_killed",
+    "research/sharadar_replay/tests/test_postgres.py::test_original_repeated_metadata_failure_is_killed",
+    "research/sharadar_replay/tests/test_postgres.py::test_old_daily_observation_ceiling_is_killed",
+    "research/sharadar_replay/tests/test_postgres.py::test_old_unchanged_actions_fast_path_is_killed",
+    "research/sharadar_replay/tests/test_postgres.py::test_production_price_field_substitution_is_killed[raw_open]",
+    "research/sharadar_replay/tests/test_postgres.py::test_production_price_field_substitution_is_killed[spy_adjusted]",
+    "research/sharadar_replay/tests/test_postgres.py::test_production_price_field_substitution_is_killed[bil_open]",
+    "research/sharadar_replay/tests/test_postgres.py::test_disabled_source_stability_guard_is_killed"
+  ],
+  "scenarios": {
+    "action_value_infinite": [
+      "bootstrap",
+      "corrupted_cash_action",
+      "recover"
+    ],
+    "action_value_nan": [
+      "bootstrap",
+      "corrupted_cash_action",
+      "recover"
+    ],
+    "action_value_text": [
+      "bootstrap",
+      "corrupted_cash_action",
+      "recover"
+    ],
+    "actions_during_corroboration": [
+      "bootstrap",
+      "source_changes",
+      "recover",
+      "stable"
+    ],
+    "actions_http_400_after_prefix": [
+      "bootstrap",
+      "valid_prefix_then_failure",
+      "recover"
+    ],
+    "actions_http_400_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "actions_invalid_json_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "actions_missing_column_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "actions_missing_cursor_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "actions_rate_limit_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "actions_repeat_cursor_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "actions_repeated_outage": [
+      "bootstrap",
+      "outage_one",
+      "outage_two",
+      "recover",
+      "repeat"
+    ],
+    "actions_row_width_after_prefix": [
+      "bootstrap",
+      "valid_prefix_then_failure",
+      "recover"
+    ],
+    "actions_row_width_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "actions_service_unavailable_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "combined_split_0_25_after_split": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_0_25_dividend": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_0_25_old": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_0_5_after_split": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_0_5_dividend": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_0_5_old": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_10_after_split": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_10_dividend": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_10_old": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_2_after_split": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_2_dividend": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_2_old": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_4_after_split": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_4_dividend": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "combined_split_4_old": [
+      "bootstrap",
+      "combined_events",
+      "revised_price_and_cash",
+      "stable"
+    ],
+    "export_invalid_zip_recovery": [
+      "bootstrap",
+      "bad_archive",
+      "recover"
+    ],
+    "export_missing_column_recovery": [
+      "bootstrap",
+      "bad_archive",
+      "recover"
+    ],
+    "export_stale_export_recovery": [
+      "bootstrap",
+      "bad_archive",
+      "recover"
+    ],
+    "happy_daily": [
+      "bootstrap",
+      "day_one",
+      "day_two",
+      "day_three"
+    ],
+    "identity_empty_ticker": [
+      "bootstrap",
+      "ambiguous_identity",
+      "recover"
+    ],
+    "identity_invalid_delisted": [
+      "bootstrap",
+      "ambiguous_identity",
+      "recover"
+    ],
+    "identity_invalid_listing_date": [
+      "bootstrap",
+      "ambiguous_identity",
+      "recover"
+    ],
+    "identity_missing_id": [
+      "bootstrap",
+      "ambiguous_identity",
+      "recover"
+    ],
+    "identity_overlapping_identity": [
+      "bootstrap",
+      "ambiguous_identity",
+      "recover"
+    ],
+    "identity_reversed_listing": [
+      "bootstrap",
+      "ambiguous_identity",
+      "recover"
+    ],
+    "incomplete_sep": [
+      "bootstrap",
+      "partial_prices",
+      "recover",
+      "continue"
+    ],
+    "incomplete_tickers": [
+      "bootstrap",
+      "interrupted",
+      "recover",
+      "continue"
+    ],
+    "interrupted_after_identity": [
+      "bootstrap",
+      "interrupted",
+      "recover",
+      "continue"
+    ],
+    "late_dividend": [
+      "bootstrap",
+      "late_action_arrives",
+      "repeat_action"
+    ],
+    "late_split_restatement": [
+      "bootstrap",
+      "split_and_restatement",
+      "same_day_repeat",
+      "next_day"
+    ],
+    "malformed_tickers": [
+      "bootstrap",
+      "interrupted",
+      "recover",
+      "continue"
+    ],
+    "missing_reference_bil": [
+      "bootstrap",
+      "reference_outage",
+      "recover"
+    ],
+    "missing_reference_spy": [
+      "bootstrap",
+      "reference_outage",
+      "recover"
+    ],
+    "old_price_correction": [
+      "bootstrap",
+      "correct_old_price",
+      "continue_corrected"
+    ],
+    "persistent_incomplete_identity": [
+      "bootstrap",
+      "blocked_0",
+      "blocked_1",
+      "blocked_2"
+    ],
+    "publication_interruption": [
+      "bootstrap",
+      "publication_interrupted",
+      "recover_publication",
+      "continue"
+    ],
+    "raw_close_infinite": [
+      "bootstrap",
+      "invalid_raw_prices",
+      "recover"
+    ],
+    "raw_close_nan": [
+      "bootstrap",
+      "invalid_raw_prices",
+      "recover"
+    ],
+    "raw_close_negative": [
+      "bootstrap",
+      "invalid_raw_prices",
+      "recover"
+    ],
+    "raw_close_null": [
+      "bootstrap",
+      "invalid_raw_prices",
+      "recover"
+    ],
+    "raw_close_text": [
+      "bootstrap",
+      "invalid_raw_prices",
+      "recover"
+    ],
+    "raw_close_zero": [
+      "bootstrap",
+      "invalid_raw_prices",
+      "recover"
+    ],
+    "revised_dividend": [
+      "bootstrap",
+      "initial_dividend",
+      "correct_dividend",
+      "repeat_correction"
+    ],
+    "same_day_revision": [
+      "bootstrap",
+      "first_observation",
+      "later_same_date",
+      "next_session"
+    ],
+    "seeded_revision_001": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_002": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_003": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_004": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_005": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_006": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_007": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_008": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_009": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_010": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_011": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_012": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_013": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_014": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_015": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "seeded_revision_016": [
+      "bootstrap",
+      "first_correction",
+      "same_day_revision",
+      "repeat_next_day",
+      "same_day_idempotence"
+    ],
+    "sep_between_observations": [
+      "bootstrap",
+      "source_changes",
+      "recover",
+      "stable"
+    ],
+    "sep_conflicting_row_recovery": [
+      "bootstrap",
+      "duplicate_key",
+      "recover",
+      "stable"
+    ],
+    "sep_duplicate_row_recovery": [
+      "bootstrap",
+      "duplicate_key",
+      "recover",
+      "stable"
+    ],
+    "sep_during_pagination": [
+      "bootstrap",
+      "source_changes",
+      "recover",
+      "stable"
+    ],
+    "sep_http_400_after_prefix": [
+      "bootstrap",
+      "valid_prefix_then_failure",
+      "recover"
+    ],
+    "sep_http_400_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sep_invalid_date_value": [
+      "bootstrap",
+      "corrupted_key_or_clock",
+      "recover"
+    ],
+    "sep_invalid_json_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sep_invalid_lastupdated_missing": [
+      "bootstrap",
+      "corrupted_key_or_clock",
+      "recover"
+    ],
+    "sep_invalid_lastupdated_value": [
+      "bootstrap",
+      "corrupted_key_or_clock",
+      "recover"
+    ],
+    "sep_invalid_ticker_value": [
+      "bootstrap",
+      "corrupted_key_or_clock",
+      "recover"
+    ],
+    "sep_missing_column_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sep_missing_cursor_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sep_rate_limit_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sep_repeat_cursor_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sep_repeated_outage": [
+      "bootstrap",
+      "outage_one",
+      "outage_two",
+      "recover",
+      "repeat"
+    ],
+    "sep_row_width_after_prefix": [
+      "bootstrap",
+      "valid_prefix_then_failure",
+      "recover"
+    ],
+    "sep_row_width_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sep_service_unavailable_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sfp_conflicting_row_recovery": [
+      "bootstrap",
+      "duplicate_key",
+      "recover",
+      "stable"
+    ],
+    "sfp_duplicate_row_recovery": [
+      "bootstrap",
+      "duplicate_key",
+      "recover",
+      "stable"
+    ],
+    "sfp_during_corroboration": [
+      "bootstrap",
+      "source_changes",
+      "recover",
+      "stable"
+    ],
+    "sfp_http_400_after_prefix": [
+      "bootstrap",
+      "valid_prefix_then_failure",
+      "recover"
+    ],
+    "sfp_http_400_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sfp_invalid_json_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sfp_missing_column_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sfp_missing_cursor_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sfp_rate_limit_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sfp_repeat_cursor_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sfp_repeated_outage": [
+      "bootstrap",
+      "outage_one",
+      "outage_two",
+      "recover",
+      "repeat"
+    ],
+    "sfp_row_width_after_prefix": [
+      "bootstrap",
+      "valid_prefix_then_failure",
+      "recover"
+    ],
+    "sfp_row_width_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "sfp_service_unavailable_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "split_conflicting_then_withdrawn": [
+      "bootstrap",
+      "unresolved_split",
+      "recover",
+      "stable"
+    ],
+    "split_missing_action_then_corrected": [
+      "bootstrap",
+      "inconsistent_split",
+      "recover",
+      "stable"
+    ],
+    "split_negative_then_withdrawn": [
+      "bootstrap",
+      "unresolved_split",
+      "recover",
+      "stable"
+    ],
+    "split_overlap_boundary": [
+      "bootstrap",
+      "replay_split_boundary",
+      "repeat_split"
+    ],
+    "split_ratio_0_25_20260803": [
+      "bootstrap",
+      "authoritative_split",
+      "same_day_repeat",
+      "continued"
+    ],
+    "split_ratio_0_25_20260818": [
+      "bootstrap",
+      "authoritative_split",
+      "same_day_repeat",
+      "continued"
+    ],
+    "split_ratio_0_5_20260803": [
+      "bootstrap",
+      "authoritative_split",
+      "same_day_repeat",
+      "continued"
+    ],
+    "split_ratio_0_5_20260818": [
+      "bootstrap",
+      "authoritative_split",
+      "same_day_repeat",
+      "continued"
+    ],
+    "split_ratio_10_20260803": [
+      "bootstrap",
+      "authoritative_split",
+      "same_day_repeat",
+      "continued"
+    ],
+    "split_ratio_10_20260818": [
+      "bootstrap",
+      "authoritative_split",
+      "same_day_repeat",
+      "continued"
+    ],
+    "split_ratio_2_20260803": [
+      "bootstrap",
+      "authoritative_split",
+      "same_day_repeat",
+      "continued"
+    ],
+    "split_ratio_2_20260818": [
+      "bootstrap",
+      "authoritative_split",
+      "same_day_repeat",
+      "continued"
+    ],
+    "split_ratio_4_20260803": [
+      "bootstrap",
+      "authoritative_split",
+      "same_day_repeat",
+      "continued"
+    ],
+    "split_ratio_4_20260818": [
+      "bootstrap",
+      "authoritative_split",
+      "same_day_repeat",
+      "continued"
+    ],
+    "split_unsubstantiated_then_withdrawn": [
+      "bootstrap",
+      "unresolved_split",
+      "recover",
+      "stable"
+    ],
+    "split_wrong_ratio_then_corrected": [
+      "bootstrap",
+      "inconsistent_split",
+      "recover",
+      "stable"
+    ],
+    "split_zero_then_withdrawn": [
+      "bootstrap",
+      "unresolved_split",
+      "recover",
+      "stable"
+    ],
+    "stale_tickers_export": [
+      "bootstrap",
+      "interrupted",
+      "recover",
+      "continue"
+    ],
+    "tickers_between_observations": [
+      "bootstrap",
+      "source_changes",
+      "recover",
+      "stable"
+    ],
+    "tickers_during_corroboration": [
+      "bootstrap",
+      "source_changes",
+      "recover",
+      "stable"
+    ],
+    "tickers_http_400_after_prefix": [
+      "bootstrap",
+      "valid_prefix_then_failure",
+      "recover"
+    ],
+    "tickers_http_400_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "tickers_invalid_json_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "tickers_missing_column_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "tickers_missing_cursor_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "tickers_rate_limit_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "tickers_repeat_cursor_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "tickers_repeated_outage": [
+      "bootstrap",
+      "outage_one",
+      "outage_two",
+      "recover",
+      "repeat"
+    ],
+    "tickers_row_width_after_prefix": [
+      "bootstrap",
+      "valid_prefix_then_failure",
+      "recover"
+    ],
+    "tickers_row_width_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ],
+    "tickers_service_unavailable_recovery": [
+      "bootstrap",
+      "damaged",
+      "recover",
+      "repeat"
+    ]
+  },
+  "schema": "sharadar-replay-catalogue/1"
+}

@@ -74,3 +74,54 @@ def test_old_unchanged_actions_fast_path_is_killed(monkeypatch, tmp_path):
     output = Path(os.environ.get('SHARADAR_REPLAY_EVIDENCE', str(tmp_path))) / 'falsifiers' / 'unchanged_actions'
     with pytest.raises(StateMismatch, match='split source agreement'):
         run_scenario(SCENARIOS['split_ratio_2_20260818'], server_dsn=dsn, output=output)
+
+
+@pytest.mark.parametrize('field', ['raw_open', 'spy_adjusted', 'bil_open'])
+def test_production_price_field_substitution_is_killed(monkeypatch, tmp_path, field):
+    from dataclasses import replace
+    from unittest.mock import patch
+    from sentinel.feed import domains, ingest, store
+    dsn = os.environ.get('SHARADAR_REPLAY_TEST_DSN')
+    assert dsn, 'SHARADAR_REPLAY_TEST_DSN is required'
+    daily = ingest.daily
+    if field == 'raw_open':
+        owner, name = domains, 'normalise_sep_rows'
+        original = getattr(owner, name)
+
+        def mutant(*args, **kwargs):
+            for bar in original(*args, **kwargs):
+                yield replace(bar, vendor=replace(bar.vendor, raw_open=bar.vendor.raw_close))
+    else:
+        owner = store
+        name = 'write_spy_total_return' if field == 'spy_adjusted' else 'write_defensive_bars'
+        original = getattr(owner, name)
+
+        def mutant(conn, rows, **kwargs):
+            target = 'closeadj' if field == 'spy_adjusted' else 'open'
+            return original(conn, (dict(row, **{target: row['close']}) for row in rows), **kwargs)
+
+    def broken_daily(*args, **kwargs):
+        with patch.object(owner, name, mutant):
+            return daily(*args, **kwargs)
+
+    monkeypatch.setattr(ingest, 'daily', broken_daily)
+    output = Path(os.environ.get('SHARADAR_REPLAY_EVIDENCE', str(tmp_path))) / 'falsifiers' / field
+    with pytest.raises(StateMismatch, match='first_difference'):
+        run_scenario(SCENARIOS['happy_daily'], server_dsn=dsn, output=output)
+
+
+def test_disabled_source_stability_guard_is_killed(monkeypatch, tmp_path):
+    from unittest.mock import patch
+    from sentinel.feed import authority, ingest
+    dsn = os.environ.get('SHARADAR_REPLAY_TEST_DSN')
+    assert dsn, 'SHARADAR_REPLAY_TEST_DSN is required'
+    daily = ingest.daily
+
+    def broken_daily(*args, **kwargs):
+        with patch.object(authority, 'require_stable', lambda *a, **kw: None):
+            return daily(*args, **kwargs)
+
+    monkeypatch.setattr(ingest, 'daily', broken_daily)
+    output = Path(os.environ.get('SHARADAR_REPLAY_EVIDENCE', str(tmp_path))) / 'falsifiers' / 'source_stability'
+    with pytest.raises(StateMismatch, match='expected error VendorPublicationUnstable'):
+        run_scenario(SCENARIOS['sep_between_observations'], server_dsn=dsn, output=output)
