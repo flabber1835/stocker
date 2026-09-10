@@ -90,6 +90,9 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
         maintenance._core, "_semantic_upgrade_replay_dates",
         lambda conn, **kwargs: [])
     monkeypatch.setattr(
+        maintenance._core, "_unresolved_split_replay_dates",
+        lambda conn, *, market_start, market_end: [])
+    monkeypatch.setattr(
         renormalize, "correction_windows",
         lambda dates, **kwargs: [("2019-12-31", "2020-01-03")])
 
@@ -175,6 +178,9 @@ def test_full_actions_history_does_not_expand_a_short_price_seed(monkeypatch):
         maintenance._core, "_semantic_upgrade_replay_dates",
         lambda conn, **kwargs: [])
     monkeypatch.setattr(
+        maintenance._core, "_unresolved_split_replay_dates",
+        lambda conn, *, market_start, market_end: [])
+    monkeypatch.setattr(
         recovery, "record_action_reconcile_retirement_plan",
         lambda *args, **kwargs: None)
     monkeypatch.setattr(
@@ -233,6 +239,9 @@ def test_semantic_cursor_upgrade_replays_old_blockers_with_unchanged_source(
     monkeypatch.setattr(
         maintenance._core, "_semantic_upgrade_replay_dates",
         lambda conn, **kwargs: ["2026-08-14"])
+    monkeypatch.setattr(
+        maintenance._core, "_unresolved_split_replay_dates",
+        lambda conn, *, market_start, market_end: [])
     monkeypatch.setattr(
         renormalize, "correction_windows",
         lambda dates, **kwargs: [("2026-08-12", "2026-08-17")])
