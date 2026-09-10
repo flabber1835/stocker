@@ -15,6 +15,7 @@ HERE = Path(__file__).resolve().parent
 V6_RUNNER = HERE.parent / "wealth-core-v5-sentinel-ex3-v6-adversarial-v1" / "run_adversarial_v6.generated.py"
 SCHEMA = "research.wealth-core-v5-ex3-v6-convergence-jackknife/1"
 PATCH_NAME = "neutral-full-native-rec8-canonicalization"
+EXPECTED_V6_SELECTED_SOURCE_SHA256 = "335e2ae06efd5e2ebfa11f0641029609d524f4e75e733a3dbd0a5efcf64ac42d"
 
 OLD_B = '''class CandidateB:
     def __init__(self): self.episode=False; self.streak=0; self.prev_native=1.; self.prev_desired=1.; self.episodes=0
@@ -196,7 +197,7 @@ def main() -> int:
     def patched_build(control_source: Path, median_overlay: Path) -> str:
         exact = original_build(control_source, median_overlay)
         # Exact A authority must still be present before treatment insertion.
-        if base.sha(exact.encode()) != base.V6_SELECTED_SOURCE_SHA256:
+        if base.sha(exact.encode()) != EXPECTED_V6_SELECTED_SOURCE_SHA256:
             raise RuntimeError("exact V6 source authority mismatch before convergence patch")
         return treatment_source(exact)
 
