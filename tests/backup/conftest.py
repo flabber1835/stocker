@@ -20,3 +20,10 @@ def isolated_environment(monkeypatch):
             "SENTINEL_REPO_ROOT", "SENTINEL_IN_IMAGE",
         }:
             monkeypatch.delenv(key)
+    # Runtime restore proofs are intentionally process-local. No backup test may
+    # inherit integrity evidence from a prior test that happened to reuse an
+    # equivalent fake connection identity.
+    from sentinel import backup_runtime_authority
+    backup_runtime_authority._PROOF_CACHE.clear()
+    yield
+    backup_runtime_authority._PROOF_CACHE.clear()
