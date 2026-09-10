@@ -37,10 +37,8 @@ def _hidden_references(initial):
     })
 
 
-def _mixed_daily_recovery_scenario() -> Scenario:
-    seed = _seed()
+def _sep_failure_after_sfp(seed):
     hidden = _hidden_references(seed.expected)
-
     first = step(
         "sep_failed_after_sfp", FIRST, expected=hidden, ready=False,
         error="VendorPublicationUnstable", required_blockers=("freshness",))
@@ -49,7 +47,7 @@ def _mixed_daily_recovery_scenario() -> Scenario:
     for row in revised:
         if row["ticker"] == "AAA":
             row["open"] += 1
-    first = first.model_copy(update={
+    return first.model_copy(update={
         "tables": tables,
         "revisions": (Revision(
             name="sep_changes_after_first_complete_observation",
@@ -58,6 +56,11 @@ def _mixed_daily_recovery_scenario() -> Scenario:
             rows=tuple(revised)),),
     })
 
+
+def _mixed_daily_recovery_scenario() -> Scenario:
+    seed = _seed()
+    hidden = _hidden_references(seed.expected)
+    first = _sep_failure_after_sfp(seed)
     second = step(
         "sfp_failed_with_older_reference_owner", SECOND, expected=hidden,
         ready=False, error="SharadarRequestError",
@@ -69,6 +72,23 @@ def _mixed_daily_recovery_scenario() -> Scenario:
         seed_start=dt.date.fromisoformat(START), seed=seed,
         steps=(first, second, recover),
         recovery_from="clean_daily_supersedes_both")
+
+
+def _partial_sfp_recovery_scenario() -> Scenario:
+    seed = _seed()
+    hidden = _hidden_references(seed.expected)
+    first = _sep_failure_after_sfp(seed)
+    second = step(
+        "partial_sfp_retry_is_refused", SECOND, expected=hidden,
+        ready=False, error="SourceAuthorityRefused",
+        required_blockers=("freshness",),
+        faults=(Fault(table="SFP", kind="omit_ticker", ticker="BIL"),))
+    recover = step("clean_retry_converges", THIRD)
+    return Scenario(
+        name="partial_sfp_recovery_converges",
+        seed_start=dt.date.fromisoformat(START), seed=seed,
+        steps=(first, second, recover),
+        recovery_from="clean_retry_converges")
 
 
 def _persistent_unresolved_step(name: str, day: str):
@@ -102,6 +122,14 @@ def _persistent_unresolved_scenario() -> Scenario:
 
 def test_mixed_sep_then_sfp_failures_converge_on_next_clean_daily(tmp_path):
     scenario = _mixed_daily_recovery_scenario()
+    result = run_scenario(
+        scenario, server_dsn=_dsn(), output=Path(tmp_path) / scenario.name)
+    assert result["verdict"] == "PASS"
+    assert result["recovery_attempts"] == 1
+
+
+def test_partial_sfp_retry_stays_failed_and_next_clean_daily_converges(tmp_path):
+    scenario = _partial_sfp_recovery_scenario()
     result = run_scenario(
         scenario, server_dsn=_dsn(), output=Path(tmp_path) / scenario.name)
     assert result["verdict"] == "PASS"
