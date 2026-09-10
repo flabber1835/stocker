@@ -35,8 +35,16 @@ def _validate_source_before_run(fetch) -> None:
         sharadar._api_key()
 
 
+def _require_restore_horizon(conn, *, operation: str) -> None:
+    """Map repairable backup-media loss onto the existing retryable membrane."""
+    try:
+        backup_runtime_authority.require(conn, operation=operation)
+    except backup_runtime_authority.BackupRuntimeUnavailable as exc:
+        raise ConnectionError(str(exc)) from exc
+
+
 def _recover_before_run(conn) -> None:
-    backup_runtime_authority.require(
+    _require_restore_horizon(
         conn, operation="canonical daily feed mutation")
     _impl.feed_store.reclaim_orphans(conn)
     recovery.resume_pending_publication(conn)
@@ -44,7 +52,7 @@ def _recover_before_run(conn) -> None:
 
 def _recover_before_seed(conn, *, date_from: str,
                          date_to: str) -> recovery.FullReseedPlan:
-    backup_runtime_authority.require(
+    _require_restore_horizon(
         conn, operation="canonical seed/reseed feed mutation")
     _impl.feed_store.reclaim_orphans(conn)
     pending = recovery.pending_validated(conn)
