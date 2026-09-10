@@ -78,9 +78,9 @@ class ExecutionEnvelope(unittest.TestCase):
             ("--env-file", "other.env", "up"),
             ("-f", "other.yml", "up"),
             ("-fother.yml", "restart"),
-            ("-p", "other", "start"),
+            ("-p", "other", "stop"),
             ("-pother", "up"),
-            ("--project-name=other", "restart"),
+            ("--project-name=other", "kill"),
             ("--project-directory=/tmp", "up"),
             ("--compatibility", "up"),
         )
@@ -138,11 +138,16 @@ class ExecutionEnvelope(unittest.TestCase):
             "-e", "application-value")
         self.assertEqual(result.returncode, 0, result.stderr)
 
-    def test_destructive_volume_and_orphan_flags_are_refused(self):
+    def test_destructive_and_future_operational_options_are_refused(self):
         cases = (
             ("down", "-v"), ("down", "--volumes"),
             ("down", "--remove-orphans"), ("down", "--rmi=all"),
             ("rm", "--volumes", "sentinel"),
+            ("wait", "--down-project", "sentinel-postgres"),
+            ("up", "--future-dangerous-option", "sentinel-panel"),
+            ("down", "--future-dangerous-option"),
+            ("stop", "--signal", "HUP", "sentinel-automation"),
+            ("kill", "--signal", "HUP", "sentinel-automation"),
         )
         for arguments in cases:
             with self.subTest(arguments=arguments):
@@ -160,8 +165,8 @@ class ExecutionEnvelope(unittest.TestCase):
             with self.subTest(arguments=arguments):
                 self.assert_compose_refused("automation", *arguments)
 
-    def test_stale_container_revival_and_exec_are_refused(self):
-        for command in ("start", "restart", "unpause"):
+    def test_stale_container_transitions_and_exec_are_refused(self):
+        for command in ("start", "restart", "unpause", "pause"):
             with self.subTest(command=command):
                 self.assert_compose_refused("automation", command, "sentinel-automation")
                 self.assert_compose_refused("base", command, "sentinel-postgres")
@@ -170,21 +175,41 @@ class ExecutionEnvelope(unittest.TestCase):
         self.assert_compose_refused(
             "base", "exec", "sentinel-postgres", "psql", "-U", "sentinel")
 
-    def test_automation_profile_cannot_explicitly_activate_other_profile_services(self):
-        for service in ("sentinel-authorized-cli", "sentinel-authority-permissions", "sentinel-shadow"):
-            with self.subTest(service=service):
-                self.assert_compose_refused("automation", "up", "-d", service)
-                self.assert_compose_refused("automation", "create", service)
+    def test_startup_service_allowlist_blocks_profile_activation(self):
+        cases = (
+            ("base", "sentinel"),
+            ("base", "sentinel-automation"),
+            ("automation", "sentinel-authorized-cli"),
+            ("automation", "sentinel-authority-permissions"),
+            ("automation", "sentinel-shadow"),
+            ("automation", "unknown-service"),
+        )
+        for surface, service in cases:
+            with self.subTest(surface=surface, service=service):
+                self.assert_compose_refused(surface, "up", "-d", service)
+                self.assert_compose_refused(surface, "create", service)
+
+    def test_explicit_automation_start_requires_dispatcher_pair(self):
+        self.assert_compose_refused(
+            "automation", "up", "-d", "sentinel-automation")
+        result = self.run_compose(
+            "automation", "up", "-d", "sentinel-automation",
+            "sentinel-alert-dispatcher")
+        self.assertEqual(result.returncode, 0, result.stderr)
 
     def test_supported_fixed_operations_pass(self):
         cases = (
             ("automation", ("--profile", "automation", "ps")),
             ("automation", ("--ansi", "never", "--progress=plain", "logs")),
-            ("automation", ("up", "-d", "--no-deps", "--force-recreate", "sentinel-automation")),
+            ("automation", ("up", "-d", "--no-deps", "--force-recreate",
+                            "sentinel-automation", "sentinel-alert-dispatcher")),
             ("automation", ("down", "--timeout", "30")),
+            ("automation", ("rm", "--force", "sentinel-automation")),
+            ("automation", ("wait", "sentinel-automation")),
             ("base", ("run", "--rm", "-T", "sentinel", "status")),
             ("base", ("up", "-d", "--no-deps", "--force-recreate", "sentinel-panel")),
             ("base", ("ps", "-q", "sentinel-panel")),
+            ("base", ("stop", "--timeout", "30", "sentinel-postgres")),
         )
         for surface, arguments in cases:
             with self.subTest(surface=surface, arguments=arguments):
@@ -206,8 +231,10 @@ class ExecutionEnvelope(unittest.TestCase):
         self.assertIn("docker --context default compose", automation)
         self.assertIn("sentinel_require_execution_environment", env_bridge)
         self.assertIn("export DOCKER_CONTEXT=default", env_bridge)
-        self.assertIn("docker --context default compose", emergency)
-        self.assertIn("--project-name sentinel", emergency)
+        self.assertIn("docker --context default ps -q", emergency)
+        self.assertIn("docker --context default exec -i", emergency)
+        self.assertNotIn("docker compose", emergency)
+        self.assertNotIn("SENTINEL_RUNTIME_IMAGE_REF", emergency)
         self.assertIn("docker --context default volume inspect", volume)
         self.assertIn("docker --context default run", volume)
 
