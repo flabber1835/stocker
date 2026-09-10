@@ -1,0 +1,14 @@
+{
+  "schema": "research.v5-ex3-v6-simplification-launch/1",
+  "date": "2026-09-10",
+  "issue": 349,
+  "pull_request": 350,
+  "preregistered_commit": "3042142f11b7000c3758e468441baacf737c71f6",
+  "validated_tree": "dd4f8760b3a188a695964030a639675aab166db1",
+  "maximum_full_pit_starts": 10,
+  "baseline_first": true,
+  "automatic_replay_retries": false,
+  "production_promotion": false,
+  "slot_claim_prefix": "refs/heads/research-budget/simplification-v1/slot-",
+  "status": "AUTHORIZED_LAUNCH"
+}
