@@ -237,6 +237,7 @@ def test_fresh_broker_mutation_gate_rechecks_media_after_preparation(
 
 def test_common_backup_errors_keep_retry_and_operator_checkpoint_identity():
     from sentinel import automation_runtime, backup_guard
+    from sentinel.automation_recovery import RetryableBackupUnavailable
     from sentinel.automation.model import (
         PermanentOperationalRefusal, TransientInfrastructureFailure)
     from sentinel.cli._shared import paper_refusal_types
@@ -252,6 +253,8 @@ def test_common_backup_errors_keep_retry_and_operator_checkpoint_identity():
                       PermanentOperationalRefusal)
     assert isinstance(unavailable, paper_refusal_types())
     assert isinstance(invalid, paper_refusal_types())
+    classified = RetryableBackupUnavailable("existing typed retry")
+    assert automation_runtime.classify_dependency_failure(classified) is classified
 
 
 def test_runtime_reads_only_required_horizon(world):
