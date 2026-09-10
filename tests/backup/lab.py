@@ -193,6 +193,10 @@ class Archive:
             "if mode=='corrupt':\n"
             "    with target.open('r+b') as f: f.seek(40); f.write(b'BAD')\n"
             "    sys.exit(0)\n"
+            "if mode=='mutate-source':\n"
+            "    source=pathlib.Path(args[-2])\n"
+            "    with source.open('r+b') as f: f.seek(40); f.write(b'BAD')\n"
+            "    sys.exit(0)\n"
             "if mode=='kill': os.kill(os.getppid(),signal.SIGKILL)\n"
             "sys.exit(74)\n"
         ))
