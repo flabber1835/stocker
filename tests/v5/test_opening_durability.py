@@ -172,3 +172,49 @@ def test_projection_loss_after_ambiguous_submit_is_integrity_failure(conn):
     with pytest.raises(projections.TargetProjectionRefused, match='durable commands'):
         opening_sizing.requires_initial_projection(conn, plan=plan, deployment=DEPLOY)
     assert len([call for call in b.calls if call.startswith('submit:')]) == 1
+
+
+def test_renamed_funding_exit_and_entry_survive_unknown_restart(conn, monkeypatch):
+    from sentinel.paper import targets
+    from tests.v5.test_opening_identity import rename_broker
+
+    env, plan = setup_plan(conn, cash=100., sale=True)
+    pricing_broker, _, _ = rename_broker(monkeypatch, env, plan)
+    evidence = asyncio.run(opening_sizing.prices_for_plan(
+        conn, state=env, plan=plan, broker=pricing_broker))
+    projection = projections.record_projection(conn,
+        opening_sizing.resolve(env, plan, base(env, plan), evidence))
+    monkeypatch.setattr(opening_sizing, 'load_projection', projections.load_projection)
+    monkeypatch.setattr(targets, 'load_meta', lambda *a, **k: {})
+    b = broker()
+    seed_held(conn, b, BrokerInstrument('SEC-X', 'NEWX', 'asset-SEC-X'), 10)
+    before = env.to_dict()
+
+    def attempt(current_plan, current_projection):
+        observed = asyncio.run(b.observe())
+        instruments = asyncio.run(targets._instrument_map(
+            conn, pricing_broker, env, current_plan, observed,
+            target_basket=current_projection.target_basket))
+        return asyncio.run(executor.execute_session(conn=conn, broker=b,
+            deployment=DEPLOY, plan=current_plan, instruments=instruments,
+            today=current_plan.effective_session, target_projection=current_projection,
+            settle_cycles=1))
+
+    first = attempt(plan, projection)
+    assert [(c.security_id, c.side, c.quantity) for c in first.submitted] == [
+        ('SEC-X', Side.SELL, D(10))]
+    assert 'SEC-AAA' in first.deferred
+    b.fill(first.submitted[0].client_key)
+    b.schedule_submit(FaultKind.ACCEPT_THEN_TIMEOUT)
+    second = attempt(plan, projection)
+    assert [(c.security_id, c.side, c.quantity, c.state) for c in second.submitted] == [
+        ('SEC-AAA', Side.BUY, D(10), CommandState.UNKNOWN)]
+    restored_plan = journal.load_plan(conn, plan.plan_id)
+    restored = projections.load_projection(conn, plan_id=plan.plan_id)
+    assert asyncio.run(opening_sizing.prices_for_plan(
+        conn, state=env, plan=restored_plan, broker=object())) == evidence
+    assert attempt(restored_plan, restored).submitted == ()
+    assert len([call for call in b.calls if call.startswith('submit:')]) == 2
+    commands = journal.load_commands(conn, DEPLOY, plan_id=plan.plan_id)
+    assert {c.instrument.broker_id for c in commands} == {'asset-SEC-X', 'asset-SEC-AAA'}
+    assert env.to_dict() == before

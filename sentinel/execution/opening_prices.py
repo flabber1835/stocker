@@ -24,6 +24,7 @@ class OpeningPrices:
     observed_at: datetime
     prices: Mapping[str, Decimal]
     symbols: Mapping[str, str]
+    broker_ids: Mapping[str, str]
     source: str = SOURCE
 
     def __post_init__(self):
@@ -37,28 +38,36 @@ class OpeningPrices:
                 or len(set(self.symbols.values())) != len(self.symbols)
                 or any(not isinstance(symbol, str) or not symbol for symbol in self.symbols.values())):
             raise OpeningPriceUnavailable("opening prices have incomplete or ambiguous identities")
+        if (set(self.broker_ids) != set(self.prices)
+                or any(not isinstance(asset, str) or not asset.strip()
+                       for asset in self.broker_ids.values())
+                or len(set(self.broker_ids.values())) != len(self.broker_ids)):
+            raise OpeningPriceUnavailable("opening prices require unique stable broker asset identities")
         if any(not isinstance(p, Decimal) or not p.is_finite() or p <= 0
                for p in self.prices.values()):
             raise OpeningPriceUnavailable("opening prices must be positive finite Decimal")
         object.__setattr__(self, "prices", MappingProxyType(dict(self.prices)))
         object.__setattr__(self, "symbols", MappingProxyType(dict(self.symbols)))
+        object.__setattr__(self, "broker_ids", MappingProxyType(dict(self.broker_ids)))
 
     def to_dict(self):
         return {"source": self.source, "session": self.session.isoformat(),
                 "opening_at": self.opening_at.isoformat(),
                 "observed_at": self.observed_at.isoformat(),
                 "prices": {sid: str(p) for sid, p in sorted(self.prices.items())},
-                "symbols": dict(sorted(self.symbols.items()))}
+                "symbols": dict(sorted(self.symbols.items())),
+                "broker_ids": dict(sorted(self.broker_ids.items()))}
 
     @classmethod
     def from_dict(cls, raw):
         if not isinstance(raw, dict) or set(raw) != {
-                "source", "session", "opening_at", "observed_at", "prices", "symbols"}:
+                "source", "session", "opening_at", "observed_at", "prices", "symbols", "broker_ids"}:
             raise OpeningPriceUnavailable("invalid opening price evidence shape")
         try:
             return cls(date.fromisoformat(raw["session"]),
                 datetime.fromisoformat(raw["opening_at"]), datetime.fromisoformat(raw["observed_at"]),
-                {sid: Decimal(p) for sid, p in raw["prices"].items()}, raw["symbols"], raw["source"])
+                {sid: Decimal(p) for sid, p in raw["prices"].items()}, raw["symbols"],
+                raw["broker_ids"], raw["source"])
         except (TypeError, ValueError, ArithmeticError, AttributeError) as exc:
             raise OpeningPriceUnavailable("corrupt opening price evidence") from exc
 
@@ -89,4 +98,5 @@ def parse_bars(payload, *, session, instruments, observed_at):
             prices[sid] = price
     except (TypeError, ValueError, ArithmeticError, KeyError) as exc:
         raise OpeningPriceUnavailable("opening bar evidence is invalid") from exc
-    return OpeningPrices(session, opened, observed_at, prices, symbols)
+    return OpeningPrices(session, opened, observed_at, prices, symbols,
+                         {sid: item.broker_id for sid, item in instruments.items()})

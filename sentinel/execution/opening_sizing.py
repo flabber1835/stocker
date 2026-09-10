@@ -49,11 +49,25 @@ async def prices_for_plan(conn, *, state, plan, broker):
     if state.state_hash != plan.shadow_snapshot_hash or target.opening_intents != plan.opening_intents:
         raise TargetProjectionRefused("opening price request differs from canonical intent")
     broker.capabilities.require("regular_session_open_prices")
+    from sentinel.feed import universe
+    resolver = universe.load_resolver(conn)
     instruments = {}
     for sid in required_prices(state, plan):
-        instruments[sid] = await broker.resolve_instrument(
-            security_id=sid, symbol=target.tickers[sid])
-    return await broker.opening_prices(session=plan.effective_session, instruments=instruments)
+        symbol = resolver.ticker_for_security(sid, plan.effective_session.isoformat())
+        if symbol is None:
+            raise OpeningPriceUnavailable(f"no unique effective-session symbol for {sid}")
+        instrument = await broker.resolve_instrument(security_id=sid, symbol=symbol)
+        if (instrument.security_id != sid or not instrument.broker_id
+                or not instrument.symbol
+                or resolver.resolve(instrument.symbol, plan.effective_session.isoformat()) != sid):
+            raise TargetProjectionRefused("opening instrument differs from permanent security identity")
+        instruments[sid] = instrument
+    prices = await broker.opening_prices(session=plan.effective_session, instruments=instruments)
+    if (not isinstance(prices, OpeningPrices) or prices.session != plan.effective_session
+            or dict(prices.symbols) != {sid: item.symbol for sid, item in instruments.items()}
+            or dict(prices.broker_ids) != {sid: item.broker_id for sid, item in instruments.items()}):
+        raise TargetProjectionRefused("opening evidence differs from resolved instrument identities")
+    return prices
 
 
 def resolve(state, plan, projection, prices: OpeningPrices | None):
@@ -82,9 +96,6 @@ def resolve(state, plan, projection, prices: OpeningPrices | None):
     if (not isinstance(prices, OpeningPrices) or prices.session != plan.effective_session
             or set(prices.prices) != set(required_prices(state, plan))):
         raise OpeningPriceUnavailable("opening sizing requires complete effective-session prices")
-    for sid in prices.prices:
-        if prices.symbols[sid].replace(".", "-") != target.tickers[sid].replace(".", "-"):
-            raise TargetProjectionRefused("opening symbol differs from canonical security identity")
     portfolio = PortfolioState.from_dict(state.wealth_core)
     cash = _decimal(portfolio.cash, where="canonical settled cash")
     due = sum((_decimal(item["amount"], where="due dividend")

@@ -5,6 +5,7 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
+from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from pytest import MonkeyPatch
 
@@ -15,6 +16,10 @@ from tools.median5_mutation_check import rewritten
 from tests.v5 import test_v5 as checks
 from tests.v5 import test_opening as opening_checks
 from tests.v5 import test_review_regressions as review_checks
+from tests.v5 import test_opening_identity as identity_checks
+from tests.v5 import test_checkout_evidence as checkout_checks
+from tools import v5_checkout_evidence
+from sentinel.feed.universe import IdentityResolver
 from sentinel import automation_runtime
 from sentinel.paper import execution as paper_execution
 from sentinel.controller import ex3_v6
@@ -31,8 +36,46 @@ def checked(function, *args):
         function(monkeypatch, *args)
 
 
+def graph_checked(function, *args):
+    with TemporaryDirectory() as directory:
+        graph = checkout_checks.graph.__wrapped__(Path(directory))
+        function(graph, *args)
+
+
 def run():
     cases = (
+        ("opening_reverse_identity_accepts_ambiguous_symbols",
+         identity_checks.test_reverse_identity_refuses_two_symbols_and_recycled_ticker,
+         IdentityResolver, "ticker_for_security", rewritten(IdentityResolver.ticker_for_security,
+             "if len(symbols) != 1:", "if False:")),
+        ("opening_reverse_identity_accepts_recycled_symbol",
+         identity_checks.test_reverse_identity_refuses_two_symbols_and_recycled_ticker,
+         IdentityResolver, "ticker_for_security", rewritten(IdentityResolver.ticker_for_security,
+             "return symbol if self.resolve(symbol, session) == security_id else None", "return symbol")),
+        ("opening_evidence_asset_identity_check_removed",
+         lambda: checked(identity_checks.test_opening_price_response_must_match_resolved_instruments, "asset"),
+         opening_sizing, "prices_for_plan", rewritten(opening_sizing.prices_for_plan,
+             "or dict(prices.broker_ids) != {sid: item.broker_id for sid, item in instruments.items()}", "or False")),
+        ("opening_duplicate_broker_assets_accepted",
+         lambda: identity_checks.test_opening_asset_ids_are_complete_unique_and_durable("duplicate"),
+         opening_prices.OpeningPrices, "__post_init__", rewritten(opening_prices.OpeningPrices.__post_init__,
+             "or len(set(self.broker_ids.values())) != len(self.broker_ids)", "or False")),
+        ("opening_submission_asset_substitution_accepted",
+         lambda: checked(identity_checks.test_submission_refuses_asset_id_change_since_opening, False),
+         targets, "_instrument_map", rewritten(targets._instrument_map,
+             "and resolved.broker_id != opening_prices.broker_ids[security_id]", "and False")),
+        ("opening_observed_exit_asset_substitution_accepted",
+         lambda: checked(identity_checks.test_submission_refuses_asset_id_change_since_opening, True),
+         targets, "_instrument_map", rewritten(targets._instrument_map,
+             "and current.broker_id != opening_prices.broker_ids[security_id]", "and False")),
+        ("full_pit_merge_parent_binding_removed",
+         lambda: graph_checked(checkout_checks.test_stale_or_wrong_merge_refuses, "base_advanced"),
+         checkout_checks, "evidence", rewritten(v5_checkout_evidence.evidence,
+             "if parents != [base, head]:", "if False:")),
+        ("full_pit_remote_base_freshness_removed",
+         lambda: graph_checked(checkout_checks.test_remote_change_during_replay_invalidates_acceptance, "base"),
+         checkout_checks, "verify_current_pr", rewritten(v5_checkout_evidence.verify_current_pr,
+             "if actual != expected:", "if False:")),
         ("published_signal_split_adjusted_twice",
          review_checks.test_abv_adjacent_split_rows_cannot_rescale_published_signal,
          SecuritySeries, "append", rewritten(SecuritySeries.append,

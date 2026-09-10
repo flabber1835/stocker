@@ -607,7 +607,12 @@
         2324,
         2394
       ],
-      "owner": "targets"
+      "owner": "targets",
+      "successor": {
+        "design": "docs/wealth-core-v5-ex3-v6-production.md",
+        "reason": "Use retained effective-session symbols and require the opening stable asset IDs before command transport.",
+        "ast_sha256": "232b7696aa82c66eeb2e18a1bb5c8a36dfc94816b3b4cbf592782416207b4f47"
+      }
     },
     "_latest_plan_or_refuse": {
       "introduced_by": "docs/wealth-core-v5-ex3-v6-production.md",

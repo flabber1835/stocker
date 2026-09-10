@@ -117,6 +117,16 @@ class IdentityResolver:
     def resolve(self, ticker: str, session: str) -> Optional[str]:
         return self.resolve_with_reason(ticker, session)[0]
 
+    def ticker_for_security(self, security_id: str, session: str) -> Optional[str]:
+        """Unique session-effective label whose forward mapping agrees."""
+        symbols = {ticker for ticker, listings in self._by_ticker.items()
+                   if any(item.permaticker == security_id and item.covers(session)
+                          for item in listings)}
+        if len(symbols) != 1:
+            return None
+        symbol = next(iter(symbols))
+        return symbol if self.resolve(symbol, session) == security_id else None
+
     def resolve_with_reason(self, ticker: str,
                             session: str) -> tuple[Optional[str], str]:
         """`(permaticker, reason)`. `reason` is "" on success.

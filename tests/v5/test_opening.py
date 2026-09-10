@@ -66,7 +66,8 @@ def prices(env, plan, *, price="100", sale_price="100"):
     required = opening_sizing.required_prices(env, plan)
     return OpeningPrices(plan.effective_session, opened, opened+timedelta(minutes=1),
         {sid: D(sale_price if sid == "SEC-X" else price) for sid in required},
-        {sid: target.tickers[sid] for sid in required})
+        {sid: target.tickers[sid] for sid in required},
+        {sid: 'asset-' + sid for sid in required})
 
 
 def base(env, plan, *, multipliers=None, evidence=()):

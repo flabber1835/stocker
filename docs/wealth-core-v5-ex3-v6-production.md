@@ -108,6 +108,14 @@ inherited opening audit records carried prices and leaves production's strict
 opening-equity result intact. A partial replay cannot produce a full-PIT PASS.
 Failures retain the first divergent session and concrete diagnostics.
 
+The full-PIT acceptance job runs on the pull-request synthetic merge and merge
+queue result. Checkout evidence binds the tested commit/tree and ordered
+base/head parents to the triggering event. Manual runs are diagnostic and carry
+a distinct check name. The acceptance result applies only to that merge tree;
+a changed base or head requires a new merge-result run before owner merge.
+At replay completion the PR gate re-reads the remote base, head, and merge refs;
+movement during the replay refuses acceptance and retains the diagnostics.
+
 ## Opening-time paper integration
 
 Opening sizing is part of the owner's V5 implementation instruction. Execution
@@ -128,6 +136,16 @@ minute completes and requires the exact XNYS opening timestamp, requested symbol
 identity, positive open and volume, and complete response coverage. Unavailable
 or malformed evidence defers execution. The read passes through the broker guard.
 The endpoint contract is [Alpaca historical bars](https://docs.alpaca.markets/us/reference/stockbars).
+
+Opening instruments use the unique published listing for each permanent
+security ID at the effective session. A decision-close ticker is a historical
+label. A rename preserves the security ID and accepts the effective-session
+symbol, including for a pending sale that funds entries. Missing, ambiguous,
+or recycled listing identity refuses the read. The adapter independently
+validates the returned permanent identity and stable asset ID. Typed retained
+price evidence includes the complete security/symbol/asset-ID mapping, and the
+submission instrument map must match those asset IDs. Recovery reuses that
+mapping and the persisted prices. Canonical state and dollar intent stay fixed.
 
 A pure execution projection resolves the canonical pending entries in slot
 order from the immutable shadow cash, due receivables and pending exit proceeds,

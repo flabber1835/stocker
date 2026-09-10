@@ -199,7 +199,7 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                             "_latest_plan_or_refuse", "_state_and_plan_or_refuse",
                             "_validate_broker_grant", "prepare_paper_plan",
                             "current_paper_plan", "_target_action_multipliers",
-                            "recover_automated_paper_cycle"},
+                            "recover_automated_paper_cycle", "_instrument_map"},
                     }
                     assert node.name in approved[successor["design"]]
                     assert successor["reason"]

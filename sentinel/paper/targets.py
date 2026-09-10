@@ -398,6 +398,16 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
     target = shadow_target(state)
     symbols = dict(target.tickers)
     symbols[DEFENSIVE_SECURITY_ID] = DEFENSIVE_SYMBOL
+    opening_prices = None
+    if plan.opening_intents and plan.target_exposure != 0:
+        from sentinel.execution.opening_prices import OpeningPrices
+        projection = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+        if (projection is None or projection.plan_fingerprint != plan.fingerprint()
+                or projection.opening_sizing is None
+                or projection.target_basket != desired):
+            raise PaperActivationRefused("opening instrument map requires the retained sizing projection")
+        opening_prices = OpeningPrices.from_dict(projection.opening_sizing.get("prices"))
+        symbols.update(opening_prices.symbols)
     meta = load_meta(conn)
     for security_id in desired:
         if security_id in meta:
@@ -433,6 +443,9 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
         # tradable status even when the asset is already held; yesterday's
         # stable id is identity evidence, not today's permission to buy.
         if current is not None and current.broker_id and not increasing:
+            if (opening_prices is not None and security_id in opening_prices.broker_ids
+                    and current.broker_id != opening_prices.broker_ids[security_id]):
+                raise PaperActivationRefused("observed instrument differs from opening broker asset identity")
             continue
         symbol = symbols.get(security_id) or (
             current.symbol if current is not None else None)
@@ -455,6 +468,9 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                 "did not return the requested permanent identity, symbol and "
                 "stable broker asset id")
         instruments[security_id] = resolved
+        if (opening_prices is not None and security_id in opening_prices.broker_ids
+                and resolved.broker_id != opening_prices.broker_ids[security_id]):
+            raise PaperActivationRefused("submission instrument differs from opening broker asset identity")
     if unresolved:
         raise PaperActivationRefused(
             "no certified broker instrument mapping for: "

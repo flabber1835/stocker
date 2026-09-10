@@ -21,6 +21,12 @@ from tests.sentinel.test_automation_runtime import config, production, reconcili
 from tests.sentinel.test_preopen_paper_gate import _install_recovery_harness
 
 
+def published_opening_identity(monkeypatch):
+    from sentinel.feed import universe
+    resolver = universe.IdentityResolver([universe.Listing('SEC-AAA', 'AAA')])
+    monkeypatch.setattr(universe, 'load_resolver', lambda *a, **k: resolver)
+
+
 @pytest.mark.parametrize('dual', [False, True])
 def test_filled_open_sized_entry_converges(monkeypatch, dual):
     env, plan = case()
@@ -52,6 +58,7 @@ def test_finalization_preserves_split_authority_for_opening_entry():
 
 @pytest.mark.parametrize('status', [429, 503])
 def test_opening_asset_lookup_transient_failure_is_retryable(monkeypatch, status):
+    published_opening_identity(monkeypatch)
     env, plan = case()
     monkeypatch.setattr(opening_sizing, 'load_projection', lambda *a, **k: None)
     class Broker:
@@ -165,6 +172,7 @@ def test_unsent_opening_recovery_returns_to_sizing_or_supersedes(monkeypatch, cl
 
 @pytest.mark.parametrize('status', [401, 403, 404, 422])
 def test_opening_asset_lookup_permanent_error_stays_terminal(monkeypatch, status):
+    published_opening_identity(monkeypatch)
     env, plan = case()
     monkeypatch.setattr(opening_sizing, 'load_projection', lambda *a, **k: None)
     class Broker:
@@ -179,6 +187,7 @@ def test_opening_asset_lookup_permanent_error_stays_terminal(monkeypatch, status
 
 
 def test_opening_asset_lookup_timeout_retries_and_authority_refusal_propagates(monkeypatch):
+    published_opening_identity(monkeypatch)
     from sentinel.execution.guarded import BrokerAuthorityRefused
     env, plan = case()
     monkeypatch.setattr(opening_sizing, 'load_projection', lambda *a, **k: None)
