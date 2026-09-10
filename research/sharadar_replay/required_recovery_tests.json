@@ -1,0 +1,19 @@
+{
+  "schema": "sharadar-replay-required-recovery-tests/1",
+  "required_tests": [
+    "research/sharadar_replay/tests/test_recovery_regressions.py::test_mixed_sep_then_sfp_failures_converge_on_next_clean_daily",
+    "research/sharadar_replay/tests/test_recovery_regressions.py::test_partial_sfp_retry_stays_failed_and_next_clean_daily_converges[next_day]",
+    "research/sharadar_replay/tests/test_recovery_regressions.py::test_partial_sfp_retry_stays_failed_and_next_clean_daily_converges[same_day]",
+    "research/sharadar_replay/tests/test_recovery_regressions.py::test_disabled_same_day_reference_guard_is_killed",
+    "research/sharadar_replay/tests/test_recovery_regressions.py::test_persistent_unresolved_split_replays_historical_sep_only_once",
+    "research/sharadar_replay/tests/test_recovery_authority.py::test_same_day_guard_falsifier_reaches_missing_bil",
+    "research/sharadar_replay/tests/test_recovery_authority.py::test_injected_seed_retains_its_explicit_source_contract",
+    "research/sharadar_replay/tests/test_recovery_authority.py::test_empty_marker_ledger_does_not_require_a_prior_publication",
+    "research/sharadar_replay/tests/test_recovery_authority.py::test_existing_markers_still_require_published_authority",
+    "research/sharadar_replay/tests/test_recovery_authority.py::test_old_blocker_cannot_earn_completed_replay_authority",
+    "research/sharadar_replay/tests/test_recovery_authority.py::test_evaluated_unchanged_economics_replay_once",
+    "research/sharadar_replay/tests/test_recovery_authority.py::test_price_correction_earns_new_replay_with_same_disposition",
+    "research/sharadar_replay/tests/test_recovery_authority.py::test_legacy_marker_must_reearn_source_binding",
+    "research/sharadar_replay/tests/test_recovery_authority.py::test_broken_price_binding_is_killed"
+  ]
+}
