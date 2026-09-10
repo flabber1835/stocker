@@ -37,6 +37,7 @@ from __future__ import annotations
 import importlib.util
 import json
 import os
+import shlex
 import subprocess
 import sys
 from pathlib import Path
@@ -329,7 +330,11 @@ class TestTheResolver:
                            capture_output=True, text=True, cwd=str(REPO),
                            env=dict(os.environ, SENTINEL_FORCE_CPU_LIMITS="1",
                                     SENTINEL_BACKUP_DIR="/backup"))
-        assert r.stdout.strip().startswith("-f ")
+        args = shlex.split(r.stdout)
+        assert args[:4] == ["--project-name", "sentinel", "--project-directory",
+                            str(REPO.resolve())]
+        assert args[4:] == ["-f", "docker-compose.sentinel.yml", "-f",
+                            "docker-compose.sentinel-backup.yml"]
         assert "\n" not in r.stdout.strip()
 
     @pytest.mark.parametrize("entry", ["Makefile", "scripts/sentinel-certify.sh",
@@ -452,7 +457,7 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
         r = subprocess.run([BASH, str(RESOLVER)], capture_output=True,
                            text=True, cwd=str(REPO), env=env)
         assert r.returncode == 0, r.stderr
-        return r.stdout.strip().split()
+        return shlex.split(r.stdout)
 
     @staticmethod
     def generated_args():
@@ -465,25 +470,26 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
                            capture_output=True, text=True, cwd=str(REPO))
         assert r.returncode == 0, r.stderr
         body = RESOLVER.read_text()
-        assert 'COMPOSE_ARGS=(--project-directory "$(pwd -P)"' in body
-        return ["--project-directory", str(REPO), "-f",
-                out.relative_to(REPO).as_posix(), "-f",
-                "docker-compose.sentinel-backup.yml"]
+        assert 'FIXED_COMPOSE=(--project-name sentinel --project-directory "$(pwd -P)")' in body
+        assert 'COMPOSE_ARGS=("${FIXED_COMPOSE[@]}" -f "$GENERATED" -f "$BACKUP")' in body
+        return ["--project-name", "sentinel", "--project-directory",
+                str(REPO.resolve()), "-f", out.relative_to(REPO).as_posix(),
+                "-f", "docker-compose.sentinel-backup.yml"]
 
     def test_the_script_emits_project_directory_with_a_NON_ROOT_file(self):
         """Structural, and always runs."""
         code = "\n".join(l for l in RESOLVER.read_text().splitlines()
                          if not l.strip().startswith("#"))
-        tail = code[code.index("COMPOSE_ARGS=(--project-directory"):]
+        tail = code[code.index("FIXED_COMPOSE=(--project-name sentinel --project-directory"):]
         assert "--project-directory" in tail, (
             "the generated file is emitted without --project-directory, so "
             "compose resolves `build: context: .` and the implicit .env "
             "against artifacts/compose/ instead of the repository root")
+        assert "--project-name sentinel" in tail
 
-    def test_the_canonical_branch_needs_no_flag(self):
-        """It sits at the repo root, so the default is already correct. A flag
-        there would be noise pretending to be safety."""
+    def test_the_canonical_branch_is_bound_to_project_and_root(self):
         assert self.resolver_args(force="1") == [
+            "--project-name", "sentinel", "--project-directory", str(REPO.resolve()),
             "-f", "docker-compose.sentinel.yml", "-f",
             "docker-compose.sentinel-backup.yml"]
 
@@ -495,8 +501,8 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
         import shutil
         generated = self.generated_args()
         if shutil.which("docker") is None:
-            assert generated[0] == "--project-directory"
-            assert Path(generated[1]) == REPO
+            assert generated[:4] == [
+                "--project-name", "sentinel", "--project-directory", str(REPO.resolve())]
             return
 
         env = dict(os.environ, SENTINEL_POSTGRES_PASSWORD="probe",
@@ -510,7 +516,8 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
                 pytest.fail(f"docker compose config failed for {args}: {r.stderr}")
             return yaml.safe_load(r.stdout)
 
-        a = resolved(["-f", "docker-compose.sentinel.yml", "-f",
+        a = resolved(["--project-name", "sentinel", "--project-directory",
+                      str(REPO.resolve()), "-f", "docker-compose.sentinel.yml", "-f",
                       "docker-compose.sentinel-backup.yml"])
         b = resolved(generated)
         for name in a["services"]:
@@ -534,7 +541,7 @@ class TestTheGeneratedFileKeepsTheREPOAsProjectDirectory:
         import shutil
         generated = self.generated_args()
         if shutil.which("docker") is None:
-            assert Path(generated[1]) == REPO
+            assert Path(generated[3]) == REPO.resolve()
             return
         env = dict(os.environ, SENTINEL_POSTGRES_PASSWORD="from-the-env",
                    SENTINEL_BACKUP_DIR="/backup")

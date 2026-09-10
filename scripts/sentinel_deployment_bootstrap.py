@@ -33,6 +33,12 @@ import sys
 import time
 from typing import Callable, Dict, Iterator, Mapping, Optional, Sequence
 
+# Resolve identically as a direct host script and in the isolated test lens.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+import sentinel_env
+
 
 ROOT = Path(__file__).resolve().parents[1]
 ENV_PATH = ROOT / ".env"
@@ -51,7 +57,6 @@ SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS = "SAFE_RECEIPT_POLICY_WITHOUT_RECEIPTS"
 SAFE_VERIFIED_PRE_RECEIPT_DATABASE = "SAFE_VERIFIED_PRE_RECEIPT_DATABASE"
 AUTHENTICATED_RECEIPTS_EXIST = "AUTHENTICATED_RECEIPTS_EXIST"
 
-_ENV_KEY = re.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 _PLACEHOLDER = re.compile(
     r"^(replace-with-.*|your_.*_here|changeme|xxx+|todo|<.*>|\.\.\.)$", re.I)
 
@@ -60,51 +65,12 @@ class BootstrapRefused(RuntimeError):
     pass
 
 
-def _decode_value(raw: str) -> str:
-    value = str(raw).strip()
-    if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-        quote = value[0]
-        value = value[1:-1]
-        if quote == '"':
-            value = value.replace('\\"', '"').replace("\\\\", "\\")
-        return value
-    return re.split(r"\s+#", value, maxsplit=1)[0].rstrip()
-
-
 def _parse_env(path: Path) -> Dict[str, str]:
+    """Use the canonical bounded, literal environment parser."""
     try:
-        entry = path.lstat()
-    except FileNotFoundError as exc:
-        raise BootstrapRefused(
-            ".env is missing; create the normal Sentinel environment first") from exc
-    if stat.S_ISLNK(entry.st_mode) or not stat.S_ISREG(entry.st_mode):
-        raise BootstrapRefused(".env must be a regular non-symlink file")
-    try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except (OSError, UnicodeError) as exc:
-        raise BootstrapRefused(".env is unreadable") from exc
-
-    values: Dict[str, str] = {}
-    seen_receipt = 0
-    for raw in lines:
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            continue
-        key, value = line.split("=", 1)
-        key = key.strip()
-        if _ENV_KEY.fullmatch(key) is None:
-            continue
-        if key == RECEIPT_KEY:
-            seen_receipt += 1
-        values[key] = _decode_value(value)
-    if seen_receipt > 1:
-        raise BootstrapRefused(
-            "%s appears more than once in .env" % RECEIPT_KEY)
-    return values
+        return sentinel_env.load(path, required=True)
+    except sentinel_env.EnvRefused as exc:
+        raise BootstrapRefused(str(exc)) from None
 
 
 def _usable_key(value: object) -> bool:
@@ -423,8 +389,8 @@ def _atomic_set_key(path: Path, generated: str) -> str:
     if stat.S_ISLNK(entry.st_mode) or not stat.S_ISREG(entry.st_mode):
         raise BootstrapRefused(".env changed to an unsafe file type")
     try:
-        original_text = path.read_text(encoding="utf-8")
-    except (OSError, UnicodeError) as exc:
+        original_text = sentinel_env.read_bytes(path, required=True).decode("utf-8-sig")
+    except (OSError, UnicodeError, sentinel_env.EnvRefused) as exc:
         raise BootstrapRefused(".env became unreadable during deployment bootstrap") from exc
 
     concurrent = _current_file_key(path)
@@ -441,7 +407,7 @@ def _atomic_set_key(path: Path, generated: str) -> str:
     replaced = False
     for raw in lines:
         stripped = raw.strip()
-        candidate = stripped[7:].lstrip() if stripped.startswith("export ") else stripped
+        candidate = re.sub(r"^export[ \t]+", "", stripped)
         name = candidate.split("=", 1)[0].strip() if "=" in candidate else None
         if name == RECEIPT_KEY:
             if replaced:
@@ -473,8 +439,8 @@ def _atomic_set_key(path: Path, generated: str) -> str:
         if stat.S_ISLNK(current_entry.st_mode) or not stat.S_ISREG(current_entry.st_mode):
             raise BootstrapRefused(".env changed to an unsafe file type")
         try:
-            current_text = path.read_text(encoding="utf-8")
-        except (OSError, UnicodeError) as exc:
+            current_text = sentinel_env.read_bytes(path, required=True).decode("utf-8-sig")
+        except (OSError, UnicodeError, sentinel_env.EnvRefused) as exc:
             raise BootstrapRefused(
                 ".env became unreadable immediately before key commit") from exc
         if current_text != original_text:
@@ -542,13 +508,16 @@ def ensure_publication_receipt_key(
             Callable[[Mapping[str, str]], str]] = None,
         allow_verified_pre_receipt: bool = False) -> str:
     values = _parse_env(path)
+    try:
+        probe_env = sentinel_env.merge(values, os.environ)
+        sentinel_env.validate(probe_env, profile="bootstrap")
+    except sentinel_env.EnvRefused as exc:
+        raise BootstrapRefused(str(exc)) from None
     configured = _configured_key(values)
     if configured is not None:
         return "PRESENT_EXTERNAL" if RECEIPT_KEY in os.environ else "PRESENT_FILE"
 
     generated = secrets.token_hex(MIN_KEY_BYTES)
-    probe_env = dict(values)
-    probe_env.update(os.environ)
     # Candidate exists only so Compose can resolve the graph. sentinel-postgres
     # does not consume publication-receipt authority.
     probe_env[RECEIPT_KEY] = generated

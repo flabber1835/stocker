@@ -72,7 +72,10 @@ def test_wal_archive_contract_requires_verified_atomic_durable_publication():
     assert 'sync "$temporary"' in text
     assert 'mv -T --no-clobber -- "$temporary" "$target"' in text
     assert 'sync "$archive_dir"' in text
-    assert text.index('sync "$temporary"') < text.index("mv -T --no-clobber")
+    assert text.index('sync "$temporary"') < text.index(
+        'mv -T --no-clobber -- "$temporary" "$target"')
+    assert text.index('sync "$checksum_temporary"') < text.index(
+        'mv -T --no-clobber -- "$checksum_temporary" "$checksum_target"')
     assert text.index("mv -T --no-clobber") < text.rindex('sync "$archive_dir"')
 
 
@@ -460,7 +463,7 @@ def test_supported_compose_wrapper_always_includes_backup_and_preserves_refusal(
     resolver = _read("scripts/sentinel-compose.sh")
     assert 'BACKUP="docker-compose.sentinel-backup.yml"' in resolver
     assert "sentinel_backup_root >/dev/null" in resolver
-    assert 'exec docker compose "${COMPOSE_ARGS[@]}" "$@"' in resolver
+    assert 'exec docker --context default compose "${COMPOSE_ARGS[@]}" "$@"' in resolver
     for relative in ("Makefile", "scripts/sentinel-measure.sh",
                      "docs/sentinel-paper-activation.md"):
         assert "sentinel-compose.sh --run" in _read(relative), relative

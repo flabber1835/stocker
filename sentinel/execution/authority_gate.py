@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping, Protocol
 
+from sentinel import backup_runtime_authority
 from sentinel.authority import (
     AuthorityRefused,
     PAPER_OBSERVATION_ONLY,
@@ -311,6 +312,9 @@ def build_fresh_execution_guard(
         assert_paper_url(paper_base_url)
         with closing(connection_factory()) as conn:
             try:
+                if operation not in _READ_OPERATIONS:
+                    backup_runtime_authority.require(
+                        conn, operation=f"broker {operation.value} mutation")
                 validate_grant(conn, grant, operation, result)
                 rollout = load_rollout_state(conn)
                 current = publication.require_current(conn)

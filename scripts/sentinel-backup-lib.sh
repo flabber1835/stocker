@@ -239,6 +239,21 @@ sentinel_backup_root() {
     return 2
   done
 
+  if [ "$initialize_markers" -eq 1 ]; then
+    # Explicit provisioning upgrades only the retained metadata read grant.
+    # WAL integrity evidence is never synthesized from retained bytes: doing so
+    # could bless pre-existing same-size corruption. The upgraded archive command
+    # creates SHA-256 evidence as each immutable source WAL is archived; create a
+    # fresh base backup before relying on checksum-backed runtime authority.
+    docker run --rm -i --network none \
+      -v "$root/base:/probe" --entrypoint sh \
+      "$SENTINEL_BACKUP_POSTGRES_IMAGE" -s -- /probe \
+      < "$(dirname "${BASH_SOURCE[0]}")/sentinel-backup-metadata-access.sh" || {
+        echo "REFUSED: could not provision runtime backup metadata access" >&2
+        return 2
+      }
+  fi
+
   printf '%s\n' "$root"
 }
 

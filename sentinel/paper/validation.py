@@ -15,6 +15,7 @@ from typing import Mapping, Optional
 from zoneinfo import ZoneInfo
 
 from sentinel import (
+    backup_runtime_authority,
     binding as binding_mod,
     dual_plan_authority,
     identity as system_identity,
@@ -86,6 +87,16 @@ from .model import (
     PaperActivationRefused,
     PaperRetryableRefused,
 )
+
+def _require_mutation_backup(conn, *, operation: str) -> None:
+    """Require a complete current restore horizon before new paper mutation."""
+    try:
+        backup_runtime_authority.require(conn, operation=operation)
+    except backup_runtime_authority.BackupRuntimeUnavailable as exc:
+        raise PaperRetryableRefused(str(exc)) from exc
+    except backup_runtime_authority.BackupRuntimeRefused as exc:
+        raise PaperActivationRefused(str(exc)) from exc
+
 
 def _assert_concordance_witness_authority(
         state: SessionState, authorization_mode: str) -> None:

@@ -77,12 +77,13 @@ _TRANSITIONS: Mapping[CommandState, frozenset] = {
                                S.CANCELLED, S.REJECTED, S.UNKNOWN}),
 
     # UNKNOWN resolves ONLY by observation, and it can resolve to anything the
-    # broker turns out to be holding — including CANCELLED, which here means
-    # "a COMPLETE observation shows no such order and no fill attributable to
-    # it", i.e. the command never landed. It may NOT go to SUPERSEDED: replacing
-    # intent whose outcome is undetermined is how you end up holding two.
+    # broker turns out to be holding — including a cancellation already in
+    # flight. CANCELLED here may also mean a COMPLETE observation shows no such
+    # order and no fill attributable to it, i.e. the command never landed. It
+    # may NOT go to SUPERSEDED: replacing intent whose outcome is undetermined
+    # is how you end up holding two.
     S.UNKNOWN: frozenset({S.ACKNOWLEDGED, S.PARTIALLY_FILLED, S.FILLED,
-                          S.CANCELLED, S.REJECTED}),
+                          S.CANCEL_PENDING, S.CANCELLED, S.REJECTED}),
 
     # Self-edge is legitimate and load-bearing: each new partial is a distinct
     # economic event that moves the remaining delta.
@@ -114,7 +115,7 @@ def assert_transition(current: CommandState, nxt: CommandState) -> CommandState:
 
 
 def _why_not(current: CommandState, nxt: CommandState) -> str:
-    """Name the hazard, not just the rule. A caller hitting this is about to do
+    """Name the hazard, not just the rule. A caller hitting one is about to do
     something that loses money, and the message is where they find out why."""
     if current is S.UNKNOWN and nxt is S.SUPERSEDED:
         return ("A command whose outcome is UNDETERMINED cannot be superseded — "

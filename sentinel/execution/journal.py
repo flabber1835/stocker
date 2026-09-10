@@ -40,6 +40,7 @@ from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from typing import Iterable, Optional, Sequence
 
+from sentinel import backup_runtime_authority
 from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerFill, BrokerInstrument, BrokerObservation, Side)
@@ -89,12 +90,16 @@ class JournalUnitOfWork:
 
 
 @contextmanager
-def writer_lock(conn):
+def writer_lock(conn, *, recovery_only: bool = False):
     """Exclusive write access, or refuse.
 
     `pg_try_advisory_lock`, not `pg_advisory_lock`: blocking would turn "another
     writer exists" into "this process hangs forever", and a hung trading
     appliance is harder to diagnose than one that says why it stopped.
+
+    New mutations require the complete restore horizon. The explicit recovery
+    scope is reserved for broker-observation journals and scheduler leases;
+    nested ordinary writer locks independently enforce the mutation gate.
     """
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_lock(%s)", (WRITER_LOCK_KEY,))
@@ -105,6 +110,9 @@ def writer_lock(conn):
             "One appliance controls one account and there is exactly one "
             "writer; a second would race every command it creates.")
     try:
+        if not recovery_only:
+            backup_runtime_authority.require(
+                conn, operation="plan/execution writer mutation")
         yield
     except BaseException:
         # Never let the housekeeping commit in ``finally`` make a caller's

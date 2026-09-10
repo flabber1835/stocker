@@ -103,6 +103,9 @@ def status(conn) -> BackupGuardStatus:
             "PostgreSQL archive clock is unavailable; refusing new mutation")
     last_ok = _aware(last_ok)
     last_fail = _aware(last_fail)
+    if any(value is not None and value > database_now for value in (last_ok, last_fail)):
+        raise BackupConfigurationRefused(
+            "PostgreSQL archive timestamp is in the future; refusing new mutation")
     failed_count = int(failed_count or 0)
     age = (None if last_ok is None else max(
         0, int((database_now - last_ok).total_seconds())))
@@ -181,7 +184,14 @@ def _exact_archived_file(conn, wal_name: str) -> tuple[int | None, int]:
     if _WAL_NAME.fullmatch(str(wal_name)) is None:
         raise BackupConfigurationRefused(
             "external WAL probe target name is malformed")
-    path = f"{BACKUP_WAL_MOUNT}/{wal_name}"
+    from sentinel.backup_runtime_authority import (
+        BackupRuntimeRefused, current_system_id,
+    )
+    try:
+        system_id = current_system_id(conn)
+    except BackupRuntimeRefused as exc:
+        raise BackupConfigurationRefused(str(exc)) from exc
+    path = f"{BACKUP_WAL_MOUNT}/cluster-{system_id}/{wal_name}"
     try:
         with conn.cursor() as cur:
             cur.execute(

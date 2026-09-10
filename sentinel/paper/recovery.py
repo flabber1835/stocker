@@ -138,7 +138,7 @@ async def recover_automated_paper_cycle(
         journal.require_observation_integrity(conn)
     except journal.ObservationEvidenceUncertifiable as exc:
         raise PaperActivationRefused(str(exc)) from exc
-    with journal.writer_lock(conn):
+    with journal.writer_lock(conn, recovery_only=True):
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)

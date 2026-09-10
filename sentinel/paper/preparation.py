@@ -113,6 +113,7 @@ from .inspection import (
 )
 
 from .validation import (
+    _require_mutation_backup,
     _assert_concordance_witness_authority,
     _hash,
     _readiness_or_refuse,
@@ -261,6 +262,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                              dual_shadow_starting_cash: Decimal | str | None = None,
                              ) -> PreparationResult:
     """Advance and adopt one current plan without any broker mutation."""
+    _require_mutation_backup(conn, operation="paper plan preparation")
     assert_paper_url(base_url)
     _require_certified_paper_broker(broker)
     schema.require_runtime_schema(conn)

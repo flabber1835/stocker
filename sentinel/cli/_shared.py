@@ -149,8 +149,8 @@ def authorized_handler(command: str):
 def paper_refusal_types() -> tuple[type[BaseException], ...]:
     """Safety refusals reported as an operator checkpoint, not a traceback."""
     from sentinel import (
-        authority, binding as binding_mod, empty_account, handover, paper,
-        schema,
+        authority, backup_guard, binding as binding_mod, empty_account,
+        handover, paper, schema,
     )
     from sentinel.automation import model as automation_model
     from sentinel.controller import frozen_rule
@@ -161,6 +161,7 @@ def paper_refusal_types() -> tuple[type[BaseException], ...]:
     from sentinel.feed import calendar, publication
 
     return (
+        backup_guard.BackupWriteFenced,
         schema.SchemaMigrationRefused,
         paper.PaperActivationRefused,
         automation_model.AutomationRefused,

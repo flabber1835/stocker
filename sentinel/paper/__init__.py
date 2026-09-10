@@ -25,6 +25,7 @@ from .execution import (
 )
 from .recovery import recover_automated_paper_cycle
 
+
 __all__ = [
     "DEFENSIVE_SYMBOL",
     "ExecutionResult",

@@ -407,6 +407,14 @@ a complete observation shows no such order AND    → CANCELLED-equivalent:
 The second requires a *complete* observation (§5.2). An observation that admits
 it may be truncated cannot resolve an `UNKNOWN`.
 
+Positive account-bound evidence may resolve `UNKNOWN` to `CANCEL_PENDING`
+when the broker reports a cancellation already in progress. This records the
+existing order's lifecycle and preserves its client key, broker id, quantity,
+and cumulative fill. It does not request cancellation. The command continues
+to block overlapping work until positive terminal evidence resolves it, and a
+fill may still win the cancellation race. An exact-key 404 cannot erase a
+matching order in the account-bound observation.
+
 ### 3.4 Cancellation is confirmed by observation
 
 Carried forward from `sentinel/ownership.py`, which learned it the hard way on

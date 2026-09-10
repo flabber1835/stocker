@@ -102,7 +102,7 @@ def test_137_candidate_survives_more_than_five_minutes_of_build_time(
 
 def test_149_emergency_wrapper_reaches_postgres_and_fences_live_lease(
         pg, tmp_path):
-    """Exercise host wrapper -> CLI -> real PostgreSQL with unrelated env absent."""
+    """Exercise host wrapper -> direct SQL fence -> real PostgreSQL."""
     conn = feed_store.connect(pg.sync_dsn)
     drop_public_tables(conn)
     schema.ensure_schema(conn)
@@ -131,9 +131,14 @@ def test_149_emergency_wrapper_reaches_postgres_and_fences_live_lease(
     docker = fakebin / "docker"
     docker.write_text(
         "#!/usr/bin/env bash\n"
-        "exec \"$SENTINEL_TEST_PYTHON\" -m sentinel "
-        "engage-paper-automation-kill-switch "
-        "--actor operator --reason emergency\n")
+        "if [ \"$1\" = --context ] && [ \"$2\" = default ] && "
+        "[ \"$3\" = ps ]; then echo pg-test; exit 0; fi\n"
+        "if [ \"$1\" = --context ] && [ \"$2\" = default ] && "
+        "[ \"$3\" = exec ]; then\n"
+        "  exec psql \"$SENTINEL_DATABASE_URL\" -X -v ON_ERROR_STOP=1 "
+        "-v actor=operator -v reason=emergency -At\n"
+        "fi\n"
+        "exit 91\n")
     docker.chmod(0o755)
 
     env = os.environ.copy()
@@ -158,7 +163,7 @@ def test_149_emergency_wrapper_reaches_postgres_and_fences_live_lease(
              "--actor", "operator", "--reason", "emergency"],
             cwd=REPO, env=env, check=True, text=True,
             capture_output=True)
-        assert '"kill_switch_engaged": true' in result.stdout
+        assert "automation_kill_engaged:true" in result.stdout
 
         conn.rollback()
         fenced = automation_store.load_control(conn)

@@ -10,6 +10,9 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
   exit 2
 }
 
+. scripts/sentinel-env.sh
+sentinel_load_environment --profile maintenance
+
 . scripts/sentinel-backup-lib.sh
 BACKUP_ROOT="$(sentinel_backup_root)"
 export SENTINEL_BASE_BACKUP_LOCK_ROOT="$BACKUP_ROOT"
@@ -165,6 +168,10 @@ done
 ${COMPOSE[@]} exec -T sentinel-postgres \
   test -f "/sentinel-backup/base/$STAGING/sentinel-recovery-marker" || {
   echo "REFUSED: marker WAL $MARKER_WAL was not archived in $WAL_NAMESPACE" >&2; exit 4; }
+
+# Grant only the PostgreSQL runtime's four metadata reads before promotion.
+${COMPOSE[@]} exec -T sentinel-postgres sh -s -- /sentinel-backup/base "$STAGING" \
+  < scripts/sentinel-backup-metadata-access.sh
 
 ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
   staging="$1" final="$2"
