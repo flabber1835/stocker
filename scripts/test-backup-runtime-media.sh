@@ -5,11 +5,11 @@ cd "$(dirname "$0")/.."
 source_root="$PWD"
 image="postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b"
 work="$(mktemp -d /tmp/sentinel-runtime-media.XXXXXXXX)"
-repo="$work/repo"
+repo="$work/backup-runtime-${work##*.}"
 export SENTINEL_BACKUP_DIR="$work/media"
 export SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1
-export COMPOSE_PROJECT_NAME="backup-runtime-${work##*.}"
-COMPOSE_PROJECT_NAME="${COMPOSE_PROJECT_NAME,,}"
+export SENTINEL_POSTGRES_PASSWORD=synthetic-runtime-probe
+export SENTINEL_PUBLICATION_RECEIPT_KEY=synthetic-runtime-media-receipt-key-0123456789abcdef
 export PYTHONPATH="$source_root"
 export SENTINEL_HOST_PYTHON="${SENTINEL_HOST_PYTHON:-python3}"
 compose=(docker compose --project-directory "$repo" -f "$repo/docker-compose.sentinel.yml"
@@ -27,7 +27,8 @@ trap cleanup EXIT
 mkdir -p "$repo/scripts" "$work/socket" "$SENTINEL_BACKUP_DIR"/{base,wal}
 for name in sentinel-base-backup.sh sentinel-backup-status.sh sentinel-backup-lib.sh \
             sentinel-backup-metadata-access.sh sentinel-backup-verify-chain.sh \
-            sentinel-archive-wal.sh sentinel_host_python.py sentinel_backup_lock.py; do
+            sentinel-archive-wal.sh sentinel_host_python.py sentinel_backup_lock.py \
+            sentinel-env.sh sentinel_env.py; do
   cp "scripts/$name" "$repo/scripts/$name"
 done
 cp docker-compose.sentinel-backup.yml "$repo/"
