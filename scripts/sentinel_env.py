@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import argparse
 from decimal import Decimal, InvalidOperation
+from ipaddress import IPv6Address
 import os
 from pathlib import Path
 import re
@@ -443,6 +444,8 @@ def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> No
             try:
                 parsed = urlparse(value)
                 port = parsed.port
+                if "[" in parsed.netloc:
+                    IPv6Address(parsed.hostname)
                 valid_url = (parsed.scheme == "https" and bool(parsed.hostname)
                              and not parsed.username and not parsed.password
                              and (port is None or 1 <= port <= 65535))

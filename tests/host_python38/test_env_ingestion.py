@@ -733,12 +733,29 @@ class EnvHarness(unittest.TestCase):
                             SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL=url))
             for launcher in launchers:
                 with self.subTest(case=index, launcher=launcher):
+                    (self.root / "effects").unlink(missing_ok=True)
                     result = self.run_shell(launcher, process, "ps")
                     self.assertEqual(result.returncode, 2)
                     self.assertIn("INVALID_ALERT_WEBHOOK_URL", result.stderr)
                     self.assertNotIn("Traceback", result.stderr)
                     self.assertNotIn(CANARY, result.stdout + result.stderr)
                     self.assertFalse((self.root / "effects").exists())
+
+    def test_webhook_bracketed_hosts_are_validated_independently_of_url_parser(self):
+        # Python 3.8 accepts these authorities; newer urllib versions reject them.
+        parsed = env.urlparse("https://alerts.example.invalid/hook")
+        for hostname in (CANARY, "127.0.0.1", "2001:db8::zz"):
+            with self.subTest(hostname=hostname):
+                authority = "[" + hostname + "]"
+                candidate = dict(BASE, SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL=
+                                 "https://" + authority + "/hook")
+                with mock.patch.object(env, "urlparse", return_value=
+                                       parsed._replace(netloc=authority)):
+                    with self.assertRaisesRegex(env.EnvRefused,
+                                                "INVALID_ALERT_WEBHOOK_URL") as raised:
+                        env.validate(candidate, profile="install")
+                self.assertIsNone(raised.exception.__context__)
+                self.assertNotIn(hostname, str(raised.exception))
 
     def test_webhook_url_valid_ports_and_ipv6_remain_literal(self):
         for url in ("https://alerts.example.invalid/hook",
