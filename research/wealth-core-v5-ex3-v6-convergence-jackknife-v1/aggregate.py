@@ -111,6 +111,7 @@ def aggregate_side(xs: list[dict], side: str) -> dict:
     path_amps = np.array([x.get(f"{side}_path_amplification", np.nan) for x in xs], float)
     econ_amps = np.array([x.get(f"{side}_economic_amplification", np.nan) for x in xs], float)
     post = np.array([x[side].get("post_excluded_gone_divergence_fraction", np.nan) for x in xs], float)
+    median_path_amp = float(np.nanmedian(path_amps)) if np.isfinite(path_amps).any() else None
     return {
         "cases": len(xs),
         "median_abs_cagr_delta_pp": float(np.median(ac) * 100),
@@ -121,7 +122,8 @@ def aggregate_side(xs: list[dict], side: str) -> dict:
         "median_allocation_divergence_fraction": float(np.median(fr)),
         "never_20_session_reconverged": int(sum(x[side]["never_20_session_reconverged"] for x in xs)),
         "not_terminally_reconverged": int(sum(not x[side]["terminally_reconverged"] for x in xs)),
-        "median_path_amplification": float(np.nanmedian(path_amps)) if np.isfinite(path_amps).any() else None,
+        "median_path_amplification": median_path_amp,
+        "median_amplification": median_path_amp,
         "median_economic_amplification": float(np.nanmedian(econ_amps)) if np.isfinite(econ_amps).any() else None,
         "first_divergence_after_excluded_security_gone": int(sum(x[side].get("first_divergence_after_excluded_security_gone", False) for x in xs)),
         "median_post_excluded_gone_divergence_fraction": float(np.nanmedian(post)) if np.isfinite(post).any() else None,
