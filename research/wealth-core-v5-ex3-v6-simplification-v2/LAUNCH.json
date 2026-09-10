@@ -1,0 +1,19 @@
+{
+  "schema": "research.simplification-round2-launch/1",
+  "authorized_by": "User: store simplified strategy code and run next simplification experiments with 10 slots",
+  "additional_full_pit_starts": 10,
+  "prior_consumed_starts": 11,
+  "cumulative_ceiling": 21,
+  "preregistered_commit": "fd8bfde4c695fe00afce0b13dbd6484e84b55749",
+  "validated_tree": "66165b37f5511f961773ac53f0a0976a5c971db6",
+  "stored_reference_commit": "86570f5e8874bcc3ac6dccdaf8223a184b7dfccd",
+  "stored_source_sha256": "26b99f4a5f7fefc9d295479cc604e85a761db64cc5416664145fdd1b94b72939",
+  "reference_run": 34441488484,
+  "original_comparator_run": 34436432038,
+  "baseline_first": true,
+  "automatic_replay_retries": false,
+  "slot_claim_prefix": "refs/heads/research-budget/simplification-v2/slot-",
+  "publish_generated_sources": true,
+  "tracking_issue": 349,
+  "pull_request": 350
+}
