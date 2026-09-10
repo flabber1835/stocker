@@ -69,11 +69,12 @@ test oracle and is never imported by production.
   profile. Durable accumulators and 260 sessions of input history are retained.
   Published split-adjusted, dividend-unadjusted closes supply the exact signal
   basis; raw prices and raw-compatible volume retain their execution domains.
-  The first published signal basis becomes the owned basis. If a declared split
-  coincides with the vendor rebasing its adjusted series, a durable vendor-to-
-  owned multiplier converts subsequent signal observations into that original
-  basis. This conversion changes neither raw fills nor dividend entitlements;
-  it prevents an existing peak from being compared to a newly rebased close.
+  The frozen reference consumes each published signal close directly. Corporate
+  actions transform raw share quantities; they cannot infer an additional
+  multiplier on that already-adjusted signal. The prior port inferred a rebase
+  from adjacent split rows (ABV, 2013-11-11/12) and changed 7.44 into 37.20. That
+  inference is removed. Restart state with a non-unit inferred multiplier is
+  refused and must be reconstructed from the published input history.
 * Sentinel breadth uses residual returns against SPY over the previous 252
   sessions, excludes the current return, requires 120 joint observations, and
   selects at most three peers at correlation >= 0.145. The security itself is

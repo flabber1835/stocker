@@ -299,6 +299,10 @@ class SecuritySeries:
 
     def append(self, bar: VendorBar, session_index: int = -1, *,
                published_signal: bool = False) -> None:
+        if published_signal and self.vendor_basis_multiplier != 1.0:
+            raise FeedError(
+                "published-signal history contains an inferred vendor basis; "
+                "reconstruct from the published input history")
         # The TICKER tracks the bar; the SECURITY_ID never does. A ticker is an
         # observation label that can be reassigned on a rename, so the series
         # carries the CURRENT one — a series that froze the ticker at creation
@@ -314,22 +318,17 @@ class SecuritySeries:
         if published_signal and _positive(bar.raw_close):
             if not _positive(bar.signal_close):
                 raise FeedError("Median-5 requires a published signal-domain close")
-            observed_factor = (float(bar.signal_close) * self.vendor_basis_multiplier
-                               / float(bar.raw_close))
-            ratio = float(bar.split_ratio)
-            if (self.sessions and ratio != 1.0
-                    and not math.isclose(observed_factor, self.split_factor, rel_tol=1e-4)
-                    and math.isclose(observed_factor * ratio, self.split_factor, rel_tol=1e-4)):
-                self.vendor_basis_multiplier *= ratio
-                observed_factor *= ratio
-            self.split_factor = observed_factor
+            # The frozen feature rings consume the published adjusted close.
+            # A source split is independent raw-share evidence, not authority
+            # to rescale an already-adjusted signal a second time.
+            self.split_factor = float(bar.signal_close) / float(bar.raw_close)
         self.sessions.append(bar.session)
         self.session_indices.append(session_index)
         self.raw_closes.append(bar.raw_close)
         self.volumes.append(bar.volume)
         self.signal_closes.append(
             None if not _positive(bar.raw_close)
-            else (float(bar.signal_close) * self.vendor_basis_multiplier if published_signal
+            else (float(bar.signal_close) if published_signal
                   else float(bar.raw_close) * self.split_factor))
 
     def signal_window(self, length: int = REQUIRED_CLOSES) -> list[float | None]:

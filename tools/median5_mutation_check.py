@@ -33,7 +33,8 @@ from tools import median5_equivalence as equivalence
 
 
 def rewritten(function, old, new, *, last=False):
-    source = inspect.getsource(function)
+    from textwrap import dedent
+    source = dedent(inspect.getsource(function))
     if last:
         index = source.rfind(old)
         if index < 0:

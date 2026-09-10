@@ -180,6 +180,13 @@ Split coverage retained during sizing also participates in finalization.
 Opening asset/bar transport timeouts and HTTP 429/5xx remain retryable evidence
 unavailability; authority and identity refusals retain their terminal meaning.
 
+Historical conformance correction: published split-adjusted signal closes feed
+the V5/Median-5 feature rings and leadership witness directly, as in the frozen
+reference. Adjacent split records cannot infer another adjustment of those
+prices. ABV's 2013-11-11 published signal is 7.44, not the port's inferred 37.20.
+Raw execution prices, split share adjustments, ranking formulas, and V6
+controller parameters retain their reference contracts.
+
 The deterministic core/controller port and opening-time paper projection are
 implemented and under verification. The atomic plan-intent record and versioned
 projection retain the original dollar intent, price evidence, and final Decimal

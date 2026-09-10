@@ -23,6 +23,7 @@ from sentinel.execution import opening_prices, opening_sizing, executor, target_
 from sentinel.execution.plan import OpeningIntent
 from sentinel.paper import targets
 from stock_strategy_shared.wealth_core import v5, adapter
+from stock_strategy_shared.wealth_core.feed import SecuritySeries
 
 
 def checked(function, *args):
@@ -32,6 +33,11 @@ def checked(function, *args):
 
 def run():
     cases = (
+        ("published_signal_split_adjusted_twice",
+         review_checks.test_abv_adjacent_split_rows_cannot_rescale_published_signal,
+         SecuritySeries, "append", rewritten(SecuritySeries.append,
+             "float(bar.signal_close) if published_signal",
+             "float(bar.signal_close) * float(bar.split_ratio) if published_signal")),
         ("close_reserve_excluded_from_one_share_feasibility",
          checks.test_agn1_uses_total_cash_and_amzn_is_rejected,
          v5, "admission", rewritten(v5.admission,

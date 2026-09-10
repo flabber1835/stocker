@@ -192,3 +192,32 @@ def test_opening_asset_lookup_timeout_retries_and_authority_refusal_propagates(m
         with pytest.raises(expected):
             asyncio.run(paper_execution._opening_prices_or_retry(
                 object(), state=env, plan=plan, broker=Broker()))
+
+
+def test_abv_adjacent_split_rows_cannot_rescale_published_signal():
+    from stock_strategy_shared.wealth_core.feed import SecuritySeries, VendorBar
+    series = SecuritySeries('258893123405622697', 'ABV', 'SID:258893123405622697',
+                            split_factor=.2)
+    # Exact immutable-PIT rows surrounding the first historical divergence.
+    rows = [('2013-11-08', 37.2, 7.44, 1.),
+            ('2013-11-11', 37.2, 7.44, 5.),
+            ('2013-11-12', 7.38, 7.38, 5.)]
+    for i, (session, raw, signal, split) in enumerate(rows):
+        series.append(VendorBar(session, series.security_id, 'ABV', raw, raw,
+                               1e6, split_ratio=split, signal_close=signal),
+                      i, published_signal=True)
+        assert series.signal_closes[-1] == signal
+        assert series.raw_closes[-1] == raw
+        assert series.vendor_basis_multiplier == 1.
+    assert series.signal_closes == [7.44, 7.44, 7.38]
+
+
+def test_previously_inferred_price_basis_cannot_survive_restart():
+    import json
+    from stock_strategy_shared.wealth_core.feed import SecuritySeries, VendorBar, FeedError
+    series = SecuritySeries('A', 'A', 'SID:A', vendor_basis_multiplier=5.)
+    restored = SecuritySeries(**json.loads(json.dumps(vars(series))))
+    with pytest.raises(FeedError, match='inferred vendor basis'):
+        restored.append(VendorBar('0001', 'A', 'A', 7.38, 7.38, 1e6,
+                                  signal_close=7.38), 1, published_signal=True)
+    assert vars(restored) == vars(series)

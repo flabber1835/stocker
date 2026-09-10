@@ -125,19 +125,19 @@ def test_peer_residuals_match_reference_and_exclude_current_return():
     assert _correlation(*results) == scope["_peer_corr"](*results)
 
 
-def test_declared_split_preserves_owned_basis_across_vendor_rebase_and_restart():
+def test_declared_split_preserves_published_signal_across_restart():
     meta = {"a": SecurityMeta("a", "A", "Common Stock", "a", first_session="0000")}
     feed = Feed(meta)
     feed.restart_sessions = 260
     feed.median5_state = median5.fresh()
     feed.advance("0000", [VendorBar("0000", "a", "A", 100., 100., 1e6, signal_close=100.)])
     feed.advance("0001", [VendorBar("0001", "a", "A", 50., 50., 2e6, split_ratio=2., signal_close=50.)])
-    assert feed.series["a"].signal_closes == [100., 100.]
+    assert feed.series["a"].signal_closes == [100., 50.]
     features = json.loads(json.dumps(feed.median5_state))
     feed = _feed_from_dict(json.loads(json.dumps(_feed_to_dict(feed, set()))), meta, EligibilityConfig())
     feed.median5_state = features
     result = feed.advance("0002", [VendorBar("0002", "a", "A", 51., 51., 2e6, signal_close=51.)])
-    assert feed.series["a"].signal_closes[-1] == 102.
+    assert feed.series["a"].signal_closes[-1] == 51.
     assert result.bars[0].raw_open == 51.
 
 
