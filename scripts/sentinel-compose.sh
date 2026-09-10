@@ -32,6 +32,9 @@ note() { [ "$EXPLAIN" -eq 1 ] && printf '%s\n' "$*" >&2 || true; }
   exit 1
 }
 
+. scripts/sentinel-env.sh
+sentinel_load_environment --profile compose
+
 # Successful GO validation atomically writes one non-secret immutable runtime
 # selector. Prefer it over shell/.env state so an old operator export cannot
 # silently resurrect a stale image. The selector may be a local immutable image

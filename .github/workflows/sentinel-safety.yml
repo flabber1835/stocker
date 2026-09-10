@@ -44,6 +44,8 @@ jobs:
           python --version
           python scripts/sentinel_host_python.py
           python -m unittest -v tests.host_python38.test_host_compat
+          python -m unittest -v tests.host_python38.test_env_ingestion
+          python tools/sentinel_env_mutation_check.py
           python -m compileall -q -f scripts
 
   certification-and-durability:

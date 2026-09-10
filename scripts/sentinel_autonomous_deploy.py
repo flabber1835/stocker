@@ -38,6 +38,12 @@ import urllib.error
 import urllib.request
 import zipfile
 
+# Resolve identically as a direct host script and in the isolated test lens.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+import sentinel_env
+
 
 MIN_PYTHON = (3, 8, 15)
 if sys.version_info < MIN_PYTHON:  # pragma: no cover - launcher checks first
@@ -1014,40 +1020,19 @@ def _int(value: str, *, name: str, minimum: int, maximum: int) -> int:
 
 
 def load_dotenv(path: Path) -> Dict[str, str]:
-    """Read literal KEY=VALUE records without executing shell syntax.
-
-    Process environment wins later.  Unquoted `#` remains part of a value on
-    purpose: treating it as a comment can silently truncate a database password.
-    """
-    values: Dict[str, str] = {}
-    if not path.is_file():
-        return values
-    for number, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            raise DeployRefused("%s:%d is not KEY=VALUE" % (path, number))
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) is None:
-            raise DeployRefused("%s:%d has an invalid variable name" % (path, number))
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            quote = value[0]
-            value = value[1:-1]
-            if quote == '"':
-                value = value.replace("\\\"", '"').replace("\\\\", "\\")
-        values[key] = value
-    return values
+    """Use the canonical bounded, literal environment parser."""
+    try:
+        return sentinel_env.load(path, required=False)
+    except sentinel_env.EnvRefused as exc:
+        raise DeployRefused(str(exc)) from None
 
 
 def merged_environment(path: Path = ENV_PATH) -> Dict[str, str]:
     env = dict(load_dotenv(path))
-    env.update(os.environ)
-    return env
+    try:
+        return sentinel_env.merge(env, os.environ)
+    except sentinel_env.EnvRefused as exc:
+        raise DeployRefused(str(exc)) from None
 
 
 def _require(env: Mapping[str, str], name: str) -> str:
@@ -2341,12 +2326,12 @@ class AutonomousDeploy:
 
 def update_dotenv(path: Path, updates: Mapping[str, str]) -> None:
     """Atomically update only named non-secret deploy facts, preserving .env."""
-    lines = path.read_text(encoding="utf-8").splitlines() if path.is_file() else []
+    lines = path.read_text(encoding="utf-8-sig").splitlines() if path.is_file() else []
     remaining = dict((str(k), str(v)) for k, v in updates.items())
     out: List[str] = []
     for line in lines:
         stripped = line.strip()
-        candidate = stripped[7:].lstrip() if stripped.startswith("export ") else stripped
+        candidate = re.sub(r"^export[ \t]+", "", stripped)
         if "=" in candidate:
             key = candidate.split("=", 1)[0].strip()
             if key in remaining:

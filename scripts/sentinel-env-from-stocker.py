@@ -48,6 +48,13 @@ import stat
 import sys
 from pathlib import Path
 
+# Resolve identically as a direct host script and in the isolated test lens.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+import sentinel_env
+
+
 #: This runs on the HOST interpreter, not the 3.12 runtime image — it produces
 #: the `.env` that compose needs, so it cannot run inside a container that does
 #: not exist yet. The NAS ships whatever Synology ships. Keep this file inside
@@ -150,37 +157,11 @@ _PLACEHOLDER = re.compile(
 
 
 def parse_env(path: Path) -> dict[str, str]:
-    """Compose's `.env` semantics, narrowly.
-
-    Quoted values are taken verbatim. Unquoted ones have a whitespace-preceded
-    `# comment` stripped, which is what compose does and what the old file
-    relies on (`STRATEGY_CONFIG_PATH=... # NOT CONSUMED`). Stripping it
-    unconditionally would corrupt any value legitimately containing ` #`.
-    """
-    out: dict[str, str] = {}
-    for raw in path.read_text().splitlines():
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        # NOT `.removeprefix`, which is 3.9+. This script runs on the HOST
-        # python, before any image exists — it produces the .env that compose
-        # needs, so it cannot run inside the 3.12 runtime. A Synology NAS ships
-        # an older interpreter and the first real invocation died here.
-        if line.startswith("export "):
-            line = line[len("export "):].lstrip()
-        if "=" not in line:
-            continue
-        key, _, val = line.partition("=")
-        key = key.strip()
-        if not re.fullmatch(r"[A-Za-z_][A-Za-z_0-9]*", key):
-            continue
-        val = val.strip()
-        if len(val) >= 2 and val[0] == val[-1] and val[0] in "\"'":
-            val = val[1:-1]
-        else:
-            val = re.split(r"\s+#", val, maxsplit=1)[0].rstrip()
-        out[key] = val
-    return out
+    """Use the canonical bounded, literal environment parser."""
+    try:
+        return sentinel_env.load(path, required=True)
+    except sentinel_env.EnvRefused as exc:
+        raise ValueError(str(exc)) from None
 
 
 def is_usable(val: str) -> bool:
@@ -212,7 +193,7 @@ def quote(val: str) -> str:
     # does `source`. Double quotes would leave a `$` live in both. The warning
     # about `$` still fires, because compose versions have differed on this and
     # a value the operator cannot see is worth one line of noise.
-    if "'" not in val:
+    if "'" not in val and not val.endswith("\\"):
         return "'" + val + "'"
     return '"' + val.replace("\\", "\\\\").replace('"', '\\"') + '"'
 
@@ -346,7 +327,11 @@ def main(argv: list[str] | None = None) -> int:
               f"it, after checking it is not the one in use.", file=sys.stderr)
         return 2
 
-    old = parse_env(src)
+    try:
+        old = parse_env(src)
+    except ValueError as exc:
+        print("REFUSED: %s" % exc, file=sys.stderr)
+        return 2
 
     carried, skipped_empty, dropped_inert, dropped_retired = {}, [], [], []
     for k, v in old.items():

@@ -16,6 +16,9 @@ PYTHON="${SENTINEL_HOST_PYTHON:-${SENTINEL_PYTHON:-python3}}"
   exit 1
 }
 
+. scripts/sentinel-env.sh
+sentinel_load_environment --profile install
+
 # Serialize the whole deployment, including the Git update. Python owns the
 # flock because fcntl is already part of Sentinel's supported Linux host
 # contract; the descriptor is deliberately inheritable across exec/re-exec.

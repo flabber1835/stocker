@@ -16,6 +16,9 @@ phase() { printf '\n=== BRINGUP: %s ===\n' "$1"; }
 phase "HOST PYTHON"
 "$PYTHON" scripts/sentinel_host_python.py >/dev/null
 
+. scripts/sentinel-env.sh
+sentinel_load_environment --profile bringup
+
 # Share the exact GO lifecycle lock so diagnostic image/backup observations do
 # not race a concurrent certified lifecycle.
 if [ "${SENTINEL_GO_LOCK_HELD:-0}" != "1" ]; then

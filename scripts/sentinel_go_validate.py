@@ -36,6 +36,12 @@ import urllib.error
 import urllib.request
 import zipfile
 
+# Resolve identically as a direct host script and in the isolated test lens.
+_SCRIPT_DIR = Path(__file__).resolve().parent
+if str(_SCRIPT_DIR) not in sys.path:
+    sys.path.insert(0, str(_SCRIPT_DIR))
+import sentinel_env
+
 
 ROOT = Path(__file__).resolve().parents[1]
 SCHEMA = "sentinel.nas-go-validation/1"
@@ -765,40 +771,19 @@ def build_validation_document(probes: ProbeResults, *, created_at: datetime,
 
 
 def load_dotenv_literal(path: Path) -> Dict[str, str]:
-    """Read KEY=VALUE without evaluating shell syntax or printing values."""
-    values: Dict[str, str] = {}
-    if not path.is_file():
-        return values
+    """Use the canonical bounded, literal environment parser."""
     try:
-        lines = path.read_text(encoding="utf-8").splitlines()
-    except OSError as exc:
-        raise ValidationRefused("local environment file is unreadable") from exc
-    for number, raw in enumerate(lines, 1):
-        line = raw.strip()
-        if not line or line.startswith("#"):
-            continue
-        if line.startswith("export "):
-            line = line[7:].lstrip()
-        if "=" not in line:
-            raise ValidationRefused("local environment file has a malformed line")
-        key, value = line.split("=", 1)
-        key = key.strip()
-        value = value.strip()
-        if re.fullmatch(r"[A-Za-z_][A-Za-z0-9_]*", key) is None:
-            raise ValidationRefused("local environment file has an invalid key")
-        if len(value) >= 2 and value[0] == value[-1] and value[0] in {"'", '"'}:
-            quote_char = value[0]
-            value = value[1:-1]
-            if quote_char == '"':
-                value = value.replace('\\"', '"').replace("\\\\", "\\")
-        values[key] = value
-    return values
+        return sentinel_env.load(path, required=False)
+    except sentinel_env.EnvRefused as exc:
+        raise ValidationRefused(str(exc)) from None
 
 
 def merged_environment(path: Path = ROOT / ".env") -> Dict[str, str]:
     values = load_dotenv_literal(path)
-    values.update(os.environ)
-    return values
+    try:
+        return sentinel_env.merge(values, os.environ)
+    except sentinel_env.EnvRefused as exc:
+        raise ValidationRefused(str(exc)) from None
 
 
 class CommandRunner:
