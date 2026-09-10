@@ -181,16 +181,14 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          network="sentinel-sharadar-${GITHUB_RUN_ID}-${{ matrix.scope }}"
           postgres="sentinel-sharadar-pg-${GITHUB_RUN_ID}-${{ matrix.scope }}"
           cleanup() {
             docker rm -f "$postgres" >/dev/null 2>&1 || true
-            docker network rm "$network" >/dev/null 2>&1 || true
           }
           trap cleanup EXIT
           cleanup
-          docker network create "$network" >/dev/null
-          docker run -d --name "$postgres" --network "$network" \
+          docker run -d --name "$postgres" \
+            -p 127.0.0.1:55432:5432 \
             -e POSTGRES_PASSWORD=synthetic-replay-only \
             -e POSTGRES_DB=replay_test \
             postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
@@ -210,18 +208,19 @@ jobs:
           fi
           rm -rf /tmp/sharadar-required-evidence
           mkdir -p /tmp/sharadar-required-evidence/0
-          docker run --rm --network "$network" \
+          docker run --rm --network host \
             -v "$PWD/research:/work/research:ro" \
+            -v "$PWD/.git:/work/.git:ro" \
             -v /tmp/sharadar-required-evidence:/evidence \
             -e SHARADAR_REPLAY_SHARD=0 \
             -e SHARADAR_REPLAY_SHARDS=1 \
-            -e SHARADAR_REPLAY_TEST_DSN="postgresql://postgres:synthetic-replay-only@${postgres}:5432/replay_test" \
+            -e SHARADAR_REPLAY_TEST_DSN=postgresql://postgres:synthetic-replay-only@127.0.0.1:55432/replay_test \
             -e SHARADAR_REPLAY_EVIDENCE=/evidence/0 \
             -e TESTED_COMMIT="${TESTED_SHA}" \
             --entrypoint python sentinel-test:ci \
             -m pytest research/sharadar_replay/tests -q -ra -s \
             --junitxml=/evidence/0/junit.xml
-          docker run --rm \
+          docker run --rm --network none \
             -v "$PWD/research:/work/research:ro" \
             -v /tmp/sharadar-required-evidence:/evidence:ro \
             --entrypoint python sentinel-test:ci \
