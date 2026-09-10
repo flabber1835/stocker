@@ -372,10 +372,13 @@ async def ingest_account_cash(
         raise BrokerCashAuthorityRefused(
             "an authoritative Activity-SSE cash cursor cannot be downgraded "
             "to timestamp-paged activity ingestion")
+    missing_last_flow = False
     if prior is not None:
         # A cursor survives a table-selective restore independently of its
         # ledger. Reusing it would either forget prior cash or count replayed
-        # activities twice. Check even a same-time no-op before trusting it.
+        # activities twice. The total is immediate authority. A missing legacy
+        # last-id is provisionally checked against the complete broker replay
+        # below because zero-value activities intentionally have no cash row.
         prefix = f"{FLOW_PREFIX}{broker}:{account_id}:"
         last_flow = (broker_flow_id(broker=broker, account_id=account_id,
                                    activity_id=prior.last_activity_id)
@@ -388,15 +391,15 @@ async def ingest_account_cash(
                 " WHERE LEFT(flow_id,LENGTH(%s))=%s",
                 (last_flow, prefix, prefix))
             ledger_total, has_last = cur.fetchone()
-        if (Decimal(str(ledger_total)) != prior.balance_total
-                or (last_flow is not None and not has_last)):
+        if Decimal(str(ledger_total)) != prior.balance_total:
             raise BrokerCashAuthorityRefused(
                 "broker cash ledger disagrees with its durable cursor; "
                 "restore the complete behavioral state")
+        missing_last_flow = last_flow is not None and not has_last
         if upper < prior.processed_through:
             raise BrokerCashAuthorityRefused(
                 "broker cash ingestion clock moved behind its durable cursor")
-        if upper == prior.processed_through:
+        if upper == prior.processed_through and not missing_last_flow:
             return prior
         # A v1 cursor is only a business-time boundary. It cannot resume the
         # Activity SSE without gaps because a backfill is published later with
@@ -441,23 +444,40 @@ async def ingest_account_cash(
         raise BrokerCashAuthorityRefused(
             "broker cash activity batch changed its requested upper boundary")
 
+    if missing_last_flow:
+        prior_activity = next(
+            (activity for activity in batch.activities
+             if activity.activity_id == prior.last_activity_id), None)
+        if prior_activity is None or prior_activity.net_amount != 0:
+            raise BrokerCashAuthorityRefused(
+                "broker cash ledger is missing its durable last activity and "
+                "the complete replay does not prove it was a zero-value event; "
+                "restore the complete behavioral state")
+
     seen: set[str] = set()
-    last_id = prior.last_activity_id if prior else None
+    # A proven zero-value legacy last-id was a traversal cursor, not a ledger
+    # witness. Normalize it away. New state retains only an activity that has a
+    # materialized nonzero cash row, keeping the restore invariant truthful.
+    last_id = (None if missing_last_flow else
+               (prior.last_activity_id if prior else None))
     for activity in batch.activities:
         if activity.activity_id in seen:
             raise BrokerCashAuthorityRefused(
                 f"broker cash batch repeats native id {activity.activity_id}")
         seen.add(activity.activity_id)
-        if _insert_activity(
-                conn, broker=broker, account_id=account_id,
-                activity=activity):
+        inserted = _insert_activity(
+            conn, broker=broker, account_id=account_id,
+            activity=activity)
+        if inserted:
             running_total += activity.net_amount
-        last_id = activity.activity_id
+            last_id = activity.activity_id
     if batch.last_activity_id is not None:
         if batch.activities and batch.last_activity_id != batch.activities[-1].activity_id:
             raise BrokerCashAuthorityRefused(
                 "broker cash batch last native id does not match final activity")
-        last_id = batch.last_activity_id
+        # ``batch.last_activity_id`` is traversal evidence and may identify a
+        # zero-value SPLIT/REORG. It is deliberately not promoted to the cash
+        # ledger witness unless that event produced a materialized row above.
 
     last_event_id = prior.last_event_id if prior else None
     if batch.last_event_id is not None:
