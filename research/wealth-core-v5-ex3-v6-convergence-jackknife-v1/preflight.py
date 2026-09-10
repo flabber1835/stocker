@@ -2,7 +2,6 @@
 from __future__ import annotations
 
 import ast
-import hashlib
 from pathlib import Path
 
 HERE = Path(__file__).resolve().parent
@@ -24,19 +23,12 @@ def literals(path: Path) -> dict[str, object]:
     return out
 
 
-def class_block(src: str, name: str, next_name: str) -> str:
-    start = src.index(f"class {name}:")
-    end = src.index(f"class {next_name}", start)
-    return src[start:end]
-
-
 def main() -> int:
     for path in (RUNNER, PATCHER, HERE / "aggregate.py"):
         if not path.exists():
             raise RuntimeError(f"missing preflight input: {path}")
         compile(path.read_text(), str(path), "exec")
 
-    runner = RUNNER.read_text()
     rv = literals(RUNNER)
     if rv.get("SELECTED") != EXPECTED_SELECTED:
         raise RuntimeError(f"wrong generated V6 config: {rv.get('SELECTED')}")
@@ -50,40 +42,42 @@ def main() -> int:
     if missing:
         raise RuntimeError(f"patcher literal contract missing: {missing}")
 
-    old_b = str(pv["OLD_B"]); new_b = str(pv["NEW_B"])
-    old_call = str(pv["OLD_CALL"]); new_call = str(pv["NEW_CALL"])
-    a_call = str(pv["A_CALL"]); pending = str(pv["PENDING"])
-    if runner.count(old_b) != 1 or runner.count(old_call) != 1:
-        raise RuntimeError("generated V6 treatment seams are not unique")
-    if runner.count(a_call) != 1 or runner.count(pending) != 1:
-        raise RuntimeError("generated V6 control/timing seams are not unique")
+    new_b = str(pv["NEW_B"])
+    btree = ast.parse(new_b, filename="<CandidateB-treatment>")
+    classes = [n for n in btree.body if isinstance(n, ast.ClassDef)]
+    if len(classes) != 1 or classes[0].name != "CandidateB":
+        raise RuntimeError("treatment must define exactly one CandidateB")
+    bases = classes[0].bases
+    if len(bases) != 1 or not isinstance(bases[0], ast.Name) or bases[0].id != "CandidateA":
+        raise RuntimeError("CandidateB must inherit exact CandidateA")
+    if new_b.count("super().step(") != 1:
+        raise RuntimeError("CandidateB must delegate authoritative economics exactly once")
+    if "neutral_streak>=LDRC_REC" not in new_b:
+        raise RuntimeError("REC8 convergence horizon is not inherited from LDRC_REC")
+    if "FULL_RISK_CERTIFIED_CONVERGENCE_REC8" not in new_b:
+        raise RuntimeError("convergence release marker missing")
+    for forbidden in ("LDRC_DD=", "LDRC_R20=", "LDRC_V=", "LDRC_CEIL=", "0.55", "0.65"):
+        if forbidden in new_b:
+            raise RuntimeError(f"treatment redefines frozen economics: {forbidden}")
 
-    a_before = class_block(runner, "CandidateA", "CandidateB")
-    if "recent_r40>-0.04" not in a_before:
-        raise RuntimeError("CandidateA is not the reviewed r40_m04_rec8 controller")
-
-    patched = runner.replace(old_b, new_b, 1).replace(old_call, new_call, 1)
-    compile(patched, "<preflight-patched-v6>", "exec")
-    a_after = class_block(patched, "CandidateA", "CandidateB")
-    if a_after != a_before:
-        raise RuntimeError("CandidateA changed during treatment insertion")
-    if "class CandidateB(CandidateA):" not in patched or "super().step(" not in patched:
-        raise RuntimeError("treatment does not inherit the exact authoritative controller")
-    if patched.count(a_call) != 1 or patched.count(new_call) != 1 or patched.count(pending) != 1:
-        raise RuntimeError("paired controller call/timing contract changed")
-    if patched.index(a_call) >= patched.index(pending) or patched.index(new_call) >= patched.index(pending):
-        raise RuntimeError("a controller close decision can reach same-session allocation")
-    if "eff['A']=a_d" in patched or "eff['B']=b_d" in patched:
-        raise RuntimeError("same-session allocation mutant detected")
-    if "FULL_RISK_CERTIFIED_CONVERGENCE_REC8" not in patched:
-        raise RuntimeError("research convergence release marker missing")
+    patcher = PATCHER.read_text()
+    guards = (
+        "if candidate_a_block(out) != a_before:",
+        'raise RuntimeError("CandidateA changed while inserting convergence treatment")',
+        "base.timing_guard(patched)",
+        'if "eff[\'B\']=b_d" in out:',
+        "base.sha(exact.encode()) != EXPECTED_V6_SELECTED_SOURCE_SHA256",
+    )
+    for guard in guards:
+        if guard not in patcher:
+            raise RuntimeError(f"required treatment-isolation guard missing: {guard}")
 
     print("preflight PASS")
     print("selected", EXPECTED_SELECTED)
     print("selected_source_sha256", EXPECTED_SELECTED_SOURCE_SHA256)
-    print("candidate_a_sha256", hashlib.sha256(a_before.encode()).hexdigest())
-    print("patched_candidate_a_identical", True)
-    print("causal_next_session_pairing", True)
+    print("candidate_b_inherits_candidate_a", True)
+    print("authoritative_candidate_a_byte_guard", True)
+    print("causal_timing_guard", True)
     return 0
 
 
