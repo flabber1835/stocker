@@ -1,0 +1,272 @@
+name: Research - V5 EX3 r40_m04_rec8 per-holding PnL v1
+
+on:
+  push:
+    branches: [research/v5-ex3-r40-m04-rec8-holdings-report-v1]
+    paths:
+      - '.github/workflows/v5-ex3-r40-m04-rec8-pnl-report-v1.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+  packages: read
+
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+
+jobs:
+  extract:
+    name: Exact holding PnL cashflows
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+    steps:
+      - name: Exact experiment source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 54af0c9e50e4bf0c0d4242dafcf7fff0b75eb0f3
+          path: experiment-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+
+      - name: Exact economic-source authority
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 3dc74a8e54fdfe6e8368a8db3be0ecd127ee4689
+          path: open-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/champion-economic-integrity
+            research/wealth-core-v1-buffer-sweep-evidence/arms/10bp
+
+      - name: Exact Median-5 authority
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 1c66096c1e3bd650233c630d4e9f71104ac8fc32
+          path: median-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: research/median5-fullpit-recertification-v13
+
+      - name: Exact formal source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 27bb992087182c42c3c051e62bf837895f5d2ab7
+          path: certified-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            backtester
+            research/strategy9-e3-broad-stability
+            research/sentinel-fastgate/experiments/2026-08-25-pit-vs-full-c
+
+      - name: Exact classifier source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ba74e79490beb8950611b1d17f5d124833b3d91e
+          path: candidate-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: backtester
+
+      - name: Exact runtime source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 887f479b15ad861313da666ad698034d3847121c
+          path: main-src
+          fetch-depth: 1
+          filter: blob:none
+          persist-credentials: false
+          sparse-checkout: |
+            sentinel
+            shared
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+          check-latest: false
+
+      - name: Verify pins and install frozen runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git -C experiment-src rev-parse HEAD)" = 54af0c9e50e4bf0c0d4242dafcf7fff0b75eb0f3
+          test "$(git -C open-src rev-parse HEAD)" = 3dc74a8e54fdfe6e8368a8db3be0ecd127ee4689
+          test "$(git -C median-src rev-parse HEAD)" = 1c66096c1e3bd650233c630d4e9f71104ac8fc32
+          test "$(git -C certified-src rev-parse HEAD)" = 27bb992087182c42c3c051e62bf837895f5d2ab7
+          test "$(git -C candidate-src rev-parse HEAD)" = ba74e79490beb8950611b1d17f5d124833b3d91e
+          test "$(git -C main-src rev-parse HEAD)" = 887f479b15ad861313da666ad698034d3847121c
+          python -m pip install --require-hashes -r main-src/sentinel/requirements.lock
+          python -m pip install --no-build-isolation --no-deps -e main-src/shared
+          echo "PYTHONPATH=${GITHUB_WORKSPACE}/certified-src:${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared" >> "$GITHUB_ENV"
+          echo "CANONICAL_PIT_DATASET=${GITHUB_WORKSPACE}/canonical-pit" >> "$GITHUB_ENV"
+          echo "BEST_EFFORT_SECURITY_TYPES=${GITHUB_WORKSPACE}/candidate-src/backtester/data/champion-best-effort-security-types-v1.csv" >> "$GITHUB_ENV"
+          echo "BEST_EFFORT_CLASSIFICATION_SCENARIO=reviewed_18" >> "$GITHUB_ENV"
+
+      - name: Stage exact corrected economic overlays
+        shell: bash
+        run: |
+          set -euo pipefail
+          for f in champion_economic_prefix_audit.py champion_full_classification_control.py champion_security_truth_audit_v2.py champion_security_truth_overlay_v2.py champion_final_security_truth.py champion_final_truth_corpus_validator.py production_equivalent_economic_overlay.py champion_production_equivalent_build.py champion_production_equivalent_final_replay.py
+          do
+            cp "open-src/backtester/$f" certified-src/backtester/
+          done
+          cp open-src/backtester/data/champion-security-truth-factual-batch-v2.json certified-src/backtester/data/
+          cp candidate-src/backtester/research_champion_corrected_classification.py certified-src/backtester/
+          cp candidate-src/backtester/research_champion_best_effort_classification.py certified-src/backtester/
+          for f in champion-best-effort-security-types-v1.csv champion-best-effort-security-types-v1-summary.json champion-reviewed-security-types-v1.csv champion-historical-security-type-corrections-v1.csv
+          do
+            cp "candidate-src/backtester/data/$f" certified-src/backtester/data/
+          done
+          mkdir -p certified-src/research/champion-economic-integrity/security-truth
+          cp -R open-src/research/champion-economic-integrity/security-truth/manual-review certified-src/research/champion-economic-integrity/security-truth/
+          cd certified-src
+          python backtester/champion_final_truth_corpus_validator.py --manual research/champion-economic-integrity/security-truth/manual-review --output "${GITHUB_WORKSPACE}/final-corpus-validation.json"
+
+      - name: Pull and verify immutable canonical PIT package
+        env:
+          GHCR_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          POINTER=certified-src/backtester/data/canonical-pit-20y.json
+          PACKAGE=$(python -c "import json; print(json.load(open('${POINTER}'))['package'])")
+          test "$PACKAGE" = ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$PACKAGE"
+          cid=$(docker create "$PACKAGE" /bin/true)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          mkdir -p canonical-pit
+          docker cp "$cid:/canonical-pit/." canonical-pit/
+          docker rm "$cid"
+          trap - EXIT
+          PYTHONPATH="${GITHUB_WORKSPACE}/main-src:${GITHUB_WORKSPACE}/main-src/shared:${GITHUB_WORKSPACE}/certified-src" python certified-src/backtester/canonical_pit_package.py verify --pointer "$POINTER" --dataset canonical-pit > package-integrity.json
+
+      - name: Build PnL telemetry runner
+        shell: bash
+        run: |
+          set -euo pipefail
+          ROOT=/tmp/pnl-replay/research
+          IMP="$ROOT/wealth-core-v5-sentinel-ex3-impedance-v1"
+          V5="$ROOT/wealth-core-v5-affordability-fix-v1"
+          V4="$ROOT/median5-open-sizing-10bp-ex3-v1"
+          mkdir -p "$IMP" "$V5" "$V4"
+          cp experiment-src/research/wealth-core-v5-sentinel-ex3-impedance-v1/run_impedance.py "$IMP/run_impedance_pnl.py"
+          cp experiment-src/research/wealth-core-v5-affordability-fix-v1/v5_execution_harness.py "$V5/v5_execution_harness.py"
+          cp experiment-src/research/median5-open-sizing-10bp-ex3-v1/canonical_execution_harness.py "$V4/canonical_execution_harness.py"
+          python - <<'PY'
+          from pathlib import Path
+          p=Path('/tmp/pnl-replay/research/wealth-core-v5-sentinel-ex3-impedance-v1/run_impedance_pnl.py')
+          s=p.read_text()
+          anchor="    candidate = apply_variant(v5, cfg)\n"
+          if s.count(anchor) != 1:
+              raise SystemExit('runner candidate seam mismatch')
+          inject='''    candidate = apply_variant(v5, cfg)
+              _init = "    rows=[]; trade_rows=[]; gap_event_rows=[]; close_decision_rows=[]; _pending_meta={}"
+              if candidate.count(_init) != 1:
+                  raise RuntimeError("pnl init seam mismatch")
+              candidate = candidate.replace(_init, "    rows=[]; pnl_event_rows=[]; trade_rows=[]; gap_event_rows=[]; close_decision_rows=[]; _pending_meta={}", 1)
+
+              _div = "                if q>0 and rawdiv>0: book.receivables.append((gday+1,q*rawdiv)); div_events+=1"
+              if candidate.count(_div) != 1:
+                  raise RuntimeError("pnl dividend seam mismatch")
+              _div_new = "                if q>0 and rawdiv>0: book.receivables.append((gday+1,q*rawdiv)); pnl_event_rows.append({'date':ds,'event':'DIVIDEND','ticker':str(tick[int(tid)]),'security_id':str(sid[int(tid)]),'shares':float(q),'price':float(rawdiv),'cashflow':float(q*rawdiv)}); div_events+=1"
+              candidate = candidate.replace(_div, _div_new, 1)
+
+              _sell = "                    _sell_qty=float(s.qty); _sell_tid=int(s.tid); book.cash+=s.qty*float(px)*(1-COST); sells+=1; trade_rows.append({'Transaction date':ds,'Buy or sell':'SELL','Ticker':str(tick[_sell_tid]),'Ticker name':'','Amount of shares':_sell_qty})"
+              if candidate.count(_sell) != 1:
+                  raise RuntimeError("pnl sell seam mismatch")
+              _sell_new = "                    _sell_qty=float(s.qty); _sell_tid=int(s.tid); _sell_net=float(s.qty)*float(px)*(1-COST); book.cash+=_sell_net; sells+=1; trade_rows.append({'Transaction date':ds,'Buy or sell':'SELL','Ticker':str(tick[_sell_tid]),'Ticker name':'','Amount of shares':_sell_qty}); pnl_event_rows.append({'date':ds,'event':'SELL','ticker':str(tick[_sell_tid]),'security_id':str(sid[_sell_tid]),'shares':_sell_qty,'price':float(px),'cashflow':float(_sell_net)})"
+              candidate = candidate.replace(_sell, _sell_new, 1)
+
+              _buy = "                        book.cash-=_gross; buffer_min_actual_cash=min(buffer_min_actual_cash,float(book.cash)); buffer_min_post_buy_excess=min(buffer_min_post_buy_excess,float(book.cash)); trade_rows.append({'Transaction date':ds,'Buy or sell':'BUY','Ticker':str(tick[tid]),'Ticker name':'','Amount of shares':float(q)}); s.tid=tid; s.qty=float(q); s.entry_day=gday; s.reviewed=False; s.pending_sell=False; s.sell_reason=''; s.entry_sig=float(opsig[tid]) if finite(opsig[tid]) and opsig[tid]>0 else np.nan; s.peak=np.nan; book.initialized=True; buys+=1"
+              if candidate.count(_buy) != 1:
+                  raise RuntimeError("pnl buy seam mismatch")
+              _buy_new = "                        book.cash-=_gross; buffer_min_actual_cash=min(buffer_min_actual_cash,float(book.cash)); buffer_min_post_buy_excess=min(buffer_min_post_buy_excess,float(book.cash)); trade_rows.append({'Transaction date':ds,'Buy or sell':'BUY','Ticker':str(tick[tid]),'Ticker name':'','Amount of shares':float(q)}); pnl_event_rows.append({'date':ds,'event':'BUY','ticker':str(tick[tid]),'security_id':str(sid[int(tid)]),'shares':float(q),'price':float(px),'cashflow':-float(_gross)}); s.tid=tid; s.qty=float(q); s.entry_day=gday; s.reviewed=False; s.pending_sell=False; s.sell_reason=''; s.entry_sig=float(opsig[tid]) if finite(opsig[tid]) and opsig[tid]>0 else np.nan; s.peak=np.nan; book.initialized=True; buys+=1"
+              candidate = candidate.replace(_buy, _buy_new, 1)
+
+              _term_exact = "                    _old_tid=s.tid; book.cash+=float(_econ['cash']); book.terminal_pending.pop(_old_tid,None)"
+              if candidate.count(_term_exact) != 1:
+                  raise RuntimeError("pnl exact terminal seam mismatch")
+              _term_exact_new = "                    _old_tid=s.tid; _term_cash=float(_econ['cash']); book.cash+=_term_cash; pnl_event_rows.append({'date':ds,'event':'TERMINAL','ticker':str(tick[int(_old_tid)]),'security_id':str(sid[int(_old_tid)]),'shares':float(s.qty),'price':np.nan,'cashflow':_term_cash}); book.terminal_pending.pop(_old_tid,None)"
+              candidate = candidate.replace(_term_exact, _term_exact_new, 1)
+
+              _term_mark = "                    _tid=s.tid; book.cash+=s.qty*float(clraw[_tid]); book.sec_ready[_tid]=gday+COOLDOWN"
+              if candidate.count(_term_mark) != 1:
+                  raise RuntimeError("pnl terminal mark seam mismatch")
+              _term_mark_new = "                    _tid=s.tid; _term_cash=float(s.qty)*float(clraw[_tid]); book.cash+=_term_cash; pnl_event_rows.append({'date':ds,'event':'TERMINAL_MARK','ticker':str(tick[int(_tid)]),'security_id':str(sid[int(_tid)]),'shares':float(s.qty),'price':float(clraw[_tid]),'cashflow':_term_cash}); book.sec_ready[_tid]=gday+COOLDOWN"
+              candidate = candidate.replace(_term_mark, _term_mark_new, 1)
+
+              _term_pending = "                book.cash+=_slot.qty*float(_px); book.sec_ready[_tid]=gday+COOLDOWN; book.terminal_pending.pop(_tid,None)"
+              if candidate.count(_term_pending) != 1:
+                  raise RuntimeError("pnl pending terminal seam mismatch")
+              _term_pending_new = "                _term_cash=float(_slot.qty)*float(_px); book.cash+=_term_cash; pnl_event_rows.append({'date':ds,'event':'TERMINAL_PENDING','ticker':str(tick[int(_tid)]),'security_id':str(sid[int(_tid)]),'shares':float(_slot.qty),'price':float(_px),'cashflow':_term_cash}); book.sec_ready[_tid]=gday+COOLDOWN; book.terminal_pending.pop(_tid,None)"
+              candidate = candidate.replace(_term_pending, _term_pending_new, 1)
+
+              _out = "    out.to_csv(OUT/'daily.csv',index=False)\\n    pd.DataFrame(trade_rows,columns=['Transaction date','Buy or sell','Ticker','Ticker name','Amount of shares']).to_csv(OUT/'transactions.csv',index=False)"
+              if candidate.count(_out) != 1:
+                  raise RuntimeError("pnl output seam mismatch")
+              _out_new = "    out.to_csv(OUT/'daily.csv',index=False)\\n    pd.DataFrame(pnl_event_rows,columns=['date','event','ticker','security_id','shares','price','cashflow']).to_csv(OUT/'pnl-events.csv',index=False)\\n    pd.DataFrame(trade_rows,columns=['Transaction date','Buy or sell','Ticker','Ticker name','Amount of shares']).to_csv(OUT/'transactions.csv',index=False)"
+              candidate = candidate.replace(_out, _out_new, 1)
+          '''
+          lines=inject.splitlines()
+          inject='\n'.join([lines[0]]+[ln[10:] if ln.startswith('          ') else ln for ln in lines[1:]])+'\n'
+          s=s.replace(anchor,inject,1)
+          p.write_text(s)
+          compile(s,str(p),'exec')
+          PY
+
+      - name: Run exact r40_m04_rec8 replay with PnL telemetry
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python /tmp/pnl-replay/research/wealth-core-v5-sentinel-ex3-impedance-v1/run_impedance_pnl.py \
+            --variant r40_m04_rec8 \
+            --control-source "${GITHUB_WORKSPACE}/open-src/research/wealth-core-v1-buffer-sweep-evidence/arms/10bp/buffer-10bp-generated.py" \
+            --median-overlay "${GITHUB_WORKSPACE}/median-src/research/median5-fullpit-recertification-v13/experiment_overlay.py" \
+            --output "${GITHUB_WORKSPACE}/pnl-results" \
+            2>&1 | tee "${GITHUB_WORKSPACE}/pnl-extract.log"
+          test -s "${GITHUB_WORKSPACE}/pnl-results/engine/pnl-events.csv"
+          python - <<'PY'
+          import json, pathlib, pandas as pd
+          b=pathlib.Path('../pnl-results')
+          r=json.loads((b/'RESULT.json').read_text())
+          assert r['status']=='PASS_FRESH_CAUSAL_PIT_REPLAY'
+          assert r['variant']=='r40_m04_rec8'
+          assert r['validation']['wealth_core_v5_tape_exact_parity'] is True
+          assert r['validation']['wealth_core_transactions_exact_parity'] is True
+          assert r['validation']['wealth_core_close_decisions_exact_parity'] is True
+          e=pd.read_csv(b/'engine/pnl-events.csv')
+          assert (e.event=='BUY').sum()==416
+          assert (e.event=='SELL').sum()==350
+          print(e.event.value_counts().to_string())
+          print('PnL cashflow rows:',len(e))
+          PY
+
+      - name: Preserve exact PnL evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: v5-ex3-r40-m04-rec8-pnl-v1-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            pnl-results/
+            pnl-extract.log
+            package-integrity.json
+            final-corpus-validation.json
+          retention-days: 30
+          if-no-files-found: warn
