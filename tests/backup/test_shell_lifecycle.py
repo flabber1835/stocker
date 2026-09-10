@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 from pathlib import Path
@@ -12,6 +13,11 @@ import pytest
 from lab import ROOT, SYSTEM_ID, wal_name
 
 
+def _write_checksum(path: Path) -> None:
+    path.with_name(path.name + ".sha256").write_text(
+        f"sha256={hashlib.sha256(path.read_bytes()).hexdigest()}\n")
+
+
 class ShellLab:
     def __init__(self, root: Path):
         self.root = root
@@ -21,13 +27,16 @@ class ShellLab:
         self.base.mkdir(parents=True)
         namespace = self.media / "wal" / f"cluster-{SYSTEM_ID}"
         namespace.mkdir(parents=True)
-        with (namespace / wal_name(3)).open("wb") as stream:
+        wal = namespace / wal_name(3)
+        with wal.open("wb") as stream:
             stream.truncate(16 * 1024 * 1024)
+        _write_checksum(wal)
         self.scripts = self.repo / "scripts"
         self.scripts.mkdir(parents=True)
         for name in ("sentinel-base-backup.sh", "sentinel-backup-status.sh",
-                     "sentinel-restore-drill.sh", "sentinel_host_python.py",
-                     "sentinel_backup_lock.py", "sentinel-backup-metadata-access.sh"):
+                     "sentinel-backup-verify-chain.py", "sentinel-restore-drill.sh",
+                     "sentinel_host_python.py", "sentinel_backup_lock.py",
+                     "sentinel-backup-metadata-access.sh"):
             shutil.copy2(ROOT / "scripts" / name, self.scripts / name)
         # Separate mount-validation tests execute the real backup library.
         (self.scripts / "sentinel-backup-lib.sh").write_text(
@@ -44,6 +53,10 @@ class ShellLab:
                     "BACKUP_LAB_ROOT": str(root), "SENTINEL_HOST_PYTHON": sys.executable,
                     "PYTHONPATH": str(ROOT),
                     "POSTGRES_PASSWORD": "synthetic-only"}
+
+    @property
+    def namespace(self):
+        return self.media / "wal" / f"cluster-{SYSTEM_ID}"
 
     def run(self, script="sentinel-base-backup.sh", *args):
         return subprocess.run(["bash", str(self.scripts / script), *args],
@@ -107,20 +120,43 @@ def test_restore_rechecks_manifest_after_storage_corruption(tmp_path):
     assert "cleanup" in lab.events()
 
 
-@pytest.mark.parametrize("fault", ["partial-marker", "missing-wal", "truncated-wal", "future-mtime"])
+@pytest.mark.parametrize("fault", [
+    "partial-marker", "missing-wal", "truncated-wal", "same-size-corrupt",
+    "missing-checksum", "missing-label", "middle-gap", "future-mtime",
+])
 def test_status_never_claims_ready_for_invalid_recovery_point(tmp_path, fault):
     lab = ShellLab(tmp_path)
     assert lab.run().returncode == 0
     final = lab.base / "base-20260910T120000Z"
     # Set the otherwise-valid manifest mtime to the deterministic current time.
     os.utime(final / "backup_manifest", (1789041600, 1789041600))
-    wal = lab.media / "wal" / f"cluster-{SYSTEM_ID}" / wal_name(3)
+    wal = lab.namespace / wal_name(3)
     if fault == "partial-marker":
         (final / "sentinel-recovery-marker").write_text(f"system_identifier={SYSTEM_ID}\n")
     elif fault == "missing-wal":
         wal.unlink()
     elif fault == "truncated-wal":
         wal.write_bytes(b"truncated")
+    elif fault == "same-size-corrupt":
+        with wal.open("r+b") as stream:
+            stream.seek(1024)
+            stream.write(b"same-size-bit-rot")
+    elif fault == "missing-checksum":
+        wal.with_name(wal.name + ".sha256").unlink()
+    elif fault == "missing-label":
+        (final / "backup_label").unlink()
+    elif fault == "middle-gap":
+        manifest_path = final / "backup_manifest"
+        manifest = json.loads(manifest_path.read_text())
+        manifest["WAL-Ranges"][-1]["End-LSN"] = "0/01000040"
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True))
+        os.utime(manifest_path, (1789041600, 1789041600))
+        for index in (1, 2):
+            extra = lab.namespace / wal_name(index)
+            with extra.open("wb") as stream:
+                stream.truncate(16 * 1024 * 1024)
+            _write_checksum(extra)
+        (lab.namespace / wal_name(2)).unlink()
     else:
         os.utime(final / "backup_manifest", (1789041600 + 3600, 1789041600 + 3600))
     result = lab.run("sentinel-backup-status.sh", "--backup", str(final))
@@ -154,6 +190,7 @@ def test_status_resamples_clock_after_concurrent_manifest_publication(tmp_path):
     result = lab.run("sentinel-backup-status.sh", "--backup", str(final))
     assert result.returncode == 0, result.stderr
     assert "backup_ready:true" in result.stdout
+    assert "wal_chain_ready:true" in result.stdout
 
 
 @pytest.mark.parametrize("last_ok,last_fail,ready", [
