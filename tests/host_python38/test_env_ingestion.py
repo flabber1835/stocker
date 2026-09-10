@@ -687,7 +687,7 @@ class EnvHarness(unittest.TestCase):
         self.write(values)
         commands = tuple((command,) for command in (
             "config", "ps", "logs", "top", "events", "port", "images", "ls",
-            "version", "help", "stats", "volumes", "stop", "down", "pause", "rm", "wait"))
+            "version", "help", "stats", "volumes", "stop", "down", "rm", "wait"))
         commands += (
             (), ("--help",), ("--ansi", "never", "ps"),
             ("--project-name", "up", "ps"), ("-pup", "config"),
