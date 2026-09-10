@@ -43,6 +43,13 @@ services:
       - pgdata:/var/lib/postgresql/data
       - ./scripts/sentinel-backup-metadata-access.sh:/lab/metadata-access.sh:ro
       - $work/socket:/var/run/postgresql
+  # The production backup overlay also extends the CLI service with the runtime
+  # restore-horizon authority flag. This inert fixture definition keeps the
+  # merged Compose model structurally equivalent while the test starts only
+  # sentinel-postgres.
+  sentinel:
+    image: $image
+    command: ["true"]
 networks:
   default:
     internal: true
