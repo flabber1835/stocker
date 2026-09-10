@@ -57,6 +57,8 @@ seconds used for age arithmetic are floored consistently. Manifest age uses a
 host-clock sample taken after the manifest stat, so publication during a status
 check does not look future-dated. Tests include subsecond archive success,
 subsecond future evidence and publication across a second boundary.
+The status age limit is decimal, including leading-zero inputs. Values longer
+than 15 digits refuse configuration before arithmetic can overflow.
 
 Filesystem SQLSTATEs `58P01`, `42501` and `58030`, and OS I/O errors, retain
 `BackupRuntimeUnavailable` through every metadata read, including manifest JSON

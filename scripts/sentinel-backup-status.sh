@@ -20,6 +20,11 @@ case "$MAX_AGE_HOURS" in *[!0-9]*|'')
   refuse "CONFIGURATION_INVALID" 2 \
     "SENTINEL_BACKUP_MAX_AGE_HOURS must be an integer" ;;
 esac
+[ "${#MAX_AGE_HOURS}" -le 15 ] ||
+  refuse "CONFIGURATION_INVALID" 2 "SENTINEL_BACKUP_MAX_AGE_HOURS exceeds safe integer bounds"
+# Bash interprets a leading zero as octal. Settings are decimal hours; the
+# length bound also keeps hours-to-seconds multiplication inside signed int64.
+MAX_AGE_HOURS="$((10#$MAX_AGE_HOURS))"
 
 EXPECTED=""
 if [ "$#" -gt 0 ]; then

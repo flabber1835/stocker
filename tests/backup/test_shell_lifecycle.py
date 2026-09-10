@@ -171,3 +171,22 @@ def test_status_preserves_subsecond_archive_failure_order(tmp_path, last_ok, las
     assert (result.returncode == 0) == ready, (result.stdout, result.stderr)
     if not ready:
         assert "WAL_ARCHIVE_UNRESOLVED_FAILURE" in result.stderr
+
+
+@pytest.mark.parametrize("maximum,age_hours,reason", [
+    ("08", 7, None), ("08", 9, "WAL_ARCHIVE_STALE"),
+    ("030", 29, None), ("9" * 25, 0, "CONFIGURATION_INVALID"),
+])
+def test_status_age_limit_is_bounded_decimal(tmp_path, maximum, age_hours, reason):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    final = lab.base / "base-20260910T120000Z"
+    observed = 1789041600 - age_hours * 3600
+    os.utime(final / "backup_manifest", (observed, observed))
+    lab.env.update(SENTINEL_BACKUP_MAX_AGE_HOURS=maximum, BACKUP_LAB_LAST_OK=str(observed))
+    result = lab.run("sentinel-backup-status.sh", "--backup", str(final))
+    assert (result.returncode == 0) == (reason is None), (result.stdout, result.stderr)
+    if reason:
+        assert reason in result.stderr
+    else:
+        assert result.stderr == ""
