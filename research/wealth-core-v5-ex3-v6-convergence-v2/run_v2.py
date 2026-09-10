@@ -202,7 +202,7 @@ def treatment_source(src: str) -> str:
     out = replace_n(out, state_seam, state_new, 1, "paired state evidence")
     out = replace_n(out,
         "pending_native=native_target; pend['control']=a_d; pend['A']=a_d; pend['B']=b_d",
-        "pending_native=native_target; pending_native_b=native_target_b; pend['control']=a_d; pend['A']=a_d; pend['B']=b_d",
+        "pending_native=native_target; pend['control']=a_d; pend['A']=a_d; pend['B']=b_d; pending_native_b=native_target_b",
         1, "paired pending native")
 
     if block(out, "class Native:", "def canonicalize_native_state") != original_native:
@@ -305,16 +305,8 @@ def resolve_v6_runner() -> Path:
 def main() -> int:
     tests=state_tests()
     if "--self-test" in sys.argv:
-        path=resolve_v6_runner()
-        if path.exists():
-            base=load(path)
-            if base.SELECTED != EXPECTED_V6:
-                raise RuntimeError(f"wrong V6 config: {base.SELECTED}")
-            exact=base.build_selected(Path(os.environ["V2_CONTROL_SOURCE"]),Path(os.environ["V2_MEDIAN_OVERLAY"])) if os.environ.get("V2_CONTROL_SOURCE") else None
-            if exact is not None:
-                if base.sha(exact.encode()) != EXPECTED_V6_SELECTED_SOURCE_SHA256:
-                    raise RuntimeError("exact V6 source authority mismatch")
-                treatment_source(exact)
+        # Cheap Stage 1 intentionally has no dependency on the full replay import graph.
+        # Exact selected-source construction and timing/source guards run at the baseline gate.
         print(json.dumps({"schema":SCHEMA,"state_tests":tests,"PASS":True},sort_keys=True))
         return 0
 
@@ -350,8 +342,8 @@ def main() -> int:
             "ex3_canonicalization_sessions":int((frame.ex3_v2_canonicalizations.astype(float).diff().fillna(frame.ex3_v2_canonicalizations.astype(float))>0).sum()),
             "state_tests":tests,
         }
-        cols=["date","research_selected_positions","wc_dd","recent_r20","recent_r40","spy_r20",
-              "native_close_target","native_close_target_v2","effective_native","effective_native_v2",
+        cols=["date","research_selected_positions","shadow_equity","wc_dd","damaged","green","fast_signal","slow_signal",
+              "recent_r20","recent_r40","spy_r20","native_close_target","native_close_target_v2","effective_native","effective_native_v2",
               "A_allocation","B_allocation","A_nav","B_nav","A_reason","B_reason",
               "research_native_state","research_native_state_v2","research_ldrc_state","research_ldrc_state_v2",
               "native_v2_canonicalizations","ex3_v2_canonicalizations"]
