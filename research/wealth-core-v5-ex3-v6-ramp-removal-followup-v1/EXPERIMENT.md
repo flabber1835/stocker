@@ -1,5 +1,7 @@
 # Ramp removal follow-up: preregistration
 
+> Post-experiment decision, 2026-09-10: [compact_simplified_no_ramp is the current simplification and hardening research champion (56.27×)](CHAMPION.md). The preregistration and recorded gate outcomes below remain unchanged.
+
 User authorization: proceed with the seven-slot follow-up proposed after reviewing
 hardening commit `44be8212c01dcdab4c913cb1b03ef28ef6c293da`. Delivery continues
 through research PR #350 and issue #349. Main was independently checked at
