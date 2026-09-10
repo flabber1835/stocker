@@ -69,6 +69,11 @@ heartbeat, including when an operator supplies just one member of a pair.
 Regression tests independently resolve the Compose environment and call the real
 runtime configuration validator to bind these host defaults to the deployed
 service. The standalone runtime model retains its existing defaults.
+The alert dispatcher uses that model's 10-second heartbeat because its Compose
+environment does not forward the automation lease/heartbeat settings. Installation
+and GO for paper/dual targets, plus broker bring-up, also validate its callback
+deadline against that effective heartbeat. SHADOW retains its broker-free
+preflight and does not require an alert dispatcher.
 
 Durably recoverable account/deployment/image identities and discovered signing
 keys retain their existing later discovery gate. Configuration validation does

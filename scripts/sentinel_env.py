@@ -83,6 +83,9 @@ AUTOMATION_INTEGER_DEFAULTS = {
     "SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS": (60, 3),
     "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS": (1000000, 1),
 }
+# The alert service omits lease/heartbeat from its Compose environment and thus
+# uses this runtime-model heartbeat. The service differential binds that fact.
+ALERT_DISPATCHER_HEARTBEAT_SECONDS = 10
 
 
 class EnvRefused(ValueError):
@@ -281,7 +284,7 @@ def _float(value: object, *, key: str,
     return number
 
 
-def _validate_semantics(env: Mapping[str, str]) -> None:
+def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> None:
     # Exact runtime conversion boundaries.
     if "SENTINEL_MAX_CYCLES" in env:
         _integer(env["SENTINEL_MAX_CYCLES"], key="SENTINEL_MAX_CYCLES", minimum=1)
@@ -356,6 +359,11 @@ def _validate_semantics(env: Mapping[str, str]) -> None:
     if (automation["SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS"]
             < automation["SENTINEL_AUTOMATION_HEARTBEAT_SECONDS"]):
         _fail("AUTOMATION_CALLBACK_BELOW_HEARTBEAT",
+              key="SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS")
+    if (alert_dispatcher
+            and automation["SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS"]
+            < ALERT_DISPATCHER_HEARTBEAT_SECONDS):
+        _fail("ALERT_CALLBACK_BELOW_HEARTBEAT",
               key="SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS")
 
     if "SENTINEL_AUTOMATION_SUPERVISOR_POLL_SECONDS" in env:
@@ -454,7 +462,9 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
     if (profile != "bootstrap" and receipt
             and (not usable(receipt) or len(receipt.strip().encode("utf-8")) < 32)):
         _fail("INVALID_RECEIPT_KEY", key=RECEIPT_KEY)
-    _validate_semantics(env)
+    _validate_semantics(
+        env, alert_dispatcher=(profile == "bringup" or (
+            profile in {"install", "go"} and target != "SHADOW")))
     if env.get("SENTINEL_FORCE_CPU_LIMITS") == env.get("SENTINEL_FORCE_NO_CPU_LIMITS") == "1":
         _fail("CONFLICTING_CPU_MODES; force modes are mutually exclusive")
 

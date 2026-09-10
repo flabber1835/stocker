@@ -57,6 +57,10 @@ MUTANTS = (
      '"SENTINEL_AUTOMATION_LEASE_SECONDS": (45, 3)',
      REVIEW_FIXES + ".EnvReviewFixes."
      "test_single_automation_override_refuses_conflict_with_service_default"),
+    ("alert-dispatcher-callback-guard-removed", "scripts/sentinel_env.py",
+     "if (alert_dispatcher", "if False and (alert_dispatcher",
+     REVIEW_FIXES + ".EnvReviewFixes."
+     "test_broker_deployment_callback_respects_alert_dispatcher_heartbeat"),
     *tuple(
         ("automation-" + suffix.lower() + "-model-default", "scripts/sentinel_env.py",
          '"SENTINEL_AUTOMATION_' + suffix + '": (' + str(default) + ', 1)',

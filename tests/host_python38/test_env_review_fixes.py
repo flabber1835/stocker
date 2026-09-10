@@ -258,6 +258,22 @@ class EnvReviewFixes(unittest.TestCase):
         })
         env.validate(candidate, profile="install", target="SHADOW")
 
+    def test_broker_deployment_callback_respects_alert_dispatcher_heartbeat(self):
+        candidate = dict(BASE_SHADOW, ALPACA_API_KEY="synthetic-paper-key",
+                         ALPACA_SECRET_KEY="synthetic-paper-secret")
+        # The dispatcher does not receive this low automation heartbeat.
+        candidate["SENTINEL_AUTOMATION_HEARTBEAT_SECONDS"] = "1"
+        for profile in ("install", "go", "bringup"):
+            for target in ("DUAL_RUN_OBSERVATION", "HISTORICAL_PAPER_EXECUTION"):
+                with self.subTest(profile=profile, target=target):
+                    for deadline in ("1", "3", "9"):
+                        candidate["SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS"] = deadline
+                        with self.assertRaisesRegex(
+                                env.EnvRefused, "ALERT_CALLBACK_BELOW_HEARTBEAT"):
+                            env.validate(candidate, profile=profile, target=target)
+                    candidate["SENTINEL_AUTOMATION_CALLBACK_DEADLINE_SECONDS"] = "10"
+                    env.validate(candidate, profile=profile, target=target)
+
     def test_safe_writer_preserves_secret_mode_and_unmanaged_values(self):
         with tempfile.TemporaryDirectory() as raw:
             path = Path(raw) / ".env"

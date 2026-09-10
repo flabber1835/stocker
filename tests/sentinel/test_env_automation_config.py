@@ -37,6 +37,8 @@ def service_environment(service, overrides):
     templates = compose["services"][service]["environment"]
     result = {}
     for name in AUTOMATION_CONFIG_ENV_BY_FIELD.values():
+        if name not in templates:
+            continue  # The runtime model supplies fields omitted by the service.
         template = templates[name]
         match = re.fullmatch(r"\$\{([A-Z_]+):-([^}]*)\}", template)
         assert match is not None, (name, template)
@@ -59,7 +61,15 @@ def test_host_automation_defaults_match_deployed_service(service):
             deployed, field)
 
 
-@pytest.mark.parametrize("service", ["sentinel-automation", "sentinel-authorized-cli"])
+def test_alert_dispatcher_effective_heartbeat_matches_host_preflight():
+    for heartbeat in ("1", "3", "11"):
+        deployed = config_from_env(service_environment(
+            "sentinel-alert-dispatcher",
+            {"SENTINEL_AUTOMATION_HEARTBEAT_SECONDS": heartbeat}))
+        assert deployed.heartbeat_seconds == preflight.ALERT_DISPATCHER_HEARTBEAT_SECONDS
+
+
+@pytest.mark.parametrize("target", ["DUAL_RUN_OBSERVATION", "HISTORICAL_PAPER_EXECUTION"])
 @pytest.mark.parametrize("suffix,value,accepted", [
     (None, None, True),
     ("LEASE_SECONDS", "3", False),
@@ -71,18 +81,23 @@ def test_host_automation_defaults_match_deployed_service(service):
     ("RETRY_MAX_SECONDS", "4", False),
     ("RETRY_MAX_SECONDS", "5", True),
     ("CALLBACK_DEADLINE_SECONDS", "2", False),
-    ("CALLBACK_DEADLINE_SECONDS", "3", True),
+    ("CALLBACK_DEADLINE_SECONDS", "3", False),
+    ("CALLBACK_DEADLINE_SECONDS", "9", False),
+    ("CALLBACK_DEADLINE_SECONDS", "10", True),
 ])
 def test_install_preflight_agrees_with_effective_runtime(
-        service, suffix, value, accepted):
+        target, suffix, value, accepted):
     overrides = {} if suffix is None else {"SENTINEL_AUTOMATION_" + suffix: value}
     host = dict(BASE, **overrides)
-    deployed = service_environment(service, overrides)
+    refused = []
+    for service in ("sentinel-automation", "sentinel-authorized-cli", "sentinel-alert-dispatcher"):
+        try:
+            config_from_env(service_environment(service, overrides))
+        except ValueError:
+            refused.append(service)
+    assert (not refused) == accepted
     if accepted:
-        config_from_env(deployed)
-        preflight.validate(host, profile="install", target="DUAL_RUN_OBSERVATION")
+        preflight.validate(host, profile="install", target=target)
     else:
-        with pytest.raises(ValueError):
-            config_from_env(deployed)
         with pytest.raises(preflight.EnvRefused):
-            preflight.validate(host, profile="install", target="DUAL_RUN_OBSERVATION")
+            preflight.validate(host, profile="install", target=target)
