@@ -57,17 +57,41 @@ def _merge_seed_coverage(current: Optional[dict], chunk: dict) -> dict:
     }
 
 
+def _require_complete_recovery_reference_tail(rows, params, required_keys):
+    """Require replacement of every failed SFP key before durable SUCCESS.
+
+    The caller freezes these keys under the corpus writer lock. This applies to
+    every retry window, including same-day acquisition. Ordinary tail readiness
+    remains separate from replacement of failed destructive writes.
+    """
+    observed = {(str(row.get("ticker") or "").strip().upper(),
+                 str(row.get("date") or "")) for row in rows}
+    missing = sorted(set(required_keys) - observed)
+    if missing:
+        request = dict(params or {})
+        raise SourceAuthorityRefused(
+            "daily SFP recovery is incomplete: "
+            f"window={request.get('date.gte')}..{request.get('date.lte')}, "
+            f"missing_failed_keys={len(missing)}, examples={missing[:8]}")
+    return rows
+
+
 class StableSharadarFetch(coherence.StableSharadarFetch):
     """Coherence guard with canonical-key and exact seed-membership authority."""
 
     def __init__(self, fetch, *, protect_sep=None,
                  corroborate_reference=None,
                  after_session: str | None = None,
-                 seed_mode: bool = False, validate_tickers: bool = False):
+                 seed_mode: bool = False, validate_tickers: bool = False,
+                 reference_recovery: frozenset[tuple[str, str]] = frozenset(),
+                 sep_update_envelope: SepUpdateEnvelope | None = None):
         self._canonical_fetch = CanonicalSourceFetch(
-            fetch, validate_tickers=(validate_tickers or fetch is snapshot_source.fetch_table))
+            fetch, validate_tickers=(validate_tickers or fetch is snapshot_source.fetch_table),
+            sep_update_envelope=sep_update_envelope)
         self._seed_projection: Optional[SeedListingProjection] = None
         self.seed_coverage_evidence: Optional[dict] = None
+        self._seed_mode = bool(seed_mode)
+        self._reference_recovery = frozenset(reference_recovery)
         super().__init__(
             self._canonical_fetch, protect_sep=protect_sep,
             corroborate_reference=corroborate_reference,
@@ -83,6 +107,10 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
             self._seed_projection = SeedListingProjection(
                 material, source_digest=self._tickers_first.digest)
             return material
+        if table == sharadar.SFP and self._reference_recovery:
+            material = list(rows)
+            return _require_complete_recovery_reference_tail(
+                material, params, self._reference_recovery)
         return rows
 
     def _validated_seed_replay(self, rows, params):

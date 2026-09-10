@@ -276,15 +276,17 @@ def _resolution_tombstones(conn, run, *, lo: str, hi: str, report,
         # treats 1.0 as potentially "no evidence".  Here we have stronger
         # evidence — a complete ACTIONS generation says the split disappeared
         # and SEP independently derives a real no-event from a predecessor — so
-        # attach the append-only repair to the currently VISIBLE bar instead of
-        # requiring that bar to have been restamped by this candidate run.
+        # evaluate the published bar or this run's corrected candidate. Other
+        # unpublished writers cannot supply resolution authority. The repair
+        # and tombstone remain invisible until this run publishes them together.
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT b.security_id,"
                 f" {publication.effective_split_ratio('b')}"
                 " FROM sentinel_bars b WHERE UPPER(b.ticker)=%s"
-                "   AND b.session=%s AND " + publication.visible_predicate("b"),
-                (ticker, session))
+                "   AND b.session=%s AND (" + publication.visible_predicate("b")
+                + " OR b.last_written_run_id=%s)",
+                (ticker, session, run.progress.run_id))
             bar_rows = cur.fetchall()
         if len(bar_rows) != 1:
             continue
@@ -645,14 +647,17 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
             conn, action_source_rows, run_id=run.progress.run_id,
             window_start=action_start, window_end=to)
 
-    # A legacy corpus may be complete while this table is empty. Repair the
-    # exact readiness-required 41-session tail, not the 14-calendar-day equity
-    # overlap. BIL shares this bounded SFP observation so its frontier mark is
-    # published without ever entering the SEP universe.
+    # Repair the required reference tail and every older reference key still
+    # owned by a failed unpublished run. A next-day retry otherwise shifts the
+    # 41-session tail past its failed leading edge and cannot publish.
+    # BIL shares this SFP observation and remains outside the SEP universe.
     with run.chunk("spy"):
         from sentinel.feed import calendar, readiness
         spy_start = calendar.previous_sessions(
             to, readiness.REQUIRED_SPY_SESSIONS)[0]
+        from sentinel.feed import recovery
+        spy_start = recovery.reference_window_start(
+            conn, requested_start=spy_start, through=to)
         params = {"ticker": SFP_REFERENCE_TICKERS,
                   **sharadar.date_params(spy_start, to)}
         rows = fetch(sharadar.SFP, params)

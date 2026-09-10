@@ -81,6 +81,22 @@ def _finish_publication_or_refuse(conn, progress):
 def _single_failed_live_candidate(conn):
     candidates = recovery.failed_live_candidates(conn)
     if len(candidates) > 1:
+        from sentinel.feed import publication
+        report = publication.coherence(conn)
+        daily_recoverable_rows = (
+            report.unpublished_universe
+            + report.unpublished_spy
+            + report.unpublished_defensive)
+        if (all(c.kind == "daily" for c in candidates)
+                and report.unpublished_rows == daily_recoverable_rows
+                and report.unpublished_universe > 0):
+            # Repeated daily failures may leave several dated identity snapshots
+            # plus reference rows written before a later SEP failure. The next
+            # complete daily attempt rewrites every stranded SPY/BIL key through
+            # reference_window_start(), while publication atomically retires the
+            # older universe snapshots. Bars, actions, repairs and anomalies are
+            # deliberately excluded from this narrow recovery cohort.
+            return candidates[0]
         raise recovery.PublicationRecoveryRefused(
             f"{len(candidates)} failed unpublished candidates still own live "
             f"rows: {[(c.run_id, c.kind) for c in candidates]}. Their coverage "

@@ -1,0 +1,122 @@
+name: Sharadar daily production replay
+
+on:
+  pull_request:
+    branches: [main]
+    paths:
+      - 'research/sharadar_replay/**'
+      - 'sentinel/feed/**'
+      - 'shared/stock_strategy_shared/split_reconciliation.py'
+      - 'shared/stock_strategy_shared/wealth_core/sharadar_domains.py'
+      - 'sentinel/requirements.lock'
+      - 'tests/requirements.lock'
+      - '.github/workflows/sharadar-daily-replay.yml'
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sharadar-replay-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  daily-replay:
+    strategy:
+      fail-fast: false
+      matrix:
+        shard: [0, 1, 2, 3]
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_PASSWORD: synthetic-replay-only
+          POSTGRES_DB: replay_test
+        ports: ['5432:5432']
+        options: >-
+          --health-cmd pg_isready --health-interval 5s
+          --health-timeout 5s --health-retries 10
+    env:
+      SHARADAR_REPLAY_SHARD: ${{ matrix.shard }}
+      SHARADAR_REPLAY_SHARDS: '4'
+      PYTHONPATH: .:shared
+      SHARADAR_REPLAY_TEST_DSN: postgresql://postgres:synthetic-replay-only@127.0.0.1:5432/replay_test
+      SHARADAR_REPLAY_EVIDENCE: ${{ github.workspace }}/replay-evidence
+      TESTED_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: |
+            sentinel
+            shared
+            config
+            tests
+            research/sharadar_replay
+      - name: Verify exact merge-gating checkout
+        run: test "$(git rev-parse HEAD)" = "$TESTED_COMMIT"
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.14'
+      - name: Install repository dependency locks
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r sentinel/requirements.lock -r tests/requirements.lock
+          python -m pip check
+      - name: Replay real ingestion and check every expected state
+        run: |
+          mkdir -p replay-evidence
+          python -m pytest research/sharadar_replay/tests -q -ra -s --junitxml=replay-evidence/junit.xml
+      - name: Summarize evidence
+        if: always()
+        run: |
+          python - <<'PY'
+          import json, os, pathlib, subprocess
+          reports = sorted(pathlib.Path('replay-evidence').glob('*/report.json'))
+          with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
+              out.write('## Sharadar daily replay\n\n')
+              out.write('Commit: `' + subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() + '`\n\n')
+              out.write('| Scenario | Verdict | Checked steps |\n|---|---|---|\n')
+              for path in reports:
+                  r = json.loads(path.read_text())
+                  out.write(f"| {r['scenario']} | {r['verdict']} | {len(r['steps'])} |\n")
+              out.write('\nScope: production daily ingestion with simulated HTTP; bootstrap seed and producer identity are explicitly non-certifying.\n')
+          PY
+      - name: Retain transcripts, snapshots and failures
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sharadar-daily-replay-${{ github.sha }}-${{ matrix.shard }}
+          path: replay-evidence
+          if-no-files-found: error
+          retention-days: 30
+
+  complete-evidence:
+    needs: daily-replay
+    if: always()
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    env:
+      TESTED_COMMIT: ${{ github.sha }}
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          sparse-checkout: research/sharadar_replay
+      - name: Verify exact merge-gating checkout
+        run: test "$(git rev-parse HEAD)" = "$TESTED_COMMIT"
+      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: sharadar-daily-replay-${{ github.sha }}-*
+          path: evidence
+      - name: Require complete passing evidence for the exact code commit
+        shell: bash
+        run: |
+          python research/sharadar_replay/verify_evidence.py evidence --commit "$TESTED_COMMIT" | tee verified-evidence.json
+          cat verified-evidence.json >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: sharadar-replay-verdict-${{ github.sha }}
+          path: verified-evidence.json
+          if-no-files-found: error
