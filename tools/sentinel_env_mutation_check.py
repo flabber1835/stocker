@@ -123,7 +123,7 @@ MUTANTS = (
      EXECUTION_ENVELOPE + "test_stale_container_transitions_and_exec_are_refused"),
     ("generic-compose-exec-accepted", "scripts/sentinel-env.sh",
      'if command == "exec":\n    refuse("generic Compose exec is outside the Sentinel execution envelope")',
-     'if False and command == "exec":\n    refuse("generic Compose exec is outside the Sentinel execution envelope")',
+     'if command == "exec":\n    raise SystemExit(0)',
      EXECUTION_ENVELOPE + "test_stale_container_transitions_and_exec_are_refused"),
     ("automation-profile-service-accepted", "scripts/sentinel-env.sh",
      '    if unknown:\n        refuse("Compose startup service is outside the Sentinel execution envelope: " + unknown[0])',
