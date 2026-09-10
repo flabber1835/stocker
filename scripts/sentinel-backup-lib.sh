@@ -264,7 +264,8 @@ sentinel_backup_root() {
             [ -f "$wal" ] && [ ! -L "$wal" ] || continue
             name="${wal##*/}"
             printf "%s\n" "$name" | grep -Eq "^[0-9A-F]{24}$" || continue
-            sha="$(sha256sum -- "$wal" | awk "{print \\\$1}")" || exit 32
+            sha="$(sha256sum -- "$wal")" || exit 32
+            sha="${sha%% *}"
             printf "%s\n" "$sha" | grep -Eq "^[0-9a-f]{64}$" || exit 33
             sidecar="$wal.sha256"
             if [ -e "$sidecar" ] || [ -L "$sidecar" ]; then
