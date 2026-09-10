@@ -2,6 +2,11 @@ name: Research - V5 + EX3 V6 convergence jackknife v1
 run-name: V5 + r40_m04_rec8 convergence jackknife - ${{ github.sha }}
 
 on:
+  push:
+    branches: [research/wealth-core-v5-ex3-v6-convergence-jackknife-v1]
+    paths:
+      - '.github/workflows/wealth-core-v5-ex3-v6-convergence-jackknife-v1.yml'
+      - 'research/wealth-core-v5-ex3-v6-convergence-jackknife-v1/**'
   workflow_dispatch:
 
 permissions:
