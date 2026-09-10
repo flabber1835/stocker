@@ -83,5 +83,6 @@ if __name__ == '__main__':
     parser = argparse.ArgumentParser()
     parser.add_argument('root', type=Path)
     parser.add_argument('--commit', required=True)
+    parser.add_argument('--shards', type=int, default=4)
     args = parser.parse_args()
-    print(json.dumps(verify(args.root, commit=args.commit), sort_keys=True))
+    print(json.dumps(verify(args.root, commit=args.commit, shards=args.shards), sort_keys=True))
