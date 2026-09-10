@@ -101,11 +101,27 @@ def shell(command):
     return subprocess.call(mapped)
 
 
-def runtime_backup_probe():
-    base = args[args.index("--base") + 1]
+def _python_chain_probe(*, base, system_id, last_wal, segment_size):
     helper = ROOT / "repo" / "scripts" / "sentinel-backup-verify-chain.py"
     result = subprocess.run([
         sys.executable, str(helper),
+        "--root", str(MEDIA),
+        "--base", base,
+        "--system-id", system_id,
+        "--last-wal", last_wal,
+        "--segment-size", segment_size,
+    ], capture_output=True, text=True)
+    if result.stdout:
+        sys.stdout.write(result.stdout)
+    if result.stderr:
+        sys.stderr.write(result.stderr)
+    return result.returncode
+
+
+def runtime_backup_probe():
+    base = args[args.index("--base") + 1]
+    result = subprocess.run([
+        sys.executable, str(ROOT / "repo" / "scripts" / "sentinel-backup-verify-chain.py"),
         "--root", str(MEDIA),
         "--base", base,
         "--system-id", SYSTEM_ID,
@@ -138,6 +154,11 @@ def docker():
             stage = "wal-proof"
         elif command[:3] == ["stat", "-c", "%Y"]:
             stage = "status-manifest-stat"
+        elif command[:3] == ["sh", "-s", "--"] and len(command) == 8:
+            stage = "wal-chain-proof"
+            return event(stage, lambda: _python_chain_probe(
+                base=command[3], system_id=command[5], last_wal=command[6],
+                segment_size=command[7]))
         elif command[:3] == ["sh", "-s", "--"]:
             stage = "metadata-access"
         return event(stage, lambda: shell(command))
