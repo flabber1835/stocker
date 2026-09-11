@@ -13,6 +13,44 @@ from test_responsibility_lib import (
 )
 
 
+def _delegated_required_contracts(authority: dict, owner_name: str) -> dict[str, dict[str, str]]:
+    """Return delegated contract selectors after proving they stay in their owner surface."""
+    owners = authority.get("owners")
+    if not isinstance(owners, dict):
+        raise AssertionError("missing owner map")
+
+    result = {}
+    for delegated_name, delegated in owners.items():
+        if not isinstance(delegated, dict):
+            continue
+        execution = delegated.get("execution", {})
+        if not isinstance(execution, dict):
+            continue
+        if execution.get("kind") != "delegated" or execution.get("owner") != owner_name:
+            continue
+        contract_group = execution.get("required_contracts")
+        if not contract_group:
+            continue
+        if not isinstance(contract_group, str):
+            raise AssertionError(f"{delegated_name}: required_contracts must name an authority section")
+        group = authority.get(contract_group)
+        if not isinstance(group, dict):
+            raise AssertionError(f"{delegated_name}: missing contract authority section: {contract_group}")
+        required = validate_contract_selectors(group.get("required_contracts"))
+        delegated_modules = {
+            relative_posix(path) for path in owned_test_modules(authority, delegated_name)
+        }
+        escaped = {
+            contract_id: selector for contract_id, selector in required.items()
+            if selector.split("::", 1)[0] not in delegated_modules
+        }
+        if escaped:
+            raise AssertionError(
+                f"{delegated_name}: required contracts escape delegated owner surface: {escaped}")
+        result[delegated_name] = required
+    return result
+
+
 def verify(owner_name: str, junit_paths: list[Path]) -> dict:
     authority = load_authority()
     expected = owned_test_modules(authority, owner_name)
@@ -29,16 +67,8 @@ def verify(owner_name: str, junit_paths: list[Path]) -> dict:
             f"{owner_name}: owned test modules have no execution evidence: {missing}")
 
     delegated_contracts = {}
-    owners = authority["owners"]
-    for delegated_name, delegated in owners.items():
-        execution = delegated.get("execution", {})
-        if execution.get("kind") != "delegated" or execution.get("owner") != owner_name:
-            continue
-        contract_group = execution.get("required_contracts")
-        if not contract_group:
-            continue
-        required = validate_contract_selectors(
-            authority.get(contract_group, {}).get("required_contracts"))
+    for delegated_name, required in _delegated_required_contracts(
+            authority, owner_name).items():
         missing_contracts = {
             contract_id: selector for contract_id, selector in required.items()
             if selector not in logical_nodeids
