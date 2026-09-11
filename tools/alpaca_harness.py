@@ -66,6 +66,7 @@ def main() -> int:
 
     env = dict(os.environ)
     env["PYTHONPATH"] = str(ROOT / "shared")
+    env["ALPACA_HARNESS_REQUIRE_POSTGRES"] = "1"
     started_sha, started_tree = git("rev-parse", "HEAD"), git("rev-parse", "HEAD^{tree}")
     dirty_before = bool(git("status", "--porcelain", "--untracked-files=no"))
     result = subprocess.run(
