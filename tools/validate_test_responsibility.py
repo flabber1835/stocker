@@ -35,6 +35,14 @@ REQUIRED_OWNERS = {
 REQUIRED_SCOPES = {"exact-head", "synthetic-merge"}
 EXECUTION_KINDS = {"pytest-junit", "unittest-discovery", "command", "delegated"}
 _JOB_ID = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
+_SCOPE_MATRIX = (
+    "scope: ${{ fromJSON(github.event_name == 'pull_request' && "
+    "'[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}"
+)
+_SCOPE_CHECKOUT = (
+    "ref: ${{ matrix.scope == 'exact-head' && "
+    "(github.event.pull_request.head.sha || github.sha) || github.sha }}"
+)
 
 
 def git(*args: str) -> str:
@@ -73,6 +81,23 @@ def _require_ci_job(owner_name: str, value: object) -> tuple[str, str, str]:
     except AssertionError as exc:
         raise AssertionError(f"{owner_name}: ci_job id not found in {workflow}: {job}") from exc
     return workflow, job, body
+
+
+def _require_scope_binding(name: str, scopes: set[str], job_text: str,
+                           workflow_text: str) -> dict:
+    assert REQUIRED_SCOPES.issubset(scopes), \
+        f"{name}: exact/synthetic scope ownership missing"
+    assert "\n  pull_request:\n" in workflow_text, \
+        f"{name}: declared workflow does not run on pull requests"
+    assert _SCOPE_MATRIX in job_text, \
+        f"{name}: declared CI job does not instantiate exact-head and synthetic-merge scopes"
+    assert _SCOPE_CHECKOUT in job_text, \
+        f"{name}: declared CI job does not bind scope to exact PR-head/synthetic-merge checkout"
+    return {
+        "scopes": sorted(scopes),
+        "matrix": _SCOPE_MATRIX,
+        "checkout_ref": _SCOPE_CHECKOUT,
+    }
 
 
 def _require_execution_binding(name: str, owner: dict, job_text: str,
@@ -125,9 +150,16 @@ def _require_merge_authority() -> dict:
     assert "python -m unittest -v tests.host_python38.test_" not in sentinel, (
         "host Python 3.8 ownership regressed to a hand-maintained module list")
 
+    aggregate_name = "name: sharadar-replay-${{ matrix.scope }}-${{ github.sha }}"
+    aggregate_job = _job_body(sharadar, "complete-evidence")
+    assert aggregate_name in aggregate_job, \
+        "Sharadar aggregate check name is not owned by complete-evidence"
+    assert sharadar.count(aggregate_name) == 1, \
+        "Sharadar aggregate check name must be unique within its workflow"
+
     sharadar_required = [
         "merge_group:",
-        "name: sharadar-replay-${{ matrix.scope }}-${{ github.sha }}",
+        aggregate_name,
         "TESTED_COMMIT: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}",
         "ref: ${{ env.TESTED_COMMIT }}",
         'test "$(git rev-parse HEAD)" = "$TESTED_COMMIT"',
@@ -144,6 +176,8 @@ def _require_merge_authority() -> dict:
         "check_suite_binding": "pull-request head SHA or merge-group SHA",
         "event_merge_binding": "dependency check name embeds GITHUB_SHA",
         "workflow_origin": ".github/workflows/sharadar-daily-replay.yml",
+        "workflow_job": "complete-evidence",
+        "workflow_job_name_unique": True,
         "tested_commit_binding": "Sharadar TESTED_COMMIT exact-head/synthetic-merge",
     }
 
@@ -159,11 +193,14 @@ def validate(*, base: str | None = None) -> dict:
     resolved_paths = {}
     ci_jobs = {}
     executions = {}
+    scope_bindings = {}
     for name, owner in owners.items():
         assert isinstance(owner, dict), f"{name}: invalid owner declaration"
         scopes = set(owner.get("scopes", []))
-        assert REQUIRED_SCOPES.issubset(scopes), f"{name}: exact/synthetic scope ownership missing"
         workflow, job, job_text = _require_ci_job(name, owner.get("ci_job"))
+        workflow_text = (ROOT / workflow).read_text()
+        scope_bindings[name] = _require_scope_binding(
+            name, scopes, job_text, workflow_text)
         ci_jobs[name] = f"{workflow}#{job}"
         paths = owner_paths(authority, name)
         resolved_paths[name] = paths
@@ -225,11 +262,12 @@ def validate(*, base: str | None = None) -> dict:
         )
 
     return {
-        "schema": "stocker.test-responsibility-verdict/2",
+        "schema": "stocker.test-responsibility-verdict/3",
         "verdict": "PASS",
         "owners": len(owners),
         "ci_jobs": ci_jobs,
         "executions": executions,
+        "scope_bindings": scope_bindings,
         "test_modules": len(test_modules),
         "unowned_tests": unowned_tests,
         "alpaca_contracts": len(required_contracts),
