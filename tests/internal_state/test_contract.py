@@ -144,3 +144,39 @@ def test_journal_oracle_rejects_illegal_transition_and_changed_economics():
     events["k"][1]["to"] = "FILLED"
     with pytest.raises(InvariantFailure, match="legal_command_transition"):
         journal_contract([c], events, {"orders": {}}, remembered)
+
+
+@pytest.mark.parametrize("fault", ["intact", "quantity", "side", "instrument", "deployment",
+                                   "revision", "key", "broker", "no_restore"])
+def test_recovered_attribution_keeps_pre_restore_economics_exact(fault):
+    original = {"client_key": "k", "identity": {"security_id": "ABC", "plan_id": "sentinel-original",
+        "revision": 0, "deployment": {"broker_account_id": "owned"}},
+        "instrument": {"symbol": "ABC"}, "side": "BUY", "quantity": "2",
+        "filled_quantity": "2", "state": "FILLED", "recovered_key": None}
+    events = {"k": [{"from": None, "to": "FILLED", "filled": "2"}]}
+    world = {"orders": {"order": {"client_order_id": "k", "qty": "2", "filled_qty": "2",
+                                  "side": "buy", "symbol": "ABC"}}}
+    remembered = {}
+    journal_contract([original], events, world, remembered)
+    recovered = deepcopy(original)
+    recovered["identity"]["plan_id"] = "RECOVERED"
+    recovered["recovered_key"] = "k"
+    if fault == "quantity":
+        recovered["quantity"] = "3"
+    elif fault == "side":
+        recovered["side"] = "SELL"
+    elif fault == "instrument":
+        recovered["instrument"]["symbol"] = "OTHER"
+    elif fault == "deployment":
+        recovered["identity"]["deployment"]["broker_account_id"] = "foreign"
+    elif fault == "revision":
+        recovered["identity"]["revision"] = 1
+    elif fault == "key":
+        recovered["recovered_key"] = None
+    elif fault == "broker":
+        world["orders"] = {}
+    if fault == "intact":
+        journal_contract([recovered], events, world, remembered, restored=True)
+    else:
+        with pytest.raises(InvariantFailure, match="immutable_command_economics"):
+            journal_contract([recovered], events, world, remembered, restored=fault != "no_restore")

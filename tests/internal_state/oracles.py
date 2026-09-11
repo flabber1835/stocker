@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from decimal import Decimal as D
+from copy import deepcopy
 import math
 
 from .contract import check, digest
@@ -107,14 +108,20 @@ def plan_commitment(raw, plan, cursor):
     check("plan_data_commitment", raw["data_version"], plan["data_version"])
 
 
-def journal_contract(commands, histories, world, prior_economics):
+def journal_contract(commands, histories, world, prior_economics, *, restored=False):
     live = {}
     orders = {o["client_order_id"]: o for o in world["orders"].values()}
     for command in commands:
         key, state = command["client_key"], command["state"]
         economics = {k: command[k] for k in ("identity", "instrument", "side", "quantity")}
         if key in prior_economics:
-            check("immutable_command_economics", prior_economics[key], economics)
+            expected = prior_economics[key]
+            if (restored and command.get("recovered_key") == key and key in orders
+                    and economics["identity"]["plan_id"] == "RECOVERED"
+                    and expected["identity"]["plan_id"].startswith("sentinel-")):
+                expected = deepcopy(expected)
+                expected["identity"]["plan_id"] = "RECOVERED"
+            check("immutable_command_economics", expected, economics)
         prior_economics[key] = economics
         quantity, filled = D(command["quantity"]), D(command["filled_quantity"])
         check("journal_fill_bounds", True, D(0) <= filled <= quantity)

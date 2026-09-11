@@ -100,3 +100,58 @@ def test_valid_json_mutation_cannot_seed_next_strategy_transition(conn):
         catchup.resume_state(conn)
 
     assert journal.latest_plan(conn).plan_id == prior.plan_id
+
+
+@pytest.mark.parametrize("mutation", ["intact", "state", "missing", "hash", "anchor", "session"])
+def test_interrupted_canonical_catchup_requires_its_exact_checkpoint(conn, mutation):
+    _, prior = _install_committed_predecessor(conn)
+    first, last = dt.date(2026, 8, 10), dt.date(2026, 8, 11)
+    advanced = []
+
+    def advance(connection, day, state):
+        if day == last.isoformat():
+            raise RuntimeError("scheduled interruption before second transition")
+        advanced.append(day)
+        return _state(session=first, data_version=prior.data_version).to_dict()
+
+    with pytest.raises(RuntimeError, match="scheduled interruption"):
+        catchup.catch_up(conn, through=last, missed=[first, last],
+                         advance_state=advance, decide=lambda *_: None)
+    assert catchup.last_processed_session(conn) == first
+    assert journal.latest_plan(conn).plan_id == prior.plan_id
+    checkpoint_name = "catchup:resume_commitment:v1"
+    if mutation == "state":
+        conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,"
+                     "'{shadow_peak_nav}','9999'::jsonb) WHERE cursor_name='catchup'")
+    elif mutation == "missing":
+        conn.execute("DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s", (checkpoint_name,))
+    elif mutation in {"hash", "anchor"}:
+        field = "state_sha256" if mutation == "hash" else "anchor_plan_id"
+        conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,%s,"
+                     "'\"corrupted\"'::jsonb) WHERE cursor_name=%s", ([field], checkpoint_name))
+    elif mutation == "session":
+        conn.execute("UPDATE sentinel_processed_sessions SET session=%s WHERE cursor_name=%s",
+                     (PRIOR, checkpoint_name))
+    conn.commit()
+    if mutation != "intact":
+        with pytest.raises(catchup.StateCommitmentMismatch):
+            catchup.resume_state(conn)
+        assert journal.latest_plan(conn).plan_id == prior.plan_id
+        return
+
+    expected = _state(session=first, data_version=prior.data_version).to_dict()
+    assert catchup.resume_state(conn) == expected
+    def finish(connection, day, state):
+        advanced.append(day)
+        return _state(session=last, data_version=prior.data_version).to_dict()
+    def decide(day, state):
+        from sentinel.core.session import SessionState
+        return _plan(SessionState.from_dict(state), publication.require_current(conn), binding.require(conn))
+    result = catchup.catch_up(conn, through=last, missed=[first, last],
+                             advance_state=finish, decide=decide)
+    assert advanced == [first.isoformat(), last.isoformat()]
+    assert result.sessions_replayed == 1
+    assert catchup.resume_state(conn) == result.state
+    assert result.plan.decision_session == last
+    assert conn.execute("SELECT 1 FROM sentinel_processed_sessions WHERE cursor_name=%s",
+                        (checkpoint_name,)).fetchone() is None

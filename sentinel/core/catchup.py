@@ -145,6 +145,7 @@ class Reprojection:
 #: One row, one meaning. A table with many rows would invite "the latest by
 #: timestamp", and a clock is not an ordering of trading sessions.
 _CURSOR = "catchup"
+_RESUME_COMMITMENT_CURSOR = "catchup:resume_commitment:v1"
 
 
 def last_processed_session(conn) -> Optional[date]:
@@ -158,6 +159,52 @@ def last_processed_session(conn) -> Optional[date]:
 def _canonical_hash(value) -> str:
     payload = json.dumps(value, sort_keys=True, separators=(",", ":"))
     return hashlib.sha256(payload.encode()).hexdigest()
+
+
+def _resume_commitment(state, plan, session: date) -> dict:
+    return {"schema": "sentinel.catchup-resume/1", "session": session.isoformat(),
+            "state_sha256": _canonical_hash(state), "anchor_plan_id": plan.plan_id,
+            "anchor_plan_fingerprint": plan.fingerprint()}
+
+
+def _matches_resume_commitment(conn, state, plan, cursor: date) -> bool:
+    with conn.cursor() as cur:
+        cur.execute("SELECT session,state FROM sentinel_processed_sessions"
+                    " WHERE cursor_name=%s", (_RESUME_COMMITMENT_CURSOR,))
+        row = cur.fetchone()
+    if row is None or _d(row[0]) != cursor:
+        return False
+    try:
+        record = row[1] if isinstance(row[1], dict) else json.loads(row[1])
+    except (TypeError, ValueError):
+        return False
+    return record == _resume_commitment(state, plan, cursor)
+
+
+def _record_resume_commitment(conn, state, session: date) -> None:
+    from sentinel.core.production import SessionState
+    if not isinstance(state, Mapping):
+        return
+    try:
+        canonical = SessionState.from_dict(state)
+    except (KeyError, TypeError, ValueError):
+        return  # Generic test/research seams retain their existing contract.
+    plan = journal.latest_plan(conn)
+    if (plan is None or not str(plan.plan_id).startswith("sentinel-")
+            or not plan.shadow_snapshot_hash or not plan.sentinel_transition_hash
+            or not plan.strategy_fingerprint):
+        return
+    if (canonical.last_processed_session != session.isoformat()
+            or plan.decision_session >= session
+            or _canonical_hash(canonical.strategy_identity) != plan.strategy_fingerprint):
+        raise StateCommitmentMismatch("intermediate catch-up commitment has inconsistent authority")
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_processed_sessions (cursor_name,session,state)"
+            " VALUES (%s,%s,%s::jsonb) ON CONFLICT (cursor_name) DO UPDATE SET"
+            " session=EXCLUDED.session,state=EXCLUDED.state,updated_at=NOW()",
+            (_RESUME_COMMITMENT_CURSOR, session.isoformat(),
+             json.dumps(_resume_commitment(state, plan, session), sort_keys=True)))
 
 
 def _assert_resume_state_commitment(conn, state) -> None:
@@ -208,6 +255,10 @@ def _assert_resume_state_commitment(conn, state) -> None:
         raise StateCommitmentMismatch(
             "canonical restart state and processed-session cursor disagree")
     if plan.decision_session != cursor:
+        if (plan.decision_session < cursor
+                and _canonical_hash(canonical.strategy_identity) == plan.strategy_fingerprint
+                and _matches_resume_commitment(conn, state, plan, cursor)):
+            return
         raise StateCommitmentMismatch(
             "canonical restart cursor is not the prior committed plan session")
     if canonical.state_hash != plan.shadow_snapshot_hash:
@@ -498,6 +549,7 @@ def _catch_up_locked(conn, *, through: date, missed, advance_state, decide,
         # crash window in which the state said today while yesterday's plan was
         # still executable.
         if index < len(owed) - 1:
+            _record_resume_commitment(conn, state, session)
             conn.commit()
         replayed += 1
 
@@ -509,6 +561,12 @@ def _catch_up_locked(conn, *, through: date, missed, advance_state, decide,
             conn, plan.plan_id, commit=False) or 0
         plan = journal.load_plan(conn, plan.plan_id)
     _mark_processed(conn, through, state)
+    if (plan is not None and str(plan.plan_id).startswith("sentinel-")
+            and plan.shadow_snapshot_hash and plan.sentinel_transition_hash
+            and plan.strategy_fingerprint):
+        with conn.cursor() as cur:
+            cur.execute("DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s",
+                        (_RESUME_COMMITMENT_CURSOR,))
     conn.commit()
 
     return CatchUpResult(sessions_replayed=replayed, through=through,

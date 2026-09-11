@@ -86,6 +86,13 @@ returned volume `2000499.9999999998` for an input of `2000500`). Row identities,
 dates, actions and metadata remain exact; broker Decimal accounting remains exact.
 Falsifiers cover changed prices, volumes, identities and missing rows.
 
+Physical restore may recover an owned broker order whose original local command
+row was lost. The existing journal marks its plan attribution `RECOVERED` and
+retains the broker client key. Only after a physical restore does the oracle
+permit that attribution change, requiring the recovered-key marker and matching
+broker order. Deployment, security, revision, instrument, side and quantity
+remain identical to the independent pre-restore history.
+
 ## Physical recovery and clocks
 
 Each lifecycle owns a unique temporary PostgreSQL data directory, port and media
@@ -175,22 +182,32 @@ merge. The full-suite evidence plugin records every selected, deselected, passed
 failed and skipped node. Unexpected skips, incomplete accounting, empty collection
 and nonzero pytest exits fail the gate. The three existing historical Wealth Core
 exclusions are enumerated in `tools/internal_state_full_suite.py`.
+The disposable full-suite runner provides a synthetic publication-receipt key
+alongside its owned database, matching the existing tests' signed-row and Compose
+configuration prerequisites. This key has no deployment authority.
 
 The local environment can exercise the kernel, plan assembly, real application
 SIGKILL, private broker process, replay reduction and oracle falsifiers. It lacks
 PostgreSQL binaries. Physical restore and the integrated campaigns therefore
-remain unverified until CI runs; their presence in the catalogue is not a PASS.
+run in CI. Full integrated acceptance remains pending the final passing campaign.
 
-The multi-session catch-up case specifically checks a suspected contract gap on
-the implementation base: catch-up commits an intermediate cursor/state while the
-old plan remains current, but restart validation requires that cursor to equal
-the prior plan's decision session. The scenario must prove validated continuation
-and equality with uninterrupted replay. A commitment refusal fails that scenario;
-it is not treated as successful recovery. This harness changes no production
-commitment guard, strategy authority or observability-table ownership.
+The multi-session catch-up case confirmed a production restart defect in
+[CI run 34545234918](https://github.com/flabber1835/stocker/actions/runs/34545234918):
+catch-up committed an intermediate cursor/state while the old plan remained
+current, and restart validation rejected the resulting session mismatch.
+The fix records a dedicated catch-up checkpoint commitment in the same commit
+and verifies it before continuation, as specified in execution contract §13.2.
+The scenario requires validated continuation and exact equality with uninterrupted
+replay. Mutation cases reject missing or altered checkpoints, changed state,
+changed strategy identity and a different predecessor plan. Trial evidence keeps
+its observability role. Strategy transitions, configuration and economics remain
+unchanged. Validation of the fix in the full integrated campaign is pending.
 
 The first full local run also found two stale test assumptions: an emergency
 wrapper fixture required the container-only `/work/repo` layout, and one image
 test expected the retired second runtime. Those tests now use an isolated copied
-script fixture and the current single-runtime contract. Production code and
-strategy economics are unchanged.
+script fixture and the current single-runtime contract. CI also exposed harness
+defects in floating corpus comparison, provider retry clocks, cash observation
+boundaries, inherited backup metadata, full-suite receipt-key provisioning and
+recovered-order attribution. Each repair preserves the relevant production
+contract; discovered production defects are counted separately.

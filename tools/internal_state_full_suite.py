@@ -27,6 +27,7 @@ def main():
         server.start()
         env = dict(os.environ, SENTINEL_DATABASE_URL=server.sync_dsn,
                    ALPACA_HARNESS_REQUIRE_POSTGRES="1",
+                   SENTINEL_PUBLICATION_RECEIPT_KEY="internal-state-suite-synthetic-receipt-key",
                    INTERNAL_STATE_SUITE_EVIDENCE="artifacts/suites",
                    PYTEST_ADDOPTS="-p tests.internal_state.ci_gate")
         args = ["bash", "scripts/run-tests.sh", "-q", "-ra"]

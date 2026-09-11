@@ -214,10 +214,13 @@ class Lifecycle:
         with self.connection() as conn:
             row = conn.execute("SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name='catchup'").fetchone()
             raw = row[1] if row else None
+            checkpoint = conn.execute("SELECT session,state FROM sentinel_processed_sessions"
+                " WHERE cursor_name='catchup:resume_commitment:v1'").fetchone()
             bound = binding.require(conn)
             plan = journal.latest_plan(conn)
             commands = journal.load_commands(conn, bound.identity)
             return {"state": raw, "cursor": str(row[0]) if row else None,
+                "resume_commitment": plain(checkpoint),
                 "plan": plain(plan.to_dict()) if plan else None,
                 "commands": [command_dict(c) for c in commands],
                 "histories": plain({c.client_key: journal.command_history(conn, c.client_key) for c in commands}),
@@ -226,7 +229,8 @@ class Lifecycle:
 
     def invariants(self, snapshot):
         oracles.broker_accounting(snapshot["broker"])
-        oracles.journal_contract(snapshot["commands"], snapshot["histories"], snapshot["broker"], self.economics)
+        oracles.journal_contract(snapshot["commands"], snapshot["histories"], snapshot["broker"],
+                                 self.economics, restored=self.restored)
         raw = snapshot["state"]
         if raw:
             oracles.canonical_state(raw, identity=self.identity, cursor=snapshot["cursor"])
@@ -270,6 +274,7 @@ class Lifecycle:
         day = calendar.next_session(self.day)
         self.provider.advance(market.step(day, self.trace.seed, faulty=self.data_bad,
             shocks=self.shocks, observed_after=self.provider.step.at))
+        self.service.move(self.provider.step.at.isoformat())
         before = self.snapshot()
         with self.connection() as conn:
             try:
@@ -290,7 +295,6 @@ class Lifecycle:
             report = readiness.check_readiness(conn, today=self.provider.step.at.isoformat())
             check("published_data_ready", [], [vars(c) for c in report.failures])
             self.day = day
-            self.service.move(self.provider.step.at.isoformat())
             self.service.prices({row[2]: str(row[4]) for row in self.provider.step.expected.bars if row[1] == day}
                                 | {"BIL": str(self.provider.step.expected.defensive[-1][-1])})
             prior = catchup.resume_state(conn)
