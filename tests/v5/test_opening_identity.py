@@ -67,6 +67,15 @@ def rename_broker(monkeypatch, env, plan, *, alias=False, wrong_security=False):
     return broker, requested, current
 
 
+def _assert_no_buy(env, plan, evidence, reason):
+    assert isinstance(evidence, OpeningPriceUnavailability)
+    assert reason in evidence.reason
+    projection = opening_sizing.resolve(env, plan, base(env, plan), evidence)
+    assert projection.target_basket['SEC-AAA'] == 0
+    assert projection.opening_sizing['mode'] == opening_sizing.UNAVAILABLE_MODE
+    return projection
+
+
 @pytest.mark.parametrize('sale', [False, True])
 @pytest.mark.parametrize('alias', [False, True])
 def test_renamed_entry_and_pending_exit_complete_sizing(monkeypatch, sale, alias):
@@ -127,11 +136,7 @@ def test_effective_listing_must_be_unique_and_reversible(monkeypatch, fault):
     monkeypatch.setattr(universe, 'load_resolver', lambda *a, **k: resolver)
     evidence = asyncio.run(opening_sizing.prices_for_plan(
         None, state=env, plan=plan, broker=broker))
-    assert isinstance(evidence, OpeningPriceUnavailability)
-    assert 'unique effective-session' in evidence.reason
-    projection = opening_sizing.resolve(env, plan, base(env, plan), evidence)
-    assert projection.target_basket['SEC-AAA'] == 0
-    assert projection.opening_sizing['mode'] == opening_sizing.UNAVAILABLE_MODE
+    _assert_no_buy(env, plan, evidence, 'unique effective-session')
     assert requested == []
 
 
@@ -144,8 +149,9 @@ def test_opening_resolution_independently_checks_instrument_identity(monkeypatch
                                 'OTHER' if fault == 'wrong_symbol' else 'NEW',
                                 None if fault == 'missing_asset' else 'asset-SEC-AAA')
     monkeypatch.setattr(broker, 'resolve_instrument', resolve)
-    with pytest.raises(projections.TargetProjectionRefused, match='permanent security identity'):
-        asyncio.run(opening_sizing.prices_for_plan(None, state=env, plan=plan, broker=broker))
+    evidence = asyncio.run(opening_sizing.prices_for_plan(
+        None, state=env, plan=plan, broker=broker))
+    _assert_no_buy(env, plan, evidence, 'permanent security identity')
 
 
 @pytest.mark.parametrize('fault', ['symbol', 'asset', 'security'])
@@ -162,8 +168,9 @@ def test_opening_price_response_must_match_resolved_instruments(monkeypatch, fau
         return replace(evidence, prices={'OTHER': D(100)}, symbols={'OTHER': 'NEW'},
                        broker_ids={'OTHER': 'asset-SEC-AAA'})
     monkeypatch.setattr(broker, 'opening_prices', swapped)
-    with pytest.raises(projections.TargetProjectionRefused, match='resolved instrument identities'):
-        asyncio.run(opening_sizing.prices_for_plan(None, state=env, plan=plan, broker=broker))
+    evidence = asyncio.run(opening_sizing.prices_for_plan(
+        None, state=env, plan=plan, broker=broker))
+    _assert_no_buy(env, plan, evidence, 'resolved instrument identities')
 
 
 @pytest.mark.parametrize('fault', ['missing', 'blank', 'duplicate'])
