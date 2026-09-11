@@ -18,6 +18,7 @@ on:
       - 'tests/sentinel/test_issue_209_alpaca_asset_id.py'
       - 'tests/sentinel/test_guarded_execution_broker.py'
       - 'tests/sentinel/test_execution_state_machine_model.py'
+      - 'tests/test-responsibility.json'
       - 'tools/alpaca_harness.py'
       - 'tools/alpaca_harness_mutations.py'
       - 'tools/sentinel_mutation_certify.py'
@@ -56,17 +57,16 @@ jobs:
           python -m pip check
           sudo apt-get update
           sudo apt-get install -y postgresql
-      - name: Run wire, cash, PostgreSQL recovery and adjacent regression suites
+      - name: Require the named Alpaca contract inventory
         env:
           PYTHONPATH: shared
-          ALPACA_HARNESS_REQUIRE_POSTGRES: '1'
         run: python tools/alpaca_harness.py --output artifacts/alpaca
-      - name: Falsify representative safety guards
+      - name: Falsify every required Alpaca safety guard
         env:
           PYTHONPATH: shared
           ALPACA_HARNESS_REQUIRE_POSTGRES: '1'
         run: python tools/alpaca_harness_mutations.py --include-postgres --output artifacts/alpaca/mutations.json
-      - name: Retain scenario results and exact source identity
+      - name: Retain contract inventory, mutation results and source identity
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

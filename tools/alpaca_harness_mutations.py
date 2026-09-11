@@ -6,7 +6,8 @@ import json
 from pathlib import Path
 import sys
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
 from tools.sentinel_mutation_certify import Mutant, _run
 
 MUTANTS = (
@@ -61,16 +62,31 @@ POSTGRES_MUTANT = Mutant(
     "test_cash_cursor_total_detects_nonlast_ledger_loss")
 
 
+def _required_mutations() -> list[str]:
+    authority = json.loads((ROOT / "tests/test-responsibility.json").read_text())
+    if authority.get("schema") != "stocker.test-responsibility/1":
+        raise RuntimeError("invalid test-responsibility authority schema")
+    required = authority.get("alpaca", {}).get("required_mutations")
+    if not isinstance(required, list) or not required or len(required) != len(set(required)):
+        raise RuntimeError("invalid required Alpaca mutation inventory")
+    return required
+
+
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--include-postgres", action="store_true")
     args = parser.parse_args()
     mutants = MUTANTS + ((POSTGRES_MUTANT,) if args.include_postgres else ())
+    actual = [mutant.name for mutant in mutants]
+    required = _required_mutations()
+    if args.include_postgres and actual != required:
+        raise RuntimeError(f"Alpaca mutation authority differs: expected={required!r} actual={actual!r}")
     records = [_run(mutant) for mutant in mutants]
     passed = all(r["mutant_killed"] for r in records)
     result = dict(schema="sentinel.alpaca-mutations/1",
-                  all_mutants_killed=passed, mutants=records)
+                  all_mutants_killed=passed, required_mutations=required,
+                  mutants=records)
     args.output.parent.mkdir(parents=True, exist_ok=True)
     args.output.write_text(json.dumps(result, indent=2) + "\n")
     print(json.dumps({"all_mutants_killed": passed,

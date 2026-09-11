@@ -1,0 +1,106 @@
+{
+  "schema": "stocker.test-responsibility/1",
+  "owners": {
+    "sentinel.complete": {
+      "paths": ["tests/sentinel"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
+    },
+    "production-champion.regressions": {
+      "paths": ["tests/champion", "tests/median5", "tests/v5"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
+    },
+    "wealth-core.prospective": {
+      "paths": ["tests/wealth_core"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
+    },
+    "scripts.operator": {
+      "paths": ["tests/scripts"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
+    },
+    "host-python38.compatibility": {
+      "paths": ["tests/host_python38"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sentinel-safety.yml#host-python-38-compatibility",
+      "independence": "minimum-host-runtime"
+    },
+    "backup.reliability": {
+      "paths": ["tests/backup"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/backup-reliability.yml#media-and-recovery"
+    },
+    "internal-state.contract": {
+      "paths": ["tests/internal_state"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/internal-state-harness.yml#contract",
+      "independence": "independent-oracle"
+    },
+    "internal-state.campaign": {
+      "paths": ["tools/internal_state_harness.py"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/internal-state-harness.yml#lifecycle",
+      "independence": "adversarial-generated"
+    },
+    "core.infrastructure": {
+      "paths": [
+        "tests/broker",
+        "tests/postgres",
+        "tests/shared",
+        "tests/test_high_impact_filesystem_remediation.py",
+        "tests/test_postgres_shm.py"
+      ],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/internal-state-harness.yml#core-infrastructure"
+    },
+    "sharadar.daily-replay": {
+      "paths": ["research/sharadar_replay/tests"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sharadar-daily-replay.yml#daily-replay",
+      "independence": "pit-production-replay"
+    },
+    "alpaca.contracts": {
+      "paths": ["tests/sentinel/test_alpaca*", "tests/sentinel/test_execution_state_machine_model.py", "tests/sentinel/test_guarded_execution_broker.py"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
+      "execution_owner": "sentinel.complete"
+    },
+    "alpaca.mutations": {
+      "paths": ["tools/alpaca_harness_mutations.py"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/alpaca-simulation-harness.yml#alpaca",
+      "independence": "mutation"
+    }
+  },
+  "alpaca": {
+    "required_contracts": {
+      "unknown-submit-recovery": "test_lost_post_is_unknown_and_same_key_retry_never_duplicates",
+      "pending-cancel-recovery": "test_command_transition_guard_matches_every_independent_model_edge",
+      "stable-asset-id": "test_stable_asset_handle_is_used_at_post",
+      "symbol-rename-handling": "test_submit_addresses_the_durable_asset_id_not_the_ticker",
+      "exact-client-key-corruption": "test_empty_successful_exact_lookup_is_corruption_not_absence",
+      "partial-full-fill-accounting": "test_happy_buy_partial_fill_sell_and_adapter_restart",
+      "cash-attribution": "test_deposit_withdrawal_fees_and_dividends_have_distinct_attribution",
+      "session-close-constraint": "test_day_order_preserves_partial_fill_until_eligible_session_close",
+      "restart-day-fence": "test_production_guard_refuses_closed_simulated_clock",
+      "account-binding": "test_paper_replacement_requires_new_binding",
+      "guarded-execution": "test_protocol_introspection_forces_every_broker_method_through_guard",
+      "live-cash-economics": "test_paper_and_live_cash_profiles_exercise_actual_economic_differences",
+      "live-endpoint-refusal": "test_actual_live_or_untrusted_endpoint_is_refused_before_transport",
+      "cash-ledger-durability": "test_cash_cursor_total_detects_nonlast_ledger_loss"
+    },
+    "required_mutations": [
+      "empty-exact-200-is-absence",
+      "stable-asset-id-is-replaced-by-symbol",
+      "order-race-detector-disabled",
+      "external-capital-counted-as-income",
+      "unknown-pending-cancel-recovery-disabled",
+      "day-expiry-uses-fixed-utc-close",
+      "simulated-clock-is-always-open",
+      "closed-session-fill-guard-disabled",
+      "cash-cursor-reused-after-ledger-loss"
+    ]
+  }
+}
