@@ -21,6 +21,9 @@ on:
       - 'tools/alpaca_harness.py'
       - 'tools/alpaca_harness_mutations.py'
       - 'tools/sentinel_mutation_certify.py'
+      - 'tests/internal_state/**'
+      - 'tools/internal_state_harness.py'
+      - '.github/workflows/internal-state-harness.yml'
       - '.github/workflows/alpaca-simulation-harness.yml'
   workflow_dispatch:
 

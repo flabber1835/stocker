@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 from pathlib import Path
 import subprocess
+import shutil
 
 import pytest
 
@@ -20,7 +21,9 @@ def test_149_emergency_wrapper_allows_password_only_in_dotenv(tmp_path):
     container and executes psql inside it. Repository .env contents therefore
     remain irrelevant to the host-side fence.
     """
-    repo = ROOT / "repo"
+    source = ROOT / "repo" if (ROOT / "repo/scripts/sentinel-emergency-kill.sh").is_file() else ROOT
+    repo = tmp_path / "repo"
+    shutil.copytree(source / "scripts", repo / "scripts")
     dotenv = repo / ".env"
     previous = dotenv.read_bytes() if dotenv.exists() else None
     fakebin = tmp_path / "bin"

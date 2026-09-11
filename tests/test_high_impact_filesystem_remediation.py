@@ -46,17 +46,23 @@ def test_authorized_runtime_requires_executable_capability(
         _shared.EXIT_CONFIG
 
 
-def test_authorized_dispatch_is_absent_from_ordinary_image_layer() -> None:
-    ordinary = (ROOT / "Dockerfile.sentinel").read_text()
-    authorized = (ROOT / "Dockerfile.sentinel-authorized").read_text()
-
-    assert "RUN rm /app/sentinel/cli/authorized_routes.py" in ordinary
-    assert ("COPY sentinel/cli/authorized_routes.py" in authorized
-            and "/app/sentinel/cli/authorized_routes.py" in authorized)
-    assert "/app/sentinel/execution/alpaca.py" in ordinary
-    assert "stock_strategy_shared/broker/alpaca.py" in ordinary
-    assert "sentinel/execution/alpaca.py" in authorized
-    assert "shared/stock_strategy_shared/broker/alpaca.py" in authorized
+def test_single_runtime_keeps_transport_behind_launch_authority() -> None:
+    def instructions(path):
+        return "\n".join(line.strip() for line in path.read_text().splitlines()
+                         if line.strip() and not line.lstrip().startswith("#"))
+    runtime = instructions(ROOT / "Dockerfile.sentinel")
+    retired = instructions(ROOT / "Dockerfile.sentinel-authorized")
+    # Main has one deployable runtime; signed authority and launch intent are
+    # enforced by the executable tests below. The second-image build must stay
+    # an inert tombstone. These assertions bind the current image contract.
+    assert "COPY sentinel/ /app/sentinel/" in runtime
+    assert "COPY shared/ /shared/" in runtime
+    assert "COPY deploy/sentinel-authorized-runtime-v1" in runtime
+    assert "chmod 0555 /opt/sentinel/bin/authorized-runtime-capability-v1" in runtime
+    assert "USER 10001:10001" in runtime
+    assert 'CMD ["status"]' in runtime
+    assert "ENV SENTINEL_AUTHORIZED_RUNTIME=" not in runtime
+    assert retired == ""
 
 
 def test_marker_and_executable_cannot_replace_authorized_dispatch(

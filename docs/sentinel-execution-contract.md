@@ -1795,6 +1795,22 @@ with deterministic falsifiers; that injection is not a second production
 portfolio or controller implementation. Historical catch-up advances state,
 while adoption leaves only the newest plan executable.
 
+**Intermediate canonical state has its own restart commitment.** Catch-up owns
+the `catchup:resume_commitment:v1` namespace in the existing durable cursor store.
+Before each historical-session commit it records that session, the exact state
+hash, and the current predecessor plan's id and economic fingerprint in the same
+transaction as the state/cursor. When the cursor is ahead of that plan, restart
+requires an exact checkpoint match and the same strategy identity. Missing,
+altered, stale or differently anchored checkpoints refuse continuation. The
+ordinary same-session plan commitment remains authoritative after completion.
+Final plan adoption clears the temporary checkpoint in its atomic commit.
+
+This is operational catch-up state. Trial/observability evidence retains its
+existing ownership and supplies no restart authority. The checkpoint creates no
+intermediate execution intent and changes no strategy transition or economics.
+An intermediate state written by an older version with no checkpoint retains
+its existing refusal; the upgrade does not infer a missing commitment.
+
 ### 13.3 External cash is a first-class recovery event
 
 A deposit or a withdrawal changes what is investable. It does not change what

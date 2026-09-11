@@ -20,7 +20,7 @@ from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 
 
 ROOT = Path(__file__).resolve().parents[2]
-REPO = ROOT / "repo"
+REPO = ROOT / "repo" if (ROOT / "repo/scripts/sentinel-emergency-kill.sh").is_file() else ROOT
 
 
 @pytest.fixture(scope="module")
