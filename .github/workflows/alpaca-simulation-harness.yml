@@ -21,6 +21,7 @@ on:
       - 'tests/test-responsibility.json'
       - 'tools/alpaca_harness.py'
       - 'tools/alpaca_harness_mutations.py'
+      - 'tools/test_responsibility_lib.py'
       - 'tools/sentinel_mutation_certify.py'
       - 'tests/internal_state/**'
       - 'tools/internal_state_harness.py'
