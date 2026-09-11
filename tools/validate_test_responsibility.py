@@ -5,7 +5,13 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import re
 import subprocess
+import sys
+
+TOOLS = Path(__file__).resolve().parent
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
 
 from test_responsibility_lib import (
     ROOT, SCHEMA, contains, incident_named, load_authority, owner_paths,
@@ -28,10 +34,28 @@ REQUIRED_OWNERS = {
 }
 REQUIRED_SCOPES = {"exact-head", "synthetic-merge"}
 EXECUTION_KINDS = {"pytest-junit", "unittest-discovery", "command", "delegated"}
+_JOB_ID = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
 
 
 def git(*args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
+
+
+def _job_body(text: str, job: str) -> str:
+    lines = text.splitlines(keepends=True)
+    start = None
+    for index, line in enumerate(lines):
+        match = _JOB_ID.match(line.rstrip("\n"))
+        if match and match.group(1) == job:
+            start = index
+            break
+    assert start is not None, f"CI job id not found: {job}"
+    end = len(lines)
+    for index in range(start + 1, len(lines)):
+        if _JOB_ID.match(lines[index].rstrip("\n")):
+            end = index
+            break
+    return "".join(lines[start:end])
 
 
 def _require_ci_job(owner_name: str, value: object) -> tuple[str, str, str]:
@@ -44,11 +68,14 @@ def _require_ci_job(owner_name: str, value: object) -> tuple[str, str, str]:
     path = ROOT / workflow
     assert path.is_file(), f"{owner_name}: ci_job workflow does not exist: {workflow}"
     text = path.read_text()
-    assert f"\n  {job}:\n" in text, f"{owner_name}: ci_job id not found in {workflow}: {job}"
-    return workflow, job, text
+    try:
+        body = _job_body(text, job)
+    except AssertionError as exc:
+        raise AssertionError(f"{owner_name}: ci_job id not found in {workflow}: {job}") from exc
+    return workflow, job, body
 
 
-def _require_execution_binding(name: str, owner: dict, workflow_text: str,
+def _require_execution_binding(name: str, owner: dict, job_text: str,
                                owners: dict) -> dict:
     execution = owner.get("execution")
     assert isinstance(execution, dict), f"{name}: missing execution binding"
@@ -56,16 +83,16 @@ def _require_execution_binding(name: str, owner: dict, workflow_text: str,
     assert kind in EXECUTION_KINDS, f"{name}: invalid execution kind: {kind}"
     if kind == "pytest-junit":
         marker = f"python tools/verify_test_owner_execution.py --owner {name}"
-        assert marker in workflow_text, (
-            f"{name}: declared CI workflow does not verify owned-module execution")
+        assert marker in job_text, (
+            f"{name}: declared CI job does not verify owned-module execution")
     elif kind == "unittest-discovery":
         marker = f"python tools/run_unittest_owner.py --owner {name}"
-        assert marker in workflow_text, (
-            f"{name}: declared CI workflow does not use owner-driven unittest discovery")
+        assert marker in job_text, (
+            f"{name}: declared CI job does not use owner-driven unittest discovery")
     elif kind == "command":
         command = execution.get("command")
         assert isinstance(command, str) and command, f"{name}: missing execution command"
-        assert command in workflow_text, f"{name}: declared execution command not present in workflow"
+        assert command in job_text, f"{name}: declared execution command not present in CI job"
     else:
         target = execution.get("owner")
         assert isinstance(target, str) and target in owners, f"{name}: invalid delegated owner"
@@ -136,12 +163,12 @@ def validate(*, base: str | None = None) -> dict:
         assert isinstance(owner, dict), f"{name}: invalid owner declaration"
         scopes = set(owner.get("scopes", []))
         assert REQUIRED_SCOPES.issubset(scopes), f"{name}: exact/synthetic scope ownership missing"
-        workflow, job, workflow_text = _require_ci_job(name, owner.get("ci_job"))
+        workflow, job, job_text = _require_ci_job(name, owner.get("ci_job"))
         ci_jobs[name] = f"{workflow}#{job}"
         paths = owner_paths(authority, name)
         resolved_paths[name] = paths
         resolved[name] = [relative_posix(path) for path in paths]
-        executions[name] = _require_execution_binding(name, owner, workflow_text, owners)
+        executions[name] = _require_execution_binding(name, owner, job_text, owners)
 
     test_modules = sorted((ROOT / "tests").rglob("test_*.py"))
     unowned_tests = [
