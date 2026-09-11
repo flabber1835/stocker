@@ -2,8 +2,9 @@
 
 **Selected integration, 2026-09-11:** the compact champion and its independent
 PR #352 research result are pinned in
-[production-compact-champion.md](production-compact-champion.md). The production
-PR adds an exact-source historical differential gate. The older controller
+[production-compact-champion.md](production-compact-champion.md). PR #354 updates
+the production strategy and its regression tests. Historical replay belongs to
+the subsequent replay PR. The older controller
 certifications below retain their original scope; they do not certify this
 integration or a full-system twenty-year replay.
 

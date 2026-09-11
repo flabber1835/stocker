@@ -187,7 +187,9 @@ def _record_resume_commitment(conn, state, session: date) -> None:
         return
     try:
         canonical = SessionState.from_dict(state)
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError) as exc:
+        if {"wealth_core", "strategy_identity"} <= set(state):
+            raise StateCommitmentMismatch("invalid canonical checkpoint state") from exc
         return  # Generic test/research seams retain their existing contract.
     plan = journal.latest_plan(conn)
     if (plan is None or not str(plan.plan_id).startswith("sentinel-")
@@ -210,10 +212,10 @@ def _record_resume_commitment(conn, state, session: date) -> None:
 def _assert_resume_state_commitment(conn, state) -> None:
     """Verify production `SessionState` against the prior durable plan.
 
-    Catch-up intentionally accepts arbitrary JSON-serialisable state seams in
-    unit/research callers, so this check activates only when the row decodes as
-    the canonical production `SessionState` and the durable current plan is a
-    normal content-addressed Sentinel production plan.
+    A row declaring Wealth Core and strategy identity must decode as canonical
+    production state. Its commitment is checked against the durable current
+    Sentinel production plan. Generic JSON state retains its existing caller
+    contract.
     """
     if not isinstance(state, Mapping):
         return
@@ -222,7 +224,9 @@ def _assert_resume_state_commitment(conn, state) -> None:
         # time and avoids a production<->catchup import cycle.
         from sentinel.core.production import SessionState
         canonical = SessionState.from_dict(state)
-    except (KeyError, TypeError, ValueError):
+    except (KeyError, TypeError, ValueError) as exc:
+        if {"wealth_core", "strategy_identity"} <= set(state):
+            raise StateCommitmentMismatch("invalid canonical restart state") from exc
         return
 
     plan = journal.latest_plan(conn)

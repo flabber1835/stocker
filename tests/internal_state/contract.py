@@ -54,7 +54,7 @@ class Action(BaseModel):
 class Trace(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
     schema_version: Literal["sentinel.integrated-state/1"] = "sentinel.integrated-state/1"
-    fixture: Literal["rising-published-market-v1"] = "rising-published-market-v1"
+    fixture: Literal["rising-published-market-v2-champion"] = "rising-published-market-v2-champion"
     name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
     seed: int = Field(default=0, ge=0, le=2**32 - 1, strict=True)
     profile: Literal["paper", "live_cash"] = "paper"

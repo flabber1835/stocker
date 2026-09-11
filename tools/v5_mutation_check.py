@@ -5,7 +5,6 @@ from __future__ import annotations
 import json
 from pathlib import Path
 import sys
-from tempfile import TemporaryDirectory
 from unittest.mock import patch
 from pytest import MonkeyPatch
 
@@ -17,9 +16,7 @@ from tests.v5 import test_v5 as checks
 from tests.v5 import test_opening as opening_checks
 from tests.v5 import test_review_regressions as review_checks
 from tests.v5 import test_opening_identity as identity_checks
-from tests.v5 import test_checkout_evidence as checkout_checks
 from tests.v5 import test_publication_regressions as publication_checks
-from tools import v5_checkout_evidence
 from sentinel.feed import universe
 from sentinel.feed.universe import IdentityResolver
 from sentinel.execution.alpaca import AlpacaExecutionBroker
@@ -39,10 +36,6 @@ def checked(function, *args):
         function(monkeypatch, *args)
 
 
-def graph_checked(function, *args):
-    with TemporaryDirectory() as directory:
-        graph = checkout_checks.graph.__wrapped__(Path(directory))
-        function(graph, *args)
 
 
 def run():
@@ -96,14 +89,6 @@ def run():
          lambda: checked(identity_checks.test_submission_refuses_asset_id_change_since_opening, True),
          targets, "_instrument_map", rewritten(targets._instrument_map,
              "and current.broker_id != opening_prices.broker_ids[security_id]", "and False")),
-        ("full_pit_merge_parent_binding_removed",
-         lambda: graph_checked(checkout_checks.test_stale_or_wrong_merge_refuses, "base_advanced"),
-         checkout_checks, "evidence", rewritten(v5_checkout_evidence.evidence,
-             "if parents != [base, head]:", "if False:")),
-        ("full_pit_remote_base_freshness_removed",
-         lambda: graph_checked(checkout_checks.test_remote_change_during_replay_invalidates_acceptance, "base"),
-         checkout_checks, "verify_current_pr", rewritten(v5_checkout_evidence.verify_current_pr,
-             "if actual != expected:", "if False:")),
         ("published_signal_split_adjusted_twice",
          review_checks.test_abv_adjacent_split_rows_cannot_rescale_published_signal,
          SecuritySeries, "append", rewritten(SecuritySeries.append,

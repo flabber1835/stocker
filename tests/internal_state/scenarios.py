@@ -13,7 +13,7 @@ def actions(*names):
 
 BASE = ("daily", "daily", "daily")
 COMMON = ("production_daily", "production_kernel", "production_plan", "canonical_state",
-          "populated_wealth_core", "populated_witness", "persisted_ldrc", "kernel_differential")
+          "populated_wealth_core", "populated_witness", "persisted_recovery", "kernel_differential")
 
 
 def catalogue():

@@ -49,6 +49,11 @@ The strategy identity binds the frozen reference, production implementation,
 Wealth Core configuration, controller semantics and snapshot schemas. Prior
 strategy state is not silently relabelled as champion state. Existing lineage
 and execution authority checks own adoption of a changed strategy.
+Catch-up JSON carrying both Wealth Core and strategy identity declares a
+production envelope. A decoding failure must refuse checkpoint recording or
+restart. The strategy regression fixtures use the versioned
+`rising-published-market-v2-champion` corpus so retained older traces cannot
+silently acquire different input history.
 
 Opening quantities are computed through the production execution boundary,
 persisted before order submission and reused after restart. Splits and ticker
@@ -59,14 +64,22 @@ execution only; it cannot change the canonical shadow or controller decisions.
 
 Retain the complete frozen reference as test evidence. Verify controller
 transitions and snapshot restoration independently, canonical book economics,
-opening sizing and restart behavior, and the full historical differential over
-all 5,176 sessions. Historical comparison uses the production kernel and records
-its exact source identity; it does not patch application behavior.
+opening sizing and restart behavior in the strategy PR. Existing regression
+fixtures supply the champion's required 252-session history and dated SPY
+observations, and assert its twenty-slot book and bounded recovery state.
 
-This integration is delivered through a PR targeting main. Source integration,
-historical strategy equivalence, full-system twenty-year reliability and
-deployment certification are separately recorded results. Existing signing,
-backup and deployment authorization contracts remain authoritative.
+Owner sequencing, 2026-09-11: PR #354 contains the production strategy update,
+its documentation and regression tests. PR #353 is reserved for the subsequent
+full replay implementation if needed. The replay PR owns the historical
+comparison workflow, corpus growth simulator, instrumentation and all-session
+acceptance. It must import the accepted production strategy directly and record
+its exact source identity. The existing replay staging patches require removal
+when that PR is resumed against the accepted strategy revision.
+
+Source integration, historical strategy equivalence, full-system twenty-year
+reliability and deployment certification are separately recorded results.
+Existing signing, backup and deployment authorization contracts remain
+authoritative.
 
 The paper lifecycle decomposition manifest remains a historical snapshot.
 `production-champion-paper-deltas.json` records the explicitly changed lifecycle

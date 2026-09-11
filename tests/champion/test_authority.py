@@ -11,14 +11,11 @@ from sentinel.controller import champion_config, champion_frozen, median5
 from sentinel.controller.machine import Controller
 from sentinel.core.session import SessionState
 from sentinel.strategy import production_strategy
-from tools.champion_equivalence import REFERENCE_AST
-from tools.median5_equivalence import normalized_sha
 
 
 def test_production_transitions_preserve_the_complete_frozen_controller_ast():
     source = Path(__file__).with_name("frozen_reference.txt").read_bytes()
     assert hashlib.sha256(source).hexdigest() == champion_config.REFERENCE_SOURCE_SHA256
-    assert normalized_sha(source.decode()) == REFERENCE_AST
     names = {"ORD_DD", "FAST", "SLOW", "LDRC_DD", "LDRC_R20", "LDRC_CEIL", "LDRC_REC", "LDRC_V"}
     def selected(text):
         return [ast.dump(n, include_attributes=False) for n in ast.parse(text).body

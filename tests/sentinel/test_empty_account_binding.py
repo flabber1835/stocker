@@ -25,6 +25,7 @@ from sentinel.guarded_administration import (
     AdministrativeAccessGrant,
     AdministrativeBrokerGuard,
 )
+from sentinel.strategy import production_strategy
 from tests.support.postgres import _EphemeralPostgres, drop_public_tables
 
 
@@ -559,7 +560,7 @@ def test_paper_observation_candidate_refuses_before_binding_and_succeeds_after(
         certificate_id="paper-observation-after-empty-0001",
         issuer_generation=2, deployment_id="nas-01",
         expected_account="paper-123", runtime_identity=runtime_identity(),
-        strategy_identity={"strategy": "current"},
+        strategy_identity=production_strategy()[1],
         automation_config_sha256=sha("4"),
         warmup={"schema": "sentinel.paper-observation-warmup/1"},
         maximum_exposure="0.5", reviewer="reviewer", ticket="ticket",
@@ -579,7 +580,7 @@ def test_prebinding_candidate_binds_current_runtime_and_refuses_drift(conn):
         conn, certificate_id="empty-paper-candidate-0001",
         issuer_generation=1, deployment_id="nas-01",
         expected_account="paper-123", runtime_identity=runtime_identity(),
-        strategy_identity={"strategy": "current"},
+        strategy_identity=production_strategy()[1],
         automation_config_sha256=sha("4"), reviewer="reviewer",
         ticket="ticket", not_before=NOW, now=NOW)
     assert candidate["claims"]["historical_certification"] == "NOT_GRANTED"
@@ -591,7 +592,7 @@ def test_prebinding_candidate_binds_current_runtime_and_refuses_drift(conn):
             signed(candidate["claims"]), now=NOW, trust_roots=ROOTS),
         deployment_id="nas-01", broker_account_id="paper-123",
         takeover_epoch=1, paper_base_url=authority.PAPER_BASE_URL,
-        runtime_identity=drifted, strategy_identity={"strategy": "current"},
+        runtime_identity=drifted, strategy_identity=production_strategy()[1],
         automation_config_sha256=sha("4"), trust_roots_path=(
             authority.DEFAULT_TRUST_ROOTS_PATH))
     with pytest.raises(authority.AuthorityRefused, match="bindings"):
