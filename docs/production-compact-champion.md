@@ -60,6 +60,14 @@ persisted before order submission and reused after restart. Splits and ticker
 changes follow permanent security identity. Broker state remains an input to
 execution only; it cannot change the canonical shadow or controller decisions.
 
+An opening intent first encountered after the 120-second opening window receives
+durable `OPENING_EVIDENCE_UNAVAILABLE_NO_BUY` evidence. The opening target is
+zero and the ordinary authority, reconciliation and reduction paths continue.
+Expiry must not prevent a pending sale. A previously recorded projection keeps
+its exact quantities and prices; restart reconciles existing commands and the
+final broker submission boundary rejects every fresh late BUY. Projection loss
+after any durable command remains an integrity refusal.
+
 ## Verification and delivery
 
 Retain the complete frozen reference as test evidence. Verify controller

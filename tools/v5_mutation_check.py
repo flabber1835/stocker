@@ -22,6 +22,7 @@ from sentinel.feed.universe import IdentityResolver
 from sentinel.execution.alpaca import AlpacaExecutionBroker
 from sentinel import automation_runtime
 from sentinel.paper import execution as paper_execution
+from sentinel.paper.model import PaperRetryableRefused
 from sentinel.controller import ex3_v6
 from sentinel.core import decision
 from sentinel.execution import opening_prices, opening_sizing, executor, target_reprojection
@@ -39,6 +40,10 @@ def checked(function, *args):
 
 def run():
     cases = (
+        ("expired_opening_loses_no_buy_evidence",
+         lambda: checked(review_checks.test_expired_opening_returns_no_buy_evidence_for_mixed_plan),
+         paper_execution, "_opening_resolution_freshness_or_refuse",
+         lambda *a, **k: None),
         ("publication_bridge_removed",
          lambda: publication_checks.test_daily_publication_split_preserves_book_features_and_witness_after_restart(2.),
          SecuritySeries, "reconcile_signal_basis", lambda *a: None),
@@ -173,7 +178,7 @@ def run():
          review_checks.test_finalization_preserves_split_authority_for_opening_entry,
          targets, "_target_action_multipliers",
          rewritten(targets._target_action_multipliers, " or plan.opening_intents", "")),
-        ("opening_transient_failure_silently_accepted",
+        ("opening_transient_failure_blocks_reductions",
          lambda: checked(review_checks.test_opening_asset_lookup_transient_failure_becomes_no_buy, 429),
          opening_sizing, "prices_for_plan",
          rewritten(opening_sizing.prices_for_plan,
@@ -186,7 +191,10 @@ def run():
         with patch.object(module, attribute, mutant):
             try:
                 falsifier()
-            except (AssertionError, Failed):
+            except (AssertionError, Failed, PaperRetryableRefused):
+                # The unmodified falsifier must pass above. A mutant that
+                # replaces durable no-buy evidence with a retry refusal breaks
+                # the same reduction-preservation contract as an assertion.
                 results.append({"mutation": name, "status": "KILLED"})
             else:
                 raise AssertionError("SURVIVED: " + name)

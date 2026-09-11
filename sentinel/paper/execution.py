@@ -128,15 +128,15 @@ _V5_OPENING_FRESHNESS = timedelta(seconds=120)
 
 
 def _opening_resolution_freshness_or_refuse(
-        conn, *, plan, deployment, now_et: datetime) -> None:
-    """Keep first-time V5 opening sizing inside the certified open window.
+        conn, *, plan, deployment, now_et: datetime):
+    """Suppress an expired first opening while preserving reductions.
 
-    A durable opening projection means the opening-price resolution already
-    crossed this membrane while fresh and may be resumed after a restart. If
-    commands exist while that projection is missing, the opening-sizing helper
-    raises its existing integrity refusal rather than reconstructing economics.
+    Retained projections remain immutable and the final submission fence owns
+    BUY freshness after a restart. Lost sizing after a durable command remains
+    an integrity refusal before any broker contact.
     """
-    from sentinel.execution import opening_sizing
+    from sentinel.execution import opening_sizing, target_reprojection
+    from sentinel.execution.opening_prices import OpeningPriceUnavailability
     from sentinel.execution.target_reprojection import TargetProjectionRefused
 
     try:
@@ -148,12 +148,13 @@ def _opening_resolution_freshness_or_refuse(
         return
     opened, closed = calendar.session_window(plan.effective_session)
     latest = min(closed, opened + _V5_OPENING_FRESHNESS)
-    if now_et > latest:
-        raise PaperActivationRefused(
+    if (now_et > latest and target_reprojection.load_projection(
+            conn, plan_id=plan.plan_id) is None):
+        return OpeningPriceUnavailability(
+            plan.effective_session,
             f"unresolved V5 opening intent expired at {latest.isoformat()}; "
-            f"paper execution time {now_et.isoformat()} is too late to preserve "
-            "the next-open economic contract. A durable opening projection may "
-            "still be resumed and reconciled.")
+            f"paper execution time {now_et.isoformat()}; opening BUY suppressed",
+            {}, {})
 
 
 async def _opening_prices_or_retry(conn, *, state, plan, broker):
@@ -336,7 +337,7 @@ async def _execute_current_paper_plan(
             # session. This is before the first broker read and consults the
             # actual XNYS schedule, so a 13:00 half-day close is a hard stop.
             _execution_window_or_refuse(plan.effective_session, now_et)
-            _opening_resolution_freshness_or_refuse(
+            opening_prices = _opening_resolution_freshness_or_refuse(
                 conn, plan=plan, deployment=binding.identity, now_et=now_et)
 
             if real_clock:
@@ -372,10 +373,10 @@ async def _execute_current_paper_plan(
                 evaluated_at=clock(), actions=actions,
                 target_actions=target_actions)
             target_projection = None
-            opening_prices = None
             if authority is not None:
-                opening_prices = await _opening_prices_or_retry(
-                    conn, state=state, plan=plan, broker=broker)
+                if opening_prices is None:
+                    opening_prices = await _opening_prices_or_retry(
+                        conn, state=state, plan=plan, broker=broker)
                 # Refuse unsupported/non-scalar corporate actions before the
                 # broker book can be consulted.  Reconciliation may still
                 # adopt a previously unknown command identity, so the exact

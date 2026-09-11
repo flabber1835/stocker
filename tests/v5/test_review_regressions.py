@@ -28,6 +28,43 @@ def published_opening_identity(monkeypatch):
     monkeypatch.setattr(universe, 'load_resolver', lambda *a, **k: resolver)
 
 
+def test_expired_opening_returns_no_buy_evidence_for_mixed_plan(monkeypatch):
+    env, plan = case(cash=100., sale=True)
+    monkeypatch.setattr(projections, 'load_projection', lambda *a, **k: None)
+    monkeypatch.setattr(journal, 'load_commands', lambda *a, **k: ())
+    opened, _ = calendar.session_window(plan.effective_session)
+    evidence = paper_execution._opening_resolution_freshness_or_refuse(
+        object(), plan=plan, deployment=object(),
+        now_et=opened + timedelta(hours=2))
+    assert isinstance(evidence, OpeningPriceUnavailability)
+    projected = opening_sizing.resolve(env, plan, base(env, plan), evidence)
+    assert projected.target_basket == {'SEC-AAA': D(0), 'SEC-X': D(0)}
+    assert projected.opening_sizing['mode'] == opening_sizing.UNAVAILABLE_MODE
+
+
+@pytest.mark.parametrize('seconds', [60, 120])
+def test_fresh_opening_still_requests_price_evidence(monkeypatch, seconds):
+    _, plan = case()
+    monkeypatch.setattr(projections, 'load_projection', lambda *a, **k: None)
+    monkeypatch.setattr(journal, 'load_commands', lambda *a, **k: ())
+    opened, _ = calendar.session_window(plan.effective_session)
+    assert paper_execution._opening_resolution_freshness_or_refuse(
+        object(), plan=plan, deployment=object(),
+        now_et=opened + timedelta(seconds=seconds)) is None
+
+
+def test_expired_unsent_projection_retains_original_economics(monkeypatch):
+    env, plan = case(sale=True)
+    stored = opening_sizing.resolve(env, plan, base(env, plan), prices(env, plan))
+    monkeypatch.setattr(projections, 'load_projection', lambda *a, **k: stored)
+    monkeypatch.setattr(journal, 'load_commands', lambda *a, **k: ())
+    opened, _ = calendar.session_window(plan.effective_session)
+    assert paper_execution._opening_resolution_freshness_or_refuse(
+        object(), plan=plan, deployment=object(),
+        now_et=opened + timedelta(hours=2)) is None
+    assert stored.target_basket['SEC-AAA'] > 0
+
+
 @pytest.mark.parametrize('dual', [False, True])
 def test_filled_open_sized_entry_converges(monkeypatch, dual):
     env, plan = case()

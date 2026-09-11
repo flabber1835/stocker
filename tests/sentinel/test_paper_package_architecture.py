@@ -221,7 +221,7 @@ def _check_and_remove_backup_gate_delta(node):
         del node.body[1]
     elif node.name == "_execute_current_paper_plan":
         expected = ast.parse(
-            "_opening_resolution_freshness_or_refuse("
+            "opening_prices = _opening_resolution_freshness_or_refuse("
             "conn, plan=plan, deployment=binding.identity, now_et=now_et)"
         ).body[0]
         predecessor = ast.parse(
