@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Validate permanent test ownership and refuse new incident-named test files."""
+"""Validate permanent test ownership and refuse unowned or incident-named tests."""
 from __future__ import annotations
 
 import argparse
@@ -39,6 +39,16 @@ def _resolve(pattern: str) -> list[Path]:
     return [path] if path.exists() else []
 
 
+def _contains(owner_path: Path, test_path: Path) -> bool:
+    if owner_path.is_file():
+        return owner_path == test_path
+    try:
+        test_path.relative_to(owner_path)
+        return True
+    except ValueError:
+        return False
+
+
 def validate(*, base: str | None = None) -> dict:
     authority = json.loads(AUTHORITY.read_text())
     assert authority.get("schema") == "stocker.test-responsibility/1", "invalid responsibility schema"
@@ -47,17 +57,30 @@ def validate(*, base: str | None = None) -> dict:
     assert REQUIRED_OWNERS.issubset(owners), "required test owner is missing"
 
     resolved = {}
+    resolved_paths: dict[str, list[Path]] = {}
     for name, owner in owners.items():
         paths = owner.get("paths")
         scopes = set(owner.get("scopes", []))
         assert isinstance(paths, list) and paths, f"{name}: empty owner path list"
         assert REQUIRED_SCOPES.issubset(scopes), f"{name}: exact/synthetic scope ownership missing"
         matches = []
+        path_objects = []
         for pattern in paths:
             found = _resolve(pattern)
             assert found, f"{name}: owner path resolves to nothing: {pattern}"
+            path_objects.extend(found)
             matches.extend(str(path.relative_to(ROOT)) for path in found)
         resolved[name] = sorted(set(matches))
+        resolved_paths[name] = path_objects
+
+    test_modules = sorted((ROOT / "tests").rglob("test_*.py"))
+    unowned_tests = [
+        str(path.relative_to(ROOT))
+        for path in test_modules
+        if not any(_contains(owner_path, path)
+                   for paths in resolved_paths.values() for owner_path in paths)
+    ]
+    assert not unowned_tests, f"test modules without a permanent owner: {unowned_tests}"
 
     required_contracts = authority.get("alpaca", {}).get("required_contracts")
     required_mutations = authority.get("alpaca", {}).get("required_mutations")
@@ -84,6 +107,8 @@ def validate(*, base: str | None = None) -> dict:
         "schema": "stocker.test-responsibility-verdict/1",
         "verdict": "PASS",
         "owners": len(owners),
+        "test_modules": len(test_modules),
+        "unowned_tests": unowned_tests,
         "alpaca_contracts": len(required_contracts),
         "alpaca_mutations": len(required_mutations),
         "base": base,
