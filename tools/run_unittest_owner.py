@@ -8,6 +8,9 @@ from pathlib import Path
 import sys
 import unittest
 
+ROOT = Path(__file__).resolve().parents[1]
+sys.path.insert(0, str(ROOT))
+
 from test_responsibility_lib import load_authority, module_dotted, owned_test_modules, relative_posix
 
 
@@ -40,6 +43,12 @@ def main() -> int:
         ids = [test.id() for test in _iter_tests(module_suite)]
         if not ids:
             raise AssertionError("%s: no unittest cases collected" % relative_posix(module))
+        failed_imports = [test.id() for test in _iter_tests(module_suite)
+                          if test.id().startswith("unittest.loader._FailedTest")]
+        if failed_imports:
+            raise AssertionError(
+                "%s: unittest module failed to import: %s" %
+                (relative_posix(module), failed_imports))
         collected[relative_posix(module)] = ids
         suite.addTests(module_suite)
 
