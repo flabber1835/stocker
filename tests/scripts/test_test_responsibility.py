@@ -3,7 +3,12 @@ from __future__ import annotations
 
 import pytest
 
-from tools.require_check_run import check_verdict, select_check
+from tools.require_check_run import (
+    action_run_and_job_ids,
+    check_verdict,
+    select_check,
+    verify_workflow_origin,
+)
 from tools.test_responsibility_lib import (
     ROOT, canonical_nodeid, junit_execution, resolve_contracts,
     validate_contract_selectors,
@@ -74,6 +79,54 @@ def test_required_check_bridge_accepts_only_exact_github_actions_success():
     assert check_verdict(None) == "WAIT"
     assert check_verdict({"status": "in_progress"}) == "WAIT"
     assert check_verdict({"status": "completed", "conclusion": "success"}) == "PASS"
+
+
+def test_required_check_bridge_requires_exact_actions_workflow_and_head_sha():
+    check = {
+        "head_sha": "head-123",
+        "details_url": "https://github.com/flabber1835/stocker/actions/runs/77/job/88",
+    }
+    assert action_run_and_job_ids(check) == (77, 88)
+
+    def fetch_ok(repository, suffix, token):
+        assert repository == "flabber1835/stocker"
+        assert token == "token"
+        if suffix == "actions/jobs/88":
+            return {"run_id": 77, "head_sha": "head-123"}
+        if suffix == "actions/runs/77":
+            return {
+                "path": ".github/workflows/sharadar-daily-replay.yml",
+                "head_sha": "head-123",
+            }
+        raise AssertionError(suffix)
+
+    origin = verify_workflow_origin(
+        "flabber1835/stocker", check,
+        ".github/workflows/sharadar-daily-replay.yml", "head-123", "token",
+        fetch_json=fetch_ok)
+    assert origin["workflow_run_id"] == 77
+    assert origin["job_id"] == 88
+
+    def wrong_workflow(repository, suffix, token):
+        if suffix == "actions/jobs/88":
+            return {"run_id": 77, "head_sha": "head-123"}
+        return {"path": ".github/workflows/spoof.yml", "head_sha": "head-123"}
+
+    with pytest.raises(RuntimeError, match="came from workflow"):
+        verify_workflow_origin(
+            "flabber1835/stocker", check,
+            ".github/workflows/sharadar-daily-replay.yml", "head-123", "token",
+            fetch_json=wrong_workflow)
+    with pytest.raises(RuntimeError, match="attached to"):
+        verify_workflow_origin(
+            "flabber1835/stocker", check,
+            ".github/workflows/sharadar-daily-replay.yml", "another-sha", "token",
+            fetch_json=fetch_ok)
+
+
+def test_required_check_bridge_rejects_non_actions_details_url():
+    with pytest.raises(RuntimeError, match="does not expose"):
+        action_run_and_job_ids({"details_url": "https://example.invalid/not-actions"})
 
 
 def test_directory_owner_discovery_automatically_includes_a_new_test_module(tmp_path):
