@@ -1,7 +1,7 @@
 """Fictional economic facts encoded for the existing Sharadar HTTP provider."""
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 import math
 
@@ -36,7 +36,7 @@ def raw_price(symbol, index, seed):
                  + math.sin(index * (0.17 + number * 0.002) + seed) * 0.2, 6)
 
 
-def step(day: str, seed=0, *, faulty=False, shocks=()):
+def step(day: str, seed=0, *, faulty=False, shocks=(), observed_after=None):
     axis = sessions(day)
     tables = {name: [] for name in ("SEP", "SFP", "TICKERS", "ACTIONS")}
     bars, actions, identities, spy, defensive = [], [], [], [], []
@@ -72,7 +72,10 @@ def step(day: str, seed=0, *, faulty=False, shocks=()):
                           100 + index / 100, 100 + index / 100, 100 + index / 100))
     expected = Corpus(bars=tuple(bars), actions=tuple(actions), identities=tuple(identities),
                       spy=tuple(spy), defensive=tuple(defensive))
+    observed_at = datetime.fromisoformat(day + "T22:00:00+00:00")
+    if observed_after is not None:
+        observed_at = max(observed_at, observed_after + timedelta(seconds=1))
     return Step(name="session_" + day.replace("-", ""),
-        at=datetime.fromisoformat(day + "T22:00:00+00:00"), through=date.fromisoformat(day),
+        at=observed_at, through=date.fromisoformat(day),
         tables={k: tuple(v) for k, v in tables.items()}, expected=expected,
         faults=(Fault(table="ACTIONS", kind="http_400"),) if faulty else ())

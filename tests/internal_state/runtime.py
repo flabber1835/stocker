@@ -268,7 +268,8 @@ class Lifecycle:
     def daily(self):
         startup(self.env_path)
         day = calendar.next_session(self.day)
-        self.provider.advance(market.step(day, self.trace.seed, faulty=self.data_bad, shocks=self.shocks))
+        self.provider.advance(market.step(day, self.trace.seed, faulty=self.data_bad,
+            shocks=self.shocks, observed_after=self.provider.step.at))
         before = self.snapshot()
         with self.connection() as conn:
             try:
@@ -289,7 +290,7 @@ class Lifecycle:
             report = readiness.check_readiness(conn, today=self.provider.step.at.isoformat())
             check("published_data_ready", [], [vars(c) for c in report.failures])
             self.day = day
-            self.service.move(day + "T22:00:00+00:00")
+            self.service.move(self.provider.step.at.isoformat())
             self.service.prices({row[2]: str(row[4]) for row in self.provider.step.expected.bars if row[1] == day}
                                 | {"BIL": str(self.provider.step.expected.defensive[-1][-1])})
             prior = catchup.resume_state(conn)

@@ -14,6 +14,20 @@ from tests.internal_state import market, oracles
 from tests.internal_state.contract import InvariantFailure
 
 
+def test_same_session_provider_retry_advances_observation_only():
+    from research.sharadar_replay.provider import Provider
+    provider = Provider()
+    failed = market.step(market.FIRST, faulty=True)
+    provider.advance(failed)
+    corrected = market.step(market.FIRST, observed_after=failed.at)
+    provider.advance(corrected)
+    assert corrected.at > failed.at
+    assert corrected.through == failed.through
+    assert corrected.expected == failed.expected
+    assert corrected.tables == failed.tables
+    assert failed.faults and not corrected.faults
+
+
 @pytest.mark.parametrize("fault", ["roundoff", "volume", "price", "identity", "missing"])
 def test_corpus_storage_precision_preserves_independent_falsifiers(fault):
     from research.sharadar_replay.oracle import StateMismatch

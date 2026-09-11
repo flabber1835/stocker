@@ -45,6 +45,8 @@ class BrokerService:
         self.world.timeout(after_effect=True)
 
     def cash(self, amount):
+        # A new event follows the interval already closed by the prior poll.
+        self.world.advance(1)
         self.world.cash_event("CSD" if amount > 0 else "CSW", str(amount), adversarial=True)
 
     def fill(self, partial=False):

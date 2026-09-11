@@ -1,8 +1,6 @@
 name: Internal state harness
 
 on:
-  push:
-    branches: ['codex/integrated-state-harness']
   pull_request:
     branches: [main]
   merge_group:

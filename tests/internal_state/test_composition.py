@@ -20,6 +20,17 @@ from tests.internal_state import broker, market, oracles
 from tests.internal_state.test_market import formed_state
 
 
+def test_new_cash_events_follow_closed_poll_boundaries():
+    service = broker.BrokerService("paper")
+    boundary = service.now()
+    service.cash(1200)
+    deposited = service.now()
+    service.cash(-500)
+    assert boundary < deposited < service.now()
+    assert sum(map(Decimal, service.snapshot()["movements"])) == Decimal(700)
+    oracles.broker_accounting(service.snapshot())
+
+
 @pytest.mark.parametrize("profile", ["paper", "live_cash"])
 def test_selected_strategy_plan_broker_fills_and_cash_keep_shadow_history(profile):
     _, state = formed_state(7)

@@ -158,6 +158,10 @@ class PhysicalCluster:
                     self.own(Path(parent) / name)
         self.command("pg_verifybackup", "--ignore=sentinel-recovery-marker",
                      "--ignore=sentinel-pitr-base-identity", restored, timeout=60)
+        # Package provenance belongs to the retained base, not live PGDATA.
+        # Carrying it forward makes the next base inherit stale metadata.
+        for name in ("sentinel-recovery-marker", "sentinel-pitr-base-identity"):
+            (restored / name).unlink()
         namespace = self.wal_root / ("cluster-" + str(checkpoint["system_id"]))
         restore_command = f"cp {shlex.quote(str(namespace))}/%f %p"
         with (restored / "postgresql.auto.conf").open("a") as stream:

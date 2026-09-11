@@ -107,6 +107,14 @@ real service clock; readiness waits are bounded observations of an external
 process. Replay expectations never depend on an absolute wall-clock timestamp,
 port, temporary pathname, PostgreSQL system identifier or random broker UUID.
 
+Repeated observations of the same market session advance provider time by one
+second while retaining that session's economic inputs. Each new cash event
+advances broker time by one second so the next poll extends the previously
+closed observation window. Repeating a poll itself advances no clock.
+After verifying a copied physical base, restore removes the two backup-package
+metadata files from the new data directory before startup. Their originals stay
+with the retained base; the next backup earns fresh package metadata.
+
 ## Scenarios, generation and replay
 
 The initial catalogue covers a populated happy lifecycle, duplicate execution,
