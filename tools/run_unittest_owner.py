@@ -44,23 +44,34 @@ def main() -> int:
         suite.addTests(module_suite)
 
     result = unittest.TextTestRunner(verbosity=2).run(suite)
+    skipped = list(getattr(result, "skipped", []))
+    expected_failures = list(getattr(result, "expectedFailures", []))
+    unexpected_successes = list(getattr(result, "unexpectedSuccesses", []))
+    passed = (
+        result.wasSuccessful()
+        and not skipped
+        and not expected_failures
+        and not unexpected_successes
+    )
     payload = {
-        "schema": "stocker.unittest-owner-execution/1",
-        "verdict": "PASS" if result.wasSuccessful() else "FAIL",
+        "schema": "stocker.unittest-owner-execution/2",
+        "verdict": "PASS" if passed else "FAIL",
         "owner": args.owner,
         "python": sys.version,
         "modules": collected,
         "testsRun": result.testsRun,
         "failures": len(result.failures),
         "errors": len(result.errors),
-        "skipped": len(getattr(result, "skipped", [])),
+        "skipped": len(skipped),
+        "expectedFailures": len(expected_failures),
+        "unexpectedSuccesses": len(unexpected_successes),
     }
     text = json.dumps(payload, sort_keys=True, indent=2) + "\n"
     if args.output:
         args.output.parent.mkdir(parents=True, exist_ok=True)
         args.output.write_text(text)
     print(text, end="")
-    return 0 if result.wasSuccessful() else 1
+    return 0 if passed else 1
 
 
 if __name__ == "__main__":
