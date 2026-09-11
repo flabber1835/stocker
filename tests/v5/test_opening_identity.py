@@ -11,7 +11,8 @@ import pytest
 from sentinel.execution import opening_sizing, target_reprojection as projections
 from sentinel.execution.alpaca import AlpacaExecutionBroker, MalformedBrokerPayload
 from sentinel.execution.contract import BrokerInstrument, BrokerPosition
-from sentinel.execution.opening_prices import OpeningPrices, OpeningPriceUnavailable, parse_bars
+from sentinel.execution.opening_prices import (
+    OpeningPrices, OpeningPriceUnavailable, OpeningPriceUnavailability, parse_bars)
 from sentinel.feed import calendar, universe
 from sentinel.paper import targets
 from tests.sentinel.test_production_decision import _observation
@@ -124,8 +125,13 @@ def test_effective_listing_must_be_unique_and_reversible(monkeypatch, fault):
                                      plan.effective_session.isoformat())]
     resolver = universe.IdentityResolver(listings)
     monkeypatch.setattr(universe, 'load_resolver', lambda *a, **k: resolver)
-    with pytest.raises(OpeningPriceUnavailable, match='unique effective-session'):
-        asyncio.run(opening_sizing.prices_for_plan(None, state=env, plan=plan, broker=broker))
+    evidence = asyncio.run(opening_sizing.prices_for_plan(
+        None, state=env, plan=plan, broker=broker))
+    assert isinstance(evidence, OpeningPriceUnavailability)
+    assert 'unique effective-session' in evidence.reason
+    projection = opening_sizing.resolve(env, plan, base(env, plan), evidence)
+    assert projection.target_basket['SEC-AAA'] == 0
+    assert projection.opening_sizing['mode'] == opening_sizing.UNAVAILABLE_MODE
     assert requested == []
 
 
