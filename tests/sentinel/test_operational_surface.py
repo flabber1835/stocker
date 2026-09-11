@@ -1,7 +1,10 @@
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
@@ -257,8 +260,17 @@ def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
     assert workflow.count("set -euo pipefail") >= 4
     assert "2>&1 | tee /tmp/sentinel-complete.txt" in workflow
     assert "2>&1 | tee -a /tmp/sentinel-complete.txt" in workflow
-    assert "-q -ra 2>&1 | tee /tmp/sentinel-scripts.txt" in workflow
-    assert "-q -ra 2>&1 | tee /tmp/wealth-core-prospective.txt" in workflow
+    # Check the actual pipeline's arguments across shell continuations. JUnit
+    # output belongs to the same pytest invocation as its retained text log.
+    commands = workflow.replace("\\\n", "")
+    for junit, log in (("scripts.xml", "sentinel-scripts.txt"),
+                       ("wealth-core.xml", "wealth-core-prospective.txt")):
+        pipeline = re.search(
+            rf"docker run\b[^\n]+\| tee /tmp/{re.escape(log)}", commands)
+        assert pipeline, log
+        arguments = shlex.split(pipeline.group())
+        for argument in ("-q", "-ra", f"--junitxml=/evidence/{junit}", "2>&1"):
+            assert argument in arguments, (log, argument)
     assert "main_status=${PIPESTATUS[0]}" in workflow
     assert "coverage_status=${PIPESTATUS[0]}" in workflow
     assert "test_status=${PIPESTATUS[0]}" in workflow
@@ -268,6 +280,19 @@ def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
     assert skip_summary.search("1865 passed, 1 skipped in 10.0s")
     assert skip_summary.search("1 skipped in 1.0s")
     assert not skip_summary.search("434 passed, 3 xfailed in 10.0s")
+
+
+@pytest.mark.parametrize("removed", [
+    "set -euo pipefail", "-ra", "--junitxml=/evidence/scripts.xml",
+    "--junitxml=/evidence/wealth-core.xml", "2>&1", "test_status=${PIPESTATUS[0]}",
+    "| tee /tmp/sentinel-scripts.txt", "| tee /tmp/wealth-core-prospective.txt",
+])
+def test_ci_log_contract_rejects_missing_evidence_or_failure_controls(monkeypatch, removed):
+    workflow = _read(".github/workflows/sentinel-safety.yml")
+    assert removed in workflow
+    monkeypatch.setitem(globals(), "_read", lambda _: workflow.replace(removed, ""))
+    with pytest.raises(AssertionError):
+        test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail()
 
 
 def test_expected_golden_drift_is_exact_strict_xfail_not_a_suite_mask():

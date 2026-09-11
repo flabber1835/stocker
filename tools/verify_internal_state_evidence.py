@@ -39,7 +39,7 @@ def verify(root: Path, *, commit: str, tree: str, shards: int = 4) -> dict:
         "internal-state contract evidence contains non-passes"
 
     core = [load(p) for p in root.rglob("evidence.json")
-            if load(p).get("schema") == "stocker.core-infrastructure/1"]
+            if load(p).get("schema") == "stocker.core-infrastructure/2"]
     assert len(core) == 1, "expected exactly one core-infrastructure report"
     core_report = core[0]
     assert core_report.get("verdict") == "PASS", "core-infrastructure suite failed"
