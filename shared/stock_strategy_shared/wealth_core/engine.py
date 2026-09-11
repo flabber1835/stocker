@@ -628,12 +628,22 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
     return d
 
 
+def entry_cost(shares: float, raw_open: float, cfg: WealthCoreConfig) -> float:
+    """Canonical fill cost, including the frozen float operation order."""
+    return shares * raw_open * (1.0 + cfg.transaction_cost_bps / 10_000.0)
+
+
+def exit_proceeds(shares: float, raw_open: float, cfg: WealthCoreConfig) -> float:
+    """Canonical sale funding, shared with opening account projection."""
+    return shares * raw_open * (1.0 - cfg.transaction_cost_bps / 10_000.0)
+
+
 def apply_entry(state: PortfolioState, *, op: Op, session: str, signal_session: str,
                 raw_open: float, split_adjusted_price: float,
                 issuer_id: str, cfg: WealthCoreConfig) -> None:
     """Execute an admission at the next open (spec §11). Called by the adapter
     once a fill is known — the engine never invents a price."""
-    cost = op.shares * raw_open * (1.0 + cfg.transaction_cost_bps / 10_000.0)
+    cost = entry_cost(op.shares, raw_open, cfg)
     state.cash -= cost
     state.slots[op.slot_id].occupied_by = op.security_id
     state.slots[op.slot_id].release_reservation()   # the claim became a holding
@@ -665,6 +675,6 @@ def apply_exit(state: PortfolioState, *, slot_id: int, raw_open: float,
     take a different name immediately.
     """
     ep = state.episodes.pop(slot_id)
-    state.cash += ep.current_shares * raw_open * (1.0 - cfg.transaction_cost_bps / 10_000.0)
+    state.cash += exit_proceeds(ep.current_shares, raw_open, cfg)
     state.slots[slot_id].start_cooldown()
     state.security_cooldowns[ep.security_id] = 0

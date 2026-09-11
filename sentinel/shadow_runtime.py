@@ -53,6 +53,8 @@ from sentinel.shadow_observation import (
     SHADOW_EXECUTION_MODEL,
     SHADOW_WARMUP_SESSIONS,
     WARMUP_INPUT_SCHEMA,
+    _exact_price_ratio,
+    _signal_price_identity,
 )
 from sentinel.shadow_segments import (
     SegmentedPostgresShadowObservationStore,
@@ -189,6 +191,13 @@ def _warmup_input_identity(
         raise ShadowRuntimeRefused(
             "shadow warm-up identity requires the exact 252-session axis")
 
+    signal_anchors = {}
+    if hasattr(window, "median5_spy_closes"):
+        for session in ordered:
+            for bar in window.bars_by_session.get(session, ()):
+                if bar.signal_close is not None:
+                    signal_anchors.setdefault(bar.security_id, bar)
+
     def economic_bar(bar, *, session: str, index: int) -> dict:
         raw_close = _decimal_text(
             bar.raw_close, where=f"warm-up raw close {session}/{index}",
@@ -204,8 +213,8 @@ def _warmup_input_identity(
             liquidity = format(
                 (Decimal(raw_close) * Decimal(volume)).normalize(), "f")
         return {
-            **({"signal_close": _decimal_text(
-                    bar.signal_close, where=f"warm-up signal close {session}/{index}", positive=True),
+            **({"signal_close": _signal_price_identity(
+                    bar, signal_anchors.get(bar.security_id), warmup=True),
                 "raw_compatible_volume": volume}
                if hasattr(window, "median5_spy_closes") else {}),
             "security_id": str(bar.security_id),
@@ -264,7 +273,8 @@ def _warmup_input_identity(
     identity = {
         **({"median5_profile": "wealth-core-median5-v1",
             "median5_spy_sha256": _stream_sha256(
-                sorted(window.median5_spy_closes.items())),
+                (session, _exact_price_ratio(value, window.median5_spy_closes[ordered[0]]))
+                for session, value in sorted(window.median5_spy_closes.items())),
             "median5_terminal_sha256": _stream_sha256(
                 (s, sorted(ids)) for s, ids in sorted(window.median5_terminals.items()))}
            if hasattr(window, "median5_spy_closes") else {}),

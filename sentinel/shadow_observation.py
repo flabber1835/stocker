@@ -24,6 +24,7 @@ import re
 from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 from typing import Any, Mapping, Protocol, Sequence
 
 from sentinel.controller.frozen_rule import ControllerConfig
@@ -55,8 +56,8 @@ GENESIS_SCHEMA = "sentinel.shadow-observation-genesis/1"
 PUBLICATION_SCHEMA = "sentinel.shadow-publication/1"
 RUNTIME_AUTHORITY_SCHEMA = "sentinel.shadow-runtime-authority/1"
 STRATEGY_ECONOMICS_SCHEMA = "sentinel.shadow-strategy-economics/1"
-ECONOMIC_INPUT_SCHEMA = "sentinel.shadow-economic-input/1"
-WARMUP_INPUT_SCHEMA = "sentinel.shadow-warmup-economic-input/1"
+ECONOMIC_INPUT_SCHEMA = "sentinel.shadow-economic-input/2"
+WARMUP_INPUT_SCHEMA = "sentinel.shadow-warmup-economic-input/2"
 POSTGRES_CURSOR_PREFIX = "shadow-observation:v1:"
 
 _OBSERVATION_ID = re.compile(r"[A-Za-z0-9][A-Za-z0-9.-]{0,63}\Z")
@@ -392,19 +393,53 @@ def _optional_decimal_text(
     return _decimal_text(result)
 
 
+def _exact_price_ratio(value: Any, anchor: Any) -> list[str]:
+    """An exact ratio of source decimals; never round a revised path to equal."""
+    ratio = (Fraction(_positive_decimal(value, where="signal close"))
+             / Fraction(_positive_decimal(anchor, where="signal basis close")))
+    return [str(ratio.numerator), str(ratio.denominator)]
+
+
+def _signal_price_identity(bar, anchor, *, warmup: bool = False) -> dict | None:
+    """Bind a signal observation to its same-security source predecessor.
+
+    Warmup supplies the first positive observation of the security's window.
+    A genuinely new series has no predecessor and establishes its own basis.
+    The canonical feed retains the owned absolute level for mixed precision.
+    """
+    if bar.signal_close is None:
+        return None
+    if anchor is None:
+        return {"anchor": None,
+                "ratio": _exact_price_ratio(bar.signal_close, bar.signal_close)}
+    if (anchor.security_id != bar.security_id
+            or anchor.session > bar.session
+            or (not warmup and anchor.session == bar.session)):
+        raise ShadowObservationRefused("signal basis anchor identity is invalid")
+    return {
+        "anchor": {
+            "security_id": str(anchor.security_id), "ticker": str(anchor.ticker),
+            "session": str(anchor.session),
+            "raw_close": _optional_decimal_text(
+                anchor.raw_close, where="signal basis raw close", positive=True),
+        },
+        "ratio": _exact_price_ratio(bar.signal_close, anchor.signal_close),
+    }
+
+
 def _economic_input_identity(
         published: PublishedSession,
         strategy_prices: Mapping[str, Any] | None = None) -> dict:
     """Compact economic identity for cross-publication revision detection.
 
     The original full-input SHA remains the audit commitment.  This second
-    identity has exactly two normalization exceptions that are economically
-    invariant under Sharadar's routine total-return rebasing:
+    identity preserves price paths across uniform publication rebasing:
 
-    * SPY's dated 41-session path is divided by its first positive close.
+    * SEP signal closes bind to the canonical same-security predecessor.
+    * SPY's dated path is divided by its first positive close.
     * BIL compares exact raw domains plus overnight/intraday adjusted factors.
 
-    SEP/Core prices, actions and session-effective identity remain exact.  The
+    Raw prices, actions and session-effective identity remain exact.  The
     canonical raw-compatible volume is represented by raw-close dollar
     liquidity rather than by volume alone, because Sharadar's adjusted close
     and reported volume are inversely rescaled by later splits.
@@ -432,8 +467,8 @@ def _economic_input_identity(
             if volume > 0:
                 liquidity = _decimal_text(raw_close * volume)
         bars.append({
-            **({"signal_close": _optional_decimal_text(
-                    bar.signal_close, where=f"bar {index} signal close", positive=True),
+            **({"signal_close": _signal_price_identity(
+                    bar, published.signal_basis_anchors.get(bar.security_id)),
                 "raw_compatible_volume": None if volume is None else _decimal_text(volume)}
                if bar.signal_close is not None else {}),
             "session": str(bar.session),
@@ -467,7 +502,7 @@ def _economic_input_identity(
         "sessions": spy_sessions,
         "expected_sessions": spy_expected,
         "normalized_close_path": [
-            _decimal_text(value / spy_anchor) for value in spy_values],
+            _exact_price_ratio(value, spy_anchor) for value in spy_values],
     }
 
     current = published.defensive_bar
@@ -1896,8 +1931,9 @@ class PostgresShadowRuntime:
         only its latest corrected rows.  The immutable record therefore retains
         a compact economic identity for each session.  A new publication may
         differ byte-for-byte only when its normalized identity is unchanged
-        (uniform SPY/BIL total-return rebasing).  Any other revision withdraws
-        current VERIFIED status without rewriting the historical authority.
+        (uniform SEP signal or SPY/BIL total-return rebasing). Any other
+        revision withdraws current VERIFIED status without rewriting the
+        historical authority.
         """
         prior = self.observer.initial_state
         for record in rows:

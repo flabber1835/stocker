@@ -3,17 +3,20 @@ from __future__ import annotations
 
 from dataclasses import replace
 from decimal import Decimal, ROUND_FLOOR
+import math
 
 from sentinel.execution.opening_prices import (
     OpeningPrices, OpeningPriceNotReady, OpeningPriceUnavailable, OpeningPriceUnavailability)
 from sentinel.execution.target_reprojection import (
     TargetProjectionRefused, _decimal, load_projection)
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
-from stock_strategy_shared.wealth_core.engine import Operation
+from stock_strategy_shared.wealth_core import v5
+from stock_strategy_shared.wealth_core.engine import (
+    Operation, affordable_shares, entry_cost, exit_proceeds)
 from stock_strategy_shared.wealth_core.ledger import Ledger
+from stock_strategy_shared.wealth_core.shares import split_shares
 from stock_strategy_shared.wealth_core.state import PortfolioState
 
-COST = Decimal("0.001")
 UNAVAILABLE_MODE = "OPENING_EVIDENCE_UNAVAILABLE_NO_BUY"
 FINAL_MODE = "V5_OPEN_WHOLE_SHARES"
 ZERO_MODE = "ZERO_EXPOSURE"
@@ -183,10 +186,12 @@ def resolve(state, plan, projection,
             or set(prices.prices) != set(required_prices(state, plan))):
         raise OpeningPriceUnavailable("opening sizing requires complete effective-session prices")
     portfolio = PortfolioState.from_dict(state.wealth_core)
-    cash = _decimal(portfolio.cash, where="canonical settled cash")
-    due = sum((_decimal(item["amount"], where="due dividend")
-               for item in Ledger.from_dict(state.ledger).receivables if item["due_in"] == 0), Decimal(0))
-    cash += due
+    cfg = v5.config()
+    ledger = Ledger.from_dict(state.ledger)
+    cash, payments = ledger.settle_due(
+        session=plan.effective_session.isoformat(), cash=portfolio.cash)
+    due = sum((_decimal(item.cash_delta, where="due dividend")
+               for item in payments), Decimal(0))
     if cash < 0:
         raise TargetProjectionRefused("canonical opening cash must be nonnegative")
     starting_cash = cash
@@ -196,24 +201,32 @@ def resolve(state, plan, projection,
             continue
         sid = pending.security_id
         multiplier = projection.action_multipliers.get(sid, Decimal(1))
-        quantity = _decimal(pending.shares, where="pending sale shares") * multiplier
-        if quantity <= 0 or multiplier <= 0:
+        if multiplier <= 0:
             raise TargetProjectionRefused("opening sale funding requires positive share units")
-        proceeds = quantity * prices.prices[sid] * (1 - COST)
+        quantity = (float(pending.shares) if multiplier == 1 else
+                    split_shares(pending.shares, multiplier))
+        if not math.isfinite(quantity) or quantity <= 0:
+            raise TargetProjectionRefused("opening sale funding requires positive share units")
+        proceeds = exit_proceeds(quantity, float(prices.prices[sid]), cfg)
         cash += proceeds
         exits.append({"security_id": sid, "shares": str(quantity), "proceeds": str(proceeds)})
     scale = plan.target_exposure * plan.account_nav / _shadow_equity(state)
     entries = []
     for intent in plan.opening_intents:
-        price = prices.prices[intent.security_id]
-        budget = min(intent.intended_dollars, cash)
-        quantity = (budget / (price * (1 + COST))).to_integral_value(rounding=ROUND_FLOOR)
-        cost = quantity * price * (1 + COST)
+        price = float(prices.prices[intent.security_id])
+        intended = float(intent.intended_dollars)
+        budget = min(intended, cash)
+        # Division, floor division and cash multiplication retain the frozen
+        # float order. An exact Decimal notional cap can change a whole share.
+        quantity = min(v5.opening_quantity(
+            intended=intended, cash=cash, price=price,
+            cost_bps=cfg.transaction_cost_bps), affordable_shares(cash, price, cfg))
+        cost = entry_cost(quantity, price, cfg)
         before = cash
         cash -= cost
-        if cash < 0 or quantity < 0 or cost > budget:
+        if not math.isfinite(cash) or cash < 0 or quantity < 0:
             raise TargetProjectionRefused("opening sizing violates the cash budget")
-        account_quantity = (quantity * scale).to_integral_value(rounding=ROUND_FLOOR)
+        account_quantity = (Decimal(quantity) * scale).to_integral_value(rounding=ROUND_FLOOR)
         basket[intent.security_id] = account_quantity
         entries.append({**intent.to_dict(), "cash_before": str(before),
             "budget": str(budget), "core_shares": str(quantity), "core_cost": str(cost),

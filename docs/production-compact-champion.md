@@ -73,6 +73,29 @@ that minute is a temporary data-wait refusal and leaves opening sizing pending.
 It may retry once the minute is complete. A completed-minute evidence failure
 and an expired opening retain their durable no-buy outcomes.
 
+Shadow revision checks commit the exact shape of each security's published
+signal history, independently of the vendor's adjustment level. Warmup binds
+each signal close to that security's first positive close in the window; daily
+inputs bind it to the same-security positive predecessor supplied by the
+canonical loader. Predecessor identity, date and raw close remain exact, and a
+new series begins its own basis. SPY warmup similarly commits a dated ratio
+path. Ratios use exact rational arithmetic over the source's decimal spelling,
+with no tolerance or rounding. Uniform rebases may continue through the
+existing owned-signal-basis bridge; changed path shapes, raw prices, volume,
+actions, metadata, missing observations and anchor changes still refuse.
+The retained canonical feed and episode peaks keep their original numerical
+basis, including the frozen mixed-precision calculations. Versioned economic
+commitments distinguish these semantics from earlier absolute-level hashes.
+
+Opening account projection consumes the canonical V5 whole-share calculation
+and its separate fill-time affordability cap. Due receivables settle in canonical
+ledger order, sales fund entries in slot order, and canonical cash arithmetic
+is shared with entry/exit accounting. These computations preserve the frozen
+float operation order, including whole-share boundaries. Resolved integer
+shares then enter Decimal account scaling and broker quantities. Projection
+evidence records the canonical cash progression; broker cash, fills and
+settlement retain their independent execution gates.
+
 ## Verification and delivery
 
 Retain the complete frozen reference as test evidence. Verify controller

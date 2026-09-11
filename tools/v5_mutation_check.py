@@ -17,6 +17,9 @@ from tests.v5 import test_opening as opening_checks
 from tests.v5 import test_review_regressions as review_checks
 from tests.v5 import test_opening_identity as identity_checks
 from tests.v5 import test_publication_regressions as publication_checks
+from tests.v5 import test_opening_rounding as rounding_checks
+from tests.v5 import test_shadow_publication_identity as shadow_checks
+from sentinel import shadow_observation, shadow_runtime
 from sentinel.feed import universe
 from sentinel.feed.universe import IdentityResolver
 from sentinel.execution.alpaca import AlpacaExecutionBroker
@@ -40,6 +43,28 @@ def checked(function, *args):
 
 def run():
     cases = (
+        ("warmup_signal_shape_ignored",
+         lambda: shadow_checks.test_rebased_warmup_still_refuses_real_revisions("signal"),
+         shadow_runtime, "_signal_price_identity", lambda *a, **k: None),
+        ("warmup_spy_shape_ignored",
+         lambda: shadow_checks.test_rebased_warmup_still_refuses_real_revisions("spy"),
+         shadow_runtime, "_exact_price_ratio", lambda *a: ["1", "1"]),
+        ("daily_signal_predecessor_ignored",
+         lambda: shadow_checks.test_daily_identity_binds_the_canonical_predecessor("missing"),
+         shadow_observation, "_signal_price_identity", rewritten(
+             shadow_observation._signal_price_identity,
+             "if anchor is None:", "anchor = None\n    if anchor is None:")),
+        ("opening_decimal_replaces_frozen_float",
+         lambda: rounding_checks.test_admitted_dollars_match_canonical_whole_share_boundaries(103283.18, 51.59, 99),
+         opening_sizing, "resolve", rewritten(opening_sizing.resolve,
+             "quantity = min(v5.opening_quantity(\n            intended=intended, cash=cash, price=price,\n            cost_bps=cfg.transaction_cost_bps), affordable_shares(cash, price, cfg))",
+             'quantity = int((Decimal(str(budget)) / (Decimal(str(price)) * Decimal("1.001"))).to_integral_value(rounding=ROUND_FLOOR))')),
+        ("opening_affordability_cap_ignored",
+         lambda: rounding_checks.test_cash_limited_opening_uses_canonical_affordability(.1001, .01),
+         opening_sizing, "affordable_shares", lambda *a: 10**12),
+        ("opening_split_share_precision_ignored",
+         lambda: rounding_checks.test_sale_funding_and_repeated_entries_preserve_float_cash_order(1./30.),
+         opening_sizing, "split_shares", lambda shares, ratio: float(shares)*float(ratio)),
         ("forming_opening_minute_permanently_suppresses_buy",
          lambda: checked(review_checks.test_forming_opening_minute_retries_then_sizes_the_same_intent, 30),
          opening_sizing, "prices_for_plan", rewritten(opening_sizing.prices_for_plan,
@@ -141,7 +166,7 @@ def run():
          opening_checks, "parse_bars", rewritten(opening_prices.parse_bars,
              'or payload.get("next_page_token") is not None', 'or False')),
         ("opening_cost_ignored", opening_checks.test_sale_proceeds_and_slot_order_fund_the_opening_once,
-         opening_sizing, "COST", opening_checks.D(0)),
+         opening_sizing, "entry_cost", lambda shares, price, cfg: shares * price),
         ("opening_dollars_omitted_from_identity",
          opening_checks.test_close_plan_preserves_dollars_and_identity_binds_them,
          OpeningIntent, "to_dict", lambda item: {"security_id": item.security_id,
