@@ -49,6 +49,20 @@ def _contains(owner_path: Path, test_path: Path) -> bool:
         return False
 
 
+def _require_ci_job(owner_name: str, value: object) -> str:
+    assert isinstance(value, str) and value.count("#") == 1, \
+        f"{owner_name}: ci_job must be workflow.yml#job-id"
+    workflow, job = value.split("#", 1)
+    assert workflow.startswith(".github/workflows/") and workflow.endswith((".yml", ".yaml")), \
+        f"{owner_name}: invalid workflow path in ci_job"
+    assert job, f"{owner_name}: empty job id in ci_job"
+    path = ROOT / workflow
+    assert path.is_file(), f"{owner_name}: ci_job workflow does not exist: {workflow}"
+    text = path.read_text()
+    assert f"\n  {job}:\n" in text, f"{owner_name}: ci_job id not found in {workflow}: {job}"
+    return value
+
+
 def validate(*, base: str | None = None) -> dict:
     authority = json.loads(AUTHORITY.read_text())
     assert authority.get("schema") == "stocker.test-responsibility/1", "invalid responsibility schema"
@@ -58,11 +72,13 @@ def validate(*, base: str | None = None) -> dict:
 
     resolved = {}
     resolved_paths: dict[str, list[Path]] = {}
+    ci_jobs = {}
     for name, owner in owners.items():
         paths = owner.get("paths")
         scopes = set(owner.get("scopes", []))
         assert isinstance(paths, list) and paths, f"{name}: empty owner path list"
         assert REQUIRED_SCOPES.issubset(scopes), f"{name}: exact/synthetic scope ownership missing"
+        ci_jobs[name] = _require_ci_job(name, owner.get("ci_job"))
         matches = []
         path_objects = []
         for pattern in paths:
@@ -107,6 +123,7 @@ def validate(*, base: str | None = None) -> dict:
         "schema": "stocker.test-responsibility-verdict/1",
         "verdict": "PASS",
         "owners": len(owners),
+        "ci_jobs": ci_jobs,
         "test_modules": len(test_modules),
         "unowned_tests": unowned_tests,
         "alpaca_contracts": len(required_contracts),
