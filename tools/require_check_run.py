@@ -90,6 +90,40 @@ def action_run_and_job_ids(check_run: dict) -> tuple[int, int]:
     return int(match.group(1)), int(match.group(2))
 
 
+def _verify_unique_job_instance(
+    repository: str,
+    workflow_run_id: int,
+    job_id: int,
+    check_name: object,
+    token: str,
+    fetcher: Callable[[str, str, str], object],
+) -> str:
+    if not isinstance(check_name, str) or not check_name:
+        raise RuntimeError("required check has no stable job name")
+    payload = fetcher(
+        repository, f"actions/runs/{workflow_run_id}/jobs?per_page=100", token)
+    if not isinstance(payload, dict):
+        raise RuntimeError("GitHub Actions workflow-jobs response is malformed")
+    jobs = payload.get("jobs")
+    total_count = payload.get("total_count")
+    if not isinstance(jobs, list) or not isinstance(total_count, int):
+        raise RuntimeError("GitHub Actions workflow-jobs response is malformed")
+    if total_count > 100:
+        raise RuntimeError(
+            "required check workflow has more than 100 jobs; uniqueness cannot be proven")
+    matches = [job for job in jobs
+               if isinstance(job, dict) and job.get("name") == check_name]
+    if len(matches) != 1:
+        raise RuntimeError(
+            f"required check job name is not unique within workflow run: "
+            f"{check_name!r} matches={len(matches)}")
+    if matches[0].get("id") != job_id:
+        raise RuntimeError(
+            f"required check resolved to job {job_id}, but unique named job is "
+            f"{matches[0].get('id')}")
+    return check_name
+
+
 def verify_workflow_origin(
     repository: str,
     check_run: dict,
@@ -116,6 +150,9 @@ def verify_workflow_origin(
         raise RuntimeError(
             f"required check job is attached to {job_sha}, expected {expected_sha}")
 
+    job_name = _verify_unique_job_instance(
+        repository, job_run_id, job_id, check_run.get("name"), token, fetcher)
+
     workflow_run = fetcher(repository, f"actions/runs/{job_run_id}", token)
     if not isinstance(workflow_run, dict):
         raise RuntimeError("GitHub Actions workflow-run response is malformed")
@@ -131,6 +168,7 @@ def verify_workflow_origin(
         "workflow": path,
         "workflow_run_id": job_run_id,
         "job_id": job_id,
+        "job_name": job_name,
         "head_sha": workflow_sha,
     }
 
@@ -176,7 +214,7 @@ def main() -> int:
         args.repository, args.sha, args.name, args.workflow, args.token,
         args.timeout_seconds, args.poll_seconds)
     print(json.dumps({
-        "schema": "stocker.required-check-bridge/2",
+        "schema": "stocker.required-check-bridge/3",
         "verdict": "PASS",
         "repository": args.repository,
         "check_suite_sha": args.sha,
