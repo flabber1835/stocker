@@ -37,7 +37,6 @@ def checked(function, *args):
 
 
 
-
 def run():
     cases = (
         ("publication_bridge_removed",
@@ -169,16 +168,17 @@ def run():
          lambda: checked(review_checks.test_lost_opening_projection_with_any_plan_command_refuses, "UNKNOWN"),
          opening_sizing, "requires_initial_projection",
          rewritten(opening_sizing.requires_initial_projection,
-                   "if journal.load_commands(conn, deployment, plan_id=plan.plan_id):", "if False:")),
+                   "if commands:", "if False:")),
         ("opening_entry_split_evidence_dropped",
          review_checks.test_finalization_preserves_split_authority_for_opening_entry,
          targets, "_target_action_multipliers",
          rewritten(targets._target_action_multipliers, " or plan.opening_intents", "")),
         ("opening_transient_failure_silently_accepted",
-         lambda: checked(review_checks.test_opening_asset_lookup_transient_failure_is_retryable, 429),
-         paper_execution, "_opening_prices_or_retry",
-         rewritten(paper_execution._opening_prices_or_retry,
-                   "except httpx.HTTPStatusError as exc:", "except httpx.HTTPStatusError as exc:\n        return None")),
+         lambda: checked(review_checks.test_opening_asset_lookup_transient_failure_becomes_no_buy, 429),
+         opening_sizing, "prices_for_plan",
+         rewritten(opening_sizing.prices_for_plan,
+                   "if httpx is not None and isinstance(exc, httpx.HTTPStatusError):",
+                   "if False:")),
     )
     results = []
     for name, falsifier, module, attribute, mutant in cases:
