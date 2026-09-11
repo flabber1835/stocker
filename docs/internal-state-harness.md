@@ -79,6 +79,13 @@ replay uses a second invocation of the canonical kernel with captured inputs;
 it establishes restart/input equivalence, not an independent strategy algorithm.
 Every major new invariant has an explicit falsifying mutation.
 
+The synthetic corpus comparison canonicalizes persisted floating price and volume
+columns to eight decimal places before using the existing exact Sharadar oracle.
+This accounts for binary arithmetic noise in normalization (the first CI run
+returned volume `2000499.9999999998` for an input of `2000500`). Row identities,
+dates, actions and metadata remain exact; broker Decimal accounting remains exact.
+Falsifiers cover changed prices, volumes, identities and missing rows.
+
 ## Physical recovery and clocks
 
 Each lifecycle owns a unique temporary PostgreSQL data directory, port and media

@@ -21,7 +21,6 @@ import subprocess
 import traceback
 from types import SimpleNamespace
 
-from research.sharadar_replay.oracle import compare as compare_corpus
 from research.sharadar_replay.provider import Provider
 from research.sharadar_replay.runner import observed_corpus
 from research.sharadar_replay.runtime import simulated_runtime
@@ -37,6 +36,7 @@ from sentinel.feed import calendar, ingest, publication, readiness, sharadar, st
 from sentinel.paper.preparation import _default_paper_strategy, _fresh_warmed_state, _load_marks_and_tickers
 
 from . import broker, market, oracles
+from .market import compare_corpus
 from .contract import InvalidTrace, InvariantFailure, check, digest
 from .physical import PhysicalCluster, ROOT
 

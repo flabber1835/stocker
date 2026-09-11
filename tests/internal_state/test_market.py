@@ -14,6 +14,31 @@ from tests.internal_state import market, oracles
 from tests.internal_state.contract import InvariantFailure
 
 
+@pytest.mark.parametrize("fault", ["roundoff", "volume", "price", "identity", "missing"])
+def test_corpus_storage_precision_preserves_independent_falsifiers(fault):
+    from research.sharadar_replay.oracle import StateMismatch
+    expected = market.step(market.SEED).expected
+    rows = list(expected.bars)
+    row = list(rows[5])
+    if fault == "roundoff":
+        row[6] = 2000499.9999999998
+    elif fault == "volume":
+        row[6] += 0.000001
+    elif fault == "price":
+        row[4] += 0.000001
+    elif fault == "identity":
+        row[0] = "WRONG-ID"
+    rows[5] = tuple(row)
+    if fault == "missing":
+        rows.pop()
+    actual = expected.model_copy(update={"bars": tuple(rows)})
+    if fault == "roundoff":
+        market.compare_corpus(expected, actual)
+    else:
+        with pytest.raises(StateMismatch):
+            market.compare_corpus(expected, actual)
+
+
 def inputs(day, seed=0, shocks=()):
     facts = market.step(day, seed, shocks=shocks).expected
     axis = market.sessions(day)

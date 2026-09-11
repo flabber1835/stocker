@@ -2,15 +2,31 @@
 from __future__ import annotations
 
 from datetime import date, datetime
+from decimal import Decimal
 import math
 
 from research.sharadar_replay.model import Corpus, Fault, Step
+from research.sharadar_replay.oracle import compare
 from research.sharadar_replay.scenarios import START, sessions
 
 SYMBOLS = tuple(f"S{i:03d}" for i in range(30))
 SECURITIES = {symbol: f"STATE-{symbol}" for symbol in SYMBOLS} | {"BIL": "SENTINEL:BIL"}
 SEED = "2026-08-17"
 FIRST = "2026-08-18"
+
+
+def compare_corpus(expected: Corpus, actual: Corpus):
+    """Reuse the exact provider oracle at the declared float-storage precision."""
+    def numeric_columns(corpus):
+        fields = {}
+        for name, columns in (("bars", range(3, 9)), ("spy", (1,)),
+                              ("defensive", range(3, 7))):
+            fields[name] = tuple(tuple(
+                Decimal(str(value)).quantize(Decimal("0.00000001"))
+                if index in columns else value
+                for index, value in enumerate(row)) for row in getattr(corpus, name))
+        return corpus.model_copy(update=fields)
+    compare(numeric_columns(expected), numeric_columns(actual))
 
 
 def raw_price(symbol, index, seed):
