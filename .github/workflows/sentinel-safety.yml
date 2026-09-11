@@ -198,6 +198,57 @@ jobs:
           docker run --rm --network none --entrypoint python \
             sentinel-test:ci /work/tools/v5_mutation_check.py
 
+      - name: Gate protected main publication through full Sharadar replay
+        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+        shell: bash
+        run: |
+          set -euo pipefail
+          postgres="sentinel-sharadar-pg-${GITHUB_RUN_ID}-${{ matrix.scope }}"
+          cleanup() {
+            docker rm -f "$postgres" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          cleanup
+          docker run -d --name "$postgres" \
+            -p 127.0.0.1:55432:5432 \
+            -e POSTGRES_PASSWORD=synthetic-replay-only \
+            -e POSTGRES_DB=replay_test \
+            postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
+            >/dev/null
+          ready=0
+          for _ in $(seq 1 30); do
+            if docker exec "$postgres" pg_isready -U postgres -d replay_test >/dev/null 2>&1; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs "$postgres" >&2 || true
+            echo 'REFUSED: replay PostgreSQL did not become ready' >&2
+            exit 1
+          fi
+          rm -rf /tmp/sharadar-required-evidence
+          mkdir -p /tmp/sharadar-required-evidence/0
+          docker run --rm --network host \
+            -v "$PWD/research:/work/research:ro" \
+            -v "$PWD/.git:/work/.git:ro" \
+            -v /tmp/sharadar-required-evidence:/evidence \
+            -e SHARADAR_REPLAY_SHARD=0 \
+            -e SHARADAR_REPLAY_SHARDS=1 \
+            -e SHARADAR_REPLAY_TEST_DSN=postgresql://postgres:synthetic-replay-only@127.0.0.1:55432/replay_test \
+            -e SHARADAR_REPLAY_EVIDENCE=/evidence/0 \
+            -e TESTED_COMMIT="${TESTED_SHA}" \
+            --entrypoint python sentinel-test:ci \
+            -m pytest research/sharadar_replay/tests -q -ra -s \
+            --junitxml=/evidence/0/junit.xml
+          docker run --rm --network none \
+            -v "$PWD/research:/work/research:ro" \
+            -v /tmp/sharadar-required-evidence:/evidence:ro \
+            --entrypoint python sentinel-test:ci \
+            research/sharadar_replay/verify_evidence.py \
+            /evidence --commit "${TESTED_SHA}" --shards 1
+
       - name: Build system adversarial evidence
         if: always()
         run: |
