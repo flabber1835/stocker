@@ -13,6 +13,7 @@ from tools.test_responsibility_lib import (
     ROOT, canonical_nodeid, junit_execution, resolve_contracts,
     validate_contract_selectors,
 )
+from tools.validate_test_responsibility import _job_body, validate as validate_responsibility
 
 
 def selector(name: str) -> str:
@@ -160,3 +161,17 @@ def test_directory_owner_discovery_automatically_includes_a_new_test_module(tmp_
         }
     }
     assert owned_test_modules(authority, "host", root=tmp_path) == [first, second]
+
+
+def test_ci_job_binding_is_scoped_to_the_declared_job():
+    workflow = """jobs:\n  owner:\n    steps:\n      - run: echo owner\n  neighbor:\n    steps:\n      - run: python tools/verify_test_owner_execution.py --owner example\n"""
+    owner = _job_body(workflow, "owner")
+    neighbor = _job_body(workflow, "neighbor")
+    assert "verify_test_owner_execution.py" not in owner
+    assert "verify_test_owner_execution.py" in neighbor
+
+
+def test_live_test_responsibility_authority_is_valid():
+    result = validate_responsibility()
+    assert result["verdict"] == "PASS"
+    assert result["unowned_tests"] == []
