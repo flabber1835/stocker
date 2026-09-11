@@ -88,7 +88,7 @@ def _require_merge_authority() -> dict:
         "python tools/require_check_run.py",
         "CHECK_SUITE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
         '--sha "$CHECK_SUITE_SHA"',
-        '--name "sharadar-replay-${{ matrix.scope }}"',
+        '--name "sharadar-replay-${{ matrix.scope }}-${GITHUB_SHA}"',
         '--workflow ".github/workflows/sharadar-daily-replay.yml"',
         "if: github.event_name == 'pull_request' || github.event_name == 'merge_group'",
         "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
@@ -100,7 +100,7 @@ def _require_merge_authority() -> dict:
 
     sharadar_required = [
         "merge_group:",
-        "name: sharadar-replay-${{ matrix.scope }}",
+        "name: sharadar-replay-${{ matrix.scope }}-${{ github.sha }}",
         "TESTED_COMMIT: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}",
         "ref: ${{ env.TESTED_COMMIT }}",
         'test "$(git rev-parse HEAD)" = "$TESTED_COMMIT"',
@@ -111,10 +111,11 @@ def _require_merge_authority() -> dict:
     return {
         "carrier_contexts": ["sentinel-exact-head", "sentinel-synthetic-merge"],
         "dependency_checks": [
-            "sharadar-replay-exact-head",
-            "sharadar-replay-synthetic-merge",
+            "sharadar-replay-exact-head-${GITHUB_SHA}",
+            "sharadar-replay-synthetic-merge-${GITHUB_SHA}",
         ],
         "check_suite_binding": "pull-request head SHA or merge-group SHA",
+        "event_merge_binding": "dependency check name embeds GITHUB_SHA",
         "workflow_origin": ".github/workflows/sharadar-daily-replay.yml",
         "tested_commit_binding": "Sharadar TESTED_COMMIT exact-head/synthetic-merge",
     }
