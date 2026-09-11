@@ -17,6 +17,7 @@ from pathlib import Path
 import shutil
 import sys
 import time
+import traceback
 from unittest.mock import patch
 
 from . import authority as a, broker
@@ -102,6 +103,24 @@ def broker_accounting(snapshot):
     require("positions_long_only",True,all(Decimal(q)>=0 for q in snapshot["positions"].values()))
 
 
+def published_cash_factors(published):
+    from sentinel.shadow_observation import _strategy_prices
+    if published.session==a.WARMUP and published.defensive_previous_bar is None:
+        return None
+    prices=_strategy_prices(published.defensive_bar,session=published.session,
+                            previous_value=published.defensive_previous_bar)
+    opened=Decimal(prices["bil_open_adjusted"])
+    closed=Decimal(prices["bil_close_adjusted"])
+    previous=Decimal(prices["bil_previous_close_adjusted"])
+    return float(opened/previous),float(closed/opened)
+
+
+def market_window(day):
+    from sentinel.feed.calendar import session_window
+    opened,closed=session_window(day)
+    return opened.astimezone(timezone.utc),closed.astimezone(timezone.utc)
+
+
 def final_corpus_check(conn,provider):
     from sentinel.feed import publication,store
     expected=provider.db.execute("SELECT * FROM obs WHERE raw>0 ORDER BY day,sid")
@@ -129,6 +148,8 @@ class Experiment:
         self.completed = 0
         self.started = time.monotonic()
         self.open_audit = None
+        self.command_economics={}
+        self.command_history_hashes={}
 
     def event(self, phase, payload):
         return self.evidence.event(at=self.at, session=self.day, phase=phase, payload=payload)
@@ -179,11 +200,15 @@ class Experiment:
 
     async def execute(self, conn):
         from sentinel import binding
-        from sentinel.execution import executor, journal, reconcile
+        from sentinel.execution import executor, journal, reconcile, broker_cash
         adapter = broker.adapter(self.service)
         plan, bound = journal.latest_plan(conn), binding.require(conn)
+        with journal.writer_lock(conn,recovery_only=True):
+            cash_state=await broker_cash.ingest_account_cash(conn,broker_adapter=adapter,broker="alpaca",
+                account_id="SIM-ALPACA-1",through=self.at)
+            conn.commit()
         if plan is None:
-            return dict(no_prior_plan=True)
+            return dict(no_prior_plan=True,cash_activity=plain(cash_state))
         symbols = dict(conn.execute("SELECT DISTINCT ON (security_id) security_id,ticker FROM sentinel_bars "
             "WHERE session<=%s ORDER BY security_id,session DESC", (self.day,)).fetchall())
         symbols["SENTINEL:BIL"] = "BIL"
@@ -191,9 +216,24 @@ class Experiment:
                        for sid in plan.target_basket}
         result = await executor.execute_session(broker=adapter, conn=conn, deployment=bound.identity,
             plan=plan, instruments=instruments, today=date.fromisoformat(self.day), settle_cycles=2)
+        self.event("executor_result",plain(result))
+        require("executor_refusals",{},dict(result.refused))
+        require("executor_degraded",False,result.runtime_state.value in {"BROKER_DEGRADED","RECONCILING"})
         with journal.writer_lock(conn, recovery_only=True):
             reconciled = await reconcile.reconcile(broker=adapter,conn=conn,binding=bound,deployment=bound.identity)
-        return dict(execution=plain(result),reconciliation=plain(reconciled))
+        from tests.internal_state import oracles
+        from tests.internal_state.runtime import command_dict
+        commands=[command_dict(c) for c in journal.load_commands(conn,bound.identity)]
+        histories={c["client_key"]:plain(journal.command_history(conn,c["client_key"])) for c in commands}
+        oracles.journal_contract(commands,histories,self.service.snapshot(),self.command_economics)
+        for command in commands:
+            key=command["client_key"]
+            receipt=dict(command=command,history=histories[key])
+            commitment=digest(receipt)
+            if self.command_history_hashes.get(key)!=commitment:
+                self.event("command_history",receipt)
+                self.command_history_hashes[key]=commitment
+        return dict(execution=plain(result),reconciliation=plain(reconciled),cash_activity=plain(cash_state))
 
     def decide(self, conn, day, raw):
         from sentinel import binding
@@ -228,6 +268,7 @@ class Experiment:
         def load(conn, day, **kw):
             published = loader(conn, day, **kw)
             self.event("published_inputs", published)
+            self.cash_audit=published_cash_factors(published)
             return published
         with patch.object(adapter,"_resolved_open_equity",observed):
             result = production.advance_and_persist(conn,day,prior,load_published=load,
@@ -241,7 +282,7 @@ class Experiment:
         from sentinel.core.session import SessionState
         from sentinel.controller.machine import Controller
         from sentinel.feed import calendar, ingest, readiness
-        opened, closed = calendar.session_window(day)
+        opened, closed = market_window(day)
         self.day, self.at = day, opened+timedelta(minutes=1)
         market = [dict(r) for r in self.provider.db.execute("SELECT * FROM obs WHERE day=?",(day,))]
         cash = self.provider.db.execute("SELECT * FROM reference WHERE day=?",(day,)).fetchone()
@@ -292,7 +333,11 @@ class Experiment:
                 if self.completed % 63 == 0:
                     result["restart_state"] = self.evidence.object(raw)
             with self.boundary("independent_comparison") as result:
-                result.update(self.comparison.observe(day,state,self.open_audit[0],(cash["gap"],cash["intraday"])))
+                if self.cash_audit is not None:
+                    equal("published_cash_gap",cash["gap"],self.cash_audit[0])
+                    equal("published_cash_intraday",cash["intraday"],self.cash_audit[1])
+                result.update(self.comparison.observe(day,state,self.open_audit[0],self.cash_audit))
+                result["published_cash_factors"]=self.cash_audit
                 result["opening_carried_marks"] = self.open_audit[1]
                 snapshot = self.service.snapshot()
                 broker_accounting(snapshot)
@@ -395,6 +440,9 @@ def main():
     try:
         result = experiment.run()
     except BaseException as exc:
+        if not (args.output/"FIRST_FAILURE.json").exists():
+            evidence.write("FIRST_FAILURE.json",dict(session=experiment.day,phase="driver",
+                error_type=type(exc).__name__,error=str(exc),traceback=traceback.format_exc()))
         result = dict(status="FAIL_FULL_SYSTEM_HISTORICAL_REPLAY",error_type=type(exc).__name__,error=str(exc),
             completed=experiment.completed,through=experiment.day,full_equivalence_confirmed=False)
         status = 1

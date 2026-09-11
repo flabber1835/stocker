@@ -2,42 +2,21 @@ diff --git a/sentinel/automation_runtime.py b/sentinel/automation_runtime.py
 index d77c6372..51d7f8b1 100644
 --- a/sentinel/automation_runtime.py
 +++ b/sentinel/automation_runtime.py
-@@ -376,7 +376,8 @@ def _actionable_projection_deltas(
-         raw = _all_target_deltas(
-             plan.target_basket, observation,
-             minimum_quantity_increment=minimum_quantity_increment)
+@@ -379 +379,2 @@ def _actionable_projection_deltas(
 -        if (all(delta.classification is execution_commands.DeltaClass.NONE
 +        if (not plan.opening_intents
 +                and all(delta.classification is execution_commands.DeltaClass.NONE
-                 for delta in raw)
-                 and all(delta.desired == 0 and delta.held == 0
-                         and delta.committed == 0 for delta in raw)
-@@ -494,7 +495,8 @@ class ProductionAutomation:
-                 raise RuntimeError("automation control authority is stale")
-             rollout = load_rollout_state(conn)
-             current = publication.require_current(conn)
+@@ -497 +498,2 @@ class ProductionAutomation:
 -            strategy = runtime_strategy_identity(load_controller())
 +            from sentinel.strategy import production_strategy
 +            _controller, strategy = production_strategy()
-             certificate = require_current_authority(
-                 conn, runtime_identity=system_identity.rehearsal_identity(),
-                 strategy_identity=strategy, required_mode=rollout.mode,
-@@ -603,6 +605,11 @@ class ProductionAutomation:
- 
-         proof = self._require_dual_plan_shadow_match(
-             conn, plan, pending_is_retryable=False)
+@@ -605,0 +608,5 @@ class ProductionAutomation:
 +        if plan.opening_intents:
 +            return _actionable_projection_deltas(
 +                conn, plan=plan, effective_session=effective_session,
 +                observation=observation,
 +                minimum_quantity_increment=minimum_quantity_increment)
-         current = publication.require_current(conn)
-         frontier = feed_store.latest_visible_session(conn)
-         try:
-@@ -928,6 +935,19 @@ class ProductionAutomation:
-                                 "name the durable current plan"),
-                             diagnostic=result.to_dict())
-                     try:
+@@ -930,0 +938,13 @@ class ProductionAutomation:
 +                        from sentinel.execution import opening_sizing
 +                        if opening_sizing.requires_initial_projection(
 +                                conn, plan=plan, deployment=deployment):
@@ -51,29 +30,20 @@ index d77c6372..51d7f8b1 100644
 +                                failure_detail=("unsent opening plan execution window closed"
 +                                                if closed else "unsent plan requires opening sizing"),
 +                                diagnostic=result.to_dict())
-                         actionable = self._actionable_current_plan_deltas(
-                             conn, plan=plan,
-                             effective_session=cycle.effective_session,
 diff --git a/sentinel/cli/authority.py b/sentinel/cli/authority.py
 index 5b62a71b..0eec13d0 100644
 --- a/sentinel/cli/authority.py
 +++ b/sentinel/cli/authority.py
-@@ -127,12 +127,10 @@ def cmd_create_empty_paper_binding_candidate(
- def _current_system_identities() -> tuple[dict, dict]:
-     """Compute the exact runtime and strategy identities used by authority."""
-     from sentinel import identity
+@@ -130,2 +130 @@ def _current_system_identities() -> tuple[dict, dict]:
 -    from sentinel.controller.frozen_rule import load as load_controller
 -    from sentinel.core.decision import runtime_strategy_identity
 +    from sentinel.strategy import production_strategy
- 
+@@ -133,3 +132,2 @@ def _current_system_identities() -> tuple[dict, dict]:
 -    controller = load_controller()
 -    return (identity.rehearsal_identity(),
 -            runtime_strategy_identity(controller))
 +    _controller, strategy = production_strategy()
 +    return identity.rehearsal_identity(), strategy
- 
- 
- def _require_administrative_access(
 diff --git a/sentinel/controller/ex3_v6.py b/sentinel/controller/ex3_v6.py
 new file mode 100644
 index 00000000..1029c3ba
@@ -391,59 +361,22 @@ diff --git a/sentinel/core/decision.py b/sentinel/core/decision.py
 index f324847c..299003cf 100644
 --- a/sentinel/core/decision.py
 +++ b/sentinel/core/decision.py
-@@ -27,7 +27,7 @@ from sentinel.controller.concordance import (
-     IDENTITY_OVERLAY_FIELD, is_concordance_identity)
- from sentinel.core.session import SessionState
- from sentinel.execution.commands import committed_quantity
+@@ -30 +30 @@ from sentinel.execution.commands import committed_quantity
 -from sentinel.execution.plan import ExecutionPlan
 +from sentinel.execution.plan import ExecutionPlan, OpeningIntent
- from sentinel.execution.projection import Projection, desired_basket, project
- from sentinel.feed import calendar
- 
-@@ -36,11 +36,14 @@ DEFENSIVE_SECURITY_ID = "SENTINEL:BIL"
- DATA_SEMANTICS_IDENTITY_SCHEMA = "sentinel-sharadar-book-semantics/v1"
- _DATA_SEMANTICS_MODULES = (
-     "sentinel.breadth.classifier",
+@@ -38,0 +39 @@ _DATA_SEMANTICS_MODULES = (
 +    "sentinel.controller.median5_breadth",
-     "sentinel.breadth.returns",
-     "sentinel.controller.concordance",
-     "sentinel.controller.concordance_parent",
-     "sentinel.controller.frozen_rule",
-     "sentinel.controller.ldrc",
+@@ -43,0 +45,2 @@ _DATA_SEMANTICS_MODULES = (
 +    "sentinel.controller.median5",
 +    "sentinel.controller.ex3_v6",
-     "sentinel.controller.machine",
-     "sentinel.controller.recent_leadership",
-     "sentinel.core.bootstrap",
-@@ -55,6 +58,8 @@ _DATA_SEMANTICS_MODULES = (
-     "sentinel.execution.projection",
-     "sentinel.execution.reconcile",
-     "sentinel.execution.target_reprojection",
+@@ -57,0 +61,2 @@ _DATA_SEMANTICS_MODULES = (
 +    "sentinel.execution.opening_prices",
 +    "sentinel.execution.opening_sizing",
-     "sentinel.feed.action_source",
-     "sentinel.feed.actions",
-     "sentinel.feed.actions_map",
-@@ -83,6 +88,7 @@ _DATA_SEMANTICS_MODULES = (
-     "sentinel.regime.spy",
-     "sentinel.shadow_observation",
-     "sentinel.shadow_runtime",
+@@ -85,0 +91 @@ _DATA_SEMANTICS_MODULES = (
 +    "sentinel.strategy",
-     "stock_strategy_shared.split_reconciliation",
-     "stock_strategy_shared.terminal_coalescing",
-     "stock_strategy_shared.wealth_core.sharadar_domains",
-@@ -108,6 +114,7 @@ class ShadowTarget:
-         default_factory=dict)
-     pending_close_shares: Mapping[str, tuple[Decimal, ...]] = field(
-         default_factory=dict)
+@@ -110,0 +117 @@ class ShadowTarget:
 +    opening_intents: tuple[OpeningIntent, ...] = ()
- 
- 
- @dataclass(frozen=True)
-@@ -210,6 +217,24 @@ def runtime_strategy_identity(
-         "data_semantics_source_sha256": str(
-             data_semantics_source_identity()["sha256"]),
-     }
+@@ -212,0 +220,18 @@ def runtime_strategy_identity(
 +    from sentinel.controller.median5 import enabled as median5_enabled
 +    if median5_enabled(result):
 +        from stock_strategy_shared.wealth_core.median5 import REFERENCE_AST
@@ -462,101 +395,46 @@ index f324847c..299003cf 100644
 +            result["research_reference_source_sha256"] = REFERENCE_SOURCE_SHA256
 +            result["universe"] = "BROAD_SHARADAR_COMMON_EQUITY"
 +        return result
-     if not concordance:
-         return result
-     from sentinel.controller import ldrc as ldrc_module
-@@ -263,6 +288,7 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
-     held_shares: dict[str, Decimal] = {}
-     pending_opens: dict[str, list[Decimal]] = {}
-     pending_closes: dict[str, list[Decimal]] = {}
+@@ -265,0 +291 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
 +    opening_intents = []
- 
-     for slot_id in sorted(portfolio.episodes):
-         episode = portfolio.episodes[slot_id]
-@@ -289,8 +315,13 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
-                 f"pending operation for {security_id!r} has invalid shares "
-                 f"{quantity}")
-         if pending.operation is Operation.OPEN_SLOT_POSITION:
+@@ -291,0 +318,6 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
 +            if pending.intended_dollars is not None:
 +                opening_intents.append(OpeningIntent(
 +                    security_id, pending.slot_id, _decimal(
 +                        pending.intended_dollars, label="pending entry dollars")))
 +            else:
 +                pending_opens.setdefault(security_id, []).append(quantity)
-             signed = quantity
+@@ -293 +324,0 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
 -            pending_opens.setdefault(security_id, []).append(quantity)
-         elif pending.operation is Operation.CLOSE_POSITION:
-             signed = -quantity
-             pending_closes.setdefault(security_id, []).append(quantity)
-@@ -309,6 +340,7 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
-             f"canonical pending operations over-close the shadow: {negative}")
- 
-     return ShadowTarget(
+@@ -311,0 +343 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
 +        opening_intents=tuple(sorted(opening_intents, key=lambda item: item.slot_id)),
-         shares={security_id: quantity
-                 for security_id, quantity in sorted(shares.items())
-                 if quantity > 0},
-@@ -535,10 +567,12 @@ def build_execution_plan(
-         raise ValueError("controller target_core_exposure is not finite")
-     rollout = rollout_state or RolloutState(
-         mode=RolloutMode.PINNED_1_00, version=1)
+@@ -538 +570,3 @@ def build_execution_plan(
 -    if (is_concordance_identity(canonical.strategy_identity)
 +    from sentinel.controller.ex3_v6 import enabled as is_ex3_v6
 +    if ((is_concordance_identity(canonical.strategy_identity)
 +         or is_ex3_v6(canonical.strategy_identity))
-             and rollout.mode is RolloutMode.PINNED_1_00):
-         raise ValueError(
+@@ -541 +575 @@ def build_execution_plan(
 -            "PINNED_1_00 cannot override a Concordance allocation; "
 +            "PINNED_1_00 cannot override a Concordance or EX3 V6 allocation; "
-             "use a separately certified CONTROLLER rollout")
-     exposure = (Decimal(1) if rollout.mode is RolloutMode.PINNED_1_00
-                 else controller_exposure)
-@@ -563,6 +597,11 @@ def build_execution_plan(
-         exposure=exposure, defensive_weight=defensive_weight,
-         defensive_security=defensive_security)
-     basket = desired_basket(sized)
+@@ -565,0 +600,5 @@ def build_execution_plan(
 +    for entry in target.opening_intents:
 +        basket[entry.security_id] = Decimal(0)
 +    if target.opening_intents:
 +        for sid in target.pending_close_shares:
 +            basket.setdefault(sid, Decimal(0))
-     # A working order is economic state even when the position has not appeared
-     # yet and the fresh target no longer contains the name. Give it an explicit
-     # zero target so exact-delta reconciliation cannot omit it from the universe.
-@@ -613,6 +652,7 @@ def build_execution_plan(
-         rollout_mode=rollout.mode.value,
-         rollout_version=rollout.version,
-         rollout_certificate_sha256=rollout.certificate_sha256,
+@@ -615,0 +655 @@ def build_execution_plan(
 +        opening_intents=target.opening_intents,
-     )
-     plan = replace(plan, plan_id=f"sentinel-{plan.fingerprint()}")
-     return ProductionDecision(
 diff --git a/sentinel/core/kernel.py b/sentinel/core/kernel.py
 index 12617af8..e820ab74 100644
 --- a/sentinel/core/kernel.py
 +++ b/sentinel/core/kernel.py
-@@ -7,6 +7,9 @@ fully published session snapshot and a prior production state envelope.
- from __future__ import annotations
- 
- from dataclasses import asdict
+@@ -9,0 +10,3 @@ from dataclasses import asdict
 +from copy import deepcopy
 +import hashlib
 +import json
- from typing import Mapping
- 
- from stock_strategy_shared.wealth_core.adapter import PendingOrder
-@@ -48,6 +51,7 @@ from sentinel.core.session import (
-     holdings_from_shadow,
- )
- from sentinel.regime.spy import dated_spy_regime
+@@ -50,0 +54 @@ from sentinel.regime.spy import dated_spy_regime
 +from sentinel.controller import median5 as median5_controller
- 
- 
- def advance_session(
-@@ -89,6 +93,25 @@ def advance_session(
-         raise ValueError(
-             "persisted strategy/config/source identity differs from running identity"
-         )
+@@ -91,0 +96,19 @@ def advance_session(
 +    median5 = median5_controller.enabled(running_identity)
 +    if median5:
 +        expected_wealth = median5_controller.wealth_config(running_identity)
@@ -576,38 +454,16 @@ index 12617af8..e820ab74 100644
 +            raise ValueError("economic configuration is not bound to strategy identity: " + name)
 +    if median5 and (wealth != expected_wealth or elig != EligibilityConfig()):
 +        raise ValueError("Median-5 economic profile cannot be overridden")
-     concordance = is_concordance_identity(running_identity)
-     if (
-         concordance
-@@ -108,12 +131,14 @@ def advance_session(
-     ):
-         raise ValueError("corpus publication version moved backwards")
- 
+@@ -111 +133,0 @@ def advance_session(
 -    elig = eligibility_config or EligibilityConfig()
-     state = PortfolioState.from_dict(env.wealth_core)
-     pending = [PendingOrder.from_dict(item) for item in env.pending]
-     ledger = Ledger.from_dict(env.ledger)
-     last_known = dict(env.last_known)
-     feed = _feed_from_dict(env.feed, published.meta, elig)
+@@ -116,0 +139,3 @@ def advance_session(
 +    if median5 and env.data_version is not None and published.data_version != env.data_version:
 +        for sid, series in feed.series.items():
 +            series.reconcile_signal_basis(published.signal_basis_anchors.get(sid))
-     _restore_missing_feed_anchors(feed, published)
-     ledger_event_boundary = len(ledger.events)
-     plan = plan_session(
-@@ -125,7 +150,7 @@ def advance_session(
-         ledger=ledger,
-         last_known=last_known,
-         feed=feed,
+@@ -128 +153 @@ def advance_session(
 -        cfg=wealth_config,
 +        cfg=wealth,
-         eligibility_cfg=elig,
-         terminal_events=published.terminal_events,
-     )
-@@ -140,6 +165,21 @@ def advance_session(
- 
-     held = holdings_from_shadow(state, feed, published.sectors)
-     breadth = session_breadth(held)
+@@ -142,0 +168,15 @@ def advance_session(
 +    median5_state = deepcopy(env.median5)
 +    if median5:
 +        from sentinel.controller.median5_breadth import breadth as peer_breadth
@@ -623,13 +479,7 @@ index 12617af8..e820ab74 100644
 +            [feed._session_index, close, mv]])[-254:]
 +        median5_controller.remember_peer_keys(median5_state, published.meta)
 +        breadth, held = peer_breadth(state, feed, median5_state["spy_history"], median5_state["peer_keys"])
-     navs = list(env.shadow_nav_history)
-     nav = float(plan.estimated_equity)
-     navs.append(nav)
-@@ -191,6 +231,26 @@ def advance_session(
-     recent_leadership_state = env.recent_leadership
-     ldrc_state = env.ldrc
-     concordance_evidence = {}
+@@ -193,0 +234,20 @@ def advance_session(
 +    if median5:
 +        median5_state, witness_decision = median5_controller.witness(
 +            median5_state, session=published.session,
@@ -650,83 +500,37 @@ index 12617af8..e820ab74 100644
 +        concordance_evidence = {"native_controller": native_decision.to_dict(),
 +                                "recent_leadership": witness_decision,
 +                                "ldrc": overlay_decision}
-     if concordance:
-         witness_before = leadership_state_from_dict(
-             env.recent_leadership or {}
-@@ -259,6 +319,8 @@ def advance_session(
-             "ldrc": asdict(overlay_decision),
-         }
-     evidence = {
+@@ -261,0 +322,2 @@ def advance_session(
 +        **({"median5_eligible_population": plan.eligible_universe_count}
 +           if median5 else {}),
-         "observation": asdict(observation),
-         "breadth": {
-             "denominator": breadth.denominator,
-@@ -295,6 +357,7 @@ def advance_session(
-         recent_leadership=recent_leadership_state,
-         ldrc=ldrc_state,
-         concordance_witness_origin=env.concordance_witness_origin,
+@@ -297,0 +360 @@ def advance_session(
 +        median5=median5_state,
-     )
- 
- 
 diff --git a/sentinel/core/loader.py b/sentinel/core/loader.py
 index d26c2b19..5c379f80 100644
 --- a/sentinel/core/loader.py
 +++ b/sentinel/core/loader.py
-@@ -101,21 +101,23 @@ def load_window(conn, *, start: str, end: str) -> CorpusWindow:
- 
-     sql = ("SELECT session, security_id, ticker, close_unadjusted,"
-            " open_unadjusted, volume,"
+@@ -104 +104 @@ def load_window(conn, *, start: str, end: str) -> CorpusWindow:
 -           f" {effective_split_ratio('b')} AS split_ratio, dividend_per_share"
 +           f" {effective_split_ratio('b')} AS split_ratio, dividend_per_share, close_signal"
-            " FROM sentinel_bars b WHERE session BETWEEN %s AND %s"
-            f"   AND {visible_predicate('b')}"
-            " ORDER BY session, security_id")
- 
-     bars_by_session: dict[str, list[VendorBar]] = {}
-     with streaming_cursor(conn, sql, (start, end)) as cur:
+@@ -111,2 +111,3 @@ def load_window(conn, *, start: str, end: str) -> CorpusWindow:
 -        for (session, sid, ticker, raw_close, raw_open, volume, ratio,
 -             div) in cur:
 +        for row in cur:
 +            session, sid, ticker, raw_close, raw_open, volume, ratio, div = row[:8]
 +            signal = row[8] if len(row) > 8 else None
-             close, vol = _f(raw_close), _f(volume)
-             bars_by_session.setdefault(str(session), []).append(VendorBar(
-                 session=str(session), security_id=str(sid), ticker=str(ticker),
-                 raw_close=close, raw_open=_f(raw_open), volume=vol,
-                 split_ratio=float(ratio or 1.0),
-                 dividend_per_share=float(div or 0.0),
+@@ -118,0 +120 @@ def load_window(conn, *, start: str, end: str) -> CorpusWindow:
 +                signal_close=_f(signal),
-                 # DERIVED here rather than stored, from the same two values the
-                 # canonical loader derives it from. `VendorBar.tradeable`
-                 # defaults to True, so omitting it declared every bar in the
 diff --git a/sentinel/core/production.py b/sentinel/core/production.py
 index 75eb6b2c..3a43474f 100644
 --- a/sentinel/core/production.py
 +++ b/sentinel/core/production.py
-@@ -37,6 +37,7 @@ from sentinel.core.session import (
-     holdings_from_shadow,
- )
- from sentinel.feed.requirements import REQUIRED_SPY_SESSIONS as MIN_CLOSES
+@@ -39,0 +40 @@ from sentinel.feed.requirements import REQUIRED_SPY_SESSIONS as MIN_CLOSES
 +from sentinel.controller import median5 as median5_controller
- 
- 
- def warm_session_state(state: SessionState | Mapping, window, *,
-@@ -69,6 +70,9 @@ def warm_session_state(state: SessionState | Mapping, window, *,
-         raise ValueError(
-             "prospective_concordance_witness must be an explicit boolean")
-     elig = eligibility_config or EligibilityConfig()
+@@ -71,0 +73,3 @@ def warm_session_state(state: SessionState | Mapping, window, *,
 +    if median5_controller.enabled(env.strategy_identity):
 +        return _warm_median5(env, window, sessions, publication_version,
 +                             prospective_concordance_witness, elig)
-     witness_state = None
-     concordance = is_concordance_identity(env.strategy_identity)
-     if prospective_concordance_witness and not concordance:
-@@ -132,6 +136,99 @@ def warm_session_state(state: SessionState | Mapping, window, *,
-     return warmed
- 
- 
+@@ -134,0 +139,93 @@ def warm_session_state(state: SessionState | Mapping, window, *,
 +def _warm_median5(env, window, sessions, publication_version, prospective, elig):
 +    """Form features and optionally the historical zero-capital witness."""
 +    from stock_strategy_shared.wealth_core.median5 import rank
@@ -820,17 +624,10 @@ index 75eb6b2c..3a43474f 100644
 +    return signal_basis_anchors
 +
 +
- def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES,
-                            known_feed_security_ids: Sequence[str] = ()
-                            ) -> PublishedSession:
-@@ -173,13 +270,15 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
-         cur.execute(
-             "SELECT security_id,ticker,close_unadjusted,open_unadjusted,volume,"
-             f" {effective_split_ratio('b')} AS split_ratio,"
+@@ -176 +273 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
 -            " dividend_per_share FROM sentinel_bars b"
 +            " dividend_per_share, close_signal FROM sentinel_bars b"
-             f" WHERE session=%s AND {visible_predicate('b')}"
-             " ORDER BY security_id", (session,))
+@@ -179,4 +276,6 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
 -        bars = [VendorBar(session, str(sid), str(ticker), close, op, volume,
 -                          float(split or 1.0), float(div or 0.0),
 -                          bool(close and volume))
@@ -841,47 +638,23 @@ index 75eb6b2c..3a43474f 100644
 +            bars.append(VendorBar(session, str(sid), str(ticker), close, op, volume,
 +                                  float(split or 1.0), float(div or 0.0),
 +                                  bool(close and volume), signal_close=(row[7] if len(row) > 7 else None)))
-         cur.execute(
-             "SELECT session,closeadj FROM sentinel_spy_total_return r"
-             f" WHERE session<=%s AND {visible_predicate('r', sep_retirements=False)}"
-@@ -277,7 +376,8 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
-                 f"{session}; refusing a default split/identity anchor")
-     return PublishedSession(
-         session=session, data_version=publication.version, bars=bars, meta=meta,
+@@ -280 +379,2 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
 -        sectors=sectors, spy_closeadj=spy,
 +        sectors=sectors, spy_closeadj=spy, signal_basis_anchors=load_signal_basis_anchors(
 +            conn, session=session, security_ids=known_feed_security_ids),
-         spy_sessions=actual_spy_sessions,
-         spy_expected_sessions=expected_spy_sessions,
-         terminal_events=terminals,
 diff --git a/sentinel/core/session.py b/sentinel/core/session.py
 index 863776a4..57e71527 100644
 --- a/sentinel/core/session.py
 +++ b/sentinel/core/session.py
-@@ -31,6 +31,7 @@ from sentinel.controller.ldrc import (
-     state_to_dict as ldrc_state_to_dict)
- from sentinel.controller.machine import (
-     Controller, validate_controller_state)
+@@ -33,0 +34 @@ from sentinel.controller.machine import (
 +from sentinel.controller import median5 as median5_controller
- 
- ENVELOPE_VERSION = 5
- LEGACY_ENVELOPE_VERSIONS = frozenset({2, 3, 4})
-@@ -101,7 +102,10 @@ def _bounded_feed_dict(raw: Mapping,
-     """
-     protected = set(protected_security_ids or ())
-     session_index = int(raw.get("session_index", -1))
+@@ -104 +105,4 @@ def _bounded_feed_dict(raw: Mapping,
 -    cutoff = session_index - FEED_RESTART_SESSIONS + 1
 +    retained = raw.get("history_sessions", FEED_RESTART_SESSIONS)
 +    if retained not in (FEED_RESTART_SESSIONS, 260):
 +        raise ValueError("invalid feed restart history length")
 +    cutoff = session_index - retained + 1
-     seen: dict[str, int] = {}
-     for session, index in (raw.get("seen_sessions") or {}).items():
-         index = int(index)
-@@ -159,11 +163,40 @@ def _bounded_feed_dict(raw: Mapping,
-                 or not math.isfinite(split_factor) or split_factor <= 0):
-             raise ValueError(
-                 f"feed restart series {sid!r} has invalid split_factor anchor")
+@@ -161,0 +166,24 @@ def _bounded_feed_dict(raw: Mapping,
 +        multiplier = series.get("vendor_basis_multiplier", 1.)
 +        if (isinstance(multiplier, bool) or not isinstance(multiplier, (int, float))
 +                or not math.isfinite(multiplier) or multiplier <= 0):
@@ -906,41 +679,19 @@ index 863776a4..57e71527 100644
 +                raise ValueError("publication signal anchor differs from retained history")
 +        elif signal_multiplier != 1.:
 +            raise ValueError("publication signal basis is missing its retained anchor")
-         compact_series[sid] = {
-             "security_id": security_id,
-             "ticker": ticker,
-             "issuer_id": issuer_id,
-             "split_factor": split_factor,
+@@ -166,0 +195,5 @@ def _bounded_feed_dict(raw: Mapping,
 +            **({"vendor_basis_multiplier": float(series["vendor_basis_multiplier"])}
 +               if series.get("vendor_basis_multiplier", 1.) != 1. else {}),
 +            **({"signal_basis_multiplier": float(signal_multiplier)}
 +               if signal_multiplier != 1. else {}),
 +            **({"signal_basis_anchor": list(signal_anchor)} if signal_anchor is not None else {}),
-             **{name: [columns[name][i] for i in keep]
-                for name in _SERIES_FIELDS},
-         }
-@@ -172,7 +205,8 @@ def _bounded_feed_dict(raw: Mapping,
-         raise ValueError(
-             "feed restart state lacks path-dependent anchors for: "
-             + ", ".join(sorted(missing)))
+@@ -175 +208,2 @@ def _bounded_feed_dict(raw: Mapping,
 -    return {"session_index": session_index, "seen_sessions": seen,
 +    return {**({"history_sessions": retained} if retained != FEED_RESTART_SESSIONS else {}),
 +            "session_index": session_index, "seen_sessions": seen,
-             "series": compact_series}
- 
- 
-@@ -233,6 +267,7 @@ class SessionState:
-     recent_leadership: dict | None = None
-     ldrc: dict | None = None
-     concordance_witness_origin: str | None = None
+@@ -235,0 +270 @@ class SessionState:
 +    median5: dict | None = None
-     version: int = ENVELOPE_VERSION
- 
-     @classmethod
-@@ -243,13 +278,24 @@ class SessionState:
-             raise ValueError("strategy identity is incomplete: "
-                              + ", ".join(sorted(missing)))
-         concordance = is_concordance_identity(strategy_identity)
+@@ -245,0 +281,9 @@ class SessionState:
 +        median5 = median5_controller.enabled(strategy_identity)
 +        portfolio = PortfolioState.fresh(starting_cash, 20 if median5 else DEFAULT_SLOTS)
 +        from sentinel.controller.ex3_v6 import enabled as v5_enabled
@@ -950,40 +701,23 @@ index 863776a4..57e71527 100644
 +        if median5:
 +            from stock_strategy_shared.wealth_core.median5 import fresh
 +            portfolio.median5 = fresh()
-         return cls(
+@@ -247 +291 @@ class SessionState:
 -            wealth_core=PortfolioState.fresh(starting_cash).to_dict(),
 +            wealth_core=portfolio.to_dict(),
-             pending=[], ledger=Ledger().to_dict(), last_known={},
+@@ -249 +293,2 @@ class SessionState:
 -            feed={"session_index": -1, "seen_sessions": {}, "series": {}},
 +            feed={"session_index": -1, "seen_sessions": {}, "series": {},
 +                  **({"history_sessions": 260} if median5 else {})},
-             controller=controller.initial_state(),
-             shadow_peak_nav=float(starting_cash),
-             strategy_identity=dict(strategy_identity),
+@@ -252,0 +298 @@ class SessionState:
 +            median5=median5_controller.fresh() if median5 else None,
-             recent_leadership=(
-                 leadership_state_to_dict(RecentLeadershipState())
-                 if concordance else None),
-@@ -259,12 +305,13 @@ class SessionState:
-             # warm-up boundary overwrites this only for the explicitly signed
-             # current-only observation path.
-             concordance_witness_origin=(
+@@ -262 +308 @@ class SessionState:
 -                CONCORDANCE_WITNESS_HISTORICAL if concordance else None))
 +                CONCORDANCE_WITNESS_HISTORICAL if concordance or median5 else None))
- 
-     def to_dict(self) -> dict:
-         recent_leadership, ldrc = _canonical_concordance_state(
-             self.strategy_identity, self.recent_leadership, self.ldrc)
+@@ -267 +313,2 @@ class SessionState:
 -        concordance = is_concordance_identity(self.strategy_identity)
 +        concordance = (is_concordance_identity(self.strategy_identity)
 +                       or median5_controller.enabled(self.strategy_identity))
-         origin = self.concordance_witness_origin
-         if concordance and origin is None:
-             # Pre-field v4 objects have the same unambiguous meaning as a
-@@ -280,6 +327,14 @@ class SessionState:
-             raise ValueError(
-                 "non-Concordance state carries Concordance witness provenance")
-         raw = asdict(self)
+@@ -282,0 +330,8 @@ class SessionState:
 +        if self.median5 is None:
 +            if median5_controller.enabled(self.strategy_identity):
 +                raise ValueError("Median-5 controller state is required")
@@ -992,30 +726,18 @@ index 863776a4..57e71527 100644
 +            if not median5_controller.enabled(self.strategy_identity):
 +                raise ValueError("Median-5 state exists under another strategy")
 +            median5_controller.validate(self.median5)
-         # Backward-compatible discriminated encoding: absence is the only
-         # historical formation that pre-dates this field; prospective
-         # formation is always explicit. Omitting the historical/irrelevant
-@@ -316,8 +371,8 @@ class SessionState:
-             # migration of old evidence, not a guess about a new state.
-             migrated["concordance_witness_origin"] = (
-                 CONCORDANCE_WITNESS_HISTORICAL
+@@ -319,2 +374,2 @@ class SessionState:
 -                if is_concordance_identity(
 -                    migrated.get("strategy_identity") or {}) else None)
 +                if (is_concordance_identity(migrated.get("strategy_identity") or {})
 +                    or median5_controller.enabled(migrated.get("strategy_identity") or {})) else None)
-         if version in LEGACY_ENVELOPE_VERSIONS:
-             migrated.setdefault("recent_leadership", None)
-             migrated.setdefault("ldrc", None)
-@@ -334,10 +389,31 @@ class SessionState:
-         migrated["version"] = ENVELOPE_VERSION
-         json.dumps(migrated, sort_keys=True, allow_nan=False)
-         state = cls(**migrated)
+@@ -336,0 +392,5 @@ class SessionState:
 +        from sentinel.controller.ex3_v6 import enabled as v5_enabled
 +        for raw_order in state.pending:
 +            from stock_strategy_shared.wealth_core.adapter import PendingOrder
 +            PendingOrder.from_dict(raw_order).validate_sizing(
 +                open_time=v5_enabled(state.strategy_identity))
-         portfolio = PortfolioState.from_dict(state.wealth_core)
+@@ -338 +398,17 @@ class SessionState:
 -        if sorted(portfolio.slots) != list(range(DEFAULT_SLOTS)):
 +        from stock_strategy_shared.wealth_core.v5 import PROFILE
 +        expected_sizing = PROFILE if v5_enabled(state.strategy_identity) else None
@@ -1034,120 +756,58 @@ index 863776a4..57e71527 100644
 +        elif state.median5 is not None or portfolio.median5 is not None:
 +            raise ValueError("Median-5 state cannot be relabelled as another strategy")
 +        if sorted(portfolio.slots) != list(range(slots)):
-             raise ValueError(
+@@ -340 +416 @@ class SessionState:
 -                f"production Wealth Core state requires exactly {DEFAULT_SLOTS} "
 +                f"production Wealth Core state requires exactly {slots} "
-                 "canonical slots")
-         missing = REQUIRED_IDENTITY_FIELDS - set(state.strategy_identity)
-         if missing:
-@@ -345,7 +421,7 @@ class SessionState:
-                              + ", ".join(sorted(missing)))
-         state.recent_leadership, state.ldrc = _canonical_concordance_state(
-             state.strategy_identity, state.recent_leadership, state.ldrc)
+@@ -348 +424 @@ class SessionState:
 -        concordance = is_concordance_identity(state.strategy_identity)
 +        concordance = is_concordance_identity(state.strategy_identity) or median5
-         if (concordance
-                 and state.concordance_witness_origin not in
-                 _CONCORDANCE_WITNESS_ORIGINS):
-@@ -428,10 +504,14 @@ class PublishedSession:
-     # lands; carrying yesterday's old-publication value into today's numerator
-     # would turn a harmless scale revision into artificial strategy P/L.
-     defensive_previous_bar: DefensiveBar | None = None
+@@ -430,0 +507,3 @@ class PublishedSession:
 +    # Same-publication historical closes bridge a new vendor price basis into
 +    # the durable per-security basis before any numerical or episode transition.
 +    signal_basis_anchors: Mapping[str, VendorBar] = field(default_factory=dict)
- 
- 
- def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
-     feed = Feed(meta, elig)
+@@ -434,0 +514 @@ def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
 +    feed.restart_sessions = raw.get("history_sessions", FEED_RESTART_SESSIONS)
-     feed._session_index = int(raw.get("session_index", -1))
-     feed._seen_sessions = {str(k): int(v) for k, v in
-                            (raw.get("seen_sessions") or {}).items()}
-@@ -456,9 +536,13 @@ def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
- 
- def _feed_to_dict(feed: Feed, protected_security_ids: set[str]) -> dict:
-     return _bounded_feed_dict({
+@@ -458,0 +539,2 @@ def _feed_to_dict(feed: Feed, protected_security_ids: set[str]) -> dict:
 +        **({"history_sessions": feed.restart_sessions}
 +           if getattr(feed, "restart_sessions", FEED_RESTART_SESSIONS) != FEED_RESTART_SESSIONS else {}),
-         "session_index": feed._session_index,
-         "seen_sessions": dict(feed._seen_sessions),
+@@ -461 +543,3 @@ def _feed_to_dict(feed: Feed, protected_security_ids: set[str]) -> dict:
 -        "series": {sid: asdict(s) for sid, s in sorted(feed.series.items())}},
 +        # The bounding function copies every retained column. Avoid recursively
 +        # copying the full cross-section a second time before that boundary.
 +        "series": {sid: vars(s) for sid, s in sorted(feed.series.items())}},
-         protected_security_ids)
- 
- 
-@@ -506,14 +590,16 @@ def holdings_from_shadow(state: PortfolioState, feed: Feed,
-     for slot in sorted(state.episodes):
-         ep = state.episodes[slot]
-         series = feed.series.get(ep.security_id)
+@@ -509 +593,3 @@ def holdings_from_shadow(state: PortfolioState, feed: Feed,
 -        close = series.signal_closes[-1] if series and series.signal_closes else None
 +        current = bool(series and series.session_indices
 +                       and series.session_indices[-1] == feed._session_index)
 +        close = series.signal_closes[-1] if current and series.signal_closes else None
-         peak = ep.episode_peak_split_adjusted_close
-         own_dd = (None if close is None or peak is None or peak <= 0 else
-                   float(close) / float(peak) - 1.0)
-         out.append(Holding(
-             ticker=ep.ticker, sector=sectors.get(ep.security_id),
+@@ -515,2 +601,2 @@ def holdings_from_shadow(state: PortfolioState, feed: Feed,
 -            own_dd=own_dd, r21=_return(series, 21) if series else None,
 -            r63=_return(series, 63) if series else None,
 +            own_dd=own_dd, r21=_return(series, 21) if current else None,
 +            r63=_return(series, 63) if current else None,
-             age_sessions=ep.market_sessions_held))
-     return out
- 
 diff --git a/sentinel/empty_account_authority.py b/sentinel/empty_account_authority.py
 index 2f861075..fa0a494a 100644
 --- a/sentinel/empty_account_authority.py
 +++ b/sentinel/empty_account_authority.py
-@@ -32,7 +32,7 @@ def current_bindings(
-         automation_config_sha256: str, paper_base_url: str,
-         trust_roots_path: Path = authority.DEFAULT_TRUST_ROOTS_PATH) -> Mapping:
-     """Compute the exact current forward-operation identities."""
+@@ -35 +35 @@ def current_bindings(
 -    from sentinel.controller.frozen_rule import load as load_controller
 +    from sentinel.strategy import controller_for_identity
-     from sentinel.execution.authority_gate import (
-         PUBLICATION_POLICY_SCHEMA,
-         publication_policy_implementation_sha256,
-@@ -40,7 +40,7 @@ def current_bindings(
- 
-     corpus = current_corpus_root_identity(conn)
-     metadata = current_metadata_snapshot_identity(conn)
+@@ -43 +43 @@ def current_bindings(
 -    controller = load_controller()
 +    controller = controller_for_identity(strategy_identity)
-     artifacts = authority.runtime_artifact_identity(runtime_identity)
-     environment = runtime_identity.get("environment") or {}
-     sentinel_source = environment.get("sentinel_source") or {}
-@@ -71,6 +71,10 @@ def current_bindings(
-             "config_sha256": authority.canonical_sha256(controller.to_dict()),
-         },
-     })
+@@ -73,0 +74,4 @@ def current_bindings(
 +    seed["controller"] = {
 +        "rule_sha256": controller.digest,
 +        "config_sha256": authority.canonical_sha256(controller.to_dict()),
 +    }
-     bound = authority.bind_current_immutable_identities(
-         seed, runtime_identity=runtime_identity,
-         strategy_identity=strategy_identity, paper_base_url=paper_base_url,
 diff --git a/sentinel/execution/alpaca.py b/sentinel/execution/alpaca.py
 index 12b287d7..c1a41a38 100644
 --- a/sentinel/execution/alpaca.py
 +++ b/sentinel/execution/alpaca.py
-@@ -379,6 +379,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
-         fractional_quantities=True,
-         minimum_quantity_increment=Decimal("0.000000001"),
-         market_on_open=False,
+@@ -381,0 +382 @@ class AlpacaExecutionBroker(ExecutionBroker):
 +        regular_session_open_prices=True,
-     )
-     certification_name = "alpaca"
-     # Method presence is deliberately not production authority.  These flags
-@@ -434,6 +435,52 @@ class AlpacaExecutionBroker(ExecutionBroker):
-     async def identify_account(self) -> BrokerAccountIdentity:
-         return self._account_identity(await self._get("/v2/account"))
- 
+@@ -436,0 +438,46 @@ class AlpacaExecutionBroker(ExecutionBroker):
 +    async def opening_prices(self, *, session: date, instruments):
 +        import httpx
 +        from datetime import timedelta
@@ -1194,174 +854,78 @@ index 12b287d7..c1a41a38 100644
 +        return parse_bars(payload, session=session, instruments=instruments,
 +                          observed_at=self._now(), broker_symbols=broker_symbols)
 +
-     async def account_snapshot(self) -> BrokerAccountSnapshot:
-         payload = await self._get("/v2/account")
-         identity = self._account_identity(payload)
 diff --git a/sentinel/execution/authority_gate.py b/sentinel/execution/authority_gate.py
 index 486a0152..a32ef337 100644
 --- a/sentinel/execution/authority_gate.py
 +++ b/sentinel/execution/authority_gate.py
-@@ -56,6 +56,7 @@ _READ_OPERATIONS = frozenset({
-     BrokerOperation.ACCOUNT_CASH_ACTIVITIES,
-     BrokerOperation.RESOLVE_INSTRUMENT,
-     BrokerOperation.MARKET_CLOCK,
+@@ -58,0 +59 @@ _READ_OPERATIONS = frozenset({
 +    BrokerOperation.OPENING_PRICES,
-     BrokerOperation.OBSERVE,
-     BrokerOperation.OBSERVE_WITH_TERMINAL_RECOVERY,
-     BrokerOperation.FIND_BY_CLIENT_KEY,
 diff --git a/sentinel/execution/contract.py b/sentinel/execution/contract.py
 index 9c6d9fd5..5766ad87 100644
 --- a/sentinel/execution/contract.py
 +++ b/sentinel/execution/contract.py
-@@ -37,7 +37,7 @@ from dataclasses import dataclass, field, replace
- from datetime import date, datetime
- from decimal import Decimal
- from enum import Enum
+@@ -40 +40 @@ from enum import Enum
 -from typing import Optional, Protocol, Sequence, runtime_checkable
 +from typing import Mapping, Optional, Protocol, Sequence, runtime_checkable
- 
- from sentinel.execution.states import CommandState
- 
-@@ -126,6 +126,7 @@ class BrokerCapabilities:
-     # semantics have been validated against the real broker.
-     account_close_valuation: bool = False
-     market_on_open: bool = False
+@@ -128,0 +129 @@ class BrokerCapabilities:
 +    regular_session_open_prices: bool = False
- 
-     def __post_init__(self) -> None:
-         if (not isinstance(self.minimum_quantity_increment, Decimal)
-@@ -882,6 +883,10 @@ class ExecutionBroker(abc.ABC):
-         raise NotImplementedError(
-             "this execution adapter does not expose a broker market clock")
- 
+@@ -884,0 +886,4 @@ class ExecutionBroker(abc.ABC):
 +    async def opening_prices(self, *, session: date, instruments: Mapping):
 +        """Execution-only raw opening prices for the named regular session."""
 +        raise NotImplementedError("this adapter has no regular-session opening prices")
 +
-     async def account_cash_activities(self, *, after: datetime,
-                                       through: datetime,
-                                       since_event_id: str | None = None):
 diff --git a/sentinel/execution/executor.py b/sentinel/execution/executor.py
 index 2243d367..e21be0e6 100644
 --- a/sentinel/execution/executor.py
 +++ b/sentinel/execution/executor.py
-@@ -197,7 +197,7 @@ def _execution_universe(desired: Mapping[str, Decimal], observation) -> set[str]
-     )
- 
- 
+@@ -200 +200 @@ def _execution_universe(desired: Mapping[str, Decimal], observation) -> set[str]
 -def order_of_operations(deltas: Sequence[C.Delta]) -> tuple:
 +def order_of_operations(deltas: Sequence[C.Delta], *, opening_intents=()) -> tuple:
-     """Reductions first, then increases; stable within each group.
- 
-     A tuple rather than a sort key, so the rule is inspectable and testable on
-@@ -207,8 +207,10 @@ def order_of_operations(deltas: Sequence[C.Delta]) -> tuple:
-     """
-     reductions = [d for d in deltas if not d.is_increase]
-     increases = [d for d in deltas if d.is_increase]
+@@ -209,0 +210 @@ def order_of_operations(deltas: Sequence[C.Delta]) -> tuple:
 +    entry_slots = {item.security_id: item.slot_id for item in opening_intents}
-     return tuple(sorted(reductions, key=lambda d: d.security_id)
+@@ -211 +212,2 @@ def order_of_operations(deltas: Sequence[C.Delta]) -> tuple:
 -                 + sorted(increases, key=lambda d: d.security_id))
 +                 + sorted(increases, key=lambda d: (
 +                     entry_slots.get(d.security_id, 20), d.security_id)))
- 
- 
- def is_execution_window_open(plan: ExecutionPlan, today: date) -> bool:
-@@ -286,7 +288,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
-     unconditional extra round trip is latency for nothing.
- 
-     **The quantities come from `plan.target_basket` and nowhere else, except for
+@@ -289 +291 @@ async def execute_session(*, broker: ExecutionBroker, conn,
 -    a durably verified scalar corporate-action projection.** This
 +    a durably verified corporate-action/opening-intent projection.** This
-     used to take a separate `desired` mapping alongside the plan, which meant
-     the client key said "plan P, security S" while the quantity came from an
-     argument nobody checked against P. A caller could pass 200 under a plan that
-@@ -295,7 +297,8 @@ async def execute_session(*, broker: ExecutionBroker, conn,
-     that does not determine the economics is not an identity — it is a label.
- 
-     A target projection is not a free-form desired mapping. It binds the plan
+@@ -298 +300,2 @@ async def execute_session(*, broker: ExecutionBroker, conn,
 -    fingerprint, execution session, exact multipliers and action-aged basket,
 +    fingerprint, execution session, exact multipliers, retained opening evidence
 +    when applicable, and the resolved basket,
-     and the executor reloads the identical record under its writer lock before
-     using it. That preserves the original rule's purpose: command identity still
-     determines command economics after a share unit changes.
-@@ -332,6 +335,8 @@ async def execute_session(*, broker: ExecutionBroker, conn,
-         # true for the duration of the session rather than at an instant before
-         # it, because supersession requires the same lock.
-         _assert_current_plan(conn, plan)
+@@ -334,0 +338,2 @@ async def execute_session(*, broker: ExecutionBroker, conn,
 +        if plan.opening_intents and target_projection is None:
 +            raise ValueError("opening dollar intents require a durable opening-time projection")
-         if target_projection is not None:
-             assert_projection(
-                 conn, plan=plan, projection=target_projection,
-@@ -494,7 +499,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
- 
-     # 3. PHASE ONE — REDUCTIONS. A purchase that fails must never prevent a
-     #    sale, and a sale's proceeds are not spendable until they exist.
+@@ -497 +502 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
 -    ordered = order_of_operations(deltas)
 +    ordered = order_of_operations(deltas, opening_intents=plan.opening_intents)
-     reductions = [d for d in ordered
-                   if not d.is_increase and d.classification is not C.DeltaClass.NONE]
-     increases = [d for d in ordered
 diff --git a/sentinel/execution/guarded.py b/sentinel/execution/guarded.py
 index ed633f55..88335c98 100644
 --- a/sentinel/execution/guarded.py
 +++ b/sentinel/execution/guarded.py
-@@ -65,6 +65,7 @@ class BrokerOperation(str, Enum):
-     ACCOUNT_FILL_INTERVAL_EVIDENCE = "account_fill_interval_evidence"
-     RESOLVE_INSTRUMENT = "resolve_instrument"
-     MARKET_CLOCK = "market_clock"
+@@ -67,0 +68 @@ class BrokerOperation(str, Enum):
 +    OPENING_PRICES = "opening_prices"
-     ACCOUNT_CASH_ACTIVITIES = "account_cash_activities"
-     OBSERVE = "observe"
-     OBSERVE_WITH_TERMINAL_RECOVERY = "observe_with_terminal_recovery"
-@@ -359,6 +360,12 @@ class GuardedExecutionBroker(ExecutionBroker):
- 
-         return await self._read(BrokerOperation.MARKET_CLOCK, read)
- 
+@@ -361,0 +363,6 @@ class GuardedExecutionBroker(ExecutionBroker):
 +    async def opening_prices(self, *, session: date, instruments):
 +        self.capabilities.require("regular_session_open_prices")
 +        async def read():
 +            return await self._inner.opening_prices(session=session, instruments=instruments)
 +        return await self._read(BrokerOperation.OPENING_PRICES, read)
 +
-     async def account_cash_activities(self, *, after: datetime,
-                                       through: datetime,
-                                       since_event_id: str | None = None):
 diff --git a/sentinel/execution/journal.py b/sentinel/execution/journal.py
 index 79c440ad..2cfa6fd3 100644
 --- a/sentinel/execution/journal.py
 +++ b/sentinel/execution/journal.py
-@@ -45,7 +45,7 @@ from sentinel.execution.commands import Command
- from sentinel.execution.contract import (
-     BrokerFill, BrokerInstrument, BrokerObservation, Side)
- from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
+@@ -48 +48 @@ from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
 -from sentinel.execution.plan import ExecutionPlan
 +from sentinel.execution.plan import ExecutionPlan, OpeningIntent
- from sentinel.execution.states import CommandState, IN_FLIGHT
- 
- 
-@@ -181,7 +181,7 @@ _PLAN_ECONOMICS = ("decision_session", "effective_session", "target_exposure",
-                    "account_cash", "cash_residual", "unpriced_securities",
-                    "defensive_security", "rollout_mode", "rollout_version",
-                    "rollout_certificate_sha256",
+@@ -184 +184 @@ _PLAN_ECONOMICS = ("decision_session", "effective_session", "target_exposure",
 -                   "target_basket")
 +                   "target_basket", "opening_intents")
- 
- 
- def _plan_economics(plan: ExecutionPlan) -> dict:
-@@ -207,6 +207,7 @@ def _plan_economics(plan: ExecutionPlan) -> dict:
-         "rollout_version": plan.rollout_version,
-         "rollout_certificate_sha256": plan.rollout_certificate_sha256,
-         "target_basket": {k: str(v) for k, v in sorted(plan.target_basket.items())},
+@@ -209,0 +210 @@ def _plan_economics(plan: ExecutionPlan) -> dict:
 +        "opening_intents": [item.to_dict() for item in plan.opening_intents],
-     }
- 
- 
-@@ -243,8 +244,15 @@ def save_plan(conn, plan: ExecutionPlan, *, commit: bool = True) -> None:
-              plan.rollout_certificate_sha256,
-              json.dumps({k: str(v) for k, v in plan.target_basket.items()},
-                         sort_keys=True)))
+@@ -246,2 +247,9 @@ def save_plan(conn, plan: ExecutionPlan, *, commit: bool = True) -> None:
 -    if commit:
 -        conn.commit()
 +        if cur.rowcount == 1 and plan.opening_intents:
@@ -1373,22 +937,10 @@ index 79c440ad..2cfa6fd3 100644
 +                     "plan_fingerprint": plan.fingerprint(),
 +                     "intents": [item.to_dict() for item in plan.opening_intents]},
 +                     sort_keys=True, separators=(",", ":"))))
- 
-     # DIVERGENCE IS CHECKED HERE, not left to a caller. The original comment
-     # said the check lived in `load_plan`'s caller; `core.catchup.catch_up`
-@@ -270,6 +278,8 @@ def save_plan(conn, plan: ExecutionPlan, *, commit: bool = True) -> None:
-             f"{differing}. The insert is ON CONFLICT DO NOTHING, so the stored "
-             f"row wins silently and every later read returns intent nobody "
-             f"computed. A plan id must determine the plan.")
+@@ -272,0 +281,2 @@ def save_plan(conn, plan: ExecutionPlan, *, commit: bool = True) -> None:
 +    if commit:
 +        conn.commit()
- 
- 
- def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
-@@ -298,7 +308,25 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
-             f"plan {plan_id!r} has a corrupt partial rollout-authority stamp")
-     unpriced = row[16] if isinstance(row[16], list) else json.loads(row[16] or "[]")
-     basket = row[18] if isinstance(row[18], dict) else json.loads(row[18] or "{}")
+@@ -301 +311,19 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
 -    return ExecutionPlan(
 +    with conn.cursor() as cur:
 +        cur.execute("SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s",
@@ -1409,13 +961,7 @@ index 79c440ad..2cfa6fd3 100644
 +        except (TypeError, ValueError, ArithmeticError, KeyError) as exc:
 +            raise PlanAuthorityMissing("opening intent record is corrupt") from exc
 +    plan = ExecutionPlan(
-         plan_id=str(row[0]), decision_session=row[1], effective_session=row[2],
-         target_exposure=Decimal(str(row[3])),
-         data_version=int(row[4]) if row[4] is not None else None,
-@@ -317,7 +345,17 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
-         target_basket={k: Decimal(v) for k, v in basket.items()},
-         rollout_mode=str(row[19]), rollout_version=int(row[20]),
-         rollout_certificate_sha256=str(row[21]) if row[21] else None,
+@@ -320 +348,11 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
 -        superseded_by=str(row[22]) if row[22] else None)
 +        superseded_by=str(row[22]) if row[22] else None,
 +        opening_intents=opening)
@@ -1428,9 +974,6 @@ index 79c440ad..2cfa6fd3 100644
 +        raise PlanAuthorityMissing(
 +            "stored plan does not match its deterministic economic identity or opening intent record")
 +    return plan
- 
- 
- def latest_plan(conn) -> Optional[ExecutionPlan]:
 diff --git a/sentinel/execution/opening_prices.py b/sentinel/execution/opening_prices.py
 new file mode 100644
 index 00000000..3ca245a7
@@ -1699,10 +1242,7 @@ diff --git a/sentinel/execution/plan.py b/sentinel/execution/plan.py
 index c8eb0053..a494d2fc 100644
 --- a/sentinel/execution/plan.py
 +++ b/sentinel/execution/plan.py
-@@ -26,6 +26,32 @@ from decimal import Decimal
- from typing import Mapping, Optional
- 
- 
+@@ -28,0 +29,26 @@ from typing import Mapping, Optional
 +@dataclass(frozen=True)
 +class OpeningIntent:
 +    security_id: str
@@ -1729,16 +1269,9 @@ index c8eb0053..a494d2fc 100644
 +        return cls(raw["security_id"], raw["slot_id"], Decimal(raw["intended_dollars"]))
 +
 +
- @dataclass(frozen=True)
- class ExecutionPlan:
-     plan_id: str
-@@ -51,8 +77,19 @@ class ExecutionPlan:
-     rollout_version: int = 1
-     rollout_certificate_sha256: Optional[str] = None
-     superseded_by: Optional[str] = None
+@@ -53,0 +80 @@ class ExecutionPlan:
 +    opening_intents: tuple[OpeningIntent, ...] = ()
- 
-     def __post_init__(self) -> None:
+@@ -55,0 +83,10 @@ class ExecutionPlan:
 +        if not isinstance(self.opening_intents, tuple):
 +            raise ValueError("opening intents must be an immutable tuple")
 +        if any(not isinstance(item, OpeningIntent) for item in self.opening_intents):
@@ -1749,31 +1282,13 @@ index c8eb0053..a494d2fc 100644
 +            raise ValueError("opening intents must have unique identities in slot order")
 +        if any(self.target_basket.get(sid) != Decimal(0) for sid in ids):
 +            raise ValueError("opening dollar intents require zero provisional quantities")
-         scalars = (
-             ("target_exposure", self.target_exposure),
-             ("account_nav", self.account_nav),
-@@ -122,6 +159,8 @@ class ExecutionPlan:
-             "rollout_version": self.rollout_version,
-             "rollout_certificate_sha256": self.rollout_certificate_sha256,
-         }
+@@ -124,0 +162,2 @@ class ExecutionPlan:
 +        if self.opening_intents:
 +            payload["opening_intents"] = [item.to_dict() for item in self.opening_intents]
-         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
-         # This digest is also the production plan id suffix. Truncating it to
-         # 64 bits made a hash collision a mutation-authority bypass: two
-@@ -132,6 +171,8 @@ class ExecutionPlan:
- 
-     def to_dict(self) -> dict:
-         return {
+@@ -134,0 +174,2 @@ class ExecutionPlan:
 +            **({"opening_intents": [item.to_dict() for item in self.opening_intents]}
 +               if self.opening_intents else {}),
-             "plan_id": self.plan_id,
-             "decision_session": self.decision_session.isoformat(),
-             "effective_session": self.effective_session.isoformat(),
-@@ -161,4 +202,4 @@ class ExecutionPlan:
-             },
-             "fingerprint": self.fingerprint(),
-             "superseded_by": self.superseded_by,
+@@ -164 +205 @@ class ExecutionPlan:
 -        }
 \ No newline at end of file
 +        }
@@ -1781,69 +1296,34 @@ diff --git a/sentinel/execution/target_reprojection.py b/sentinel/execution/targ
 index 2f48588b..f1ddfd25 100644
 --- a/sentinel/execution/target_reprojection.py
 +++ b/sentinel/execution/target_reprojection.py
-@@ -26,6 +26,7 @@ from stock_strategy_shared.wealth_core.shares import is_integral, split_shares
- 
- CURSOR_PREFIX = "plan-target-projection:v2:"
- KIND = "plan-target-projection/v2"
+@@ -28,0 +29 @@ KIND = "plan-target-projection/v2"
 +OPENING_KIND = "plan-target-projection/v3"
- 
- 
- class TargetProjectionRefused(RuntimeError):
-@@ -209,10 +210,13 @@ class TargetProjection:
-     action_evidence: tuple[Mapping[str, object], ...]
-     cancelled_pending_opens: Mapping[str, tuple[Decimal, ...]]
-     target_basket: Mapping[str, Decimal]
+@@ -211,0 +213 @@ class TargetProjection:
 +    opening_sizing: Mapping[str, object] | None = None
- 
-     def _content_payload(self) -> dict:
-         return {
+@@ -215 +217,3 @@ class TargetProjection:
 -            "kind": KIND,
 +            "kind": OPENING_KIND if self.opening_sizing is not None else KIND,
 +            **({"opening_sizing": dict(self.opening_sizing)}
 +               if self.opening_sizing is not None else {}),
-             "plan_id": self.plan_id,
-             "plan_fingerprint": self.plan_fingerprint,
-             "through_session": self.through_session.isoformat(),
-@@ -431,8 +435,11 @@ def _decode(raw, *, plan_id: str, session) -> TargetProjection:
-         "action_multipliers", "action_evidence", "cancelled_pending_opens",
-         "target_basket",
-         "projection_fingerprint"}
+@@ -433,0 +438,2 @@ def _decode(raw, *, plan_id: str, session) -> TargetProjection:
 +    if isinstance(state, dict) and state.get("kind") == OPENING_KIND:
 +        expected.add("opening_sizing")
-     if (not isinstance(state, dict) or set(state) != expected
+@@ -435 +441,2 @@ def _decode(raw, *, plan_id: str, session) -> TargetProjection:
 -            or state.get("kind") != KIND or state.get("plan_id") != plan_id):
 +            or state.get("kind") not in (KIND, OPENING_KIND) or state.get("plan_id") != plan_id
 +            or (state.get("kind") == OPENING_KIND and not isinstance(state.get("opening_sizing"), dict))):
-         raise TargetProjectionRefused(
-             f"target projection for {plan_id} has an unknown state shape")
-     try:
-@@ -469,7 +476,8 @@ def _decode(raw, *, plan_id: str, session) -> TargetProjection:
-             for key, values in state["cancelled_pending_opens"].items()},
-         target_basket={
-             str(key): _decimal(value, where=f"stored target {key}")
+@@ -472 +479,2 @@ def _decode(raw, *, plan_id: str, session) -> TargetProjection:
 -            for key, value in state["target_basket"].items()})
 +            for key, value in state["target_basket"].items()},
 +        opening_sizing=state.get("opening_sizing"))
-     if state["projection_fingerprint"] != projection.fingerprint():
-         raise TargetProjectionRefused(
-             f"target projection for {plan_id} has a corrupt fingerprint")
-@@ -519,6 +527,8 @@ def assert_projection(
-     """Bind the executor input to the original plan and its durable record."""
-     if projection.plan_id != plan.plan_id:
-         raise TargetProjectionRefused("target projection names another plan")
+@@ -521,0 +530,2 @@ def assert_projection(
 +    if bool(plan.opening_intents) != (projection.opening_sizing is not None):
 +        raise TargetProjectionRefused("opening intents require their durable sizing evidence")
-     if projection.plan_fingerprint != plan.fingerprint():
-         raise TargetProjectionRefused(
-             "target projection names different immutable plan economics")
 diff --git a/sentinel/feed/universe.py b/sentinel/feed/universe.py
 index fbd34bed..f451c046 100644
 --- a/sentinel/feed/universe.py
 +++ b/sentinel/feed/universe.py
-@@ -117,6 +117,16 @@ class IdentityResolver:
-     def resolve(self, ticker: str, session: str) -> Optional[str]:
-         return self.resolve_with_reason(ticker, session)[0]
- 
+@@ -119,0 +120,10 @@ class IdentityResolver:
 +    def ticker_for_security(self, security_id: str, session: str) -> Optional[str]:
 +        """Unique session-effective label whose forward mapping agrees."""
 +        symbols = {ticker for ticker, listings in self._by_ticker.items()
@@ -1854,22 +1334,10 @@ index fbd34bed..f451c046 100644
 +        symbol = next(iter(symbols))
 +        return symbol if self.resolve(symbol, session) == security_id else None
 +
-     def resolve_with_reason(self, ticker: str,
-                             session: str) -> tuple[Optional[str], str]:
-         """`(permaticker, reason)`. `reason` is "" on success.
-@@ -548,7 +558,7 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
-     return len(payload)
- 
- 
+@@ -551 +561 @@ def write_universe(conn, rows: Sequence[Mapping], snapshot_date: str, *,
 -def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
 +def load_resolver(conn, *, include_run_id=None, execution_session=None) -> IdentityResolver:
-     """Build the resolver without aggregating retained snapshot history.
- 
-     `feed_universe_current` already carries one row per historical
-@@ -563,7 +573,29 @@ def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
-     authoritative if the same run publishes.
-     """
-     with conn.cursor() as cur:
+@@ -566 +576,23 @@ def load_resolver(conn, *, include_run_id=None) -> IdentityResolver:
 -        if include_run_id is None:
 +        if execution_session is not None:
 +            if include_run_id is not None:
@@ -1894,47 +1362,23 @@ index fbd34bed..f451c046 100644
 +                (previous, execution_session, previous, execution_session,
 +                 previous, execution_session, execution_session, execution_session))
 +        elif include_run_id is None:
-             cur.execute(
-                 "SELECT permaticker,ticker,first_price_date,last_price_date"
-                 " FROM feed_universe_current"
 diff --git a/sentinel/observation_authority.py b/sentinel/observation_authority.py
 index 75e0e369..e947209b 100644
 --- a/sentinel/observation_authority.py
 +++ b/sentinel/observation_authority.py
-@@ -227,7 +227,7 @@ def build_candidate(
-     """Build reviewed unsigned evidence/claims from current durable facts."""
-     from sentinel import binding as binding_mod
-     from sentinel.authority import load_rollout_state
+@@ -230 +230 @@ def build_candidate(
 -    from sentinel.controller.frozen_rule import load as load_controller
 +    from sentinel.strategy import controller_for_identity
-     from sentinel.execution.authority_gate import (
-         PUBLICATION_POLICY_SCHEMA,
-         publication_policy_implementation_sha256,
-@@ -268,7 +268,7 @@ def build_candidate(
-     image_lock = environment.get("image_lock_sha256")
-     corpus = current_corpus_root_identity(conn)
-     metadata = current_metadata_snapshot_identity(conn)
+@@ -271 +271 @@ def build_candidate(
 -    controller = load_controller()
 +    controller = controller_for_identity(strategy_identity)
-     policy_implementation = publication_policy_implementation_sha256()
-     bindings = {
-         "git_commit": artifacts["git_commit"],
 diff --git a/sentinel/paper/execution.py b/sentinel/paper/execution.py
 index cc63871f..e6c1a75b 100644
 --- a/sentinel/paper/execution.py
 +++ b/sentinel/paper/execution.py
-@@ -85,6 +85,7 @@ from .inspection import (
- 
- from .validation import (
-     _require_mutation_backup,
+@@ -87,0 +88 @@ from .validation import (
 +    _latest_plan_or_refuse,
-     _readiness_or_refuse,
-     _execution_window_or_refuse,
-     _assert_deterministic_plan_id,
-@@ -122,6 +123,27 @@ from .reconciliation_evidence import (
- 
- from .preparation import _default_paper_strategy
- 
+@@ -124,0 +126,21 @@ from .preparation import _default_paper_strategy
 +async def _opening_prices_or_retry(conn, *, state, plan, broker):
 +    import httpx
 +    from sentinel.execution.opening_sizing import prices_for_plan
@@ -1956,112 +1400,50 @@ index cc63871f..e6c1a75b 100644
 +            f"opening evidence HTTP {exc.response.status_code} refused") from exc
 +
 +
- def _execution_observation_time(value: date | datetime | None) -> datetime:
-     """Resolve the real clock, while preserving the date-only test seam.
- 
-@@ -184,7 +206,7 @@ async def _execute_current_paper_plan(
-             frontier = feed_store.latest_visible_session(conn)
-             dual_result = None
-             if dual_mode:
+@@ -187 +209 @@ async def _execute_current_paper_plan(
 -                plan = journal.latest_plan(conn)
 +                plan = _latest_plan_or_refuse(conn)
-                 if plan is None:
-                     raise PaperActivationRefused(
-                         "there is no durable current dual PAPER plan")
-@@ -315,7 +337,10 @@ async def _execute_current_paper_plan(
-                 evaluated_at=clock(), actions=actions,
-                 target_actions=target_actions)
-             target_projection = None
+@@ -317,0 +340 @@ async def _execute_current_paper_plan(
 +            opening_prices = None
-             if authority is not None:
+@@ -318,0 +342,2 @@ async def _execute_current_paper_plan(
 +                opening_prices = await _opening_prices_or_retry(
 +                    conn, state=state, plan=plan, broker=broker)
-                 # Refuse unsupported/non-scalar corporate actions before the
-                 # broker book can be consulted.  Reconciliation may still
-                 # adopt a previously unknown command identity, so the exact
-@@ -324,7 +349,7 @@ async def _execute_current_paper_plan(
-                     conn, state=state, plan=plan, binding=binding,
-                     broker=broker, through=today, actions=actions,
-                     target_actions=target_actions,
+@@ -327 +352 @@ async def _execute_current_paper_plan(
 -                    persist_projection=False)
 +                    persist_projection=False, opening_prices=opening_prices)
-             preflight = await reconciliation.reconcile(
-                 broker=broker, conn=conn, binding=None,
-                 deployment=binding.identity, actions=actions)
-@@ -362,6 +387,9 @@ async def _execute_current_paper_plan(
-                 observation=observation,
-                 minimum_quantity_increment=minimum_increment)
-             if authority is None and dual_mode:
+@@ -364,0 +390,3 @@ async def _execute_current_paper_plan(
 +                if plan.opening_intents:
 +                    raise PreOpenShareUnitAuthorityUnavailable(
 +                        "V5 opening sizing requires effective-session share-unit authority")
-                 # This is explicitly informational transport, not affirmative
-                 # pre-open unit authority. The exact close-unit basket remains
-                 # immutable and a post-close source-final check can only block
-@@ -389,7 +417,7 @@ async def _execute_current_paper_plan(
-             elif authority is None:
-                 if not _provably_clean_empty_noop(
-                         deltas=preopen_deltas, commands=current_commands,
+@@ -392 +420 @@ async def _execute_current_paper_plan(
 -                        observation=observation):
 +                        observation=observation, opening_intents=plan.opening_intents):
-                     raise PreOpenShareUnitAuthorityUnavailable(
-                         "pre-open share-unit authority is absent and the "
-                         "complete, clean broker book is not an empty no-op; "
-@@ -408,7 +436,7 @@ async def _execute_current_paper_plan(
-                     conn, state=state, plan=plan, binding=binding,
-                     broker=broker, through=today, actions=actions,
-                     target_actions=target_actions,
+@@ -411 +439 @@ async def _execute_current_paper_plan(
 -                    expected_projection=target_projection)
 +                    expected_projection=target_projection, opening_prices=opening_prices)
-                 projected_deltas = _plan_deltas(
-                     target_basket=target_projection.target_basket,
-                     observation=observation,
 diff --git a/sentinel/paper/inspection.py b/sentinel/paper/inspection.py
 index fb82be6b..cd8b8b48 100644
 --- a/sentinel/paper/inspection.py
 +++ b/sentinel/paper/inspection.py
-@@ -254,11 +254,16 @@ def _recovery_account_identity_or_refuse(
- def build_security_resolver(conn, session: str):
-     """Point-in-time broker symbol -> permanent execution identity."""
-     from sentinel.feed.universe import load_resolver
+@@ -256,0 +257 @@ def build_security_resolver(conn, session: str):
 +    from sentinel.feed.calendar import sessions_in_range
-     resolver = load_resolver(conn)
+@@ -257,0 +259,2 @@ def build_security_resolver(conn, session: str):
 +    execution_resolver = (load_resolver(conn, execution_session=session)
 +                          if sessions_in_range(session, session) else resolver)
- 
-     def resolve(symbol: str, as_of: str | None = None):
-         if str(symbol).upper() == DEFENSIVE_SYMBOL:
-             return DEFENSIVE_SECURITY_ID
+@@ -262 +265,3 @@ def build_security_resolver(conn, session: str):
 -        return resolver.resolve(str(symbol), as_of or session)
 +        effective = as_of or session
 +        authority = execution_resolver if effective == session else resolver
 +        return authority.resolve(str(symbol), effective)
- 
-     return resolve
 diff --git a/sentinel/paper/preparation.py b/sentinel/paper/preparation.py
 index 55d4ecf1..f72109fd 100644
 --- a/sentinel/paper/preparation.py
 +++ b/sentinel/paper/preparation.py
-@@ -34,6 +34,7 @@ from sentinel.authority import (
- from sentinel.config import DEFAULT_BASE_URL, assert_paper_url
- 
- from sentinel.controller.concordance import is_concordance_identity
+@@ -36,0 +37 @@ from sentinel.controller.concordance import is_concordance_identity
 +from sentinel.controller.median5 import enabled as is_median5
- 
- from sentinel.controller.concordance_parent import load as load_concordance_parent
- 
-@@ -114,6 +115,7 @@ from .inspection import (
- 
- from .validation import (
-     _require_mutation_backup,
+@@ -116,0 +118 @@ from .validation import (
 +    _latest_plan_or_refuse,
-     _assert_concordance_witness_authority,
-     _hash,
-     _readiness_or_refuse,
-@@ -146,40 +148,20 @@ SIMPLIFIED_LDRC_STRATEGY_ID = "sentinel-concordance-simplified-ldrc"
- 
- SIMPLIFIED_LDRC_STRATEGY_VERSION = 3
- 
+@@ -149,2 +151,7 @@ SIMPLIFIED_LDRC_STRATEGY_VERSION = 3
 -def _default_paper_strategy() -> tuple[ControllerConfig, dict[str, str]]:
 -    """Return the one paper-trial strategy: hardened parent + simplified LD-RC.
 +def _default_paper_strategy():
@@ -2071,7 +1453,7 @@ index 55d4ecf1..f72109fd 100644
 +        return production_strategy()
 +    except (OSError, RuntimeError, TypeError, ValueError) as exc:
 +        raise PaperActivationRefused("Median-5 production strategy identity cannot be verified") from exc
- 
+@@ -152,26 +158,0 @@ def _default_paper_strategy() -> tuple[ControllerConfig, dict[str, str]]:
 -    The assertions are intentionally redundant with source identity. They make
 -    an accidental rollback to the older five-condition/legacy recovery model a
 -    startup refusal instead of a plausible but different trading strategy.
@@ -2098,97 +1480,40 @@ index 55d4ecf1..f72109fd 100644
 -        raise PaperActivationRefused(
 -            "paper strategy identity does not name Simplified LD-RC v3")
 -    return controller, identity
- 
- def _load_marks_and_tickers(conn, state: SessionState, session: str
-                             ) -> tuple[dict, dict]:
-     target = shadow_target(state)
+@@ -182 +163,2 @@ def _load_marks_and_tickers(conn, state: SessionState, session: str
 -    security_ids = sorted(target.shares)
 +    security_ids = sorted(set(target.shares) | {
 +        entry.security_id for entry in target.opening_intents})
-     tickers = dict(target.tickers)
-     marks: dict[str, Decimal] = {}
-     visible = publication.visible_predicate("b")
-@@ -225,7 +207,7 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
-         raise PaperActivationRefused(
-             f"the pinned warm-up window is incomplete: {missing[:8]}")
-     prospective_witness = False
+@@ -228 +210 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
 -    if is_concordance_identity(strategy_identity):
 +    if is_concordance_identity(strategy_identity) or is_median5(strategy_identity):
-         try:
-             window.metadata_timeline = load_causal_meta_history(
-                 conn, sessions=warm)
-@@ -239,6 +221,9 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
-             # the first current decision close; never backdate today's TICKERS
-             # snapshot to manufacture r20/r40 readiness.
-             prospective_witness = True
+@@ -241,0 +224,3 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
 +    if is_median5(strategy_identity):
 +        from sentinel.core.production import load_median5_warmup_inputs
 +        load_median5_warmup_inputs(conn, window)
-     starting_cash = float(account.equity)
-     if not math.isfinite(starting_cash):
-         raise PaperActivationRefused("account equity cannot be represented by Wealth Core")
-@@ -369,7 +354,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
-                 dual_shadow_observation_id=dual_shadow_observation_id,
-                 dual_shadow_starting_cash=dual_shadow_starting_cash)
- 
+@@ -372 +357 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
 -            existing_plan = journal.latest_plan(conn)
 +            existing_plan = _latest_plan_or_refuse(conn)
-             dual_result = None
-             dual_state = None
-             if dual_mode:
-@@ -737,7 +722,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
-                 conn, through=through_date, missed=missed,
-                 advance_state=advance, decide=decide, state=state.to_dict())
-             final_state = SessionState.from_dict(caught.state)
+@@ -740 +725 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
 -            latest = journal.latest_plan(conn)
 +            latest = _latest_plan_or_refuse(conn)
-             if latest is None or latest.plan_id != caught.plan.plan_id:
-                 raise PaperActivationRefused(
-                     "preparation did not leave exactly its plan current")
-@@ -779,7 +764,7 @@ def current_paper_plan(
-     dual_mode = all(value is not None for value in dual_values)
-     dual_match = None
-     if dual_mode:
+@@ -782 +767 @@ def current_paper_plan(
 -        plan = journal.latest_plan(conn)
 +        plan = _latest_plan_or_refuse(conn)
-         if plan is None:
-             raise PaperActivationRefused(
-                 "there is no durable current dual PAPER plan")
 diff --git a/sentinel/paper/recovery.py b/sentinel/paper/recovery.py
 index c5bad428..1f7eb7bb 100644
 --- a/sentinel/paper/recovery.py
 +++ b/sentinel/paper/recovery.py
-@@ -39,7 +39,7 @@ from sentinel.core.production import (
-     warm_session_state,
- )
- 
+@@ -42 +42 @@ from sentinel.core.production import (
 -from sentinel.execution import broker_cash, executor, journal
 +from sentinel.execution import broker_cash, executor, journal, opening_sizing, target_reprojection
- 
- from sentinel.execution import preopen_authority
- 
-@@ -272,7 +272,7 @@ async def recover_automated_paper_cycle(
-             commands = journal.load_commands(conn, binding.identity)
-             active_security_ids = _preopen_active_security_ids(
-                 plan=plan, commands=commands, actions=actions)
+@@ -275 +275 @@ async def recover_automated_paper_cycle(
 -            if active_security_ids and not dual_mode:
 +            if active_security_ids and (not dual_mode or plan.opening_intents):
-                 official_open = _official_preopen_cutoff(plan)
-                 authority, actions, target_actions = _preopen_views_or_none(
-                     conn, plan=plan,
-@@ -297,7 +297,7 @@ async def recover_automated_paper_cycle(
-             current_commands = journal.load_commands(conn, binding.identity)
-             current_security_ids = _preopen_active_security_ids(
-                 plan=plan, commands=current_commands, actions=actions)
+@@ -300 +300 @@ async def recover_automated_paper_cycle(
 -            if (not dual_mode and authority is None
 +            if ((not dual_mode or plan.opening_intents) and authority is None
-                     and current_security_ids):
-                 raise PreOpenShareUnitAuthorityUnavailable(
-                     "pre-open share-unit authority is absent after recovery "
-@@ -314,11 +314,17 @@ async def recover_automated_paper_cycle(
-                     raise PaperActivationRefused(
-                         "current-generation recovery cannot revalidate its "
-                         "target projection without canonical strategy state")
+@@ -317,5 +317,11 @@ async def recover_automated_paper_cycle(
 -                target_projection = _target_projection_or_refuse(
 -                    conn, state=state, plan=plan, binding=binding,
 -                    broker=broker, through=plan.effective_session,
@@ -2205,83 +1530,35 @@ index c5bad428..1f7eb7bb 100644
 +                        broker=broker, through=plan.effective_session,
 +                        actions=actions, target_actions=target_actions,
 +                        require_existing=True)
- 
-         if dual_mode:
-             _dual_mutation_observation_or_refuse(result)
 diff --git a/sentinel/paper/targets.py b/sentinel/paper/targets.py
 index 1b752f40..403650a5 100644
 --- a/sentinel/paper/targets.py
 +++ b/sentinel/paper/targets.py
-@@ -115,7 +115,7 @@ def _target_action_multipliers(plan: ExecutionPlan, actions) -> dict[str, Decima
-     """
-     target_ids = tuple(
-         security_id for security_id, target
+@@ -118 +118 @@ def _target_action_multipliers(plan: ExecutionPlan, actions) -> dict[str, Decima
 -        in sorted(plan.target_basket.items()) if target != 0)
 +        in sorted(plan.target_basket.items()) if target != 0 or plan.opening_intents)
-     evidence_reader = getattr(actions, "scalar_evidence_for", None)
-     evidenced_ids = (
-         {str(event.security_id) for event in evidence_reader(target_ids)}
-@@ -159,7 +159,7 @@ def _preopen_active_security_ids(
-     identities = {
-         str(security_id)
-         for security_id, quantity in plan.target_basket.items()
+@@ -162 +162 @@ def _preopen_active_security_ids(
 -        if quantity != 0}
 +        if quantity != 0 or plan.opening_intents}
-     identities.update(
-         str(security_id) for security_id, quantity in expected.items()
-         if quantity != 0)
-@@ -221,7 +221,8 @@ def _plan_deltas(
-         for security_id in sorted(identities))
- 
- def _provably_clean_empty_noop(
+@@ -224 +224,2 @@ def _provably_clean_empty_noop(
 -        *, deltas, commands, observation: BrokerObservation) -> bool:
 +        *, deltas, commands, observation: BrokerObservation,
 +        opening_intents=()) -> bool:
-     """Bypass authority only when no active share-unit domain exists.
- 
-     Equality between a nonzero raw plan target and a nonzero broker holding is
-@@ -230,7 +231,8 @@ def _provably_clean_empty_noop(
-     open-boundary meaning needs affirmative authority.
-     """
-     return (
+@@ -233 +234,2 @@ def _provably_clean_empty_noop(
 -        all(delta.classification is execution_commands.DeltaClass.NONE
 +        not opening_intents
 +        and all(delta.classification is execution_commands.DeltaClass.NONE
-             for delta in deltas)
-         and all(delta.desired == 0 and delta.held == 0
-                 and delta.committed == 0 for delta in deltas)
-@@ -287,7 +289,8 @@ def _target_projection_or_refuse(
-         require_existing: bool = False,
-         persist_projection: bool = True,
-         expected_projection: Optional[
+@@ -290 +292,2 @@ def _target_projection_or_refuse(
 -            target_reprojection.TargetProjection] = None):
 +            target_reprojection.TargetProjection] = None,
 +        opening_prices=None):
-     """Derive the exact unit projection and bind it to durable plan state."""
-     if state.state_hash != plan.shadow_snapshot_hash:
-         raise PaperActivationRefused(
-@@ -299,7 +302,7 @@ def _target_projection_or_refuse(
-         commands, actions=actions)
-     security_ids = (
-         {security_id for security_id, quantity in plan.target_basket.items()
+@@ -302 +305 @@ def _target_projection_or_refuse(
 -         if quantity != 0}
 +         if quantity != 0 or plan.opening_intents}
-         | {security_id for security_id, quantity in target.shares.items()
-            if quantity != 0}
-         | set(expected_book))
-@@ -333,7 +336,7 @@ def _target_projection_or_refuse(
- 
-     target_security_ids = tuple(
-         security_id for security_id, quantity
+@@ -336 +339 @@ def _target_projection_or_refuse(
 -        in sorted(plan.target_basket.items()) if quantity != 0)
 +        in sorted(plan.target_basket.items()) if quantity != 0 or plan.opening_intents)
-     multipliers = {
-         security_id: target_actions(security_id)
-         for security_id in target_security_ids
-@@ -353,6 +356,17 @@ def _target_projection_or_refuse(
-             pending_close_shares=target.pending_close_shares,
-             minimum_quantity_increment=(
-                 broker.capabilities.minimum_quantity_increment))
+@@ -355,0 +359,11 @@ def _target_projection_or_refuse(
 +        if plan.opening_intents:
 +            from sentinel.execution import opening_sizing
 +            from sentinel.execution.opening_prices import OpeningPrices, OpeningPriceUnavailable
@@ -2293,13 +1570,7 @@ index 1b752f40..403650a5 100644
 +                projected = opening_sizing.resolve(state, plan, projected, opening_prices)
 +            except OpeningPriceUnavailable as exc:
 +                raise PaperRetryableRefused(str(exc)) from exc
-         if (expected_projection is not None
-                 and projected != expected_projection):
-             raise target_reprojection.TargetProjectionRefused(
-@@ -384,6 +398,16 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
-     target = shadow_target(state)
-     symbols = dict(target.tickers)
-     symbols[DEFENSIVE_SECURITY_ID] = DEFENSIVE_SYMBOL
+@@ -386,0 +401,10 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
 +    opening_prices = None
 +    if plan.opening_intents and plan.target_exposure != 0:
 +        from sentinel.execution.opening_prices import OpeningPrices
@@ -2310,63 +1581,27 @@ index 1b752f40..403650a5 100644
 +            raise PaperActivationRefused("opening instrument map requires the retained sizing projection")
 +        opening_prices = OpeningPrices.from_dict(projection.opening_sizing.get("prices"))
 +        symbols.update(opening_prices.symbols)
-     meta = load_meta(conn)
-     for security_id in desired:
-         if security_id in meta:
-@@ -419,6 +443,9 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
-         # tradable status even when the asset is already held; yesterday's
-         # stable id is identity evidence, not today's permission to buy.
-         if current is not None and current.broker_id and not increasing:
+@@ -421,0 +446,3 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
 +            if (opening_prices is not None and security_id in opening_prices.broker_ids
 +                    and current.broker_id != opening_prices.broker_ids[security_id]):
 +                raise PaperActivationRefused("observed instrument differs from opening broker asset identity")
-             continue
-         symbol = symbols.get(security_id) or (
-             current.symbol if current is not None else None)
-@@ -441,6 +468,9 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
-                 "did not return the requested permanent identity, symbol and "
-                 "stable broker asset id")
-         instruments[security_id] = resolved
+@@ -443,0 +471,3 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
 +        if (opening_prices is not None and security_id in opening_prices.broker_ids
 +                and resolved.broker_id != opening_prices.broker_ids[security_id]):
 +            raise PaperActivationRefused("submission instrument differs from opening broker asset identity")
-     if unresolved:
-         raise PaperActivationRefused(
-             "no certified broker instrument mapping for: "
 diff --git a/sentinel/paper/validation.py b/sentinel/paper/validation.py
 index 2fc090eb..e23cab92 100644
 --- a/sentinel/paper/validation.py
 +++ b/sentinel/paper/validation.py
-@@ -35,6 +35,7 @@ from sentinel.authority import (
- )
- 
- from sentinel.controller.concordance import is_concordance_identity
+@@ -37,0 +38 @@ from sentinel.controller.concordance import is_concordance_identity
 +from sentinel.controller.median5 import enabled as is_median5
- 
- from sentinel.core import catchup
- 
-@@ -101,7 +102,7 @@ def _require_mutation_backup(conn, *, operation: str) -> None:
- def _assert_concordance_witness_authority(
-         state: SessionState, authorization_mode: str) -> None:
-     """Prevent a prospective witness from inheriting historical authority."""
+@@ -104 +105 @@ def _assert_concordance_witness_authority(
 -    if (is_concordance_identity(state.strategy_identity)
 +    if ((is_concordance_identity(state.strategy_identity) or is_median5(state.strategy_identity))
-             and state.concordance_witness_origin
-             == CONCORDANCE_WITNESS_PROSPECTIVE
-             and authorization_mode != PAPER_OBSERVATION_ONLY):
-@@ -282,7 +283,7 @@ def _validate_broker_grant(
-                 dual_shadow_observation_id is not None
-                 and dual_shadow_starting_cash is not None)
-             if dual_mode:
+@@ -285 +286 @@ def _validate_broker_grant(
 -                plan = journal.latest_plan(conn)
 +                plan = _latest_plan_or_refuse(conn)
-                 if plan is None:
-                     raise PaperActivationRefused(
-                         "dual broker guard has no current PAPER plan")
-@@ -379,8 +380,15 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
-         authority_check=require_current_authority)
-     return GuardedExecutionBroker(inner=broker, grant=grant, guard=guard)
- 
+@@ -381,0 +383,7 @@ def _guard_broker(*, conn, broker: ExecutionBroker, grant, base_url: str,
 +def _latest_plan_or_refuse(conn):
 +    try:
 +        return journal.latest_plan(conn)
@@ -2374,63 +1609,33 @@ index 2fc090eb..e23cab92 100644
 +        raise PaperActivationRefused(str(exc)) from exc
 +
 +
- def _state_and_plan_or_refuse(conn) -> tuple[SessionState, ExecutionPlan, object]:
+@@ -383 +391 @@ def _state_and_plan_or_refuse(conn) -> tuple[SessionState, ExecutionPlan, object
 -    plan = journal.latest_plan(conn)
 +    plan = _latest_plan_or_refuse(conn)
-     if plan is None:
-         raise PaperActivationRefused("there is no durable current execution plan")
-     _assert_deterministic_plan_id(plan)
 diff --git a/sentinel/shadow_observation.py b/sentinel/shadow_observation.py
 index 8121bb5f..f45ef4be 100644
 --- a/sentinel/shadow_observation.py
 +++ b/sentinel/shadow_observation.py
-@@ -348,6 +348,9 @@ def _published_input_value(
-         "spy_expected_sessions": list(published.spy_expected_sessions),
-         "terminal_events": terminals,
-         "feed_anchors": anchors,
+@@ -350,0 +351,3 @@ def _published_input_value(
 +        **({"signal_basis_anchors": {
 +            str(key): row(value) for key, value in sorted(published.signal_basis_anchors.items())}}
 +           if published.signal_basis_anchors else {}),
-         "defensive_bar": (
-             None if published.defensive_bar is None
-             else row(published.defensive_bar)),
-@@ -429,6 +432,10 @@ def _economic_input_identity(
-             if volume > 0:
-                 liquidity = _decimal_text(raw_close * volume)
-         bars.append({
+@@ -431,0 +435,4 @@ def _economic_input_identity(
 +            **({"signal_close": _optional_decimal_text(
 +                    bar.signal_close, where=f"bar {index} signal close", positive=True),
 +                "raw_compatible_volume": None if volume is None else _decimal_text(volume)}
 +               if bar.signal_close is not None else {}),
-             "session": str(bar.session),
-             "security_id": str(bar.security_id),
-             "ticker": str(bar.ticker),
-@@ -578,6 +585,10 @@ def _validate_warmup_input_identity(
-         "sessions_sha256", "bars_sha256", "metadata_sha256",
-         "warmup_input_sha256",
-     }
+@@ -580,0 +588,4 @@ def _validate_warmup_input_identity(
 +    if identity.get("median5_profile") == "wealth-core-median5-v1":
 +        extra_digests = {"median5_spy_sha256", "median5_terminal_sha256"}
 +        fields |= extra_digests | {"median5_profile"}
 +        digest_fields |= extra_digests
-     payload = {key: item for key, item in identity.items()
-                if key != "warmup_input_sha256"}
-     first_warmup = identity.get("first_warmup_session")
-@@ -1030,6 +1041,10 @@ class ShadowObserver:
-             committed=False, where="shadow activation timing")
-         self.warmup_input_identity = _validate_warmup_input_identity(
-             warmup_input_identity, first_session=self.first_session)
+@@ -1032,0 +1044,4 @@ class ShadowObserver:
 +        from sentinel.controller.median5 import enabled as median5_enabled
 +        if median5_enabled(self.strategy_identity) != (
 +                self.warmup_input_identity.get("median5_profile") == "wealth-core-median5-v1"):
 +            raise ShadowObservationRefused("warm-up economic profile differs from strategy identity")
-         self.warmup_input_identity_sha256 = self.warmup_input_identity[
-             "warmup_input_sha256"]
-         try:
-@@ -1184,7 +1199,18 @@ class ShadowObserver:
-         if seed_cash != expected or peak != expected:
-             raise ShadowObservationRefused(
-                 "initial shadow state cash/peak differs from explicit starting cash")
+@@ -1187 +1202,12 @@ class ShadowObserver:
 -        if state.wealth_core != baseline.wealth_core:
 +        cold_wealth = dict(state.wealth_core)
 +        if state.median5 is not None:
@@ -2444,68 +1649,32 @@ index 8121bb5f..f45ef4be 100644
 +                   for k in baseline.median5 if k not in feature_fields):
 +                raise ShadowObservationRefused("Median-5 seed has pre-existing recovery state")
 +        if cold_wealth != baseline.wealth_core:
-             raise ShadowObservationRefused(
-                 "initial shadow Wealth Core book is not the exact cold seed")
-         ledger = state.ledger
 diff --git a/sentinel/shadow_runtime.py b/sentinel/shadow_runtime.py
 index b7e5b1b9..e1b4dc89 100644
 --- a/sentinel/shadow_runtime.py
 +++ b/sentinel/shadow_runtime.py
-@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
- from sentinel import identity as system_identity
- from sentinel.controller import ldrc as ldrc_module
- from sentinel.controller.concordance import is_concordance_identity
+@@ -23,0 +24 @@ from sentinel.controller.concordance import is_concordance_identity
 +from sentinel.controller.median5 import enabled as is_median5
- from sentinel.controller.concordance_parent import (
-     STRATEGY_ID as CONCORDANCE_PARENT_STRATEGY_ID,
-     load as load_concordance_parent,
-@@ -203,6 +204,10 @@ def _warmup_input_identity(
-             liquidity = format(
-                 (Decimal(raw_close) * Decimal(volume)).normalize(), "f")
-         return {
+@@ -205,0 +207,4 @@ def _warmup_input_identity(
 +            **({"signal_close": _decimal_text(
 +                    bar.signal_close, where=f"warm-up signal close {session}/{index}", positive=True),
 +                "raw_compatible_volume": volume}
 +               if hasattr(window, "median5_spy_closes") else {}),
-             "security_id": str(bar.security_id),
-             "ticker": str(bar.ticker),
-             "raw_close": raw_close,
-@@ -257,6 +262,12 @@ def _warmup_input_identity(
-         } for session in ordered)
- 
-     identity = {
+@@ -259,0 +265,6 @@ def _warmup_input_identity(
 +        **({"median5_profile": "wealth-core-median5-v1",
 +            "median5_spy_sha256": _stream_sha256(
 +                sorted(window.median5_spy_closes.items())),
 +            "median5_terminal_sha256": _stream_sha256(
 +                (s, sorted(ids)) for s, ids in sorted(window.median5_terminals.items()))}
 +           if hasattr(window, "median5_spy_closes") else {}),
-         "schema": WARMUP_INPUT_SCHEMA,
-         "first_warmup_session": ordered[0],
-         "last_warmup_session": ordered[-1],
-@@ -286,7 +297,7 @@ def _load_warmup_material(
-             "shadow feature warm-up is incomplete: " + ", ".join(missing[:8]))
- 
-     prospective_witness = False
+@@ -289 +300 @@ def _load_warmup_material(
 -    if is_concordance_identity(strategy_identity):
 +    if is_concordance_identity(strategy_identity) or is_median5(strategy_identity):
-         try:
-             window.metadata_timeline = load_causal_meta_history(
-                 conn, sessions=warm)
-@@ -295,6 +306,9 @@ def _load_warmup_material(
-             # supports a prospective zero-capital witness specifically for
-             # forward observation; the first current close begins that witness.
-             prospective_witness = True
+@@ -297,0 +309,3 @@ def _load_warmup_material(
 +    if is_median5(strategy_identity):
 +        from sentinel.core.production import load_median5_warmup_inputs
 +        load_median5_warmup_inputs(conn, window)
- 
-     identity = _warmup_input_identity(
-         window, warm, prospective_witness=prospective_witness)
-@@ -360,34 +374,12 @@ def _warmup_loader(conn, observer: ShadowObserver):
- 
- 
- def _strategy():
+@@ -363,21 +377,2 @@ def _strategy():
 -    # One shared composition asserts the exact hardened parent and retained
 -    # Simplified Concordance LD-RC overlay. No second strategy identity is
 -    # allowed to drift into the shadow path.
@@ -2529,18 +1698,15 @@ index b7e5b1b9..e1b4dc89 100644
 -            "shadow controller differs from the hardened Concordance parent")
 +    """Load the shared certified Median-5 production profile."""
 +    from sentinel.strategy import production_strategy
-     try:
+@@ -385 +380 @@ def _strategy():
 -        identity = runtime_strategy_identity(controller, concordance=True)
 +        return production_strategy()
-     except (OSError, RuntimeError, TypeError, ValueError) as exc:
+@@ -387,4 +382 @@ def _strategy():
 -        raise ShadowRuntimeRefused(
 -            "the complete shadow strategy/data semantics source bundle cannot "
 -            "be fingerprinted") from exc
 -    return controller, identity
 +        raise ShadowRuntimeRefused("Median-5 production strategy identity cannot be verified") from exc
- 
- 
- def _validated_runtime_identity(
 diff --git a/sentinel/strategy.py b/sentinel/strategy.py
 new file mode 100644
 index 00000000..d491ede0
@@ -2573,23 +1739,13 @@ diff --git a/shared/stock_strategy_shared/wealth_core/adapter.py b/shared/stock_
 index 466a8f82..9897b734 100644
 --- a/shared/stock_strategy_shared/wealth_core/adapter.py
 +++ b/shared/stock_strategy_shared/wealth_core/adapter.py
-@@ -70,9 +70,11 @@ class IssuerFamilyCollision(RuntimeError):
- class PendingOrder:
-     """An order decided after session t, awaiting the next tradeable open.
- 
+@@ -73 +73 @@ class PendingOrder:
 -    It PERSISTS across non-tradeable sessions (spec §11) rather than expiring:
 +    Exits and legacy entries PERSIST across non-tradeable sessions (spec §11):
-     a halted security's exit is still wanted tomorrow, and silently dropping it
-     would leave a stopped-out position in the book with no record of why.
+@@ -75,0 +76,2 @@ class PendingOrder:
 +    V5 dollar entries expire after their first next-session opening attempt,
 +    including a confirmed invalid market or zero affordable quantity.
-     """
-     operation: Operation
-     security_id: str
-@@ -86,6 +88,17 @@ class PendingOrder:
-     # Persisted with the queue so a restart cannot forget why the quantity or
-     # identity no longer matches the signal-session order.
-     transformations: list[dict] = field(default_factory=list)
+@@ -88,0 +91,11 @@ class PendingOrder:
 +    intended_dollars: float | None = None
 +
 +    def validate_sizing(self, *, open_time: bool) -> None:
@@ -2601,110 +1757,50 @@ index 466a8f82..9897b734 100644
 +                raise ValueError("invalid V5 pending dollar intent")
 +        elif open_time and self.operation is Operation.OPEN_SLOT_POSITION:
 +            raise ValueError("V5 pending entry requires unbound quantity and intended dollars")
- 
-     def to_dict(self) -> dict:
-         """Serialise for a restart. `sessions_waiting` is part of the state, not
-@@ -98,6 +111,8 @@ class PendingOrder:
-                 "reason": self.reason, "sessions_waiting": self.sessions_waiting}
-         if self.transformations:
-             out["transformations"] = list(self.transformations)
+@@ -100,0 +114,2 @@ class PendingOrder:
 +        if self.intended_dollars is not None:
 +            out["intended_dollars"] = self.intended_dollars
-         return out
- 
-     @classmethod
-@@ -107,7 +122,8 @@ class PendingOrder:
-                    slot_id=d["slot_id"], shares=d["shares"],
-                    signal_session=d["signal_session"], reason=d["reason"],
-                    sessions_waiting=d.get("sessions_waiting", 0),
+@@ -110 +125,2 @@ class PendingOrder:
 -                   transformations=list(d.get("transformations") or ()))
 +                   transformations=list(d.get("transformations") or ()),
 +                   intended_dollars=d.get("intended_dollars"))
- 
- 
- @dataclass
-@@ -546,6 +562,10 @@ def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger
-         for po in pending:
-             if po.security_id != b.security_id:
-                 continue
+@@ -548,0 +565,4 @@ def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger
 +            if po.intended_dollars is not None:
 +                # Dollar intent survives a split unchanged; quantity is first
 +                # determined using the post-split opening price.
 +                continue
-             before = po.shares
-             after = split_shares(before, b.split_ratio)
-             po.shares = after
-@@ -580,6 +600,11 @@ def _transform_pending_for_terminal(
-             keep.append(po)
-             continue
- 
+@@ -582,0 +603,5 @@ def _transform_pending_for_terminal(
 +        if po.intended_dollars is not None:
 +            cancelled.append(_cancelled_order(
 +                state, po, session=session, reason="TERMINATED_BEFORE_FILL"))
 +            continue
 +
-         # A queued BUY did not own this predecessor at the action boundary and
-         # therefore owns neither leg of mixed consideration. Retargeting it to
-         # the delivered security would silently discard the cash leg and turn
-@@ -799,6 +824,12 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
-     never specified. There is `tradeability_only_bars` for callers that really do
-     want that, and it says so in its name.
-     """
+@@ -801,0 +827,6 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 +    from .v5 import PROFILE as V5_PROFILE
 +    expected_sizing = V5_PROFILE if cfg.economic_profile == V5_PROFILE else None
 +    if state.entry_sizing_profile != expected_sizing:
 +        raise ValueError("canonical entry sizing profile differs from configuration")
 +    for order in pending:
 +        order.validate_sizing(open_time=cfg.economic_profile == V5_PROFILE)
-     by_sec = {b.security_id: b for b in bars}
-     res_cancelled: list[dict] = []
-     # Name cooldowns actually STARTED by this session's release transitions.
-@@ -914,6 +945,11 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
-     fills: list[dict] = []
-     still_pending: list[PendingOrder] = []
-     entered_this_session: list[int] = []
+@@ -916,0 +948,5 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 +    if cfg.economic_profile != "wealth-core-v1":
 +        # The frozen book sells in slot order, then buys in slot order. A
 +        # delayed buy must not consume cash before today's queued sale.
 +        pending.sort(key=lambda p: (p.operation is not Operation.CLOSE_POSITION,
 +                                    p.slot_id))
-     for po in pending:
-         if po.security_id in terminated and po.slot_id not in state.episodes:
-             # The security terminated this session and the slot is gone. An
-@@ -925,6 +961,7 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
-                 state, po, session=session, reason="TERMINATED_BEFORE_FILL"))
-             continue
-         if (po.operation is Operation.OPEN_SLOT_POSITION
+@@ -927,0 +964 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 +                and po.intended_dollars is None
-                 and (po.shares <= 0 or not is_integral(po.shares))):
-             res_cancelled.append(_cancelled_order(
-                 state, po, session=session,
-@@ -932,6 +969,10 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
-             continue
-         b = by_sec.get(po.security_id)
-         if b is None or not b.can_execute:
+@@ -934,0 +972,4 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 +            if po.intended_dollars is not None:
 +                res_cancelled.append(_cancelled_order(
 +                    state, po, session=session, reason="INVALID_OPEN_MARKET"))
 +                continue
-             po.sessions_waiting += 1        # persists; never silently dropped
-             still_pending.append(po)
-             continue
-@@ -961,6 +1002,10 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
-                                  list(po.transformations)}
-                                 if po.transformations else None))
-         else:
+@@ -963,0 +1005,4 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 +            if po.intended_dollars is not None:
 +                from .v5 import opening_quantity
 +                po.shares = opening_quantity(intended=po.intended_dollars,
 +                    cash=state.cash, price=px, cost_bps=cfg.transaction_cost_bps)
-             # OPEN quantities remain whole-share trades even if a split stored
-             # the transformed quantity as an integral float.
-             po.shares = int(po.shares)
-@@ -1099,6 +1144,14 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
-     # here from `last_known` — that dict holds RAW mark closes, a different
-     # price domain, and reusing it would be exactly the cross-domain error
-     # prices.py exists to prevent.
+@@ -1101,0 +1147,8 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 +    if cfg.economic_profile != "wealth-core-v1":
 +        # Certified Median-5 requires a current print for every owned security
 +        # before admitting. The C1 claim remains in estimated equity and its
@@ -2713,30 +1809,17 @@ index 466a8f82..9897b734 100644
 +                               carried_raw_close=None)
 +                       if mark.status is MarkStatus.PENDING_TERMS_CARRIED else mark)
 +                 for sid, mark in marks.items()}
-     receivable_assets = ledger.receivable_total()
-     ev = state.equity_view(marks, noncash_assets=receivable_assets)
- 
-@@ -1138,7 +1191,8 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
-             pending.append(PendingOrder(
-                 operation=op.operation, security_id=op.security_id,
-                 ticker=op.ticker, slot_id=op.slot_id, shares=op.shares or 0,
+@@ -1141 +1194,2 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
 -                signal_session=session, reason=op.reason.value))
 +                signal_session=session, reason=op.reason.value,
 +                intended_dollars=(op.detail or {}).get("intended_dollars")))
- 
-     d.warnings.extend(
-         f"terminal {r.get('kind') or r.get('reason')} on {r.get('security_id')}"
 diff --git a/shared/stock_strategy_shared/wealth_core/engine.py b/shared/stock_strategy_shared/wealth_core/engine.py
 index 299c53e2..d40e6d16 100644
 --- a/shared/stock_strategy_shared/wealth_core/engine.py
 +++ b/shared/stock_strategy_shared/wealth_core/engine.py
-@@ -210,8 +210,24 @@ class WealthCoreConfig:
-     # 0 reproduces the pre-lag behaviour exactly, which is what makes the change
-     # bisectable rather than entangled with everything else that moved.
-     dividend_settlement_lag_sessions: int = 1
+@@ -212,0 +213 @@ class WealthCoreConfig:
 +    economic_profile: str = "wealth-core-v1"
- 
-     def __post_init__(self) -> None:
+@@ -214,0 +216,15 @@ class WealthCoreConfig:
 +        from .median5 import PROFILE
 +        from .v5 import PROFILE as V5_PROFILE
 +        if self.economic_profile not in ("wealth-core-v1", PROFILE, V5_PROFILE):
@@ -2752,30 +1835,12 @@ index 299c53e2..d40e6d16 100644
 +                or self.volatility_profile != DEFAULT_VOLATILITY_PROFILE
 +                or self.top_decile_rounding != "ceil"):
 +            raise ValueError("Median-5 configuration differs from its frozen profile")
-         if self.dividend_settlement_lag_sessions < 0:
-             raise ValueError(
-                 f"dividend_settlement_lag_sessions must be >= 0, got "
-@@ -230,6 +246,8 @@ class WealthCoreConfig:
- 
-     def config_hash(self) -> str:
-         blob = json.dumps({
+@@ -232,0 +249,2 @@ class WealthCoreConfig:
 +            **({"economic_profile": self.economic_profile}
 +               if self.economic_profile != "wealth-core-v1" else {}),
-             "entry_weight": self.entry_weight, "n_slots": self.n_slots,
-             "top_fraction": self.top_fraction,
-             "top_decile_rounding": self.top_decile_rounding,
-@@ -259,6 +277,7 @@ class SecurityBar:
-     raw_close: float | None = None
-     eligible: bool = True
-     eligibility_reason: str = ""
+@@ -261,0 +280 @@ class SecurityBar:
 +    certified_signals: tuple[float, float, float, float] | None = None
- 
- 
- def score_universe(bars: Sequence[SecurityBar],
-@@ -276,6 +295,13 @@ def score_universe(bars: Sequence[SecurityBar],
-             scored.append(DurableScore(b.security_id, b.ticker, None, None, None,
-                                        None, False, b.eligibility_reason or "INELIGIBLE"))
-             continue
+@@ -278,0 +298,7 @@ def score_universe(bars: Sequence[SecurityBar],
 +        if cfg.economic_profile != "wealth-core-v1":
 +            if b.certified_signals is None:
 +                raise ValueError("Median-5 requires its durable numerical feature state")
@@ -2783,13 +1848,7 @@ index 299c53e2..d40e6d16 100644
 +            scored.append(DurableScore(b.security_id, b.ticker, mom, rec, vol,
 +                                       score, False, ""))
 +            continue
-         mom = medium_term_momentum(b.closes)
-         rec = recent_return(b.closes)
-         vol = annualized_formation_volatility(b.closes,
-@@ -371,6 +397,14 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
-     by_sec = {s.security_id: s for s in scored}
-     d.candidates = scored
-     d.eligible_universe_count = sum(1 for b in bars if b.eligible)
+@@ -373,0 +400,8 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
 +    median_ranked = None
 +    if cfg.economic_profile != "wealth-core-v1":
 +        from .median5 import rank
@@ -2798,31 +1857,13 @@ index 299c53e2..d40e6d16 100644
 +        median_ranked = rank(scored, state.median5)
 +        if d.eligible_universe_count >= cfg.minimum_leadership_population:
 +            state.median5["formation_started"] = True
-     closes = {b.security_id: (b.closes[-1] if b.closes else None) for b in bars}
- 
-     # ── 1. exits: trailing stop, then the one-time review ────────────────────
-@@ -448,6 +482,8 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
- 
-     # ── 3. admissions ────────────────────────────────────────────────────────
-     ready = [i for i in state.ready_slots() if i not in exiting]
+@@ -450,0 +485,2 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
 +    if median_ranked is not None and not state.median5["formation_started"]:
 +        ready = []
-     # Spec §6: initial construction may fill every available slot together;
-     # after that, at most one admission per session.
-     budget = len(ready) if not state.initialized else cfg.max_admissions_per_session
-@@ -475,7 +511,7 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
-     pending_issuers = ({state.episodes[i].issuer_id for i in exiting}
-                        | state.reserved_issuer_ids())
- 
+@@ -478 +514 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
 -    ranked = rank_candidates(scored)
 +    ranked = rank_candidates(scored) if median_ranked is None else median_ranked
-     d.ranked_candidate_count = len(ranked)
- 
-     # THE EQUITY GATE. Exits, holds and cooldowns above all ran regardless —
-@@ -552,10 +588,21 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
-             continue
-         m = marks.get(cand.security_id)
-         px = m.raw_mark_close if (m and m.status.name == "CURRENT") else None
+@@ -555,4 +591,15 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
 -        shares = whole_shares(equity, px, state.cash, cfg)
 -        if shares <= 0:
 -            reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px)
@@ -2842,36 +1883,18 @@ index 299c53e2..d40e6d16 100644
 +            if shares <= 0:
 +                reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px)
 +                continue
-         slot_id = ready.pop(0)
-         # RESERVE now, not at fill. The order may not fill for many sessions and
-         # the slot must be unavailable for every one of them; because the
-@@ -567,7 +614,9 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
-                                {"durable_score": cand.score, "momentum": cand.momentum,
-                                 "recent": cand.recent, "volatility": cand.volatility,
-                                 "target_weight": cfg.entry_weight,
+@@ -570 +617,3 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
 -                                "equity_at_decision": equity}))
 +                                "equity_at_decision": equity,
 +                                **({"intended_dollars": intended}
 +                                   if intended is not None else {})}))
-         held_secs.add(cand.security_id)
-         held_issuers.add(issuer)
-         admitted += 1
 diff --git a/shared/stock_strategy_shared/wealth_core/feed.py b/shared/stock_strategy_shared/wealth_core/feed.py
 index 949b72fc..58a63d97 100644
 --- a/shared/stock_strategy_shared/wealth_core/feed.py
 +++ b/shared/stock_strategy_shared/wealth_core/feed.py
-@@ -100,6 +100,7 @@ class VendorBar:
-     dividend_per_share: float = 0.0
-     tradeable: bool = True
-     unresolved_corporate_action: bool = False
+@@ -102,0 +103 @@ class VendorBar:
 +    signal_close: float | None = None
- 
- 
- @dataclass(frozen=True)
-@@ -283,6 +284,35 @@ class SecuritySeries:
-     signal_closes: list[float | None] = field(default_factory=list)
-     raw_closes: list[float | None] = field(default_factory=list)
-     volumes: list[float | None] = field(default_factory=list)
+@@ -285,0 +287,29 @@ class SecuritySeries:
 +    vendor_basis_multiplier: float = 1.0
 +    # Publication-observed conversion into the retained numerical/episode basis.
 +    signal_basis_multiplier: float = 1.0
@@ -2901,13 +1924,7 @@ index 949b72fc..58a63d97 100644
 +            raise FeedError(f"invalid publication signal basis for {self.security_id}")
 +        self.signal_basis_multiplier = multiplier
 +        self.signal_basis_anchor = list(retained)
- 
-     def contiguous(self, length: int = REQUIRED_CLOSES) -> bool:
-         """Do the last `length` observations occupy consecutive market sessions?
-@@ -295,7 +325,14 @@ class SecuritySeries:
-             return False
-         return idx[-1] - idx[0] == length - 1
- 
+@@ -298 +328,8 @@ class SecuritySeries:
 -    def append(self, bar: VendorBar, session_index: int = -1) -> None:
 +    def append(self, bar: VendorBar, session_index: int = -1, *,
 +               published_signal: bool = False) -> None:
@@ -2917,13 +1934,7 @@ index 949b72fc..58a63d97 100644
 +                "reconstruct from the published input history")
 +        if published_signal and not _positive(self.signal_basis_multiplier):
 +            raise FeedError("invalid publication signal basis multiplier")
-         # The TICKER tracks the bar; the SECURITY_ID never does. A ticker is an
-         # observation label that can be reassigned on a rename, so the series
-         # carries the CURRENT one — a series that froze the ticker at creation
-@@ -308,13 +345,24 @@ class SecuritySeries:
-         # adjusted: the vendor's close on the ex-date is already post-split, so
-         # it needs the new factor, not the old one.
-         self.split_factor *= float(bar.split_ratio)
+@@ -310,0 +348,8 @@ class SecuritySeries:
 +        if published_signal and _positive(bar.raw_close):
 +            if not _positive(bar.signal_close):
 +                raise FeedError("Median-5 requires a published signal-domain close")
@@ -2932,39 +1943,18 @@ index 949b72fc..58a63d97 100644
 +            # to rescale an already-adjusted signal a second time.
 +            self.split_factor = (float(bar.signal_close) * self.signal_basis_multiplier
 +                                 / float(bar.raw_close))
-         self.sessions.append(bar.session)
-         self.session_indices.append(session_index)
-         self.raw_closes.append(bar.raw_close)
-         self.volumes.append(bar.volume)
-         self.signal_closes.append(
-             None if not _positive(bar.raw_close)
+@@ -317 +362,4 @@ class SecuritySeries:
 -            else float(bar.raw_close) * self.split_factor)
 +            else (float(bar.signal_close) * self.signal_basis_multiplier if published_signal
 +                  else float(bar.raw_close) * self.split_factor))
 +        if published_signal and _positive(bar.raw_close):
 +            self.signal_basis_anchor = [bar.session, float(bar.raw_close), self.signal_closes[-1]]
- 
-     def signal_window(self, length: int = REQUIRED_CLOSES) -> list[float | None]:
-         """The trailing split-adjusted window ending at t, oldest first.
-@@ -455,6 +503,7 @@ class Feed:
-         self._session_index = -1
-         self._seen_sessions: dict[str, int] = {}
-         self._last_session: str | None = None
+@@ -457,0 +506 @@ class Feed:
 +        self.median5_state: dict | None = None
- 
-     def _advance_session(self, session: str) -> int:
-         """One global index per market session, assigned in arrival order.
-@@ -559,12 +608,30 @@ class Feed:
-                  if self.metadata_timeline is not None
-                  else self.meta.get(b.security_id))
-             s = self._series_for(b, m)
+@@ -562 +611 @@ class Feed:
 -            s.append(b, idx)
 +            s.append(b, idx, published_signal=self.median5_state is not None)
-             if m is not None:
-                 key, _ = m.issuer_key()
-                 s.issuer_id = key or f"S:{b.security_id}"
-                 effective[b.security_id] = m
- 
+@@ -567,0 +617,18 @@ class Feed:
 +        if self.median5_state is not None:
 +            from .median5 import advance_signals
 +            from .eligibility import EligibilityReason
@@ -2983,9 +1973,6 @@ index 949b72fc..58a63d97 100644
 +                    else EligibilityReason.INSUFFICIENT_126_SESSION_HISTORY)
 +                 for b in security_bars})
 +
-         visible = [b for b in ordered if b.security_id in effective]
- 
-         elig_inputs = [
 diff --git a/shared/stock_strategy_shared/wealth_core/median5.py b/shared/stock_strategy_shared/wealth_core/median5.py
 new file mode 100644
 index 00000000..d12e7e96
@@ -3146,22 +2133,13 @@ diff --git a/shared/stock_strategy_shared/wealth_core/run.py b/shared/stock_stra
 index 29d6dbc1..f8d44666 100644
 --- a/shared/stock_strategy_shared/wealth_core/run.py
 +++ b/shared/stock_strategy_shared/wealth_core/run.py
-@@ -269,8 +269,10 @@ def run_sessions(*, sessions: Sequence[str],
-         seen_terminal_events.add(key)
- 
-     cfg = cfg or WealthCoreConfig()
+@@ -271,0 +272 @@ def run_sessions(*, sessions: Sequence[str],
 +    from .v5 import PROFILE as V5_PROFILE
-     state = state if state is not None else PortfolioState.fresh(
+@@ -273 +274,2 @@ def run_sessions(*, sessions: Sequence[str],
 -        starting_cash, cfg.n_slots if hasattr(cfg, "n_slots") else 25)
 +        starting_cash, cfg.n_slots if hasattr(cfg, "n_slots") else 25,
 +        entry_sizing_profile=(V5_PROFILE if cfg.economic_profile == V5_PROFILE else None))
-     # `initialized` is NOT set here. It means "the book has been constructed",
-     # and `decide` reads it to choose between filling every free slot at once
-     # (the opening) and one admission per session (steady state). Setting it
-@@ -282,6 +284,15 @@ def run_sessions(*, sessions: Sequence[str],
-     last_known = last_known if last_known is not None else {}
-     feed = feed if feed is not None else Feed(
-         meta, eligibility_cfg, metadata_timeline)
+@@ -284,0 +287,9 @@ def run_sessions(*, sessions: Sequence[str],
 +    if cfg.economic_profile != "wealth-core-v1":
 +        from .median5 import fresh
 +        if state.median5 is None:
@@ -3171,54 +2149,27 @@ index 29d6dbc1..f8d44666 100644
 +        feed.median5_state = state.median5
 +    elif state.median5 is not None:
 +        raise ValueError("Median-5 state cannot run under the legacy economic profile")
- 
-     events_by_session: dict[str, list[TerminalEvent]] = {}
-     for ev in terminal_events:
 diff --git a/shared/stock_strategy_shared/wealth_core/state.py b/shared/stock_strategy_shared/wealth_core/state.py
 index 1921399a..84ef15bc 100644
 --- a/shared/stock_strategy_shared/wealth_core/state.py
 +++ b/shared/stock_strategy_shared/wealth_core/state.py
-@@ -261,6 +261,8 @@ class PortfolioState:
-     cash: float = 0.0
-     initialized: bool = False
-     session_index: int = 0
+@@ -263,0 +264,2 @@ class PortfolioState:
 +    median5: dict | None = None
 +    entry_sizing_profile: str | None = None
-     # security_id -> why its terminal action cannot be applied. Lives on the
-     # STATE rather than beside the event stream so it survives a restart: a
-     # blocked book that silently unblocks itself on redeploy is the failure the
-@@ -335,9 +337,10 @@ class PortfolioState:
-     last_valid_mark_session: dict[str, str] = field(default_factory=dict)
- 
-     @classmethod
+@@ -338 +340,2 @@ class PortfolioState:
 -    def fresh(cls, starting_cash: float, n_slots: int = DEFAULT_SLOTS) -> "PortfolioState":
 +    def fresh(cls, starting_cash: float, n_slots: int = DEFAULT_SLOTS,
 +              *, entry_sizing_profile: str | None = None) -> "PortfolioState":
-         return cls(slots={i: SlotState(slot_id=i) for i in range(n_slots)},
+@@ -340 +343 @@ class PortfolioState:
 -                   cash=float(starting_cash))
 +                   cash=float(starting_cash), entry_sizing_profile=entry_sizing_profile)
- 
-     # ── queries ──────────────────────────────────────────────────────────────
- 
-@@ -467,6 +470,9 @@ class PortfolioState:
- 
-     def to_dict(self) -> dict[str, Any]:
-         return {
+@@ -469,0 +473,3 @@ class PortfolioState:
 +            **({"median5": deepcopy(self.median5)} if self.median5 is not None else {}),
 +            **({"entry_sizing_profile": self.entry_sizing_profile}
 +               if self.entry_sizing_profile is not None else {}),
-             "slots": {str(k): asdict(v) for k, v in sorted(self.slots.items())},
-             "episodes": {str(k): _episode_json(v)
-                          for k, v in sorted(self.episodes.items())},
-@@ -544,6 +550,8 @@ class PortfolioState:
-             security_cooldowns=dict(d.get("security_cooldowns") or {}),
-             cash=cash,
-             initialized=initialized,
+@@ -546,0 +553,2 @@ class PortfolioState:
 +            median5=deepcopy(d.get("median5")),
 +            entry_sizing_profile=d.get("entry_sizing_profile"),
-             session_index=session_index,
-             unresolved_terminals=dict(d.get("unresolved_terminals") or {}),
-             # Absent means zero — a blob written before the settlement waterfall
 diff --git a/shared/stock_strategy_shared/wealth_core/v5.py b/shared/stock_strategy_shared/wealth_core/v5.py
 new file mode 100644
 index 00000000..772bed52

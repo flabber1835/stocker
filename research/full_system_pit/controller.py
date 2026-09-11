@@ -10,6 +10,20 @@ import math
 
 from .champion_frozen import CandidateA, Native
 
+
+def warmup_regime(published, prior):
+    """Exact available initial SPY prefix; the ordinary loader owns close 41+."""
+    from sentinel.feed.calendar import sessions_in_range
+    from sentinel.regime.spy import spy_regime
+    expected=sessions_in_range("2006-01-03",published.session)
+    if (not 1<=len(expected)<=40 or list(published.spy_sessions)!=expected
+            or list(published.spy_expected_sessions)!=expected
+            or len(published.spy_closeadj)!=len(expected)
+            or prior.feed["session_index"]!=len(expected)-2
+            or prior.wealth_core["episodes"] or prior.pending):
+        raise ValueError("invalid champion SPY bootstrap prefix")
+    return spy_regime(published.spy_closeadj)
+
 NATIVE_FIELDS = {
     "ordinary": "ordinary_stress_active", "binary_armed": "binary_armed",
     "ordinary_age": "ordinary_stress_age", "ordinary_h": "ordinary_healthy_streak",

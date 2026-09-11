@@ -21,6 +21,7 @@ class Service:
         self.world.assets.clear()
         self.world.prices.clear()
         self.identities, self.openings, self.wire = {}, {}, []
+        self.settlements=[]
 
     def request(self, method, url, headers, body):
         request = httpx.Request(method, url, headers=headers, content=body)
@@ -42,10 +43,13 @@ class Service:
 
     def market(self, at, opening_at, rows, *, opened):
         at = datetime.fromisoformat(at)
+        if opened and self.world.now.date()<at.date() and self.world.unsettled:
+            self.settlements.append(dict(at=at.isoformat(),amount=str(self.world.unsettled)))
+            self.world.settle()
         self.world.advance(int((at-self.world.now).total_seconds()))
         for row in rows:
-            symbol, sid = row["ticker"], row["sid"]
-            self.identities[symbol] = sid
+            symbol, sid = row["ticker"].replace("-","."), row["sid"]
+            self.identities[row["ticker"]] = sid
             if symbol not in self.world.assets:
                 self.world.add_asset(symbol)
                 self.world.assets[symbol]["id"] = str(uuid.uuid5(uuid.NAMESPACE_URL, "pit:"+sid))
@@ -82,7 +86,8 @@ class Service:
         return json.loads(json.dumps(dict(now=w.now.isoformat(), account=w.account(),
             positions=w.positions, prices={s:w.prices[s] for s in w.positions},
             orders=w.orders, fills=w.fills, cash_movements=w.cash_movements,
-            initial_cash=w.initial_cash, identities=self.identities), default=str))
+            initial_cash=w.initial_cash, identities=self.identities,unsettled=w.unsettled,
+            settlements=self.settlements,settlement_profile="next_session_cash_stress"), default=str))
 
 
 METHODS = {"request", "market", "resolve", "now", "snapshot", "drain"}

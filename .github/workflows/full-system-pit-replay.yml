@@ -54,11 +54,33 @@ jobs:
           PYTHONPATH: shared
         run: |
           python -m pytest research/full_system_pit/test_contract.py research/full_system_pit/test_controller.py tests/median5/test_book.py tests/v5/test_opening.py -q --tb=short
+      - name: Restore the immutable compiled provider index
+        id: truth-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          key: full-system-pit-truth-v1-${{ runner.os }}-${{ hashFiles('work/research/full_system_pit/truth.py', 'work/research/full_system_pit/authority.py') }}
+          path: |
+            provider-truth.sqlite
+            provider-truth.json
+            provider-truth.sha256
       - name: Compile private historical provider truth
+        if: steps.truth-cache.outputs.cache-hit != 'true'
         env:
           PYTHONPATH: work:certified-src:main-src:main-src/shared
         run: |
           python -m research.full_system_pit.truth --dataset canonical-pit --output provider-truth.sqlite --classification candidate-src/backtester/data/champion-best-effort-security-types-v1.csv
+          sha256sum provider-truth.sqlite > provider-truth.sha256
+      - name: Verify the compiled index bytes
+        run: sha256sum -c provider-truth.sha256
+      - name: Retain the compiled index before the experiment
+        if: steps.truth-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          key: ${{ steps.truth-cache.outputs.cache-primary-key }}
+          path: |
+            provider-truth.sqlite
+            provider-truth.json
+            provider-truth.sha256
       - name: Replay the entire daily schedule
         working-directory: staged-runtime
         env:

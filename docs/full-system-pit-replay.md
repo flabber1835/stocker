@@ -172,11 +172,14 @@ PostgreSQL validation runs in GitHub Actions.
 The first forty closes use a research bootstrap SQL loader because the package
 starts in January 2006 and cannot supply a pre-2006 SPY tail. This loader permits
 only the available, published prefix, and the ordinary loader takes over at
-close 41. The canonical controller continues to report unavailable evidence
-according to its own rules. No comparison tolerance or expected reference value
-is changed to accommodate that difference: an observed discrepancy stops the
-run and is retained for investigation. No securities may be held before the
-formation window exists.
+close 41. Inspection of the retained reference established that its SPY sensor
+becomes available at close 21. The staged research bootstrap therefore calls
+the existing numerical sensor on the exact exchange-calendar prefix during
+these forty closes. It refuses missing dates, future dates, existing positions,
+or a short prefix outside this initial window. Before close 21 the numerical
+sensor itself remains unavailable. No comparison tolerance or expected value
+is changed. Ordinary readiness still records insufficient formation history;
+no securities may be held before the book's formation window exists.
 
 `research/full_system_pit/LAUNCH.json` records the requested full schedule. The
 first launch stops at the first ingestion, readiness, economics, persistence,
@@ -192,3 +195,26 @@ checkpoints are retained every 63 sessions; intervening published inputs and
 economic states are retained for reconstruction. Cross-job continuation and
 additional adversarial delivery schedules remain follow-up work; a CI timeout
 must remain incomplete and cannot receive a full-system PASS.
+
+The broker currently uses the existing cash-account stress model, with a
+declared next-session settlement release. It does not claim to reconstruct
+historical brokerage settlement regulations. Settlement releases, cash-activity
+ingestion, command history, immutable command economics and broker accounting
+are recorded. Executor refusals and degraded reconciliation stop the experiment.
+
+Initial CI run `34552507591` compiled and verified the complete private source
+index and passed the 52 tests then present. It stopped before processing the
+first market session because the exchange calendar returned New York time and
+the evidence recorder required UTC. Artifact `10181725176` retains that failure;
+its ZIP SHA256 is
+`a65e1e2b23dd94f04b8bf4595c2ab0e98c6ec7e4e7eef685d4ac81e14addad2c`.
+The driver now converts exchange opening and closing timestamps to UTC, with
+winter/summer falsifiers. The next revision also adds the bootstrap sensor,
+special-dividend basis correction, and a check that scalar cash returns come
+from the application's own published BIL rows. A checksum-verified cache avoids
+recompiling an unchanged private index on each diagnostic revision.
+
+The retained V5 source patch uses zero context and is applied only to the
+immutable base archive. This avoids representing empty context lines as
+trailing whitespace in a tracked patch. Restaging must produce the identical
+application source tree; repository whitespace checks remain enabled.

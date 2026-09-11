@@ -101,3 +101,31 @@ def test_rebound_and_cleared_latch_follow_selected_champion():
         recent_r20=-.10, recent_r40=-.10, spy_r20=.12, wc_r20=-.01)
     assert after["episode"] and decision["desired_allocation"] == 0.
     assert "SPY_V_REBOUND" not in decision["reason"]
+
+
+def test_initial_spy_prefix_observes_only_available_dates():
+    import math
+    from types import SimpleNamespace
+    from sentinel.feed.calendar import sessions_in_range
+    from sentinel.regime.spy import spy_regime
+    dates=sessions_in_range("2006-01-03","2006-03-02")
+    for count in (1,20,21,40):
+        prefix=dates[:count]
+        prices=[100.+i+(i%3) for i in range(count)]
+        published=SimpleNamespace(session=prefix[-1],spy_sessions=prefix,
+            spy_expected_sessions=prefix,spy_closeadj=prices)
+        prior=SimpleNamespace(feed={"session_index":count-2},wealth_core={"episodes":{}},pending=[])
+        actual=champion_replay.warmup_regime(published,prior)
+        expected=spy_regime(prices)
+        if count<21:
+            assert math.isnan(actual.spy_r20)
+        else:
+            assert actual==expected
+        published.spy_sessions=prefix[:-1]
+        with pytest.raises(ValueError,match="bootstrap prefix"):
+            champion_replay.warmup_regime(published,prior)
+    published=SimpleNamespace(session=dates[-1],spy_sessions=dates,
+        spy_expected_sessions=dates,spy_closeadj=[100.]*len(dates))
+    prior=SimpleNamespace(feed={"session_index":39},wealth_core={"episodes":{}},pending=[])
+    with pytest.raises(ValueError,match="bootstrap prefix"):
+        champion_replay.warmup_regime(published,prior)

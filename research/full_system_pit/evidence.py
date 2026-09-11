@@ -17,6 +17,8 @@ import traceback
 
 
 def plain(value):
+    if callable(getattr(value,"to_dict",None)):
+        return plain(value.to_dict())
     if is_dataclass(value):
         return plain(asdict(value))
     if isinstance(value, Enum):

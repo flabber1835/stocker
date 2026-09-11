@@ -39,7 +39,7 @@ class Provider:
         self.step = None
         self.downloads, self.cursors, self.export_receipts = {}, {}, {}
         self.splits = {}
-        for r in self.db.execute("SELECT sid,day,split FROM obs WHERE split<>1 ORDER BY sid,day"):
+        for r in self.db.execute("SELECT sid,day,split FROM splits ORDER BY sid,day"):
             self.splits.setdefault(r["sid"], []).append((r["day"], r["split"]))
         self.identity = json.loads(self.db.execute("SELECT body FROM identity").fetchone()[0])
         self.cash_levels = {}
@@ -113,12 +113,12 @@ class Provider:
         else:
             for r in self.db.execute("SELECT * FROM actions WHERE day BETWEEN ? AND ? ORDER BY day,sid,body", (start, end)):
                 item = json.loads(r["body"])
-                if item.get("known_by", r["day"]) > str(self.step.at.date()):
+                if str(item.get("known_by") or r["day"])[:10] > str(self.step.at.date()):
                     continue
                 value = item.get("vendor_value")
                 if value not in (None, "", "None"):
                     value = float(value)
-                    if item["action"] in {"dividend", "spinoffdividend", "dividend_special"}:
+                    if item["action"] in {"dividend", "spinoffdividend", "specialdividend"}:
                         value *= self.factors.get(r["sid"], 1.)
                 else:
                     value = None

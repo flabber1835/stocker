@@ -9,10 +9,19 @@
   "measurement_start": "2006-07-31",
   "end": "2026-07-31",
   "mode": "full_schedule_stop_at_first_divergence",
-  "local_validation": "52 targeted tests passed; real PostgreSQL validation belongs to CI",
+  "local_validation": "59 targeted tests passed; physical replay validation remains in CI",
   "vendor_evolution": "Reconstructed split-adjustment vintages; dated current listings; known-by action boundary",
   "cash_proxy": "Canonical Treasury proxy before BIL inception, explicitly simulated",
   "paper_broker": "Process-external Alpaca simulator using production execution adapter",
   "production_promotion_authorized": false,
-  "performance_equivalence_confirmed": false
+  "performance_equivalence_confirmed": false,
+  "bootstrap_sensor": "Existing numerical SPY sensor over the exact initial exchange-calendar prefix, with a zero-position guard; ordinary loader from close 41",
+  "prior_run": {
+    "id": 34552507591,
+    "head": "6180164ff1c564bc662859338809e76794e63286",
+    "completed_sessions": 0,
+    "failure": "event clock must be explicit UTC",
+    "artifact_id": 10181725176
+  },
+  "settlement_profile": "Existing LIVE_CASH stress model with a declared next-session release"
 }

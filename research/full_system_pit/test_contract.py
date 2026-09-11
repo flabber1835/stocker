@@ -32,6 +32,7 @@ def fixture(tmp_path):
                   firstpricedate=day,sector="OTHER",exchange="NYSE")
         db.execute("INSERT INTO meta VALUES(?,?,?,?)",(day,sid,ticker,json.dumps(body)))
     db.execute("INSERT INTO identity VALUES(?)",(json.dumps({"dataset_sha256":"fixture"}),))
+    db.execute("CREATE TABLE splits AS SELECT sid,day,split FROM obs WHERE split<>1")
     db.commit()
     db.close()
     return path
@@ -93,6 +94,59 @@ def test_export_is_complete_and_future_capped(tmp_path):
     assert [r["date"] for r in rows]==["2006-01-03","2006-01-04"]
 
 
+def test_real_source_membrane_proves_ticker_and_export_completeness(tmp_path):
+    from research.sharadar_replay.runtime import simulated_runtime
+    from sentinel.feed import sharadar,snapshot_source,snapshot_export
+    p=provider(tmp_path)
+    with simulated_runtime(p,commit="0"*40):
+        tickers=list(snapshot_source.fetch_table(sharadar.TICKERS))
+        first,_=snapshot_export.fetch_complete_sep(start="2006-01-03",end="2006-01-04")
+        second,_=snapshot_export.fetch_complete_sep(start="2006-01-03",end="2006-01-04")
+    assert len(tickers)==1 and tickers[0]["ticker"]=="AAA"
+    assert len(first)==2 and first==second
+
+
+def test_special_dividends_follow_the_historical_share_basis(tmp_path):
+    path=fixture(tmp_path)
+    with sqlite3.connect(path) as db:
+        row=dict(action="specialdividend",ticker="AAA",vendor_value="0.5",known_by="2006-01-04T00:00:00+00:00")
+        db.execute("INSERT INTO actions VALUES(?,?,?)",("2006-01-04","1",json.dumps(row)))
+    p=Provider(path,tmp_path/"exports")
+    p.advance(datetime.fromisoformat("2006-01-03T22:00:00+00:00"))
+    assert list(p.row_stream("ACTIONS",{}))==[]
+    p.advance(datetime.fromisoformat("2006-01-04T22:00:00+00:00"))
+    assert next(p.row_stream("ACTIONS",{}))["value"]==1.
+    p.advance(datetime.fromisoformat("2006-01-05T22:00:00+00:00"))
+    assert next(p.row_stream("ACTIONS",{}))["value"]==.5
+
+
+def test_cash_return_uses_published_prices_and_their_own_predecessor():
+    from types import SimpleNamespace
+    from sentinel.core.session import DefensiveBar
+    from sentinel.shadow_observation import ShadowObservationRefused
+    from research.full_system_pit.run import published_cash_factors
+    previous=DefensiveBar("2006-01-03","SENTINEL:BIL","BIL",100.,100.,200.,100.)
+    current=DefensiveBar("2006-01-04","SENTINEL:BIL","BIL",101.,102.,204.,102.)
+    published=SimpleNamespace(session="2006-01-04",defensive_bar=current,defensive_previous_bar=previous)
+    assert published_cash_factors(published)==(1.01,102/101)
+    published.defensive_previous_bar=None
+    with pytest.raises(ShadowObservationRefused):
+        published_cash_factors(published)
+
+
+@pytest.mark.parametrize("day,hour",[("2006-01-03",14),("2006-07-03",13)])
+def test_exchange_clock_is_normalized_to_utc_for_evidence(tmp_path,day,hour):
+    from research.full_system_pit.run import market_window
+    opened,closed=market_window(day)
+    assert opened.tzinfo==closed.tzinfo==timezone.utc
+    assert opened.hour==hour and opened.minute==30
+    e=Evidence(tmp_path/"clock",{})
+    e.event(at=opened,session=day,phase="open",payload={})
+    e.event(at=closed,session=day,phase="close",payload={})
+    e.close()
+    assert verify(tmp_path/"clock")["events"]==2
+
+
 def test_evidence_retains_payloads_and_first_failure(tmp_path):
     root=tmp_path/"evidence"
     evidence=Evidence(root,{"test":"identity"})
@@ -121,7 +175,8 @@ def test_clock_rejects_future_sessions_and_reversal(tmp_path):
     evidence.close()
 
 
-def test_historical_broker_fills_through_real_adapter(tmp_path):
+@pytest.mark.parametrize("symbol",["AAA","AAA-X"])
+def test_historical_broker_fills_through_real_adapter(tmp_path,symbol):
     import asyncio
     from decimal import Decimal
     from research.full_system_pit import broker
@@ -129,13 +184,19 @@ def test_historical_broker_fills_through_real_adapter(tmp_path):
     from research.full_system_pit.run import broker_accounting
     lifecycle, service=broker.manager("2006-01-03T00:00:00+00:00")
     try:
-        service.market("2006-01-03T14:31:00+00:00","2006-01-03T14:30:00+00:00",
-            [dict(sid="1",ticker="AAA",op=100.,raw=100.,raw_volume=10000.,split=1.,dividend=0.)],opened=True)
+        rows=[dict(sid="1",ticker=symbol,op=100.,raw=100.,raw_volume=10000.,split=1.,dividend=0.)]
+        service.market("2006-01-03T14:31:00+00:00","2006-01-03T14:30:00+00:00",rows,opened=True)
         adapter=broker.adapter(service)
-        instrument=asyncio.run(adapter.resolve_instrument(security_id="1",symbol="AAA"))
+        instrument=asyncio.run(adapter.resolve_instrument(security_id="1",symbol=symbol))
         asyncio.run(adapter.submit(client_key="test-historical",instrument=instrument,side=Side.BUY,quantity=Decimal(2)))
         snapshot=service.snapshot()
-        assert snapshot["positions"]["AAA"]=="2"
+        assert snapshot["positions"][symbol.replace("-",".")]=="2"
+        broker_accounting(snapshot)
+        asyncio.run(adapter.submit(client_key="test-historical-sell",instrument=instrument,side=Side.SELL,quantity=Decimal(2)))
+        assert service.snapshot()["unsettled"]=="200.0"
+        service.market("2006-01-04T14:31:00+00:00","2006-01-04T14:30:00+00:00",rows,opened=True)
+        snapshot=service.snapshot()
+        assert snapshot["unsettled"]=="0" and len(snapshot["settlements"])==1
         broker_accounting(snapshot)
         assert service.drain()
     finally:

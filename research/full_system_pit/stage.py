@@ -78,6 +78,12 @@ def integrate(runtime: Path, champion: Path):
     replace_once(decision, '    "sentinel.controller.ex3_v6",',
         '    "sentinel.controller.ex3_v6",\n    "sentinel.controller.champion_frozen",\n'
         '    "sentinel.controller.champion_replay",')
+    kernel=runtime / "sentinel/core/kernel.py"
+    replace_once(kernel,'    observation = Observation(\n        session=published.session,',
+        f'    if running_identity["strategy"] == "{a.STRATEGY}" and feed._session_index < 40:\n'
+        '        from sentinel.controller.champion_replay import warmup_regime\n'
+        '        regime = warmup_regime(published, env)\n'
+        '    observation = Observation(\n        session=published.session,')
 
 
 def source_manifest(runtime):
@@ -99,7 +105,7 @@ def stage(repo: Path, output: Path, champion: Path):
         archive.stdout.close()
     if archive.wait() != 0:
         raise RuntimeError("base source archive failed")
-    subprocess.run(["git", "apply", str(HERE / "v5-runtime.patch")], cwd=output, check=True)
+    subprocess.run(["git", "apply", "--unidiff-zero", str(HERE / "v5-runtime.patch")], cwd=output, check=True)
     integrate(output, champion)
     shutil.copytree(HERE, output / "research/full_system_pit",
                     ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))

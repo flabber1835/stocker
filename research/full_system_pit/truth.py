@@ -124,6 +124,7 @@ def compile_truth(root, output, *, estimate):
         db.execute("INSERT INTO reference VALUES(?,?,?,?,?)", (r["session"], float(r["level"]),
             float(c["gap_factor"]), float(c["intraday_factor"]), c["source"]))
     db.executescript("""
+        CREATE TABLE splits AS SELECT sid,day,split FROM obs WHERE split<>1 ORDER BY sid,day;
         CREATE INDEX obs_sid_day ON obs(sid,day);
         CREATE INDEX meta_sid_day ON meta(sid,ticker,day);
         CREATE INDEX actions_day ON actions(day);
