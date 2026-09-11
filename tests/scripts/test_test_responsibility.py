@@ -13,7 +13,9 @@ from tools.test_responsibility_lib import (
     ROOT, canonical_nodeid, junit_execution, resolve_contracts,
     validate_contract_selectors,
 )
-from tools.validate_test_responsibility import _job_body, validate as validate_responsibility
+from tools.validate_test_responsibility import (
+    _job_body, _require_scope_binding, validate as validate_responsibility,
+)
 
 
 def selector(name: str) -> str:
@@ -98,8 +100,10 @@ def test_required_check_bridge_prefers_new_queued_run_over_old_success():
     assert check_verdict(selected) == "WAIT"
 
 
-def test_required_check_bridge_requires_exact_actions_workflow_and_head_sha():
+def test_required_check_bridge_requires_unique_actions_job_workflow_and_head_sha():
+    name = "sharadar-replay-exact-head-merge123"
     check = {
+        "name": name,
         "head_sha": "head-123",
         "details_url": "https://github.com/flabber1835/stocker/actions/runs/77/job/88",
     }
@@ -110,6 +114,8 @@ def test_required_check_bridge_requires_exact_actions_workflow_and_head_sha():
         assert token == "token"
         if suffix == "actions/jobs/88":
             return {"run_id": 77, "head_sha": "head-123"}
+        if suffix == "actions/runs/77/jobs?per_page=100":
+            return {"total_count": 1, "jobs": [{"id": 88, "name": name}]}
         if suffix == "actions/runs/77":
             return {
                 "path": ".github/workflows/sharadar-daily-replay.yml",
@@ -123,10 +129,13 @@ def test_required_check_bridge_requires_exact_actions_workflow_and_head_sha():
         fetch_json=fetch_ok)
     assert origin["workflow_run_id"] == 77
     assert origin["job_id"] == 88
+    assert origin["job_name"] == name
 
     def wrong_workflow(repository, suffix, token):
         if suffix == "actions/jobs/88":
             return {"run_id": 77, "head_sha": "head-123"}
+        if suffix == "actions/runs/77/jobs?per_page=100":
+            return {"total_count": 1, "jobs": [{"id": 88, "name": name}]}
         return {"path": ".github/workflows/spoof.yml", "head_sha": "head-123"}
 
     with pytest.raises(RuntimeError, match="came from workflow"):
@@ -139,6 +148,39 @@ def test_required_check_bridge_requires_exact_actions_workflow_and_head_sha():
             "flabber1835/stocker", check,
             ".github/workflows/sharadar-daily-replay.yml", "another-sha", "token",
             fetch_json=fetch_ok)
+
+
+def test_required_check_bridge_rejects_duplicate_same_name_job_in_workflow_run():
+    name = "sharadar-replay-exact-head-merge123"
+    check = {
+        "name": name,
+        "head_sha": "head-123",
+        "details_url": "https://github.com/flabber1835/stocker/actions/runs/77/job/88",
+    }
+
+    def duplicate_jobs(repository, suffix, token):
+        if suffix == "actions/jobs/88":
+            return {"run_id": 77, "head_sha": "head-123"}
+        if suffix == "actions/runs/77/jobs?per_page=100":
+            return {
+                "total_count": 2,
+                "jobs": [
+                    {"id": 88, "name": name},
+                    {"id": 89, "name": name},
+                ],
+            }
+        if suffix == "actions/runs/77":
+            return {
+                "path": ".github/workflows/sharadar-daily-replay.yml",
+                "head_sha": "head-123",
+            }
+        raise AssertionError(suffix)
+
+    with pytest.raises(RuntimeError, match="job name is not unique"):
+        verify_workflow_origin(
+            "flabber1835/stocker", check,
+            ".github/workflows/sharadar-daily-replay.yml", "head-123", "token",
+            fetch_json=duplicate_jobs)
 
 
 def test_required_check_bridge_rejects_non_actions_details_url():
@@ -171,7 +213,33 @@ def test_ci_job_binding_is_scoped_to_the_declared_job():
     assert "verify_test_owner_execution.py" in neighbor
 
 
+def test_scope_binding_rejects_declared_scope_without_matrix_or_exact_checkout():
+    workflow = "name: test\non:\n  pull_request:\n    branches: [main]\njobs:\n"
+    matrix = (
+        "scope: ${{ fromJSON(github.event_name == 'pull_request' && "
+        "'[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}"
+    )
+    checkout = (
+        "ref: ${{ matrix.scope == 'exact-head' && "
+        "(github.event.pull_request.head.sha || github.sha) || github.sha }}"
+    )
+    scopes = {"exact-head", "synthetic-merge"}
+    result = _require_scope_binding(
+        "owner", scopes, f"{matrix}\n{checkout}\n", workflow)
+    assert result["scopes"] == ["exact-head", "synthetic-merge"]
+
+    with pytest.raises(AssertionError, match="instantiate exact-head"):
+        _require_scope_binding("owner", scopes, checkout, workflow)
+    with pytest.raises(AssertionError, match="exact PR-head/synthetic-merge checkout"):
+        _require_scope_binding("owner", scopes, matrix, workflow)
+    with pytest.raises(AssertionError, match="does not run on pull requests"):
+        _require_scope_binding("owner", scopes, f"{matrix}\n{checkout}", "name: test\njobs:\n")
+
+
 def test_live_test_responsibility_authority_is_valid():
     result = validate_responsibility()
     assert result["verdict"] == "PASS"
     assert result["unowned_tests"] == []
+    assert set(result["scope_bindings"]) == set(result["ci_jobs"])
+    assert result["merge_authority"]["workflow_job"] == "complete-evidence"
+    assert result["merge_authority"]["workflow_job_name_unique"] is True
