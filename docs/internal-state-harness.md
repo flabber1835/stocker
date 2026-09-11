@@ -186,6 +186,15 @@ The disposable full-suite runner provides a synthetic publication-receipt key
 alongside its owned database, matching the existing tests' signed-row and Compose
 configuration prerequisites. This key has no deployment authority.
 
+The six runtime-import tests in `TestPytestImportsTheRUNTIMECode` execute in a
+fresh image built with the repository's pinned runtime and test Dockerfiles for
+the tested commit. The full-suite runner explicitly deselects those exact nodes
+from the host pass, then requires all six in the image with network disabled.
+Their separate JUnit verdict rejects missing, duplicate, failed or skipped
+nodes and records the runtime image id and source commit. Host deselections and
+image coverage are retained together. The standalone full-suite command therefore
+requires Docker as well as PostgreSQL; it never manufactures an in-image marker.
+
 The local environment can exercise the kernel, plan assembly, real application
 SIGKILL, private broker process, replay reduction and oracle falsifiers. It lacks
 PostgreSQL binaries. Physical restore and the integrated campaigns therefore

@@ -155,6 +155,7 @@ class TestCredentialRefusal:
         wrong. A status command that needs credentials is useless then."""
         for k, v in env(ALPACA_API_KEY="", SENTINEL_STATE_DIR=str(tmp_path)).items():
             monkeypatch.setenv(k, v)
+        monkeypatch.delenv("SENTINEL_DATABASE_URL", raising=False)
         assert cli.main(["status"]) == cli.EXIT_OK
         out = json.loads(capsys.readouterr().out)
         # The BINDING answers this now, not the file. With no database
