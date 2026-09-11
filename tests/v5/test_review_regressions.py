@@ -13,6 +13,7 @@ from sentinel.core.production import SessionState
 from sentinel.execution import journal, opening_sizing, preopen_authority
 from sentinel.execution import target_reprojection as projections
 from sentinel.execution.contract import BrokerCapabilities, BrokerInstrument, BrokerPosition
+from sentinel.execution.opening_prices import OpeningPriceUnavailability
 from sentinel.feed import calendar, publication, store as feed_store
 from sentinel.paper import execution as paper_execution, recovery as paper_recovery, targets
 from tests.v5.test_opening import case, base, prices
@@ -57,7 +58,7 @@ def test_finalization_preserves_split_authority_for_opening_entry():
 
 
 @pytest.mark.parametrize('status', [429, 503])
-def test_opening_asset_lookup_transient_failure_is_retryable(monkeypatch, status):
+def test_opening_asset_lookup_transient_failure_becomes_no_buy(monkeypatch, status):
     published_opening_identity(monkeypatch)
     env, plan = case()
     monkeypatch.setattr(opening_sizing, 'load_projection', lambda *a, **k: None)
@@ -67,9 +68,12 @@ def test_opening_asset_lookup_transient_failure_is_retryable(monkeypatch, status
             request = httpx.Request('GET', 'https://paper-api.alpaca.markets/v2/assets/AAA')
             response = httpx.Response(status, request=request)
             response.raise_for_status()
-    with pytest.raises(paper.PaperRetryableRefused):
-        asyncio.run(paper_execution._opening_prices_or_retry(
-            object(), state=env, plan=plan, broker=Broker()))
+    evidence = asyncio.run(paper_execution._opening_prices_or_retry(
+        object(), state=env, plan=plan, broker=Broker()))
+    assert isinstance(evidence, OpeningPriceUnavailability)
+    projected = opening_sizing.resolve(env, plan, base(env, plan), evidence)
+    assert projected.target_basket['SEC-AAA'] == 0
+    assert projected.opening_sizing['mode'] == opening_sizing.UNAVAILABLE_MODE
 
 
 def test_restart_before_projection_can_reconcile_a_proven_unsent_plan(monkeypatch):
@@ -170,8 +174,8 @@ def test_unsent_opening_recovery_returns_to_sizing_or_supersedes(monkeypatch, cl
                                    else 'OPENING_SIZING_REQUIRED')
 
 
-@pytest.mark.parametrize('status', [401, 403, 404, 422])
-def test_opening_asset_lookup_permanent_error_stays_terminal(monkeypatch, status):
+@pytest.mark.parametrize('status', [401, 403])
+def test_opening_asset_lookup_authentication_error_stays_terminal(monkeypatch, status):
     published_opening_identity(monkeypatch)
     env, plan = case()
     monkeypatch.setattr(opening_sizing, 'load_projection', lambda *a, **k: None)
@@ -186,7 +190,22 @@ def test_opening_asset_lookup_permanent_error_stays_terminal(monkeypatch, status
     assert not isinstance(caught.value, paper.PaperRetryableRefused)
 
 
-def test_opening_asset_lookup_timeout_retries_and_authority_refusal_propagates(monkeypatch):
+@pytest.mark.parametrize('status', [404, 422])
+def test_opening_asset_lookup_non_authority_4xx_suppresses_buy(monkeypatch, status):
+    published_opening_identity(monkeypatch)
+    env, plan = case()
+    monkeypatch.setattr(opening_sizing, 'load_projection', lambda *a, **k: None)
+    class Broker:
+        capabilities = SimpleNamespace(require=lambda *a: None)
+        async def resolve_instrument(self, **kwargs):
+            request = httpx.Request('GET', 'https://paper-api.alpaca.markets/v2/assets/AAA')
+            httpx.Response(status, request=request).raise_for_status()
+    evidence = asyncio.run(paper_execution._opening_prices_or_retry(
+        object(), state=env, plan=plan, broker=Broker()))
+    assert isinstance(evidence, OpeningPriceUnavailability)
+
+
+def test_opening_asset_lookup_timeout_suppresses_buy_and_authority_refusal_propagates(monkeypatch):
     published_opening_identity(monkeypatch)
     from sentinel.execution.guarded import BrokerAuthorityRefused
     env, plan = case()
@@ -195,8 +214,11 @@ def test_opening_asset_lookup_timeout_retries_and_authority_refusal_propagates(m
         capabilities = SimpleNamespace(require=lambda *a: None)
         async def resolve_instrument(self, **kwargs):
             raise failure
-    for failure, expected in [(httpx.ReadTimeout('late'), paper.PaperRetryableRefused),
-                              (BrokerAuthorityRefused('revoked'), BrokerAuthorityRefused),
+    failure = httpx.ReadTimeout('late')
+    evidence = asyncio.run(paper_execution._opening_prices_or_retry(
+        object(), state=env, plan=plan, broker=Broker()))
+    assert isinstance(evidence, OpeningPriceUnavailability)
+    for failure, expected in [(BrokerAuthorityRefused('revoked'), BrokerAuthorityRefused),
                               (ValueError('software defect'), ValueError)]:
         with pytest.raises(expected):
             asyncio.run(paper_execution._opening_prices_or_retry(
