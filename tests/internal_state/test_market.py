@@ -9,6 +9,7 @@ from sentinel.core.production import warm_session_state
 from sentinel.core.session import Controller, DefensiveBar, PublishedSession, SessionState
 from sentinel.feed import calendar
 from sentinel.paper.preparation import _default_paper_strategy
+from sentinel.shadow_observation import SHADOW_WARMUP_SESSIONS
 
 from tests.internal_state import market, oracles
 from tests.internal_state.contract import InvariantFailure
@@ -61,12 +62,13 @@ def inputs(day, seed=0, shocks=()):
     bars = {}
     for row in facts.bars:
         bars.setdefault(row[1], []).append(VendorBar(row[1], row[0], row[2], row[4], row[5], row[6],
-                                                  split_ratio=row[7], dividend_per_share=row[8]))
+            split_ratio=row[7], dividend_per_share=row[8], signal_close=row[3]))
     published = PublishedSession(session=day, data_version=2, bars=bars[day], meta=meta,
         sectors={sid: "Industrials" for sid in meta},
         spy_closeadj=[r[1] for r in facts.spy[-127:]], spy_sessions=axis[-127:],
         spy_expected_sessions=axis[-127:], defensive_bar=DefensiveBar(*facts.defensive[-1]),
-        defensive_previous_bar=DefensiveBar(*facts.defensive[-2]))
+        defensive_previous_bar=DefensiveBar(*facts.defensive[-2]),
+        signal_basis_anchors={bar.security_id: bar for bar in bars[axis[-2]]})
     return bars, meta, published
 
 
@@ -75,7 +77,10 @@ def formed_state(seed=0, days=3):
     state = SessionState.fresh(starting_cash=100000, controller=Controller(config), strategy_identity=identity)
     day = market.FIRST
     bars, meta, _ = inputs(day, seed)
-    warm = SimpleNamespace(sessions=market.sessions(day)[-128:-1], bars_by_session=bars, meta=meta)
+    warm = SimpleNamespace(
+        sessions=market.sessions(day)[-SHADOW_WARMUP_SESSIONS-1:-1],
+        bars_by_session=bars, meta=meta,
+        median5_spy_closes=dict(market.step(day, seed).expected.spy))
     state = warm_session_state(state, warm, publication_version=1, prospective_concordance_witness=True)
     for _ in range(days):
         _, _, published = inputs(day, seed)
@@ -89,13 +94,14 @@ def formed_state(seed=0, days=3):
     return config, state
 
 
-def test_fictional_market_populates_actual_wealth_core_witness_and_ldrc():
+def test_fictional_market_populates_actual_champion_book_witness_and_recovery():
     _, state = formed_state()
     raw = state.to_dict()
     oracles.canonical_state(raw, identity=state.strategy_identity, cursor=state.last_processed_session)
     assert any(slot["occupied_by"] for slot in raw["wealth_core"]["slots"].values())
-    assert raw["recent_leadership"]["session_history"]
-    assert raw["ldrc"]["last_session"] == state.last_processed_session
+    assert raw["median5"]["last_session"] == state.last_processed_session
+    assert raw["median5"]["witness_nav"]
+    assert raw["median5"]["version"] == 2
 
 
 def test_restart_preserves_all_path_dependent_state_on_next_session():
@@ -124,7 +130,7 @@ def test_fictional_drawdown_drives_the_actual_controller_and_preserves_history()
         exposures.append(raw["last_decision"]["target_core_exposure"])
         day = calendar.next_session(day)
     assert min(exposures) < 1, exposures
-    assert state.ldrc["last_session"] == state.last_processed_session
+    assert state.median5["last_session"] == state.last_processed_session
 
 
 @pytest.mark.parametrize("fault,invariant", [("cash", "shadow_cash_conservation"),

@@ -1,5 +1,12 @@
 # Sentinel — operational deployment ground truth
 
+**Production strategy selection, 2026-09-11:** the owner selected the compact
+56.265× champion for production integration. The selected source authority,
+twenty-slot V5 book, REC8 controller, restart contract and verification gates
+are recorded in [production-compact-champion.md](production-compact-champion.md).
+This decision supersedes older strategy-selection and frozen-reference pins
+below. Integration does not issue deployment or broker authority.
+
 **Status: DIRECTION SET 2026-08-09. Stocker is retired as a runtime. Sentinel is
 the operational target. Paper trading only.**
 

@@ -43,11 +43,17 @@ def canonical_state(raw, *, identity, cursor):
     check("state_cursor_atomicity", cursor, raw["last_processed_session"])
     check("controller_cursor", cursor, raw["controller"]["last_session"])
     check("decision_cursor", cursor, raw["last_decision"]["session"])
-    check("witness_cursor", cursor, raw["recent_leadership"]["last_session"])
-    check("ldrc_cursor", cursor, raw["ldrc"]["last_session"])
+    check("champion_profile", "sentinel-compact-champion-v1", identity.get("strategy"))
+    check("witness_cursor", cursor, raw["median5"]["last_session"])
+    check("recovery_version", 2, raw["median5"]["version"])
+    check("recovery_allocation", raw["last_decision"]["target_core_exposure"],
+          raw["median5"]["previous_desired"])
+    for key in ("full_streak", "recent_positive_streak"):
+        check("bounded_recovery_counter", True,
+              type(raw["median5"][key]) is int and 0 <= raw["median5"][key] <= 8)
     check("shadow_peak_nonnegative", True, raw["shadow_peak_nav"] >= 0)
     check("exposure_bounds", True, 0 <= raw["last_decision"]["target_core_exposure"] <= 1)
-    check("wealth_core_slots", 25, len(raw["wealth_core"]["slots"]))
+    check("wealth_core_slots", 20, len(raw["wealth_core"]["slots"]))
     occupied = [s["occupied_by"] for s in raw["wealth_core"]["slots"].values() if s["occupied_by"]]
     check("one_slot_per_episode", len(occupied), len(set(occupied)))
     portfolio = raw["wealth_core"]
@@ -88,7 +94,7 @@ def canonical_state(raw, *, identity, cursor):
         lengths = {len(series[k]) for k in ("sessions", "session_indices", "signal_closes", "raw_closes", "volumes")}
         check("aligned_feed_series", 1, len(lengths))
         dates = series["sessions"]
-        check("bounded_restart_series", True, len(dates) <= 127)
+        check("bounded_restart_series", True, len(dates) <= 260)
         check("causal_feed_sessions", sorted(set(dates)), dates)
         check("no_future_observation", True, all(d <= cursor for d in dates))
     def finite(value):

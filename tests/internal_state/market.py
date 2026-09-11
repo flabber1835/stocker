@@ -7,12 +7,17 @@ import math
 
 from research.sharadar_replay.model import Corpus, Fault, Step
 from research.sharadar_replay.oracle import compare
-from research.sharadar_replay.scenarios import START, sessions
+from sentinel.feed import calendar
 
 SYMBOLS = tuple(f"S{i:03d}" for i in range(30))
 SECURITIES = {symbol: f"STATE-{symbol}" for symbol in SYMBOLS} | {"BIL": "SENTINEL:BIL"}
 SEED = "2026-08-17"
 FIRST = "2026-08-18"
+START = "2025-08-01"
+
+
+def sessions(through):
+    return calendar.sessions_in_range(START, through)
 
 
 def compare_corpus(expected: Corpus, actual: Corpus):

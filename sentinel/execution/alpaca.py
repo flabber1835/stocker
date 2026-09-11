@@ -379,6 +379,7 @@ class AlpacaExecutionBroker(ExecutionBroker):
         fractional_quantities=True,
         minimum_quantity_increment=Decimal("0.000000001"),
         market_on_open=False,
+        regular_session_open_prices=True,
     )
     certification_name = "alpaca"
     # Method presence is deliberately not production authority.  These flags
@@ -433,6 +434,54 @@ class AlpacaExecutionBroker(ExecutionBroker):
 
     async def identify_account(self) -> BrokerAccountIdentity:
         return self._account_identity(await self._get("/v2/account"))
+
+    async def opening_prices(self, *, session: date, instruments):
+        import httpx
+        from datetime import timedelta
+        from sentinel.feed import calendar
+        from sentinel.execution.opening_prices import (
+            ENDPOINT, OpeningPriceNotReady, OpeningPriceUnavailable, parse_bars)
+        self.capabilities.require("regular_session_open_prices")
+        opened, closed = calendar.session_window(session)
+        now = self._now()
+        if opened <= now < opened + timedelta(minutes=1):
+            raise OpeningPriceNotReady("opening minute is still forming; retry after open plus 60 seconds")
+        if not opened + timedelta(minutes=1) <= now < closed:
+            raise OpeningPriceUnavailable("opening minute is unavailable in this execution window")
+        if (not instruments or len(instruments) > 40
+                or any(sid != item.security_id for sid, item in instruments.items())
+                or len({item.symbol for item in instruments.values()}) != len(instruments)):
+            raise OpeningPriceUnavailable("invalid opening-price instrument request")
+        broker_symbols = {sid: self._to_symbol(item.symbol) for sid, item in instruments.items()}
+        if (len(set(broker_symbols.values())) != len(instruments)
+                or any(not symbol or self._from_symbol(symbol) != instruments[sid].symbol
+                       for sid, symbol in broker_symbols.items())):
+            raise OpeningPriceUnavailable("ambiguous opening-price broker symbols")
+        try:
+            async with self._httpx.AsyncClient(timeout=20.0) as client:
+                resp = await client.get(ENDPOINT, headers=self._headers(), params={
+                    "symbols": ",".join(sorted(broker_symbols.values())),
+                    "timeframe": "1Min", "feed": "sip", "adjustment": "raw",
+                    "start": opened.isoformat(),
+                    "end": (opened + timedelta(minutes=1, microseconds=-1)).isoformat(),
+                    "asof": session.isoformat(), "sort": "asc", "limit": 10000,
+                    "currency": "USD"})
+                if resp.status_code in (401, 403):
+                    raise AlpacaCredentialsRefused(
+                        f"Alpaca opening data authority refused with HTTP {resp.status_code}")
+                resp.raise_for_status()
+                try:
+                    payload = resp.json(parse_float=Decimal)
+                except (ValueError, TypeError) as exc:
+                    raise OpeningPriceUnavailable("opening bar response is malformed") from exc
+        except httpx.RequestError as exc:
+            raise OpeningPriceUnavailable("opening data read is unavailable") from exc
+        except httpx.HTTPStatusError as exc:
+            if exc.response.status_code == 429 or exc.response.status_code >= 500:
+                raise OpeningPriceUnavailable("opening data service is temporarily unavailable") from exc
+            raise
+        return parse_bars(payload, session=session, instruments=instruments,
+                          observed_at=self._now(), broker_symbols=broker_symbols)
 
     async def account_snapshot(self) -> BrokerAccountSnapshot:
         payload = await self._get("/v2/account")

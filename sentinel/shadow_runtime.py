@@ -21,6 +21,7 @@ from zoneinfo import ZoneInfo
 from sentinel import identity as system_identity
 from sentinel.controller import ldrc as ldrc_module
 from sentinel.controller.concordance import is_concordance_identity
+from sentinel.controller.median5 import enabled as is_median5
 from sentinel.controller.concordance_parent import (
     STRATEGY_ID as CONCORDANCE_PARENT_STRATEGY_ID,
     load as load_concordance_parent,
@@ -52,6 +53,8 @@ from sentinel.shadow_observation import (
     SHADOW_EXECUTION_MODEL,
     SHADOW_WARMUP_SESSIONS,
     WARMUP_INPUT_SCHEMA,
+    _exact_price_ratio,
+    _signal_price_identity,
 )
 from sentinel.shadow_segments import (
     SegmentedPostgresShadowObservationStore,
@@ -188,6 +191,13 @@ def _warmup_input_identity(
         raise ShadowRuntimeRefused(
             "shadow warm-up identity requires the exact 252-session axis")
 
+    signal_anchors = {}
+    if hasattr(window, "median5_spy_closes"):
+        for session in ordered:
+            for bar in window.bars_by_session.get(session, ()):
+                if bar.signal_close is not None:
+                    signal_anchors.setdefault(bar.security_id, bar)
+
     def economic_bar(bar, *, session: str, index: int) -> dict:
         raw_close = _decimal_text(
             bar.raw_close, where=f"warm-up raw close {session}/{index}",
@@ -203,6 +213,10 @@ def _warmup_input_identity(
             liquidity = format(
                 (Decimal(raw_close) * Decimal(volume)).normalize(), "f")
         return {
+            **({"signal_close": _signal_price_identity(
+                    bar, signal_anchors.get(bar.security_id), warmup=True),
+                "raw_compatible_volume": volume}
+               if hasattr(window, "median5_spy_closes") else {}),
             "security_id": str(bar.security_id),
             "ticker": str(bar.ticker),
             "raw_close": raw_close,
@@ -257,6 +271,13 @@ def _warmup_input_identity(
         } for session in ordered)
 
     identity = {
+        **({"median5_profile": "wealth-core-median5-v1",
+            "median5_spy_sha256": _stream_sha256(
+                (session, _exact_price_ratio(value, window.median5_spy_closes[ordered[0]]))
+                for session, value in sorted(window.median5_spy_closes.items())),
+            "median5_terminal_sha256": _stream_sha256(
+                (s, sorted(ids)) for s, ids in sorted(window.median5_terminals.items()))}
+           if hasattr(window, "median5_spy_closes") else {}),
         "schema": WARMUP_INPUT_SCHEMA,
         "first_warmup_session": ordered[0],
         "last_warmup_session": ordered[-1],
@@ -286,7 +307,7 @@ def _load_warmup_material(
             "shadow feature warm-up is incomplete: " + ", ".join(missing[:8]))
 
     prospective_witness = False
-    if is_concordance_identity(strategy_identity):
+    if is_concordance_identity(strategy_identity) or is_median5(strategy_identity):
         try:
             window.metadata_timeline = load_causal_meta_history(
                 conn, sessions=warm)
@@ -295,6 +316,9 @@ def _load_warmup_material(
             # supports a prospective zero-capital witness specifically for
             # forward observation; the first current close begins that witness.
             prospective_witness = True
+    if is_median5(strategy_identity):
+        from sentinel.core.production import load_median5_warmup_inputs
+        load_median5_warmup_inputs(conn, window)
 
     identity = _warmup_input_identity(
         window, warm, prospective_witness=prospective_witness)
@@ -360,34 +384,12 @@ def _warmup_loader(conn, observer: ShadowObserver):
 
 
 def _strategy():
-    # One shared composition asserts the exact hardened parent and retained
-    # Simplified Concordance LD-RC overlay. No second strategy identity is
-    # allowed to drift into the shadow path.
-    if (ldrc_module.STRATEGY_ID
-            != "sentinel-concordance-simplified-ldrc"
-            or ldrc_module.STRATEGY_VERSION != 3):
-        raise ShadowRuntimeRefused(
-            "shadow runtime requires Simplified Concordance LD-RC v3")
-    ldrc = LDRCConfig()
-    actual = (
-        ldrc.divergence_ceiling, ldrc.wc_drawdown_trigger,
-        ldrc.recent_r20_trigger, ldrc.spy_r20_floor,
-        ldrc.recovery_sessions, ldrc.spy_v_rebound,
-    )
-    if actual != (0.55, -0.10, -0.08, 0.00, 7, 0.11):
-        raise ShadowRuntimeRefused(
-            "Simplified LD-RC v3 constants differ from the retained strategy")
-    controller = load_concordance_parent()
-    if controller.strategy_id != CONCORDANCE_PARENT_STRATEGY_ID:
-        raise ShadowRuntimeRefused(
-            "shadow controller differs from the hardened Concordance parent")
+    """Load the shared certified Median-5 production profile."""
+    from sentinel.strategy import production_strategy
     try:
-        identity = runtime_strategy_identity(controller, concordance=True)
+        return production_strategy()
     except (OSError, RuntimeError, TypeError, ValueError) as exc:
-        raise ShadowRuntimeRefused(
-            "the complete shadow strategy/data semantics source bundle cannot "
-            "be fingerprinted") from exc
-    return controller, identity
+        raise ShadowRuntimeRefused("Median-5 production strategy identity cannot be verified") from exc
 
 
 def _validated_runtime_identity(

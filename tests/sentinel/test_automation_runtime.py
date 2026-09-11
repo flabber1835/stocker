@@ -1112,10 +1112,9 @@ def test_composition_requires_exact_signed_automation_authority(
     monkeypatch.setattr(
         automation_runtime.publication, "require_current",
         lambda _conn: SimpleNamespace(version=81))
-    monkeypatch.setattr(automation_runtime, "load_controller", lambda: object())
     monkeypatch.setattr(
-        automation_runtime, "runtime_strategy_identity",
-        lambda _value: {"strategy": "sentinel-runtime-test"})
+        automation_runtime, "production_strategy",
+        lambda: (object(), {"strategy": "sentinel-runtime-test"}))
     monkeypatch.setattr(
         automation_runtime.system_identity, "rehearsal_identity",
         lambda: {"runtime": "certified-image"})
@@ -1177,9 +1176,7 @@ async def test_idle_authority_failure_blocks_cycle_and_enqueues_alert(
         automation_runtime.publication, "require_current",
         lambda _conn: SimpleNamespace(version=1))
     monkeypatch.setattr(
-        automation_runtime, "load_controller", lambda: object())
-    monkeypatch.setattr(
-        automation_runtime, "runtime_strategy_identity", lambda _value: {})
+        automation_runtime, "production_strategy", lambda: (object(), {}))
     monkeypatch.setattr(
         automation_runtime.system_identity, "rehearsal_identity", lambda: {})
     monkeypatch.setattr(
@@ -1258,9 +1255,8 @@ async def test_idle_no_live_cycle_authority_failure_engages_durable_kill(
     monkeypatch.setattr(
         automation_runtime.publication, "require_current",
         lambda _conn: SimpleNamespace(version=1))
-    monkeypatch.setattr(automation_runtime, "load_controller", lambda: object())
     monkeypatch.setattr(
-        automation_runtime, "runtime_strategy_identity", lambda _value: {})
+        automation_runtime, "production_strategy", lambda: (object(), {}))
     monkeypatch.setattr(
         automation_runtime.system_identity, "rehearsal_identity", lambda: {})
     monkeypatch.setattr(

@@ -1,0 +1,113 @@
+{
+  "base": "4bba6875b07288cf6ebc6a149b926075b1e41c60",
+  "definitions": {
+    "_assert_concordance_witness_authority": {
+      "generated_ast_sha256": "43faa648b30b30e8185adcda266aeb69b276ffef62fd078dafc76b17ad15705a",
+      "historical_ast_sha256": "a28e490e18eda175562816e5047a9cefad6996a968758d0c97b85eefba71d8ab",
+      "module": "validation"
+    },
+    "_default_paper_strategy": {
+      "generated_ast_sha256": "3e10a47c2c9688268e2d972294ee6ea41875d6dc0f9eaadb08ccbe2bc5e0fbe8",
+      "historical_ast_sha256": "c9f5987d080d755d3f89cf829e6de00a3c6137ba31fb58bfc99d92bc9c81aebc",
+      "module": "preparation"
+    },
+    "_execute_current_paper_plan": {
+      "generated_ast_sha256": "a54b8ac1da0de2aa7795c6e9d68067e9851c8a3a3aa4249b3c6755e3a870800c",
+      "historical_ast_sha256": "b98878c22ddd18988528fae60f9f21c288f9f9eef54fa86760ccb6378a15de7f",
+      "module": "execution"
+    },
+    "_fresh_warmed_state": {
+      "generated_ast_sha256": "1afd2445d98e791c34d7040fcc345f334173cf9ab9cc44ef2c5426dd1be7202f",
+      "historical_ast_sha256": "ed5c9e76c44538c7a46dbc1738001c632996e960a8e5b2dd889a7d80cf0ce023",
+      "module": "preparation"
+    },
+    "_instrument_map": {
+      "generated_ast_sha256": "232b7696aa82c66eeb2e18a1bb5c8a36dfc94816b3b4cbf592782416207b4f47",
+      "historical_ast_sha256": "901822d197c2e7745701f79b95096887b3dd3e3e02dead3160013fe356bbdc30",
+      "module": "targets"
+    },
+    "_latest_plan_or_refuse": {
+      "generated_ast_sha256": "8ae8415d255fcca8a8010d0d175de6ff45cff00156424e22294fae8d4f9963c0",
+      "historical_ast_sha256": null,
+      "module": "validation"
+    },
+    "_load_marks_and_tickers": {
+      "generated_ast_sha256": "42b330d6b41923219c27f9c341fed5f315d63e9849ae29fd0d379bd5b7beb404",
+      "historical_ast_sha256": "ca6ba67872aab988905382eda278340903befbd539c4fd23f817f9506320a7ef",
+      "module": "preparation"
+    },
+    "_opening_prices_or_retry": {
+      "generated_ast_sha256": "56ea66b7de160942479d188410090abfd4aac2f1e0a4900366afdab046190d06",
+      "historical_ast_sha256": null,
+      "module": "execution"
+    },
+    "_opening_resolution_freshness_or_refuse": {
+      "generated_ast_sha256": "5df90ec614e998f52ad83e46bfce446fda9814e5d338375ed9f3fcc5afd8282b",
+      "historical_ast_sha256": null,
+      "module": "execution"
+    },
+    "_preopen_active_security_ids": {
+      "generated_ast_sha256": "f4d0d48fa4bb9e34a62b185b5191e54ba9a11a9352ee0f5cf7af949760431204",
+      "historical_ast_sha256": "6729525b285bc3f9b067b713a9262232f7f66af8f33fb821b309983fe7cf5764",
+      "module": "targets"
+    },
+    "_provably_clean_empty_noop": {
+      "generated_ast_sha256": "2b05d9b81659b3bfc4dcb5dd2286f60ad6c0e59ee619e641c63fdc47308d3bea",
+      "historical_ast_sha256": "0bc1f8e2ea012168b43d5173091377cf8ad3df902b3c3bb73cc452c73ebfbeac",
+      "module": "targets"
+    },
+    "_state_and_plan_or_refuse": {
+      "generated_ast_sha256": "9b16b531f94de5e69fda3355fbbda3b63491ce6c66c8d3ef25f8635fe7baf314",
+      "historical_ast_sha256": "b3131f775f556c43b2b3b64107fc6c7d1c9a3911a533887ba9cf2673ed363e9b",
+      "module": "validation"
+    },
+    "_target_action_multipliers": {
+      "generated_ast_sha256": "f7ce458cb06de2def9aa2eb1ff7cef0077ef28096d57e94184a21ace4b6d9993",
+      "historical_ast_sha256": "1499e0aaa48b3977bb8f951c451ca00eb3da9a27f1802efb135fd9d1f9c30d0e",
+      "module": "targets"
+    },
+    "_target_projection_or_refuse": {
+      "generated_ast_sha256": "a5abc1989f743a0e29465cf77e596090711429757f48a5b31c7afaa2dd79b0da",
+      "historical_ast_sha256": "23dfec886b25ef9cb2ad3cb210347e115dd5a2eb4ecc60a7f9febe0bd4935a46",
+      "module": "targets"
+    },
+    "_validate_broker_grant": {
+      "generated_ast_sha256": "c7206c26658ee7fae7dcaeee2d9f4798325b6f626ffdc11bae873eec3f6d7881",
+      "historical_ast_sha256": "a10cb381c28e916db84d14fe6fbc617043ac4e1beaaf165a2287250fdc4ce282",
+      "module": "validation"
+    },
+    "build_security_resolver": {
+      "generated_ast_sha256": "25a8c2fcd2a10dde322451d90c693185c6e15737212f6f499db2c09eca985ae7",
+      "historical_ast_sha256": "2081ff39ad7127034e11ad3b2afc731a971ea926d9eb664546d3c0a4d6ed3a68",
+      "module": "inspection"
+    },
+    "current_paper_plan": {
+      "generated_ast_sha256": "36ecf40e724f6007dd50020ad8a849a06ca536946e6923cbdabaf79f62d68dec",
+      "historical_ast_sha256": "28a81ab27dc25f2b8c0734cde7e33bde9985bbb2b19bff7b0790a9a100d50a27",
+      "module": "preparation"
+    },
+    "prepare_paper_plan": {
+      "generated_ast_sha256": "486d1eddabe1339d0c90fe003e2d28b30b448378cb13f4c57f9c88613f6b234d",
+      "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
+      "module": "preparation"
+    },
+    "recover_automated_paper_cycle": {
+      "generated_ast_sha256": "5fbe88d16fbc1c9f375d7813b597ec65bd3434e5735227b099b9399c7884da28",
+      "historical_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
+      "module": "recovery"
+    }
+  },
+  "design": "docs/production-compact-champion.md",
+  "regression_suites": [
+    "tests/champion",
+    "tests/v5/test_opening.py",
+    "tests/v5/test_opening_durability.py",
+    "tests/v5/test_opening_identity.py",
+    "tests/v5/test_review_regressions.py",
+    "tests/sentinel/test_v5_opening_execution_freshness.py",
+    "tests/sentinel/test_opening_submit_freshness_boundary.py",
+    "tests/sentinel/test_issue209_simplified_ldrc_runtime.py",
+    "tests/sentinel/test_automation_runtime.py"
+  ],
+  "schema": "sentinel.production-champion-paper-deltas/1"
+}

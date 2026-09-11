@@ -261,6 +261,8 @@ class PortfolioState:
     cash: float = 0.0
     initialized: bool = False
     session_index: int = 0
+    median5: dict | None = None
+    entry_sizing_profile: str | None = None
     # security_id -> why its terminal action cannot be applied. Lives on the
     # STATE rather than beside the event stream so it survives a restart: a
     # blocked book that silently unblocks itself on redeploy is the failure the
@@ -335,9 +337,10 @@ class PortfolioState:
     last_valid_mark_session: dict[str, str] = field(default_factory=dict)
 
     @classmethod
-    def fresh(cls, starting_cash: float, n_slots: int = DEFAULT_SLOTS) -> "PortfolioState":
+    def fresh(cls, starting_cash: float, n_slots: int = DEFAULT_SLOTS,
+              *, entry_sizing_profile: str | None = None) -> "PortfolioState":
         return cls(slots={i: SlotState(slot_id=i) for i in range(n_slots)},
-                   cash=float(starting_cash))
+                   cash=float(starting_cash), entry_sizing_profile=entry_sizing_profile)
 
     # ── queries ──────────────────────────────────────────────────────────────
 
@@ -467,6 +470,9 @@ class PortfolioState:
 
     def to_dict(self) -> dict[str, Any]:
         return {
+            **({"median5": deepcopy(self.median5)} if self.median5 is not None else {}),
+            **({"entry_sizing_profile": self.entry_sizing_profile}
+               if self.entry_sizing_profile is not None else {}),
             "slots": {str(k): asdict(v) for k, v in sorted(self.slots.items())},
             "episodes": {str(k): _episode_json(v)
                          for k, v in sorted(self.episodes.items())},
@@ -544,6 +550,8 @@ class PortfolioState:
             security_cooldowns=dict(d.get("security_cooldowns") or {}),
             cash=cash,
             initialized=initialized,
+            median5=deepcopy(d.get("median5")),
+            entry_sizing_profile=d.get("entry_sizing_profile"),
             session_index=session_index,
             unresolved_terminals=dict(d.get("unresolved_terminals") or {}),
             # Absent means zero — a blob written before the settlement waterfall

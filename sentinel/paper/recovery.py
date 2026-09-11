@@ -39,7 +39,7 @@ from sentinel.core.production import (
     warm_session_state,
 )
 
-from sentinel.execution import broker_cash, executor, journal
+from sentinel.execution import broker_cash, executor, journal, opening_sizing, target_reprojection
 
 from sentinel.execution import preopen_authority
 
@@ -272,7 +272,7 @@ async def recover_automated_paper_cycle(
             commands = journal.load_commands(conn, binding.identity)
             active_security_ids = _preopen_active_security_ids(
                 plan=plan, commands=commands, actions=actions)
-            if active_security_ids and not dual_mode:
+            if active_security_ids and (not dual_mode or plan.opening_intents):
                 official_open = _official_preopen_cutoff(plan)
                 authority, actions, target_actions = _preopen_views_or_none(
                     conn, plan=plan,
@@ -297,7 +297,7 @@ async def recover_automated_paper_cycle(
             current_commands = journal.load_commands(conn, binding.identity)
             current_security_ids = _preopen_active_security_ids(
                 plan=plan, commands=current_commands, actions=actions)
-            if (not dual_mode and authority is None
+            if ((not dual_mode or plan.opening_intents) and authority is None
                     and current_security_ids):
                 raise PreOpenShareUnitAuthorityUnavailable(
                     "pre-open share-unit authority is absent after recovery "
@@ -314,11 +314,17 @@ async def recover_automated_paper_cycle(
                     raise PaperActivationRefused(
                         "current-generation recovery cannot revalidate its "
                         "target projection without canonical strategy state")
-                target_projection = _target_projection_or_refuse(
-                    conn, state=state, plan=plan, binding=binding,
-                    broker=broker, through=plan.effective_session,
-                    actions=actions, target_actions=target_actions,
-                    require_existing=True)
+                try:
+                    unsized = opening_sizing.requires_initial_projection(
+                        conn, plan=plan, deployment=binding.identity)
+                except target_reprojection.TargetProjectionRefused as exc:
+                    raise PaperActivationRefused(str(exc)) from exc
+                if not unsized:
+                    target_projection = _target_projection_or_refuse(
+                        conn, state=state, plan=plan, binding=binding,
+                        broker=broker, through=plan.effective_session,
+                        actions=actions, target_actions=target_actions,
+                        require_existing=True)
 
         if dual_mode:
             _dual_mutation_observation_or_refuse(result)

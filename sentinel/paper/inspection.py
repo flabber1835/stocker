@@ -254,11 +254,16 @@ def _recovery_account_identity_or_refuse(
 def build_security_resolver(conn, session: str):
     """Point-in-time broker symbol -> permanent execution identity."""
     from sentinel.feed.universe import load_resolver
+    from sentinel.feed.calendar import sessions_in_range
     resolver = load_resolver(conn)
+    execution_resolver = (load_resolver(conn, execution_session=session)
+                          if sessions_in_range(session, session) else resolver)
 
     def resolve(symbol: str, as_of: str | None = None):
         if str(symbol).upper() == DEFENSIVE_SYMBOL:
             return DEFENSIVE_SECURITY_ID
-        return resolver.resolve(str(symbol), as_of or session)
+        effective = as_of or session
+        authority = execution_resolver if effective == session else resolver
+        return authority.resolve(str(symbol), effective)
 
     return resolve

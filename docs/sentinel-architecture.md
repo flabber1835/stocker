@@ -1,5 +1,10 @@
 # Sentinel — architecture and build plan
 
+The production selector now names the owner-selected compact champion.
+[production-compact-champion.md](production-compact-champion.md) defines its
+canonical V5 book, native controller, REC8 recovery state and replay ownership.
+Production owns warmup and readiness decisions for every execution environment.
+
 > **CURRENT TARGET BOUNDARY:** Full historical replay is being separated from
 > the production trader. Production retains feature-only warm-up, the canonical
 > one-session transition, real-state outage catch-up, and the operational safety
