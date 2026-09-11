@@ -40,6 +40,8 @@ jobs:
           git rev-parse HEAD > evidence/tested-commit.txt
           git rev-parse 'HEAD^{tree}' > evidence/tested-tree.txt
           python -m pytest tests/backup -q -ra --junitxml=evidence/backup.xml
+          python tools/verify_test_owner_execution.py --owner backup.reliability \
+            --junit evidence/backup.xml --output evidence/test-owner.json
       - name: Prove real PostgreSQL recovery and corruption refusal
         run: |
           set -euo pipefail
