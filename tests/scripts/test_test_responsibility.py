@@ -49,18 +49,21 @@ def test_parameter_instances_collapse_to_one_exact_logical_contract_definition()
     assert resolve_contracts(required, physical) == {"cash": sorted(physical)}
 
 
-def test_junit_evidence_exposes_an_owned_module_that_was_never_executed(tmp_path):
+def test_junit_evidence_exposes_owned_modules_that_are_missing_or_skipped(tmp_path):
     this_module = ROOT / "tests/scripts/test_test_responsibility.py"
     other_module = ROOT / "tests/scripts/test_merge_junit.py"
     junit = tmp_path / "one.xml"
     junit.write_text(
-        '<testsuite tests="1"><testcase '
-        'classname="tests.scripts.test_test_responsibility" '
-        'name="test_seen"/></testsuite>', encoding="utf-8")
+        '<testsuite tests="2">'
+        '<testcase classname="tests.scripts.test_test_responsibility" name="test_seen"/>'
+        '<testcase classname="tests.scripts.test_merge_junit" name="test_skipped">'
+        '<skipped message="disabled"/></testcase>'
+        '</testsuite>', encoding="utf-8")
     executed, logical = junit_execution([junit], [this_module, other_module])
     assert "tests/scripts/test_test_responsibility.py" in executed
     assert "tests/scripts/test_merge_junit.py" not in executed
     assert "tests/scripts/test_test_responsibility.py::test_seen" in logical
+    assert "tests/scripts/test_merge_junit.py::test_skipped" not in logical
 
 
 def test_required_check_bridge_accepts_only_exact_github_actions_success():
