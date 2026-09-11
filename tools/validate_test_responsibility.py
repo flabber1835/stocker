@@ -82,27 +82,41 @@ def _require_merge_authority() -> dict:
     sharadar_path = ROOT / ".github/workflows/sharadar-daily-replay.yml"
     sentinel = sentinel_path.read_text()
     sharadar = sharadar_path.read_text()
-    required = [
+    sentinel_required = [
         "checks: read",
+        "actions: read",
         "python tools/require_check_run.py",
-        '--sha "$GITHUB_SHA"',
+        "CHECK_SUITE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
+        '--sha "$CHECK_SUITE_SHA"',
         '--name "sharadar-replay-${{ matrix.scope }}"',
-        "if: github.event_name == 'pull_request'",
+        '--workflow ".github/workflows/sharadar-daily-replay.yml"',
+        "if: github.event_name == 'pull_request' || github.event_name == 'merge_group'",
         "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
     ]
-    missing = [needle for needle in required if needle not in sentinel]
+    missing = [needle for needle in sentinel_required if needle not in sentinel]
     assert not missing, f"Sentinel required-check bridge is incomplete: {missing}"
     assert "python -m unittest -v tests.host_python38.test_" not in sentinel, (
         "host Python 3.8 ownership regressed to a hand-maintained module list")
-    assert "name: sharadar-replay-${{ matrix.scope }}" in sharadar, (
-        "Sharadar aggregate checks must have unique stable bridge names")
+
+    sharadar_required = [
+        "merge_group:",
+        "name: sharadar-replay-${{ matrix.scope }}",
+        "TESTED_COMMIT: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}",
+        "ref: ${{ env.TESTED_COMMIT }}",
+        'test "$(git rev-parse HEAD)" = "$TESTED_COMMIT"',
+        'verify_evidence.py evidence --commit "$TESTED_COMMIT"',
+    ]
+    missing = [needle for needle in sharadar_required if needle not in sharadar]
+    assert not missing, f"Sharadar merge authority is incomplete: {missing}"
     return {
         "carrier_contexts": ["sentinel-exact-head", "sentinel-synthetic-merge"],
         "dependency_checks": [
             "sharadar-replay-exact-head",
             "sharadar-replay-synthetic-merge",
         ],
-        "commit_binding": "GITHUB_SHA",
+        "check_suite_binding": "pull-request head SHA or merge-group SHA",
+        "workflow_origin": ".github/workflows/sharadar-daily-replay.yml",
+        "tested_commit_binding": "Sharadar TESTED_COMMIT exact-head/synthetic-merge",
     }
 
 
