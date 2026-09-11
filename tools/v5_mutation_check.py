@@ -40,6 +40,11 @@ def checked(function, *args):
 
 def run():
     cases = (
+        ("forming_opening_minute_permanently_suppresses_buy",
+         lambda: checked(review_checks.test_forming_opening_minute_retries_then_sizes_the_same_intent, 30),
+         opening_sizing, "prices_for_plan", rewritten(opening_sizing.prices_for_plan,
+             "except OpeningPriceNotReady:\n        raise",
+             "except OpeningPriceNotReady as exc:\n        return _unavailable(plan, instruments, exc)")),
         ("expired_opening_loses_no_buy_evidence",
          lambda: checked(review_checks.test_expired_opening_returns_no_buy_evidence_for_mixed_plan),
          paper_execution, "_opening_resolution_freshness_or_refuse",

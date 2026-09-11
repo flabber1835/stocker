@@ -65,6 +65,48 @@ def test_expired_unsent_projection_retains_original_economics(monkeypatch):
     assert stored.target_basket['SEC-AAA'] > 0
 
 
+@pytest.mark.parametrize('seconds', [0, 30, 59])
+def test_forming_opening_minute_retries_then_sizes_the_same_intent(monkeypatch, seconds):
+    from sentinel.execution.alpaca import AlpacaExecutionBroker
+    from sentinel.execution.opening_prices import OpeningPrices
+    published_opening_identity(monkeypatch)
+    env, plan = case()
+    before = env.to_dict()
+    monkeypatch.setattr(opening_sizing, 'load_projection', lambda *a, **k: None)
+    opened, _ = calendar.session_window(plan.effective_session)
+    now = [opened + timedelta(seconds=seconds)]
+    reads = []
+    class Client:
+        def __init__(self, **kwargs): pass
+        async def __aenter__(self): return self
+        async def __aexit__(self, *args): pass
+        async def get(self, url, **kwargs):
+            reads.append(url)
+            return httpx.Response(200, request=httpx.Request('GET', url), json={
+                'bars': {'AAA': [{'t': opened.isoformat(), 'o': 100, 'v': 10}]},
+                'next_page_token': None})
+    broker = AlpacaExecutionBroker(api_key='test', secret_key='test',
+        base_url='https://paper-api.alpaca.markets',
+        http_provider=lambda: SimpleNamespace(AsyncClient=Client),
+        clock_provider=lambda: now[0])
+    async def resolve_instrument(*, security_id, symbol):
+        return BrokerInstrument(security_id, symbol, 'asset-'+security_id)
+    monkeypatch.setattr(broker, 'resolve_instrument', resolve_instrument)
+    with pytest.raises(paper.PaperRetryableRefused, match='still forming'):
+        asyncio.run(paper_execution._opening_prices_or_retry(
+            object(), state=env, plan=plan, broker=broker))
+    assert reads == []
+    now[0] = opened + timedelta(seconds=60)
+    evidence = asyncio.run(paper_execution._opening_prices_or_retry(
+        object(), state=env, plan=plan, broker=broker))
+    assert isinstance(evidence, OpeningPrices)
+    assert len(reads) == 1
+    projected = opening_sizing.resolve(env, plan, base(env, plan), evidence)
+    assert projected.target_basket['SEC-AAA'] == D(49)
+    assert projected.opening_sizing['mode'] == opening_sizing.FINAL_MODE
+    assert env.to_dict() == before
+
+
 @pytest.mark.parametrize('dual', [False, True])
 def test_filled_open_sized_entry_converges(monkeypatch, dual):
     env, plan = case()

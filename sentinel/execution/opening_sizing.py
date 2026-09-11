@@ -5,7 +5,7 @@ from dataclasses import replace
 from decimal import Decimal, ROUND_FLOOR
 
 from sentinel.execution.opening_prices import (
-    OpeningPrices, OpeningPriceUnavailable, OpeningPriceUnavailability)
+    OpeningPrices, OpeningPriceNotReady, OpeningPriceUnavailable, OpeningPriceUnavailability)
 from sentinel.execution.target_reprojection import (
     TargetProjectionRefused, _decimal, load_projection)
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
@@ -113,6 +113,8 @@ async def prices_for_plan(conn, *, state, plan, broker):
             raise OpeningPriceUnavailable(
                 "opening evidence differs from resolved instrument identities")
         return prices
+    except OpeningPriceNotReady:
+        raise
     except OpeningPriceUnavailable as exc:
         # Every opening-only evidence defect suppresses the new BUY. Required
         # reductions continue and independently revalidate their own broker

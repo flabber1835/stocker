@@ -68,6 +68,11 @@ its exact quantities and prices; restart reconciles existing commands and the
 final broker submission boundary rejects every fresh late BUY. Projection loss
 after any durable command remains an integrity refusal.
 
+The SIP opening minute is complete at open plus 60 seconds. A call made during
+that minute is a temporary data-wait refusal and leaves opening sizing pending.
+It may retry once the minute is complete. A completed-minute evidence failure
+and an expired opening retain their durable no-buy outcomes.
+
 ## Verification and delivery
 
 Retain the complete frozen reference as test evidence. Verify controller

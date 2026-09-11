@@ -18,6 +18,10 @@ class OpeningPriceUnavailable(RuntimeError):
     """The opening evidence is incomplete or unavailable for this attempt."""
 
 
+class OpeningPriceNotReady(OpeningPriceUnavailable):
+    """The named opening minute is still forming and sizing may retry."""
+
+
 @dataclass(frozen=True)
 class OpeningPriceUnavailability:
     """Durable proof that no opening BUY may be sized from this attempt.

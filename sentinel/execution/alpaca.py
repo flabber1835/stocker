@@ -440,10 +440,12 @@ class AlpacaExecutionBroker(ExecutionBroker):
         from datetime import timedelta
         from sentinel.feed import calendar
         from sentinel.execution.opening_prices import (
-            ENDPOINT, OpeningPriceUnavailable, parse_bars)
+            ENDPOINT, OpeningPriceNotReady, OpeningPriceUnavailable, parse_bars)
         self.capabilities.require("regular_session_open_prices")
         opened, closed = calendar.session_window(session)
         now = self._now()
+        if opened <= now < opened + timedelta(minutes=1):
+            raise OpeningPriceNotReady("opening minute is still forming; retry after open plus 60 seconds")
         if not opened + timedelta(minutes=1) <= now < closed:
             raise OpeningPriceUnavailable("opening minute is unavailable in this execution window")
         if (not instruments or len(instruments) > 40
