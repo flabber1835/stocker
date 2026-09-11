@@ -87,7 +87,7 @@ jobs:
           retention-days: 30
 
   complete-evidence:
-    name: sharadar-replay-${{ matrix.scope }}
+    name: sharadar-replay-${{ matrix.scope }}-${{ github.sha }}
     needs: daily-replay
     if: always()
     strategy:
