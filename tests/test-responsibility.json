@@ -63,6 +63,7 @@
       "unknown-submit-recovery": "test_lost_post_is_unknown_and_same_key_retry_never_duplicates",
       "pending-cancel-recovery": "test_command_transition_guard_matches_every_independent_model_edge",
       "stable-asset-id": "test_stable_asset_handle_is_used_at_post",
+      "symbol-rename-handling": "test_submit_addresses_the_durable_asset_id_not_the_ticker",
       "exact-client-key-corruption": "test_empty_successful_exact_lookup_is_corruption_not_absence",
       "partial-full-fill-accounting": "test_happy_buy_partial_fill_sell_and_adapter_restart",
       "cash-attribution": "test_deposit_withdrawal_fees_and_dividends_have_distinct_attribution",
