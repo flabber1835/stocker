@@ -135,14 +135,27 @@ def _require_execution_binding(name: str, owner: dict, job_text: str,
     return execution
 
 
-def _require_merge_authority() -> dict:
+def _require_merge_authority(*, sentinel_text: str | None = None,
+                             sharadar_text: str | None = None) -> dict:
     sentinel_path = ROOT / ".github/workflows/sentinel-safety.yml"
     sharadar_path = ROOT / ".github/workflows/sharadar-daily-replay.yml"
-    sentinel = sentinel_path.read_text()
-    sharadar = sharadar_path.read_text()
-    sentinel_required = [
-        "checks: read",
-        "actions: read",
+    sentinel = sentinel_path.read_text() if sentinel_text is None else sentinel_text
+    sharadar = sharadar_path.read_text() if sharadar_text is None else sharadar_text
+
+    workflow_permissions = ["checks: read", "actions: read"]
+    missing = [needle for needle in workflow_permissions if needle not in sentinel]
+    assert not missing, f"Sentinel required-check permissions are incomplete: {missing}"
+    assert "python -m unittest -v tests.host_python38.test_" not in sentinel, (
+        "host Python 3.8 ownership regressed to a hand-maintained module list")
+
+    carrier_job_id = "certification-and-durability"
+    carrier = _job_body(sentinel, carrier_job_id)
+    carrier_name = "name: sentinel-${{ matrix.scope }}"
+    assert carrier_name in carrier, \
+        "Sentinel protected carrier job no longer emits sentinel-${matrix.scope}"
+    assert sentinel.count(carrier_name) == 1, \
+        "Sentinel protected carrier context name must be unique within its workflow"
+    carrier_required = [
         "python tools/require_check_run.py",
         "CHECK_SUITE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
         '--sha "$CHECK_SUITE_SHA"',
@@ -151,10 +164,8 @@ def _require_merge_authority() -> dict:
         "if: github.event_name == 'pull_request' || github.event_name == 'merge_group'",
         "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
     ]
-    missing = [needle for needle in sentinel_required if needle not in sentinel]
-    assert not missing, f"Sentinel required-check bridge is incomplete: {missing}"
-    assert "python -m unittest -v tests.host_python38.test_" not in sentinel, (
-        "host Python 3.8 ownership regressed to a hand-maintained module list")
+    missing = [needle for needle in carrier_required if needle not in carrier]
+    assert not missing, f"Sentinel protected carrier job is incomplete: {missing}"
 
     aggregate_name = "name: sharadar-replay-${{ matrix.scope }}-${{ github.sha }}"
     aggregate_job = _job_body(sharadar, "complete-evidence")
@@ -175,6 +186,7 @@ def _require_merge_authority() -> dict:
     assert not missing, f"Sharadar merge authority is incomplete: {missing}"
     return {
         "carrier_contexts": ["sentinel-exact-head", "sentinel-synthetic-merge"],
+        "carrier_job": carrier_job_id,
         "dependency_checks": [
             "sharadar-replay-exact-head-${GITHUB_SHA}",
             "sharadar-replay-synthetic-merge-${GITHUB_SHA}",
