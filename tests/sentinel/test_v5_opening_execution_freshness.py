@@ -27,12 +27,17 @@ simulator_is_certified = activation.simulator_is_certified
 
 def _install_unresolved_v5_opening(conn, monkeypatch, *, sale):
     import sentinel.strategy
+    from sentinel.controller.champion_config import load
+    from sentinel.core.decision import runtime_strategy_identity
+    config = load()
+    identity = runtime_strategy_identity(config)
+    # The shared activation fixture selects its legacy controller. Restore the
+    # selected V5 profile before constructing or validating dollar intents.
+    monkeypatch.setattr(sentinel.strategy, "production_strategy",
+                        lambda: (config, dict(identity)))
     bound, pinned = activation._bind(conn), activation._publish(conn)
     state, template = case(sale=sale)
     state.data_version = pinned.version
-    config = sentinel.strategy.controller_for_identity(state.strategy_identity)
-    monkeypatch.setattr(sentinel.strategy, "production_strategy",
-                        lambda: (config, dict(state.strategy_identity)))
     activation._persist_state(conn, state)
     pending = replace(activation._plan(
         state, pinned, bound, basket=template.target_basket),
