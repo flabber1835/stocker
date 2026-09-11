@@ -2,11 +2,7 @@ name: Sentinel safety
 
 on:
   push:
-    branches:
-      - main
-      - 'fix/**'
-      - 'codex/**'
-      - 'stabilization/**'
+    branches: [main]
   pull_request:
     branches: [main]
   merge_group:
@@ -316,7 +312,7 @@ jobs:
           set -euo pipefail
           mapfile -d '' shell_scripts < <(git ls-files -z -- '*.sh')
           if [ "${#shell_scripts[@]}" -eq 0 ]; then
-            echo 'REFUSED: no tracked shell scripts were found' >&2
+            echo "REFUSED: no tracked shell scripts were found" >&2
             exit 1
           fi
           bash -n "${shell_scripts[@]}"
