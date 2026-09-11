@@ -258,7 +258,7 @@ jobs:
           python tools/require_check_run.py \
             --repository "$GITHUB_REPOSITORY" \
             --sha "$CHECK_SUITE_SHA" \
-            --name "sharadar-replay-${{ matrix.scope }}" \
+            --name "sharadar-replay-${{ matrix.scope }}-${GITHUB_SHA}" \
             --workflow ".github/workflows/sharadar-daily-replay.yml" \
             --timeout-seconds 900 \
             --poll-seconds 10
