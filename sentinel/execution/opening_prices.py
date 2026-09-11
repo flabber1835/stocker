@@ -10,11 +10,63 @@ from typing import Mapping
 from sentinel.feed import calendar
 
 SOURCE = "ALPACA_SIP_RAW_OPENING_MINUTE_V1"
+UNAVAILABLE_SOURCE = "ALPACA_OPENING_EVIDENCE_UNAVAILABLE_V1"
 ENDPOINT = "https://data.alpaca.markets/v2/stocks/bars"
 
 
 class OpeningPriceUnavailable(RuntimeError):
     """The opening evidence is incomplete or unavailable for this attempt."""
+
+
+@dataclass(frozen=True)
+class OpeningPriceUnavailability:
+    """Durable proof that no opening BUY may be sized from this attempt.
+
+    Reductions do not depend on an entry opening price.  Preserving this typed
+    result lets the executor continue risk-reducing work while making the
+    unavailable BUY explicit and permanently zero for this immutable plan.
+    """
+    session: date
+    reason: str
+    symbols: Mapping[str, str]
+    broker_ids: Mapping[str, str]
+    source: str = UNAVAILABLE_SOURCE
+
+    def __post_init__(self):
+        if self.source != UNAVAILABLE_SOURCE or not isinstance(self.reason, str) or not self.reason.strip():
+            raise OpeningPriceUnavailable("opening unavailability evidence is invalid")
+        if (any(not isinstance(sid, str) or not sid for sid in self.symbols)
+                or any(not isinstance(symbol, str) or not symbol for symbol in self.symbols.values())
+                or len(set(self.symbols.values())) != len(self.symbols)):
+            raise OpeningPriceUnavailable("opening unavailability symbols are ambiguous")
+        if (set(self.broker_ids) != set(self.symbols)
+                or any(not isinstance(asset, str) or not asset.strip()
+                       for asset in self.broker_ids.values())
+                or len(set(self.broker_ids.values())) != len(self.broker_ids)):
+            raise OpeningPriceUnavailable("opening unavailability broker identities are ambiguous")
+        object.__setattr__(self, "symbols", MappingProxyType(dict(self.symbols)))
+        object.__setattr__(self, "broker_ids", MappingProxyType(dict(self.broker_ids)))
+
+    @property
+    def prices(self):
+        return MappingProxyType({})
+
+    def to_dict(self):
+        return {"source": self.source, "session": self.session.isoformat(),
+                "reason": self.reason,
+                "symbols": dict(sorted(self.symbols.items())),
+                "broker_ids": dict(sorted(self.broker_ids.items()))}
+
+    @classmethod
+    def from_dict(cls, raw):
+        if not isinstance(raw, dict) or set(raw) != {
+                "source", "session", "reason", "symbols", "broker_ids"}:
+            raise OpeningPriceUnavailable("invalid opening unavailability evidence shape")
+        try:
+            return cls(date.fromisoformat(raw["session"]), raw["reason"],
+                       raw["symbols"], raw["broker_ids"], raw["source"])
+        except (TypeError, ValueError, AttributeError) as exc:
+            raise OpeningPriceUnavailable("corrupt opening unavailability evidence") from exc
 
 
 @dataclass(frozen=True)
@@ -60,6 +112,8 @@ class OpeningPrices:
 
     @classmethod
     def from_dict(cls, raw):
+        if isinstance(raw, dict) and raw.get("source") == UNAVAILABLE_SOURCE:
+            return OpeningPriceUnavailability.from_dict(raw)
         if not isinstance(raw, dict) or set(raw) != {
                 "source", "session", "opening_at", "observed_at", "prices", "symbols", "broker_ids"}:
             raise OpeningPriceUnavailable("invalid opening price evidence shape")
