@@ -39,10 +39,13 @@ _SCOPE_MATRIX = (
     "scope: ${{ fromJSON(github.event_name == 'pull_request' && "
     "'[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}"
 )
-_SCOPE_CHECKOUT = (
-    "ref: ${{ matrix.scope == 'exact-head' && "
+_SCOPE_SHA = (
+    "${{ matrix.scope == 'exact-head' && "
     "(github.event.pull_request.head.sha || github.sha) || github.sha }}"
 )
+_SCOPE_CHECKOUT = "ref: " + _SCOPE_SHA
+_SCOPE_TESTED_COMMIT = "TESTED_COMMIT: " + _SCOPE_SHA
+_SCOPE_ENV_CHECKOUT = "ref: ${{ env.TESTED_COMMIT }}"
 
 
 def git(*args: str) -> str:
@@ -91,12 +94,15 @@ def _require_scope_binding(name: str, scopes: set[str], job_text: str,
         f"{name}: declared workflow does not run on pull requests"
     assert _SCOPE_MATRIX in job_text, \
         f"{name}: declared CI job does not instantiate exact-head and synthetic-merge scopes"
-    assert _SCOPE_CHECKOUT in job_text, \
+    direct_checkout = _SCOPE_CHECKOUT in job_text
+    tested_commit_checkout = (
+        _SCOPE_TESTED_COMMIT in job_text and _SCOPE_ENV_CHECKOUT in job_text)
+    assert direct_checkout or tested_commit_checkout, \
         f"{name}: declared CI job does not bind scope to exact PR-head/synthetic-merge checkout"
     return {
         "scopes": sorted(scopes),
         "matrix": _SCOPE_MATRIX,
-        "checkout_ref": _SCOPE_CHECKOUT,
+        "checkout_binding": "direct-ref" if direct_checkout else "tested-commit-env",
     }
 
 
@@ -160,8 +166,8 @@ def _require_merge_authority() -> dict:
     sharadar_required = [
         "merge_group:",
         aggregate_name,
-        "TESTED_COMMIT: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}",
-        "ref: ${{ env.TESTED_COMMIT }}",
+        _SCOPE_TESTED_COMMIT,
+        _SCOPE_ENV_CHECKOUT,
         'test "$(git rev-parse HEAD)" = "$TESTED_COMMIT"',
         'verify_evidence.py evidence --commit "$TESTED_COMMIT"',
     ]
