@@ -61,11 +61,16 @@ def _api_json(repository: str, suffix: str, token: str) -> object:
             f"GitHub API query failed: HTTP {exc.code}: {detail}") from exc
 
 
-def fetch_check_runs(repository: str, sha: str, token: str) -> list[dict]:
+def fetch_check_runs(repository: str, sha: str, name: str, token: str) -> list[dict]:
     encoded_sha = parse.quote(sha, safe="")
+    query = parse.urlencode({
+        "check_name": name,
+        "filter": "latest",
+        "per_page": 100,
+    })
     payload = _api_json(
         repository,
-        f"commits/{encoded_sha}/check-runs?per_page=100&filter=latest",
+        f"commits/{encoded_sha}/check-runs?{query}",
         token,
     )
     if not isinstance(payload, dict):
@@ -135,18 +140,19 @@ def require_check(repository: str, sha: str, name: str, workflow: str, token: st
     deadline = time.monotonic() + timeout_seconds
     last = None
     while True:
-        run = select_check(fetch_check_runs(repository, sha, token), name)
+        run = select_check(fetch_check_runs(repository, sha, name, token), name)
         last = run
-        if run is not None:
+        verdict = check_verdict(run)
+        if run is not None and verdict != "WAIT":
+            # Terminal status guarantees the job/run metadata has settled enough
+            # to authenticate workflow origin without racing job creation.
             origin = verify_workflow_origin(
                 repository, run, workflow, sha, token)
-            verdict = check_verdict(run)
             if verdict == "PASS":
                 return run, origin
-            if verdict == "FAIL":
-                raise RuntimeError(
-                    f"required check {name!r} failed on {sha}: "
-                    f"conclusion={run.get('conclusion')} url={run.get('html_url')}")
+            raise RuntimeError(
+                f"required check {name!r} failed on {sha}: "
+                f"conclusion={run.get('conclusion')} url={run.get('html_url')}")
         if time.monotonic() >= deadline:
             state = "missing" if last is None else f"status={last.get('status')}"
             raise RuntimeError(
