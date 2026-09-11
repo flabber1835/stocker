@@ -12,6 +12,7 @@ ROOT = Path(__file__).resolve().parents[1]
 AUTHORITY = ROOT / "tests" / "test-responsibility.json"
 REQUIRED_OWNERS = {
     "sentinel.complete",
+    "production-champion.regressions",
     "wealth-core.prospective",
     "scripts.operator",
     "host-python38.compatibility",
