@@ -123,6 +123,39 @@ from .reconciliation_evidence import (
 
 from .preparation import _default_paper_strategy
 
+
+_V5_OPENING_FRESHNESS = timedelta(seconds=120)
+
+
+def _opening_resolution_freshness_or_refuse(
+        conn, *, plan, deployment, now_et: datetime) -> None:
+    """Keep first-time V5 opening sizing inside the certified open window.
+
+    A durable opening projection means the opening-price resolution already
+    crossed this membrane while fresh and may be resumed after a restart. If
+    commands exist while that projection is missing, the opening-sizing helper
+    raises its existing integrity refusal rather than reconstructing economics.
+    """
+    from sentinel.execution import opening_sizing
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
+
+    try:
+        requires_initial = opening_sizing.requires_initial_projection(
+            conn, plan=plan, deployment=deployment)
+    except TargetProjectionRefused as exc:
+        raise PaperActivationRefused(str(exc)) from exc
+    if not requires_initial:
+        return
+    opened, closed = calendar.session_window(plan.effective_session)
+    latest = min(closed, opened + _V5_OPENING_FRESHNESS)
+    if now_et > latest:
+        raise PaperActivationRefused(
+            f"unresolved V5 opening intent expired at {latest.isoformat()}; "
+            f"paper execution time {now_et.isoformat()} is too late to preserve "
+            "the next-open economic contract. A durable opening projection may "
+            "still be resumed and reconciled.")
+
+
 async def _opening_prices_or_retry(conn, *, state, plan, broker):
     import httpx
     from sentinel.execution.opening_sizing import prices_for_plan
@@ -303,6 +336,8 @@ async def _execute_current_paper_plan(
             # session. This is before the first broker read and consults the
             # actual XNYS schedule, so a 13:00 half-day close is a hard stop.
             _execution_window_or_refuse(plan.effective_session, now_et)
+            _opening_resolution_freshness_or_refuse(
+                conn, plan=plan, deployment=binding.identity, now_et=now_et)
 
             if real_clock:
                 clock = lambda: datetime.now(ZoneInfo(calendar.EXCHANGE_TZ))
@@ -476,8 +511,7 @@ async def _execute_current_paper_plan(
                         through=fresh_cash_at)
                     _cash_authority_or_refuse(
                         conn, plan=plan, deployment=binding.identity,
-                        account=fresh_account,
-                        observation=fresh_observation,
+                        account=fresh_account, observation=fresh_observation,
                         activity_state=fresh_activity_state,
                         endpoint_lag_observed_at=fresh_cash_at)
 
