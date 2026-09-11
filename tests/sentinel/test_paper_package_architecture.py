@@ -207,7 +207,7 @@ def test_equivalence_manifest_covers_every_canonical_definition():
 
 
 def _check_and_remove_backup_gate_delta(node):
-    """Check PR344's exact safety additions against frozen lifecycle bodies."""
+    """Check exact post-decomposition safety additions against frozen bodies."""
     operations = {
         "prepare_paper_plan": "paper plan preparation",
         "execute_paper_plan": "paper order execution",
@@ -219,6 +219,28 @@ def _check_and_remove_backup_gate_delta(node):
             + repr(operations[node.name]) + ")").body[0]
         assert ast.dump(node.body[1]) == ast.dump(expected)
         del node.body[1]
+    elif node.name == "_execute_current_paper_plan":
+        expected = ast.parse(
+            "_opening_resolution_freshness_or_refuse("
+            "conn, plan=plan, deployment=binding.identity, now_et=now_et)"
+        ).body[0]
+        predecessor = ast.parse(
+            "_execution_window_or_refuse(plan.effective_session, now_et)"
+        ).body[0]
+        matches = []
+        for parent in ast.walk(node):
+            for field in ("body", "orelse", "finalbody"):
+                statements = getattr(parent, field, None)
+                if not isinstance(statements, list):
+                    continue
+                for index, statement in enumerate(statements):
+                    if ast.dump(statement) == ast.dump(expected):
+                        matches.append((statements, index))
+        assert len(matches) == 1
+        statements, index = matches[0]
+        assert index > 0
+        assert ast.dump(statements[index - 1]) == ast.dump(predecessor)
+        del statements[index]
     elif node.name == "recover_automated_paper_cycle":
         locks = [call for call in ast.walk(node)
                  if isinstance(call, ast.Call)
