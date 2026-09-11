@@ -3,6 +3,7 @@ name: Sharadar daily production replay
 on:
   pull_request:
     branches: [main]
+  merge_group:
   workflow_dispatch:
 
 permissions:
@@ -86,6 +87,7 @@ jobs:
           retention-days: 30
 
   complete-evidence:
+    name: sharadar-replay-${{ matrix.scope }}
     needs: daily-replay
     if: always()
     strategy:
@@ -100,7 +102,11 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ env.TESTED_COMMIT }}
-          sparse-checkout: research/sharadar_replay
+          sparse-checkout: |
+            research/sharadar_replay
+            tests/test-responsibility.json
+            tools/test_responsibility_lib.py
+            tools/verify_test_owner_execution.py
       - name: Verify exact replay checkout
         run: test "$(git rev-parse HEAD)" = "$TESTED_COMMIT"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
@@ -111,9 +117,15 @@ jobs:
         shell: bash
         run: |
           python research/sharadar_replay/verify_evidence.py evidence --commit "$TESTED_COMMIT" | tee verified-evidence.json
+          python tools/verify_test_owner_execution.py --owner sharadar.daily-replay \
+            --junit-glob 'evidence/**/junit.xml' \
+            --output test-owner-execution.json
           cat verified-evidence.json >> "$GITHUB_STEP_SUMMARY"
+          cat test-owner-execution.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
           name: sharadar-replay-verdict-${{ matrix.scope }}
-          path: verified-evidence.json
+          path: |
+            verified-evidence.json
+            test-owner-execution.json
           if-no-files-found: error
