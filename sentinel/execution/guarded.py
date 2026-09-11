@@ -456,10 +456,11 @@ class GuardedExecutionBroker(ExecutionBroker):
                     f"durable={instrument}, current={current}")
 
         await self._authorize_mutation(BrokerOperation.SUBMIT)
-        if side is Side.BUY:
+        if side is Side.BUY and self.supports_market_clock:
             try:
                 now_reader = getattr(self._inner, "_now", None)
-                now = now_reader() if callable(now_reader) else getattr(clock, "timestamp", None)
+                now = (now_reader() if callable(now_reader)
+                       else getattr(clock, "timestamp", None))
                 if not isinstance(now, datetime) or now.tzinfo is None:
                     raise ValueError("broker has no fresh timezone-aware submission clock")
                 from sentinel.feed import calendar
