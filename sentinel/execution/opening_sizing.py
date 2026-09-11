@@ -70,6 +70,13 @@ def required_prices(state, plan):
         if item["operation"] == Operation.CLOSE_POSITION.value}))
 
 
+def _unavailable(plan, instruments, exc):
+    return OpeningPriceUnavailability(
+        plan.effective_session, str(exc),
+        {sid: item.symbol for sid, item in instruments.items()},
+        {sid: item.broker_id for sid, item in instruments.items()})
+
+
 async def prices_for_plan(conn, *, state, plan, broker):
     if not plan.opening_intents or plan.target_exposure == 0:
         return None
@@ -95,24 +102,37 @@ async def prices_for_plan(conn, *, state, plan, broker):
             if (instrument.security_id != sid or not instrument.broker_id
                     or not instrument.symbol
                     or resolver.resolve(instrument.symbol, plan.effective_session.isoformat()) != sid):
-                raise TargetProjectionRefused("opening instrument differs from permanent security identity")
+                raise OpeningPriceUnavailable(
+                    "opening instrument differs from permanent security identity")
             instruments[sid] = instrument
         prices = await broker.opening_prices(
             session=plan.effective_session, instruments=instruments)
         if (not isinstance(prices, OpeningPrices) or prices.session != plan.effective_session
                 or dict(prices.symbols) != {sid: item.symbol for sid, item in instruments.items()}
                 or dict(prices.broker_ids) != {sid: item.broker_id for sid, item in instruments.items()}):
-            raise TargetProjectionRefused("opening evidence differs from resolved instrument identities")
+            raise OpeningPriceUnavailable(
+                "opening evidence differs from resolved instrument identities")
         return prices
     except OpeningPriceUnavailable as exc:
-        # The BUY cannot be sized safely, but a missing entry price must never
-        # prevent an already-required reduction from reaching the executor.
-        # Persist a typed no-BUY result for this immutable plan so a retry cannot
-        # silently reinterpret the same opening after the certified window.
-        return OpeningPriceUnavailability(
-            plan.effective_session, str(exc),
-            {sid: item.symbol for sid, item in instruments.items()},
-            {sid: item.broker_id for sid, item in instruments.items()})
+        # Every opening-only evidence defect suppresses the new BUY. Required
+        # reductions continue and independently revalidate their own broker
+        # instrument identity at the ordinary submission boundary.
+        return _unavailable(plan, instruments, exc)
+    except Exception as exc:                                 # noqa: BLE001
+        # Transport failures from instrument/opening-data reads are opening-only
+        # evidence failures. Authority/integrity refusals retain their existing
+        # fail-closed type and must stop the complete mutation path.
+        from sentinel.execution.guarded import BrokerAuthorityRefused
+        if isinstance(exc, BrokerAuthorityRefused):
+            raise
+        try:
+            import httpx
+        except ImportError:                                  # pragma: no cover
+            httpx = None
+        if httpx is not None and isinstance(
+                exc, (httpx.TransportError, httpx.HTTPStatusError)):
+            return _unavailable(plan, instruments, exc)
+        raise
 
 
 def resolve(state, plan, projection,
