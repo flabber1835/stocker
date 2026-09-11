@@ -27,7 +27,7 @@ from sentinel.controller.concordance import (
     IDENTITY_OVERLAY_FIELD, is_concordance_identity)
 from sentinel.core.session import SessionState
 from sentinel.execution.commands import committed_quantity
-from sentinel.execution.plan import ExecutionPlan
+from sentinel.execution.plan import ExecutionPlan, OpeningIntent
 from sentinel.execution.projection import Projection, desired_basket, project
 from sentinel.feed import calendar
 
@@ -36,11 +36,17 @@ DEFENSIVE_SECURITY_ID = "SENTINEL:BIL"
 DATA_SEMANTICS_IDENTITY_SCHEMA = "sentinel-sharadar-book-semantics/v1"
 _DATA_SEMANTICS_MODULES = (
     "sentinel.breadth.classifier",
+    "sentinel.controller.median5_breadth",
     "sentinel.breadth.returns",
     "sentinel.controller.concordance",
     "sentinel.controller.concordance_parent",
     "sentinel.controller.frozen_rule",
     "sentinel.controller.ldrc",
+    "sentinel.controller.median5",
+    "sentinel.controller.ex3_v6",
+    "sentinel.controller.champion",
+    "sentinel.controller.champion_config",
+    "sentinel.controller.champion_frozen",
     "sentinel.controller.machine",
     "sentinel.controller.recent_leadership",
     "sentinel.core.bootstrap",
@@ -55,6 +61,8 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.execution.projection",
     "sentinel.execution.reconcile",
     "sentinel.execution.target_reprojection",
+    "sentinel.execution.opening_prices",
+    "sentinel.execution.opening_sizing",
     "sentinel.feed.action_source",
     "sentinel.feed.actions",
     "sentinel.feed.actions_map",
@@ -83,6 +91,7 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.regime.spy",
     "sentinel.shadow_observation",
     "sentinel.shadow_runtime",
+    "sentinel.strategy",
     "stock_strategy_shared.split_reconciliation",
     "stock_strategy_shared.terminal_coalescing",
     "stock_strategy_shared.wealth_core.sharadar_domains",
@@ -108,6 +117,7 @@ class ShadowTarget:
         default_factory=dict)
     pending_close_shares: Mapping[str, tuple[Decimal, ...]] = field(
         default_factory=dict)
+    opening_intents: tuple[OpeningIntent, ...] = ()
 
 
 @dataclass(frozen=True)
@@ -210,6 +220,27 @@ def runtime_strategy_identity(
         "data_semantics_source_sha256": str(
             data_semantics_source_identity()["sha256"]),
     }
+    from sentinel.controller.median5 import enabled as median5_enabled
+    if median5_enabled(result):
+        from stock_strategy_shared.wealth_core.median5 import REFERENCE_AST
+        from sentinel.controller.median5 import wealth_config
+        from stock_strategy_shared.wealth_core.eligibility import EligibilityConfig
+        from dataclasses import asdict
+        for name, value in (("wealth_core_config_sha256", wealth_config(result)),
+                             ("eligibility_config_sha256", EligibilityConfig())):
+            result[name] = hashlib.sha256(json.dumps(asdict(value), sort_keys=True,
+                                                     separators=(",", ":")).encode()).hexdigest()
+        result["research_reference_ast_sha256"] = REFERENCE_AST
+        from sentinel.controller.ex3_v6 import enabled as v5_enabled
+        if v5_enabled(result):
+            from stock_strategy_shared.wealth_core.v5 import REFERENCE_SOURCE_SHA256
+            from sentinel.controller import champion_config
+            if champion_config.enabled(result):
+                REFERENCE_SOURCE_SHA256 = champion_config.REFERENCE_SOURCE_SHA256
+            result.pop("research_reference_ast_sha256")
+            result["research_reference_source_sha256"] = REFERENCE_SOURCE_SHA256
+            result["universe"] = "BROAD_SHARADAR_COMMON_EQUITY"
+        return result
     if not concordance:
         return result
     from sentinel.controller import ldrc as ldrc_module
@@ -263,6 +294,7 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
     held_shares: dict[str, Decimal] = {}
     pending_opens: dict[str, list[Decimal]] = {}
     pending_closes: dict[str, list[Decimal]] = {}
+    opening_intents = []
 
     for slot_id in sorted(portfolio.episodes):
         episode = portfolio.episodes[slot_id]
@@ -289,8 +321,13 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
                 f"pending operation for {security_id!r} has invalid shares "
                 f"{quantity}")
         if pending.operation is Operation.OPEN_SLOT_POSITION:
+            if pending.intended_dollars is not None:
+                opening_intents.append(OpeningIntent(
+                    security_id, pending.slot_id, _decimal(
+                        pending.intended_dollars, label="pending entry dollars")))
+            else:
+                pending_opens.setdefault(security_id, []).append(quantity)
             signed = quantity
-            pending_opens.setdefault(security_id, []).append(quantity)
         elif pending.operation is Operation.CLOSE_POSITION:
             signed = -quantity
             pending_closes.setdefault(security_id, []).append(quantity)
@@ -309,6 +346,7 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
             f"canonical pending operations over-close the shadow: {negative}")
 
     return ShadowTarget(
+        opening_intents=tuple(sorted(opening_intents, key=lambda item: item.slot_id)),
         shares={security_id: quantity
                 for security_id, quantity in sorted(shares.items())
                 if quantity > 0},
@@ -535,10 +573,12 @@ def build_execution_plan(
         raise ValueError("controller target_core_exposure is not finite")
     rollout = rollout_state or RolloutState(
         mode=RolloutMode.PINNED_1_00, version=1)
-    if (is_concordance_identity(canonical.strategy_identity)
+    from sentinel.controller.ex3_v6 import enabled as is_ex3_v6
+    if ((is_concordance_identity(canonical.strategy_identity)
+         or is_ex3_v6(canonical.strategy_identity))
             and rollout.mode is RolloutMode.PINNED_1_00):
         raise ValueError(
-            "PINNED_1_00 cannot override a Concordance allocation; "
+            "PINNED_1_00 cannot override a Concordance or EX3 V6 allocation; "
             "use a separately certified CONTROLLER rollout")
     exposure = (Decimal(1) if rollout.mode is RolloutMode.PINNED_1_00
                 else controller_exposure)
@@ -563,6 +603,11 @@ def build_execution_plan(
         exposure=exposure, defensive_weight=defensive_weight,
         defensive_security=defensive_security)
     basket = desired_basket(sized)
+    for entry in target.opening_intents:
+        basket[entry.security_id] = Decimal(0)
+    if target.opening_intents:
+        for sid in target.pending_close_shares:
+            basket.setdefault(sid, Decimal(0))
     # A working order is economic state even when the position has not appeared
     # yet and the fresh target no longer contains the name. Give it an explicit
     # zero target so exact-delta reconciliation cannot omit it from the universe.
@@ -613,6 +658,7 @@ def build_execution_plan(
         rollout_mode=rollout.mode.value,
         rollout_version=rollout.version,
         rollout_certificate_sha256=rollout.certificate_sha256,
+        opening_intents=target.opening_intents,
     )
     plan = replace(plan, plan_id=f"sentinel-{plan.fingerprint()}")
     return ProductionDecision(

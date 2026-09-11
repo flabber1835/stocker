@@ -85,6 +85,7 @@ from .inspection import (
 
 from .validation import (
     _require_mutation_backup,
+    _latest_plan_or_refuse,
     _readiness_or_refuse,
     _execution_window_or_refuse,
     _assert_deterministic_plan_id,
@@ -121,6 +122,27 @@ from .reconciliation_evidence import (
 )
 
 from .preparation import _default_paper_strategy
+
+async def _opening_prices_or_retry(conn, *, state, plan, broker):
+    import httpx
+    from sentinel.execution.opening_sizing import prices_for_plan
+    from sentinel.execution.opening_prices import OpeningPriceUnavailable
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
+    try:
+        return await prices_for_plan(conn, state=state, plan=plan, broker=broker)
+    except OpeningPriceUnavailable as exc:
+        raise PaperRetryableRefused(str(exc)) from exc
+    except TargetProjectionRefused as exc:
+        raise PaperActivationRefused(str(exc)) from exc
+    except httpx.TransportError as exc:
+        raise PaperRetryableRefused("opening evidence transport is unavailable") from exc
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 429 or 500 <= exc.response.status_code < 600:
+            raise PaperRetryableRefused(
+                f"opening evidence HTTP {exc.response.status_code}; retry required") from exc
+        raise PaperActivationRefused(
+            f"opening evidence HTTP {exc.response.status_code} refused") from exc
+
 
 def _execution_observation_time(value: date | datetime | None) -> datetime:
     """Resolve the real clock, while preserving the date-only test seam.
@@ -184,7 +206,7 @@ async def _execute_current_paper_plan(
             frontier = feed_store.latest_visible_session(conn)
             dual_result = None
             if dual_mode:
-                plan = journal.latest_plan(conn)
+                plan = _latest_plan_or_refuse(conn)
                 if plan is None:
                     raise PaperActivationRefused(
                         "there is no durable current dual PAPER plan")
@@ -315,7 +337,10 @@ async def _execute_current_paper_plan(
                 evaluated_at=clock(), actions=actions,
                 target_actions=target_actions)
             target_projection = None
+            opening_prices = None
             if authority is not None:
+                opening_prices = await _opening_prices_or_retry(
+                    conn, state=state, plan=plan, broker=broker)
                 # Refuse unsupported/non-scalar corporate actions before the
                 # broker book can be consulted.  Reconciliation may still
                 # adopt a previously unknown command identity, so the exact
@@ -324,7 +349,7 @@ async def _execute_current_paper_plan(
                     conn, state=state, plan=plan, binding=binding,
                     broker=broker, through=today, actions=actions,
                     target_actions=target_actions,
-                    persist_projection=False)
+                    persist_projection=False, opening_prices=opening_prices)
             preflight = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity, actions=actions)
@@ -362,6 +387,9 @@ async def _execute_current_paper_plan(
                 observation=observation,
                 minimum_quantity_increment=minimum_increment)
             if authority is None and dual_mode:
+                if plan.opening_intents:
+                    raise PreOpenShareUnitAuthorityUnavailable(
+                        "V5 opening sizing requires effective-session share-unit authority")
                 # This is explicitly informational transport, not affirmative
                 # pre-open unit authority. The exact close-unit basket remains
                 # immutable and a post-close source-final check can only block
@@ -389,7 +417,7 @@ async def _execute_current_paper_plan(
             elif authority is None:
                 if not _provably_clean_empty_noop(
                         deltas=preopen_deltas, commands=current_commands,
-                        observation=observation):
+                        observation=observation, opening_intents=plan.opening_intents):
                     raise PreOpenShareUnitAuthorityUnavailable(
                         "pre-open share-unit authority is absent and the "
                         "complete, clean broker book is not an empty no-op; "
@@ -408,7 +436,7 @@ async def _execute_current_paper_plan(
                     conn, state=state, plan=plan, binding=binding,
                     broker=broker, through=today, actions=actions,
                     target_actions=target_actions,
-                    expected_projection=target_projection)
+                    expected_projection=target_projection, opening_prices=opening_prices)
                 projected_deltas = _plan_deltas(
                     target_basket=target_projection.target_basket,
                     observation=observation,

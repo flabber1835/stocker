@@ -4,21 +4,17 @@ from sentinel import paper
 from sentinel.paper import execution as paper_execution
 from sentinel.paper import preparation as paper_preparation
 from sentinel.paper import recovery as paper_recovery
-from sentinel.controller.concordance_parent import (
-    FAST_DAMAGED_BREADTH_DELTA5, STRATEGY_ID as PARENT_STRATEGY_ID,
-)
+from sentinel.controller.champion_config import STRATEGY_ID, REFERENCE_SOURCE_SHA256
 from sentinel.controller.ldrc import LDRCConfig
+from sentinel.strategy import production_strategy
 
 
-def test_default_paper_runtime_is_simplified_three_signal_ldrc_v3():
+def test_default_paper_runtime_is_the_shared_compact_champion():
     config, identity = paper_preparation._default_paper_strategy()  # noqa: SLF001
-    assert config.strategy_id == PARENT_STRATEGY_ID
-    assert config.fast_entry["min_damaged_breadth_delta5"] == FAST_DAMAGED_BREADTH_DELTA5 == 0.30
-    assert identity["strategy"] == PARENT_STRATEGY_ID
-    assert identity["allocation_overlay"] == "sentinel-concordance-simplified-ldrc"
-    assert identity["allocation_overlay_version"] == "3"
-    assert identity["allocation_overlay_source_sha256"]
-    assert identity["recent_leadership_source_sha256"]
+    assert (config, identity) == production_strategy()
+    assert config.strategy_id == identity["strategy"] == STRATEGY_ID
+    assert identity["research_reference_source_sha256"] == REFERENCE_SOURCE_SHA256
+    assert identity["universe"] == "BROAD_SHARADAR_COMMON_EQUITY"
 
 
 def test_simplified_v3_entry_and_recovery_constants_are_frozen():

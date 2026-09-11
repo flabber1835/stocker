@@ -100,6 +100,7 @@ class VendorBar:
     dividend_per_share: float = 0.0
     tradeable: bool = True
     unresolved_corporate_action: bool = False
+    signal_close: float | None = None
 
 
 @dataclass(frozen=True)
@@ -283,6 +284,35 @@ class SecuritySeries:
     signal_closes: list[float | None] = field(default_factory=list)
     raw_closes: list[float | None] = field(default_factory=list)
     volumes: list[float | None] = field(default_factory=list)
+    vendor_basis_multiplier: float = 1.0
+    # Publication-observed conversion into the retained numerical/episode basis.
+    signal_basis_multiplier: float = 1.0
+    signal_basis_anchor: list | None = None  # session, raw close, owned signal
+
+    def reconcile_signal_basis(self, anchor: VendorBar | None) -> None:
+        retained = self.signal_basis_anchor
+        if retained is None:
+            # Books written before this bridge retain the same anchor in their
+            # history. A genuinely new series has no signal state to bridge.
+            retained = next(([session, raw, signal]
+                for session, raw, signal in zip(
+                    reversed(self.sessions), reversed(self.raw_closes), reversed(self.signal_closes))
+                if _positive(raw) and _positive(signal)), None)
+        if retained is None:
+            return
+        if (anchor is None or anchor.security_id != self.security_id
+                or anchor.session != retained[0]
+                or not _positive(anchor.raw_close)
+                or float(anchor.raw_close) != float(retained[1])
+                or not _positive(anchor.signal_close)):
+            raise FeedError(f"incomplete or revised publication signal anchor for {self.security_id}")
+        multiplier = (self.signal_basis_multiplier
+            if float(anchor.signal_close) * self.signal_basis_multiplier == float(retained[2])
+            else float(retained[2]) / float(anchor.signal_close))
+        if not _positive(multiplier):
+            raise FeedError(f"invalid publication signal basis for {self.security_id}")
+        self.signal_basis_multiplier = multiplier
+        self.signal_basis_anchor = list(retained)
 
     def contiguous(self, length: int = REQUIRED_CLOSES) -> bool:
         """Do the last `length` observations occupy consecutive market sessions?
@@ -295,7 +325,14 @@ class SecuritySeries:
             return False
         return idx[-1] - idx[0] == length - 1
 
-    def append(self, bar: VendorBar, session_index: int = -1) -> None:
+    def append(self, bar: VendorBar, session_index: int = -1, *,
+               published_signal: bool = False) -> None:
+        if published_signal and self.vendor_basis_multiplier != 1.0:
+            raise FeedError(
+                "published-signal history contains an inferred vendor basis; "
+                "reconstruct from the published input history")
+        if published_signal and not _positive(self.signal_basis_multiplier):
+            raise FeedError("invalid publication signal basis multiplier")
         # The TICKER tracks the bar; the SECURITY_ID never does. A ticker is an
         # observation label that can be reassigned on a rename, so the series
         # carries the CURRENT one — a series that froze the ticker at creation
@@ -308,13 +345,24 @@ class SecuritySeries:
         # adjusted: the vendor's close on the ex-date is already post-split, so
         # it needs the new factor, not the old one.
         self.split_factor *= float(bar.split_ratio)
+        if published_signal and _positive(bar.raw_close):
+            if not _positive(bar.signal_close):
+                raise FeedError("Median-5 requires a published signal-domain close")
+            # The frozen feature rings consume the published adjusted close.
+            # A source split is independent raw-share evidence, not authority
+            # to rescale an already-adjusted signal a second time.
+            self.split_factor = (float(bar.signal_close) * self.signal_basis_multiplier
+                                 / float(bar.raw_close))
         self.sessions.append(bar.session)
         self.session_indices.append(session_index)
         self.raw_closes.append(bar.raw_close)
         self.volumes.append(bar.volume)
         self.signal_closes.append(
             None if not _positive(bar.raw_close)
-            else float(bar.raw_close) * self.split_factor)
+            else (float(bar.signal_close) * self.signal_basis_multiplier if published_signal
+                  else float(bar.raw_close) * self.split_factor))
+        if published_signal and _positive(bar.raw_close):
+            self.signal_basis_anchor = [bar.session, float(bar.raw_close), self.signal_closes[-1]]
 
     def signal_window(self, length: int = REQUIRED_CLOSES) -> list[float | None]:
         """The trailing split-adjusted window ending at t, oldest first.
@@ -455,6 +503,7 @@ class Feed:
         self._session_index = -1
         self._seen_sessions: dict[str, int] = {}
         self._last_session: str | None = None
+        self.median5_state: dict | None = None
 
     def _advance_session(self, session: str) -> int:
         """One global index per market session, assigned in arrival order.
@@ -559,11 +608,29 @@ class Feed:
                  if self.metadata_timeline is not None
                  else self.meta.get(b.security_id))
             s = self._series_for(b, m)
-            s.append(b, idx)
+            s.append(b, idx, published_signal=self.median5_state is not None)
             if m is not None:
                 key, _ = m.issuer_key()
                 s.issuer_id = key or f"S:{b.security_id}"
                 effective[b.security_id] = m
+
+        if self.median5_state is not None:
+            from .median5 import advance_signals
+            from .eligibility import EligibilityReason
+            security_bars = advance_signals(self, ordered, effective, self.median5_state)
+            for bar in security_bars:
+                self.series[bar.security_id].issuer_id = bar.issuer_id
+            visible = [b for b in ordered if b.security_id in effective]
+            return NormalisedSession(
+                session, [to_daily_bar(b, self.series[b.security_id]) for b in visible],
+                security_bars,
+                {b.security_id: [c for c in b.closes if c is not None]
+                 for b in security_bars},
+                {b.security_id: EligibilityResult(
+                    b.security_id, b.ticker, b.issuer_id, b.eligible,
+                    EligibilityReason.ELIGIBLE if b.eligible
+                    else EligibilityReason.INSUFFICIENT_126_SESSION_HISTORY)
+                 for b in security_bars})
 
         visible = [b for b in ordered if b.security_id in effective]
 

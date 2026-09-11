@@ -34,6 +34,7 @@ from sentinel.authority import (
 from sentinel.config import DEFAULT_BASE_URL, assert_paper_url
 
 from sentinel.controller.concordance import is_concordance_identity
+from sentinel.controller.median5 import enabled as is_median5
 
 from sentinel.controller.concordance_parent import load as load_concordance_parent
 
@@ -114,6 +115,7 @@ from .inspection import (
 
 from .validation import (
     _require_mutation_backup,
+    _latest_plan_or_refuse,
     _assert_concordance_witness_authority,
     _hash,
     _readiness_or_refuse,
@@ -146,40 +148,20 @@ SIMPLIFIED_LDRC_STRATEGY_ID = "sentinel-concordance-simplified-ldrc"
 
 SIMPLIFIED_LDRC_STRATEGY_VERSION = 3
 
-def _default_paper_strategy() -> tuple[ControllerConfig, dict[str, str]]:
-    """Return the one paper-trial strategy: hardened parent + simplified LD-RC.
+def _default_paper_strategy():
+    """Load the shared compact champion production profile."""
+    from sentinel.strategy import production_strategy
+    try:
+        return production_strategy()
+    except (OSError, RuntimeError, TypeError, ValueError) as exc:
+        raise PaperActivationRefused("Champion production strategy identity cannot be verified") from exc
 
-    The assertions are intentionally redundant with source identity. They make
-    an accidental rollback to the older five-condition/legacy recovery model a
-    startup refusal instead of a plausible but different trading strategy.
-    """
-    if (LDRC_STRATEGY_ID != SIMPLIFIED_LDRC_STRATEGY_ID
-            or LDRC_STRATEGY_VERSION != SIMPLIFIED_LDRC_STRATEGY_VERSION):
-        raise PaperActivationRefused(
-            "paper runtime requires Simplified Concordance LD-RC v3")
-    cfg = LDRCConfig()
-    expected = (0.55, -0.10, -0.08, 0.00, 7, 0.11)
-    actual = (
-        cfg.divergence_ceiling, cfg.wc_drawdown_trigger,
-        cfg.recent_r20_trigger, cfg.spy_r20_floor,
-        cfg.recovery_sessions, cfg.spy_v_rebound,
-    )
-    if actual != expected:
-        raise PaperActivationRefused(
-            "Simplified LD-RC v3 constants differ from the retained strategy")
-    controller = load_concordance_parent()
-    identity = runtime_strategy_identity(controller, concordance=True)
-    if (identity.get("allocation_overlay") != SIMPLIFIED_LDRC_STRATEGY_ID
-            or identity.get("allocation_overlay_version")
-            != str(SIMPLIFIED_LDRC_STRATEGY_VERSION)):
-        raise PaperActivationRefused(
-            "paper strategy identity does not name Simplified LD-RC v3")
-    return controller, identity
 
 def _load_marks_and_tickers(conn, state: SessionState, session: str
                             ) -> tuple[dict, dict]:
     target = shadow_target(state)
-    security_ids = sorted(target.shares)
+    security_ids = sorted(set(target.shares) | {
+        entry.security_id for entry in target.opening_intents})
     tickers = dict(target.tickers)
     marks: dict[str, Decimal] = {}
     visible = publication.visible_predicate("b")
@@ -225,7 +207,7 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
         raise PaperActivationRefused(
             f"the pinned warm-up window is incomplete: {missing[:8]}")
     prospective_witness = False
-    if is_concordance_identity(strategy_identity):
+    if is_concordance_identity(strategy_identity) or is_median5(strategy_identity):
         try:
             window.metadata_timeline = load_causal_meta_history(
                 conn, sessions=warm)
@@ -239,6 +221,9 @@ def _fresh_warmed_state(conn, *, through: str, count: int,
             # the first current decision close; never backdate today's TICKERS
             # snapshot to manufacture r20/r40 readiness.
             prospective_witness = True
+    if is_median5(strategy_identity):
+        from sentinel.core.production import load_median5_warmup_inputs
+        load_median5_warmup_inputs(conn, window)
     starting_cash = float(account.equity)
     if not math.isfinite(starting_cash):
         raise PaperActivationRefused("account equity cannot be represented by Wealth Core")
@@ -369,7 +354,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 dual_shadow_observation_id=dual_shadow_observation_id,
                 dual_shadow_starting_cash=dual_shadow_starting_cash)
 
-            existing_plan = journal.latest_plan(conn)
+            existing_plan = _latest_plan_or_refuse(conn)
             dual_result = None
             dual_state = None
             if dual_mode:
@@ -737,7 +722,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 conn, through=through_date, missed=missed,
                 advance_state=advance, decide=decide, state=state.to_dict())
             final_state = SessionState.from_dict(caught.state)
-            latest = journal.latest_plan(conn)
+            latest = _latest_plan_or_refuse(conn)
             if latest is None or latest.plan_id != caught.plan.plan_id:
                 raise PaperActivationRefused(
                     "preparation did not leave exactly its plan current")
@@ -779,7 +764,7 @@ def current_paper_plan(
     dual_mode = all(value is not None for value in dual_values)
     dual_match = None
     if dual_mode:
-        plan = journal.latest_plan(conn)
+        plan = _latest_plan_or_refuse(conn)
         if plan is None:
             raise PaperActivationRefused(
                 "there is no durable current dual PAPER plan")

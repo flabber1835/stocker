@@ -70,9 +70,11 @@ class IssuerFamilyCollision(RuntimeError):
 class PendingOrder:
     """An order decided after session t, awaiting the next tradeable open.
 
-    It PERSISTS across non-tradeable sessions (spec §11) rather than expiring:
+    Exits and legacy entries PERSIST across non-tradeable sessions (spec §11):
     a halted security's exit is still wanted tomorrow, and silently dropping it
     would leave a stopped-out position in the book with no record of why.
+    V5 dollar entries expire after their first next-session opening attempt,
+    including a confirmed invalid market or zero affordable quantity.
     """
     operation: Operation
     security_id: str
@@ -86,6 +88,17 @@ class PendingOrder:
     # Persisted with the queue so a restart cannot forget why the quantity or
     # identity no longer matches the signal-session order.
     transformations: list[dict] = field(default_factory=list)
+    intended_dollars: float | None = None
+
+    def validate_sizing(self, *, open_time: bool) -> None:
+        if self.intended_dollars is not None:
+            import math
+            if (not open_time or self.operation is not Operation.OPEN_SLOT_POSITION
+                    or self.shares != 0 or isinstance(self.intended_dollars, bool)
+                    or not math.isfinite(self.intended_dollars) or self.intended_dollars <= 0):
+                raise ValueError("invalid V5 pending dollar intent")
+        elif open_time and self.operation is Operation.OPEN_SLOT_POSITION:
+            raise ValueError("V5 pending entry requires unbound quantity and intended dollars")
 
     def to_dict(self) -> dict:
         """Serialise for a restart. `sessions_waiting` is part of the state, not
@@ -98,6 +111,8 @@ class PendingOrder:
                 "reason": self.reason, "sessions_waiting": self.sessions_waiting}
         if self.transformations:
             out["transformations"] = list(self.transformations)
+        if self.intended_dollars is not None:
+            out["intended_dollars"] = self.intended_dollars
         return out
 
     @classmethod
@@ -107,7 +122,8 @@ class PendingOrder:
                    slot_id=d["slot_id"], shares=d["shares"],
                    signal_session=d["signal_session"], reason=d["reason"],
                    sessions_waiting=d.get("sessions_waiting", 0),
-                   transformations=list(d.get("transformations") or ()))
+                   transformations=list(d.get("transformations") or ()),
+                   intended_dollars=d.get("intended_dollars"))
 
 
 @dataclass
@@ -546,6 +562,10 @@ def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger
         for po in pending:
             if po.security_id != b.security_id:
                 continue
+            if po.intended_dollars is not None:
+                # Dollar intent survives a split unchanged; quantity is first
+                # determined using the post-split opening price.
+                continue
             before = po.shares
             after = split_shares(before, b.split_ratio)
             po.shares = after
@@ -578,6 +598,11 @@ def _transform_pending_for_terminal(
     for po in pending:
         if po.security_id != terms.security_id:
             keep.append(po)
+            continue
+
+        if po.intended_dollars is not None:
+            cancelled.append(_cancelled_order(
+                state, po, session=session, reason="TERMINATED_BEFORE_FILL"))
             continue
 
         # A queued BUY did not own this predecessor at the action boundary and
@@ -799,6 +824,12 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     never specified. There is `tradeability_only_bars` for callers that really do
     want that, and it says so in its name.
     """
+    from .v5 import PROFILE as V5_PROFILE
+    expected_sizing = V5_PROFILE if cfg.economic_profile == V5_PROFILE else None
+    if state.entry_sizing_profile != expected_sizing:
+        raise ValueError("canonical entry sizing profile differs from configuration")
+    for order in pending:
+        order.validate_sizing(open_time=cfg.economic_profile == V5_PROFILE)
     by_sec = {b.security_id: b for b in bars}
     res_cancelled: list[dict] = []
     # Name cooldowns actually STARTED by this session's release transitions.
@@ -914,6 +945,11 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     fills: list[dict] = []
     still_pending: list[PendingOrder] = []
     entered_this_session: list[int] = []
+    if cfg.economic_profile != "wealth-core-v1":
+        # The frozen book sells in slot order, then buys in slot order. A
+        # delayed buy must not consume cash before today's queued sale.
+        pending.sort(key=lambda p: (p.operation is not Operation.CLOSE_POSITION,
+                                    p.slot_id))
     for po in pending:
         if po.security_id in terminated and po.slot_id not in state.episodes:
             # The security terminated this session and the slot is gone. An
@@ -925,6 +961,7 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                 state, po, session=session, reason="TERMINATED_BEFORE_FILL"))
             continue
         if (po.operation is Operation.OPEN_SLOT_POSITION
+                and po.intended_dollars is None
                 and (po.shares <= 0 or not is_integral(po.shares))):
             res_cancelled.append(_cancelled_order(
                 state, po, session=session,
@@ -932,6 +969,10 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
             continue
         b = by_sec.get(po.security_id)
         if b is None or not b.can_execute:
+            if po.intended_dollars is not None:
+                res_cancelled.append(_cancelled_order(
+                    state, po, session=session, reason="INVALID_OPEN_MARKET"))
+                continue
             po.sessions_waiting += 1        # persists; never silently dropped
             still_pending.append(po)
             continue
@@ -961,6 +1002,10 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                                  list(po.transformations)}
                                 if po.transformations else None))
         else:
+            if po.intended_dollars is not None:
+                from .v5 import opening_quantity
+                po.shares = opening_quantity(intended=po.intended_dollars,
+                    cash=state.cash, price=px, cost_bps=cfg.transaction_cost_bps)
             # OPEN quantities remain whole-share trades even if a split stored
             # the transformed quantity as an integral float.
             po.shares = int(po.shares)
@@ -1099,6 +1144,14 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # here from `last_known` — that dict holds RAW mark closes, a different
     # price domain, and reusing it would be exactly the cross-domain error
     # prices.py exists to prevent.
+    if cfg.economic_profile != "wealth-core-v1":
+        # Certified Median-5 requires a current print for every owned security
+        # before admitting. The C1 claim remains in estimated equity and its
+        # settlement state remains authoritative.
+        marks = {sid: (replace(mark, status=MarkStatus.STALE,
+                               carried_raw_close=None)
+                       if mark.status is MarkStatus.PENDING_TERMS_CARRIED else mark)
+                 for sid, mark in marks.items()}
     receivable_assets = ledger.receivable_total()
     ev = state.equity_view(marks, noncash_assets=receivable_assets)
 
@@ -1138,7 +1191,8 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
             pending.append(PendingOrder(
                 operation=op.operation, security_id=op.security_id,
                 ticker=op.ticker, slot_id=op.slot_id, shares=op.shares or 0,
-                signal_session=session, reason=op.reason.value))
+                signal_session=session, reason=op.reason.value,
+                intended_dollars=(op.detail or {}).get("intended_dollars")))
 
     d.warnings.extend(
         f"terminal {r.get('kind') or r.get('reason')} on {r.get('security_id')}"

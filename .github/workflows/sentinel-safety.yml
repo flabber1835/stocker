@@ -177,6 +177,22 @@ jobs:
             exit 1
           fi
 
+      - name: Verify champion transitions and production opening durability
+        run: |
+          set -euo pipefail
+          docker run --rm --network none sentinel-test:ci \
+            tests/champion tests/median5 tests/v5 -q -ra \
+            2>&1 | tee /tmp/champion-regressions.txt
+          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
+              /tmp/champion-regressions.txt; then
+            echo 'REFUSED: champion production regressions had non-passes' >&2
+            exit 1
+          fi
+          docker run --rm --network none --entrypoint python \
+            sentinel-test:ci /work/tools/champion_mutation_check.py
+          docker run --rm --network none --entrypoint python \
+            sentinel-test:ci /work/tools/v5_mutation_check.py
+
       - name: Gate full Sharadar replay through required Sentinel check
         shell: bash
         run: |

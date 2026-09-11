@@ -1,5 +1,11 @@
 # Sentinel — the execution and recovery contract
 
+The compact champion carries V5 opening dollar intents through this membrane.
+Execution persists opening prices, permanent instrument identities and sized
+quantities before submission, and restores that projection after a restart.
+See [production-compact-champion.md](production-compact-champion.md) for the
+selected strategy and the integration verification contract.
+
 `docs/sentinel-paper-observation.md` defines the separate signed
 `PAPER_OBSERVATION_ONLY` authority. It preserves this execution membrane and
 all reconciliation/identity rules, cannot satisfy historical certification,

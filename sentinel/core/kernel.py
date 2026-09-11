@@ -7,6 +7,9 @@ fully published session snapshot and a prior production state envelope.
 from __future__ import annotations
 
 from dataclasses import asdict
+from copy import deepcopy
+import hashlib
+import json
 from typing import Mapping
 
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
@@ -48,6 +51,7 @@ from sentinel.core.session import (
     holdings_from_shadow,
 )
 from sentinel.regime.spy import dated_spy_regime
+from sentinel.controller import median5 as median5_controller
 
 
 def advance_session(
@@ -89,6 +93,25 @@ def advance_session(
         raise ValueError(
             "persisted strategy/config/source identity differs from running identity"
         )
+    median5 = median5_controller.enabled(running_identity)
+    if median5:
+        expected_wealth = median5_controller.wealth_config(running_identity)
+        if controller_config != median5_controller.controller_config(running_identity):
+            raise ValueError("Median-5 controller configuration differs from frozen profile")
+    else:
+        expected_wealth = WealthCoreConfig()
+    wealth = wealth_config or expected_wealth
+    elig = eligibility_config or EligibilityConfig()
+    def config_digest(value):
+        return hashlib.sha256(json.dumps(asdict(value), sort_keys=True,
+                                         separators=(",", ":")).encode()).hexdigest()
+    for name, value, default in (("wealth_core_config_sha256", wealth, expected_wealth),
+                                  ("eligibility_config_sha256", elig, EligibilityConfig())):
+        signed = running_identity.get(name)
+        if (signed is not None and signed != config_digest(value)) or (signed is None and value != default):
+            raise ValueError("economic configuration is not bound to strategy identity: " + name)
+    if median5 and (wealth != expected_wealth or elig != EligibilityConfig()):
+        raise ValueError("Median-5 economic profile cannot be overridden")
     concordance = is_concordance_identity(running_identity)
     if (
         concordance
@@ -108,12 +131,14 @@ def advance_session(
     ):
         raise ValueError("corpus publication version moved backwards")
 
-    elig = eligibility_config or EligibilityConfig()
     state = PortfolioState.from_dict(env.wealth_core)
     pending = [PendingOrder.from_dict(item) for item in env.pending]
     ledger = Ledger.from_dict(env.ledger)
     last_known = dict(env.last_known)
     feed = _feed_from_dict(env.feed, published.meta, elig)
+    if median5 and env.data_version is not None and published.data_version != env.data_version:
+        for sid, series in feed.series.items():
+            series.reconcile_signal_basis(published.signal_basis_anchors.get(sid))
     _restore_missing_feed_anchors(feed, published)
     ledger_event_boundary = len(ledger.events)
     plan = plan_session(
@@ -125,7 +150,7 @@ def advance_session(
         ledger=ledger,
         last_known=last_known,
         feed=feed,
-        cfg=wealth_config,
+        cfg=wealth,
         eligibility_cfg=elig,
         terminal_events=published.terminal_events,
     )
@@ -140,6 +165,21 @@ def advance_session(
 
     held = holdings_from_shadow(state, feed, published.sectors)
     breadth = session_breadth(held)
+    median5_state = deepcopy(env.median5)
+    if median5:
+        from sentinel.controller.median5_breadth import breadth as peer_breadth
+        if median5_state is None:
+            raise ValueError("Median-5 controller state is absent")
+        if not published.spy_sessions or published.spy_sessions[-1] != published.session:
+            raise ValueError("Median-5 requires current dated SPY observations")
+        close = float(published.spy_closeadj[-1])
+        previous = (float(published.spy_closeadj[-2])
+                    if len(published.spy_closeadj) >= 2 else None)
+        mv = close/previous-1 if previous is not None and previous > 0 else None
+        median5_state["spy_history"] = (median5_state["spy_history"] + [
+            [feed._session_index, close, mv]])[-254:]
+        median5_controller.remember_peer_keys(median5_state, published.meta)
+        breadth, held = peer_breadth(state, feed, median5_state["spy_history"], median5_state["peer_keys"])
     navs = list(env.shadow_nav_history)
     nav = float(plan.estimated_equity)
     navs.append(nav)
@@ -191,6 +231,29 @@ def advance_session(
     recent_leadership_state = env.recent_leadership
     ldrc_state = env.ldrc
     concordance_evidence = {}
+    if median5:
+        median5_state, witness_decision = median5_controller.witness(
+            median5_state, session=published.session,
+            candidates=plan.leadership_candidates, closes=plan.signal_closes,
+            terminals={t.security_id for t in published.terminal_events})
+        from sentinel.controller import ex3_v6
+        recover = ex3_v6.recover if ex3_v6.enabled(running_identity) else median5_controller.recover
+        from sentinel.controller import champion_config
+        if champion_config.enabled(running_identity):
+            recover = champion_config.recover
+        median5_state, overlay_decision = recover(
+            state=median5_state, native=native_decision.target_core_exposure,
+            wc_drawdown=observation.shadow_drawdown,
+            recent_r20=witness_decision["recent_r20"],
+            recent_r40=witness_decision["recent_r40"],
+            spy_r20=regime.spy_r20, wc_r20=observation.shadow_r20)
+        decision = {**decision,
+                    "native_target_core_exposure": native_decision.target_core_exposure,
+                    "target_core_exposure": overlay_decision["desired_allocation"],
+                    "ldrc": overlay_decision}
+        concordance_evidence = {"native_controller": native_decision.to_dict(),
+                                "recent_leadership": witness_decision,
+                                "ldrc": overlay_decision}
     if concordance:
         witness_before = leadership_state_from_dict(
             env.recent_leadership or {}
@@ -259,6 +322,8 @@ def advance_session(
             "ldrc": asdict(overlay_decision),
         }
     evidence = {
+        **({"median5_eligible_population": plan.eligible_universe_count}
+           if median5 else {}),
         "observation": asdict(observation),
         "breadth": {
             "denominator": breadth.denominator,
@@ -295,6 +360,7 @@ def advance_session(
         recent_leadership=recent_leadership_state,
         ldrc=ldrc_state,
         concordance_witness_origin=env.concordance_witness_origin,
+        median5=median5_state,
     )
 
 

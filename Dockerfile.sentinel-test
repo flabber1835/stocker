@@ -56,6 +56,7 @@ COPY .gitattributes /work/repo/.gitattributes
 COPY .github/CODEOWNERS /work/repo/.github/CODEOWNERS
 COPY .github/workflows/sentinel-publish.yml /work/repo/.github/workflows/sentinel-publish.yml
 COPY .github/workflows/sentinel-safety.yml /work/repo/.github/workflows/sentinel-safety.yml
+COPY .github/workflows/v5-equivalence.yml /work/repo/.github/workflows/v5-equivalence.yml
 COPY .env.example /work/repo/.env.example
 COPY Makefile /work/repo/Makefile
 COPY README.md /work/repo/README.md
@@ -67,6 +68,7 @@ COPY docs/sentinel-paper-activation.md /work/repo/docs/sentinel-paper-activation
 COPY docs/sentinel-stage-4-automation.md /work/repo/docs/sentinel-stage-4-automation.md
 COPY docs/sentinel-paper-observation.md /work/repo/docs/sentinel-paper-observation.md
 COPY docs/paper-lifecycle-equivalence.json /work/repo/docs/paper-lifecycle-equivalence.json
+COPY docs/production-champion-paper-deltas.json /work/repo/docs/production-champion-paper-deltas.json
 COPY config/paper-observation-boundary.json /work/repo/config/paper-observation-boundary.json
 
 ENV PYTHONPATH=/work:/app \
