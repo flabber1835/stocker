@@ -9,6 +9,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.sentinel_mutation_certify import Mutant, _run
+from tools.test_responsibility_lib import load_authority
 
 MUTANTS = (
     Mutant("empty-exact-200-is-absence", "sentinel/execution/alpaca.py",
@@ -63,12 +64,12 @@ POSTGRES_MUTANT = Mutant(
 
 
 def _required_mutations() -> list[str]:
-    authority = json.loads((ROOT / "tests/test-responsibility.json").read_text())
-    if authority.get("schema") != "stocker.test-responsibility/1":
-        raise RuntimeError("invalid test-responsibility authority schema")
+    authority = load_authority()
     required = authority.get("alpaca", {}).get("required_mutations")
     if not isinstance(required, list) or not required or len(required) != len(set(required)):
         raise RuntimeError("invalid required Alpaca mutation inventory")
+    if not all(isinstance(value, str) and value for value in required):
+        raise RuntimeError("invalid required Alpaca mutation id")
     return required
 
 
