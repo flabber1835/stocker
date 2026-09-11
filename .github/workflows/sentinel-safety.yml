@@ -152,32 +152,67 @@ jobs:
             /work/tests/scripts \
             /work/tools /work/repo/scripts
 
-      - name: Run the complete Sentinel suite and collect automation coverage once
+      - name: Run complete Sentinel coverage with one execution per test
         run: |
           set -euo pipefail
           mkdir -p /tmp/sentinel-system-evidence
+          automation_files=(
+            tests/sentinel/test_automation_service.py
+            tests/sentinel/test_issue_201_automation_financial_grade.py
+            tests/sentinel/test_automation_p1_continuity.py
+            tests/sentinel/test_automation_safety_seams.py
+            tests/sentinel/test_automation_process_contracts.py
+          )
+          ignore_args=()
+          for path in "${automation_files[@]}"; do
+            ignore_args+=("--ignore=${path}")
+          done
+
+          set +e
+          docker run --rm --network none \
+            -v /tmp/sentinel-system-evidence:/evidence \
+            sentinel-test:ci tests/sentinel "${ignore_args[@]}" -q -ra \
+            --junitxml=/evidence/sentinel-main.xml \
+            2>&1 | tee /tmp/sentinel-complete.txt
+          main_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$main_status" -ne 0 ]; then
+            echo '--- Sentinel main-suite failure tail ---' >&2
+            tail -n 240 /tmp/sentinel-complete.txt >&2
+            exit "$main_status"
+          fi
+
           set +e
           docker run --rm --network none \
             -v /tmp/sentinel-system-evidence:/evidence \
             --entrypoint sh sentinel-test:ci -c '
               python -m coverage run --branch \
                 --source=sentinel.automation.service \
-                -m pytest tests/sentinel -q -ra \
-                --junitxml=/evidence/sentinel.xml &&
+                -m pytest \
+                tests/sentinel/test_automation_service.py \
+                tests/sentinel/test_issue_201_automation_financial_grade.py \
+                tests/sentinel/test_automation_p1_continuity.py \
+                tests/sentinel/test_automation_safety_seams.py \
+                tests/sentinel/test_automation_process_contracts.py \
+                -q -ra --junitxml=/evidence/sentinel-automation.xml &&
               python -m coverage report --precision=2 --fail-under=80.00
-            ' 2>&1 | tee /tmp/sentinel-complete.txt
-          test_status=${PIPESTATUS[0]}
+            ' 2>&1 | tee -a /tmp/sentinel-complete.txt
+          coverage_status=${PIPESTATUS[0]}
           set -e
-          if [ "$test_status" -ne 0 ]; then
-            echo '--- Sentinel failure/coverage tail ---' >&2
+          if [ "$coverage_status" -ne 0 ]; then
+            echo '--- Sentinel automation coverage failure tail ---' >&2
             tail -n 240 /tmp/sentinel-complete.txt >&2
-            exit "$test_status"
+            exit "$coverage_status"
           fi
           if grep -Eq '(^|, )[0-9]+ skipped(,| in |$)' \
               /tmp/sentinel-complete.txt; then
-            echo 'REFUSED: the complete Sentinel run skipped tests' >&2
+            echo 'REFUSED: the complete Sentinel partition skipped tests' >&2
             exit 1
           fi
+          python tools/merge_junit.py \
+            --output /tmp/sentinel-system-evidence/sentinel.xml \
+            /tmp/sentinel-system-evidence/sentinel-main.xml \
+            /tmp/sentinel-system-evidence/sentinel-automation.xml
 
       - name: Verify champion transitions and production opening durability
         run: |
