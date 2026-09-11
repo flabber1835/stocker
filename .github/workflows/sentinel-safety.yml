@@ -11,6 +11,7 @@ on:
 permissions:
   contents: read
   checks: read
+  actions: read
 
 concurrency:
   group: sentinel-safety-${{ github.event.pull_request.number || github.ref }}
@@ -247,16 +248,18 @@ jobs:
           docker run --rm --network none --entrypoint python \
             sentinel-test:ci /work/tools/v5_mutation_check.py
 
-      - name: Require commit-bound Sharadar replay before PR merge
+      - name: Require Sharadar replay authority before PR merge
         if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
         env:
           GITHUB_TOKEN: ${{ github.token }}
+          CHECK_SUITE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
         run: |
           set -euo pipefail
           python tools/require_check_run.py \
             --repository "$GITHUB_REPOSITORY" \
-            --sha "$GITHUB_SHA" \
+            --sha "$CHECK_SUITE_SHA" \
             --name "sharadar-replay-${{ matrix.scope }}" \
+            --workflow ".github/workflows/sharadar-daily-replay.yml" \
             --timeout-seconds 900 \
             --poll-seconds 10
 
