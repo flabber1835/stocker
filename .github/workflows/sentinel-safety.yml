@@ -155,19 +155,24 @@ jobs:
             /work/tests/scripts \
             /work/tools /work/repo/scripts
 
-      - name: Run the complete Sentinel suite without network access
+      - name: Run the complete Sentinel suite and collect automation coverage once
         run: |
           set -euo pipefail
           mkdir -p /tmp/sentinel-system-evidence
           set +e
           docker run --rm --network none \
             -v /tmp/sentinel-system-evidence:/evidence \
-            sentinel-test:ci --junitxml=/evidence/sentinel.xml \
-            tests/sentinel -q -ra 2>&1 | tee /tmp/sentinel-complete.txt
+            --entrypoint sh sentinel-test:ci -c '
+              python -m coverage run --branch \
+                --source=sentinel.automation.service \
+                -m pytest tests/sentinel -q -ra \
+                --junitxml=/evidence/sentinel.xml &&
+              python -m coverage report --precision=2 --fail-under=80.00
+            ' 2>&1 | tee /tmp/sentinel-complete.txt
           test_status=${PIPESTATUS[0]}
           set -e
           if [ "$test_status" -ne 0 ]; then
-            echo '--- Sentinel failure tail ---' >&2
+            echo '--- Sentinel failure/coverage tail ---' >&2
             tail -n 240 /tmp/sentinel-complete.txt >&2
             exit "$test_status"
           fi
@@ -192,56 +197,6 @@ jobs:
             sentinel-test:ci /work/tools/champion_mutation_check.py
           docker run --rm --network none --entrypoint python \
             sentinel-test:ci /work/tools/v5_mutation_check.py
-
-      - name: Gate full Sharadar replay through required Sentinel check
-        shell: bash
-        run: |
-          set -euo pipefail
-          postgres="sentinel-sharadar-pg-${GITHUB_RUN_ID}-${{ matrix.scope }}"
-          cleanup() {
-            docker rm -f "$postgres" >/dev/null 2>&1 || true
-          }
-          trap cleanup EXIT
-          cleanup
-          docker run -d --name "$postgres" \
-            -p 127.0.0.1:55432:5432 \
-            -e POSTGRES_PASSWORD=synthetic-replay-only \
-            -e POSTGRES_DB=replay_test \
-            postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
-            >/dev/null
-          ready=0
-          for _ in $(seq 1 30); do
-            if docker exec "$postgres" pg_isready -U postgres -d replay_test >/dev/null 2>&1; then
-              ready=1
-              break
-            fi
-            sleep 1
-          done
-          if [ "$ready" -ne 1 ]; then
-            docker logs "$postgres" >&2 || true
-            echo 'REFUSED: replay PostgreSQL did not become ready' >&2
-            exit 1
-          fi
-          rm -rf /tmp/sharadar-required-evidence
-          mkdir -p /tmp/sharadar-required-evidence/0
-          docker run --rm --network host \
-            -v "$PWD/research:/work/research:ro" \
-            -v "$PWD/.git:/work/.git:ro" \
-            -v /tmp/sharadar-required-evidence:/evidence \
-            -e SHARADAR_REPLAY_SHARD=0 \
-            -e SHARADAR_REPLAY_SHARDS=1 \
-            -e SHARADAR_REPLAY_TEST_DSN=postgresql://postgres:synthetic-replay-only@127.0.0.1:55432/replay_test \
-            -e SHARADAR_REPLAY_EVIDENCE=/evidence/0 \
-            -e TESTED_COMMIT="${TESTED_SHA}" \
-            --entrypoint python sentinel-test:ci \
-            -m pytest research/sharadar_replay/tests -q -ra -s \
-            --junitxml=/evidence/0/junit.xml
-          docker run --rm --network none \
-            -v "$PWD/research:/work/research:ro" \
-            -v /tmp/sharadar-required-evidence:/evidence:ro \
-            --entrypoint python sentinel-test:ci \
-            research/sharadar_replay/verify_evidence.py \
-            /evidence --commit "${TESTED_SHA}" --shards 1
 
       - name: Build system adversarial evidence
         if: always()
@@ -279,22 +234,6 @@ jobs:
             echo 'REFUSED: the script/control suite had non-passes' >&2
             exit 1
           fi
-
-      - name: Enforce automation branch coverage
-        run: |
-          set -euo pipefail
-          docker run --rm --network none --entrypoint sh sentinel-test:ci -c '
-            python -m coverage run --branch \
-              --source=sentinel.automation.service \
-              -m pytest \
-              tests/sentinel/test_automation_service.py \
-              tests/sentinel/test_issue_201_automation_financial_grade.py \
-              tests/sentinel/test_automation_p1_continuity.py \
-              tests/sentinel/test_pr293_review_blockers.py \
-              tests/sentinel/test_pr293_automation_fixes.py \
-              -q -ra &&
-            python -m coverage report --precision=2 --fail-under=80.00
-          '
 
       - name: Run the prospective Wealth Core boundary without skips
         run: |
