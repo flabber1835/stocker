@@ -3,38 +3,45 @@
   "owners": {
     "sentinel.complete": {
       "paths": ["tests/sentinel"],
-      "scopes": ["exact-head", "synthetic-merge"]
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
     },
     "production-champion.regressions": {
       "paths": ["tests/champion", "tests/median5", "tests/v5"],
       "scopes": ["exact-head", "synthetic-merge"],
-      "execution_owner": "sentinel.complete"
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
     },
     "wealth-core.prospective": {
       "paths": ["tests/wealth_core"],
-      "scopes": ["exact-head", "synthetic-merge"]
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
     },
     "scripts.operator": {
       "paths": ["tests/scripts"],
-      "scopes": ["exact-head", "synthetic-merge"]
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
     },
     "host-python38.compatibility": {
       "paths": ["tests/host_python38"],
       "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sentinel-safety.yml#host-python-38-compatibility",
       "independence": "minimum-host-runtime"
     },
     "backup.reliability": {
       "paths": ["tests/backup"],
-      "scopes": ["exact-head", "synthetic-merge"]
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/backup-reliability.yml#media-and-recovery"
     },
     "internal-state.contract": {
       "paths": ["tests/internal_state"],
       "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/internal-state-harness.yml#contract",
       "independence": "independent-oracle"
     },
     "internal-state.campaign": {
       "paths": ["tools/internal_state_harness.py"],
       "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/internal-state-harness.yml#lifecycle",
       "independence": "adversarial-generated"
     },
     "core.infrastructure": {
@@ -45,21 +52,25 @@
         "tests/test_high_impact_filesystem_remediation.py",
         "tests/test_postgres_shm.py"
       ],
-      "scopes": ["exact-head", "synthetic-merge"]
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/internal-state-harness.yml#core-infrastructure"
     },
     "sharadar.daily-replay": {
       "paths": ["research/sharadar_replay/tests"],
       "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sharadar-daily-replay.yml#daily-replay",
       "independence": "pit-production-replay"
     },
     "alpaca.contracts": {
       "paths": ["tests/sentinel/test_alpaca*", "tests/sentinel/test_execution_state_machine_model.py", "tests/sentinel/test_guarded_execution_broker.py"],
       "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
       "execution_owner": "sentinel.complete"
     },
     "alpaca.mutations": {
       "paths": ["tools/alpaca_harness_mutations.py"],
       "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/alpaca-simulation-harness.yml#alpaca",
       "independence": "mutation"
     }
   },
