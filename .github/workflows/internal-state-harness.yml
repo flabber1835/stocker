@@ -44,6 +44,18 @@ jobs:
           python -m pip check
           sudo apt-get update
           sudo apt-get install -y postgresql
+      - name: Validate test ownership and reject new incident-named suites
+        env:
+          BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/contract
+          if [ -n "$BASE_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$BASE_SHA"
+            python tools/validate_test_responsibility.py --base "$BASE_SHA" --output artifacts/contract/test-responsibility.json
+          else
+            python tools/validate_test_responsibility.py --output artifacts/contract/test-responsibility.json
+          fi
       - name: Run independent invariant and replay-contract checks once
         env:
           PYTEST_ADDOPTS: '-p tests.internal_state.ci_gate'
