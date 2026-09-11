@@ -8,6 +8,7 @@ import pytest
 from sentinel.execution import executor, journal, opening_sizing
 from sentinel.execution import target_reprojection as projections
 from sentinel.execution.contract import BrokerInstrument, Side
+from sentinel.execution.opening_prices import OpeningPriceUnavailability
 from sentinel.execution.plan import OpeningIntent
 from sentinel.execution.simulator import FaultKind
 from sentinel.execution.states import CommandState
@@ -144,18 +145,40 @@ def test_opening_buy_waits_for_pending_sale_settlement_and_recovers(conn):
         ("SEC-AAA", Side.BUY, D(10))]
 
 
-def test_unsent_projection_gap_reopens_sizing_after_database_reload(conn):
+def test_unsent_durable_projection_remains_freshness_gated_after_reload(conn):
     env, plan = setup_plan(conn)
     restored = journal.load_plan(conn, plan.plan_id)
     assert opening_sizing.requires_initial_projection(conn, plan=restored, deployment=DEPLOY)
     original = prices(env, restored, price='50')
     projection = projections.record_projection(conn,
         opening_sizing.resolve(env, restored, base(env, restored), original))
-    assert not opening_sizing.requires_initial_projection(conn, plan=restored, deployment=DEPLOY)
+    # Persisting sizing does not prove that the broker mutation started.
+    assert opening_sizing.requires_initial_projection(conn, plan=restored, deployment=DEPLOY)
     b = broker()
     outcome = execute(conn, b, restored, projection)
     assert [c.quantity for c in outcome.submitted] == [D(99)]
     assert len([call for call in b.calls if call.startswith('submit:')]) == 1
+    assert not opening_sizing.requires_initial_projection(
+        conn, plan=restored, deployment=DEPLOY)
+
+
+def test_unavailable_opening_evidence_keeps_reduction_executable(conn):
+    env, plan = setup_plan(conn, cash=100., sale=True)
+    unavailable = OpeningPriceUnavailability(
+        plan.effective_session, "opening data service unavailable", {}, {})
+    projection = projections.record_projection(conn,
+        opening_sizing.resolve(env, plan, base(env, plan), unavailable))
+    assert projection.opening_sizing["mode"] == opening_sizing.UNAVAILABLE_MODE
+    assert projection.target_basket["SEC-AAA"] == 0
+    assert not opening_sizing.requires_initial_projection(
+        conn, plan=plan, deployment=DEPLOY)
+
+    b = broker()
+    seed_held(conn, b, BrokerInstrument("SEC-X", "X", "b-X"), 10)
+    result = execute(conn, b, plan, projection, settle_cycles=1)
+    assert [(c.security_id, c.side) for c in result.submitted] == [
+        ("SEC-X", Side.SELL)]
+    assert not any(c.side is Side.BUY for c in result.submitted)
 
 
 def test_projection_loss_after_ambiguous_submit_is_integrity_failure(conn):
