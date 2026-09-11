@@ -10,6 +10,7 @@ on:
 
 permissions:
   contents: read
+  checks: read
 
 concurrency:
   group: sentinel-safety-${{ github.event.pull_request.number || github.ref }}
@@ -37,18 +38,26 @@ jobs:
       - name: Exercise host certification helpers on Python 3.8
         run: |
           set -euo pipefail
+          mkdir -p artifacts/host-python38
           python --version
           python scripts/sentinel_host_python.py
-          python -m unittest -v tests.host_python38.test_host_compat
-          python -m unittest -v tests.host_python38.test_env_ingestion
-          python -m unittest -v tests.host_python38.test_env_review_fixes
+          python tools/run_unittest_owner.py --owner host-python38.compatibility --output artifacts/host-python38/execution.json
           python tools/sentinel_env_mutation_check.py
           python -m compileall -q -f scripts
+
+      - name: Retain host Python 3.8 execution evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: host-python38-${{ matrix.scope }}
+          path: artifacts/host-python38/
+          if-no-files-found: error
+          retention-days: 30
 
   certification-and-durability:
     name: sentinel-${{ matrix.scope }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
@@ -213,22 +222,43 @@ jobs:
             --output /tmp/sentinel-system-evidence/sentinel.xml \
             /tmp/sentinel-system-evidence/sentinel-main.xml \
             /tmp/sentinel-system-evidence/sentinel-automation.xml
+          python tools/verify_test_owner_execution.py --owner sentinel.complete \
+            --junit /tmp/sentinel-system-evidence/sentinel.xml \
+            --output /tmp/sentinel-system-evidence/sentinel-owner.json
 
       - name: Verify champion transitions and production opening durability
         run: |
           set -euo pipefail
-          docker run --rm --network none sentinel-test:ci \
-            tests/champion tests/median5 tests/v5 -q -ra \
+          docker run --rm --network none \
+            -v /tmp/sentinel-system-evidence:/evidence \
+            sentinel-test:ci tests/champion tests/median5 tests/v5 -q -ra \
+            --junitxml=/evidence/champion.xml \
             2>&1 | tee /tmp/champion-regressions.txt
           if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
               /tmp/champion-regressions.txt; then
             echo 'REFUSED: champion production regressions had non-passes' >&2
             exit 1
           fi
+          python tools/verify_test_owner_execution.py --owner production-champion.regressions \
+            --junit /tmp/sentinel-system-evidence/champion.xml \
+            --output /tmp/sentinel-system-evidence/champion-owner.json
           docker run --rm --network none --entrypoint python \
             sentinel-test:ci /work/tools/champion_mutation_check.py
           docker run --rm --network none --entrypoint python \
             sentinel-test:ci /work/tools/v5_mutation_check.py
+
+      - name: Require commit-bound Sharadar replay before PR merge
+        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          python tools/require_check_run.py \
+            --repository "$GITHUB_REPOSITORY" \
+            --sha "$GITHUB_SHA" \
+            --name "sharadar-replay-${{ matrix.scope }}" \
+            --timeout-seconds 900 \
+            --poll-seconds 10
 
       - name: Gate protected main publication through full Sharadar replay
         if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -303,8 +333,11 @@ jobs:
         run: |
           set -euo pipefail
           set +e
-          docker run --rm --network none sentinel-test:ci \
-            tests/scripts -q -ra 2>&1 | tee /tmp/sentinel-scripts.txt
+          docker run --rm --network none \
+            -v /tmp/sentinel-system-evidence:/evidence \
+            sentinel-test:ci tests/scripts -q -ra \
+            --junitxml=/evidence/scripts.xml \
+            2>&1 | tee /tmp/sentinel-scripts.txt
           test_status=${PIPESTATUS[0]}
           set -e
           if [ "$test_status" -ne 0 ]; then
@@ -317,21 +350,30 @@ jobs:
             echo 'REFUSED: the script/control suite had non-passes' >&2
             exit 1
           fi
+          python tools/verify_test_owner_execution.py --owner scripts.operator \
+            --junit /tmp/sentinel-system-evidence/scripts.xml \
+            --output /tmp/sentinel-system-evidence/scripts-owner.json
 
       - name: Run the prospective Wealth Core boundary without skips
         run: |
           set -euo pipefail
-          docker run --rm --network none sentinel-test:ci \
+          docker run --rm --network none \
+            -v /tmp/sentinel-system-evidence:/evidence \
+            sentinel-test:ci \
             tests/wealth_core \
             --deselect tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture \
             --deselect tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER \
             --deselect tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash \
-            -q -ra 2>&1 | tee /tmp/wealth-core-prospective.txt
+            -q -ra --junitxml=/evidence/wealth-core.xml \
+            2>&1 | tee /tmp/wealth-core-prospective.txt
           if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
               /tmp/wealth-core-prospective.txt; then
             echo 'REFUSED: the prospective Wealth Core run had non-passes' >&2
             exit 1
           fi
+          python tools/verify_test_owner_execution.py --owner wealth-core.prospective \
+            --junit /tmp/sentinel-system-evidence/wealth-core.xml \
+            --output /tmp/sentinel-system-evidence/wealth-core-owner.json
 
       - name: Validate shell and Compose surfaces
         env:
