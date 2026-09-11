@@ -28,8 +28,9 @@ def select_check(check_runs: object, name: str) -> dict | None:
         matches.append(run)
     if not matches:
         return None
-    matches.sort(key=lambda row: (row.get("started_at") or "", int(row.get("id") or 0)),
-                 reverse=True)
+    # Check-run ids are monotonic. A newly queued rerun can have started_at=null,
+    # so timestamps would incorrectly prefer an older completed success.
+    matches.sort(key=lambda row: int(row.get("id") or 0), reverse=True)
     return matches[0]
 
 
