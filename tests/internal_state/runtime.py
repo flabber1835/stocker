@@ -519,10 +519,9 @@ class Lifecycle:
         elif kind == "media_repair":
             if self.media_saved is None:
                 raise InvalidTrace("media repair requires loss")
-            marker = self.cluster.wal_root / ".sentinel-independent-durable-target-v1"
-            marker.write_bytes(self.media_saved)
-            self.cluster.own(marker)
+            detail = self.cluster.repair_wal_media(self.media_saved)
             self.media_saved = None
+            self.coverage.add("backup_authority_recovered")
         elif kind == "wal_corrupt":
             if self.wal_saved is not None:
                 raise InvalidTrace("nested WAL corruption")

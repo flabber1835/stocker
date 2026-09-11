@@ -33,7 +33,7 @@ def catalogue():
         "interrupted_publication": ((*BASE, "data_bad", "daily", "data_repair", "daily", "restart"),
             ("interrupted_publication", "connection_restart")),
         "backup_loss_after_plan": ((*BASE, "media_loss", "media_repair", "execute", "fill", "reconcile"),
-            ("backup_authority_refusal", "broker_fills")),
+            ("backup_authority_refusal", "backup_authority_recovered", "broker_fills")),
         "wal_corruption_after_plan": ((*BASE, "wal_corrupt", "wal_repair", "restart", "execute", "fill", "reconcile"),
             ("same_size_wal_corruption_refused", "broker_fills")),
         "stale_populated_restore": ((*BASE, "checkpoint", "execute", "fill", "reconcile", "restore", "restart", "reconcile", "execute"),

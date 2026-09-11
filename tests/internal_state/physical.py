@@ -116,6 +116,19 @@ class PhysicalCluster:
             time.sleep(0.1)
         raise RuntimeError(f"WAL publication deadline expired: {wal}")
 
+    def repair_wal_media(self, marker_bytes):
+        """Complete media repair only after fresh production archive proof."""
+        from sentinel import backup_guard, backup_runtime_authority
+        marker = self.wal_root / ".sentinel-independent-durable-target-v1"
+        marker.write_bytes(marker_bytes)
+        self.own(marker)
+        with self.runtime(), psycopg.connect(self.dsn, autocommit=True) as conn:
+            wal = backup_guard._probe_wal_boundary(  # noqa: SLF001
+                conn, operation="integrated media repair")
+            self.wait_archive(wal)
+            return backup_runtime_authority.require(
+                conn, operation="integrated media repair")
+
     def checkpoint(self, label):
         if not re.fullmatch(r"[a-z][a-z0-9_]*", label):
             raise ValueError("invalid checkpoint label")
