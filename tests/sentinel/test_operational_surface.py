@@ -87,9 +87,23 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "SENTINEL_IMAGE=sentinel:ci" in workflow
     assert workflow.count('--build-arg SOURCE_GIT_SHA="${TESTED_SHA}"') == 2
     assert 'TESTED_SHA="$(git rev-parse HEAD)"' in workflow
-    assert "tests/sentinel -q -ra" in workflow
+    assert 'tests/sentinel "${ignore_args[@]}" -q -ra' in workflow
+    automation_files = (
+        "tests/sentinel/test_automation_service.py",
+        "tests/sentinel/test_issue_201_automation_financial_grade.py",
+        "tests/sentinel/test_automation_p1_continuity.py",
+        "tests/sentinel/test_automation_safety_seams.py",
+        "tests/sentinel/test_automation_process_contracts.py",
+    )
+    assert 'ignore_args+=("--ignore=${path}")' in workflow
+    for path in automation_files:
+        assert workflow.count(path) >= 2
+    assert "python tools/merge_junit.py" in workflow
+    assert "sentinel-main.xml" in workflow
+    assert "sentinel-automation.xml" in workflow
+    assert "--output /tmp/sentinel-system-evidence/sentinel.xml" in workflow
     assert "tee /tmp/sentinel-complete.txt" in workflow
-    assert "the complete Sentinel run skipped tests" in workflow
+    assert "the complete Sentinel partition skipped tests" in workflow
     assert "--network none" in workflow
     assert "docker-compose.sentinel-backup.yml" in workflow
     assert "fetch-depth: 2" in workflow
@@ -149,10 +163,13 @@ def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
 
 def test_main_push_runs_exact_sha_safety_and_branch_coverage():
     workflow = _read(".github/workflows/sentinel-safety.yml")
-    assert "push:\n    branches:\n      - main" in workflow
-    assert "- 'codex/**'" in workflow
+    assert "push:\n    branches: [main]" in workflow
+    assert "- 'codex/**'" not in workflow
+    assert "- 'fix/**'" not in workflow
+    assert "- 'stabilization/**'" not in workflow
     assert "coverage run --branch" in workflow
-    assert "tests/sentinel/test_pr293_automation_fixes.py" in workflow
+    assert "tests/sentinel/test_automation_safety_seams.py" in workflow
+    assert "tests/sentinel/test_automation_process_contracts.py" in workflow
     assert "coverage report --precision=2 --fail-under=80.00" in workflow
     for evidence in (
             "source tree", "workflow run", "dependency locks",
@@ -237,15 +254,14 @@ def test_ci_compiles_python_and_syntax_checks_every_tracked_shell_script():
 
 def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
     workflow = _read(".github/workflows/sentinel-safety.yml")
-    protected_logs = (
-        "/tmp/sentinel-complete.txt",
-        "/tmp/sentinel-scripts.txt",
-        "/tmp/wealth-core-prospective.txt",
-    )
     assert workflow.count("set -euo pipefail") >= 4
-    assert workflow.count("-q -ra 2>&1 | tee") == len(protected_logs)
-    for log in protected_logs:
-        assert f"-q -ra 2>&1 | tee {log}" in workflow
+    assert "2>&1 | tee /tmp/sentinel-complete.txt" in workflow
+    assert "2>&1 | tee -a /tmp/sentinel-complete.txt" in workflow
+    assert "-q -ra 2>&1 | tee /tmp/sentinel-scripts.txt" in workflow
+    assert "-q -ra 2>&1 | tee /tmp/wealth-core-prospective.txt" in workflow
+    assert "main_status=${PIPESTATUS[0]}" in workflow
+    assert "coverage_status=${PIPESTATUS[0]}" in workflow
+    assert "test_status=${PIPESTATUS[0]}" in workflow
     assert workflow.count("[0-9]+ skipped") == 1
 
     skip_summary = re.compile(r"(^|, )[0-9]+ skipped(,| in |$)")
