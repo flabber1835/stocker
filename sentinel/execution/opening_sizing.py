@@ -129,8 +129,11 @@ async def prices_for_plan(conn, *, state, plan, broker):
             import httpx
         except ImportError:                                  # pragma: no cover
             httpx = None
-        if httpx is not None and isinstance(
-                exc, (httpx.TransportError, httpx.HTTPStatusError)):
+        if httpx is not None and isinstance(exc, httpx.HTTPStatusError):
+            if exc.response.status_code in (401, 403):
+                raise
+            return _unavailable(plan, instruments, exc)
+        if httpx is not None and isinstance(exc, httpx.TransportError):
             return _unavailable(plan, instruments, exc)
         raise
 
