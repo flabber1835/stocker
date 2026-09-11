@@ -1,4 +1,4 @@
-"""Pytest evidence plugin for the full supported suite; required skips fail CI."""
+"""Pytest evidence plugin for required suites; required skips fail CI."""
 from __future__ import annotations
 
 import hashlib
@@ -38,8 +38,12 @@ class Evidence:
         result = vars(self).copy()
         passed = acceptance(collected=self.collected, passed=self.passed, failures=self.failures,
             skipped=self.skipped, expected_failures=self.expected_failures, exitstatus=exitstatus)
-        result.update(verdict="PASS" if passed else "FAIL", pytest_exitstatus=int(exitstatus),
-            commit=subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip())
+        result.update(
+            verdict="PASS" if passed else "FAIL",
+            pytest_exitstatus=int(exitstatus),
+            commit=subprocess.check_output(["git", "rev-parse", "HEAD"], text=True).strip(),
+            tree=subprocess.check_output(["git", "rev-parse", "HEAD^{tree}"], text=True).strip(),
+        )
         root = Path(os.environ["INTERNAL_STATE_SUITE_EVIDENCE"])
         root.mkdir(parents=True, exist_ok=True)
         identity = " ".join(map(str, session.config.args))
@@ -54,5 +58,5 @@ class Evidence:
 
 def pytest_configure(config):
     if "INTERNAL_STATE_SUITE_EVIDENCE" not in os.environ:
-        raise RuntimeError("full-suite evidence path is required")
+        raise RuntimeError("suite evidence path is required")
     config.pluginmanager.register(Evidence(), "internal-state-suite-evidence")
