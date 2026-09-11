@@ -41,6 +41,11 @@
       "historical_ast_sha256": null,
       "module": "execution"
     },
+    "_opening_resolution_freshness_or_refuse": {
+      "generated_ast_sha256": "cbd7e1924a17ac7ac0e1883c66a14c901a9552ad9251365d4b87365302107e32",
+      "historical_ast_sha256": null,
+      "module": "execution"
+    },
     "_preopen_active_security_ids": {
       "generated_ast_sha256": "f4d0d48fa4bb9e34a62b185b5191e54ba9a11a9352ee0f5cf7af949760431204",
       "historical_ast_sha256": "6729525b285bc3f9b067b713a9262232f7f66af8f33fb821b309983fe7cf5764",
@@ -99,6 +104,7 @@
     "tests/v5/test_opening_durability.py",
     "tests/v5/test_opening_identity.py",
     "tests/v5/test_review_regressions.py",
+    "tests/sentinel/test_v5_opening_execution_freshness.py",
     "tests/sentinel/test_issue209_simplified_ldrc_runtime.py",
     "tests/sentinel/test_automation_runtime.py"
   ],
