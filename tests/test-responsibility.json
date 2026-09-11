@@ -13,6 +13,11 @@
       "paths": ["tests/scripts"],
       "scopes": ["exact-head", "synthetic-merge"]
     },
+    "host-python38.compatibility": {
+      "paths": ["tests/host_python38"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "independence": "minimum-host-runtime"
+    },
     "backup.reliability": {
       "paths": ["tests/backup"],
       "scopes": ["exact-head", "synthetic-merge"]
