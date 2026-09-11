@@ -1,6 +1,8 @@
 """Falsifiers for permanent test ownership and cross-workflow merge authority."""
 from __future__ import annotations
 
+from copy import deepcopy
+
 import pytest
 
 from tools.require_check_run import (
@@ -10,12 +12,14 @@ from tools.require_check_run import (
     verify_workflow_origin,
 )
 from tools.test_responsibility_lib import (
-    ROOT, canonical_nodeid, junit_execution, resolve_contracts,
+    ROOT, canonical_nodeid, junit_execution, load_authority, resolve_contracts,
     validate_contract_selectors,
 )
 from tools.validate_test_responsibility import (
-    _job_body, _require_scope_binding, validate as validate_responsibility,
+    _job_body, _require_merge_authority, _require_scope_binding,
+    validate as validate_responsibility,
 )
+from tools.verify_test_owner_execution import _delegated_required_contracts
 
 
 def selector(name: str) -> str:
@@ -50,6 +54,14 @@ def test_parameter_instances_collapse_to_one_exact_logical_contract_definition()
     physical = [selector("test_cash") + "[paper]", selector("test_cash") + "[live]"]
     assert canonical_nodeid(physical[0]) == selector("test_cash")
     assert resolve_contracts(required, physical) == {"cash": sorted(physical)}
+
+
+def test_delegated_contracts_cannot_escape_their_declared_owner_surface():
+    authority = deepcopy(load_authority())
+    authority["alpaca"]["required_contracts"]["escaped-contract"] = (
+        "tests/sentinel/test_automation_service.py::test_escaped_contract")
+    with pytest.raises(AssertionError, match="escape delegated owner surface"):
+        _delegated_required_contracts(authority, "sentinel.complete")
 
 
 def test_junit_evidence_exposes_owned_modules_that_are_missing_or_skipped(tmp_path):
@@ -236,10 +248,27 @@ def test_scope_binding_rejects_declared_scope_without_matrix_or_exact_checkout()
         _require_scope_binding("owner", scopes, f"{matrix}\n{checkout}", "name: test\njobs:\n")
 
 
+def test_sharadar_bridge_must_remain_in_the_protected_sentinel_carrier_job():
+    sentinel = (ROOT / ".github/workflows/sentinel-safety.yml").read_text()
+    sharadar = (ROOT / ".github/workflows/sharadar-daily-replay.yml").read_text()
+    marker = "python tools/require_check_run.py"
+    assert sentinel.count(marker) == 1
+    moved = sentinel.replace(marker, "python -c 'pass'", 1)
+    moved += (
+        "\n  unprotected-spoof:\n"
+        "    name: spoof\n"
+        "    steps:\n"
+        "      - run: python tools/require_check_run.py\n"
+    )
+    with pytest.raises(AssertionError, match="protected carrier job is incomplete"):
+        _require_merge_authority(sentinel_text=moved, sharadar_text=sharadar)
+
+
 def test_live_test_responsibility_authority_is_valid():
     result = validate_responsibility()
     assert result["verdict"] == "PASS"
     assert result["unowned_tests"] == []
     assert set(result["scope_bindings"]) == set(result["ci_jobs"])
+    assert result["merge_authority"]["carrier_job"] == "certification-and-durability"
     assert result["merge_authority"]["workflow_job"] == "complete-evidence"
     assert result["merge_authority"]["workflow_job_name_unique"] is True
