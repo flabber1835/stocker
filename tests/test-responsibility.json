@@ -5,6 +5,11 @@
       "paths": ["tests/sentinel"],
       "scopes": ["exact-head", "synthetic-merge"]
     },
+    "production-champion.regressions": {
+      "paths": ["tests/champion", "tests/median5", "tests/v5"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "execution_owner": "sentinel.complete"
+    },
     "wealth-core.prospective": {
       "paths": ["tests/wealth_core"],
       "scopes": ["exact-head", "synthetic-merge"]
