@@ -84,6 +84,19 @@ def test_required_check_bridge_accepts_only_exact_github_actions_success():
     assert check_verdict({"status": "completed", "conclusion": "success"}) == "PASS"
 
 
+def test_required_check_bridge_prefers_new_queued_run_over_old_success():
+    name = "sharadar-replay-synthetic-merge-deadbeef"
+    runs = [
+        {"id": 101, "name": name, "status": "completed", "conclusion": "success",
+         "started_at": "2026-09-11T20:00:00Z", "app": {"slug": "github-actions"}},
+        {"id": 102, "name": name, "status": "queued", "conclusion": None,
+         "started_at": None, "app": {"slug": "github-actions"}},
+    ]
+    selected = select_check(runs, name)
+    assert selected["id"] == 102
+    assert check_verdict(selected) == "WAIT"
+
+
 def test_required_check_bridge_requires_exact_actions_workflow_and_head_sha():
     check = {
         "head_sha": "head-123",
