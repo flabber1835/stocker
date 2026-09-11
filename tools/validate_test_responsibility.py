@@ -14,6 +14,7 @@ REQUIRED_OWNERS = {
     "sentinel.complete",
     "wealth-core.prospective",
     "scripts.operator",
+    "host-python38.compatibility",
     "backup.reliability",
     "internal-state.contract",
     "internal-state.campaign",
