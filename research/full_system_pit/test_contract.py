@@ -16,7 +16,9 @@ def fixture(tmp_path):
     db = sqlite3.connect(path)
     db.executescript("""
       CREATE TABLE obs(day TEXT,sid TEXT,ticker TEXT,op REAL,raw REAL,signal REAL,
-          volume REAL,raw_volume REAL,split REAL,dividend REAL);
+          volume REAL,raw_volume REAL,split REAL,dividend REAL,
+          PRIMARY KEY(day,sid)) WITHOUT ROWID;
+      CREATE INDEX obs_sid_day ON obs(sid,day);
       CREATE TABLE reference(day TEXT,spy REAL,gap REAL,intraday REAL,cash_source TEXT);
       CREATE TABLE meta(day TEXT,sid TEXT,ticker TEXT,body TEXT);
       CREATE TABLE actions(day TEXT,sid TEXT,body TEXT);
@@ -62,6 +64,20 @@ def test_future_listing_prices_and_split_revision_are_causal(tmp_path):
     assert [r["ticker"] for r in p.row_stream("TICKERS",{})]==["AAA","IPO"]
 
 
+def test_reported_zero_volume_is_present_and_remains_distinct_from_missing(tmp_path):
+    from sentinel.feed.coherence import SeedSessionCounts
+    path=fixture(tmp_path)
+    with sqlite3.connect(path) as db:
+        db.execute("UPDATE obs SET volume=0,raw_volume=0 WHERE day='2006-01-03'")
+        db.execute("UPDATE obs SET volume=NULL,raw_volume=NULL WHERE day='2006-01-04'")
+    p=Provider(path,tmp_path/"exports")
+    p.advance(datetime.fromisoformat("2006-01-04T22:00:00+00:00"))
+    zero,missing=list(p.row_stream("SEP",{}))
+    assert zero["volume"]==0. and missing["volume"] is None
+    assert SeedSessionCounts().add(zero,resolved=True).volume==1
+    assert SeedSessionCounts().add(missing,resolved=True).volume==0
+
+
 def test_cursor_is_bound_to_query_and_publication(tmp_path):
     p=provider(tmp_path)
     token=request(p).json()["meta"]["next_cursor_id"]
@@ -72,6 +88,40 @@ def test_cursor_is_bound_to_query_and_publication(tmp_path):
     p.advance(datetime.fromisoformat("2006-01-05T22:00:00+00:00"))
     with pytest.raises(KeyError):
         request(p,**{"qopts.cursor_id":token})
+
+
+def test_incremental_intersections_preserve_old_split_corrections(tmp_path):
+    from itertools import product
+    p=provider(tmp_path,"2006-01-05")
+    complete=list(p.row_stream("SEP",{}))
+    dates=("2006-01-02","2006-01-04","2006-01-05","2006-01-06")
+    for start,end,lower,upper in product(dates,repeat=4):
+        expected=[r for r in complete if start<=r["date"]<=end
+                  and lower<=r["lastupdated"]<=upper]
+        actual=list(p.row_stream("SEP",{"date.gte":start,"date.lte":end,
+                    "lastupdated.gte":lower,"lastupdated.lte":upper}))
+        assert actual==expected,(start,end,lower,upper)
+
+
+def test_incremental_queries_do_not_scan_unrelated_old_history(tmp_path):
+    path=fixture(tmp_path)
+    with sqlite3.connect(path) as db:
+        db.executemany("INSERT INTO obs VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (("2006-01-03",str(100+i),"OLD"+str(i),10.,10.,10.,1000.,1000.,1.,0.)
+             for i in range(50000)))
+    p=Provider(path,tmp_path/"exports")
+    p.advance(datetime.fromisoformat("2006-01-05T22:00:00+00:00"))
+    calls=0
+    def budget():
+        nonlocal calls
+        calls+=1
+        return calls>50
+    p.db.set_progress_handler(budget,1000)
+    try:
+        rows=list(p.row_stream("SEP",{"lastupdated.gte":"2006-01-05"}))
+    finally:
+        p.db.set_progress_handler(None,0)
+    assert len(rows)==4 and {r["ticker"] for r in rows}=={"AAA","IPO"}
 
 
 def test_real_tables_client_consumes_all_pages(tmp_path):
@@ -132,6 +182,72 @@ def test_cash_return_uses_published_prices_and_their_own_predecessor():
     published.defensive_previous_bar=None
     with pytest.raises(ShadowObservationRefused):
         published_cash_factors(published)
+
+
+@pytest.mark.parametrize("corruption",[None,"quantity_and_mark","lost_lot"])
+def test_position_comparison_detects_changes_hidden_by_aggregate_nav(corruption):
+    from types import SimpleNamespace
+    from research.full_system_pit.compare import compare_composition
+    state=SimpleNamespace(wealth_core={"cash":40.,"episodes":{
+        "0":dict(security_id="1",ticker="AAA",current_shares=2.),
+        "1":dict(security_id="1",ticker="AAA",current_shares=3.)}},
+        last_known={"1":10.},ledger={"receivables":[dict(amount=10.)]})
+    expected=[]
+    for bucket,value,effective,next_target in (("STOCK",50.,27.5,0.),
+            ("CORE_CASH",40.,22.,0.),("DIVIDEND_RECEIVABLE",10.,5.5,0.),
+            ("TBILL_SLEEVE",0.,45.,100.)):
+        expected.append(dict(bucket=bucket,security_id="1" if bucket=="STOCK" else "",
+            ticker="AAA",quantity=5.,mark=10.,lot_count=2,reference_value=value,
+            shadow_weight_pct=value,effective_model_weight_pct=effective,
+            next_target_model_weight_pct=next_target))
+    if corruption=="quantity_and_mark":
+        for episode in state.wealth_core["episodes"].values():
+            episode["current_shares"]*=2
+        state.last_known["1"]=5.
+    elif corruption=="lost_lot":
+        state.wealth_core["episodes"].pop("1")
+        state.wealth_core["episodes"]["0"]["current_shares"]=5.
+    if corruption is None:
+        positions,buckets=compare_composition(expected,state,100.,.55,0.)
+        assert positions["1"]["quantity"]==5. and buckets["DIVIDEND_RECEIVABLE"]==10.
+    else:
+        with pytest.raises(Divergence,match="position"):
+            compare_composition(expected,state,100.,.55,0.)
+
+
+def test_full_book_observer_leaves_economic_replay_hashes_unchanged():
+    import math
+    from sentinel.feed.calendar import sessions_in_range
+    from stock_strategy_shared.wealth_core.feed import SecurityMeta,VendorBar
+    from stock_strategy_shared.wealth_core.run import run_with_hashes
+    from stock_strategy_shared.wealth_core.v5 import config
+    from research.full_system_pit.evidence import encode
+    from research.full_system_pit.run import trace_wealth_core
+    dates=sessions_in_range("2006-01-03","2006-07-14")
+    meta={str(i):SecurityMeta(str(i),"S"+str(i),"Domestic Common Stock",
+                             first_session=dates[0]) for i in range(30)}
+    bars={}
+    for index,day in enumerate(dates):
+        rows=[]
+        for i in range(30):
+            price=(20+i)*(1.002+i/100000)**index*(1+.002*math.sin(index+i/10))
+            rows.append(VendorBar(day,str(i),"S"+str(i),price,price,1e8,signal_close=price))
+        bars[day]=rows
+    def replay():
+        return run_with_hashes(sessions=dates,bars_by_session=bars,
+                               meta=meta,starting_cash=100000.,cfg=config())
+    _,baseline=replay()
+    receipts=[]
+    with trace_wealth_core(lambda phase,payload:receipts.append((phase,payload))):
+        _,observed=replay()
+    assert baseline.to_dict()==observed.to_dict()
+    assert [p["session"] for _,p in receipts]==dates
+    assert any(p["fills"] for _,p in receipts)
+    assert any(c["score"] is not None for _,p in receipts for c in p["decision"]["candidates"])
+    for phase,payload in receipts:
+        assert phase=="wealth_core_transition"
+        assert {"decision","fills","terminal_results","cancelled","rank_history"}<=payload.keys()
+        encode(payload)
 
 
 @pytest.mark.parametrize("day,hour",[("2006-01-03",14),("2006-07-03",13)])

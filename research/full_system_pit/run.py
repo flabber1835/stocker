@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import argparse
 import asyncio
-from contextlib import ExitStack
+from contextlib import ExitStack, contextmanager
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 import json
@@ -119,6 +119,21 @@ def market_window(day):
     from sentinel.feed.calendar import session_window
     opened,closed=session_window(day)
     return opened.astimezone(timezone.utc),closed.astimezone(timezone.utc)
+
+
+@contextmanager
+def trace_wealth_core(observe):
+    from stock_strategy_shared.wealth_core import run as core_run
+    step=core_run.step_session
+    def observed(**kwargs):
+        result=step(**kwargs)
+        payload=plain(result)
+        payload["decision"]=plain(result.decision)
+        payload["rank_history"]=plain(kwargs["state"].median5["rank_history"])
+        observe("wealth_core_transition",payload)
+        return result
+    with patch.object(core_run,"step_session",observed):
+        yield
 
 
 def final_corpus_check(conn,provider):
@@ -270,7 +285,7 @@ class Experiment:
             self.event("published_inputs", published)
             self.cash_audit=published_cash_factors(published)
             return published
-        with patch.object(adapter,"_resolved_open_equity",observed):
+        with patch.object(adapter,"_resolved_open_equity",observed), trace_wealth_core(self.event):
             result = production.advance_and_persist(conn,day,prior,load_published=load,
                 controller_config=self.cfg,strategy_identity=self.identity,commit_pin=False)
         require("one_opening_boundary",1,len(observations))
@@ -369,7 +384,7 @@ class Experiment:
             with self.boundary("final_equivalence") as result:
                 required={"market_open:complete","ingestion:complete","corpus_publication:complete",
                     "readiness:complete","strategy_and_plan:complete","independent_comparison:complete",
-                    "sharadar_response","published_inputs","execution_plan"}
+                    "sharadar_response","published_inputs","wealth_core_transition","execution_plan"}
                 for day in sessions:
                     require("instrumentation_coverage:"+day,[],sorted(required-set(self.evidence.phases.get(day,()))))
                 result.update(self.comparison.finish())
@@ -443,6 +458,7 @@ def main():
         if not (args.output/"FIRST_FAILURE.json").exists():
             evidence.write("FIRST_FAILURE.json",dict(session=experiment.day,phase="driver",
                 error_type=type(exc).__name__,error=str(exc),traceback=traceback.format_exc()))
+        print("FIRST_FAILURE "+(args.output/"FIRST_FAILURE.json").read_text(),file=sys.stderr,flush=True)
         result = dict(status="FAIL_FULL_SYSTEM_HISTORICAL_REPLAY",error_type=type(exc).__name__,error=str(exc),
             completed=experiment.completed,through=experiment.day,full_equivalence_confirmed=False)
         status = 1

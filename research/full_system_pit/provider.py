@@ -68,6 +68,19 @@ class Provider:
                     updated = day
             self.factors[sid], self.updated[sid] = factor, updated
 
+    def sep_observations(self, start, end, query):
+        lower = query.get("lastupdated.gte", "0001-01-01")
+        upper = query.get("lastupdated.lte", "9999-12-31")
+        sql = "SELECT * FROM obs WHERE day BETWEEN ? AND ?"
+        params = [max(start, lower), min(end, upper)]
+        revised = sorted(sid for sid, day in self.updated.items()
+                         if day is not None and lower <= day <= upper)
+        if start < lower and revised:
+            sql += (" UNION ALL SELECT * FROM obs WHERE day BETWEEN ? AND ?"
+                    " AND day<? AND sid IN (" + ",".join("?" for _ in revised) + ")")
+            params.extend([start, end, lower, *revised])
+        return self.db.execute(sql + " ORDER BY day,sid", params)
+
     def row_stream(self, table, query):
         if self.step is None or table not in COLUMNS:
             raise ValueError("provider view is unavailable")
@@ -79,12 +92,12 @@ class Provider:
         start = query.get("date.gte", "0001-01-01")
         symbols = set(query["ticker"].split(",")) if "ticker" in query else None
         if table == "SEP":
-            for r in self.db.execute("SELECT * FROM obs WHERE day BETWEEN ? AND ? ORDER BY day,sid", (start, end)):
+            for r in self.sep_observations(start, end, query):
                 factor = self.factors.get(r["sid"], 1.)
                 signal = r["signal"] * factor if r["signal"] else None
                 row = dict(ticker=r["ticker"], date=r["day"], close=signal, closeunadj=r["raw"],
                     open=r["op"]*signal/r["raw"] if r["op"] and signal and r["raw"] else None,
-                    volume=r["volume"]/factor if r["volume"] else None,
+                    volume=r["volume"]/factor if r["volume"] is not None else None,
                     lastupdated=max(r["day"], self.updated.get(r["sid"]) or r["day"]))
                 if any(k in query and (row["lastupdated"] < query[k] if k.endswith("gte") else row["lastupdated"] > query[k])
                        for k in ("lastupdated.gte", "lastupdated.lte")):

@@ -91,7 +91,7 @@ all earlier public observations and application evidence unchanged.
    Compare the entire required canonical state against the independent oracle.
 5. Advance the selected canonical strategy exactly once, persist its state,
    construct the next-session execution plan and retain its commitment.
-6. Compare daily ranks, admissions, holdings, weights, cash, receivables,
+6. Compare daily admission order, holdings, weights, cash, receivables,
    controller decisions and scalar NAV with the frozen reference.
 7. Record operational health, backup authority, resource use and the committed
    progress/checkpoint receipt. Continue from durable application state.
@@ -218,3 +218,31 @@ The retained V5 source patch uses zero context and is applied only to the
 immutable base archive. This avoids representing empty context lines as
 trailing whitespace in a tracked patch. Restaging must produce the identical
 application source tree; repository whitespace checks remain enabled.
+
+Incremental provider queries must scale with their returned history. For a
+bounded `lastupdated` request, the private index reads recent market rows plus
+older rows of securities whose known split changed in that interval. The
+returned values, ordering and correction timestamps are identical to a full
+as-of scan. Old rows of unrelated securities must not be scanned on every day;
+a query-budget falsifier enforces this on an indexed historical fixture.
+
+The read-only comparator also checks each security's aggregated quantity, lot
+count, ticker, mark, value and shadow/model weights against the retained
+composition rows. Cash and dividend receivables are separate buckets. New
+entry intents must match the reference's successful close admissions in order
+and intended dollars. Full candidate rankings remain in application evidence;
+the retained reference supplies selected admissions, not every candidate rank.
+The observer records the canonical book transition before production bounds
+its persisted evidence: complete candidate scores and rejection reasons,
+operations, fills, cancellations, corporate-action outcomes and rank history.
+It returns the original transition object unchanged; an observed/unobserved
+replay must have identical economic hashes.
+
+Second CI run `34554734499` reached real seed ingestion. The existing 98%
+volume-presence gate rejected the simulator's first session at 6,097/6,386
+rows (95.5%): its transport converted reported zero volume to missing values.
+The simulator now preserves zero and missing separately, with a falsifier
+through the production seed counter. The production gate is unchanged.
+Artifact `10182500588` retains the failed run, with ZIP SHA256
+`a51608caf31e5aba82c432a468632b5bb5948b0d9d4c19629f30bfe1ab503315`.
+No complete market session or performance comparison occurred in that run.
