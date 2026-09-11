@@ -160,9 +160,17 @@ def _junit_testcases(paths: Sequence[Path]) -> Iterable[ET.Element]:
             yield testcase
 
 
+def _is_passing_testcase(testcase: ET.Element) -> bool:
+    for child in testcase:
+        tag = child.tag.rsplit("}", 1)[-1]
+        if tag in ("failure", "error", "skipped"):
+            return False
+    return True
+
+
 def junit_execution(paths: Sequence[Path], expected_modules: Sequence[Path],
                     root: Path = ROOT) -> Tuple[Set[str], Set[str]]:
-    """Return executed module paths and exact logical pytest node ids from JUnit."""
+    """Return modules and exact logical node ids with passing JUnit evidence."""
     module_info = []
     for module in expected_modules:
         module_info.append((relative_posix(module, root=root),
@@ -172,6 +180,8 @@ def junit_execution(paths: Sequence[Path], expected_modules: Sequence[Path],
     executed_modules = set()  # type: Set[str]
     logical_nodeids = set()  # type: Set[str]
     for testcase in _junit_testcases(paths):
+        if not _is_passing_testcase(testcase):
+            continue
         classname = testcase.attrib.get("classname", "")
         name = testcase.attrib.get("name", "")
         file_attr = testcase.attrib.get("file", "")
