@@ -1,48 +1,56 @@
 {
-  "schema": "stocker.test-responsibility/1",
+  "schema": "stocker.test-responsibility/2",
   "owners": {
     "sentinel.complete": {
       "paths": ["tests/sentinel"],
       "scopes": ["exact-head", "synthetic-merge"],
-      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
+      "execution": {"kind": "pytest-junit"}
     },
     "production-champion.regressions": {
       "paths": ["tests/champion", "tests/median5", "tests/v5"],
       "scopes": ["exact-head", "synthetic-merge"],
-      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
+      "execution": {"kind": "pytest-junit"}
     },
     "wealth-core.prospective": {
       "paths": ["tests/wealth_core"],
       "scopes": ["exact-head", "synthetic-merge"],
-      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
+      "execution": {"kind": "pytest-junit"}
     },
     "scripts.operator": {
       "paths": ["tests/scripts"],
       "scopes": ["exact-head", "synthetic-merge"],
-      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability"
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
+      "execution": {"kind": "pytest-junit"}
     },
     "host-python38.compatibility": {
       "paths": ["tests/host_python38"],
       "scopes": ["exact-head", "synthetic-merge"],
       "ci_job": ".github/workflows/sentinel-safety.yml#host-python-38-compatibility",
-      "independence": "minimum-host-runtime"
+      "independence": "minimum-host-runtime",
+      "execution": {"kind": "unittest-discovery"}
     },
     "backup.reliability": {
       "paths": ["tests/backup"],
       "scopes": ["exact-head", "synthetic-merge"],
-      "ci_job": ".github/workflows/backup-reliability.yml#media-and-recovery"
+      "ci_job": ".github/workflows/backup-reliability.yml#media-and-recovery",
+      "execution": {"kind": "pytest-junit"}
     },
     "internal-state.contract": {
       "paths": ["tests/internal_state"],
       "scopes": ["exact-head", "synthetic-merge"],
       "ci_job": ".github/workflows/internal-state-harness.yml#contract",
-      "independence": "independent-oracle"
+      "independence": "independent-oracle",
+      "execution": {"kind": "pytest-junit"}
     },
     "internal-state.campaign": {
       "paths": ["tools/internal_state_harness.py"],
       "scopes": ["exact-head", "synthetic-merge"],
       "ci_job": ".github/workflows/internal-state-harness.yml#lifecycle",
-      "independence": "adversarial-generated"
+      "independence": "adversarial-generated",
+      "execution": {"kind": "command", "command": "python tools/internal_state_harness.py"}
     },
     "core.infrastructure": {
       "paths": [
@@ -53,43 +61,57 @@
         "tests/test_postgres_shm.py"
       ],
       "scopes": ["exact-head", "synthetic-merge"],
-      "ci_job": ".github/workflows/internal-state-harness.yml#core-infrastructure"
+      "ci_job": ".github/workflows/internal-state-harness.yml#core-infrastructure",
+      "execution": {"kind": "pytest-junit"}
     },
     "sharadar.daily-replay": {
       "paths": ["research/sharadar_replay/tests"],
       "scopes": ["exact-head", "synthetic-merge"],
       "ci_job": ".github/workflows/sharadar-daily-replay.yml#daily-replay",
-      "independence": "pit-production-replay"
+      "independence": "pit-production-replay",
+      "execution": {"kind": "pytest-junit"}
     },
     "alpaca.contracts": {
-      "paths": ["tests/sentinel/test_alpaca*", "tests/sentinel/test_execution_state_machine_model.py", "tests/sentinel/test_guarded_execution_broker.py"],
+      "paths": [
+        "tests/sentinel/test_alpaca*",
+        "tests/sentinel/test_issue_183_alpaca_hardening.py",
+        "tests/sentinel/test_issue_209_alpaca_asset_id.py",
+        "tests/sentinel/test_execution_state_machine_model.py",
+        "tests/sentinel/test_guarded_execution_broker.py"
+      ],
       "scopes": ["exact-head", "synthetic-merge"],
       "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
-      "execution_owner": "sentinel.complete"
+      "execution_owner": "sentinel.complete",
+      "execution": {
+        "kind": "delegated",
+        "owner": "sentinel.complete",
+        "required_contracts": "alpaca"
+      }
     },
     "alpaca.mutations": {
       "paths": ["tools/alpaca_harness_mutations.py"],
       "scopes": ["exact-head", "synthetic-merge"],
       "ci_job": ".github/workflows/alpaca-simulation-harness.yml#alpaca",
-      "independence": "mutation"
+      "independence": "mutation",
+      "execution": {"kind": "command", "command": "python tools/alpaca_harness_mutations.py"}
     }
   },
   "alpaca": {
     "required_contracts": {
-      "unknown-submit-recovery": "test_lost_post_is_unknown_and_same_key_retry_never_duplicates",
-      "pending-cancel-recovery": "test_command_transition_guard_matches_every_independent_model_edge",
-      "stable-asset-id": "test_stable_asset_handle_is_used_at_post",
-      "symbol-rename-handling": "test_submit_addresses_the_durable_asset_id_not_the_ticker",
-      "exact-client-key-corruption": "test_empty_successful_exact_lookup_is_corruption_not_absence",
-      "partial-full-fill-accounting": "test_happy_buy_partial_fill_sell_and_adapter_restart",
-      "cash-attribution": "test_deposit_withdrawal_fees_and_dividends_have_distinct_attribution",
-      "session-close-constraint": "test_day_order_preserves_partial_fill_until_eligible_session_close",
-      "restart-day-fence": "test_production_guard_refuses_closed_simulated_clock",
-      "account-binding": "test_paper_replacement_requires_new_binding",
-      "guarded-execution": "test_protocol_introspection_forces_every_broker_method_through_guard",
-      "live-cash-economics": "test_paper_and_live_cash_profiles_exercise_actual_economic_differences",
-      "live-endpoint-refusal": "test_actual_live_or_untrusted_endpoint_is_refused_before_transport",
-      "cash-ledger-durability": "test_cash_cursor_total_detects_nonlast_ledger_loss"
+      "unknown-submit-recovery": "tests/sentinel/test_alpaca_simulation_harness.py::test_lost_post_is_unknown_and_same_key_retry_never_duplicates",
+      "pending-cancel-recovery": "tests/sentinel/test_execution_state_machine_model.py::test_command_transition_guard_matches_every_independent_model_edge",
+      "stable-asset-id": "tests/sentinel/test_alpaca_simulation_harness.py::test_stable_asset_handle_is_used_at_post",
+      "symbol-rename-handling": "tests/sentinel/test_issue_209_alpaca_asset_id.py::test_submit_addresses_the_durable_asset_id_not_the_ticker",
+      "exact-client-key-corruption": "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence",
+      "partial-full-fill-accounting": "tests/sentinel/test_alpaca_simulation_harness.py::test_happy_buy_partial_fill_sell_and_adapter_restart",
+      "cash-attribution": "tests/sentinel/test_alpaca_simulation_cash.py::test_deposit_withdrawal_fees_and_dividends_have_distinct_attribution",
+      "session-close-constraint": "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close",
+      "restart-day-fence": "tests/sentinel/test_alpaca_simulation_sessions.py::test_production_guard_refuses_closed_simulated_clock",
+      "account-binding": "tests/sentinel/test_alpaca_simulation_harness.py::test_paper_replacement_requires_new_binding",
+      "guarded-execution": "tests/sentinel/test_guarded_execution_broker.py::test_protocol_introspection_forces_every_broker_method_through_guard",
+      "live-cash-economics": "tests/sentinel/test_alpaca_simulation_harness.py::test_paper_and_live_cash_profiles_exercise_actual_economic_differences",
+      "live-endpoint-refusal": "tests/sentinel/test_alpaca_simulation_harness.py::test_actual_live_or_untrusted_endpoint_is_refused_before_transport",
+      "cash-ledger-durability": "tests/sentinel/test_alpaca_execution_entrypoint.py::test_cash_cursor_total_detects_nonlast_ledger_loss"
     },
     "required_mutations": [
       "empty-exact-200-is-absence",
