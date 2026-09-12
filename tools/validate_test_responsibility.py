@@ -34,17 +34,34 @@ REQUIRED_OWNERS = {
     "alpaca.contracts",
     "alpaca.mutations",
 }
-REQUIRED_SCOPES = {"exact-head", "synthetic-merge"}
+PROTECTED_OWNERS = {
+    "sentinel.complete",
+    "production-champion.regressions",
+    "wealth-core.prospective",
+    "scripts.operator",
+    "host-python38.compatibility",
+    "sharadar.daily-replay",
+    "alpaca.contracts",
+}
+ADVISORY_OWNERS = REQUIRED_OWNERS - PROTECTED_OWNERS
+PROTECTED_SCOPES = {"exact-head", "synthetic-merge"}
+ADVISORY_PR_SCOPES = {"synthetic-merge"}
 EXECUTION_KINDS = {"pytest-junit", "unittest-discovery", "command", "delegated"}
 _JOB_ID = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
-_SCOPE_MATRIX = (
+_PROTECTED_SCOPE_MATRIX = (
     "${{ fromJSON(github.event_name == 'pull_request' && "
     "'[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}"
+)
+_ADVISORY_SCOPE_MATRIX = (
+    "${{ fromJSON(github.event_name == 'pull_request' && "
+    "'[\"synthetic-merge\"]' || '[\"exact-head\"]') }}"
 )
 _SCOPE_SHA = (
     "${{ matrix.scope == 'exact-head' && "
     "(github.event.pull_request.head.sha || github.sha) || github.sha }}"
 )
+_EXACT_SCOPE_IF = "${{ matrix.scope == 'exact-head' }}"
+_SCOPE_PROOF_COMMAND = "python tools/verify_ci_scope.py"
 EXPECTED_HOST_PYTHON = "3.8.15"
 PROTECTED_TEMPLATES = {
     "sentinel-${{ matrix.scope }}": (
@@ -385,13 +402,14 @@ def _safe_shell_tokens(command: str) -> list[str] | None:
     return tokens
 
 
-def _safe_command_present(job_text: str, marker: str, *, command_start: str | None = None) -> bool:
+def _safe_command_present(job_text: str, marker: str, *, command_start: str | None = None,
+                          required_if: str | None = None) -> bool:
     try:
         wanted = shlex.split(marker)
     except ValueError:
         return False
     for step in _step_slices(job_text):
-        if not _step_is_unconditional(step):
+        if _field_from_step(step, "if") != required_if:
             continue
         if _field_from_step(step, "continue-on-error") is not None:
             continue
@@ -440,12 +458,19 @@ def _require_ci_job(owner_name: str, value: object) -> tuple[str, str, str]:
 
 def _require_scope_binding(name: str, scopes: set[str], job_text: str,
                            workflow_text: str) -> dict:
-    require(REQUIRED_SCOPES.issubset(scopes), f"{name}: exact/synthetic scope ownership missing")
+    if scopes == PROTECTED_SCOPES:
+        expected_matrix = _PROTECTED_SCOPE_MATRIX
+        policy = "protected-tree-reuse"
+    elif scopes == ADVISORY_PR_SCOPES:
+        expected_matrix = _ADVISORY_SCOPE_MATRIX
+        policy = "advisory-synthetic-once"
+    else:
+        raise AssertionError(f"{name}: unsupported CI scope ownership: {sorted(scopes)}")
     require("pull_request" in _workflow_triggers(workflow_text),
             f"{name}: declared workflow does not run on pull requests")
     matrix_scope = _job_scalar(job_text, ("strategy", "matrix", "scope"))
-    require(matrix_scope == _SCOPE_MATRIX,
-            f"{name}: declared CI job does not instantiate exact-head and synthetic-merge scopes")
+    require(matrix_scope == expected_matrix,
+            f"{name}: declared CI job does not instantiate its authorized scope policy")
 
     checkout_steps = [step for step in _step_slices(job_text)
                       if (_field_from_step(step, "uses") or "").startswith("actions/checkout@")]
@@ -458,6 +483,7 @@ def _require_scope_binding(name: str, scopes: set[str], job_text: str,
         "scopes": sorted(scopes),
         "matrix": matrix_scope,
         "checkout_binding": "direct-ref",
+        "policy": policy,
     }
 
 
@@ -470,7 +496,8 @@ def _require_host_python(job_text: str) -> dict:
     require(version == EXPECTED_HOST_PYTHON,
             "host-python38.compatibility: Python runtime must be exactly 3.8.15")
     require(_safe_command_present(
-        job_text, "python scripts/sentinel_host_python.py", command_start="python"),
+        job_text, "python scripts/sentinel_host_python.py", command_start="python",
+        required_if=_EXACT_SCOPE_IF),
         "host-python38.compatibility: runtime preflight is not executable")
     return {"python": version}
 
@@ -481,21 +508,25 @@ def _require_execution_binding(name: str, owner: dict, job_text: str,
     require(isinstance(execution, dict), f"{name}: missing execution binding")
     kind = execution.get("kind")
     require(kind in EXECUTION_KINDS, f"{name}: invalid execution kind: {kind}")
+    required_if = _EXACT_SCOPE_IF if name in PROTECTED_OWNERS else None
     if kind == "pytest-junit":
         marker = f"python tools/verify_test_owner_execution.py --owner {name}"
-        require(_safe_command_present(job_text, marker, command_start="python"),
-                f"{name}: declared CI job does not unconditionally verify owned-module execution")
+        require(_safe_command_present(
+            job_text, marker, command_start="python", required_if=required_if),
+            f"{name}: declared CI job does not verify owned-module execution in its authority scope")
     elif kind == "unittest-discovery":
         marker = f"python tools/run_unittest_owner.py --owner {name}"
         if name == "host-python38.compatibility":
             _require_host_python(job_text)
-        require(_safe_command_present(job_text, marker, command_start="python"),
-                f"{name}: declared CI job does not use unconditional owner-driven unittest discovery")
+        require(_safe_command_present(
+            job_text, marker, command_start="python", required_if=required_if),
+            f"{name}: declared CI job does not use owner-driven unittest discovery in its authority scope")
     elif kind == "command":
         command = execution.get("command")
         require(isinstance(command, str) and bool(command), f"{name}: missing execution command")
-        require(_safe_command_present(job_text, command, command_start="python"),
-                f"{name}: declared execution command is not an unconditional active CI step")
+        require(_safe_command_present(
+            job_text, command, command_start="python", required_if=required_if),
+            f"{name}: declared execution command is not active in its authority scope")
     else:
         target = execution.get("owner")
         require(isinstance(target, str) and target in owners, f"{name}: invalid delegated owner")
@@ -550,6 +581,17 @@ def _require_protected_context_uniqueness(workflows: dict[str, str]) -> dict:
     return result
 
 
+def _require_protected_scope_proof(name: str, job_text: str) -> dict:
+    require(_safe_command_present(
+        job_text, _SCOPE_PROOF_COMMAND, command_start="python"),
+        f"{name}: protected carrier lacks unconditional CI scope proof")
+    return {
+        "command": _SCOPE_PROOF_COMMAND,
+        "exact_execution_condition": _EXACT_SCOPE_IF,
+        "synthetic_policy": "identical-tree-only",
+    }
+
+
 def _require_alpaca_trigger_authority(workflow_text: str) -> dict:
     paths = _pull_request_paths(workflow_text)
     if paths is None:
@@ -582,6 +624,13 @@ def _require_merge_authority(*, sentinel_text: str | None = None,
     carrier = _job_body(sentinel, carrier_job_id)
     require(_job_name(carrier) == "sentinel-${{ matrix.scope }}",
             "Sentinel protected carrier job no longer owns sentinel-${matrix.scope}")
+    scope_proofs = {
+        carrier_job_id: _require_protected_scope_proof(carrier_job_id, carrier),
+        "host-python-38-compatibility": _require_protected_scope_proof(
+            "host-python-38-compatibility",
+            _job_body(sentinel, "host-python-38-compatibility"),
+        ),
+    }
 
     command_specs = [
         ("-m pytest research/sharadar_replay/tests -q -ra -s", "docker"),
@@ -590,9 +639,10 @@ def _require_merge_authority(*, sentinel_text: str | None = None,
         ("python tools/verify_test_owner_execution.py --owner sharadar.daily-replay", "python"),
     ]
     missing = [marker for marker, start in command_specs
-               if not _safe_command_present(carrier, marker, command_start=start)]
+               if not _safe_command_present(
+                   carrier, marker, command_start=start, required_if=_EXACT_SCOPE_IF)]
     require(not missing,
-            "Sentinel protected carrier lacks unconditional executable in-process Sharadar authority: "
+            "Sentinel protected carrier lacks executable exact-head in-process Sharadar authority: "
             f"{missing}")
     require(not _safe_command_present(carrier, "tools/require_check_run.py"),
             "Sentinel protected carrier regressed to a point-in-time cross-workflow replay bridge")
@@ -614,6 +664,7 @@ def _require_merge_authority(*, sentinel_text: str | None = None,
         "protected_context_owners": protected,
         "temporal_binding": "replay executes in the same required check run",
         "alpaca_trigger": alpaca_trigger,
+        "scope_proofs": scope_proofs,
     }
 
 

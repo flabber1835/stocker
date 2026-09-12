@@ -67,9 +67,13 @@ CONTAINER_OWNERS = {
     "scripts.operator",
     "sharadar.daily-replay",
 }
-_SCOPE_MATRIX = (
+_PROTECTED_SCOPE_MATRIX = (
     "${{ fromJSON(github.event_name == 'pull_request' && "
     "'[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}"
+)
+_ADVISORY_SCOPE_MATRIX = (
+    "${{ fromJSON(github.event_name == 'pull_request' && "
+    "'[\"synthetic-merge\"]' || '[\"exact-head\"]') }}"
 )
 
 
@@ -251,7 +255,9 @@ def _load_merge_policy() -> dict:
 
 
 def _require_global_authority(authority: dict) -> dict:
-    from validate_test_responsibility import _job_body, _job_scalar
+    from validate_test_responsibility import (
+        _job_body, _job_scalar, _require_protected_scope_proof,
+    )
 
     policy = _load_merge_policy()
     owners = authority.get("owners")
@@ -285,8 +291,17 @@ def _require_global_authority(authority: dict) -> dict:
                 f"{owner_name}: owner workflow does not execute for pull requests targeting main")
         job_text = _job_body(workflow_text, job)
         matrix_scope = _job_scalar(job_text, ("strategy", "matrix", "scope"))
-        require(matrix_scope == _SCOPE_MATRIX,
-                f"{owner_name}: owner scope matrix differs from exact-head/synthetic-merge authority")
+        if owner_name in PROTECTED_OWNER_JOBS:
+            expected_scopes = {"exact-head", "synthetic-merge"}
+            expected_matrix = _PROTECTED_SCOPE_MATRIX
+            _require_protected_scope_proof(owner_name, job_text)
+        else:
+            expected_scopes = {"synthetic-merge"}
+            expected_matrix = _ADVISORY_SCOPE_MATRIX
+        require(set(owner.get("scopes", [])) == expected_scopes,
+                f"{owner_name}: declared scopes differ from merge authority")
+        require(matrix_scope == expected_matrix,
+                f"{owner_name}: owner scope matrix differs from merge authority")
         require(not _matrix_has_include_or_exclude(job_text),
                 f"{owner_name}: matrix include/exclude can suppress a declared scope")
         checked_workflows[f"{workflow}#{job}"] = True
