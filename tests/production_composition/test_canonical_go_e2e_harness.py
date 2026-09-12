@@ -1,7 +1,10 @@
 from __future__ import annotations
 
 import importlib.util
+import os
 from pathlib import Path
+import subprocess
+import sys
 
 import pytest
 
@@ -11,6 +14,18 @@ SPEC = importlib.util.spec_from_file_location("production_go_e2e_harness", PATH)
 assert SPEC is not None and SPEC.loader is not None
 harness = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(harness)
+
+
+def test_script_process_can_load_production_session_calendar(tmp_path):
+    env = dict(os.environ, PYTHONPATH=str(ROOT / "shared"))
+    completed = subprocess.run(
+        [sys.executable, "-c",
+         "import runpy,sys; h=runpy.run_path(sys.argv[1]); "
+         "assert len(h['_session_days']()) >= 252", str(PATH)],
+        cwd=tmp_path, env=env, text=True, capture_output=True, timeout=30,
+        check=False,
+    )
+    assert completed.returncode == 0, completed.stdout + completed.stderr
 
 
 def test_canonical_entrypoint_is_real_production_go():

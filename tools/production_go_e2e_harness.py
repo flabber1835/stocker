@@ -31,6 +31,9 @@ from urllib.parse import parse_qs, urlparse
 import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
+
 ENTRYPOINT = ("bash", "scripts/sentinel-go-validate.sh")
 SUCCESS = "[GO] GO lifecycle completed successfully"
 PHASE_RE = re.compile(r"^=== (.+) ===$", re.MULTILINE)
