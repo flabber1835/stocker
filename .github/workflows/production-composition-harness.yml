@@ -18,7 +18,7 @@ jobs:
   composition:
     name: composition-${{ matrix.scope }}
     runs-on: ubuntu-latest
-    timeout-minutes: 120
+    timeout-minutes: 180
     env:
       # stock_strategy_shared is intentionally imported as a top-level module.
       PYTHONPATH: ${{ github.workspace }}/shared
@@ -78,6 +78,7 @@ jobs:
             tests/production_composition \
             tools/production_composition_harness.py \
             tools/production_go_e2e_harness.py \
+            tools/production_go_e2e_audit.py \
             scripts/sentinel_go_validate_entry.py \
             scripts/sentinel_go_probe_contract.py \
             scripts/sentinel_go_verified_entry.py
@@ -182,7 +183,7 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          python tools/production_go_e2e_harness.py \
+          python tools/production_go_e2e_audit.py \
             --sensitivity \
             --output artifacts/production-composition/production-go-e2e.json
 
@@ -199,14 +200,36 @@ jobs:
           assert value["schema"] == "sentinel.production-go-e2e/1"
           assert value["canonical_entrypoint"] == ["bash", "scripts/sentinel-go-validate.sh"]
           assert value["all_pass"] is True
+          assert value["ci_git_authority"] == "local_bare_origin_main_bound_to_tested_commit"
           success = value["success"]
           assert success["returncode"] == 0
           assert success["target"] == "SHADOW"
           assert success["runtime_identity"].startswith("sha256:")
+          assert success["test_lens_identity"].startswith("sha256:")
+          assert success["validation_bundle"]["shadow_verdict"] == "SHADOW_GO"
+          assert success["validation_bundle"]["preparation_status"] == "PASS"
+          assert success["validation_bundle"]["database_financial_health_status"] == "PASS"
+          assert len(success["validation_bundle"]["passed_shadow_gates"]) == 6
+          assert success["promotion"]["runtime_pointer"] == success["runtime_identity"]
+          assert success["promotion"]["run_pass_consumed"] is True
+          assert success["panel"]["running_image_id"] == success["runtime_identity"]
+          assert success["panel"]["matches_validated_runtime"] is True
           assert success["handoff"]["git_commit"] == value["git_commit"]
           assert success["handoff"]["software_certification"] == "LOCAL_FULL_VERIFIED"
-          assert success["panel"] == "verified_recreated_promoted_runtime"
-          assert len(value["sensitivity"]) >= 3
+          names = {item["name"] for item in value["sensitivity"]}
+          assert names == {
+              "environment-loading",
+              "lifecycle-lock",
+              "host-compatibility",
+              "deployment-bootstrap",
+              "host-identity-preflight",
+              "runtime-selection-preflight",
+              "paper-account-preflight",
+              "readonly-sharadar-preflight",
+              "certification-financial-readiness",
+              "runtime-promotion",
+              "post-validation-handoff",
+          }
           assert all(x["status"] == "EXPECTED_REFUSAL" for x in value["sensitivity"])
           PY
 
