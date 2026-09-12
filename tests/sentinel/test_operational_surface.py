@@ -110,7 +110,7 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "--network none" in workflow
     assert "docker-compose.sentinel-backup.yml" in workflow
     assert "fetch-depth: 2" in workflow
-    assert "git diff --check HEAD^1 HEAD" in workflow
+    assert "git diff --check HEAD^ HEAD" in workflow
 
 
 def test_pull_request_safety_is_read_only_and_publication_is_main_only():
@@ -143,23 +143,26 @@ def test_pull_request_safety_is_read_only_and_publication_is_main_only():
 
 def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
     workflow = _read(".github/workflows/sentinel-safety.yml")
+    proof = _read("tools/verify_ci_scope.py")
     assert "pull_request:\n    branches: [main]" in workflow
     assert "merge_group:" in workflow
     assert 'scope: ${{ fromJSON(github.event_name == \'pull_request\'' in workflow
-    assert 'if [ \'${{ matrix.scope }}\' = \'exact-head\' ]' in workflow
-    assert 'test "$TESTED_SHA" = "$expected_head"' in workflow
-    assert 'test "$TESTED_SHA" = "$GITHUB_SHA"' in workflow
+    assert workflow.count("python tools/verify_ci_scope.py") == 2
+    assert workflow.count("if: ${{ matrix.scope == 'exact-head' }}") >= 10
+    assert '--expected-head "$EXPECTED_HEAD"' in workflow
+    assert '--expected-base "$EXPECTED_BASE"' in workflow
+    assert '--expected-event-sha "$GITHUB_SHA"' in workflow
     assert 'echo "TESTED_SHA=$TESTED_SHA" >> "$GITHUB_ENV"' in workflow
     assert "printf -- '- commit: `%s`\\n' \"$TESTED_SHA\"" in workflow
     for variable in ("tree_hash", "GITHUB_RUN_ID", "dependency_lock_hash",
                      "runtime_digest", "test_manifest_hash"):
         assert f'"${variable}"' in workflow
     assert "printf '%s\\n' \"$TESTED_SHA\"" in workflow
-    assert "git rev-list --parents -n 1 HEAD" in workflow
-    assert 'if [ "$parent_count" -ne 2 ]' in workflow
-    assert "pull-request checkout is not a synthetic merge commit" in workflow
-    assert "git merge-base --is-ancestor HEAD^1 HEAD" in workflow
-    assert "git merge-base --is-ancestor HEAD^2 HEAD" in workflow
+    assert 'git(root, "rev-list", "--parents", "-n", "1", "HEAD")' in proof
+    assert 'actual_base == base' in proof
+    assert 'actual_head == head' in proof
+    assert 'tested_tree == head_tree' in proof
+    assert '"tree_evidence_reused": True' in proof
     assert "name: sentinel-${{ matrix.scope }}" in workflow
     assert "name: host-python-38-${{ matrix.scope }}" in workflow
 

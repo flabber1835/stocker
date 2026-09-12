@@ -41,27 +41,27 @@
     },
     "backup.reliability": {
       "paths": ["tests/backup"],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "scopes": ["synthetic-merge"],
       "ci_job": ".github/workflows/backup-reliability.yml#media-and-recovery",
       "execution": {"kind": "pytest-junit"}
     },
     "production-composition.authority": {
       "paths": ["tests/production_composition"],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "scopes": ["synthetic-merge"],
       "ci_job": ".github/workflows/production-composition-harness.yml#composition",
       "independence": "production-composition",
       "execution": {"kind": "pytest-junit"}
     },
     "internal-state.contract": {
       "paths": ["tests/internal_state"],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "scopes": ["synthetic-merge"],
       "ci_job": ".github/workflows/internal-state-harness.yml#contract",
       "independence": "independent-oracle",
       "execution": {"kind": "pytest-junit"}
     },
     "internal-state.campaign": {
       "paths": ["tools/internal_state_harness.py"],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "scopes": ["synthetic-merge"],
       "ci_job": ".github/workflows/internal-state-harness.yml#lifecycle",
       "independence": "adversarial-generated",
       "execution": {"kind": "command", "command": "python tools/internal_state_harness.py"}
@@ -74,7 +74,7 @@
         "tests/test_high_impact_filesystem_remediation.py",
         "tests/test_postgres_shm.py"
       ],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "scopes": ["synthetic-merge"],
       "ci_job": ".github/workflows/internal-state-harness.yml#core-infrastructure",
       "execution": {"kind": "pytest-junit"}
     },
@@ -104,7 +104,7 @@
     },
     "alpaca.mutations": {
       "paths": ["tools/alpaca_harness_mutations.py"],
-      "scopes": ["exact-head", "synthetic-merge"],
+      "scopes": ["synthetic-merge"],
       "ci_job": ".github/workflows/alpaca-simulation-harness.yml#alpaca",
       "independence": "mutation",
       "execution": {"kind": "command", "command": "python tools/alpaca_harness_mutations.py"}

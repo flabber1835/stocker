@@ -29,6 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          fetch-depth: 2
           ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
 
       - name: Install the minimum supported NAS host Python
@@ -36,7 +37,21 @@ jobs:
         with:
           python-version: '3.8.15'
 
+      - name: Prove exact execution or synthetic-tree equivalence
+        env:
+          CI_SCOPE: ${{ matrix.scope }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          python tools/verify_ci_scope.py \
+            --scope "$CI_SCOPE" \
+            --expected-head "$EXPECTED_HEAD" \
+            --expected-base "$EXPECTED_BASE" \
+            --expected-event-sha "$GITHUB_SHA" \
+            --output artifacts/host-python38/scope-proof.json
+
       - name: Exercise host certification helpers on Python 3.8
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
           mkdir -p artifacts/host-python38
@@ -69,30 +84,34 @@ jobs:
           fetch-depth: 2
           ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
 
-      - name: Verify the checked-out pull-request merge result
-        shell: bash
+      - name: Prove exact execution or synthetic-tree equivalence
+        env:
+          CI_SCOPE: ${{ matrix.scope }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
           set -euo pipefail
-          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          mkdir -p /tmp/sentinel-scope-proof
+          python tools/verify_ci_scope.py \
+            --scope "$CI_SCOPE" \
+            --expected-head "$EXPECTED_HEAD" \
+            --expected-base "$EXPECTED_BASE" \
+            --expected-event-sha "$GITHUB_SHA" \
+            --output /tmp/sentinel-scope-proof/proof.json
           TESTED_SHA="$(git rev-parse HEAD)"
-          if [ '${{ matrix.scope }}' = 'exact-head' ]; then
-            test "$TESTED_SHA" = "$expected_head"
-          else
-            test "$TESTED_SHA" = "$GITHUB_SHA"
-            parent_count="$(git rev-list --parents -n 1 HEAD | awk '{print NF - 1}')"
-            if [ "$parent_count" -ne 2 ]; then
-              echo "REFUSED: pull-request checkout is not a synthetic merge commit" >&2
-              exit 1
-            fi
-            expected_base='${{ github.event.pull_request.base.sha }}'
-            git merge-base --is-ancestor HEAD^1 HEAD
-            git merge-base --is-ancestor HEAD^2 HEAD
-            test "$(git rev-parse HEAD^1)" = "$expected_base"
-            test "$(git rev-parse HEAD^2)" = "$expected_head"
-          fi
           echo "TESTED_SHA=$TESTED_SHA" >> "$GITHUB_ENV"
+          cat /tmp/sentinel-scope-proof/proof.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain CI scope proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sentinel-scope-proof-${{ matrix.scope }}
+          path: /tmp/sentinel-scope-proof/proof.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Build the single pinned Sentinel runtime and CI test lens
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
           docker build \
@@ -107,24 +126,28 @@ jobs:
                "$(docker image inspect sentinel:latest --format '{{.Id}}')"
 
       - name: Exercise the production non-root runtime boundary
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/test-pr301-runtime-boundaries.sh sentinel:ci
 
       - name: Falsify exact-XID PostgreSQL physical recovery
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/test-pr301-pitr-recovery.sh
 
       - name: Regress PR330 retirement boundaries on PostgreSQL 16
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/test-pr330-postgres-retirement.sh sentinel-test:ci
 
       - name: Record exact-SHA promotion evidence
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -153,6 +176,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Compile the executable Python and test surfaces
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           docker run --rm --network none --entrypoint python \
             sentinel-test:ci -m compileall -q -f \
@@ -163,6 +187,7 @@ jobs:
             /work/tools /work/repo/scripts
 
       - name: Run complete Sentinel coverage with one execution per test
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/sentinel-system-evidence
@@ -228,6 +253,7 @@ jobs:
             --output /tmp/sentinel-system-evidence/sentinel-owner.json
 
       - name: Verify champion transitions and production opening durability
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
           docker run --rm --network none \
@@ -249,6 +275,7 @@ jobs:
             sentinel-test:ci /work/tools/v5_mutation_check.py
 
       - name: Require full Sharadar replay authority
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -302,7 +329,7 @@ jobs:
             /evidence --commit "${TESTED_SHA}" --shards 1
 
       - name: Build system adversarial evidence
-        if: always()
+        if: ${{ matrix.scope == 'exact-head' && always() }}
         run: |
           python tools/sentinel_adversarial_evidence.py \
             --junit /tmp/sentinel-system-evidence/sentinel.xml \
@@ -311,7 +338,7 @@ jobs:
             --tested-sha "${TESTED_SHA}"
 
       - name: Retain system adversarial evidence
-        if: always()
+        if: ${{ matrix.scope == 'exact-head' && always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sentinel-system-${{ matrix.scope }}-${{ env.TESTED_SHA }}
@@ -320,6 +347,7 @@ jobs:
           retention-days: 30
 
       - name: Run operator and bring-up script tests without network access
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
           set +e
@@ -345,6 +373,7 @@ jobs:
             --output /tmp/sentinel-system-evidence/scripts-owner.json
 
       - name: Run the prospective Wealth Core boundary with exact xfail authority
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
           docker run --rm --network none \
@@ -358,6 +387,7 @@ jobs:
             --output /tmp/sentinel-system-evidence/wealth-core-owner.json
 
       - name: Validate shell and Compose surfaces
+        if: ${{ matrix.scope == 'exact-head' }}
         env:
           SENTINEL_POSTGRES_PASSWORD: ci-not-a-production-secret
           SENTINEL_PUBLICATION_RECEIPT_KEY: ci-publication-receipt-key-not-production
@@ -401,13 +431,10 @@ jobs:
             -f docker-compose.sentinel-backup.yml \
             -f docker-compose.sentinel-automation.yml \
             --profile authorized-cli config --quiet
-          if [ '${{ matrix.scope }}' = 'synthetic-merge' ]; then
-            git diff --check HEAD^1 HEAD
-          else
-            git diff --check HEAD^ HEAD
-          fi
+          git diff --check HEAD^ HEAD
 
       - name: Kill reviewed production mutants
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/sentinel-mutation-evidence
@@ -419,7 +446,7 @@ jobs:
             --output /evidence/report.json
 
       - name: Retain mutation evidence
-        if: always()
+        if: ${{ matrix.scope == 'exact-head' && always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sentinel-mutation-${{ matrix.scope }}-${{ env.TESTED_SHA }}
@@ -428,6 +455,7 @@ jobs:
           retention-days: 30
 
       - name: Assemble reusable software certification input
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail

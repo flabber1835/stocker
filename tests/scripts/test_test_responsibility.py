@@ -155,7 +155,7 @@ def test_owner_execution_rejects_shell_noops_failure_masking_and_continue_on_err
 """,
     ]
     for job in bad_jobs:
-        with pytest.raises(AssertionError, match="unconditionally verify"):
+        with pytest.raises(AssertionError, match="authority scope"):
             _require_execution_binding("example", owner, job, owners)
 
     active = f"""  owner:
@@ -187,7 +187,7 @@ def test_scope_binding_parses_actual_matrix_and_checkout_fields_not_decoys():
     assert result["scopes"] == ["exact-head", "synthetic-merge"]
 
     missing_matrix = job.replace(f"scope: {matrix_value}", f"scope: exact-head\n    env:\n      DECOY: \"scope: {matrix_value}\"")
-    with pytest.raises(AssertionError, match="instantiate exact-head"):
+    with pytest.raises(AssertionError, match="authorized scope policy"):
         _require_scope_binding("owner", scopes, missing_matrix, workflow)
 
     checkout_decoy = job.replace(
@@ -205,6 +205,16 @@ def test_scope_binding_parses_actual_matrix_and_checkout_fields_not_decoys():
     with pytest.raises(AssertionError, match="does not run on pull requests"):
         _require_scope_binding("owner", scopes, job, "name: test\non:\n  workflow_dispatch:\njobs:\n")
 
+    advisory_matrix = (
+        "${{ fromJSON(github.event_name == 'pull_request' && "
+        "'[\"synthetic-merge\"]' || '[\"exact-head\"]') }}")
+    advisory = job.replace(matrix_value, advisory_matrix)
+    advisory_result = _require_scope_binding(
+        "advisory", {"synthetic-merge"}, advisory, workflow)
+    assert advisory_result["policy"] == "advisory-synthetic-once"
+    with pytest.raises(AssertionError, match="authorized scope policy"):
+        _require_scope_binding("advisory", {"synthetic-merge"}, job, workflow)
+
 
 def test_host_python_owner_is_statically_bound_to_exact_3815():
     owner = {"execution": {"kind": "unittest-discovery"}}
@@ -214,7 +224,8 @@ def test_host_python_owner_is_statically_bound_to_exact_3815():
       - uses: actions/setup-python@pinned
         with:
           python-version: '3.8.15'
-      - run: |
+      - if: ${{ matrix.scope == 'exact-head' }}
+        run: |
           python scripts/sentinel_host_python.py
           python tools/run_unittest_owner.py --owner host-python38.compatibility --output evidence.json
 """
@@ -224,6 +235,15 @@ def test_host_python_owner_is_statically_bound_to_exact_3815():
         _require_execution_binding(
             "host-python38.compatibility", owner,
             good.replace("python-version: '3.8.15'", "python-version: '3.12.13'"), owners)
+    with pytest.raises(AssertionError, match="runtime preflight is not executable"):
+        _require_execution_binding(
+            "host-python38.compatibility", owner,
+            good.replace(
+                "      - if: ${{ matrix.scope == 'exact-head' }}\n        run: |\n",
+                "      - run: |\n",
+            ),
+            owners,
+        )
 
 
 def test_sharadar_pr_authority_is_in_process_in_required_sentinel_carrier():
@@ -246,7 +266,11 @@ def test_merge_authority_rejects_commented_disabled_and_masked_replay_evidence()
     with pytest.raises(AssertionError, match="in-process Sharadar authority"):
         _require_merge_authority(sentinel_text=commented, sharadar_text=sharadar)
 
-    header = "      - name: Require full Sharadar replay authority\n        shell: bash\n"
+    header = (
+        "      - name: Require full Sharadar replay authority\n"
+        "        if: ${{ matrix.scope == 'exact-head' }}\n"
+        "        shell: bash\n"
+    )
     assert header in sentinel
     disabled = sentinel.replace(
         header,
@@ -261,6 +285,24 @@ def test_merge_authority_rejects_commented_disabled_and_masked_replay_evidence()
     masked = sentinel.replace(marker, marker + " || true", 1)
     with pytest.raises(AssertionError, match="in-process Sharadar authority"):
         _require_merge_authority(sentinel_text=masked, sharadar_text=sharadar)
+
+
+def test_protected_contexts_require_unconditional_tree_equivalence_proof():
+    sentinel = (ROOT / ".github/workflows/sentinel-safety.yml").read_text()
+    marker = "python tools/verify_ci_scope.py"
+    assert sentinel.count(marker) == 2
+    missing = sentinel.replace(marker, "python tools/missing_scope_proof.py", 1)
+    with pytest.raises(AssertionError, match="unconditional CI scope proof"):
+        _require_merge_authority(sentinel_text=missing)
+
+    disabled = sentinel.replace(
+        "      - name: Prove exact execution or synthetic-tree equivalence\n",
+        "      - name: Prove exact execution or synthetic-tree equivalence\n"
+        "        if: false\n",
+        1,
+    )
+    with pytest.raises(AssertionError, match="unconditional CI scope proof"):
+        _require_merge_authority(sentinel_text=disabled)
 
 
 def test_protected_context_names_are_unique_in_template_and_concrete_forms():
@@ -328,6 +370,7 @@ def test_all_nine_alpaca_mutations_are_unconditionally_in_the_manifest_inventory
 def test_authority_verifiers_do_not_depend_on_optimization_stripped_asserts():
     paths = [
         ROOT / "tools/validate_test_responsibility.py",
+        ROOT / "tools/verify_ci_scope.py",
         ROOT / "tools/verify_internal_state_evidence.py",
         ROOT / "research/sharadar_replay/verify_evidence.py",
     ]
