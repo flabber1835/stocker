@@ -35,6 +35,17 @@ external merge and spills to disk. The database is open, it is the thing that
 will hold the result anyway, and its sorter has the property the interpreter's
 does not.
 
+## Exact source decimals survive the scratch table
+
+The compatibility staging columns are DOUBLE PRECISION, but the production
+provider now decodes Sharadar fractional JSON numbers as ``Decimal``. Converting
+those exact source values to float here would reintroduce publication-rebase
+noise before volume, dividend, and raw-open normalization. Five nullable source
+text columns therefore travel beside the compatibility numerics. They preserve
+the canonical provider spelling through the sort; `staged()` returns float-
+compatible values whose string form retains that exact spelling. Scratch is
+cleared before every write, so there is no historical economic migration.
+
 ## UNLOGGED, and what that means when it crashes
 
 The table is scratch. Every row in it is a verbatim copy of something the vendor
@@ -57,6 +68,7 @@ second copy deriving a 1.0 "no split" against the first.
 """
 from __future__ import annotations
 
+from decimal import Decimal
 from typing import Iterable, Iterator, Optional
 
 #: The vendor fields carried across. Anything not here arrives as None on the
@@ -75,11 +87,58 @@ CARRIED = frozenset({"ticker", "date", "open", "close", "closeunadj",
 #: bounded exactly like the one on the way out.
 STAGE_BATCH = 5000
 
+_EXACT_COLUMNS_DDL = """
+    ALTER TABLE sentinel_sep_staging
+      ADD COLUMN IF NOT EXISTS open_source TEXT,
+      ADD COLUMN IF NOT EXISTS close_source TEXT,
+      ADD COLUMN IF NOT EXISTS closeunadj_source TEXT,
+      ADD COLUMN IF NOT EXISTS closeadj_source TEXT,
+      ADD COLUMN IF NOT EXISTS volume_source TEXT
+"""
+
 _INSERT = """
     INSERT INTO sentinel_sep_staging
-        (run_id, chunk, session, ticker, open, close, closeunadj, closeadj, volume)
-    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s)
+        (run_id, chunk, session, ticker, open, close, closeunadj, closeadj, volume,
+         open_source, close_source, closeunadj_source, closeadj_source, volume_source)
+    VALUES (%s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s, %s)
 """
+
+
+class _ExactSourceFloat(float):
+    """A normal float that retains the vendor's exact decimal spelling."""
+
+    def __new__(cls, compatibility, source):
+        obj = super().__new__(cls, compatibility)
+        obj._source_text = str(source)
+        return obj
+
+    def __str__(self):
+        return self._source_text
+
+
+def _ensure_exact_columns(conn) -> None:
+    """Self-upgrade the UNLOGGED scratch shape before any exact source write."""
+    with conn.cursor() as cur:
+        cur.execute(_EXACT_COLUMNS_DDL)
+    conn.commit()
+
+
+def _source_text(value) -> Optional[str]:
+    if value is None or value == "":
+        return None
+    if isinstance(value, Decimal):
+        return format(value, "f")
+    return str(value)
+
+
+def _source_or_compat(source, compatibility):
+    compat = _f(compatibility)
+    if source is None or compat is None:
+        return compat
+    try:
+        return _ExactSourceFloat(compat, source)
+    except (TypeError, ValueError, OverflowError):
+        return compat
 
 
 def stage(conn, rows: Iterable[dict], *, run_id: str, chunk: str) -> int:
@@ -89,6 +148,7 @@ def stage(conn, rows: Iterable[dict], *, run_id: str, chunk: str) -> int:
     at a time and never materialised. A `list(rows)` anywhere in this function
     would reintroduce exactly the resident chunk it exists to remove.
     """
+    _ensure_exact_columns(conn)
     clear(conn, run_id=run_id, chunk=chunk)
 
     buf: list = []
@@ -105,10 +165,16 @@ def stage(conn, rows: Iterable[dict], *, run_id: str, chunk: str) -> int:
         buf.clear()
 
     for r in rows:
-        buf.append((run_id, chunk, str(r["date"]), str(r["ticker"]),
-                    _f(r.get("open")), _f(r.get("close")),
-                    _f(r.get("closeunadj")), _f(r.get("closeadj")),
-                    _f(r.get("volume"))))
+        op = r.get("open")
+        close = r.get("close")
+        raw = r.get("closeunadj")
+        closeadj = r.get("closeadj")
+        volume = r.get("volume")
+        buf.append((
+            run_id, chunk, str(r["date"]), str(r["ticker"]),
+            _f(op), _f(close), _f(raw), _f(closeadj), _f(volume),
+            _source_text(op), _source_text(close), _source_text(raw),
+            _source_text(closeadj), _source_text(volume)))
         if len(buf) >= STAGE_BATCH:
             flush()
     flush()
@@ -131,20 +197,29 @@ def staged(conn, *, run_id: str, chunk: str,
     """
     from sentinel.feed.store import streaming_cursor
 
-    sql = ("SELECT session, ticker, open, close, closeunadj, closeadj, volume"
-           " FROM sentinel_sep_staging WHERE run_id = %s AND chunk = %s"
-           " ORDER BY session, ticker")
+    _ensure_exact_columns(conn)
+    sql = (
+        "SELECT session, ticker, open, close, closeunadj, closeadj, volume,"
+        " open_source, close_source, closeunadj_source, closeadj_source, volume_source"
+        " FROM sentinel_sep_staging WHERE run_id = %s AND chunk = %s"
+        " ORDER BY session, ticker")
     # WITHHOLD, and it is not optional here. The consumer of this generator is
     # `write_bars`, which commits every 5,000 bars — and a COMMIT destroys an
     # ordinary portal, so the reader's own downstream closes the cursor partway
     # through the chunk. See `store.streaming_cursor`.
     with streaming_cursor(conn, sql, (run_id, chunk), batch=batch,
                           withhold=True) as cur:
-        for session, ticker, op, close, raw, closeadj, volume in cur:
-            yield {"date": str(session), "ticker": str(ticker),
-                   "open": _f(op), "close": _f(close),
-                   "closeunadj": _f(raw), "closeadj": _f(closeadj),
-                   "volume": _f(volume)}
+        for (session, ticker, op, close, raw, closeadj, volume,
+             op_source, close_source, raw_source, closeadj_source,
+             volume_source) in cur:
+            yield {
+                "date": str(session), "ticker": str(ticker),
+                "open": _source_or_compat(op_source, op),
+                "close": _source_or_compat(close_source, close),
+                "closeunadj": _source_or_compat(raw_source, raw),
+                "closeadj": _source_or_compat(closeadj_source, closeadj),
+                "volume": _source_or_compat(volume_source, volume),
+            }
 
 
 def clear(conn, *, run_id: str, chunk: Optional[str] = None) -> int:
