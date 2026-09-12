@@ -19,10 +19,25 @@ exactly algebraically equivalent.
 """
 from __future__ import annotations
 
+from dataclasses import dataclass
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 import math
 from typing import Optional
+
+
+@dataclass(frozen=True)
+class AdjudicatedCashDistribution:
+    """Separate vendor-adjusted cash from issuer cash per participating old share.
+
+    The source component remains evidence. Its replacement has a fixed raw
+    entitlement basis, independent of subsequent vendor adjustment rebases.
+    """
+    ordinary_split_adjusted_per_share: Decimal
+    source_per_share: Decimal
+    stale_raw_per_share: Decimal
+    cash_per_old_share: Decimal
+    new_shares_per_old_share: Decimal
 
 
 def _finite_decimal(value: object) -> Decimal | None:
@@ -105,6 +120,7 @@ def raw_dividend_per_share(
     split_adjusted_close: object,
     raw_close: object,
     reported_split_adjusted_dividend: object,
+    *, split_ratio: object | None = None,
 ) -> Optional[float]:
     """Convert an ACTIONS dividend to the historical as-traded share domain.
 
@@ -124,11 +140,38 @@ def raw_dividend_per_share(
     must not turn 0.47 into 0.4700000000000001 and thereby change cash, NAV, or a
     committed economic identity.
 
+    Reviewed combined events carry issuer cash per participating old share
+    separately. That fixed cash is divided by the declared new/old share ratio
+    to match the ledger's post-consolidation share count. Only the ordinary
+    vendor component follows the cumulative SEP adjustment. When supplied, the
+    normalized split ratio must agree with the issuer's consolidation terms.
+
     Zero is a valid no-dividend value and does not require price-domain evidence.
     A positive dividend requires finite positive adjusted and raw closes. Negative,
     non-finite, or otherwise unconvertible values return ``None`` so callers can
     fail closed rather than fabricate cash.
     """
+    if isinstance(reported_split_adjusted_dividend, AdjudicatedCashDistribution):
+        cash = reported_split_adjusted_dividend
+        adjusted = _finite_decimal(split_adjusted_close)
+        raw = _finite_decimal(raw_close)
+        ratio = _finite_decimal(cash.new_shares_per_old_share)
+        if any(v is None or v <= 0 for v in (adjusted, raw, ratio)):
+            return None
+        if split_ratio is not None and _finite_decimal(split_ratio) != ratio:
+            return None
+        factor = Fraction(raw) / Fraction(adjusted)
+        source = Fraction(cash.source_per_share) * factor
+        # Compare source evidence on its historical basis. A later equivalent
+        # vendor rebase scales the source component, never the issuer term.
+        if source not in (Fraction(cash.stale_raw_per_share),
+                          Fraction(cash.cash_per_old_share)):
+            return None
+        if cash.ordinary_split_adjusted_per_share < 0:
+            return None
+        result = (Fraction(cash.ordinary_split_adjusted_per_share) * factor
+                  + Fraction(cash.cash_per_old_share) / Fraction(ratio))
+        return _finite_float(result)
     reported = _finite_decimal(reported_split_adjusted_dividend)
     if reported is None or reported < 0:
         return None

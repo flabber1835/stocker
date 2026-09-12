@@ -131,20 +131,22 @@ def test_preparation_detects_missed_cycle_dividend_using_preopen_ownership(monke
 
 
 def test_paper_dividend_evidence_uses_reviewed_tri_cash_with_raw_source_retained():
+    from fractions import Fraction
     from sentinel.trial import _expected_effective_equity_dividends
 
     class TriConnection(OwnershipConnection):
         def execute(self, statement, params=()):
             if statement.startswith("SELECT security_id,ticker,close_signal"):
-                self.result = [("P:TRI", "TRI", 100, 100, Decimal("1.435518"))]
+                self.result = [("P:TRI", "TRI", 100, 100,
+                                Decimal(str(float(Fraction(1435518, 984560)))))]
             elif "COALESCE(source_payload->>'value'" in statement:
                 self.result = [(date(2026, 5, 4), "dividend", "TRI", "1.36", "raw-tri")]
             else:
                 super().execute(statement, params)
 
     expected = _expected_effective_equity_dividends(
-        TriConnection([]), date(2026, 5, 4), {"P:TRI": Decimal(100)}, [])
-    assert expected[0]["amount"] == "143.551800"
+        TriConnection([]), date(2026, 5, 4), {"P:TRI": Decimal("98.456")}, [])
+    assert Decimal(expected[0]["amount"]) == pytest.approx(Decimal("143.5518"))
     assert expected[0]["reported_per_share"] == "1.36"
     assert expected[0]["source_row_ids"] == ["raw-tri"]
     assert expected[0]["adjudications"][0]["event_id"] == "TRI:2026-05-04:dividend"

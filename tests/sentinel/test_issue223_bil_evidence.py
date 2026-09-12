@@ -593,6 +593,33 @@ def test_ex_date_equity_buy_does_not_manufacture_distribution():
     assert conn.statements == []
 
 
+@pytest.mark.parametrize("source", ["1.36", "1.435518"])
+@pytest.mark.parametrize("rebase", [1, 5])
+def test_tri_account_entitlement_preserves_old_shares_after_consolidation(source, rebase):
+    from fractions import Fraction
+
+    per_new_share = Decimal(str(float(Fraction(1435518, 984560))))
+    conn = _Connection(
+        [("SEC-TRI", "TRI", Decimal(100) / Decimal(rebase), Decimal(100), per_new_share)],
+        [(date(2026, 5, 4), "dividend", "TRI", Decimal(source) / Decimal(rebase), "tri-cash")],
+    )
+    entitlement = trial._expected_effective_equity_dividends(
+        conn, date(2026, 5, 4), {"SEC-TRI": "984.56"}, [])
+    assert len(entitlement) == 1
+    assert Decimal(entitlement[0]["amount"]) == pytest.approx(Decimal("1435.518"), abs=Decimal("1e-10"))
+    assert entitlement[0]["adjudications"][0]["cash_entitlement_basis"] == "RAW_PRE_CONSOLIDATION_SHARE"
+
+
+def test_tri_old_wrong_basis_published_bar_cannot_authorize_account_evidence():
+    conn = _Connection(
+        [("SEC-TRI", "TRI", Decimal(100), Decimal(100), Decimal("1.435518"))],
+        [(date(2026, 5, 4), "dividend", "TRI", Decimal("1.36"), "tri-cash")],
+    )
+    with pytest.raises(trial.TrialEvidenceRefused, match="aggregate does not match"):
+        trial._expected_effective_equity_dividends(
+            conn, date(2026, 5, 4), {"SEC-TRI": "984.56"}, [])
+
+
 def test_positive_equity_dividend_without_action_identity_refuses(monkeypatch):
     from sentinel.feed import calendar
 

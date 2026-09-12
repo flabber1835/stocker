@@ -95,6 +95,14 @@ MARK_RECENCY_SESSIONS = 10
 C1_GRACE_SESSIONS = 10
 
 
+class SettlementPhase(str, Enum):
+    OPEN = "OPEN"
+    CLOSE = "CLOSE"
+
+    def permits(self, available: SettlementPhase) -> bool:
+        return self is SettlementPhase.CLOSE or available is SettlementPhase.OPEN
+
+
 class SettlementSource(str, Enum):
     """WHERE a settlement price came from. Persisted, never inferred.
 
@@ -167,6 +175,7 @@ class SettlementDecision:
     settlement_exact: bool
     reason: str
     detail: dict = field(default_factory=dict)
+    availability_phase: SettlementPhase = SettlementPhase.OPEN
 
     @property
     def settles(self) -> bool:
@@ -191,7 +200,9 @@ class SettlementDecision:
                 # and dict-spread order decided which survived — so the audit
                 # said NO_TRUSTWORTHY_MARK where the terms gap belonged. Two
                 # different questions, two different keys.
-                "settlement_reason": self.reason, **self.detail}
+                "settlement_reason": self.reason, **self.detail,
+                **({"settlement_available_phase": self.availability_phase.value}
+                   if self.settles else {})}
 
 
 def _positive(x) -> bool:
@@ -208,6 +219,8 @@ def resolve_settlement(*,
                        last_valid_mark: Optional[float] = None,
                        sessions_since_last_valid_print: Optional[int] = None,
                        executable_price: Optional[float] = None,
+                       phase: SettlementPhase = SettlementPhase.OPEN,
+                       executable_price_phase: SettlementPhase = SettlementPhase.OPEN,
                        sessions_pending_terms: int = 0,
                        orphan_timeout_sessions: int = ORPHAN_TIMEOUT_SESSIONS,
                        mark_recency_sessions: int = MARK_RECENCY_SESSIONS,
@@ -234,6 +247,10 @@ def resolve_settlement(*,
     which case staleness stays 0 forever and the grace period would never expire
     if it were driven off staleness.
     """
+    phase = SettlementPhase(phase)
+    executable_price_phase = SettlementPhase(executable_price_phase)
+    if not phase.permits(executable_price_phase):
+        executable_price = None
     stale = sessions_since_last_valid_print
 
     # ── 1. exact terms, whenever genuinely known ────────────────────────────
@@ -280,6 +297,7 @@ def resolve_settlement(*,
         if _positive(executable_price):
             return SettlementDecision(
                 source=SettlementSource.EXECUTABLE_PRINT,
+                availability_phase=executable_price_phase,
                 price_per_share=float(executable_price),
                 event_known=True, terms_complete=False, settlement_exact=False,
                 reason="EXECUTABLE_TERMINAL_PRINT",
@@ -309,6 +327,7 @@ def resolve_settlement(*,
         # ── 3c. the grace expired and nothing better ever arrived ───────────
         return SettlementDecision(
             source=SettlementSource.LAST_TRUSTWORTHY_MARK,
+            availability_phase=phase,
             price_per_share=float(last_valid_mark),
             event_known=True, terms_complete=False, settlement_exact=False,
             reason="DERIVED_TERMINAL_SETTLEMENT_LAST_MARK",
@@ -336,6 +355,7 @@ def resolve_settlement(*,
                     "orphan_timeout_sessions": orphan_timeout_sessions})
     return SettlementDecision(
         source=SettlementSource.ZERO_ORPHAN, price_per_share=0.0,
+        availability_phase=phase,
         event_known=False, terms_complete=False, settlement_exact=False,
         reason="ORPHANED_UNRESOLVED_NO_ACTION",
         detail={"sessions_since_last_valid_print": stale,
