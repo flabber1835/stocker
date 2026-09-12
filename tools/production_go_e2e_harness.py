@@ -349,17 +349,20 @@ def _bootstrap_financial_fixture() -> None:
         "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
         "schema.ensure_schema(c); store.migrate_schema(c); c.close()"
     )
+    schema_url = (
+        "postgresql://sentinel:e2e-postgres-password-363@127.0.0.1:5432/sentinel"
+    )
     _run_host([
-        "bash", "scripts/sentinel-compose.sh", "--run", "--profile", "cli",
-        "run", "--rm", "-T", "--no-deps", "--entrypoint", "python",
-        "sentinel", "-c", schema_code,
+        "docker", "run", "--rm", "--network", "container:sentinel-postgres",
+        "--entrypoint", "python", "-e", f"SENTINEL_DATABASE_URL={schema_url}",
+        runtime_ref, "-c", schema_code,
     ], env=env, timeout=300)
 
     days = _session_days()
     if not days:
         raise HarnessFailure("deterministic Sharadar fixture has no seed sessions")
     _run_host([
-        "bash", "scripts/sentinel-compose.sh", "--run", "--profile", "cli",
+        "bash", "scripts/sentinel-compose.sh", "--run",
         "run", "--rm", "-T", "--no-deps", "sentinel", "feed-seed",
         "--from", days[0].isoformat(), "--to", days[-1].isoformat(),
     ], env=env, timeout=1800)
