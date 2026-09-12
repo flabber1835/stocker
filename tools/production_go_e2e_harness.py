@@ -32,6 +32,9 @@ SUCCESS = "[GO] GO lifecycle completed successfully"
 PHASE_RE = re.compile(r"^=== (.+) ===$", re.MULTILINE)
 HANDOFF = ROOT / "artifacts" / "sentinel" / "deployment" / "validated-artifact-handoff.json"
 POINTER = ROOT / "artifacts" / "sentinel" / "runtime-selection.json"
+VALIDATED_RUNTIME_POINTER = (
+    ROOT / "artifacts" / "sentinel" / "deployment" / "validated-runtime.env"
+)
 
 REQUIRED_PHASES = (
     "HOST COMPATIBILITY",
@@ -69,6 +72,8 @@ TICKER_COLUMNS = (
     "firstpricedate", "lastpricedate", "firstquarter", "lastquarter",
     "secfilings", "companysite",
 )
+
+_FIXTURE_READY = False
 
 
 class HarnessFailure(RuntimeError):
@@ -124,8 +129,13 @@ def _price_rows(query: dict[str, list[str]], *, sfp: bool = False) -> list[list[
     rows: list[list[object]] = []
     source_day = dt.datetime.now(dt.timezone.utc).date()
     ticker_filter = query.get("ticker", [None])[0]
-    for ti, ticker in enumerate(TICKERS):
-        if ticker_filter and ticker != ticker_filter:
+    allowed = (
+        {item.strip().upper() for item in ticker_filter.split(",") if item.strip()}
+        if ticker_filter else None
+    )
+    tickers = ("SPY", "BIL") if sfp else TICKERS
+    for ti, ticker in enumerate(tickers):
+        if allowed is not None and ticker not in allowed:
             continue
         for di, day in enumerate(_session_days()):
             if not _in_range(day, query):
@@ -166,7 +176,7 @@ def _payload(table: str, query: dict[str, list[str]]) -> dict:
     if table == "SEP":
         columns, rows = SEP_COLUMNS, _price_rows(query)
     elif table == "SFP":
-        columns, rows = SFP_COLUMNS, []
+        columns, rows = SFP_COLUMNS, _price_rows(query, sfp=True)
     elif table == "ACTIONS":
         columns, rows = ACTIONS_COLUMNS, []
     elif table == "TICKERS":
@@ -273,7 +283,92 @@ def _temporary_environment_file(*, port: int, backup_dir: Path):
             path.write_bytes(old)
 
 
+def _run_host(argv: list[str], *, env: dict[str, str] | None = None,
+              timeout: int = 900) -> subprocess.CompletedProcess[str]:
+    completed = subprocess.run(
+        argv, cwd=ROOT, env=env, text=True, stdout=subprocess.PIPE,
+        stderr=subprocess.STDOUT, timeout=timeout, check=False,
+    )
+    if completed.returncode != 0:
+        raise HarnessFailure(
+            f"fixture command failed rc={completed.returncode} argv={argv}:\n"
+            f"{(completed.stdout or '')[-5000:]}"
+        )
+    return completed
+
+
+def _initialize_backup_target(backup: Path) -> None:
+    for name in ("wal", "base"):
+        child = backup / name
+        child.mkdir(parents=True, exist_ok=True)
+        child.chmod(0o777)
+    completed = _run_host(
+        ["bash", "scripts/sentinel-compose.sh", "--initialize-backup"],
+        timeout=180,
+    )
+    if "initialized_backup_target:" not in (completed.stdout or ""):
+        raise HarnessFailure("canonical backup target initialization produced no evidence")
+
+
+def _bootstrap_financial_fixture() -> None:
+    """Create the supported retained feed state required before production daily GO."""
+    global _FIXTURE_READY
+    if _FIXTURE_READY:
+        return
+
+    commit = _git_head()
+    runtime_ref = f"sentinel-go-runtime:{commit}"
+    env = dict(os.environ)
+    env["SENTINEL_RUNTIME_IMAGE_REF"] = runtime_ref
+    env["NO_COLOR"] = "1"
+
+    # A previous GO run can leave an immutable selector that correctly overrides
+    # shell state.  This fresh E2E database must start from the exact tested
+    # image we build below; the canonical GO success path will publish its own
+    # validated selector later.
+    VALIDATED_RUNTIME_POINTER.unlink(missing_ok=True)
+
+    _run_host([
+        "docker", "build", "--network", "host", "--build-arg",
+        "SOURCE_GIT_SHA=" + commit, "-t", runtime_ref,
+        "-f", "Dockerfile.sentinel", ".",
+    ], env=env, timeout=1800)
+    _run_host([
+        "bash", "scripts/sentinel-compose.sh", "--run",
+        "up", "-d", "--wait", "sentinel-postgres",
+    ], env=env, timeout=300)
+
+    # Feed mutation is allowed only when the real backup runtime can prove a
+    # restore horizon, so establish that horizon before any schema/feed write.
+    _run_host(["bash", "scripts/sentinel-base-backup.sh"], env=env, timeout=900)
+
+    schema_code = (
+        "import os; "
+        "from sentinel import schema; "
+        "from sentinel.feed import store; "
+        "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
+        "schema.ensure_schema(c); store.migrate_schema(c); c.close()"
+    )
+    _run_host([
+        "bash", "scripts/sentinel-compose.sh", "--run", "--profile", "cli",
+        "run", "--rm", "-T", "--no-deps", "--entrypoint", "python",
+        "sentinel", "-c", schema_code,
+    ], env=env, timeout=300)
+
+    days = _session_days()
+    if not days:
+        raise HarnessFailure("deterministic Sharadar fixture has no seed sessions")
+    _run_host([
+        "bash", "scripts/sentinel-compose.sh", "--run", "--profile", "cli",
+        "run", "--rm", "-T", "--no-deps", "sentinel", "feed-seed",
+        "--from", days[0].isoformat(), "--to", days[-1].isoformat(),
+    ], env=env, timeout=1800)
+    _FIXTURE_READY = True
+
+
 def _clean_runtime() -> None:
+    global _FIXTURE_READY
+    _FIXTURE_READY = False
     subprocess.run(
         ["bash", "scripts/sentinel-compose.sh", "--run", "down", "-v", "--remove-orphans"],
         cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
@@ -281,7 +376,9 @@ def _clean_runtime() -> None:
 
 
 def _invoke(*, target: str = "SHADOW", extra_env: dict[str, str] | None = None,
-            timeout: int = 5400) -> subprocess.CompletedProcess[str]:
+            timeout: int = 5400, prepare_fixture: bool = True) -> subprocess.CompletedProcess[str]:
+    if prepare_fixture:
+        _bootstrap_financial_fixture()
     env = dict(os.environ)
     env.update(extra_env or {})
     env["NO_COLOR"] = "1"
@@ -337,15 +434,17 @@ def _success_evidence(completed: subprocess.CompletedProcess[str], commit: str) 
 
 def _sensitivity_case(name: str, *, port: int, backup_dir: Path) -> dict:
     if name == "host-compatibility":
-        completed = _invoke(extra_env={"SENTINEL_HOST_PYTHON": "/definitely/missing/python"}, timeout=60)
+        completed = _invoke(
+            extra_env={"SENTINEL_HOST_PYTHON": "/definitely/missing/python"},
+            timeout=60, prepare_fixture=False)
         expected = "HOST COMPATIBILITY"
     elif name == "account-preflight":
-        completed = _invoke(target="PAPER", timeout=300)
+        completed = _invoke(target="PAPER", timeout=300, prepare_fixture=False)
         expected = "PAPER ACCOUNT PREFLIGHT - GET ONLY"
     elif name == "source-preflight":
         # This lane is run with a failing Tables server and must reach the
         # read-only source authority before refusing.
-        completed = _invoke(timeout=1800)
+        completed = _invoke(timeout=1800, prepare_fixture=False)
         expected = "READ-ONLY SHARADAR PREFLIGHT"
     else:
         raise HarnessFailure(f"unknown sensitivity case {name}")
@@ -377,21 +476,25 @@ def run(*, output: Path, sensitivity: bool) -> dict:
         "all_pass": False,
     }
     try:
-        _clean_runtime()
         with _source_server() as port, _temporary_environment_file(port=port, backup_dir=backup):
+            _initialize_backup_target(backup)
+            _clean_runtime()
             completed = _invoke()
             (output.parent / "canonical-go.log").write_text(completed.stdout, encoding="utf-8")
             result["success"] = _success_evidence(completed, commit)
 
-        if sensitivity:
-            # Cheap early-stage cases prove the harness is stage-sensitive.
-            with _source_server() as port, _temporary_environment_file(port=port, backup_dir=backup):
+            if sensitivity:
+                # Cheap early-stage cases prove the harness is stage-sensitive.
                 result["sensitivity"].append(
                     _sensitivity_case("host-compatibility", port=port, backup_dir=backup))
                 result["sensitivity"].append(
                     _sensitivity_case("account-preflight", port=port, backup_dir=backup))
+
             _clean_runtime()
-            with _source_server(fail_source=True) as port, _temporary_environment_file(port=port, backup_dir=backup):
+
+        if sensitivity:
+            with _source_server(fail_source=True) as port, _temporary_environment_file(
+                    port=port, backup_dir=backup):
                 result["sensitivity"].append(
                     _sensitivity_case("source-preflight", port=port, backup_dir=backup))
 
@@ -403,7 +506,6 @@ def run(*, output: Path, sensitivity: bool) -> dict:
         output.write_text(json.dumps(result, indent=2, sort_keys=True) + "\n", encoding="utf-8")
         raise
     finally:
-        _clean_runtime()
         shutil.rmtree(work, ignore_errors=True)
 
 
