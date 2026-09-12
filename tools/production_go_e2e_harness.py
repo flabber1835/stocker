@@ -75,8 +75,15 @@ def main(argv=None) -> int:
 
     try:
         e2e.run(["git", "init", "--bare", str(origin)], cwd=ROOT)
+        # Actions checks PR heads out shallow and detached. The isolated origin
+        # is intentionally local, so admit that shallow boundary and make its
+        # advertised HEAD explicit before cloning the clean production main.
+        e2e.run(["git", "--git-dir", str(origin), "config",
+                 "receive.shallowUpdate", "true"], cwd=ROOT)
         e2e.run(["git", "push", "--force", str(origin),
                  f"{original_commit}:refs/heads/main"], cwd=ROOT)
+        e2e.run(["git", "--git-dir", str(origin), "symbolic-ref", "HEAD",
+                 "refs/heads/main"], cwd=ROOT)
         e2e.run(["git", "clone", str(origin), str(work)], cwd=ROOT)
         if e2e.git(work, "rev-parse", "HEAD") != original_commit:
             raise e2e.E2ERefused("isolated main does not equal tested commit")
