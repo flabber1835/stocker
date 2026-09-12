@@ -132,6 +132,10 @@ services:
       SENTINEL_DATABASE_URL: postgresql://sentinel:${SENTINEL_POSTGRES_PASSWORD:?set SENTINEL_POSTGRES_PASSWORD}@sentinel-postgres:5432/sentinel
       SENTINEL_PUBLICATION_RECEIPT_KEY: ${SENTINEL_PUBLICATION_RECEIPT_KEY:?set SENTINEL_PUBLICATION_RECEIPT_KEY}
       SHARADAR_API_KEY: ${SHARADAR_API_KEY:-}
+      NDL_BASE_URL: ${NDL_BASE_URL:-https://data.nasdaq.com/api/v3/datatables/SHARADAR}
+      SHARADAR_ALLOW_INSECURE_BASE_URL: ${SHARADAR_ALLOW_INSECURE_BASE_URL:-0}
+      SHARADAR_FETCH_RETRIES: ${SHARADAR_FETCH_RETRIES:-6}
+      SHARADAR_FETCH_BACKOFF: ${SHARADAR_FETCH_BACKOFF:-2.0}
     volumes:
       # AUDIT EVIDENCE ONLY. `ownership.jsonl` used to be the authority, and its
       # absence re-armed a liquidation — which is why this comment used to call
