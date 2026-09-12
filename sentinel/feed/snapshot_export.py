@@ -102,7 +102,13 @@ def _decode_export_status(
 
 def _safe_download(client, link: str, *, http, sleep, now) -> bytes:
     parsed = urlparse(str(link))
-    if parsed.scheme.lower() != "https" or not parsed.netloc:
+    base = urlparse(str(sharadar.NDL_BASE))
+    development_origin = (
+        sharadar.ALLOW_INSECURE_BASE_URL
+        and parsed.scheme == base.scheme == "http"
+        and parsed.netloc == base.netloc
+    )
+    if not parsed.netloc or (parsed.scheme.lower() != "https" and not development_origin):
         raise SharadarSnapshotExportError(
             "Sharadar export supplied a non-HTTPS download link")
     last_kind = "transport failure"

@@ -411,6 +411,8 @@ def run_phased_probes(*, runner=None, env=None, now=None, urlopen=None,
     parity = go.probe_active_wealth_parity(
         runner, env=resolved_env, commit=git.commit,
         candidate_image_digest=tests.candidate_image_digest,
+        runtime_image_digest=tests.runtime_image_digest,
+        source_identity_sha256=tests.source_identity_sha256,
         now_text=now_text, subject_values=subjects,
         timing_values=timing_values)
     readiness = go.probe_sharadar_readiness(

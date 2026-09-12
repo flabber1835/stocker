@@ -87,15 +87,6 @@ CARRIED = frozenset({"ticker", "date", "open", "close", "closeunadj",
 #: bounded exactly like the one on the way out.
 STAGE_BATCH = 5000
 
-_EXACT_COLUMNS_DDL = """
-    ALTER TABLE sentinel_sep_staging
-      ADD COLUMN IF NOT EXISTS open_source TEXT,
-      ADD COLUMN IF NOT EXISTS close_source TEXT,
-      ADD COLUMN IF NOT EXISTS closeunadj_source TEXT,
-      ADD COLUMN IF NOT EXISTS closeadj_source TEXT,
-      ADD COLUMN IF NOT EXISTS volume_source TEXT
-"""
-
 _INSERT = """
     INSERT INTO sentinel_sep_staging
         (run_id, chunk, session, ticker, open, close, closeunadj, closeadj, volume,
@@ -114,13 +105,6 @@ class _ExactSourceFloat(float):
 
     def __str__(self):
         return self._source_text
-
-
-def _ensure_exact_columns(conn) -> None:
-    """Self-upgrade the UNLOGGED scratch shape before any exact source write."""
-    with conn.cursor() as cur:
-        cur.execute(_EXACT_COLUMNS_DDL)
-    conn.commit()
 
 
 def _source_text(value) -> Optional[str]:
@@ -148,7 +132,6 @@ def stage(conn, rows: Iterable[dict], *, run_id: str, chunk: str) -> int:
     at a time and never materialised. A `list(rows)` anywhere in this function
     would reintroduce exactly the resident chunk it exists to remove.
     """
-    _ensure_exact_columns(conn)
     clear(conn, run_id=run_id, chunk=chunk)
 
     buf: list = []
@@ -197,7 +180,6 @@ def staged(conn, *, run_id: str, chunk: str,
     """
     from sentinel.feed.store import streaming_cursor
 
-    _ensure_exact_columns(conn)
     sql = (
         "SELECT session, ticker, open, close, closeunadj, closeadj, volume,"
         " open_source, close_source, closeunadj_source, closeadj_source, volume_source"

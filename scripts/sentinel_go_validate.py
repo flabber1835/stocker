@@ -1158,130 +1158,159 @@ def probe_prevalidation_preparation(
         elapsed_milliseconds=elapsed_milliseconds)
 
 
+def _operational_parity_report_valid(report, *, commit, starting_cash):
+    if not isinstance(report, dict):
+        return False
+    source = report.get("source_identity") or {}
+    if not isinstance(source, dict):
+        return False
+    environment = source.get("environment") or {}
+    proof = report.get("proof") or {}
+    coherence = report.get("publication_coherence") or {}
+    held = report.get("held_publication") or {}
+    if not all(isinstance(value, dict) for value in (
+            source, environment, proof, coherence, held)):
+        return False
+    if not all(isinstance(environment.get(key), dict) for key in (
+            "sentinel_source", "wealth_core_source")):
+        return False
+    checks = proof.get("checks")
+    warmup = proof.get("warmup_input") or {}
+    strategy = proof.get("strategy_identity") or {}
+    if not isinstance(warmup, dict) or not isinstance(strategy, dict):
+        return False
+    try:
+        data_publication_subject_value(held)
+    except ValidationRefused:
+        return False
+    required_checks = {
+        "prior_unchanged", "input_unchanged", "restart_equivalent",
+        "result_roundtrip_equivalent", "frontier_advanced",
+        "publication_version_bound", "strategy_bound", "decision_present"}
+    hashes = (
+        "input_sha256", "prior_state_sha256", "result_state_sha256",
+        "decision_sha256", "controller_configuration_sha256",
+        "sentinel_source_sha256", "wealth_core_source_sha256",
+        "proof_helper_sha256")
+    return (
+        report.get("schema") == "sentinel.production-operational-parity/1"
+        and report.get("verdict") == "PASS"
+        and report.get("authority_effect") == "NONE"
+        and report.get("runtime_authority_changed") is False
+        and report.get("transaction") == {
+            "isolation": "repeatable read", "read_only": "on"}
+        and coherence.get("coherent") is True
+        and coherence.get("scope") == "PRODUCTION_OPERATIONAL"
+        and coherence.get("blocking_runs") == []
+        and coherence.get("version") == proof.get("data_version")
+        and environment.get("compatible") is True
+        and environment.get("pins_match") is True
+        and environment.get("sources_known") is True
+        and environment.get("lock_present") is True
+        and environment.get("pin_drift") == {}
+        and source.get("image_source_revision") == commit
+        and _HEX64.fullmatch(str(source.get("identity_hash") or "")) is not None
+        and proof.get("scope") == "CURRENT_STRATEGY_STARTUP_AND_RESTART"
+        and proof.get("starting_cash") == starting_cash
+        and proof.get("decision_session") == held.get("visible_frontier")
+        and type(proof.get("data_version")) is int
+        and proof["data_version"] > 0
+        and type(warmup.get("session_count")) is int
+        and warmup["session_count"] == 252
+        and _HEX64.fullmatch(str(warmup.get("warmup_input_sha256") or "")) is not None
+        and isinstance(checks, dict) and set(checks) == required_checks
+        and all(value is True for value in checks.values())
+        and bool(strategy.get("strategy"))
+        and strategy.get("controller_rule_sha256")
+            == proof.get("controller_configuration_sha256")
+        and all(_HEX64.fullmatch(str(proof.get(key) or "")) for key in hashes)
+        and (environment.get("sentinel_source") or {}).get("hash")
+            == proof.get("sentinel_source_sha256")
+        and (environment.get("wealth_core_source") or {}).get("hash")
+            == proof.get("wealth_core_source_sha256")
+    )
+
+
 def probe_active_wealth_parity(
         runner: CommandRunner, *, env: Mapping[str, str],
         commit: Optional[str], candidate_image_digest: Optional[str],
+        runtime_image_digest: Optional[str], source_identity_sha256: Optional[str],
         now_text: str,
         subject_values: Optional[Dict[str, str]] = None,
         timing_values: Optional[Dict[str, int]] = None,
         monotonic: Callable[[], float] = time.monotonic) -> Gate:
-    """Run the canonical forward differential in one read-only DB snapshot."""
-    if (not commit or not candidate_image_digest
-            or _IMAGE_DIGEST.fullmatch(candidate_image_digest) is None
+    """Compare the current-strategy operational proof in exact image roles."""
+    images = tuple(dict.fromkeys((runtime_image_digest, candidate_image_digest)))
+    if (not commit or not source_identity_sha256
+            or any(not image or _IMAGE_DIGEST.fullmatch(image) is None
+                   for image in images)
             or not env.get("SENTINEL_POSTGRES_PASSWORD")):
         return make_gate(
             "wealth_core_nas_parity", NOT_PROVEN, now_text,
-            {"reason": "FORWARD_CHAIN_DATABASE_AUTHORITY_UNAVAILABLE"})
+            {"reason": "OPERATIONAL_PARITY_AUTHORITY_UNAVAILABLE"})
+    try:
+        configuration = shadow_configuration_document(
+            env, source_identity_sha256=source_identity_sha256)
+    except ValidationRefused:
+        return make_gate(
+            "wealth_core_nas_parity", FAIL, now_text,
+            {"reason": "OPERATIONAL_PARITY_CONFIGURATION_INVALID"})
     run_env = _without_broker_authority(env)
     compose_args = _resolve_compose_args(runner, run_env)
     if compose_args is None:
         return make_gate(
             "wealth_core_nas_parity", NOT_PROVEN, now_text,
             {"reason": "COMPOSE_GRAPH_UNAVAILABLE"})
-    # The Compose service supplies the exact production DB connection and no
-    # broker credentials.  Its image is replaced by the candidate test lens,
-    # whose /app package is the candidate production runtime.
-    run_env["SENTINEL_RUNTIME_IMAGE_REF"] = candidate_image_digest
+    reports = []
+    exits = []
+    first_divergence = None
     started = monotonic()
-    completed = runner.run([
-        "docker", "compose", *compose_args, "--profile", "cli", "run",
-        "--rm", "-T", "--no-deps", "--entrypoint", "python", "sentinel",
-        "-m", "tools.sentinel_forward_chain", "--quiet",
-    ], env=run_env)
-    elapsed_milliseconds = max(
-        0, int(math.ceil((monotonic() - started) * 1000.0)))
+    for image in images:
+        run_env["SENTINEL_RUNTIME_IMAGE_REF"] = image
+        completed = runner.run([
+            "docker", "compose", *compose_args, "--profile", "cli", "run",
+            "--rm", "-T", "--no-deps", "--entrypoint", "python", "sentinel",
+            "-m", "tools.sentinel_operational_parity",
+            "--starting-cash", configuration["starting_cash"],
+            "--expected-commit", commit,
+        ], env=run_env)
+        exits.append(int(completed.returncode))
+        try:
+            report = json.loads(completed.stdout or "")
+        except json.JSONDecodeError:
+            report = None
+        reports.append(report)
+        if (completed.returncode != 0 or not _operational_parity_report_valid(
+                report, commit=commit, starting_cash=configuration["starting_cash"])):
+            first_divergence = "OPERATIONAL_PARITY_REPORT_INVALID"
+            break
     if timing_values is not None:
-        timing_values["full_forward_decision_replay"] = elapsed_milliseconds
-    try:
-        report = json.loads(completed.stdout or "")
-    except json.JSONDecodeError:
-        report = None
-    if not isinstance(report, dict):
-        status = FAIL if completed.returncode == 1 else NOT_PROVEN
-        return make_gate(
-            "wealth_core_nas_parity", status, now_text,
-            {"reason": "FORWARD_CHAIN_REPORT_UNAVAILABLE",
-             "exit_code": int(completed.returncode)})
-
-    transaction = report.get("transaction")
-    comparison = report.get("comparison")
-    coherence = report.get("publication_coherence")
-    corpus = report.get("corpus_identity")
-    source = report.get("source_identity")
-    environment = source.get("environment") if isinstance(source, dict) else None
-    held_publication = report.get("held_publication")
-    try:
-        publication_subject = data_publication_subject_value(held_publication)
-    except ValidationRefused:
-        publication_subject = None
-    safe_counts = (
-        isinstance(comparison, dict)
-        and type(comparison.get("reference_sessions_compared")) is int
-        and type(comparison.get("expected_reference_sessions")) is int
-        and type(comparison.get("field_comparisons")) is int
-        and type(comparison.get("expected_full_pass_field_comparisons")) is int
-    )
-    coherent = (
-        isinstance(coherence, dict)
-        and coherence.get("coherent") is True
-        and coherence.get("enumeration") == "exhaustive"
-        and all(coherence.get(field) == 0 for field in (
-            "unpublished_rows", "unpublished_bars", "unpublished_actions",
-            "unpublished_spy", "unpublished_defensive",
-            "unpublished_universe", "unpublished_repairs",
-            "unpublished_anomalies"))
-        and coherence.get("unpublished_runs") == []
-    )
-    certified_environment = (
-        isinstance(environment, dict)
-        and environment.get("compatible") is True
-        and environment.get("pins_match") is True
-        and environment.get("sources_known") is True
-        and environment.get("lock_present") is True
-        and environment.get("pin_drift") == {}
-    )
-    passed = (
-        completed.returncode == 0
-        and report.get("schema") == "sentinel.production-forward-chain/2"
-        and report.get("differential_verdict") == "PASS"
-        and report.get("authority_effect") == "NONE"
-        and report.get("runtime_authority_changed") is False
-        and transaction == {"isolation": "repeatable read", "read_only": "on"}
-        and coherent
-        and isinstance(corpus, dict)
-        and corpus.get("postgres_certified") is True
-        and safe_counts
-        and comparison.get("first_divergence") is None
-        and comparison.get("reference_sessions_compared")
-            == comparison.get("expected_reference_sessions")
-        and comparison.get("field_comparisons")
-            == comparison.get("expected_full_pass_field_comparisons")
-        and certified_environment
-        and publication_subject is not None
-    )
+        # Schema-1 wire name: now measures the complete operational proof.
+        timing_values["full_forward_decision_replay"] = max(
+            0, int(math.ceil((monotonic() - started) * 1000.0)))
+    if first_divergence is None:
+        runtime = reports[0]
+        if runtime["source_identity"]["identity_hash"] != source_identity_sha256:
+            first_divergence = "CERTIFIED_RUNTIME_IDENTITY_DIFFERS"
+        elif any(report["held_publication"] != runtime["held_publication"]
+                 for report in reports[1:]):
+            first_divergence = "PUBLICATION_CHANGED_BETWEEN_IMAGES"
+        elif any(report["proof"] != runtime["proof"] for report in reports[1:]):
+            first_divergence = "IMAGE_OPERATIONAL_PROOFS_DIFFER"
+    passed = first_divergence is None
     evidence = {
-        "report_sha256": sha256_bytes((completed.stdout or "").encode("utf-8")),
-        "exit_code": int(completed.returncode),
-        "read_only_repeatable_read": transaction == {
-            "isolation": "repeatable read", "read_only": "on"},
-        "publication_coherent": coherent,
-        "certified_environment": certified_environment,
-        "sessions_complete": bool(
-            safe_counts and comparison.get("reference_sessions_compared")
-            == comparison.get("expected_reference_sessions")),
-        "fields_complete": bool(
-            safe_counts and comparison.get("field_comparisons")
-            == comparison.get("expected_full_pass_field_comparisons")),
-        "first_divergence_absent": bool(
-            isinstance(comparison, dict)
-            and comparison.get("first_divergence") is None),
-        "held_publication_bound": publication_subject is not None,
+        "proof_schema": "sentinel.production-operational-parity/1",
+        "runtime_image_digest": runtime_image_digest,
+        "candidate_image_digest": candidate_image_digest,
+        "reports_sha256": _evidence_digest(reports),
+        "exit_codes": exits,
+        "first_divergence": first_divergence,
     }
     if passed and subject_values is not None:
-        subject_values["data_publication"] = publication_subject
+        subject_values["data_publication"] = data_publication_subject_value(
+            reports[0]["held_publication"])
     return make_gate(
-        "wealth_core_nas_parity", PASS if passed else FAIL,
-        now_text, evidence)
+        "wealth_core_nas_parity", PASS if passed else FAIL, now_text, evidence)
 
 
 _READINESS_CODE = r'''
@@ -1810,6 +1839,8 @@ def run_production_probes(*, runner: Optional[CommandRunner] = None,
     parity = probe_active_wealth_parity(
         runner, env=resolved_env, commit=git.commit,
         candidate_image_digest=tests.candidate_image_digest,
+        runtime_image_digest=tests.runtime_image_digest,
+        source_identity_sha256=tests.source_identity_sha256,
         now_text=now_text, subject_values=subjects,
         timing_values=timing_values)
     # Readiness is executed by the exact deployable runtime digest

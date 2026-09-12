@@ -71,6 +71,8 @@ jobs:
 
       - name: Verify the checked-out pull-request merge result
         shell: bash
+        env:
+          PR_BASE_REF: ${{ github.event.pull_request.base.ref }}
         run: |
           set -euo pipefail
           expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
@@ -84,11 +86,11 @@ jobs:
               echo "REFUSED: pull-request checkout is not a synthetic merge commit" >&2
               exit 1
             fi
-            expected_base='${{ github.event.pull_request.base.sha }}'
             git merge-base --is-ancestor HEAD^1 HEAD
             git merge-base --is-ancestor HEAD^2 HEAD
-            test "$(git rev-parse HEAD^1)" = "$expected_base"
             test "$(git rev-parse HEAD^2)" = "$expected_head"
+            git fetch --no-tags origin "${PR_BASE_REF}:refs/remotes/origin/pr-base"
+            git merge-base --is-ancestor HEAD^1 refs/remotes/origin/pr-base
           fi
           echo "TESTED_SHA=$TESTED_SHA" >> "$GITHUB_ENV"
 

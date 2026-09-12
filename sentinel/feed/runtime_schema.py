@@ -228,6 +228,10 @@ _COLUMNS = {
         "open": ("double precision", False), "close": ("double precision", False),
         "closeunadj": ("double precision", False),
         _TOTAL_RETURN_COLUMN: ("double precision", False), "volume": ("double precision", False),
+        "open_source": ("text", False), "close_source": ("text", False),
+        "closeunadj_source": ("text", False),
+        _TOTAL_RETURN_COLUMN + "_source": ("text", False),
+        "volume_source": ("text", False),
     },
     "sentinel_active_ingest_rejections": {
         "observation_id": ("bigint", False), "ticker": ("text", False),

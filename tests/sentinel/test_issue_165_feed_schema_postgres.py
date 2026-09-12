@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 import json
+from decimal import Decimal
 
 import pytest
 
 from sentinel import schema as behavioral_schema
 from sentinel.feed import runtime_schema
+from sentinel.feed import staging
 from sentinel.feed import store as feed_store
 from tests.support.postgres import _EphemeralPostgres
 
@@ -78,6 +80,51 @@ def test_explicit_migration_is_idempotent_and_runtime_valid(migrated):
     feed_store.require_feed_schema(migrated)
 
     assert second == first
+
+
+def test_staging_keeps_the_migrated_catalog_valid_and_source_values_exact(migrated):
+    """GO must accept the schema again after real feed staging used it."""
+    before = _semantic_feed_snapshot(migrated)
+    scope = {"run_id": "00000000-0000-0000-0000-000000000165", "chunk": "schema"}
+    row = {
+        "ticker": "AAA", "date": "2026-01-02",
+        "open": Decimal("24691357.8246912"),
+        "close": Decimal("78329568.39801411"),
+        "closeunadj": Decimal("391647841.99007055"),
+        "closeadj": Decimal("78329568.39801411"), "volume": 35_731_080,
+    }
+    assert staging.stage(migrated, [row], **scope) == 1
+    recovered = list(staging.staged(migrated, **scope))
+    assert len(recovered) == 1
+    for field in ("open", "close", "closeunadj", "closeadj", "volume"):
+        assert str(recovered[0][field]) == str(row[field])
+    feed_store.require_feed_schema(migrated)
+    feed_store.migrate_schema(migrated)
+    assert _semantic_feed_snapshot(migrated) == before
+    staging.clear(migrated, **scope)
+
+
+def test_explicit_migration_upgrades_legacy_staging_without_inventing_source(migrated):
+    with migrated.cursor() as cur:
+        for field in ("open", "close", "closeunadj", "closeadj", "volume"):
+            cur.execute(f"ALTER TABLE sentinel_sep_staging DROP COLUMN IF EXISTS {field}_source")
+        cur.execute(
+            "INSERT INTO sentinel_sep_staging"
+            " (run_id,chunk,session,ticker,open,close,closeunadj,closeadj,volume)"
+            " VALUES ('00000000-0000-0000-0000-000000000165','legacy',"
+            " '2026-01-02','AAA',1.25,2.5,40,9,123456)")
+    migrated.commit()
+
+    feed_store.migrate_schema(migrated)
+    feed_store.require_feed_schema(migrated)
+    with migrated.cursor() as cur:
+        cur.execute(
+            "SELECT open,close,closeunadj,closeadj,volume,open_source,close_source,"
+            " closeunadj_source,closeadj_source,volume_source"
+            " FROM sentinel_sep_staging WHERE chunk='legacy'")
+        assert cur.fetchone() == (1.25, 2.5, 40, 9, 123456, None, None, None, None, None)
+    migrated.rollback()
+    staging.clear(migrated, run_id="00000000-0000-0000-0000-000000000165", chunk="legacy")
 
 
 def test_legacy_defensive_rows_gain_source_columns_without_fabrication(pg):

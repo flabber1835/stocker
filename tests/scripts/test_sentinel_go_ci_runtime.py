@@ -73,6 +73,21 @@ def test_cached_exact_registry_digest_is_reused_without_pull(monkeypatch):
         in runner.calls
 
 
+@pytest.mark.parametrize("helper_present", [True, False])
+def test_runtime_requires_current_operational_parity_helper(helper_present):
+    class Runner:
+        def run(self, argv):
+            assert "tools import sentinel_operational_parity" in argv[-1]
+            return subprocess.CompletedProcess(argv, 0, stdout=json.dumps({
+                "identity_hash": IDENTITY, "environment_compatible": True,
+                "parity_helper_present": helper_present}), stderr="")
+    if helper_present:
+        assert ci._runtime_identity(Runner(), LOCAL_ID) == IDENTITY
+    else:
+        with pytest.raises(ci.CIRuntimeRefused, match="identity/parity evidence"):
+            ci._runtime_identity(Runner(), LOCAL_ID)
+
+
 def test_missing_exact_registry_digest_is_pulled_then_bound(monkeypatch):
     runner = FakeRunner(miss_first=True)
     monkeypatch.setattr(ci.go, "_inspect_image_id", lambda _runner, _ref: LOCAL_ID)
