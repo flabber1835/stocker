@@ -135,6 +135,9 @@ Sharadar and the PAPER account use local protocol fixtures with dummy keys.
 The resolved CLI environment must select the local source before seed begins.
 The seed stops one XNYS session before the available fixture frontier, so the
 successful GO itself must perform source catch-up and publish the final session.
+The before/after publication observer runs in the exact built runtime against
+the fixture PostgreSQL container, holding a read-only repeatable-read pin. This
+test observation does not require an operational Compose execution override.
 When the retained window includes May 2026, the fixture includes TRI and the
 reviewed stale vendor dividend observation. The production v7 migration applies
 its own adjudication and records the canonical cash audit.

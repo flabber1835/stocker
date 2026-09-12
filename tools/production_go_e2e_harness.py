@@ -504,10 +504,17 @@ try:
 finally:
     c.rollback(); c.close()
 """
+    env = dict(os.environ) if env is None else env
+    postgres_container = _compose_service_container_id("sentinel-postgres", env=env)
+    # Observe through the same isolated database connection used during fixture
+    # setup. Operational Compose intentionally forbids entrypoint overrides.
+    database_url = (
+        "postgresql://sentinel:e2e-postgres-password-363@127.0.0.1:5432/sentinel"
+    )
     result = _run_host([
-        "bash", "scripts/sentinel-compose.sh", "--run", "--profile", "cli",
-        "run", "--rm", "-T", "--no-deps", "--entrypoint", "python", "sentinel",
-        "-c", code,
+        "docker", "run", "--rm", "--network", f"container:{postgres_container}",
+        "--entrypoint", "python", "-e", f"SENTINEL_DATABASE_URL={database_url}",
+        f"sentinel-go-runtime:{_git_head()}", "-c", code,
     ], env=env, timeout=120)
     value = json.loads(result.stdout)
     if (not isinstance(value, dict) or type(value.get("version")) is not int
