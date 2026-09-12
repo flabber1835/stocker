@@ -12,8 +12,11 @@ from __future__ import annotations
 
 import argparse
 import contextlib
+import csv
 import datetime as dt
+import hashlib
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
+import io
 import json
 import os
 from pathlib import Path
@@ -25,6 +28,7 @@ import sys
 import tempfile
 import threading
 from urllib.parse import parse_qs, urlparse
+import zipfile
 
 ROOT = Path(__file__).resolve().parents[1]
 ENTRYPOINT = ("bash", "scripts/sentinel-go-validate.sh")
@@ -74,6 +78,8 @@ TICKER_COLUMNS = (
 )
 
 _FIXTURE_READY = False
+_SOURCE_SETTINGS: dict[str, str] = {}
+SOURCE_REQUESTS: list[dict[str, str]] = []
 
 
 class HarnessFailure(RuntimeError):
@@ -91,25 +97,15 @@ def _git_head() -> str:
 
 
 def _latest_closed_session() -> dt.date:
-    # Keep the fixture independent of exchange_calendars internals.  The current
-    # production reader requests explicit market date intervals.  A generous
-    # weekday history covers every XNYS session in the requested range; holiday
-    # rows are harmless source observations and never create missing XNYS days.
-    today = dt.datetime.now(dt.timezone.utc).date()
-    day = today - dt.timedelta(days=1)
-    while day.weekday() >= 5:
-        day -= dt.timedelta(days=1)
-    return day
+    from sentinel.feed import calendar
+    return dt.date.fromisoformat(calendar.latest_closed_session())
 
 
 def _session_days() -> tuple[dt.date, ...]:
+    from sentinel.feed import calendar
     end = _latest_closed_session()
     start = end - dt.timedelta(days=560)
-    return tuple(
-        start + dt.timedelta(days=i)
-        for i in range((end - start).days + 1)
-        if (start + dt.timedelta(days=i)).weekday() < 5
-    )
+    return tuple(dt.date.fromisoformat(day) for day in calendar.sessions_in_range(start, end))
 
 
 def _in_range(day: dt.date, query: dict[str, list[str]], key: str = "date") -> bool:
@@ -178,7 +174,14 @@ def _payload(table: str, query: dict[str, list[str]]) -> dict:
     elif table == "SFP":
         columns, rows = SFP_COLUMNS, _price_rows(query, sfp=True)
     elif table == "ACTIONS":
-        columns, rows = ACTIONS_COLUMNS, []
+        # Complete production seed acquisition requires a nonempty whole-table
+        # ACTIONS witness. A relation is retained metadata with no cash/share
+        # effect, and both paginated and exported observations carry it.
+        day = _session_days()[0]
+        columns = ACTIONS_COLUMNS
+        rows = ([[day.isoformat(), "relation", "AAPL", "AAPL fixture security",
+                  None, "MSFT", "MSFT fixture security"]]
+                if _in_range(day, query) else [])
     elif table == "TICKERS":
         columns, rows = TICKER_COLUMNS, _ticker_rows()
     else:
@@ -194,6 +197,8 @@ def _payload(table: str, query: dict[str, list[str]]) -> dict:
 
 class _TablesHandler(BaseHTTPRequestHandler):
     fail_source = False
+    downloads: dict[str, bytes] = {}
+    refreshed_at = ""
 
     def do_GET(self):  # noqa: N802 - BaseHTTPRequestHandler API
         parsed = urlparse(self.path)
@@ -203,14 +208,43 @@ class _TablesHandler(BaseHTTPRequestHandler):
             self.send_header("Retry-After", "0")
             self.end_headers()
             return
+        query = parse_qs(parsed.query)
         try:
-            body = json.dumps(_payload(table, parse_qs(parsed.query))).encode()
+            if parsed.path.startswith("/exports/"):
+                body = self.downloads[parsed.path]
+                channel = "download"
+                content_type = "application/zip"
+            elif query.get("qopts.export") == ["true"]:
+                page = _payload(table, query)["datatable"]
+                content = io.StringIO(newline="")
+                writer = csv.writer(content)
+                writer.writerow(item["name"] for item in page["columns"])
+                writer.writerows(page["data"])
+                buffer = io.BytesIO()
+                with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
+                    info = zipfile.ZipInfo(f"{table}.csv", (2000, 1, 1, 0, 0, 0))
+                    archive.writestr(info, content.getvalue())
+                blob = buffer.getvalue()
+                path = f"/exports/{table}-{hashlib.sha256(blob).hexdigest()}.zip"
+                self.downloads[path] = blob
+                body = json.dumps({"datatable_bulk_download": {
+                    "file": {"status": "fresh", "link": f"http://{self.headers['Host']}{path}",
+                             "data_snapshot_time": self.refreshed_at},
+                    "datatable": {"last_refreshed_time": self.refreshed_at},
+                }}).encode()
+                channel = "export"
+                content_type = "application/json"
+            else:
+                body = json.dumps(_payload(table, query)).encode()
+                channel = "pages"
+                content_type = "application/json"
         except (KeyError, ValueError):
             self.send_response(404)
             self.end_headers()
             return
         self.send_response(200)
-        self.send_header("Content-Type", "application/json")
+        SOURCE_REQUESTS.append({"table": table.split("-")[0], "channel": channel})
+        self.send_header("Content-Type", content_type)
         self.send_header("Content-Length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
@@ -221,7 +255,11 @@ class _TablesHandler(BaseHTTPRequestHandler):
 
 @contextlib.contextmanager
 def _source_server(*, fail_source: bool = False):
-    handler = type("TablesHandler", (_TablesHandler,), {"fail_source": fail_source})
+    SOURCE_REQUESTS.clear()
+    handler = type("TablesHandler", (_TablesHandler,), {
+        "fail_source": fail_source, "downloads": {},
+        "refreshed_at": dt.datetime.now(dt.timezone.utc).isoformat(),
+    })
     server = ThreadingHTTPServer(("0.0.0.0", 0), handler)
     thread = threading.Thread(target=server.serve_forever, daemon=True)
     thread.start()
@@ -248,14 +286,18 @@ def _docker_host_gateway() -> str:
 
 def _write_env(path: Path, *, port: int, backup_dir: Path) -> None:
     gateway = _docker_host_gateway()
+    _SOURCE_SETTINGS.clear()
+    _SOURCE_SETTINGS.update({
+        "NDL_BASE_URL": f"http://{gateway}:{port}",
+        "SHARADAR_ALLOW_INSECURE_BASE_URL": "1",
+        "SHARADAR_FETCH_RETRIES": "1",
+        "SHARADAR_FETCH_BACKOFF": "0",
+    })
     lines = [
         "SENTINEL_POSTGRES_PASSWORD=e2e-postgres-password-363",
         "SENTINEL_PUBLICATION_RECEIPT_KEY=e2e-publication-receipt-key-363-0123456789abcdef",
         "SHARADAR_API_KEY=e2e-sharadar-key",
-        f"NDL_BASE_URL=http://{gateway}:{port}",
-        "SHARADAR_ALLOW_INSECURE_BASE_URL=1",
-        "SHARADAR_FETCH_RETRIES=1",
-        "SHARADAR_FETCH_BACKOFF=0",
+        *(f"{key}={value}" for key, value in _SOURCE_SETTINGS.items()),
         "ALPACA_API_KEY=",
         "ALPACA_SECRET_KEY=",
         "ALPACA_BASE_URL=https://paper-api.alpaca.markets",
@@ -321,6 +363,13 @@ def _compose_service_container_id(service: str, *, env: dict[str, str]) -> str:
     return values[0]
 
 
+def _require_local_source(model: dict, expected: dict[str, str]) -> None:
+    actual = model.get("services", {}).get("sentinel", {}).get("environment", {})
+    if not expected or any(str(actual.get(key, "")) != value
+                           for key, value in expected.items()):
+        raise HarnessFailure("resolved feed container does not select the local Sharadar fixture")
+
+
 def _bootstrap_financial_fixture() -> None:
     """Create the supported retained feed state required before production daily GO."""
     global _FIXTURE_READY
@@ -338,6 +387,14 @@ def _bootstrap_financial_fixture() -> None:
     # image we build below; the canonical GO success path will publish its own
     # validated selector later.
     VALIDATED_RUNTIME_POINTER.unlink(missing_ok=True)
+
+    # Resolve the exact production graph before any feed request. A dropped
+    # setting must fail here, before the runtime can select its vendor default.
+    resolved = _run_host([
+        "bash", "scripts/sentinel-compose.sh", "--run", "config", "--format", "json",
+    ], env=env, timeout=60)
+    _require_local_source(json.loads(resolved.stdout), _SOURCE_SETTINGS)
+    print("E2E fixture: resolved feed container selects local Sharadar", flush=True)
 
     _run_host([
         "docker", "build", "--network", "host", "--build-arg",

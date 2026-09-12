@@ -132,6 +132,21 @@ dispatcher requirement above.
 
 ## Adversarial harness
 
+The ordinary CLI Compose service forwards the existing Sharadar Tables endpoint,
+insecure-development opt-in, retry count and backoff settings to the container.
+Defaults retain the public HTTPS endpoint and production retry policy. An
+explicit insecure-development endpoint permits HTTP export downloads only from
+that same configured HTTP origin; other export origins still require HTTPS.
+
+The production GO E2E fixture implements Tables pages and complete zipped CSV
+exports for TICKERS, ACTIONS and SEP. Before seeding, it inspects the resolved
+Compose service and refuses unless the effective endpoint, development opt-in
+and retry settings match its local server. It retains the observed request
+catalogue and uses only fixture credentials. The real feed acquisition,
+normalization, schema, publication and readiness programs consume those
+responses. Exact-head and synthetic-merge runs retain their tested SHA while a
+temporary local Git remote supplies the required main topology.
+
 `tests/host_python38/test_env_ingestion.py` runs offline with only the standard
 library on the minimum supported NAS host and current Python. It exercises the
 real parsers, preflight and shell entry points in disposable directories with

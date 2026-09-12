@@ -44,6 +44,13 @@ EXPECTED_PHASE_SEQUENCE = (
     "PAPER ACCOUNT PREFLIGHT - GET ONLY",
     "READ-ONLY SHARADAR PREFLIGHT",
     "CERTIFICATION + FINANCIAL READINESS",
+    "PHASE A - CURRENT GIT IDENTITY",
+    "ALPACA PAPER ACCOUNT - GET ONLY",
+    "PHASE C - CERTIFIED FINANCIAL PREPARATION",
+    "PHASE D1 - WEALTH CORE PARITY",
+    "PHASE D2 - SHARADAR READINESS",
+    "PHASE D3 - DATABASE FINANCIAL HEALTH",
+    "ALPACA PAPER ACCOUNT - GET ONLY",
     "PROMOTE EXACT CERTIFIED RUNTIME",
     "POST-VALIDATION HANDOFF",
 )
@@ -468,6 +475,7 @@ def run(*, output: Path, sensitivity: bool) -> dict:
                 finally:
                     base._clean_runtime()
 
+        result["source_requests"] = list(base.SOURCE_REQUESTS)
         result["all_pass"] = True
         output.write_text(
             json.dumps(result, indent=2, sort_keys=True) + "\n",
@@ -475,6 +483,7 @@ def run(*, output: Path, sensitivity: bool) -> dict:
         )
         return result
     except Exception as exc:
+        result["source_requests"] = list(base.SOURCE_REQUESTS)
         result["failure"] = {
             "type": type(exc).__name__,
             "detail": str(exc)[-5000:],
