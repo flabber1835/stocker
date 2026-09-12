@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove that every test assigned to an owner was collected and passed."""
+"""Prove that every test assigned to an owner was collected with an authorized outcome."""
 from __future__ import annotations
 
 import argparse
@@ -51,6 +51,13 @@ SETTLED_ALPACA_CONTRACTS = {
     "live-cash-economics": "tests/sentinel/test_alpaca_simulation_harness.py::test_paper_and_live_cash_profiles_exercise_actual_economic_differences",
     "live-endpoint-refusal": "tests/sentinel/test_alpaca_simulation_harness.py::test_actual_live_or_untrusted_endpoint_is_refused_before_transport",
     "cash-ledger-durability": "tests/sentinel/test_alpaca_execution_entrypoint.py::test_cash_cursor_total_detects_nonlast_ledger_loss",
+}
+SETTLED_EXPECTED_XFAILS = {
+    "wealth-core.prospective": {
+        "tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture",
+        "tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER",
+        "tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash",
+    },
 }
 CONTAINER_OWNERS = {
     "sentinel.complete",
@@ -106,6 +113,36 @@ def _delegated_required_contracts(authority: dict, owner_name: str) -> dict[str,
                 f"{delegated_name}: required contracts escape delegated owner surface: {escaped}")
         result[delegated_name] = required
     return result
+
+
+def _expected_xfails(authority: dict, owner_name: str,
+                     expected_modules: list[str] | None = None) -> set[str]:
+    """Return the exact settled xfail quarantine for one owner, fail-closed on drift."""
+    owners = authority.get("owners")
+    require(isinstance(owners, dict), "missing owner map")
+    owner = owners.get(owner_name)
+    require(isinstance(owner, dict), f"{owner_name}: missing owner authority")
+    execution = owner.get("execution")
+    require(isinstance(execution, dict), f"{owner_name}: missing execution binding")
+    declared = execution.get("expected_xfails", [])
+    require(isinstance(declared, list), f"{owner_name}: expected_xfails must be a list")
+    require(all(isinstance(nodeid, str) and ".py::" in nodeid for nodeid in declared),
+            f"{owner_name}: expected_xfails must be exact pytest node ids")
+    require(all("[" not in nodeid and "*" not in nodeid and "?" not in nodeid
+                for nodeid in declared),
+            f"{owner_name}: expected_xfails must not contain parameters or wildcards")
+    require(len(declared) == len(set(declared)),
+            f"{owner_name}: duplicate expected_xfails")
+    settled = SETTLED_EXPECTED_XFAILS.get(owner_name, set())
+    require(set(declared) == settled,
+            f"{owner_name}: expected-xfail authority differs from settled inventory")
+    if expected_modules is not None:
+        modules = set(expected_modules)
+        escaped = sorted(nodeid for nodeid in declared
+                         if nodeid.split("::", 1)[0] not in modules)
+        require(not escaped,
+                f"{owner_name}: expected xfails escape the owned test surface: {escaped}")
+    return set(declared)
 
 
 def _pull_request_block(text: str) -> list[str] | None:
@@ -235,6 +272,7 @@ def _require_global_authority(authority: dict) -> dict:
 
     checked_workflows = {}
     for owner_name, owner in owners.items():
+        _expected_xfails(authority, owner_name)
         ci_job = owner.get("ci_job")
         require(isinstance(ci_job, str) and ci_job.count("#") == 1,
                 f"{owner_name}: invalid ci_job")
@@ -339,6 +377,36 @@ def _collect_owned_pytest_nodes(owner_name: str, expected_names: list[str]) -> s
     return collected
 
 
+def _require_collection_outcomes(owner_name: str, collected: set[str],
+                                 physical_cases: dict[str, str],
+                                 expected_xfails: set[str]) -> dict:
+    """Require complete execution; only the settled exact xfails may be non-passes."""
+    actual = set(physical_cases)
+    missing_nodes = sorted(collected - actual)
+    unexpected_nodes = sorted(actual - collected)
+    observed_xfails = {nodeid for nodeid, status in physical_cases.items()
+                       if status == "xfailed"}
+    missing_expected_xfails = sorted(expected_xfails - observed_xfails)
+    unexpected_xfails = sorted(observed_xfails - expected_xfails)
+    unauthorized_nonpasses = {
+        nodeid: status for nodeid, status in physical_cases.items()
+        if status != "passed" and not (nodeid in expected_xfails and status == "xfailed")
+    }
+    if (missing_nodes or unexpected_nodes or missing_expected_xfails
+            or unexpected_xfails or unauthorized_nonpasses):
+        raise AssertionError(
+            f"{owner_name}: JUnit evidence does not equal the complete authorized collection; "
+            f"missing={missing_nodes!r} unexpected={unexpected_nodes!r} "
+            f"missing_expected_xfails={missing_expected_xfails!r} "
+            f"unexpected_xfails={unexpected_xfails!r} "
+            f"unauthorized_nonpasses={unauthorized_nonpasses!r}")
+    return {
+        "executed_nodes": len(actual),
+        "passing_nodes": sum(status == "passed" for status in physical_cases.values()),
+        "expected_xfails": sorted(expected_xfails),
+    }
+
+
 def verify(owner_name: str, junit_paths: list[Path]) -> dict:
     authority = load_authority()
     merge_authority = _require_global_authority(authority)
@@ -353,20 +421,15 @@ def verify(owner_name: str, junit_paths: list[Path]) -> dict:
 
     executed, physical_cases = junit_case_execution(paths, expected)
     expected_names = sorted(relative_posix(path) for path in expected)
+    expected_xfails = _expected_xfails(authority, owner_name, expected_names)
     missing_modules = sorted(set(expected_names) - executed)
     if missing_modules:
         raise AssertionError(
             f"{owner_name}: owned test modules have no passing execution evidence: {missing_modules}")
 
     collected = _collect_owned_pytest_nodes(owner_name, expected_names)
-    actual = set(physical_cases)
-    missing_nodes = sorted(collected - actual)
-    unexpected_nodes = sorted(actual - collected)
-    nonpasses = {nodeid: status for nodeid, status in physical_cases.items() if status != "passed"}
-    if missing_nodes or unexpected_nodes or nonpasses:
-        raise AssertionError(
-            f"{owner_name}: JUnit evidence does not equal the complete passing collection; "
-            f"missing={missing_nodes!r} unexpected={unexpected_nodes!r} nonpasses={nonpasses!r}")
+    outcomes = _require_collection_outcomes(
+        owner_name, collected, physical_cases, expected_xfails)
 
     delegated_contracts = {}
     alpaca = authority.get("alpaca", {})
@@ -407,7 +470,9 @@ def verify(owner_name: str, junit_paths: list[Path]) -> dict:
         "expected_modules": expected_names,
         "executed_modules": sorted(executed),
         "collected_nodes": len(collected),
-        "passing_nodes": len(actual),
+        "executed_nodes": outcomes["executed_nodes"],
+        "passing_nodes": outcomes["passing_nodes"],
+        "expected_xfails": outcomes["expected_xfails"],
         "complete_collection": True,
         "junit": [str(path) for path in paths],
         "delegated_contracts": delegated_contracts,

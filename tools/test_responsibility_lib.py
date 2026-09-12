@@ -189,7 +189,11 @@ def _junit_testcases(paths: Sequence[Path]) -> Iterable[ET.Element]:
 def _testcase_status(testcase: ET.Element) -> str:
     for child in testcase:
         tag = child.tag.rsplit("}", 1)[-1]
-        if tag in ("failure", "error", "skipped"):
+        if tag == "skipped":
+            if child.attrib.get("type") == "pytest.xfail":
+                return "xfailed"
+            return "skipped"
+        if tag in ("failure", "error"):
             return tag
     return "passed"
 
