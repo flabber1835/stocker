@@ -1,9 +1,9 @@
 """Validate the bounded Alpaca contract inventory without re-running Sentinel tests.
 
 The complete Sentinel suite owns ordinary test execution. This harness proves
-that every required Alpaca contract still resolves exactly to one logical test
-definition on the declared Alpaca suite surface; the companion mutation harness
-remains the independent falsification layer.
+that every required Alpaca contract resolves to the exact declared physical
+profile/parameter instances on the Alpaca suite surface; the companion mutation
+harness remains the independent falsification layer.
 """
 from __future__ import annotations
 
@@ -17,7 +17,7 @@ import sys
 
 from test_responsibility_lib import (
     ROOT, load_authority, owned_test_modules, relative_posix, resolve_contracts,
-    validate_contract_selectors,
+    validate_contract_instances, validate_contract_selectors,
 )
 
 MANIFEST = ROOT / "tests" / "test-responsibility.json"
@@ -46,8 +46,10 @@ def main() -> int:
     output.mkdir(parents=True, exist_ok=False)
 
     authority = load_authority()
-    required = validate_contract_selectors(
-        authority.get("alpaca", {}).get("required_contracts"))
+    alpaca = authority.get("alpaca", {})
+    required = validate_contract_selectors(alpaca.get("required_contracts"))
+    required_instances = validate_contract_instances(
+        required, alpaca.get("required_contract_instances"))
     suite_paths = owned_test_modules(authority, "alpaca.contracts")
     if not suite_paths:
         raise RuntimeError("Alpaca contract owner has no test modules")
@@ -79,6 +81,11 @@ def main() -> int:
     resolution_error = None
     try:
         resolution = resolve_contracts(required, collected)
+        if resolution != required_instances:
+            raise AssertionError(
+                "Alpaca physical contract inventory differs: expected=%s actual=%s" %
+                (json.dumps(required_instances, sort_keys=True),
+                 json.dumps(resolution, sort_keys=True)))
     except AssertionError as exc:
         resolution_error = str(exc)
 
@@ -110,7 +117,7 @@ def main() -> int:
         *suite_paths,
     ]
     evidence = {
-        "schema": "sentinel.alpaca-contracts/3",
+        "schema": "sentinel.alpaca-contracts/4",
         "status": "PASS" if passed else "FAIL",
         "git_sha": started_sha,
         "git_tree": started_tree,
@@ -122,6 +129,7 @@ def main() -> int:
         "pytest_collect_exit_code": result.returncode,
         "collected": len(collected),
         "required_contracts": required,
+        "required_contract_instances": required_instances,
         "contract_resolution": resolution,
         "resolution_error": resolution_error,
         "suites": suite_names,
@@ -145,6 +153,7 @@ def main() -> int:
         "status": evidence["status"],
         "collected": len(collected),
         "contracts": len(resolution),
+        "physical_contracts": sum(len(values) for values in required_instances.values()),
         "resolution_error": resolution_error,
     }, sort_keys=True))
     return 0 if passed else 1
