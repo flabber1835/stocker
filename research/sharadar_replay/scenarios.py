@@ -17,6 +17,7 @@ OLD_CORRECTION = "2026-03-02"
 SPLIT = "2026-08-03"  # exactly the first daily overlap's leading edge
 DIVIDEND = "2026-06-01"  # well outside the daily price overlap
 BASE_DIVIDEND = "2026-07-01"
+AUTHORITY_SESSION = "2026-05-04"
 
 
 def sessions(through):
@@ -87,6 +88,24 @@ def world(through: str, *, correction: int | None = None,
         expected_actions.append(("AAA", DIVIDEND, "dividend", "AAA",
                                  dividend / split_factor if split and DIVIDEND < split_date else dividend,
                                  None, None))
+    # Historical replay must supply the reviewed TRI source event to the real
+    # cash authority. A delisted one-session security keeps that proof separate
+    # from the AAA/BBB fault schedules. Declare source and economic cash values
+    # independently so the oracle detects an unapplied adjudication.
+    if AUTHORITY_SESSION in axis:
+        tickers.append({"table": "SEP", "ticker": "TRI", "permaticker": "SIM-TRI-AUTHORITY",
+            "category": "Domestic Common Stock", "sector": "Industrials", "exchange": "NYSE",
+            "relatedtickers": "", "firstpricedate": AUTHORITY_SESSION,
+            "lastpricedate": AUTHORITY_SESSION, "isdelisted": "Y"})
+        expected_identities.append(("SIM-TRI-AUTHORITY", "TRI", "Domestic Common Stock",
+            "Industrials", "", AUTHORITY_SESSION, AUTHORITY_SESSION, True))
+        actions.append({"ticker": "TRI", "date": AUTHORITY_SESSION, "action": "dividend",
+            "name": "TRI", "value": 1.36, "contraticker": None, "contraname": None})
+        expected_actions.append(("TRI", AUTHORITY_SESSION, "dividend", "TRI", 1.36, None, None))
+        sep.append({"ticker": "TRI", "date": AUTHORITY_SESSION, "open": 99.5, "close": 100.0,
+            "closeunadj": 100.0, "volume": 1_000_000, "lastupdated": AUTHORITY_SESSION})
+        expected_bars.append(("SIM-TRI-AUTHORITY", AUTHORITY_SESSION, "TRI",
+            100.0, 100.0, 99.5, 1_000_000, 1, 1.435518))
     for index, day in enumerate(axis):
         for ticker, base in (("SPY", 400), ("BIL", 100)):
             close = base + index / 4
