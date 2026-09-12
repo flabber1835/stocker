@@ -12,8 +12,17 @@ import subprocess
 import sys
 from typing import Any, Mapping, Sequence
 
-INPUT_SCHEMA = "sentinel.software-certification-input/1"
-MANIFEST_SCHEMA = "sentinel.software-certification/1"
+if __package__ in (None, ""):
+    sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
+
+from scripts.sentinel_ci_certification_verify import (
+    CertificationVerificationRefused, WEALTH_EXPECTED_XFAILS, _verify_counts,
+)
+
+INPUT_SCHEMA = "sentinel.software-certification-input/2"
+MANIFEST_SCHEMA = "sentinel.software-certification/2"
+LEGACY_INPUT_SCHEMA = "sentinel.software-certification-input/1"
+LEGACY_MANIFEST_SCHEMA = "sentinel.software-certification/1"
 REPOSITORY = "flabber1835/stocker"
 TEST_WORKFLOW_PATH = ".github/workflows/sentinel-safety.yml"
 REQUIRED_JOBS = ("host-python-38-exact-head", "sentinel-exact-head")
@@ -25,7 +34,7 @@ _HEX40 = re.compile(r"^[0-9a-f]{40}$")
 _HEX64 = re.compile(r"^[0-9a-f]{64}$")
 _DIGEST = re.compile(r"^sha256:[0-9a-f]{64}$")
 _PYTEST_COUNT = re.compile(
-    r"(?P<count>[0-9]+) (?P<kind>passed|failed|skipped|xfailed|xpassed|errors?)"
+    r"(?P<count>[0-9]+) (?P<kind>passed|failed|skipped|xfailed|xpassed|errors?|deselected)"
 )
 _COUNT_KEYS = ("passed", "failed", "errors", "skipped", "xfailed", "xpassed")
 
@@ -110,6 +119,10 @@ def _summary_counts(path: Path) -> dict[str, int]:
         result = {key: 0 for key in _COUNT_KEYS}
         for match in matches:
             kind = match.group("kind")
+            if kind == "deselected":
+                if int(match.group("count")):
+                    raise CertificationManifestRefused("software suite contains deselected tests")
+                continue
             if kind == "error":
                 kind = "errors"
             result[kind] += int(match.group("count"))
@@ -118,15 +131,72 @@ def _summary_counts(path: Path) -> dict[str, int]:
     raise CertificationManifestRefused("test summary has no pytest result line")
 
 
-def collect_test_counts(suites: Mapping[str, Path]) -> dict[str, Any]:
+def _validate_counts(counts: Mapping[str, Any], *, version: int) -> None:
+    fields = {"suites_completed", "suite_counts", "total"}
+    if version == 2:
+        fields.add("expected_xfails")
+    if not isinstance(counts, dict) or set(counts) != fields \
+            or not isinstance(counts.get("total"), dict) \
+            or set(counts["total"]) != set(_COUNT_KEYS):
+        raise CertificationManifestRefused("software test count schema is invalid")
+    tests = {
+        "required_counts": {**counts["total"], "suites_completed": counts["suites_completed"]},
+        "suite_counts": counts["suite_counts"],
+    }
+    if version == 2:
+        tests["expected_xfails"] = counts["expected_xfails"]
+    try:
+        _verify_counts(tests, version)
+    except CertificationVerificationRefused as exc:
+        raise CertificationManifestRefused(exc.detail) from exc
+
+
+def collect_test_counts(suites: Mapping[str, Path], *,
+                        wealth_execution: Mapping[str, Any] | None = None,
+                        wealth_junit: Path | None = None) -> dict[str, Any]:
     required = {"sentinel", "operator_scripts", "wealth_core_boundary"}
     if set(suites) != required:
         raise CertificationManifestRefused("test suite set is not the certification contract")
     rows = {name: _summary_counts(path) for name, path in sorted(suites.items())}
     total = {key: sum(row[key] for row in rows.values()) for key in _COUNT_KEYS}
-    if total["passed"] <= 0 or any(total[key] for key in _COUNT_KEYS if key != "passed"):
-        raise CertificationManifestRefused("software suite contains a non-pass result")
-    return {"suites_completed": 3, "suite_counts": rows, "total": total}
+    expected_xfails = {}
+    if wealth_execution is not None:
+        if not isinstance(wealth_execution, dict) \
+                or wealth_execution.get("schema") != "stocker.test-owner-execution/3" \
+                or wealth_execution.get("owner") != "wealth-core.prospective" \
+                or wealth_execution.get("verdict") != "PASS" \
+                or wealth_execution.get("complete_collection") is not True \
+                or wealth_execution.get("expected_xfails") != sorted(WEALTH_EXPECTED_XFAILS) \
+                or wealth_junit is None:
+            raise CertificationManifestRefused("Wealth Core execution authority is invalid")
+        expected_cases = rows["wealth_core_boundary"]["passed"] + len(WEALTH_EXPECTED_XFAILS)
+        for key, expected in (
+            ("collected_nodes", expected_cases), ("executed_nodes", expected_cases),
+            ("passing_nodes", rows["wealth_core_boundary"]["passed"]),
+        ):
+            if type(wealth_execution.get(key)) is not int or wealth_execution[key] != expected:
+                raise CertificationManifestRefused("Wealth Core summary differs from execution evidence")
+        expected_xfails["wealth_core_boundary"] = {
+            "nodeids": wealth_execution["expected_xfails"],
+            "junit_sha256": sha256_file(wealth_junit),
+        }
+    counts = {"suites_completed": 3, "suite_counts": rows, "total": total,
+              "expected_xfails": expected_xfails}
+    _validate_counts(counts, version=2)
+    return counts
+
+
+def _wealth_execution(root: Path, junit: Path) -> Mapping[str, Any]:
+    # Re-observe the current owner collection and exact JUnit outcomes at assembly.
+    # A saved PASS report alone cannot authorize the quarantine.
+    raw = _run([
+        sys.executable, str(root / "tools/verify_test_owner_execution.py"),
+        "--owner", "wealth-core.prospective", "--junit", str(junit.resolve()),
+    ], cwd=root)
+    try:
+        return json.loads(raw)
+    except json.JSONDecodeError as exc:
+        raise CertificationManifestRefused("Wealth Core execution evidence is malformed") from exc
 
 
 def _test_manifest_hash(root: Path) -> str:
@@ -164,7 +234,7 @@ def _docker_image_identity(root: Path, reference: str) -> tuple[str, str]:
 def build_input(*, root: Path, commit: str, workflow_run: int,
                 workflow_attempt: int, image_ref: str,
                 suites: Mapping[str, Path], adversarial_report: Path,
-                mutation_report: Path) -> dict[str, Any]:
+                mutation_report: Path, wealth_junit: Path | None = None) -> dict[str, Any]:
     commit = _require_git_object(commit, label="source commit")
     if workflow_run <= 0 or workflow_attempt <= 0:
         raise CertificationManifestRefused("workflow identity is invalid")
@@ -190,7 +260,9 @@ def build_input(*, root: Path, commit: str, workflow_run: int,
         "runtime_capability_sha256": sha256_file(capability),
         "dependency_lock_hashes": _dependency_hashes(root),
         "test_manifest_sha256": _test_manifest_hash(root),
-        "test_counts": collect_test_counts(suites),
+        "test_counts": collect_test_counts(
+            suites, wealth_junit=wealth_junit,
+            wealth_execution=_wealth_execution(root, wealth_junit) if wealth_junit else None),
         "adversarial_evidence": {"status": "PASS", "sha256": sha256_file(adversarial_report)},
         "mutation_evidence": {"status": "PASS", "sha256": sha256_file(mutation_report)},
         "runtime_schema_epoch": RUNTIME_SCHEMA_EPOCH,
@@ -206,7 +278,7 @@ def _validate_input(value: Mapping[str, Any]) -> None:
         "test_manifest_sha256", "test_counts", "adversarial_evidence",
         "mutation_evidence", "runtime_schema_epoch", "semantic_epoch",
     }
-    if set(value) != fields or value.get("schema") != INPUT_SCHEMA:
+    if set(value) != fields or value.get("schema") not in (INPUT_SCHEMA, LEGACY_INPUT_SCHEMA):
         raise CertificationManifestRefused("software certification input schema is invalid")
     if value.get("repository") != REPOSITORY or value.get("test_workflow_path") != TEST_WORKFLOW_PATH:
         raise CertificationManifestRefused("software certification input authority is invalid")
@@ -221,25 +293,8 @@ def _validate_input(value: Mapping[str, Any]) -> None:
         raise CertificationManifestRefused("dependency lock hashes are invalid")
     for digest in locks.values():
         _require_hex64(digest, label="dependency lock hash")
-    counts = value.get("test_counts")
-    if not isinstance(counts, dict) or counts.get("suites_completed") != 3:
-        raise CertificationManifestRefused("required software test count is invalid")
-    total = counts.get("total")
-    suite_counts = counts.get("suite_counts")
-    if not isinstance(total, dict) or set(total) != set(_COUNT_KEYS):
-        raise CertificationManifestRefused("software test totals are invalid")
-    if not isinstance(suite_counts, dict) or set(suite_counts) != {
-            "sentinel", "operator_scripts", "wealth_core_boundary"}:
-        raise CertificationManifestRefused("software suite counts are invalid")
-    if total.get("passed", 0) <= 0 or any(total.get(key) for key in _COUNT_KEYS if key != "passed"):
-        raise CertificationManifestRefused("software test totals contain non-passes")
-    for row in suite_counts.values():
-        if not isinstance(row, dict) or set(row) != set(_COUNT_KEYS) \
-                or row.get("passed", 0) <= 0 or any(
-                    row.get(key) for key in _COUNT_KEYS if key != "passed"):
-            raise CertificationManifestRefused("software suite contains non-passes")
-    if sum(row["passed"] for row in suite_counts.values()) != total["passed"]:
-        raise CertificationManifestRefused("software suite totals do not add up")
+    _validate_counts(value.get("test_counts"),
+                     version=2 if value["schema"] == INPUT_SCHEMA else 1)
     for name in ("adversarial_evidence", "mutation_evidence"):
         row = value.get(name)
         if not isinstance(row, dict) or set(row) != {"status", "sha256"} or row.get("status") != "PASS":
@@ -286,9 +341,10 @@ def finalize_manifest(*, input_evidence: Mapping[str, Any],
     if parsed.tzinfo is None:
         raise CertificationManifestRefused("certification timestamp has no timezone")
     counts = input_evidence["test_counts"]
+    version = 2 if input_evidence["schema"] == INPUT_SCHEMA else 1
     manifest = {
-        "schema": MANIFEST_SCHEMA,
-        "certification_version": 1,
+        "schema": MANIFEST_SCHEMA if version == 2 else LEGACY_MANIFEST_SCHEMA,
+        "certification_version": version,
         "source": {
             "repository": input_evidence["repository"],
             "commit": input_evidence["source_commit"],
@@ -306,10 +362,8 @@ def finalize_manifest(*, input_evidence: Mapping[str, Any],
         "tests": {
             "manifest_sha256": input_evidence["test_manifest_sha256"],
             "required_counts": {
-                "passed": counts["total"]["passed"],
+                **counts["total"],
                 "suites_completed": counts["suites_completed"],
-                "failed": 0, "errors": 0, "skipped": 0,
-                "xfailed": 0, "xpassed": 0,
             },
             "suite_counts": counts["suite_counts"],
             "required_job_conclusions": _required_jobs(jobs_payload),
@@ -329,6 +383,8 @@ def finalize_manifest(*, input_evidence: Mapping[str, Any],
         },
         "certified_at": parsed.astimezone(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
+    if version == 2:
+        manifest["tests"]["expected_xfails"] = counts["expected_xfails"]
     manifest["manifest_sha256"] = sha256_bytes(canonical_bytes(manifest))
     return manifest
 
@@ -338,8 +394,10 @@ def verify_manifest(value: Mapping[str, Any]) -> None:
         "schema", "certification_version", "source", "runtime", "dependencies",
         "tests", "ci", "epochs", "certified_at", "manifest_sha256",
     }
-    if set(value) != expected_top or value.get("schema") != MANIFEST_SCHEMA \
-            or value.get("certification_version") != 1:
+    version = value.get("certification_version")
+    schemas = {1: LEGACY_MANIFEST_SCHEMA, 2: MANIFEST_SCHEMA}
+    if set(value) != expected_top or type(version) is not int or version not in schemas \
+            or value.get("schema") != schemas[version]:
         raise CertificationManifestRefused("certification manifest schema is unsupported")
     supplied = value.get("manifest_sha256")
     _require_hex64(supplied, label="certification manifest hash")
@@ -377,11 +435,10 @@ def verify_manifest(value: Mapping[str, Any]) -> None:
         _require_hex64(item, label="manifest dependency hash")
     if tests.get("required_job_conclusions") != {name: "success" for name in REQUIRED_JOBS}:
         raise CertificationManifestRefused("required CI job conclusions are invalid")
-    required = tests.get("required_counts")
-    if not isinstance(required, dict) or required.get("passed", 0) <= 0 or \
-            required.get("suites_completed") != 3 or any(
-                required.get(key) for key in ("failed", "errors", "skipped", "xfailed", "xpassed")):
-        raise CertificationManifestRefused("required test counts are invalid")
+    try:
+        _verify_counts(tests, version)
+    except CertificationVerificationRefused as exc:
+        raise CertificationManifestRefused(exc.detail) from exc
     _require_hex64(tests.get("manifest_sha256"), label="manifest test hash")
     for name in ("adversarial_evidence", "mutation_evidence"):
         row = tests.get(name)
@@ -411,6 +468,7 @@ def main(argv: Sequence[str] | None = None) -> int:
     build.add_argument("--sentinel-summary", type=Path, required=True)
     build.add_argument("--operator-summary", type=Path, required=True)
     build.add_argument("--wealth-summary", type=Path, required=True)
+    build.add_argument("--wealth-junit", type=Path, required=True)
     build.add_argument("--adversarial-report", type=Path, required=True)
     build.add_argument("--mutation-report", type=Path, required=True)
     build.add_argument("--output", type=Path, required=True)
@@ -439,6 +497,7 @@ def main(argv: Sequence[str] | None = None) -> int:
                 },
                 adversarial_report=args.adversarial_report,
                 mutation_report=args.mutation_report,
+                wealth_junit=args.wealth_junit,
             )
             _write(args.output, value)
         elif args.command == "finalize":

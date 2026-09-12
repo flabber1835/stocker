@@ -66,6 +66,9 @@ jobs:
           git rev-parse HEAD > artifacts/contract/tested-commit.txt
           git rev-parse 'HEAD^{tree}' > artifacts/contract/tested-tree.txt
           python -m pytest tests/internal_state -q -ra --junitxml=artifacts/contract/junit.xml
+          python tools/verify_test_owner_execution.py --owner internal-state.contract \
+            --junit artifacts/contract/junit.xml \
+            --output artifacts/contract/test-owner.json
       - name: Retain contract evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -139,7 +142,11 @@ jobs:
           sudo apt-get update
           sudo apt-get install -y postgresql
       - name: Run explicitly owned small infrastructure suites
-        run: python tools/core_infrastructure_suite.py
+        run: |
+          python tools/core_infrastructure_suite.py
+          python tools/verify_test_owner_execution.py --owner core.infrastructure \
+            --junit artifacts/core-infrastructure/junit.xml \
+            --output artifacts/core-infrastructure/test-owner.json
       - name: Retain core-infrastructure evidence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02

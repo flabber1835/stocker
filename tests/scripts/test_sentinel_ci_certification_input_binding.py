@@ -38,6 +38,7 @@ def _evidence():
         },
         "test_manifest_sha256": "4" * 64,
         "test_counts": {
+            "expected_xfails": {},
             "suites_completed": 3,
             "suite_counts": {
                 "operator_scripts": _suite(),

@@ -1,4 +1,4 @@
-"""Falsify representative Alpaca guards in disposable source overlays."""
+"""Falsify every required Alpaca guard in disposable source overlays."""
 from __future__ import annotations
 
 import argparse
@@ -9,6 +9,7 @@ import sys
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT))
 from tools.sentinel_mutation_certify import Mutant, _run
+from tools.test_responsibility_lib import load_authority
 
 MUTANTS = (
     Mutant("empty-exact-200-is-absence", "sentinel/execution/alpaca.py",
@@ -52,39 +53,36 @@ MUTANTS = (
            '        if False:\n',
            "tests/sentinel/test_alpaca_simulation_sessions.py::"
            "test_closed_session_fill_cannot_change_broker_economics"),
+    Mutant(
+        "cash-cursor-reused-after-ledger-loss", "sentinel/execution/broker_cash.py",
+        '        if Decimal(str(ledger_total)) != prior.balance_total:\n',
+        '        if False:\n',
+        "tests/sentinel/test_alpaca_execution_entrypoint.py::"
+        "test_cash_cursor_total_detects_nonlast_ledger_loss"),
 )
-
-POSTGRES_MUTANT = Mutant(
-    "cash-cursor-reused-after-ledger-loss", "sentinel/execution/broker_cash.py",
-    '        if Decimal(str(ledger_total)) != prior.balance_total:\n',
-    '        if False:\n',
-    "tests/sentinel/test_alpaca_execution_entrypoint.py::"
-    "test_cash_cursor_total_detects_nonlast_ledger_loss")
 
 
 def _required_mutations() -> list[str]:
-    authority = json.loads((ROOT / "tests/test-responsibility.json").read_text())
-    if authority.get("schema") != "stocker.test-responsibility/1":
-        raise RuntimeError("invalid test-responsibility authority schema")
+    authority = load_authority()
     required = authority.get("alpaca", {}).get("required_mutations")
     if not isinstance(required, list) or not required or len(required) != len(set(required)):
         raise RuntimeError("invalid required Alpaca mutation inventory")
+    if not all(isinstance(value, str) and value for value in required):
+        raise RuntimeError("invalid required Alpaca mutation id")
     return required
 
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
-    parser.add_argument("--include-postgres", action="store_true")
     args = parser.parse_args()
-    mutants = MUTANTS + ((POSTGRES_MUTANT,) if args.include_postgres else ())
-    actual = [mutant.name for mutant in mutants]
+    actual = [mutant.name for mutant in MUTANTS]
     required = _required_mutations()
-    if args.include_postgres and actual != required:
+    if actual != required:
         raise RuntimeError(f"Alpaca mutation authority differs: expected={required!r} actual={actual!r}")
-    records = [_run(mutant) for mutant in mutants]
+    records = [_run(mutant) for mutant in MUTANTS]
     passed = all(r["mutant_killed"] for r in records)
-    result = dict(schema="sentinel.alpaca-mutations/1",
+    result = dict(schema="sentinel.alpaca-mutations/2",
                   all_mutants_killed=passed, required_mutations=required,
                   mutants=records)
     args.output.parent.mkdir(parents=True, exist_ok=True)

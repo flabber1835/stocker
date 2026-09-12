@@ -22,8 +22,13 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
  && pip check
 
 WORKDIR /work
+COPY pytest.ini /work/pytest.ini
 COPY tests/ /work/tests/
 COPY tools/ /work/tools/
+# Authority-only surfaces required by the live test-responsibility validator.
+COPY .github/workflows/ /work/.github/workflows/
+COPY research/sharadar_replay/tests/ /work/research/sharadar_replay/tests/
+COPY research/sharadar_replay/verify_evidence.py /work/research/sharadar_replay/verify_evidence.py
 COPY scripts/sentinel_feed_gate.py /work/scripts/sentinel_feed_gate.py
 COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py

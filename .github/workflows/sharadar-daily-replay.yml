@@ -1,8 +1,6 @@
-name: Sharadar daily production replay
+name: Sharadar daily production replay diagnostic
 
 on:
-  pull_request:
-    branches: [main]
   workflow_dispatch:
 
 permissions:
@@ -68,13 +66,13 @@ jobs:
           import json, os, pathlib, subprocess
           reports = sorted(pathlib.Path('replay-evidence').glob('*/report.json'))
           with open(os.environ['GITHUB_STEP_SUMMARY'], 'a') as out:
-              out.write('## Sharadar daily replay\n\n')
+              out.write('## Sharadar daily replay diagnostic\n\n')
               out.write('Commit: `' + subprocess.check_output(['git', 'rev-parse', 'HEAD'], text=True).strip() + '`\n\n')
               out.write('| Scenario | Verdict | Checked steps |\n|---|---|---|\n')
               for path in reports:
                   r = json.loads(path.read_text())
                   out.write(f"| {r['scenario']} | {r['verdict']} | {len(r['steps'])} |\n")
-              out.write('\nScope: production daily ingestion with simulated HTTP; bootstrap seed and producer identity are explicitly non-certifying.\n')
+              out.write('\nScope: manual diagnostic replay; protected PR merge authority executes inside Sentinel safety.\n')
           PY
       - name: Retain transcripts, snapshots and failures
         if: always()
@@ -86,6 +84,7 @@ jobs:
           retention-days: 30
 
   complete-evidence:
+    name: sharadar-replay-diagnostic-${{ matrix.scope }}-${{ github.sha }}
     needs: daily-replay
     if: always()
     strategy:
@@ -100,20 +99,30 @@ jobs:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: ${{ env.TESTED_COMMIT }}
-          sparse-checkout: research/sharadar_replay
+          sparse-checkout: |
+            research/sharadar_replay
+            tests/test-responsibility.json
+            tools/test_responsibility_lib.py
+            tools/verify_test_owner_execution.py
       - name: Verify exact replay checkout
         run: test "$(git rev-parse HEAD)" = "$TESTED_COMMIT"
       - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
         with:
           pattern: sharadar-daily-replay-${{ matrix.scope }}-*
           path: evidence
-      - name: Require complete passing evidence for the exact code commit
+      - name: Require complete passing diagnostic evidence for the exact code commit
         shell: bash
         run: |
           python research/sharadar_replay/verify_evidence.py evidence --commit "$TESTED_COMMIT" | tee verified-evidence.json
+          python tools/verify_test_owner_execution.py --owner sharadar.daily-replay \
+            --junit-glob 'evidence/**/junit.xml' \
+            --output test-owner-execution.json
           cat verified-evidence.json >> "$GITHUB_STEP_SUMMARY"
+          cat test-owner-execution.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: sharadar-replay-verdict-${{ matrix.scope }}
-          path: verified-evidence.json
+          name: sharadar-replay-diagnostic-verdict-${{ matrix.scope }}
+          path: |
+            verified-evidence.json
+            test-owner-execution.json
           if-no-files-found: error
