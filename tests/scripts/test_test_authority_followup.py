@@ -3,8 +3,15 @@ from __future__ import annotations
 
 from copy import deepcopy
 import json
+from pathlib import Path
+import sys
 
 import pytest
+
+ROOT = Path(__file__).resolve().parents[2]
+TOOLS = ROOT / "tools"
+if str(TOOLS) not in sys.path:
+    sys.path.insert(0, str(TOOLS))
 
 from tools.test_responsibility_lib import load_authority
 from tools import verify_test_owner_execution as owner_gate
