@@ -25,9 +25,9 @@ def load_actions_cursor(conn):
 def _cash_adjudication_audit(conn, *, run_id: str, dates, windows) -> list[dict]:
     """Bind each reviewed source fact to the exact canonical candidate bar.
 
-    The source row itself remains in the published ACTIONS generation.  This
+    The source row itself remains in the published ACTIONS generation. This
     evidence names that immutable row plus the permanent security id and the
-    normalized bar that consumed the adjudicated amount.  Publication signs the
+    normalized bar that consumed the adjudicated amount. Publication signs the
     resulting object into its normal validation-receipt chain.
     """
     from sentinel.feed import actions, calendar, publication
@@ -85,10 +85,10 @@ def _cash_adjudication_audit(conn, *, run_id: str, dates, windows) -> list[dict]
             "normalized_bar_dividend_per_share": str(normalized_cash),
         })
         audit.append(item)
-    if len(audit) != len(dates):
+    if {item["source_action_date"] for item in audit} != set(dates):
         raise corporate_action_authority.CorporateActionAuthorityRefused(
-            "cash-adjudication semantic replay did not produce one canonical "
-            "audit binding for every retained disputed event")
+            "cash-adjudication semantic replay did not produce a canonical "
+            "audit binding for every retained disputed action date")
     return sorted(audit, key=lambda item: item["event_id"])
 
 
