@@ -68,6 +68,34 @@ def test_equivalent_source_rebases_canonicalize_volume_dividend_and_liquidity(
             == baseline.vendor.raw_close * baseline.vendor.volume)
 
 
+def test_high_precision_volume_source_decimals_are_preserved_before_float():
+    raw = Decimal("391647841.99007055")
+    adjusted = Decimal("130549280.66335685")
+    baseline = _normalise_one(
+        adjusted_close=raw, raw_close=raw, volume=7_146_216, dividend=0)
+    rebased = _normalise_one(
+        adjusted_close=adjusted, raw_close=raw,
+        volume=21_438_648, dividend=0)
+
+    assert baseline.vendor.volume == 7_146_216.0
+    assert rebased.vendor.volume == baseline.vendor.volume
+
+
+def test_high_precision_dividend_source_decimals_are_preserved_before_float():
+    raw = Decimal("457904498.28260175")
+    adjusted = Decimal("152634832.76086725")
+    baseline = _normalise_one(
+        adjusted_close=raw, raw_close=raw, volume=3_000,
+        dividend=Decimal("6342.596697"))
+    rebased = _normalise_one(
+        adjusted_close=adjusted, raw_close=raw, volume=9_000,
+        dividend=Decimal("2114.198899"))
+
+    assert baseline.vendor.dividend_per_share == 6342.596697
+    assert rebased.vendor.dividend_per_share \
+        == baseline.vendor.dividend_per_share
+
+
 def _publication_rows(axis, *, factor=1, reciprocal=False,
                       volume_correction=0, dividend_correction=Decimal(0)):
     rows = []
