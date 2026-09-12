@@ -11,7 +11,7 @@ import subprocess
 import tempfile
 import time
 
-from tools import production_go_e2e_support as e2e
+import production_go_e2e_support as e2e
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -86,7 +86,8 @@ def main(argv=None) -> int:
             raise e2e.E2ERefused("isolated tested tree is not clean")
 
         base_env = dict(os.environ)
-        base_env["PYTHONPATH"] = str(work / "shared")
+        base_env["PYTHONPATH"] = os.pathsep.join(
+            (str(work), str(work / "shared")))
         base_env.setdefault("SENTINEL_HOST_PYTHON", "python")
 
         runtime_id, _test_id = _prebuild(work, original_commit)
