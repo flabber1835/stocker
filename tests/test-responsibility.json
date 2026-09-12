@@ -67,7 +67,7 @@
     "sharadar.daily-replay": {
       "paths": ["research/sharadar_replay/tests"],
       "scopes": ["exact-head", "synthetic-merge"],
-      "ci_job": ".github/workflows/sharadar-daily-replay.yml#complete-evidence",
+      "ci_job": ".github/workflows/sentinel-safety.yml#certification-and-durability",
       "independence": "pit-production-replay",
       "execution": {"kind": "pytest-junit"}
     },
