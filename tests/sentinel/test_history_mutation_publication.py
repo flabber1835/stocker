@@ -180,7 +180,7 @@ def test_upgrade_from_cash_spinoff_semantics_replays_and_preserves_source(conn, 
             publication_version=prior.version)
         assert maintenance.load_actions_cursor(conn) is None
         cursor = maintenance.reconcile_actions_if_due(conn, fetch=fetch, through=end)
-    assert cursor.kind == "sharadar-actions-export-reconcile/v8"
+    assert cursor.kind == "sharadar-actions-export-reconcile/v9"
     with conn.cursor() as cur:
         cur.execute("SELECT dividend_per_share FROM sentinel_bars WHERE session=%s", (event,))
         assert cur.fetchone()[0] == 0

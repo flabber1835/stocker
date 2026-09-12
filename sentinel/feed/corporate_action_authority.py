@@ -16,12 +16,13 @@ from typing import Iterable, Mapping, Sequence
 
 from sentinel.core.terminal import DIVIDEND_ACTIONS
 from sentinel.feed import calendar
+from stock_strategy_shared.wealth_core.sharadar_domains import AdjudicatedCashDistribution
 from sentinel.feed.source_authority.corporate_action_data import (
     CASH_ADJUDICATION_AUTHORITIES,
     DISPUTED_CASH_EVENTS,
 )
 
-_SCHEMA = "sentinel.corporate-action-adjudication/1"
+_SCHEMA = "sentinel.corporate-action-adjudication/2"
 _RECORD_FIELDS = {
     "schema", "authority_id", "event_id", "ticker", "source_action_date",
     "effective_session", "source_action", "security_mapping",
@@ -29,6 +30,7 @@ _RECORD_FIELDS = {
     "primary_source_kind", "source_url", "source_published_at",
     "source_evidence_text", "source_content_sha256",
     "corroborating_sources", "source_priority", "record_sha256",
+    "cash_entitlement_basis", "new_shares_per_old_share",
 }
 _FLAG_FIELDS = {
     "event_id", "ticker", "source_action_date", "effective_session",
@@ -56,6 +58,8 @@ class CashAdjudication:
     source_content_sha256: str
     record_sha256: str
     source_priority: str
+    cash_entitlement_basis: str
+    new_shares_per_old_share: str
 
     def to_dict(self) -> dict:
         return {
@@ -73,12 +77,14 @@ class CashAdjudication:
             "source_content_sha256": self.source_content_sha256,
             "record_sha256": self.record_sha256,
             "source_priority": self.source_priority,
+            "cash_entitlement_basis": self.cash_entitlement_basis,
+            "new_shares_per_old_share": self.new_shares_per_old_share,
         }
 
 
 @dataclass(frozen=True)
 class CashResolution:
-    dividends: dict[tuple[str, str], Decimal]
+    dividends: dict[tuple[str, str], Decimal | AdjudicatedCashDistribution]
     adjudications: tuple[CashAdjudication, ...]
 
 
@@ -167,6 +173,11 @@ def validate_authority(record: Mapping) -> Mapping:
         raise CorporateActionAuthorityRefused(
             f"corporate-action authority {record.get('authority_id')!r} has "
             "invalid stale/final cash economics")
+    if (record.get("cash_entitlement_basis") != "RAW_PRE_CONSOLIDATION_SHARE"
+            or _positive_decimal(record.get("new_shares_per_old_share")) is None):
+        raise CorporateActionAuthorityRefused(
+            "corporate-action authority requires a raw old-share cash basis "
+            "and positive new-shares-per-old-share terms")
     if record.get("currency") != "USD":
         raise CorporateActionAuthorityRefused(
             f"corporate-action authority {record.get('authority_id')!r} has "
@@ -274,7 +285,7 @@ def resolve_dividends(
     """Resolve ordinary Sharadar dividends plus reviewed exceptional overrides."""
     materialized = list(rows)
     sessions = {str(value) for value in sessions_sorted}
-    out: dict[tuple[str, str], Decimal] = {}
+    out: dict[tuple[str, str], Decimal | AdjudicatedCashDistribution] = {}
     for row in materialized:
         if str(row.get("action") or "").lower() not in DIVIDEND_ACTIONS:
             continue
@@ -314,20 +325,26 @@ def resolve_dividends(
         stale = Decimal(str(record["stale_source_amount"]))
         final = Decimal(str(record["final_cash_amount"]))
         key = (str(matching[0]["ticker"]), effective)
+        if isinstance(out.get(key), AdjudicatedCashDistribution):
+            raise CorporateActionAuthorityRefused(
+                f"multiple adjudicated share bases at {key}")
         if source_amount == stale:
             if key not in out or out[key] < stale:
                 raise CorporateActionAuthorityRefused(
                     f"flagged cash event {event_id} cannot identify its stale "
                     "component inside the ordinary dividend total")
-            out[key] += final - stale
             disposition = "APPLIED"
         elif source_amount == final:
             disposition = "SOURCE_CONVERGED"
         else:
-            raise CorporateActionAuthorityRefused(
-                f"flagged cash event {event_id} Sharadar amount "
-                f"{source_amount} matches neither reviewed stale {stale} nor "
-                f"final {final}; refusing to guess which source fact is current")
+            # The effective SEP row owns the cumulative vendor adjustment.
+            # Normalization must prove this is an equivalent source rebase.
+            disposition = "REQUIRES_DOMAIN_VALIDATION"
+        out[key] = AdjudicatedCashDistribution(
+            ordinary_split_adjusted_per_share=out[key] - source_amount,
+            source_per_share=source_amount, stale_raw_per_share=stale,
+            cash_per_old_share=final,
+            new_shares_per_old_share=Decimal(str(record["new_shares_per_old_share"])))
         audits.append(CashAdjudication(
             event_id=event_id,
             authority_id=str(record["authority_id"]),
@@ -343,6 +360,8 @@ def resolve_dividends(
             source_content_sha256=str(record["source_content_sha256"]),
             record_sha256=str(record["record_sha256"]),
             source_priority=str(record["source_priority"]),
+            cash_entitlement_basis=str(record["cash_entitlement_basis"]),
+            new_shares_per_old_share=str(record["new_shares_per_old_share"]),
         ))
     return CashResolution(dividends=out, adjudications=tuple(audits))
 

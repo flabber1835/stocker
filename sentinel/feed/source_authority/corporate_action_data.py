@@ -23,8 +23,8 @@ DISPUTED_CASH_EVENTS = (
 
 CASH_ADJUDICATION_AUTHORITIES = (
     {
-        "schema": "sentinel.corporate-action-adjudication/1",
-        "authority_id": "tri-2026-05-04-return-of-capital-v1",
+        "schema": "sentinel.corporate-action-adjudication/2",
+        "authority_id": "tri-2026-05-04-return-of-capital-v2",
         "event_id": "TRI:2026-05-04:dividend",
         "ticker": "TRI",
         "source_action_date": "2026-05-04",
@@ -33,6 +33,8 @@ CASH_ADJUDICATION_AUTHORITIES = (
         "security_mapping": "sharadar-ticker-at-effective-session",
         "stale_source_amount": "1.36",
         "final_cash_amount": "1.435518",
+        "cash_entitlement_basis": "RAW_PRE_CONSOLIDATION_SHARE",
+        "new_shares_per_old_share": "0.984560",
         "currency": "USD",
         "primary_source_kind": "issuer-final-terms",
         "source_url": (
@@ -42,10 +44,11 @@ CASH_ADJUDICATION_AUTHORITIES = (
         "source_published_at": "2026-05-01T16:30:00-04:00",
         "source_evidence_text": (
             "Participating shareholders to receive cash distribution of "
-            "US$1.435518 per common share"
+            "US$1.435518 per common share; "
+            "1 pre-consolidated share for 0.984560 post-consolidated shares"
         ),
         "source_content_sha256": (
-            "984deaf590f97905becab406a14eb66bce78db8275e66a7f0077202e27401d9d"
+            "c46672f72bed7fb703d633bb900ec7f960e633bc48e41db5fb6c4805c0741794"
         ),
         "corroborating_sources": [
             "https://www.sec.gov/Archives/edgar/data/1075124/"
@@ -56,7 +59,7 @@ CASH_ADJUDICATION_AUTHORITIES = (
             "issuer-final-terms>sec-filing>exchange-final-notice>sharadar"
         ),
         "record_sha256": (
-            "5d485827600bfd9d25a3a6c840921346204d1841decb41f9a17c93d8a92c63ee"
+            "7e8db148df1a136973871e800131aea7a6c127f1cb6afbd323109ea39b6e3df0"
         ),
     },
 )

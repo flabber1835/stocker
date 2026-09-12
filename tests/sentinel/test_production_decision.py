@@ -438,7 +438,7 @@ def test_data_semantics_identity_moves_when_only_a_decoder_source_moves(
 
 @pytest.mark.parametrize("module_name,old,new", [
     ("sentinel.feed.corporate_action_authority",
-     "out[key] += final - stale", "out[key] += stale - final"),
+     "cash_per_old_share=final", "cash_per_old_share=stale"),
     ("sentinel.feed.actions_reconcile_v7",
      "if prior is None:", "if False:"),
     ("sentinel.feed.source_authority.corporate_action_data",

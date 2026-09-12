@@ -879,6 +879,7 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
     # already terminated. Both are ordering artefacts, so the ordering is now in
     # one place — the same place that documents it.
     terminal_results: list[dict] = []
+    deferred_terminal_prints: list[tuple] = []
     for terms in sorted(terminal_terms,
                         key=lambda t: (t.security_id, t.kind.value)):
         from stock_strategy_shared.wealth_core.terminal import apply_terminal
@@ -895,11 +896,12 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                  last_valid_mark=last_known.get(terms.security_id),
                  sessions_since_last_valid_print=(
                      state.sessions_since_valid_mark.get(terms.security_id, 0)),
-                 # A real tradeable print on the terminal session outranks any
-                 # proxy — an actual transaction rather than a valuation.
-                 executable_price=(float(_b.raw_mark_close)
+                 # Opening proceeds require opening evidence. A later close
+                 # cannot fund this session's opening orders or opening NAV.
+                 phase="OPEN", executable_price_phase="OPEN",
+                 executable_price=(float(_b.raw_open)
                                    if _b is not None and _b.can_execute
-                                   and _b.raw_mark_close else None),
+                                   else None),
                  counters=settlement_counters)
         for slot_id, predecessor_security_id in (
                 episodes_before_terminal.items()):
@@ -912,6 +914,12 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
         order_transformations.extend(transformed)
         res_cancelled.extend(cancelled)
         terminal_results.append({"session": session, **terminal_result})
+        if terminal_result.get("blocked"):
+            # The opening pass has no usable settlement. Retain the causal
+            # prior-mark evidence for a possible closing-phase resolution.
+            deferred_terminal_prints.append((
+                terms, last_known.get(terms.security_id),
+                state.sessions_since_valid_mark.get(terms.security_id, 0)))
     terminated = {t.security_id for t in terminal_terms}
 
     # Terminal application can change both security and issuer identity after
@@ -1077,6 +1085,25 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
         # owned close, so the peak initialises here and nowhere earlier.
         state.episodes[slot_id].observe_entry_close(
             signal_closes.get(state.episodes[slot_id].security_id))
+
+    # A closing print can resolve an opening terms block only AFTER opening
+    # fills and aging. Its cash and released slot first exist at this close.
+    for terms, prior_mark, prior_stale in deferred_terminal_prints:
+        bar = by_sec.get(terms.security_id)
+        if (bar is None or not bar.tradeable or bar.unresolved_corporate_action
+                or not _positive(bar.raw_mark_close)):
+            continue
+        closing_result = apply_terminal(
+            state, terms, ledger=ledger, session=session, cfg=cfg,
+            last_valid_mark=prior_mark,
+            sessions_since_last_valid_print=prior_stale,
+            executable_price=float(bar.raw_mark_close), phase="CLOSE",
+            executable_price_phase="CLOSE", counters=settlement_counters)
+        transformed, cancelled = _transform_pending_for_terminal(
+            state, pending, terms=terms, result=closing_result, session=session)
+        order_transformations.extend(transformed)
+        res_cancelled.extend(cancelled)
+        terminal_results.append({"session": session, **closing_result})
 
     # ── 7. decide ────────────────────────────────────────────────────────────
     held = state.held_security_ids()

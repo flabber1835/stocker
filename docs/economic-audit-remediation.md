@@ -58,7 +58,45 @@ as revisions, including an adjustment-level restatement. Proving an economically
 equivalent historical rebase requires separate reviewed reconstruction evidence;
 the source's new version alone cannot grant that authority.
 
-## Delivery
+## Combined cash and consolidation entitlement (B1)
+
+Reviewed issuer cash terms declare their share basis and the simultaneous
+new-shares-per-old-share ratio. TRI's May 4, 2026 participating-share terms are
+USD 1.435518 per old share and 0.984560 new shares per old share, as stated in
+the [final issuer filing](https://www.sec.gov/Archives/edgar/data/1075124/000119312526201824/d139216dex991.htm).
+The immutable authority binds both terms and their source evidence. The
+normalizer validates the consolidation and preserves ordinary vendor dividend
+components separately from the issuer's raw old-share entitlement. It converts
+the latter to cash per post-event share using exact rational arithmetic before
+the single float boundary. Subsequent vendor adjustment rebases do not scale
+the issuer cash term. The ledger's existing split-then-accrue ordering therefore
+conserves the prior holding's cash entitlement, including fractional economic
+share entitlements. Fractional-share cash-in-lieu remains a separate leg.
+
+The v9 ACTIONS semantic epoch replays retained adjudicated events. Changed
+publication economics and changed canonical implementation identity require
+reconstruction of already-consumed history through the existing guards.
+
+## Terminal proceeds availability (B2)
+
+Terminal settlement declares OPEN or CLOSE availability. An executable print
+also declares its phase; the waterfall can consume it only at that phase or
+later. The canonical opening pass supplies the raw opening price. Exact
+effective opening consideration remains available at OPEN. Grace-expiry and
+orphan sweeps run at CLOSE. Settlement provenance retains the availability
+phase across serialization. Opening NAV, cash and fills must be invariant to
+a perturbation of only the same session's later terminal close.
+An opening terms block with a usable closing print is reconsidered after
+opening fills and aging, using the original prior-mark evidence. The resulting
+cash and released slot become available at CLOSE. The session kernel commits
+atomically, so restart replays both phases from the same prior envelope.
+
+Acceptance uses independent arithmetic plus composed normalization, canonical
+ledger, opening sizing, PostgreSQL publication, replay and restart regressions.
+Historical held-event attribution and financial account reconciliation remain
+separate evidence requirements for performance sign-off.
+
+## Delivery procedure
 
 Implementation and focused regression iterations remain local. One complete
 feature-branch push and PR launch the normal required CI. Existing workflow

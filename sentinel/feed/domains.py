@@ -508,16 +508,14 @@ def normalise_sep_rows(
                     else round(raw_open_exact, 6))
 
         source_dividend = (dividends or {}).get((ticker, session), 0.0) or 0.0
-        # Preserve the old validation/failure shape for malformed source values,
-        # while passing the untouched source spelling to the exact converter.
-        reported_dividend = float(source_dividend)
         dividend = raw_dividend_per_share(
-            source_close, source_raw, source_dividend)
+            source_close, source_raw, source_dividend, split_ratio=ratio)
         if dividend is None:
             raise RawPriceDomainUnavailable(
                 f"cannot convert positive Sharadar dividend for {ticker} on "
                 f"{session} into the raw share domain: SEP.close={close!r}, "
-                f"SEP.closeunadj={raw!r}, ACTIONS.value={reported_dividend!r}. "
+                f"SEP.closeunadj={raw!r}, ACTIONS.value={source_dividend!r}, "
+                f"split_ratio={ratio!r}. "
                 "A dividend amount on the split-adjusted share basis cannot be "
                 "applied to an as-traded share count without both price domains.")
 
