@@ -152,6 +152,13 @@ marker, make GO fail, and prevent subsequent promotion or final success as
 appropriate. This is stage reachability/sensitivity evidence; interruption,
 durable recovery, and convergence campaigns remain issue #363 item 2.
 
+CI partitions sensitivity into operator, preparation, financial, and handoff
+campaigns. Every campaign starts with a complete real GO success and then runs
+its selected faults through new operator invocations. This preserves full
+production certification in each invocation while keeping the campaigns within
+the job time limit. Both existing required composition check names aggregate all
+campaigns; any failed or cancelled campaign prevents acceptance.
+
 `.github/workflows/production-composition-harness.yml` runs on pull requests,
 merge groups, `main` pushes and manual dispatch.
 

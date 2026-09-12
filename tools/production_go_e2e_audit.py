@@ -380,7 +380,7 @@ def _proxy_fault(proxy: Path, name: str, expected_phase: str, script: str) -> di
         "E2E_REAL_PYTHON": sys.executable,
         "E2E_FAIL_SCRIPT": script,
     }
-    completed = base._invoke(extra_env=env, timeout=1800)
+    completed = base._invoke(extra_env=env)
     phase_index = EXPECTED_PHASE_SEQUENCE.index(expected_phase)
     later = None
     for candidate in EXPECTED_PHASE_SEQUENCE[phase_index + 1:]:
@@ -489,7 +489,8 @@ def _ci_main_authority(work: Path, commit: str):
             _git(["update-ref", "-d", "refs/heads/main"], check=False)
 
 
-def run(*, output: Path, sensitivity: bool) -> dict:
+def run(*, output: Path, sensitivity: bool, sensitivity_group: str = "all") -> dict:
+    internal_stages = stage_faults.selected_stages(sensitivity_group)
     commit = base._git_head()
     output.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="sentinel-go-e2e-audit-"))
@@ -502,6 +503,7 @@ def run(*, output: Path, sensitivity: bool) -> dict:
         "ci_git_authority": "local_bare_origin_main_bound_to_tested_commit",
         "success": None,
         "sensitivity": [],
+        "sensitivity_group": sensitivity_group,
         "all_pass": False,
     }
     try:
@@ -517,17 +519,19 @@ def run(*, output: Path, sensitivity: bool) -> dict:
                     result["success"] = _success_evidence(completed, commit)
 
                     if sensitivity:
-                        proxy = _write_python_proxy(work)
-                        result["sensitivity"].append(_environment_fault())
-                        result["sensitivity"].append(_lock_fault())
-                        for spec in FAULTS:
-                            print("E2E sensitivity: " + spec[0], flush=True)
-                            result["sensitivity"].append(_proxy_fault(proxy, *spec))
-                        directory, proxy = _internal_fault_wrappers(work)
-                        for spec in stage_faults.STAGES:
-                            print("E2E sensitivity: " + spec[0], flush=True)
-                            result["sensitivity"].append(_internal_fault(
-                                directory, proxy, output.parent, *spec))
+                        if sensitivity_group in {"all", "operator"}:
+                            proxy = _write_python_proxy(work)
+                            result["sensitivity"].append(_environment_fault())
+                            result["sensitivity"].append(_lock_fault())
+                            for spec in FAULTS:
+                                print("E2E sensitivity: " + spec[0], flush=True)
+                                result["sensitivity"].append(_proxy_fault(proxy, *spec))
+                        if internal_stages:
+                            directory, proxy = _internal_fault_wrappers(work)
+                            for spec in internal_stages:
+                                print("E2E sensitivity: " + spec[0], flush=True)
+                                result["sensitivity"].append(_internal_fault(
+                                    directory, proxy, output.parent, *spec))
                 finally:
                     base._clean_runtime()
 
@@ -557,9 +561,11 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--sensitivity", action="store_true")
+    parser.add_argument("--sensitivity-group", choices=stage_faults.GROUPS, default="all")
     args = parser.parse_args(argv)
     try:
-        result = run(output=args.output, sensitivity=args.sensitivity)
+        result = run(output=args.output, sensitivity=args.sensitivity,
+                     sensitivity_group=args.sensitivity_group)
     except (AuditFailure, base.HarnessFailure, OSError, subprocess.SubprocessError) as exc:
         print(f"REFUSED: production GO E2E audit failed: {exc}", file=sys.stderr)
         return 2

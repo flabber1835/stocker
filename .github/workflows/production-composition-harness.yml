@@ -16,7 +16,7 @@ concurrency:
 
 jobs:
   composition:
-    name: composition-${{ matrix.scope }}
+    name: go-campaign-${{ matrix.scope }}-${{ matrix.campaign }}
     runs-on: ubuntu-latest
     timeout-minutes: 180
     env:
@@ -26,6 +26,7 @@ jobs:
       fail-fast: false
       matrix:
         scope: ${{ fromJSON(github.event_name == 'pull_request' && '["exact-head","synthetic-merge"]' || '["exact-head"]') }}
+        campaign: [operator, preparation, financial, handoff]
 
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
@@ -176,6 +177,8 @@ jobs:
           assert value["schema"] == "sentinel.production-composition-live/1"
           assert value["matrix_scenarios"] >= 240
           assert value["all_pass"] is True
+          assert value["git_commit"] == Path(
+              "artifacts/production-composition/tested-commit.txt").read_text().strip()
           assert len(value["live_results"]) >= 6
           PY
 
@@ -190,6 +193,7 @@ jobs:
           git config --global receive.shallowUpdate true
           python tools/production_go_e2e_audit.py \
             --sensitivity \
+            --sensitivity-group '${{ matrix.campaign }}' \
             --output artifacts/production-composition/production-go-e2e.json
 
       - name: Verify canonical GO evidence
@@ -221,8 +225,11 @@ jobs:
           assert success["panel"]["matches_validated_runtime"] is True
           assert success["handoff"]["git_commit"] == value["git_commit"]
           assert success["handoff"]["software_certification"] == "LOCAL_FULL_VERIFIED"
+          advance = success["publication_advance"]
+          assert advance["published"]["version"] > advance["seeded"]["version"]
+          assert advance["published"]["visible_frontier"] > advance["seeded"]["visible_frontier"]
           names = {item["name"] for item in value["sensitivity"]}
-          assert names == {
+          expected = {"operator": {
               "environment-loading",
               "lifecycle-lock",
               "host-compatibility",
@@ -234,7 +241,19 @@ jobs:
               "certification-financial-readiness",
               "runtime-promotion",
               "post-validation-handoff",
-          }
+          }, "preparation": {
+              "schema-feed-authorization", "schema-migration",
+              "feed-catchup", "publication-check",
+          }, "financial": {
+              "operational-parity", "sharadar-readiness", "database-health",
+          }, "handoff": {
+              "validation-evidence", "requested-target-proof",
+              "panel-recreation", "handoff-write",
+          }}
+          group = value["sensitivity_group"]
+          assert group == '${{ matrix.campaign }}'
+          assert names == expected[group]
+          assert len(value["sensitivity"]) == len(expected[group])
           assert all(x["status"] == "EXPECTED_REFUSAL" for x in value["sensitivity"])
           PY
 
@@ -242,7 +261,21 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
-          name: production-composition-${{ matrix.scope }}-${{ github.sha }}
+          name: production-composition-${{ matrix.scope }}-${{ matrix.campaign }}-${{ github.sha }}
           path: artifacts/production-composition
           if-no-files-found: error
           retention-days: 30
+
+  acceptance:
+    name: composition-${{ matrix.scope }}
+    if: always()
+    needs: composition
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        scope: ${{ fromJSON(github.event_name == 'pull_request' && '["exact-head","synthetic-merge"]' || '["exact-head"]') }}
+    steps:
+      - name: Require every real GO campaign
+        env:
+          CAMPAIGN_RESULT: ${{ needs.composition.result }}
+        run: test "$CAMPAIGN_RESULT" = success

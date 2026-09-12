@@ -24,6 +24,21 @@ STAGES = (
     ("panel-recreation", POST_PHASE),
     ("handoff-write", POST_PHASE),
 )
+GROUPS = ("all", "operator", "preparation", "financial", "handoff")
+
+
+def selected_stages(group: str) -> tuple:
+    if group not in GROUPS:
+        raise ValueError("unknown GO sensitivity group")
+    if group == "operator":
+        return ()
+    if group == "preparation":
+        return STAGES[:4]
+    if group == "financial":
+        return STAGES[4:7]
+    if group == "handoff":
+        return STAGES[7:]
+    return STAGES
 
 _PREPARATION_HOOKS = {
     "schema-feed-authorization": ("sentinel.backup_guard", "require_writes_permitted"),

@@ -7,6 +7,16 @@ import pytest
 from tools import production_go_stage_faults as faults
 
 
+def test_campaigns_cover_each_internal_stage_once():
+    combined = tuple(stage for group in ("preparation", "financial", "handoff")
+                     for stage in faults.selected_stages(group))
+    assert combined == faults.STAGES
+    assert len(combined) == len({name for name, _ in combined}) == 11
+    assert faults.selected_stages("operator") == ()
+    with pytest.raises(ValueError, match="unknown GO sensitivity group"):
+        faults.selected_stages("partial")
+
+
 @pytest.mark.parametrize("name", [name for name, _ in faults.STAGES])
 def test_selected_fault_keeps_unrelated_docker_commands_exact(name):
     argv = ["compose", "run", "sentinel", "-c", "print('unrelated readiness preflight')"]
