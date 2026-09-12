@@ -70,7 +70,7 @@ jobs:
             tools/production_go_e2e_fixture.py \
             tools/production_go_e2e_support.py \
             tools/production_go_e2e_harness.py \
-            tests/production_composition/test_production_go_e2e_contract.py \
+            tests/production_composition/test_go_operator_e2e_contract.py \
             tests/sentinel/test_snapshot_export_insecure_test_boundary.py
 
       - name: Run E2E authority contracts
@@ -78,7 +78,7 @@ jobs:
         run: |
           set -euo pipefail
           python -m pytest \
-            tests/production_composition/test_production_go_e2e_contract.py \
+            tests/production_composition/test_go_operator_e2e_contract.py \
             tests/sentinel/test_snapshot_export_insecure_test_boundary.py \
             -q -ra
 
