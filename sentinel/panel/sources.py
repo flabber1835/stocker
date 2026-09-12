@@ -1461,8 +1461,25 @@ def _trial_rows(database_url: str, *, now: datetime
                 verdict=None, session=None, error=history_error)
             return [row], {}, [], [f"trial ledger: {history_error}"]
         latest = history[-1] if history else {}
+        from sentinel import paper_performance
+        current_binding, binding_error = _read(
+            conn, trial._read_binding, STATEMENT_TIMEOUT_MS, default=None)
+        quarantine, quarantine_error = _read(
+            conn, lambda c: paper_performance.load(c, current_binding),
+            STATEMENT_TIMEOUT_MS, default=None)
+        if quarantine is not None:
+            latest = paper_performance.project(
+                {**latest, "binding": current_binding,
+                 "stored_verification_session": latest.get("session"),
+                 "session": max(latest.get("session") or "",
+                                quarantine["first_affected_session"])},
+                quarantine)
         verdict = latest.get("verdict")
         reasons = list(latest.get("reason_codes") or ())
+        if binding_error or quarantine_error:
+            verdict = "NOT_VERIFIED"
+            reasons.append("PAPER_PERFORMANCE_AUTHORITY_UNREADABLE")
+            latest = {**latest, "performance": {}}
 
         # A historical certificate cannot silently certify a newer current
         # publication/state.  These are cheap identity reads, not a recomputed
@@ -1564,7 +1581,9 @@ def _trial_rows(database_url: str, *, now: datetime
                     else "historical close equity with external capital removed"),
             as_of=verified_at))
 
-        verified_history = _latest_verified_chain(history)
+        verified_history = (_latest_verified_chain(history)
+                            if quarantine is None and not binding_error
+                            and not quarantine_error else [])
         factors = [float((row.get("performance") or {}).get(
             "cumulative_factor", 1)) for row in verified_history]
         # The first verified close is an anchor, not a zero-return session.

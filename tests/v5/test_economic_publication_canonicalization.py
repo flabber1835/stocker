@@ -103,7 +103,7 @@ def test_same_session_actions_dividends_sum_in_exact_source_decimal_space():
          "value": "0.1"},
         {"ticker": "AAA", "date": session, "action": "specialdividend",
          "value": "0.2"},
-        {"ticker": "AAA", "date": session, "action": "spinoffdividend",
+        {"ticker": "AAA", "date": session, "action": "specialdividend",
          "value": "0.00000000000000003"},
     ], [session])
 

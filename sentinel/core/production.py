@@ -374,6 +374,8 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
             raise RuntimeError(
                 f"cannot prove {sid!r} is a first corpus observation on "
                 f"{session}; refusing a default split/identity anchor")
+    from sentinel.core.spinoffs import load_distributions
+    from sentinel.feed.history_mutations import EVIDENCE_KEY
     return PublishedSession(
         session=session, data_version=publication.version, bars=bars, meta=meta,
         sectors=sectors, spy_closeadj=spy, signal_basis_anchors=load_signal_basis_anchors(
@@ -383,7 +385,9 @@ def load_published_session(conn, session: str, *, spy_sessions: int = MIN_CLOSES
         terminal_events=terminals,
         feed_anchors=anchors,
         defensive_bar=defensive,
-        defensive_previous_bar=defensive_previous)
+        defensive_previous_bar=defensive_previous,
+        history_proof=publication.evidence.get(EVIDENCE_KEY),
+        spinoff_distributions=load_distributions(conn, session=session))
 
 
 def advance_and_persist(conn, session: str, prior: SessionState | Mapping, *,

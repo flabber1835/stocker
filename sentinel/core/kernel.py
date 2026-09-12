@@ -131,6 +131,14 @@ def advance_session(
     ):
         raise ValueError("corpus publication version moved backwards")
 
+    from sentinel.core.history import require_history_compatible
+    require_history_compatible(
+        prior_version=env.data_version,
+        last_processed_session=env.last_processed_session,
+        version=published.data_version, proof=published.history_proof)
+    from sentinel.core.spinoffs import require_supported_entitlements
+    require_supported_entitlements(env, published.spinoff_distributions)
+
     state = PortfolioState.from_dict(env.wealth_core)
     pending = [PendingOrder.from_dict(item) for item in env.pending]
     ledger = Ledger.from_dict(env.ledger)

@@ -348,6 +348,10 @@ def _published_input_value(
         "spy_sessions": list(published.spy_sessions),
         "spy_expected_sessions": list(published.spy_expected_sessions),
         "terminal_events": terminals,
+        **({"spinoff_distributions": sorted(
+            (row(item) for item in published.spinoff_distributions),
+            key=lambda item: (item["session"], item["source_row_id"]))}
+           if published.spinoff_distributions else {}),
         "feed_anchors": anchors,
         **({"signal_basis_anchors": {
             str(key): row(value) for key, value in sorted(published.signal_basis_anchors.items())}}
@@ -549,7 +553,10 @@ def _economic_input_identity(
         "bars_sha256": _sha256(bars),
         "meta_sha256": _sha256(source["meta"]),
         "sectors_sha256": _sha256(source["sectors"]),
-        "terminal_events_sha256": _sha256(source["terminal_events"]),
+        "terminal_events_sha256": _sha256(
+            source["terminal_events"] if not published.spinoff_distributions else
+            {"terminals": source["terminal_events"],
+             "spinoffs": source["spinoff_distributions"]}),
         "feed_anchors_sha256": _sha256(source["feed_anchors"]),
         "spy_ratio_path_sha256": _sha256(spy_path),
         "bil": {

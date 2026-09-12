@@ -53,6 +53,8 @@ def prior_book():
     published = PublishedSession(axis[-1], 2,
         [VendorBar(axis[-1], 'A', 'A', 50., 50., 2e6, split_ratio=2., signal_close=50.)],
         meta, {}, [100.]*41, spy_sessions=tail, spy_expected_sessions=tail,
+        history_proof={'schema': 'sentinel.strategy-history-mutations/1',
+                       'baseline_version': 1, 'publication_version': 2, 'changes': []},
         signal_basis_anchors={'A': VendorBar(axis[-2], 'A', 'A', 100., None, None, signal_close=50.)})
     return SessionState.from_dict(json.loads(json.dumps(env.to_dict()))), published
 
@@ -97,6 +99,7 @@ def test_repeated_publications_compose_source_bridges_and_preserve_real_stop():
     actual = step(prior, pub)
     day = calendar.next_session(pub.session)
     pub = replace(pub, session=day, data_version=3,
+        history_proof={**pub.history_proof, 'publication_version': 3},
         bars=[replace(pub.bars[0], session=day, raw_close=10., raw_open=25.,
                       signal_close=10., split_ratio=2.)],
         signal_basis_anchors={'A': replace(pub.signal_basis_anchors['A'], session=actual.last_processed_session,

@@ -398,6 +398,10 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
                 "SELECT nextval(pg_get_serial_sequence("
                 "'sentinel_corpus_publications','version'))")
             next_version = int(cur.fetchone()[0])
+        from sentinel.feed.history_mutations import EVIDENCE_KEY, publication_proof
+        publication_evidence[EVIDENCE_KEY] = publication_proof(
+            conn, previous=previous, version=next_version,
+            run_id=run_id, evidence=publication_evidence)
         previous_receipt = (
             _latest_receipt_sha256(conn, through_version=previous.version)
             if previous is not None else None)
