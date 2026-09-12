@@ -1,0 +1,37 @@
+{
+  "schema": "full-system-pit-launch/1",
+  "authorization": "Owner: Proceed; replay the entire system with instrumentation",
+  "base": "4bba6875b07288cf6ebc6a149b926075b1e41c60",
+  "champion_source_sha256": "3fcf274dc5dba5b01ff3c637b62922f27c5dfe2e3b28e7f3a416e1bfeba09663",
+  "reference_commit": "2a1bd486241ae524eac395490b135cc79715e497",
+  "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "warmup_start": "2006-01-03",
+  "measurement_start": "2006-07-31",
+  "end": "2026-07-31",
+  "mode": "full_schedule_stop_at_first_divergence",
+  "local_validation": "66 targeted tests passed; full-history-scan mutant rejected; observed and unobserved populated replay hashes agree; physical replay validation remains in CI",
+  "vendor_evolution": "Reconstructed split-adjustment vintages; dated current listings; known-by action boundary",
+  "cash_proxy": "Canonical Treasury proxy before BIL inception, explicitly simulated",
+  "paper_broker": "Process-external Alpaca simulator using production execution adapter",
+  "production_promotion_authorized": false,
+  "performance_equivalence_confirmed": false,
+  "bootstrap_sensor": "Existing numerical SPY sensor over the exact initial exchange-calendar prefix, with a zero-position guard; ordinary loader from close 41",
+  "settlement_profile": "Existing LIVE_CASH stress model with a declared next-session release",
+  "comparison": "Daily observations, admission order and dollars, quantities, lots, cash/receivables, composition weights, scalar NAV and final CAGR/multiple",
+  "prior_runs": [
+    {
+      "id": 34552507591,
+      "head": "6180164ff1c564bc662859338809e76794e63286",
+      "completed_sessions": 0,
+      "failure": "event clock must be explicit UTC",
+      "artifact_id": 10181725176
+    },
+    {
+      "id": 34554734499,
+      "head": "0ab547519a92defc48355b47a82e4509bf0639f7",
+      "completed_sessions": 0,
+      "failure": "Seed volume presence 6097/6386 (95.5%) below 98%; simulator converted zero volume to missing",
+      "artifact_id": 10182500588
+    }
+  ]
+}

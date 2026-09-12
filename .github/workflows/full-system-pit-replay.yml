@@ -1,0 +1,104 @@
+name: Full system PIT replay
+on:
+  push:
+    branches: [codex/full-system-pit-replay]
+    paths:
+      - 'research/full_system_pit/**'
+      - '.github/workflows/full-system-pit-replay.yml'
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+concurrency:
+  group: full-system-pit-replay
+  cancel-in-progress: false
+jobs:
+  replay:
+    if: github.event_name == 'workflow_dispatch' || contains(github.event.head_commit.message, '[pit-run]')
+    runs-on: ubuntu-latest
+    timeout-minutes: 350
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: work
+          fetch-depth: 2
+      - name: Fetch the exact runtime base
+        working-directory: work
+        run: git fetch --depth=1 origin 4bba6875b07288cf6ebc6a149b926075b1e41c60
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: f6ad7b543fbd20ffe363127d1120f4472caa9360
+          path: champion-src
+          persist-credentials: false
+          sparse-checkout: research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/sources
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 2a1bd486241ae524eac395490b135cc79715e497
+          path: reference-src
+          persist-credentials: false
+          sparse-checkout: research/champion-certification-20y-v1/results/34544522249-1
+      - uses: ./work/research/full_system_pit/setup
+      - name: Install the application and physical backup test dependencies
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r work/sentinel/requirements.lock -r work/tests/requirements.lock
+          python -m pip check
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+      - name: Stage the exact champion runtime
+        working-directory: work
+        run: |
+          python -m research.full_system_pit.stage --repo . --output ../staged-runtime --champion ../champion-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/sources/compact_simplified_no_ramp.py > ../runtime-manifest.json
+      - name: Falsify transport, causality, state identity and controller transitions
+        working-directory: staged-runtime
+        env:
+          PYTHONPATH: shared
+        run: |
+          python -m pytest research/full_system_pit/test_contract.py research/full_system_pit/test_controller.py tests/median5/test_book.py tests/v5/test_opening.py -q --tb=short
+      - name: Restore the immutable compiled provider index
+        id: truth-cache
+        uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          key: full-system-pit-truth-v1-${{ runner.os }}-${{ hashFiles('work/research/full_system_pit/truth.py', 'work/research/full_system_pit/authority.py') }}
+          path: |
+            provider-truth.sqlite
+            provider-truth.json
+            provider-truth.sha256
+      - name: Compile private historical provider truth
+        if: steps.truth-cache.outputs.cache-hit != 'true'
+        env:
+          PYTHONPATH: work:certified-src:main-src:main-src/shared
+        run: |
+          python -m research.full_system_pit.truth --dataset canonical-pit --output provider-truth.sqlite --classification candidate-src/backtester/data/champion-best-effort-security-types-v1.csv
+          sha256sum provider-truth.sqlite > provider-truth.sha256
+      - name: Verify the compiled index bytes
+        run: sha256sum -c provider-truth.sha256
+      - name: Retain the compiled index before the experiment
+        if: steps.truth-cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@0057852bfaa89a56745cba8c7296529d2fc39830
+        with:
+          key: ${{ steps.truth-cache.outputs.cache-primary-key }}
+          path: |
+            provider-truth.sqlite
+            provider-truth.json
+            provider-truth.sha256
+      - name: Replay the entire daily schedule
+        working-directory: staged-runtime
+        env:
+          PYTHONPATH: shared
+        run: |
+          set -o pipefail
+          python -m research.full_system_pit.run --truth ../provider-truth.sqlite --reference ../reference-src/research/champion-certification-20y-v1/results/34544522249-1 --output ../evidence 2>&1 | tee ../replay.log
+      - name: Retain all phase evidence and the first divergence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: full-system-pit-${{ github.run_id }}-${{ github.run_attempt }}
+          path: |
+            evidence/
+            replay.log
+            runtime-manifest.json
+            provider-truth.json
+            package-integrity.json
+            final-corpus-validation.json
+          if-no-files-found: error
+          retention-days: 30
