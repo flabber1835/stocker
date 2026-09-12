@@ -91,7 +91,7 @@ def module_dotted(path: Path, root: Path = ROOT) -> str:
 
 
 def canonical_nodeid(nodeid: str) -> str:
-    """Collapse pytest parameter instances to one exact logical test node."""
+    """Collapse a pytest parameter instance to its exact logical test node."""
     value = nodeid.strip()
     if "::" not in value:
         return value
@@ -123,6 +123,32 @@ def validate_contract_selectors(required: object) -> Dict[str, str]:
     if len(selectors) != len(set(selectors)):
         raise AssertionError("duplicate Alpaca contract selector")
     return normalized
+
+
+def validate_contract_instances(required: Mapping[str, str], instances: object) -> Dict[str, List[str]]:
+    """Validate the independently declared physical instance inventory."""
+    selectors = validate_contract_selectors(dict(required))
+    if not isinstance(instances, dict) or set(instances) != set(selectors):
+        raise AssertionError("Alpaca physical contract inventory keys differ")
+    result = {}
+    all_physical = set()
+    for contract_id, selector in selectors.items():
+        values = instances.get(contract_id)
+        if not isinstance(values, list) or not values:
+            raise AssertionError("%s: empty Alpaca physical contract inventory" % contract_id)
+        if not all(isinstance(value, str) and value for value in values):
+            raise AssertionError("%s: invalid Alpaca physical contract id" % contract_id)
+        if len(values) != len(set(values)):
+            raise AssertionError("%s: duplicate Alpaca physical contract id" % contract_id)
+        for value in values:
+            if canonical_nodeid(value) != selector:
+                raise AssertionError(
+                    "%s: physical contract escapes logical selector: %s" % (contract_id, value))
+            if value in all_physical:
+                raise AssertionError("physical Alpaca contract is owned twice: %s" % value)
+            all_physical.add(value)
+        result[contract_id] = sorted(values)
+    return result
 
 
 def resolve_contracts(required: Mapping[str, str],
@@ -160,57 +186,72 @@ def _junit_testcases(paths: Sequence[Path]) -> Iterable[ET.Element]:
             yield testcase
 
 
-def _is_passing_testcase(testcase: ET.Element) -> bool:
+def _testcase_status(testcase: ET.Element) -> str:
     for child in testcase:
         tag = child.tag.rsplit("}", 1)[-1]
         if tag in ("failure", "error", "skipped"):
-            return False
-    return True
+            return tag
+    return "passed"
+
+
+def _case_nodeid(testcase: ET.Element, module_info: Sequence[Tuple[str, str]]) -> Optional[Tuple[str, str]]:
+    classname = testcase.attrib.get("classname", "")
+    name = testcase.attrib.get("name", "")
+    file_attr = testcase.attrib.get("file", "")
+    matched = None
+    if file_attr:
+        normalized = file_attr.replace("\\", "/").lstrip("./")
+        for module_path, dotted in module_info:
+            if normalized == module_path:
+                matched = (module_path, dotted, "")
+                break
+    if matched is None and classname:
+        for module_path, dotted in module_info:
+            if classname == dotted:
+                matched = (module_path, dotted, "")
+                break
+            if classname.startswith(dotted + "."):
+                matched = (module_path, dotted, classname[len(dotted) + 1:])
+                break
+    if matched is None or not name:
+        return None
+    module_path, _dotted, class_suffix = matched
+    nodeid = module_path
+    if class_suffix:
+        nodeid += "::" + class_suffix.replace(".", "::")
+    nodeid += "::" + name
+    return module_path, nodeid
+
+
+def junit_case_execution(paths: Sequence[Path], expected_modules: Sequence[Path],
+                         root: Path = ROOT) -> Tuple[Set[str], Dict[str, str]]:
+    """Return executed modules and every physical JUnit node with its outcome."""
+    module_info = [(relative_posix(module, root=root), module_dotted(module, root=root))
+                   for module in expected_modules]
+    module_info.sort(key=lambda item: len(item[1]), reverse=True)
+    executed_modules = set()  # type: Set[str]
+    cases = {}  # type: Dict[str, str]
+    for testcase in _junit_testcases(paths):
+        resolved = _case_nodeid(testcase, module_info)
+        if resolved is None:
+            continue
+        module_path, nodeid = resolved
+        status = _testcase_status(testcase)
+        if nodeid in cases:
+            raise AssertionError("duplicate JUnit physical test evidence: %s" % nodeid)
+        cases[nodeid] = status
+        if status == "passed":
+            executed_modules.add(module_path)
+    return executed_modules, cases
 
 
 def junit_execution(paths: Sequence[Path], expected_modules: Sequence[Path],
                     root: Path = ROOT) -> Tuple[Set[str], Set[str]]:
     """Return modules and exact logical node ids with passing JUnit evidence."""
-    module_info = []
-    for module in expected_modules:
-        module_info.append((relative_posix(module, root=root),
-                            module_dotted(module, root=root)))
-    module_info.sort(key=lambda item: len(item[1]), reverse=True)
-
-    executed_modules = set()  # type: Set[str]
-    logical_nodeids = set()  # type: Set[str]
-    for testcase in _junit_testcases(paths):
-        if not _is_passing_testcase(testcase):
-            continue
-        classname = testcase.attrib.get("classname", "")
-        name = testcase.attrib.get("name", "")
-        file_attr = testcase.attrib.get("file", "")
-        matched = None
-        if file_attr:
-            normalized = file_attr.replace("\\", "/").lstrip("./")
-            for module_path, dotted in module_info:
-                if normalized == module_path:
-                    matched = (module_path, dotted, "")
-                    break
-        if matched is None and classname:
-            for module_path, dotted in module_info:
-                if classname == dotted:
-                    matched = (module_path, dotted, "")
-                    break
-                if classname.startswith(dotted + "."):
-                    matched = (module_path, dotted, classname[len(dotted) + 1:])
-                    break
-        if matched is None:
-            continue
-        module_path, _dotted, class_suffix = matched
-        executed_modules.add(module_path)
-        if name:
-            nodeid = module_path
-            if class_suffix:
-                nodeid += "::" + class_suffix.replace(".", "::")
-            nodeid += "::" + name
-            logical_nodeids.add(canonical_nodeid(nodeid))
-    return executed_modules, logical_nodeids
+    executed_modules, cases = junit_case_execution(paths, expected_modules, root=root)
+    logical = {canonical_nodeid(nodeid) for nodeid, status in cases.items()
+               if status == "passed"}
+    return executed_modules, logical
 
 
 def incident_named(path: str) -> bool:
