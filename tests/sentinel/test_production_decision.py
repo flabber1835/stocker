@@ -4,6 +4,7 @@ from __future__ import annotations
 from copy import deepcopy
 from datetime import date, datetime, timezone
 from decimal import Decimal
+from pathlib import Path
 from types import SimpleNamespace
 
 import pytest
@@ -433,6 +434,33 @@ def test_data_semantics_identity_moves_when_only_a_decoder_source_moves(
     assert before["sha256"] != after["sha256"]
     assert before["files"][0] == after["files"][0]
     assert before["files"][1]["sha256"] != after["files"][1]["sha256"]
+
+
+@pytest.mark.parametrize("module_name,old,new", [
+    ("sentinel.feed.corporate_action_authority",
+     "out[key] += final - stale", "out[key] += stale - final"),
+    ("sentinel.feed.actions_reconcile_v7",
+     "if prior is None:", "if False:"),
+    ("sentinel.feed.source_authority.corporate_action_data",
+     '"final_cash_amount": "1.435518"', '"final_cash_amount": "1.50"'),
+])
+def test_cash_adjudication_changes_invalidate_persisted_strategy_identity(
+        monkeypatch, tmp_path, module_name, old, new):
+    module = decision_module.importlib.import_module(module_name)
+    original = Path(module.__file__).read_text(encoding="utf-8")
+    assert original.count(old) == 1
+    source = tmp_path / "cash_semantics.py"
+    source.write_text(original, encoding="utf-8")
+    monkeypatch.setattr(module, "__file__", str(source))
+    config = SimpleNamespace(strategy_id="sentinel-test", digest="controller-rule")
+
+    retained = runtime_strategy_identity(config)
+    source.write_text(original.replace(old, new), encoding="utf-8")
+    revised = runtime_strategy_identity(config)
+
+    assert retained["controller_rule_sha256"] == revised["controller_rule_sha256"]
+    assert retained["wealth_core_source_sha256"] == revised["wealth_core_source_sha256"]
+    assert retained["data_semantics_source_sha256"] != revised["data_semantics_source_sha256"]
 
 
 def test_data_semantics_bundle_names_transitive_book_dependencies():

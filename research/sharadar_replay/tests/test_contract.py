@@ -1,4 +1,5 @@
 import copy
+from decimal import Decimal
 
 import httpx
 import pytest
@@ -9,7 +10,7 @@ from research.sharadar_replay.oracle import StateMismatch, compare, compare_read
 from research.sharadar_replay.provider import Provider
 from research.sharadar_replay.runner import checked_server_dsn
 from research.sharadar_replay.runtime import simulated_runtime
-from research.sharadar_replay.scenarios import FIRST, SEED, build_scenarios, step, world
+from research.sharadar_replay.scenarios import FIRST, SEED, build_scenarios, sessions, step, world
 
 
 def test_scenarios_roundtrip_and_have_independent_provider_expectations():
@@ -20,6 +21,27 @@ def test_scenarios_roundtrip_and_have_independent_provider_expectations():
     before = digest(expected.model_dump())
     tables["SEP"][0]["close"] = 999
     assert digest(expected.model_dump()) == before
+
+
+@pytest.mark.parametrize("through", ["2026-05-01", "2026-05-04", SEED])
+def test_replay_world_carries_reviewed_cash_authority(through):
+    from sentinel.feed.corporate_action_authority import resolve_dividends
+
+    tables, expected = world(through)
+    resolution = resolve_dividends(tables["ACTIONS"], sessions(through))
+    source = [r for r in tables["ACTIONS"] if r["ticker"] == "TRI"]
+    canonical = [r for r in expected.bars if r[2] == "TRI"]
+    identities = [r for r in expected.identities if r[1] == "TRI"]
+    if through < "2026-05-04":
+        assert not source and not canonical and not identities
+        assert not resolution.adjudications
+        return
+
+    assert len(source) == len(canonical) == len(identities) == 1
+    assert source[0]["value"] == 1.36
+    assert canonical[0][-1] == 1.435518
+    assert resolution.dividends[("TRI", "2026-05-04")] == Decimal(str(canonical[0][-1]))
+    assert identities[0][-3:] == ("2026-05-04", "2026-05-04", True)
 
 
 @pytest.mark.parametrize("field", ["bars", "actions", "identities", "spy", "defensive"])
@@ -78,7 +100,9 @@ def test_strict_production_http_pages_exports_and_query_filters():
         assert len(got) == 2
         full = list(sharadar.fetch_table("SEP"))
         assert len(full) > 254
-        assert len(list(snapshot_source.fetch_table("TICKERS"))) == 2
+        identities = list(snapshot_source.fetch_table("TICKERS"))
+        assert {row["ticker"] for row in identities} == {"AAA", "BBB", "TRI"}
+        assert len(identities) == 3
         rows, authority = snapshot_export.fetch_complete_sep(start=SEED, end=FIRST)
         assert len(rows) == 4
         assert authority["authority"] == "nasdaq-data-link-table-export/v1"

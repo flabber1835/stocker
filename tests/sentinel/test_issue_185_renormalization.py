@@ -172,8 +172,8 @@ def test_semantic_reearn_includes_accepted_resolved_direct_and_adr_dates(
     }
 
 
-@pytest.mark.parametrize("old_epoch", ["v4", "v5"])
-def test_legacy_cursor_cannot_bypass_v6_semantic_reearn(old_epoch):
+@pytest.mark.parametrize("old_epoch", ["v4", "v5", "v6"])
+def test_legacy_cursor_cannot_bypass_v7_semantic_reearn(old_epoch):
     old_name = f"sharadar-actions-export-reconcile:{old_epoch}"
     old_state = {
         "kind": f"sharadar-actions-export-reconcile/{old_epoch}",
@@ -211,4 +211,4 @@ def test_legacy_cursor_cannot_bypass_v6_semantic_reearn(old_epoch):
 
     conn = Conn()
     assert maintenance.load_actions_cursor(conn) is None
-    assert conn.requested == ["sharadar-actions-export-reconcile:v6"]
+    assert conn.requested == ["sharadar-actions-export-reconcile:v7"]
