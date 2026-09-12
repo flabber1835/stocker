@@ -111,8 +111,11 @@ def test_action_change_dates_replay_only_bar_affecting_actions(monkeypatch):
             "contraname": None,
         },
     }
+    from sentinel.feed.action_source import distinct_rows
+    prior_source = {identity: row for identity, _payload, row
+                    in distinct_rows(prior.values())}
     monkeypatch.setattr(
-        maintenance._core, "_active_action_rows", lambda conn: prior)
+        maintenance._core, "_active_action_rows", lambda conn: prior_source)
 
     # Current source removes the old split (must replay its old effective date),
     # keeps the terminal row (no bar replay), and adds a dividend (must replay).
