@@ -70,6 +70,8 @@ def inputs(day, seed=0, shocks=()):
                for bar in bars.get(session, ())
                if bar.raw_close > 0 and bar.signal_close > 0}
     published = PublishedSession(session=day, data_version=2, bars=bars[day], meta=meta,
+        history_proof={"schema": "sentinel.strategy-history-mutations/1",
+                       "baseline_version": 1, "publication_version": 2, "changes": []},
         sectors={sid: "Industrials" for sid in meta},
         spy_closeadj=[r[1] for r in facts.spy[-127:]], spy_sessions=axis[-127:],
         spy_expected_sessions=axis[-127:], defensive_bar=DefensiveBar(*facts.defensive[-1]),

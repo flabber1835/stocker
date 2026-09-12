@@ -1563,7 +1563,7 @@ class TestCorpusActionLookup:
             {"ticker": "AAA", "date": "2026-08-05", "action": "dividend",
              "value": 0.25},
             {"ticker": "AAA", "date": "2026-08-05",
-             "action": "spinoffdividend", "value": 0.1},
+             "action": "specialdividend", "value": 0.1},
             {"ticker": "AAA", "date": "2026-08-06",
              "action": "acquisitionof", "value": None,
              "contraticker": "VICTIM"}])

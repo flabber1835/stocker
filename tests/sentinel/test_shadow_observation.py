@@ -210,6 +210,9 @@ def _fully_published(session: str, *, version: int = 7,
     }
     published = PublishedSession(
         session=session, data_version=version, meta=meta,
+        history_proof={"schema": "sentinel.strategy-history-mutations/1",
+                       "baseline_version": 0, "publication_version": version,
+                       "changes": []},
         sectors={"1": "TECH"},
         bars=[VendorBar(
             session, "1", "AAA", price, price, 1_000_000)],

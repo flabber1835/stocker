@@ -1418,9 +1418,10 @@ stored split column, execution derives the independent ratio from the
 immediately preceding XNYS session's published adjusted/as-traded domains and
 calls the same shared corroboration resolver as ingest and canonical replay.
 Absent or contradictory required evidence fences the intersecting book. The
-scalar ACTIONS vocabulary is exactly `split`; `spinoffdividend` is a
-cash-distribution row and does not by itself change share identity (unlike a
-`spinoff`, which remains blocking).
+scalar ACTIONS vocabulary is exactly `split`. Both `spinoffdividend` and
+`spinoff` are non-scalar in-kind distributions and fence an intersecting book.
+The typed child-ownership and historical-mutation contracts are defined in
+`economic-audit-remediation.md`.
 
 ### 10.2a Decision-close to execution-open target reprojection
 

@@ -525,6 +525,10 @@ class PublishedSession:
     # Same-publication historical closes bridge a new vendor price basis into
     # the durable per-security basis before any numerical or episode transition.
     signal_basis_anchors: Mapping[str, VendorBar] = field(default_factory=dict)
+    # The publication receipt owns this proof. A version transition with no
+    # covering history proof is refused by the canonical kernel.
+    history_proof: Mapping | None = None
+    spinoff_distributions: Sequence = ()
 
 
 def _feed_from_dict(raw: Mapping, meta, elig) -> Feed:
