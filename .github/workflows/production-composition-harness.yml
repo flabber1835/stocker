@@ -20,6 +20,7 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 45
     env:
+      # stock_strategy_shared is intentionally imported as a top-level module.
       PYTHONPATH: ${{ github.workspace }}/shared
     strategy:
       fail-fast: false
