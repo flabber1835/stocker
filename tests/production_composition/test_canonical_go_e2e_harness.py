@@ -48,6 +48,14 @@ def test_fixture_is_large_enough_for_readiness_history():
     assert len({row[1] for row in by_spy}) >= 252
 
 
+def test_compose_propagates_sharadar_transport_with_safe_defaults():
+    compose = (ROOT / "docker-compose.sentinel.yml").read_text(encoding="utf-8")
+    assert "NDL_BASE_URL: ${NDL_BASE_URL:-https://data.nasdaq.com/api/v3/datatables/SHARADAR}" in compose
+    assert "SHARADAR_ALLOW_INSECURE_BASE_URL: ${SHARADAR_ALLOW_INSECURE_BASE_URL:-0}" in compose
+    assert "SHARADAR_FETCH_RETRIES: ${SHARADAR_FETCH_RETRIES:-6}" in compose
+    assert "SHARADAR_FETCH_BACKOFF: ${SHARADAR_FETCH_BACKOFF:-2.0}" in compose
+
+
 def test_phase_parser_is_stage_sensitive():
     output = "\n=== HOST COMPATIBILITY ===\n[GO] ok\n=== RUNTIME SELECTION PREFLIGHT ===\n"
     assert harness._phase_names(output) == [
