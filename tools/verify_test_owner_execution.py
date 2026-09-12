@@ -30,6 +30,7 @@ PROTECTED_OWNER_JOBS = {
 }
 ADVISORY_OWNERS = {
     "backup.reliability",
+    "production-composition.authority",
     "internal-state.contract",
     "internal-state.campaign",
     "core.infrastructure",
