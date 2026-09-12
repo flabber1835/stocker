@@ -5,7 +5,21 @@ from types import SimpleNamespace
 import pytest
 
 from tools import core_infrastructure_suite
-from tools.verify_internal_state_evidence import EXPECTED_PYTHON, expected_locks, verify
+from tools.verify_internal_state_evidence import (
+    EXPECTED_PYTHON, expected_campaign_plan, expected_locks, verify,
+)
+
+
+def write_owner_evidence(path, owner, nodes=1):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(json.dumps({
+        "schema": "stocker.test-owner-execution/3",
+        "verdict": "PASS",
+        "owner": owner,
+        "complete_collection": True,
+        "collected_nodes": nodes,
+        "passing_nodes": nodes,
+    }))
 
 
 @pytest.fixture
@@ -44,6 +58,10 @@ def evidence(tmp_path, monkeypatch):
         "expected_failures": {},
         "unexpected_successes": {},
     }))
+    write_owner_evidence(tmp_path / "contract" / "test-owner.json", "internal-state.contract")
+    write_owner_evidence(
+        tmp_path / "artifacts/core-infrastructure/test-owner.json", "core.infrastructure")
+
     runtime = {
         "tracked_dirty": False,
         "python": EXPECTED_PYTHON,
@@ -67,6 +85,24 @@ def evidence(tmp_path, monkeypatch):
     return tmp_path, commit, tree, suites
 
 
+def bind_authoritative_campaign(root, seeds=0, seed_start=0):
+    plan = expected_campaign_plan(seeds, seed_start)
+    for shard in range(4):
+        report = root / f"lifecycle-{shard}/campaign.json"
+        data = json.loads(report.read_text())
+        shard_plan = [case for index, case in enumerate(plan) if index % 4 == shard]
+        data.update({
+            "seeds": seeds,
+            "seed_start": seed_start,
+            "scenario_filter": [],
+            "replay_mode": False,
+            "planned": shard_plan,
+            "completed": list(shard_plan),
+        })
+        report.write_text(json.dumps(data))
+    return plan
+
+
 def test_complete_evidence_accepts_the_current_core_producer(evidence):
     root, commit, tree, suites = evidence
     result = verify(root, commit=commit, tree=tree)
@@ -75,6 +111,33 @@ def test_complete_evidence_accepts_the_current_core_producer(evidence):
     assert result["contract_tests"] == 1
     assert result["campaign_shards"] == result["campaign_cases"] == 4
     assert result["runtime_identity"]["python"] == EXPECTED_PYTHON
+
+
+def test_complete_evidence_requires_successful_owner_verifiers(evidence):
+    root, commit, tree, _ = evidence
+    (root / "contract/test-owner.json").unlink()
+    with pytest.raises(AssertionError, match="owner-verifier"):
+        verify(root, commit=commit, tree=tree)
+
+
+def test_authoritative_campaign_partition_is_exact(evidence):
+    root, commit, tree, _ = evidence
+    plan = bind_authoritative_campaign(root, seeds=0)
+    result = verify(root, commit=commit, tree=tree, campaign_seeds=0)
+    assert result["campaign_cases"] == len(plan)
+    assert result["campaign_seeds"] == 0
+
+
+def test_authoritative_campaign_rejects_missing_partition_case(evidence):
+    root, commit, tree, _ = evidence
+    bind_authoritative_campaign(root, seeds=0)
+    report = root / "lifecycle-0/campaign.json"
+    data = json.loads(report.read_text())
+    data["planned"] = data["planned"][:-1]
+    data["completed"] = list(data["planned"])
+    report.write_text(json.dumps(data))
+    with pytest.raises(AssertionError, match="authoritative partition"):
+        verify(root, commit=commit, tree=tree, campaign_seeds=0)
 
 
 @pytest.mark.parametrize("fault", ["missing", "duplicate", "legacy_schema", "unknown_schema",
