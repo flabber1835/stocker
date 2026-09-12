@@ -199,8 +199,8 @@ The exact candidate runtime performs these read-only proofs after preparation:
   global sort, and the live frontier load uses `idx_sentinel_bars_session`
   without a `sentinel_bars` sequential scan;
 - an uncached canonical revision scan reloads and hashes the exact 252-session
-  warm-up bars and causal metadata used by `durable_status`; the already-required
-  forward differential is timed as a much heavier 7,188-session decision replay;
+  warm-up bars and causal metadata used by `durable_status`; current-strategy
+  operational parity is timed across the runtime and certified test images;
   the actual bounded schema/daily-ingest preparation is timed as well.
 
 The sanitized bundle publishes integer milliseconds, not raw SQL, DSNs, rows,
@@ -210,7 +210,7 @@ the deployer:
 | Measured workload | Maximum |
 |---|---:|
 | Bounded schema + Sharadar daily ingest command | 7,200,000 ms (2h) |
-| Full 7,188-session forward decision replay | 14,400,000 ms (4h) |
+| Current-strategy operational parity, including 252-session warm-up | 14,400,000 ms (4h) |
 | Cold 252-session warm-up revision scan | 1,800,000 ms (30m) |
 | Sum of all three | 17,550,000 ms (4h52m30s) |
 
@@ -218,6 +218,15 @@ The shortest fixed 23:45 ET source-final to following 09:30 ET XNYS-open
 window is 35,100,000 ms (9h45m). The combined bound consumes at most half and
 therefore preserves at least 17,550,000 ms (4h52m30s) of margin. A weekend or
 holiday may increase the observed window but can never relax the weekday bound.
+
+`wealth_core_nas_parity` follows the operational proof defined in
+`production-certification-separation.md`: the current production selector,
+canonical startup transition, exact image/input equivalence, and serialized
+state restart equivalence under a read-only publication pin. It requires the
+operational data window already used by shadow startup. Historical Sharadar
+archives and the Sentinel 1.1 reference tape belong to separate historical
+certification. The schema-1 timing field `full_forward_decision_replay` retains
+its existing name and bounds while measuring this operational proof.
 Any missing measurement, slow component, changed query plan, failed pin,
 partial/mixed publication, schema/index drift, non-XNYS gap, duplicate key, or
 post-preparation database write makes every deployment verdict `NO_GO`.

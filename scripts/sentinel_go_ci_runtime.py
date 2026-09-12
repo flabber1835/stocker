@@ -136,17 +136,15 @@ def _ensure_exact_image(runner: go.CommandRunner, *, immutable_ref: str,
 _IDENTITY_CODE = r'''
 import json
 from sentinel.identity import rehearsal_identity
-from tools import sentinel_forward_chain as chain
+from tools import sentinel_operational_parity as parity
 record = rehearsal_identity()
 print(json.dumps({
     'identity_hash': record.get('identity_hash'),
     'environment_compatible': bool(
         (record.get('environment') or {}).get('compatible')),
     'parity_helper_present': bool(
-        getattr(chain, 'REPORT_SCHEMA', None)
-        == 'sentinel.production-forward-chain/2'),
-    'reference_tape_present': bool(chain.REFERENCE_PATH.is_file()),
-    'reference_checksum_present': bool(chain.REFERENCE_CHECKSUMS_PATH.is_file()),
+        getattr(parity, 'REPORT_SCHEMA', None)
+        == 'sentinel.production-operational-parity/1'),
 }, sort_keys=True))
 '''.strip()
 
@@ -165,9 +163,7 @@ def _runtime_identity(runner: go.CommandRunner, local_id: str) -> str:
     identity = str(payload.get("identity_hash") or "") if isinstance(payload, dict) else ""
     if (go._HEX64.fullmatch(identity) is None
             or payload.get("environment_compatible") is not True
-            or payload.get("parity_helper_present") is not True
-            or payload.get("reference_tape_present") is not True
-            or payload.get("reference_checksum_present") is not True):
+            or payload.get("parity_helper_present") is not True):
         raise CIRuntimeRefused(
             "certified runtime lacks compatible identity/parity evidence")
     return identity

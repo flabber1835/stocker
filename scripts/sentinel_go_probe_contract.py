@@ -490,7 +490,8 @@ def install(*, controller: Any, phase: Any) -> None:
         return original_preparation(
             runner, env=env, runtime_ref=runtime_ref, commit=commit, **kwargs)
 
-    def parity(runner, *, env, commit, candidate_image_digest, now_text,
+    def parity(runner, *, env, commit, candidate_image_digest,
+               runtime_image_digest, source_identity_sha256, now_text,
                subject_values=None, timing_values=None):
         if phase._PHASE.get("prepared"):
             failure = ready(runner, env)
@@ -501,14 +502,16 @@ def install(*, controller: Any, phase: Any) -> None:
         result = original_parity(
             recording, env=env, commit=commit,
             candidate_image_digest=candidate_image_digest,
+            runtime_image_digest=runtime_image_digest,
+            source_identity_sha256=source_identity_sha256,
             now_text=now_text, subject_values=subject_values,
             timing_values=timing_values)
         child = recording.last_compose_run()
         report = _json_object(child.stdout or "") if child is not None else None
         if result.status != go.PASS and child is not None and report is None:
-            evidence = (subprocess_evidence(child, context="FORWARD_CHAIN")
+            evidence = (subprocess_evidence(child, context="OPERATIONAL_PARITY")
                         if int(child.returncode) != 0
-                        else malformed_report_evidence(child, context="FORWARD_CHAIN"))
+                        else malformed_report_evidence(child, context="OPERATIONAL_PARITY"))
             emit_probe_failure(evidence)
             return go.make_gate(
                 "wealth_core_nas_parity",

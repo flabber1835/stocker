@@ -611,9 +611,11 @@ class _Runner:
         if argv[:3] == ["bash", "scripts/sentinel-compose.sh", "--explain"]:
             return subprocess.CompletedProcess(
                 argv, 0, stdout="-f docker-compose.sentinel.yml ", stderr="")
-        if "tools.sentinel_forward_chain" in argv:
+        if "tools.sentinel_operational_parity" in argv:
             return subprocess.CompletedProcess(
-                argv, 0, stdout=json.dumps(self.forward_report), stderr="")
+                argv, 0, stdout=json.dumps(
+                    self.forward_report(env) if callable(self.forward_report)
+                    else self.forward_report), stderr="")
         if argv[:3] == ["docker", "image", "inspect"]:
             suffix = str(len(self.calls) % 10)
             return subprocess.CompletedProcess(
@@ -631,44 +633,41 @@ class _Runner:
 
 def _forward_report():
     return {
-        "schema": "sentinel.production-forward-chain/2",
-        "differential_verdict": "PASS",
-        "authority_effect": "NONE",
+        "schema": "sentinel.production-operational-parity/1",
+        "verdict": "PASS", "authority_effect": "NONE",
         "runtime_authority_changed": False,
-        "manual_review_required": True,
         "transaction": {"isolation": "repeatable read", "read_only": "on"},
         "publication_coherence": {
-            "coherent": True,
-            "enumeration": "exhaustive",
-            "unpublished_rows": 0,
-            "unpublished_bars": 0,
-            "unpublished_actions": 0,
-            "unpublished_spy": 0,
-            "unpublished_defensive": 0,
-            "unpublished_universe": 0,
-            "unpublished_repairs": 0,
-            "unpublished_anomalies": 0,
-            "unpublished_runs": [],
-        },
+            "coherent": True, "scope": "PRODUCTION_OPERATIONAL",
+            "version": 1, "blocking_runs": []},
         "held_publication": {
             "publication_fingerprint": "9" * 64,
-            "visible_frontier": "2026-07-31",
-        },
-        "corpus_identity": {"postgres_certified": True},
-        "source_identity": {"environment": {
-            "compatible": True,
-            "pins_match": True,
-            "sources_known": True,
-            "lock_present": True,
-            "pin_drift": {},
-        }},
-        "comparison": {
-            "reference_sessions_compared": 5032,
-            "expected_reference_sessions": 5032,
-            "field_comparisons": 55351,
-            "expected_full_pass_field_comparisons": 55351,
-            "first_divergence": None,
-        },
+            "visible_frontier": "2026-07-31"},
+        "source_identity": {
+            "identity_hash": IDENTITY, "image_source_revision": COMMIT,
+            "environment": {
+                "compatible": True, "pins_match": True, "sources_known": True,
+                "lock_present": True, "pin_drift": {},
+                "sentinel_source": {"hash": "d" * 64},
+                "wealth_core_source": {"hash": "e" * 64}}},
+        "proof": {
+            "scope": "CURRENT_STRATEGY_STARTUP_AND_RESTART",
+            "strategy_identity": {
+                "strategy": "sentinel-compact-champion-v1",
+                "controller_rule_sha256": "c" * 64},
+            "controller_configuration_sha256": "c" * 64,
+            "starting_cash": "100000", "decision_session": "2026-07-31",
+            "data_version": 1,
+            "warmup_input": {"session_count": 252, "warmup_input_sha256": "b" * 64},
+            "sentinel_source_sha256": "d" * 64,
+            "wealth_core_source_sha256": "e" * 64,
+            "proof_helper_sha256": "f" * 64,
+            "input_sha256": "1" * 64, "prior_state_sha256": "2" * 64,
+            "result_state_sha256": "3" * 64, "decision_sha256": "4" * 64,
+            "checks": {key: True for key in (
+                "prior_unchanged", "input_unchanged", "restart_equivalent",
+                "result_roundtrip_equivalent", "frontier_advanced",
+                "publication_version_bound", "strategy_bound", "decision_present")}},
     }
 
 
@@ -686,17 +685,21 @@ def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary():
             "ALPACA_SECRET_KEY": "must-not-enter-compose",
             "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter-compose",
         }, commit=COMMIT, candidate_image_digest=DIGEST_A,
+        runtime_image_digest=DIGEST_B, source_identity_sha256=IDENTITY,
         now_text=NOW_TEXT, subject_values=subjects,
         timing_values=timings, monotonic=lambda: next(ticks))
 
     assert gate.status == go.PASS
     forward = next(call for call, _env in runner.calls
-                   if "tools.sentinel_forward_chain" in call)
+                   if "tools.sentinel_operational_parity" in call)
     assert "--no-deps" in forward
-    assert "--quiet" in forward
+    assert "--starting-cash" in forward
+    assert "--expected-commit" in forward
     forward_env = next(env for call, env in runner.calls
-                       if "tools.sentinel_forward_chain" in call)
-    assert DIGEST_A == forward_env["SENTINEL_RUNTIME_IMAGE_REF"]
+                       if "tools.sentinel_operational_parity" in call)
+    assert DIGEST_B == forward_env["SENTINEL_RUNTIME_IMAGE_REF"]
+    assert [env["SENTINEL_RUNTIME_IMAGE_REF"] for call, env in runner.calls
+            if "tools.sentinel_operational_parity" in call] == [DIGEST_B, DIGEST_A]
     assert not go._BROKER_AUTH_ENV.intersection(forward_env)
     assert subjects == {
         "data_publication": go.data_publication_subject_value({
@@ -748,8 +751,55 @@ def test_active_wealth_parity_refuses_a_non_read_only_report():
             "SENTINEL_POSTGRES_PASSWORD": "not-rendered",
             "SENTINEL_BACKUP_DIR": "/not-rendered",
         }, commit=COMMIT, candidate_image_digest=DIGEST_A,
+        runtime_image_digest=DIGEST_B, source_identity_sha256=IDENTITY,
         now_text=NOW_TEXT)
     assert gate.status == go.FAIL
+
+
+@pytest.mark.parametrize("role,path,value", [
+    (DIGEST_A, ("proof", "input_sha256"), "8" * 64),
+    (DIGEST_A, ("proof", "result_state_sha256"), "8" * 64),
+    (DIGEST_A, ("proof", "decision_sha256"), "8" * 64),
+    (DIGEST_A, ("proof", "proof_helper_sha256"), "8" * 64),
+    (DIGEST_A, ("proof", "strategy_identity", "strategy"), "legacy-strategy"),
+    (DIGEST_A, ("held_publication", "publication_fingerprint"), "8" * 64),
+    (DIGEST_A, ("source_identity", "image_source_revision"), "8" * 40),
+    (DIGEST_B, ("source_identity", "identity_hash"), "8" * 64),
+    (DIGEST_B, ("proof", "warmup_input", "session_count"), 251),
+    (DIGEST_B, ("proof", "checks", "restart_equivalent"), False),
+    (DIGEST_B, ("proof", "checks"), {}),
+    (DIGEST_B, ("source_identity",), "malformed"),
+    (DIGEST_B, ("source_identity", "environment", "sentinel_source"), []),
+])
+def test_operational_parity_rejects_invalid_or_different_image_evidence(role, path, value):
+    reports = {DIGEST_A: _forward_report(), DIGEST_B: _forward_report()}
+    target = reports[role]
+    for field in path[:-1]:
+        target = target[field]
+    target[path[-1]] = value
+    subjects = {}
+    gate = go.probe_active_wealth_parity(
+        _Runner(lambda env: reports[env["SENTINEL_RUNTIME_IMAGE_REF"]]),
+        env={"SENTINEL_POSTGRES_PASSWORD": "private"}, commit=COMMIT,
+        candidate_image_digest=DIGEST_A, runtime_image_digest=DIGEST_B,
+        source_identity_sha256=IDENTITY, now_text=NOW_TEXT, subject_values=subjects)
+    assert gate.status == go.FAIL
+    assert subjects == {}
+
+
+def test_operational_parity_reuses_identical_certified_image_and_binds_cash():
+    report = _forward_report()
+    report["proof"]["starting_cash"] = "250000"
+    runner = _Runner(report)
+    gate = go.probe_active_wealth_parity(
+        runner, env={"SENTINEL_POSTGRES_PASSWORD": "private",
+                     "SENTINEL_SHADOW_STARTING_CASH": "250000.00"}, commit=COMMIT,
+        candidate_image_digest=DIGEST_A, runtime_image_digest=DIGEST_A,
+        source_identity_sha256=IDENTITY, now_text=NOW_TEXT)
+    calls = [call for call, _ in runner.calls if "tools.sentinel_operational_parity" in call]
+    assert gate.status == go.PASS
+    assert len(calls) == 1
+    assert calls[0][calls[0].index("--starting-cash") + 1] == "250000"
 
 
 def test_upgrade_preparation_uses_exact_runtime_without_broker_authority():

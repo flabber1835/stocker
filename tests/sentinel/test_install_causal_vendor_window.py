@@ -44,6 +44,7 @@ def _bind_instance(tmp_path):
         git_commit="a" * 40,
         test_image_digest="sha256:" + "b" * 64,
         runtime_image_digest="sha256:" + "c" * 64,
+        source_identity_sha256="e" * 64,
         data_publication_sha256=None,
         bundle_sha256="d" * 64,
     )
@@ -58,6 +59,8 @@ def _stub_bind_probes(monkeypatch, events):
     monkeypatch.setattr(go, "CommandRunner", lambda: object())
 
     def parity(*args, **kwargs):
+        assert kwargs["runtime_image_digest"] == "sha256:" + "c" * 64
+        assert kwargs["source_identity_sha256"] == "e" * 64
         kwargs["subject_values"]["data_publication"] = "publication-v1"
         return SimpleNamespace(status=go.PASS, evidence_sha256="e" * 64)
 

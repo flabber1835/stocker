@@ -446,6 +446,8 @@ finally:
             runner, env=self.env,
             commit=reviewed.git_commit,
             candidate_image_digest=reviewed.test_image_digest,
+            runtime_image_digest=reviewed.runtime_image_digest,
+            source_identity_sha256=reviewed.source_identity_sha256,
             now_text=now_text, subject_values=subjects,
             timing_values=timings)
         readiness = go.probe_sharadar_readiness(
