@@ -20,6 +20,11 @@ A cash correction is accepted only through a reviewed immutable authority record
 The record is code-reviewed and commit-bound; the source row itself remains in
 `sentinel_action_observations` and is never rewritten to manufacture agreement.
 
+The persisted strategy source identity binds the adjudication resolver, reviewed
+authority data, and v7 semantic migration modules. A change to any of those
+sources invalidates the prior book's strategy identity under the existing
+reconstruction contract.
+
 Each authority record contains:
 
 ```text
