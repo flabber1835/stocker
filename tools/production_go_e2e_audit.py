@@ -379,6 +379,23 @@ def _git(argv, *, check=True) -> str:
     return completed.stdout.strip()
 
 
+def _initialize_backup_target(backup: Path) -> None:
+    for name in ("wal", "base"):
+        child = backup / name
+        child.mkdir(parents=True, exist_ok=True)
+        child.chmod(0o777)
+    completed = _run(
+        ["bash", "scripts/sentinel-compose.sh", "--initialize-backup"],
+        timeout=180,
+    )
+    _require(
+        completed.returncode == 0
+        and "initialized_backup_target:" in (completed.stdout or ""),
+        "canonical backup target initialization failed "
+        f"(rc={completed.returncode}): {(completed.stdout or '')[-1200:]}",
+    )
+
+
 @contextlib.contextmanager
 def _ci_main_authority(work: Path, commit: str):
     """Present the tested CI commit as the local origin/main authority.
@@ -431,21 +448,25 @@ def run(*, output: Path, sensitivity: bool) -> dict:
         "all_pass": False,
     }
     try:
-        base._clean_runtime()
         with _ci_main_authority(work, commit):
             with base._source_server() as port, base._temporary_environment_file(
                     port=port, backup_dir=backup):
-                completed = base._invoke()
-                (output.parent / "canonical-go.log").write_text(
-                    completed.stdout or "", encoding="utf-8")
-                result["success"] = _success_evidence(completed, commit)
+                _initialize_backup_target(backup)
+                base._clean_runtime()
+                try:
+                    completed = base._invoke()
+                    (output.parent / "canonical-go.log").write_text(
+                        completed.stdout or "", encoding="utf-8")
+                    result["success"] = _success_evidence(completed, commit)
 
-                if sensitivity:
-                    proxy = _write_python_proxy(work)
-                    result["sensitivity"].append(_environment_fault())
-                    result["sensitivity"].append(_lock_fault())
-                    for spec in FAULTS:
-                        result["sensitivity"].append(_proxy_fault(proxy, *spec))
+                    if sensitivity:
+                        proxy = _write_python_proxy(work)
+                        result["sensitivity"].append(_environment_fault())
+                        result["sensitivity"].append(_lock_fault())
+                        for spec in FAULTS:
+                            result["sensitivity"].append(_proxy_fault(proxy, *spec))
+                finally:
+                    base._clean_runtime()
 
         result["all_pass"] = True
         output.write_text(
@@ -464,7 +485,6 @@ def run(*, output: Path, sensitivity: bool) -> dict:
         )
         raise
     finally:
-        base._clean_runtime()
         shutil.rmtree(work, ignore_errors=True)
 
 
