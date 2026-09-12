@@ -203,6 +203,8 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
                    last_valid_mark: float | None = None,
                    sessions_since_last_valid_print: int | None = None,
                    executable_price: float | None = None,
+                   phase: str = "OPEN",
+                   executable_price_phase: str = "OPEN",
                    counters: dict | None = None) -> dict:
     """Apply one terminal action, CARRY it, or RECORD that it cannot be applied.
 
@@ -246,6 +248,7 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         last_valid_mark=last_valid_mark,
         sessions_since_last_valid_print=sessions_since_last_valid_print,
         executable_price=executable_price,
+        phase=phase, executable_price_phase=executable_price_phase,
         sessions_pending_terms=state.terminal_pending_sessions.get(sec, 0))
 
     if decision.carries:
@@ -332,7 +335,8 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         # A PROXY settlement: the event is documented, the consideration is not.
         # Deliberately NOT routed through _apply_cash's CASH_MERGER event — that
         # would record a settlement the vendor never stated.
-        res = _apply_proxy(state, slot_id, ep, ledger, session, decision, terms)
+        res = _apply_proxy(state, slot_id, ep, ledger, session, decision, terms,
+                           phase=phase)
     elif terms.kind is TerminalKind.WRITE_OFF:
         res = _apply_write_off(state, slot_id, ep, ledger, session)
     elif terms.kind is TerminalKind.CASH_MERGER:
@@ -364,7 +368,8 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
     # them quietly overwrite the result's — the same collision that put
     # NO_TRUSTWORTHY_MARK where a terms gap belonged and forced
     # `settlement_reason` to be namespaced.
-    return {**res, "terminal_audit": audit}
+    return {**res, "settlement_available_phase": decision.availability_phase.value,
+            "terminal_audit": audit}
 
 
 def _compose_audit(state: PortfolioState, ep: HoldingEpisode, *,
@@ -514,7 +519,7 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
 
 
 def _apply_proxy(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
-                 ledger: Ledger, session: str, decision, terms) -> dict:
+                 ledger: Ledger, session: str, decision, terms, *, phase: str) -> dict:
     """Settle a DOCUMENTED termination whose contractual terms are unavailable,
     or an undocumented orphan at zero.
 
@@ -526,7 +531,9 @@ def _apply_proxy(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
     leave the book — but its provenance says ZERO_ORPHAN, which is what
     distinguishes it from a stated worthlessness.
     """
-    from stock_strategy_shared.wealth_core.settlement import SettlementSource
+    from stock_strategy_shared.wealth_core.settlement import SettlementPhase, SettlementSource
+    if not SettlementPhase(phase).permits(decision.availability_phase):
+        raise ValueError("terminal proceeds are unavailable at this session phase")
     px = float(decision.price_per_share or 0.0)
     proceeds = ep.current_shares * px
     event = (EventType.WRITE_OFF
@@ -626,6 +633,7 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
             # As of the EVENT, not as of now — see apply_terminal's note on
             # why re-measuring here makes the settlement branch unreachable.
             sessions_since_last_valid_print=int(rec["stale_at_event"]),
+            phase="CLOSE",
             sessions_pending_terms=state.terminal_pending_sessions[sec])
 
         if decision.carries:
@@ -660,11 +668,12 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
             out.append({"session": session,
                         **apply_terminal(state, terms, ledger=ledger,
                                          session=session,
+                                         phase="CLOSE",
                                          cfg=WealthCoreConfig())})
             continue
         out.append({"session": session,
                     **_apply_proxy(state, slot_id, ep, ledger, session,
-                                   decision, terms),
+                                   decision, terms, phase="CLOSE"),
                     "terminal_audit": audit})
     return out
 
@@ -697,6 +706,7 @@ def sweep_orphans(state: PortfolioState, *, ledger: Ledger, session: str,
             continue
         decision = resolve_settlement(
             terms=None, shares=ep.current_shares,
+            phase="CLOSE",
             sessions_since_last_valid_print=state.sessions_since_valid_mark.get(
                 sec, 0))
         if decision.source is not SettlementSource.ZERO_ORPHAN:
@@ -711,7 +721,7 @@ def sweep_orphans(state: PortfolioState, *, ledger: Ledger, session: str,
             tally(counters, decision, ep.current_shares)
         out.append({"session": session,
                     **_apply_proxy(state, slot_id, ep, ledger, session,
-                                   decision, None),
+                                   decision, None, phase="CLOSE"),
                     "terminal_audit": audit})
     return out
 

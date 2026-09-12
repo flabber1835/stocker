@@ -64,6 +64,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Iterable, Mapping, Sequence
 
 from sentinel.core.terminal import DIVIDEND_ACTIONS, SHARE_SPLIT_ACTIONS
+from stock_strategy_shared.wealth_core.sharadar_domains import AdjudicatedCashDistribution
 from stock_strategy_shared.split_reconciliation import (
     SPLIT_AGREEMENT_TOLERANCE,
     SPLIT_AUTHORITATIVE_APPLIED,
@@ -173,7 +174,7 @@ def split_rows_from_actions(rows: Iterable[Mapping],
 
 def dividends_from_actions(rows: Iterable[Mapping],
                            sessions_sorted: Sequence[str]
-                           ) -> dict[tuple[str, str], Decimal]:
+                           ) -> dict[tuple[str, str], Decimal | AdjudicatedCashDistribution]:
     """Exact resolved cash per share on the effective ex-date session.
 
     Ordinary events retain Sharadar ACTIONS authority. A reviewed event in the

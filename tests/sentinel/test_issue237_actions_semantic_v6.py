@@ -6,9 +6,9 @@ from sentinel.feed import maintenance
 
 def test_actions_cursor_epoch_advances_for_cash_adjudication_semantics():
     assert maintenance.ACTIONS_CURSOR_NAME == \
-        "sharadar-actions-export-reconcile:v8"
+        "sharadar-actions-export-reconcile:v9"
     assert maintenance.ACTIONS_CURSOR_KIND == \
-        "sharadar-actions-export-reconcile/v8"
+        "sharadar-actions-export-reconcile/v9"
 
 
 def test_load_actions_cursor_never_queries_legacy_v6_authority(monkeypatch):
@@ -22,6 +22,6 @@ def test_load_actions_cursor_never_queries_legacy_v6_authority(monkeypatch):
     monkeypatch.setattr(maintenance._core, "_read_cursor", read_cursor)
     assert maintenance.load_actions_cursor(object()) is None
     assert seen == {
-        "name": "sharadar-actions-export-reconcile:v8",
-        "kind": "sharadar-actions-export-reconcile/v8",
+        "name": "sharadar-actions-export-reconcile:v9",
+        "kind": "sharadar-actions-export-reconcile/v9",
     }

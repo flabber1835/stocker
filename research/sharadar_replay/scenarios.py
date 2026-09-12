@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import datetime as dt
+from fractions import Fraction
 
 import exchange_calendars as xcals
 
@@ -88,24 +89,32 @@ def world(through: str, *, correction: int | None = None,
         expected_actions.append(("AAA", DIVIDEND, "dividend", "AAA",
                                  dividend / split_factor if split and DIVIDEND < split_date else dividend,
                                  None, None))
-    # Historical replay must supply the reviewed TRI source event to the real
-    # cash authority. A delisted one-session security keeps that proof separate
-    # from the AAA/BBB fault schedules. Declare source and economic cash values
-    # independently so the oracle detects an unapplied adjudication.
-    if AUTHORITY_SESSION in axis:
+    # Complete issuer event: prior old-share observation plus the cash and
+    # consolidation legs. Expected cash uses the independent old-share oracle.
+    if "2026-05-01" in axis:
+        end = min(through, AUTHORITY_SESSION)
         tickers.append({"table": "SEP", "ticker": "TRI", "permaticker": "SIM-TRI-AUTHORITY",
             "category": "Domestic Common Stock", "sector": "Industrials", "exchange": "NYSE",
-            "relatedtickers": "", "firstpricedate": AUTHORITY_SESSION,
-            "lastpricedate": AUTHORITY_SESSION, "isdelisted": "Y"})
+            "relatedtickers": "", "firstpricedate": "2026-05-01",
+            "lastpricedate": end, "isdelisted": "Y" if end == AUTHORITY_SESSION else "N"})
         expected_identities.append(("SIM-TRI-AUTHORITY", "TRI", "Domestic Common Stock",
-            "Industrials", "", AUTHORITY_SESSION, AUTHORITY_SESSION, True))
-        actions.append({"ticker": "TRI", "date": AUTHORITY_SESSION, "action": "dividend",
-            "name": "TRI", "value": 1.36, "contraticker": None, "contraname": None})
-        expected_actions.append(("TRI", AUTHORITY_SESSION, "dividend", "TRI", 1.36, None, None))
-        sep.append({"ticker": "TRI", "date": AUTHORITY_SESSION, "open": 99.5, "close": 100.0,
-            "closeunadj": 100.0, "volume": 1_000_000, "lastupdated": AUTHORITY_SESSION})
-        expected_bars.append(("SIM-TRI-AUTHORITY", AUTHORITY_SESSION, "TRI",
-            100.0, 100.0, 99.5, 1_000_000, 1, 1.435518))
+            "Industrials", "", "2026-05-01", end, end == AUTHORITY_SESSION))
+        for day in ("2026-05-01", AUTHORITY_SESSION):
+            if day > through:
+                continue
+            raw, raw_open, volume = ((98.456, 97.96372, 1_000_000)
+                                    if day < AUTHORITY_SESSION else (100.0, 99.5, 1_000_000))
+            sep.append({"ticker": "TRI", "date": day, "open": 99.5, "close": 100.0,
+                "closeunadj": raw, "volume": 984_560 if day < AUTHORITY_SESSION else volume,
+                "lastupdated": day})
+            expected_bars.append(("SIM-TRI-AUTHORITY", day, "TRI", 100.0, raw, raw_open, volume,
+                1 if day < AUTHORITY_SESSION else 0.984560,
+                0 if day < AUTHORITY_SESSION else float(Fraction(1435518, 984560))))
+        if AUTHORITY_SESSION in axis:
+            for action, value in (("dividend", 1.36), ("split", 0.984560)):
+                actions.append({"ticker": "TRI", "date": AUTHORITY_SESSION, "action": action,
+                    "name": "TRI", "value": value, "contraticker": None, "contraname": None})
+                expected_actions.append(("TRI", AUTHORITY_SESSION, action, "TRI", value, None, None))
     for index, day in enumerate(axis):
         for ticker, base in (("SPY", 400), ("BIL", 100)):
             close = base + index / 4
