@@ -22,6 +22,76 @@ def load_actions_cursor(conn):
         conn, ACTIONS_CURSOR_NAME, ACTIONS_CURSOR_KIND)
 
 
+def _cash_adjudication_audit(conn, *, run_id: str, dates, windows) -> list[dict]:
+    """Bind each reviewed source fact to the exact canonical candidate bar.
+
+    The source row itself remains in the published ACTIONS generation.  This
+    evidence names that immutable row plus the permanent security id and the
+    normalized bar that consumed the adjudicated amount.  Publication signs the
+    resulting object into its normal validation-receipt chain.
+    """
+    from sentinel.feed import actions, calendar, publication
+
+    source_rows = actions.active_rows(
+        conn, start=min(dates), end=max(dates))
+    sessions = calendar.sessions_in_range(windows[0][0], windows[-1][1])
+    resolution = corporate_action_authority.resolve_dividends(
+        source_rows, sessions)
+    audit = []
+    for adjudication in resolution.adjudications:
+        matching_source = [
+            row for row in source_rows
+            if str(row.get("ticker") or "").upper() == adjudication.ticker
+            and str(row.get("action") or "").lower()
+                == str(adjudication.event_id).rsplit(":", 1)[-1]
+            and str(row.get("date") or "")
+                == adjudication.source_action_date
+        ]
+        if len(matching_source) != 1:
+            raise corporate_action_authority.CorporateActionAuthorityRefused(
+                f"cash adjudication {adjudication.event_id} lost its exact "
+                f"published Sharadar source row while building audit evidence")
+        source_row_id = str(matching_source[0].get("source_row_id") or "")
+        if not source_row_id:
+            raise corporate_action_authority.CorporateActionAuthorityRefused(
+                f"cash adjudication {adjudication.event_id} has no durable "
+                "Sharadar source-row identity")
+
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT b.security_id,b.dividend_per_share"
+                " FROM sentinel_bars b"
+                " WHERE UPPER(b.ticker)=%s AND b.session=%s AND ("
+                + publication.visible_predicate("b")
+                + " OR b.last_written_run_id=%s)",
+                (adjudication.ticker, adjudication.effective_session,
+                 str(run_id)))
+            candidate_rows = cur.fetchall()
+        if len(candidate_rows) != 1:
+            raise corporate_action_authority.CorporateActionAuthorityRefused(
+                f"cash adjudication {adjudication.event_id} requires exactly "
+                f"one canonical security/bar mapping; found "
+                f"{len(candidate_rows)}")
+        security_id, normalized_cash = candidate_rows[0]
+        if not security_id:
+            raise corporate_action_authority.CorporateActionAuthorityRefused(
+                f"cash adjudication {adjudication.event_id} has no permanent "
+                "security identity")
+
+        item = adjudication.to_dict()
+        item.update({
+            "source_row_id": source_row_id,
+            "security_id": str(security_id),
+            "normalized_bar_dividend_per_share": str(normalized_cash),
+        })
+        audit.append(item)
+    if len(audit) != len(dates):
+        raise corporate_action_authority.CorporateActionAuthorityRefused(
+            "cash-adjudication semantic replay did not produce one canonical "
+            "audit binding for every retained disputed event")
+    return sorted(audit, key=lambda item: item["event_id"])
+
+
 def _cash_semantic_migration(conn, *, fetch, through: dt.date):
     """Replay every retained reviewed cash event through canonical ingest logic."""
     market_start, market_end = _core._retained_market_bounds(conn)
@@ -44,6 +114,8 @@ def _cash_semantic_migration(conn, *, fetch, through: dt.date):
         conn, fetch=fetch, run=run, dates=dates,
         chunk_prefix="cash-adjudication-v7",
         market_start=market_start, market_end=market_end)
+    adjudication_audit = _cash_adjudication_audit(
+        conn, run_id=run.progress.run_id, dates=dates, windows=windows)
     run.finish("success")
     return _core.publication.publish(
         conn, run_id=run.progress.run_id,
@@ -52,6 +124,7 @@ def _cash_semantic_migration(conn, *, fetch, through: dt.date):
             "kind": "actions_cash_adjudication_v7",
             "semantic_epoch": ACTIONS_CURSOR_KIND,
             "authority": corporate_action_authority.authority_manifest(),
+            "adjudications": adjudication_audit,
             "affected_action_dates": dates,
             "retained_market_window": [market_start, market_end],
             "replay_windows": [
