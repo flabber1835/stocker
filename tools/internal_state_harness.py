@@ -146,6 +146,10 @@ def main(argv=None):
         "failures": failures,
         "shard": args.shard,
         "shards": args.shards,
+        "seeds": args.seeds,
+        "seed_start": args.seed_start,
+        "scenario_filter": list(args.scenario or []),
+        "replay_mode": args.replay is not None,
         "coverage": sorted({c for r in reports for c in r["coverage"]}),
     })
     return int(bool(failures) or len(reports) != len(selected))
