@@ -86,7 +86,7 @@ def test_schema_migration_precedes_ingest_and_publication_observation_in_product
     code = entry.go._PREPARATION_CODE
     schema_at = code.index("schema.ensure_schema(c)")
     migration_at = code.index("store.migrate_schema(c)")
-    ingest_at = code.index("ingest.daily(c, today=target)")
+    ingest_at = code.index("outage_recovery.catch_up(")
     publication_at = code.index("publication.current(c)", ingest_at)
     assert schema_at < migration_at < ingest_at < publication_at
 

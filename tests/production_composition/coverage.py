@@ -58,7 +58,7 @@ EDGE_EVIDENCE = {
         "tests/scripts/test_sentinel_go_validate.py",
     ),
     "backup_to_database_mutation": (
-        "tests/backup/test_pr344_final_seams.py",
+        "tests/backup/test_runtime_backup_authority.py",
         "tests/internal_state/test_physical.py",
         ".github/workflows/backup-reliability.yml",
     ),
@@ -114,7 +114,7 @@ EDGE_EVIDENCE = {
     "restore_upgrade_to_go": (
         "tests/internal_state/test_physical.py",
         "tests/internal_state/test_contract.py",
-        "tests/backup/test_pr344_final_seams.py",
+        "tests/backup/test_runtime_backup_authority.py",
         ".github/workflows/internal-state-harness.yml",
         ".github/workflows/backup-reliability.yml",
     ),

@@ -80,15 +80,19 @@ def test_go_backup_path_recovers_immediately_after_external_backup_finishes(tmp_
     assert retried.returncode == 0, retried.stderr
 
 
-def test_go_and_backup_authorities_are_distinct_file_descriptors(tmp_path):
+def test_go_and_backup_authorities_use_distinct_lock_resources(tmp_path):
     backup_root = tmp_path / "backup-root"
     backup_root.mkdir()
-    marker = tmp_path / "fds.txt"
+    marker = tmp_path / "lock-resources.txt"
     nested = (
         "import os,subprocess,sys; from pathlib import Path; "
         f"out=Path({str(marker)!r}); "
+        "go=os.fstat(int(os.environ['SENTINEL_GO_LOCK_FD'])); "
+        "out.write_text(str(go.st_dev)+':'+str(go.st_ino)); "
         "code=\"import os; from pathlib import Path; "
-        f"Path({str(marker)!r}).write_text(os.environ['SENTINEL_GO_LOCK_FD']+','+os.environ['SENTINEL_BASE_BACKUP_LOCK_FD'])\"; "
+        f"out=Path({str(marker)!r}); "
+        "backup=os.fstat(int(os.environ['SENTINEL_BASE_BACKUP_LOCK_FD'])); "
+        "out.write_text(out.read_text()+'|'+str(backup.st_dev)+':'+str(backup.st_ino))\"; "
         f"cmd=[sys.executable,{str(BACKUP_LOCK)!r},'hold',sys.executable,'-c',code]; "
         "raise SystemExit(subprocess.run(cmd,env=os.environ,check=False).returncode)"
     )
@@ -97,6 +101,7 @@ def test_go_and_backup_authorities_are_distinct_file_descriptors(tmp_path):
         cwd=ROOT, env=_env(backup_root), text=True,
         stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10, check=False)
     assert completed.returncode == 0, completed.stderr
-    go_fd, backup_fd = marker.read_text().split(",")
-    assert go_fd.isdigit() and backup_fd.isdigit()
-    assert go_fd != backup_fd
+    go_resource, backup_resource = marker.read_text().split("|")
+    assert all(part.isdigit() for part in go_resource.split(":"))
+    assert all(part.isdigit() for part in backup_resource.split(":"))
+    assert go_resource != backup_resource

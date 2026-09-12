@@ -18,7 +18,7 @@ EXTENDED_EVIDENCE = {
     ),
     "filesystem_nas_fault": (
         "tests/production_composition/test_filesystem_evidence_faults.py",
-        "tests/backup/test_pr344_final_seams.py",
+        "tests/backup/test_runtime_backup_authority.py",
     ),
     "docker_lifecycle_fault": (
         "tests/production_composition/test_docker_network_faults.py",
