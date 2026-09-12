@@ -5,7 +5,8 @@ import datetime as dt
 import pytest
 
 from sentinel.feed import (
-    ingest, maintenance, maintenance_impl, recent_reconciliation, sharadar,
+    actions_reconcile_v7, ingest, maintenance, maintenance_impl,
+    recent_reconciliation, sharadar,
 )
 
 
@@ -138,7 +139,7 @@ def test_actions_future_cursor_refuses_before_export_or_vendor_fetch(monkeypatch
     monkeypatch.setattr(
         maintenance_impl.store, "_assert_corpus_locked", lambda _conn: None)
     monkeypatch.setattr(
-        maintenance_impl,
+        actions_reconcile_v7,
         "load_actions_cursor",
         lambda _conn: _future_cursor(maintenance.ACTIONS_CURSOR_KIND),
     )
@@ -151,7 +152,7 @@ def test_actions_future_cursor_refuses_before_export_or_vendor_fetch(monkeypatch
 
     with pytest.raises(
         maintenance.SharadarMutationRefused,
-        match="ACTIONS reconciliation cursor .* is ahead of requested reconciliation",
+        match="ACTIONS v7 reconciliation cursor .* is ahead of requested reconciliation",
     ):
         maintenance.reconcile_actions_if_due(
             object(), fetch=forbidden_fetch, through=THROUGH)

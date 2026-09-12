@@ -58,8 +58,8 @@ REQUIRED_PHASES = (
 
 TICKERS = (
     "SPY", "AAPL", "MSFT", "JPM", "XOM", "JNJ", "PG", "KO", "WMT", "CAT",
-    "HD", "V", "MA", "PFE", "UNH", "CVX", "IBM", "GE", "DIS", "MMM",
-) + tuple(f"E2E{i:04d}" for i in range(3_980))
+    "HD", "V", "MA", "PFE", "UNH", "CVX", "IBM", "GE", "DIS", "MMM", "TRI",
+) + tuple(f"E2E{i:04d}" for i in range(3_979))
 # The production seed source requires at least 4,000 resolved rows per session.
 SEP_COLUMNS = (
     "ticker", "date", "open", "high", "low", "close", "volume", "dividends",
@@ -154,7 +154,7 @@ def _price_rows(query: dict[str, list[str]], *, sfp: bool = False,
             common = [
                 ticker, day.isoformat(), raw_open, round(base * 1.006, 4),
                 round(base * 0.994, 4), raw_close, 2_000_000 + ti * 10_000,
-                0.0,
+                1.36 if ticker == "TRI" and day == dt.date(2026, 5, 4) else 0.0,
             ]
             if sfp:
                 rows.append(common + [raw_close, raw_close, source_day.isoformat()])
@@ -202,6 +202,13 @@ def _payload(table: str, query: dict[str, list[str]]) -> dict:
         rows = ([[day.isoformat(), "relation", "AAPL", "AAPL fixture security",
                   None, "MSFT", "MSFT fixture security"]]
                 if _in_range(day, query) else [])
+        # The current ACTIONS semantic migration replays this reviewed stale
+        # vendor fact whenever its date is retained. Production adjudicates it
+        # to 1.435518; the source fixture keeps the original 1.36 observation.
+        event_day = dt.date(2026, 5, 4)
+        if day <= event_day <= _session_days()[-1] and _in_range(event_day, query):
+            rows.append([event_day.isoformat(), "dividend", "TRI", "TRI fixture security",
+                         1.36, None, None])
     elif table == "TICKERS":
         columns, rows = TICKER_COLUMNS, _ticker_rows()
     else:

@@ -135,6 +135,9 @@ Sharadar and the PAPER account use local protocol fixtures with dummy keys.
 The resolved CLI environment must select the local source before seed begins.
 The seed stops one XNYS session before the available fixture frontier, so the
 successful GO itself must perform source catch-up and publish the final session.
+When the retained window includes May 2026, the fixture includes TRI and the
+reviewed stale vendor dividend observation. The production v7 migration applies
+its own adjudication and records the canonical cash audit.
 
 Acceptance binds the validation bundle, runtime promotion, recreated panel, and
 handoff to the same commit, images, publication, and invocation. It also requires
@@ -158,6 +161,11 @@ its selected faults through new operator invocations. This preserves full
 production certification in each invocation while keeping the campaigns within
 the job time limit. Both existing required composition check names aggregate all
 campaigns; any failed or cancelled campaign prevents acceptance.
+
+Synthetic-merge verification binds the checked-out GitHub merge SHA and its
+exact PR-head parent. Its base parent must belong to the freshly fetched base
+branch. The event's base SHA can precede a concurrent base-branch update, so it
+does not replace verification of the actual merge parents and current ancestry.
 
 `.github/workflows/production-composition-harness.yml` runs on pull requests,
 merge groups, `main` pushes and manual dispatch.

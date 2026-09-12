@@ -63,12 +63,18 @@ def inputs(day, seed=0, shocks=()):
     for row in facts.bars:
         bars.setdefault(row[1], []).append(VendorBar(row[1], row[0], row[2], row[4], row[5], row[6],
             split_ratio=row[7], dividend_per_share=row[8], signal_close=row[3]))
+    # Publication changes revalidate every retained series, including securities
+    # whose last observation predates the previous session. Match the production
+    # loader's latest positive historical observation per security.
+    anchors = {bar.security_id: bar for session in axis[:-1]
+               for bar in bars.get(session, ())
+               if bar.raw_close > 0 and bar.signal_close > 0}
     published = PublishedSession(session=day, data_version=2, bars=bars[day], meta=meta,
         sectors={sid: "Industrials" for sid in meta},
         spy_closeadj=[r[1] for r in facts.spy[-127:]], spy_sessions=axis[-127:],
         spy_expected_sessions=axis[-127:], defensive_bar=DefensiveBar(*facts.defensive[-1]),
         defensive_previous_bar=DefensiveBar(*facts.defensive[-2]),
-        signal_basis_anchors={bar.security_id: bar for bar in bars[axis[-2]]})
+        signal_basis_anchors=anchors)
     return bars, meta, published
 
 

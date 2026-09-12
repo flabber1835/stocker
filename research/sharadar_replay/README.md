@@ -19,6 +19,10 @@ has a calibrated 4,000-security floor and needs a separately validated world.
 Daily replay uses the default production source and its full export checks.
 An ordinary recent BBB dividend supplies the global ACTIONS activity required
 by production readiness; its cash value is independently checked in every run.
+Once its date enters the observed history, a delisted one-session TRI security
+carries the reviewed 2026-05-04 source dividend of 1.36. The independent expected
+bar records the adjudicated 1.435518. This lets the real corporate-action authority
+and v7 semantic migration execute alongside the AAA/BBB fault schedules.
 
 An isolated worker supplies a clearly synthetic producer identity and receipt
 key. This tests data behavior; it conveys no deployment or execution authority.
@@ -39,7 +43,7 @@ fixtures in `tests/sentinel/conftest.py`.
 | Whole-file authority | `snapshot_source`, `snapshot_export` |
 | Historical audit | `sep_reconciliation.reconcile_next`; production reconciles ACTIONS/CDC first |
 | Old corrections | `maintenance.reconcile_sep_mutations`, `renormalize` |
-| Action repairs | `maintenance_impl.reconcile_actions_if_due` |
+| Action repairs | `actions_reconcile_v7.reconcile_actions_if_due`, composing retained source reconciliation in `maintenance_impl` |
 | Recent-window proof | `recent_reconciliation.reconcile_recent` |
 | Publication | `publication.publish`, validation receipts, generation visibility |
 | Readiness | `readiness.check_readiness` with explicit observation time |
