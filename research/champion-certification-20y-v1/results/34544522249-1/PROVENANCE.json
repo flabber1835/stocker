@@ -1,0 +1,19 @@
+{
+  "champion_commit": "f6ad7b543fbd20ffe363127d1120f4472caa9360",
+  "classification_overlay_sha256": "1391630785c56daa2c4665abe792dd7b06d3697b47e2224edd380737fef133ab",
+  "classification_scenario": "reviewed_18",
+  "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "harness_commit": "eaddca3f04f279e99663f832bf7293e92ee15662",
+  "instrumented_source_sha256": "2ab410d4a47337554797dca36f5163dbb0457602f0c9841675202309574b81d5",
+  "launch_commit": "0d5ec125c9dd7c50e676c0ca08c5b3dd490b0b95",
+  "new_out_of_sample_evidence": false,
+  "numpy": "2.4.6",
+  "pandas": "3.0.5",
+  "production_certification": false,
+  "python": "3.12.14",
+  "reference_commit": "05727f2c65a235306fa55d61f254e06bed351776",
+  "run_id": "34544522249",
+  "schema": "research.champion-certification-20y/1",
+  "source_ast_preserved": true,
+  "source_sha256": "3fcf274dc5dba5b01ff3c637b62922f27c5dfe2e3b28e7f3a416e1bfeba09663"
+}
