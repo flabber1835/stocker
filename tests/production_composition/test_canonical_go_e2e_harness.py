@@ -36,6 +36,11 @@ def test_fixture_pages_satisfy_consumed_sharadar_protocol():
         assert all(len(row) == len(names) for row in page["datatable"]["data"])
 
 
+def test_fixture_supplies_seed_reference_tickers():
+    page = harness._payload("SFP", {"ticker": ["SPY,BIL"]})
+    assert {row[0] for row in page["datatable"]["data"]} == {"SPY", "BIL"}
+
+
 def test_fixture_is_large_enough_for_readiness_history():
     page = harness._payload("SEP", {})
     by_spy = [row for row in page["datatable"]["data"] if row[0] == "SPY"]
