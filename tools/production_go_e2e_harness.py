@@ -364,10 +364,16 @@ def _compose_service_container_id(service: str, *, env: dict[str, str]) -> str:
 
 
 def _require_local_source(model: dict, expected: dict[str, str]) -> None:
-    actual = model.get("services", {}).get("sentinel", {}).get("environment", {})
-    if not expected or any(str(actual.get(key, "")) != value
-                           for key, value in expected.items()):
-        raise HarnessFailure("resolved feed container does not select the local Sharadar fixture")
+    service = model.get("services", {}).get("sentinel")
+    if not isinstance(service, dict):
+        raise HarnessFailure("resolved Compose model omits the CLI feed service")
+    actual = service.get("environment", {})
+    mismatched = [key for key, value in expected.items()
+                  if str(actual.get(key, "")) != value]
+    if not expected or mismatched:
+        raise HarnessFailure(
+            "resolved feed container does not select the local Sharadar fixture: "
+            + ", ".join(mismatched))
 
 
 def _bootstrap_financial_fixture() -> None:
@@ -391,7 +397,8 @@ def _bootstrap_financial_fixture() -> None:
     # Resolve the exact production graph before any feed request. A dropped
     # setting must fail here, before the runtime can select its vendor default.
     resolved = _run_host([
-        "bash", "scripts/sentinel-compose.sh", "--run", "config", "--format", "json",
+        "bash", "scripts/sentinel-compose.sh", "--run", "--profile", "cli",
+        "config", "--format", "json",
     ], env=env, timeout=60)
     _require_local_source(json.loads(resolved.stdout), _SOURCE_SETTINGS)
     print("E2E fixture: resolved feed container selects local Sharadar", flush=True)
