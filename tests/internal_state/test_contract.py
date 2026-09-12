@@ -10,16 +10,26 @@ from tests.internal_state.scenarios import catalogue, generated
 from tests.internal_state.ci_gate import acceptance
 
 
-@pytest.mark.parametrize("mutation", ["empty", "skip", "failure", "missing", "exit"])
+@pytest.mark.parametrize(
+    "mutation", ["empty", "skip", "xfail", "xpass", "deselect", "failure", "missing", "exit"])
 def test_full_suite_gate_cannot_pass_incomplete_results(mutation):
-    report = dict(collected=["a", "b"], passed={"a": 1, "b": 2}, failures={}, skipped={},
-                  expected_failures={}, exitstatus=0)
+    report = dict(
+        collected=["a", "b"], deselected=[], passed={"a": 1, "b": 2},
+        failures={}, skipped={}, expected_failures={}, unexpected_successes={}, exitstatus=0)
     assert acceptance(**report)
     if mutation == "empty":
         report["collected"], report["passed"] = [], {}
     elif mutation == "skip":
         report["passed"].pop("b")
         report["skipped"]["b"] = "missing prerequisite"
+    elif mutation == "xfail":
+        report["passed"].pop("b")
+        report["expected_failures"]["b"] = "known failure"
+    elif mutation == "xpass":
+        report["passed"].pop("b")
+        report["unexpected_successes"]["b"] = "unexpected pass"
+    elif mutation == "deselect":
+        report["deselected"].append("c")
     elif mutation == "failure":
         report["failures"]["a"] = "failure"
     elif mutation == "missing":
