@@ -1,0 +1,20 @@
+{
+  "schema": "stocker.test-merge-authority/1",
+  "protected_carrier_owners": [
+    "sentinel.complete",
+    "production-champion.regressions",
+    "wealth-core.prospective",
+    "scripts.operator",
+    "host-python38.compatibility",
+    "sharadar.daily-replay",
+    "alpaca.contracts"
+  ],
+  "advisory_owners": [
+    "backup.reliability",
+    "internal-state.contract",
+    "internal-state.campaign",
+    "core.infrastructure",
+    "alpaca.mutations"
+  ],
+  "alpaca_contract_epoch": "stocker.alpaca-contracts/1"
+}
