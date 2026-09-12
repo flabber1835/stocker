@@ -8,10 +8,29 @@ owning ingest's candidate overlay while that run normalises its price rows.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 PENDING = "PENDING"
 PUBLISHED = "PUBLISHED"
 ABORTED = "ABORTED"
 SUPERSEDED = "SUPERSEDED"
+
+
+def _economic_value(source_payload, fallback):
+    """Recover the exact canonical ACTIONS value when durable evidence has it.
+
+    The compatibility ``value`` column is DOUBLE PRECISION.  New observations
+    also retain the source row as canonical JSONB whose ``value`` field is a
+    normalized decimal string. Economic consumers must use that exact copy so a
+    stored/reloaded action does not lose bits before dividend normalization.
+    Legacy rows whose source payload predates that evidence fall back to the
+    existing column because no more exact value can be reconstructed honestly.
+    """
+    if isinstance(source_payload, Mapping):
+        value = source_payload.get("value")
+        if value is not None:
+            return value
+    return fallback
 
 
 def active_rows(conn, *, start: str, end: str,
@@ -29,7 +48,8 @@ def active_rows(conn, *, start: str, end: str,
     keyed = {
         str(source_row_id):
         {"ticker": str(ticker), "date": str(session), "action": str(action),
-         "name": name, "value": value, "contraticker": contraticker,
+         "name": name, "value": _economic_value(source_payload, value),
+         "contraticker": contraticker,
          "contraname": contraname, "source_row_id": str(source_row_id),
          "source_payload": source_payload}
         for (source_row_id, source_payload, ticker, session, action, name, value,
@@ -51,7 +71,8 @@ def active_rows(conn, *, start: str, end: str,
                 else:
                     keyed[key] = {
                         "ticker": str(ticker), "date": str(session),
-                        "action": str(action), "name": name, "value": value,
+                        "action": str(action), "name": name,
+                        "value": _economic_value(source_payload, value),
                         "contraticker": contraticker, "contraname": contraname,
                         "source_row_id": key, "source_payload": source_payload}
     return [keyed[key] for key in sorted(keyed,
