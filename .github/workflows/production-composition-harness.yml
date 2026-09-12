@@ -18,7 +18,7 @@ jobs:
   composition:
     name: composition-${{ matrix.scope }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 120
     env:
       # stock_strategy_shared is intentionally imported as a top-level module.
       PYTHONPATH: ${{ github.workspace }}/shared
@@ -77,6 +77,7 @@ jobs:
           python -m compileall -q -f \
             tests/production_composition \
             tools/production_composition_harness.py \
+            tools/production_go_e2e_harness.py \
             scripts/sentinel_go_validate_entry.py \
             scripts/sentinel_go_probe_contract.py \
             scripts/sentinel_go_verified_entry.py
@@ -175,6 +176,38 @@ jobs:
           assert value["matrix_scenarios"] >= 240
           assert value["all_pass"] is True
           assert len(value["live_results"]) >= 6
+          PY
+
+      - name: Run canonical production GO end to end
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/production_go_e2e_harness.py \
+            --sensitivity \
+            --output artifacts/production-composition/production-go-e2e.json
+
+      - name: Verify canonical GO evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          value = json.loads(Path(
+              "artifacts/production-composition/production-go-e2e.json"
+          ).read_text())
+          assert value["schema"] == "sentinel.production-go-e2e/1"
+          assert value["canonical_entrypoint"] == ["bash", "scripts/sentinel-go-validate.sh"]
+          assert value["all_pass"] is True
+          success = value["success"]
+          assert success["returncode"] == 0
+          assert success["target"] == "SHADOW"
+          assert success["runtime_identity"].startswith("sha256:")
+          assert success["handoff"]["git_commit"] == value["git_commit"]
+          assert success["handoff"]["software_certification"] == "LOCAL_FULL_VERIFIED"
+          assert success["panel"] == "verified_recreated_promoted_runtime"
+          assert len(value["sensitivity"]) >= 3
+          assert all(x["status"] == "EXPECTED_REFUSAL" for x in value["sensitivity"])
           PY
 
       - name: Retain composition evidence
