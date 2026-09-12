@@ -1,10 +1,11 @@
-"""ACTIONS epoch v8 — adjudicated cash and typed in-kind distributions.
+"""ACTIONS epoch v9 — adjudicated cash and typed in-kind distributions.
 
 The v6 implementation remains the complete Sharadar ACTIONS source authority.
 This public epoch composes that source proof with the A1 semantic migration: a
 reviewed disputed cash action is replayed once through the ordinary normalized
-bar path before a current cursor can be earned. The v8 epoch also removes
+bar path before a current cursor can be earned. The v8 epoch removed
 historical spin-off value that earlier decoders incorrectly booked as cash.
+The v9 epoch preserves combined-event cash entitlement on its old-share basis.
 """
 from __future__ import annotations
 
@@ -13,12 +14,12 @@ import datetime as dt
 from sentinel.feed import corporate_action_authority
 from sentinel.feed import maintenance_impl as _core
 
-ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v8"
-ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v8"
+ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v9"
+ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v9"
 
 
 def load_actions_cursor(conn):
-    """Only v8 may authorize current public ACTIONS semantics."""
+    """Only v9 may authorize current public ACTIONS semantics."""
     return _core._read_cursor(
         conn, ACTIONS_CURSOR_NAME, ACTIONS_CURSOR_KIND)
 
@@ -122,7 +123,7 @@ def _cash_semantic_migration(conn, *, fetch, through: dt.date):
         chunks_total=len(windows))
     replayed = _core.renormalize.renormalize(
         conn, fetch=fetch, run=run, dates=dates,
-        chunk_prefix="action-economics-v8",
+        chunk_prefix="action-economics-v9",
         market_start=market_start, market_end=market_end)
     adjudication_audit = _cash_adjudication_audit(
         conn, run_id=run.progress.run_id, dates=cash_dates, windows=windows
@@ -132,7 +133,7 @@ def _cash_semantic_migration(conn, *, fetch, through: dt.date):
         conn, run_id=run.progress.run_id,
         window_start=windows[0][0], window_end=windows[-1][1],
         evidence={
-            "kind": "actions_economic_semantics_v8",
+            "kind": "actions_economic_semantics_v9",
             "semantic_epoch": ACTIONS_CURSOR_KIND,
             "authority": corporate_action_authority.authority_manifest(),
             "adjudications": adjudication_audit,
@@ -155,17 +156,17 @@ def _cash_semantic_migration(conn, *, fetch, through: dt.date):
 
 def reconcile_actions_if_due(conn, *, fetch=_core.sharadar.fetch_table,
                              through: str, force: bool = False):
-    """Earn complete source authority plus v8 economic semantics."""
+    """Earn complete source authority plus v9 economic semantics."""
     _core.store._assert_corpus_locked(conn)
     hi = dt.date.fromisoformat(str(through))
     prior = load_actions_cursor(conn)
     if prior is not None and prior.processed_through > hi:
         raise _core.SharadarMutationRefused(
-            f"ACTIONS v8 reconciliation cursor {prior.processed_through} is "
+            f"ACTIONS v9 reconciliation cursor {prior.processed_through} is "
             f"ahead of requested reconciliation through {hi}")
 
     # v6 proves the complete current Sharadar ACTIONS snapshot and handles all
-    # ordinary changed-row/recovery semantics. v8 may be granted only after it.
+    # ordinary changed-row/recovery semantics. v9 may be granted only after it.
     _core.reconcile_actions_if_due(
         conn, fetch=fetch, through=hi.isoformat(), force=force)
 

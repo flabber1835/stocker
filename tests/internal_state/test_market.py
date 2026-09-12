@@ -15,6 +15,27 @@ from tests.internal_state import market, oracles
 from tests.internal_state.contract import InvariantFailure
 
 
+def test_reviewed_cash_fixture_normalizes_the_complete_old_share_event():
+    from sentinel.feed import actions_map
+    from sentinel.feed.domains import normalise_sep_rows
+
+    facts = market.step(market.SEED)
+    rows = [r for r in facts.tables["SEP"] if r["ticker"] == "TRI"]
+    actions = [r for r in facts.tables["ACTIONS"] if r["ticker"] == "TRI"]
+    days = sorted(r["date"] for r in rows)
+    assert days == ["2026-05-01", "2026-05-04"]
+    splits, ambiguous = actions_map.split_rows_from_actions(actions, days)
+    assert not ambiguous
+    normalized = list(normalise_sep_rows(
+        rows, authoritative_splits=splits,
+        dividends=actions_map.dividends_from_actions(actions, days)))
+    event = normalized[-1].vendor
+    assert event.split_ratio == 0.984560
+    assert 1000 * event.split_ratio * event.dividend_per_share == pytest.approx(1435.518)
+    oracle = [r for r in facts.expected.bars if r[2] == "TRI"]
+    assert (event.split_ratio, event.dividend_per_share) == oracle[-1][-2:]
+
+
 def test_same_session_provider_retry_advances_observation_only():
     from research.sharadar_replay.provider import Provider
     provider = Provider()

@@ -3,6 +3,7 @@ from __future__ import annotations
 
 from datetime import date, datetime, timedelta
 from decimal import Decimal
+from fractions import Fraction
 import math
 
 from research.sharadar_replay.model import Corpus, Fault, Step
@@ -13,6 +14,7 @@ SYMBOLS = tuple(f"S{i:03d}" for i in range(30))
 AUTHORITY_TICKER = "TRI"
 AUTHORITY_SECURITY = "STATE-TRI-AUTHORITY"
 AUTHORITY_SESSION = "2026-05-04"
+AUTHORITY_PREVIOUS_SESSION = "2026-05-01"
 AUTHORITY_STALE_CASH = 1.36
 AUTHORITY_FINAL_CASH = 1.435518
 SECURITIES = ({symbol: f"STATE-{symbol}" for symbol in SYMBOLS}
@@ -76,32 +78,33 @@ def step(day: str, seed=0, *, faulty=False, shocks=(), observed_after=None):
     # The production corporate-action authority contains one reviewed historical
     # dispute. The synthetic lab must carry that exact stale Sharadar source fact
     # once the event is in its observed history; otherwise the production code is
-    # expected to fail closed before lifecycle testing can begin. Keep the carrier
-    # security delisted and one-session-only so it exercises source adjudication
-    # without entering the synthetic investable universe.
+    # expected to fail closed before lifecycle testing can begin. Include the
+    # predecessor and consolidation so the fixture proves the issuer's old-share
+    # cash basis. Two observations keep it outside the formation universe.
     if AUTHORITY_SESSION in axis:
         tables["TICKERS"].append(dict(
             table="SEP", ticker=AUTHORITY_TICKER, permaticker=AUTHORITY_SECURITY,
             category="Domestic Common Stock", sector="Industrials", exchange="NYSE",
-            relatedtickers="", firstpricedate=AUTHORITY_SESSION,
+            relatedtickers="", firstpricedate=AUTHORITY_PREVIOUS_SESSION,
             lastpricedate=AUTHORITY_SESSION, isdelisted="Y"))
         identities.append((
             AUTHORITY_SECURITY, AUTHORITY_TICKER, "Domestic Common Stock",
-            "Industrials", "", AUTHORITY_SESSION, AUTHORITY_SESSION, True))
-        tables["ACTIONS"].append(dict(
-            ticker=AUTHORITY_TICKER, date=AUTHORITY_SESSION, action="dividend",
-            name=AUTHORITY_TICKER, value=AUTHORITY_STALE_CASH,
-            contraticker=None, contraname=None))
-        actions.append((
-            AUTHORITY_TICKER, AUTHORITY_SESSION, "dividend", AUTHORITY_TICKER,
-            AUTHORITY_STALE_CASH, None, None))
-        tables["SEP"].append(dict(
-            ticker=AUTHORITY_TICKER, date=AUTHORITY_SESSION, open=99.5,
-            close=100.0, closeunadj=100.0, volume=1_000_000,
-            lastupdated=AUTHORITY_SESSION))
-        bars.append((
-            AUTHORITY_SECURITY, AUTHORITY_SESSION, AUTHORITY_TICKER,
-            100.0, 100.0, 99.5, 1_000_000, 1, AUTHORITY_FINAL_CASH))
+            "Industrials", "", AUTHORITY_PREVIOUS_SESSION, AUTHORITY_SESSION, True))
+        for action, value in (("dividend", AUTHORITY_STALE_CASH), ("split", 0.984560)):
+            tables["ACTIONS"].append(dict(
+                ticker=AUTHORITY_TICKER, date=AUTHORITY_SESSION, action=action,
+                name=AUTHORITY_TICKER, value=value, contraticker=None, contraname=None))
+            actions.append((AUTHORITY_TICKER, AUTHORITY_SESSION, action,
+                            AUTHORITY_TICKER, value, None, None))
+        for session, raw, raw_open, vendor_volume, ratio, cash in (
+                (AUTHORITY_PREVIOUS_SESSION, 98.456, 97.96372, 984_560, 1, 0),
+                (AUTHORITY_SESSION, 100.0, 99.5, 1_000_000, 0.984560,
+                 float(Fraction(str(AUTHORITY_FINAL_CASH)) / Fraction("0.984560")))):
+            tables["SEP"].append(dict(
+                ticker=AUTHORITY_TICKER, date=session, open=99.5,
+                close=100.0, closeunadj=raw, volume=vendor_volume, lastupdated=session))
+            bars.append((AUTHORITY_SECURITY, session, AUTHORITY_TICKER,
+                         100.0, raw, raw_open, 1_000_000, ratio, cash))
 
     for index, session in enumerate(axis):
         for ticker, base in (("SPY", 400), ("BIL", 100)):

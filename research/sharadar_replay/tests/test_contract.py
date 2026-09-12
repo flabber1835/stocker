@@ -1,5 +1,6 @@
 import copy
 from decimal import Decimal
+from fractions import Fraction
 
 import httpx
 import pytest
@@ -33,15 +34,18 @@ def test_replay_world_carries_reviewed_cash_authority(through):
     canonical = [r for r in expected.bars if r[2] == "TRI"]
     identities = [r for r in expected.identities if r[1] == "TRI"]
     if through < "2026-05-04":
-        assert not source and not canonical and not identities
+        assert not source
+        assert len(canonical) == len(identities) == 1
+        assert canonical[0][-1] == 0
         assert not resolution.adjudications
         return
 
-    assert len(source) == len(canonical) == len(identities) == 1
+    assert len(source) == len(canonical) == 2
+    assert len(identities) == 1
     assert source[0]["value"] == 1.36
-    assert canonical[0][-1] == 1.435518
-    assert resolution.dividends[("TRI", "2026-05-04")] == Decimal(str(canonical[0][-1]))
-    assert identities[0][-3:] == ("2026-05-04", "2026-05-04", True)
+    assert canonical[-1][-2:] == (0.984560, float(Fraction(1435518, 984560)))
+    assert resolution.dividends[("TRI", "2026-05-04")].cash_per_old_share == Decimal("1.435518")
+    assert identities[0][-3:] == ("2026-05-01", "2026-05-04", True)
 
 
 @pytest.mark.parametrize("field", ["bars", "actions", "identities", "spy", "defensive"])
