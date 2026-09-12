@@ -14,6 +14,9 @@ sys.path.insert(0, str(ROOT))
 
 from test_responsibility_lib import load_authority, module_dotted, owned_test_modules, relative_posix
 
+HOST_OWNER = "host-python38.compatibility"
+HOST_AUTHORITY_PYTHON = "3.8.15"
+
 
 def _iter_tests(suite):
     for item in suite:
@@ -31,11 +34,17 @@ def main() -> int:
     parser.add_argument("--require-python")
     args = parser.parse_args()
 
+    required_python = args.require_python
+    if args.owner == HOST_OWNER:
+        if required_python is not None and required_python != HOST_AUTHORITY_PYTHON:
+            raise RuntimeError("host-python38 owner cannot override its 3.8.15 runtime authority")
+        required_python = HOST_AUTHORITY_PYTHON
+
     python_version = platform.python_version()
-    if args.require_python and python_version != args.require_python:
+    if required_python and python_version != required_python:
         raise RuntimeError(
             "runtime Python differs from required authority: expected=%s actual=%s" %
-            (args.require_python, python_version))
+            (required_python, python_version))
 
     authority = load_authority()
     modules = owned_test_modules(authority, args.owner)
@@ -76,7 +85,7 @@ def main() -> int:
         "owner": args.owner,
         "python": sys.version,
         "python_version": python_version,
-        "required_python": args.require_python,
+        "required_python": required_python,
         "modules": collected,
         "testsRun": result.testsRun,
         "failures": len(result.failures),
