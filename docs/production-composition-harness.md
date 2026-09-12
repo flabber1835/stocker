@@ -138,6 +138,9 @@ outside this acceptance scope.
 The resolved CLI environment must select the local source before seed begins.
 The seed stops one XNYS session before the available fixture frontier, so the
 successful GO itself must perform source catch-up and publish the final session.
+Fixture setup creates a verified physical base backup before seeding and a new
+one after the bulk load. The latter bounds the retained WAL required for normal
+GO mutations without changing production's 1 GiB runtime verification limit.
 The before/after publication observer runs in the exact built runtime against
 the fixture PostgreSQL container, holding a read-only repeatable-read pin. This
 observer loads the same fixture receipt key through the canonical environment

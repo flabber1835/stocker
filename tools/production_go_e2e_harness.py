@@ -481,6 +481,10 @@ def _bootstrap_financial_fixture() -> None:
         "run", "--rm", "-T", "--no-deps", "sentinel", "feed-seed",
         "--from", days[0].isoformat(), "--to", days[-2].isoformat(),
     ], env=env, timeout=1800)
+    # The bulk load can exceed the runtime's bounded WAL verification budget.
+    # Start normal GO from a new verified base covering that retained corpus.
+    _run_host(["bash", "scripts/sentinel-base-backup.sh"], env=env, timeout=900)
+    print("E2E fixture: post-seed base backup verified", flush=True)
     SEEDED_PUBLICATION = _publication_identity(env=env)
     print("E2E fixture: seed complete; canonical GO starts next", flush=True)
     _FIXTURE_READY = True

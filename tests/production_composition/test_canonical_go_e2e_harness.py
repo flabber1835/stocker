@@ -8,6 +8,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import shutil
 
 import pytest
 
@@ -101,6 +102,58 @@ def test_fixture_supports_the_current_cash_adjudication_migration(monkeypatch):
     assert audit[0]["normalized_bar_dividend_per_share"] == "1.435518"
     assert "TRI" in harness.TICKERS
     assert len(harness.TICKERS) == 4_000
+
+
+def test_bootstrapped_fixture_leaves_a_bounded_real_backup_authority(
+        monkeypatch, tmp_path):
+    from sentinel import backup_runtime_authority as authority
+    from tests.backup.lab import Database, Media, SEGMENT_SIZE, wal_name
+
+    world = Database(Media(tmp_path / "media"))
+    monkeypatch.setenv(authority.AUTHORITY_ENV, authority.AUTHORITY_VALUE)
+    # Scale the byte budget, not the production decision, to keep this proof
+    # small. The simulated bulk load exceeds the initial base's restore horizon.
+    monkeypatch.setattr(authority, "RUNTIME_MAX_VERIFIED_BYTES", 4 * SEGMENT_SIZE)
+    monkeypatch.setattr(harness, "_FIXTURE_READY", False)
+    monkeypatch.setattr(harness, "SEEDED_PUBLICATION", None)
+    monkeypatch.setattr(harness, "VALIDATED_RUNTIME_POINTER", tmp_path / "selector")
+    monkeypatch.setattr(harness, "_git_head", lambda: "a" * 40)
+    monkeypatch.setattr(harness, "_compose_service_container_id", lambda *_a, **_k: "b" * 64)
+    monkeypatch.setattr(harness, "_publication_identity", lambda **_k: {"version": 1})
+    settings = {"NDL_BASE_URL": "http://fixture.invalid"}
+    monkeypatch.setattr(harness, "_SOURCE_SETTINGS", settings)
+    seeded = False
+
+    def run_host(argv, *, env, timeout):
+        nonlocal seeded
+        output = ""
+        if "config" in argv:
+            output = json.dumps({"services": {"sentinel": {"environment": settings}}})
+        elif "feed-seed" in argv:
+            authority.require(world, operation="fixture bulk seed")
+            for index in range(6, 10):
+                world.media.segment(index)
+            world.frontier = wal_name(9)
+            seeded = True
+        elif "scripts/sentinel-base-backup.sh" in argv and seeded:
+            # A new physical generation moves the required recovery horizon;
+            # old WAL remains retained and never acquires new checksum authority.
+            previous = world.media.backup
+            world.media.backup = world.media.base / "base-20260910T120000Z"
+            shutil.copytree(previous, world.media.backup)
+            (world.media.backup / "backup_manifest").write_text(json.dumps({
+                "WAL-Ranges": [{"Timeline": 1, "End-LSN": "0/800040"}],
+            }))
+            (world.media.backup / "sentinel-recovery-marker").write_text(
+                world.media.metadata.replace("0/300040", "0/900040").replace(
+                    wal_name(3), wal_name(9)))
+        return subprocess.CompletedProcess(argv, 0, stdout=output)
+
+    monkeypatch.setattr(harness, "_run_host", run_host)
+    harness._bootstrap_financial_fixture()
+    assert seeded and harness._FIXTURE_READY
+    proven = authority.require(world, operation="GO after fixture bootstrap")
+    assert proven["wal_segments"] == 2
 
 
 def test_publication_observer_authenticates_with_the_fixture_receipt_key(
