@@ -16,20 +16,42 @@ ABORTED = "ABORTED"
 SUPERSEDED = "SUPERSEDED"
 
 
+class _ExactSourceFloat(float):
+    """A compatibility float whose string form retains source-decimal evidence.
+
+    ACTIONS ``value`` has historically been a float at this API boundary.  The
+    durable source payload now carries the exact canonical decimal spelling as
+    well.  Economic consumers recover that spelling through ``str(value)`` while
+    existing callers keep ordinary float equality, hashing, arithmetic, and
+    serialization behaviour.
+    """
+
+    def __new__(cls, compatibility, source):
+        obj = super().__new__(cls, compatibility)
+        obj._source_text = str(source)
+        return obj
+
+    def __str__(self):
+        return self._source_text
+
+
 def _economic_value(source_payload, fallback):
-    """Recover the exact canonical ACTIONS value when durable evidence has it.
+    """Preserve the float contract while carrying the exact ACTIONS spelling.
 
     The compatibility ``value`` column is DOUBLE PRECISION.  New observations
     also retain the source row as canonical JSONB whose ``value`` field is a
-    normalized decimal string. Economic consumers must use that exact copy so a
-    stored/reloaded action does not lose bits before dividend normalization.
-    Legacy rows whose source payload predates that evidence fall back to the
-    existing column because no more exact value can be reconstructed honestly.
+    normalized decimal string.  Wrapping the compatibility float lets exact
+    decimal consumers recover the durable spelling through ``str(value)`` while
+    every existing numeric caller still sees a float.  Legacy rows whose source
+    payload predates that evidence simply use the compatibility column.
     """
     if isinstance(source_payload, Mapping):
         value = source_payload.get("value")
-        if value is not None:
-            return value
+        if value is not None and fallback is not None:
+            try:
+                return _ExactSourceFloat(fallback, value)
+            except (TypeError, ValueError, OverflowError):
+                pass
     return fallback
 
 
