@@ -310,6 +310,17 @@ def _initialize_backup_target(backup: Path) -> None:
         raise HarnessFailure("canonical backup target initialization produced no evidence")
 
 
+def _compose_service_container_id(service: str, *, env: dict[str, str]) -> str:
+    completed = _run_host(
+        ["bash", "scripts/sentinel-compose.sh", "--run", "ps", "-q", service],
+        env=env, timeout=60,
+    )
+    values = [line.strip() for line in (completed.stdout or "").splitlines() if line.strip()]
+    if len(values) != 1 or re.fullmatch(r"[0-9a-f]{12,64}", values[0]) is None:
+        raise HarnessFailure(f"Compose service {service} has no unique container identity")
+    return values[0]
+
+
 def _bootstrap_financial_fixture() -> None:
     """Create the supported retained feed state required before production daily GO."""
     global _FIXTURE_READY
@@ -352,8 +363,9 @@ def _bootstrap_financial_fixture() -> None:
     schema_url = (
         "postgresql://sentinel:e2e-postgres-password-363@127.0.0.1:5432/sentinel"
     )
+    postgres_container = _compose_service_container_id("sentinel-postgres", env=env)
     _run_host([
-        "docker", "run", "--rm", "--network", "container:sentinel-postgres",
+        "docker", "run", "--rm", "--network", f"container:{postgres_container}",
         "--entrypoint", "python", "-e", f"SENTINEL_DATABASE_URL={schema_url}",
         runtime_ref, "-c", schema_code,
     ], env=env, timeout=300)
@@ -372,9 +384,9 @@ def _bootstrap_financial_fixture() -> None:
 def _clean_runtime() -> None:
     global _FIXTURE_READY
     _FIXTURE_READY = False
-    subprocess.run(
-        ["bash", "scripts/sentinel-compose.sh", "--run", "down", "-v", "--remove-orphans"],
-        cwd=ROOT, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL, check=False,
+    _run_host(
+        ["bash", "scripts/sentinel-compose.sh", "--run", "down"],
+        timeout=300,
     )
 
 
