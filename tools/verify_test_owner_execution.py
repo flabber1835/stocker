@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Prove that every module assigned to a test owner produced JUnit evidence."""
+"""Prove that every module assigned to a test owner produced required JUnit evidence."""
 from __future__ import annotations
 
 import argparse
@@ -8,8 +8,8 @@ import json
 from pathlib import Path
 
 from test_responsibility_lib import (
-    junit_execution, load_authority, owned_test_modules,
-    relative_posix, validate_contract_selectors,
+    canonical_nodeid, junit_case_execution, load_authority, owned_test_modules,
+    relative_posix, validate_contract_instances, validate_contract_selectors,
 )
 
 
@@ -59,28 +59,48 @@ def verify(owner_name: str, junit_paths: list[Path]) -> dict:
     paths = [path.resolve() for path in junit_paths]
     if not paths or any(not path.is_file() for path in paths):
         raise AssertionError(f"{owner_name}: missing JUnit execution evidence")
-    executed, logical_nodeids = junit_execution(paths, expected)
+
+    executed, physical_cases = junit_case_execution(paths, expected)
     expected_names = {relative_posix(path) for path in expected}
     missing = sorted(expected_names - executed)
     if missing:
         raise AssertionError(
-            f"{owner_name}: owned test modules have no execution evidence: {missing}")
+            f"{owner_name}: owned test modules have no passing execution evidence: {missing}")
 
     delegated_contracts = {}
+    alpaca = authority.get("alpaca", {})
     for delegated_name, required in _delegated_required_contracts(
             authority, owner_name).items():
-        missing_contracts = {
-            contract_id: selector for contract_id, selector in required.items()
-            if selector not in logical_nodeids
-        }
-        if missing_contracts:
+        if delegated_name != "alpaca.contracts":
             raise AssertionError(
-                f"{delegated_name}: required contracts lack execution evidence: "
-                f"{missing_contracts}")
-        delegated_contracts[delegated_name] = len(required)
+                f"{delegated_name}: delegated physical contract authority is not defined")
+        expected_instances = validate_contract_instances(
+            required, alpaca.get("required_contract_instances"))
+        for contract_id, selector in required.items():
+            actual = sorted(
+                nodeid for nodeid in physical_cases
+                if canonical_nodeid(nodeid) == selector
+            )
+            wanted = expected_instances[contract_id]
+            if actual != wanted:
+                raise AssertionError(
+                    f"{delegated_name}: physical contract coverage differs for {contract_id}: "
+                    f"expected={wanted!r} actual={actual!r}")
+            nonpasses = {
+                nodeid: physical_cases[nodeid]
+                for nodeid in wanted if physical_cases.get(nodeid) != "passed"
+            }
+            if nonpasses:
+                raise AssertionError(
+                    f"{delegated_name}: required physical contracts contain non-passes: "
+                    f"{nonpasses}")
+        delegated_contracts[delegated_name] = {
+            "logical": len(required),
+            "physical": sum(len(values) for values in expected_instances.values()),
+        }
 
     return {
-        "schema": "stocker.test-owner-execution/1",
+        "schema": "stocker.test-owner-execution/2",
         "verdict": "PASS",
         "owner": owner_name,
         "expected_modules": sorted(expected_names),
