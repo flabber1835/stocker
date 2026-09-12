@@ -380,10 +380,20 @@ def normalise_sep_rows(
                 f"ticker) before calling.")
         last_session = session
         sid = resolve_identity(ticker, session) if resolve_identity else ticker
-        close = _f(r.get("close"))
-        raw = _f(r.get("closeunadj") if "closeunadj" in r else r.get("close_unadjusted"))
-        reported_volume = _positive(r.get("volume"))
-        volume = raw_compatible_volume(close, raw, reported_volume)
+
+        # Keep the vendor's original decimal spellings for economic-domain
+        # conversions. The engine still receives canonical floats below, but a
+        # mathematically equivalent Sharadar rebase must be reduced before any
+        # binary-float rounding can alter volume, dividends, or identity hashes.
+        source_close = r.get("close")
+        source_raw = (r.get("closeunadj") if "closeunadj" in r
+                      else r.get("close_unadjusted"))
+        source_volume = r.get("volume")
+        close = _f(source_close)
+        raw = _f(source_raw)
+        reported_volume = _positive(source_volume)
+        volume = raw_compatible_volume(
+            source_close, source_raw, source_volume)
         if sid is None:
             rep.dropped_no_identity += 1
             rep.dropped_no_identity_by_session[session] = (
@@ -498,9 +508,12 @@ def normalise_sep_rows(
         if op_adj is not None and close is not None and close > 0:
             raw_open = round(op_adj * (raw / close), 6)
 
-        reported_dividend = float(
-            (dividends or {}).get((ticker, session), 0.0) or 0.0)
-        dividend = raw_dividend_per_share(close, raw, reported_dividend)
+        source_dividend = (dividends or {}).get((ticker, session), 0.0) or 0.0
+        # Preserve the old validation/failure shape for malformed source values,
+        # while passing the untouched source spelling to the exact converter.
+        reported_dividend = float(source_dividend)
+        dividend = raw_dividend_per_share(
+            source_close, source_raw, source_dividend)
         if dividend is None:
             raise RawPriceDomainUnavailable(
                 f"cannot convert positive Sharadar dividend for {ticker} on "
