@@ -351,9 +351,6 @@ jobs:
             -v /tmp/sentinel-system-evidence:/evidence \
             sentinel-test:ci \
             tests/wealth_core \
-            --deselect tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture \
-            --deselect tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER \
-            --deselect tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash \
             -q -ra --junitxml=/evidence/wealth-core.xml \
             2>&1 | tee /tmp/wealth-core-prospective.txt
           if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
