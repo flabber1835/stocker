@@ -100,9 +100,42 @@ def _decode_export_status(
     return status, link, snapshot, refreshed
 
 
+def _origin(value: str):
+    try:
+        parsed = urlparse(str(value))
+        scheme = parsed.scheme.lower()
+        host = (parsed.hostname or "").lower()
+        port = parsed.port
+    except ValueError:
+        return None
+    if not scheme or not host:
+        return None
+    if port is None:
+        port = 443 if scheme == "https" else 80 if scheme == "http" else None
+    if port is None:
+        return None
+    return scheme, host, int(port)
+
+
+def _download_link_allowed(link: str) -> bool:
+    origin = _origin(link)
+    if origin is None:
+        return False
+    if origin[0] == "https":
+        return True
+    # The provider itself already has an explicit development-only HTTP opt-in.
+    # Preserve that boundary for complete-export downloads and additionally bind
+    # the returned file URL to the exact configured provider origin. This lets
+    # deterministic local protocol fixtures exercise the real production export
+    # code without permitting an HTTP redirect to another host or port.
+    return bool(
+        origin[0] == "http"
+        and sharadar.ALLOW_INSECURE_BASE_URL
+        and _origin(sharadar.NDL_BASE) == origin)
+
+
 def _safe_download(client, link: str, *, http, sleep, now) -> bytes:
-    parsed = urlparse(str(link))
-    if parsed.scheme.lower() != "https" or not parsed.netloc:
+    if not _download_link_allowed(link):
         raise SharadarSnapshotExportError(
             "Sharadar export supplied a non-HTTPS download link")
     last_kind = "transport failure"

@@ -1,0 +1,127 @@
+name: Production GO end to end
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-go-e2e-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go-e2e:
+    name: go-e2e-${{ matrix.scope }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    env:
+      PYTHONPATH: ${{ github.workspace }}/shared
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: ${{ fromJSON(github.event_name == 'pull_request' && '["exact-head","synthetic-merge"]' || '["exact-head"]') }}
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 2
+          ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
+
+      - name: Verify tested tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          tested="$(git rev-parse HEAD)"
+          if [ '${{ matrix.scope }}' = 'exact-head' ]; then
+            test "$tested" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          elif [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test "$tested" = "$GITHUB_SHA"
+            test "$(git rev-list --parents -n 1 HEAD | awk '{print NF-1}')" -eq 2
+            base_parent="$(git rev-parse HEAD^1)"
+            head_parent="$(git rev-parse HEAD^2)"
+            test "$head_parent" = '${{ github.event.pull_request.head.sha }}'
+            git fetch --no-tags origin \
+              '${{ github.event.pull_request.base.ref }}:refs/remotes/origin/pr-base'
+            git merge-base --is-ancestor "$base_parent" refs/remotes/origin/pr-base
+          fi
+          mkdir -p artifacts/production-go-e2e
+          printf '%s\n' "$tested" > artifacts/production-go-e2e/tested-commit.txt
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Install locked runtime and test dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --only-binary=:all: --no-deps \
+            -r sentinel/requirements.lock -r tests/requirements.lock
+          python -m pip check
+
+      - name: Compile E2E surfaces
+        run: |
+          python -m compileall -q -f \
+            tools/production_go_e2e_fixture.py \
+            tools/production_go_e2e_support.py \
+            tools/production_go_e2e_harness.py \
+            tests/production_composition/test_go_operator_e2e_contract.py \
+            tests/sentinel/test_snapshot_export_insecure_test_boundary.py
+
+      - name: Run E2E authority contracts
+        shell: bash
+        run: |
+          set -euo pipefail
+          python -m pytest \
+            tests/production_composition/test_go_operator_e2e_contract.py \
+            tests/sentinel/test_snapshot_export_insecure_test_boundary.py \
+            -q -ra
+
+      - name: Run true production GO lifecycle
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/production_go_e2e_harness.py \
+            --output artifacts/production-go-e2e/live.json
+
+      - name: Verify retained E2E evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import json
+          import subprocess
+          from pathlib import Path
+
+          payload = json.loads(
+              Path("artifacts/production-go-e2e/live.json").read_text())
+          tested = subprocess.check_output(
+              ["git", "rev-parse", "HEAD"], text=True).strip()
+          assert payload["schema"] == "sentinel.production-go-e2e/1"
+          assert payload["all_pass"] is True
+          assert payload["git_commit"] == tested
+          assert payload["real_postgresql"] is True
+          assert payload["real_docker_compose"] is True
+          assert payload["operator_entry"] == "bash scripts/sentinel-go-validate.sh"
+          assert payload["lifecycle_markers_observed"] == len(
+              payload["lifecycle_markers"])
+          assert payload["runtime_image_id"] == payload["panel_image_id"]
+          assert payload["publication_window_end"] == payload["visible_frontier"]
+          assert Path(
+              "artifacts/production-go-e2e/retained/"
+              "validated-artifact-handoff.json").is_file()
+          PY
+
+      - name: Retain production GO evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: production-go-e2e-${{ matrix.scope }}-${{ github.sha }}
+          path: artifacts/production-go-e2e
+          if-no-files-found: error
+          retention-days: 30
