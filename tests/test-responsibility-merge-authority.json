@@ -11,6 +11,7 @@
   ],
   "advisory_owners": [
     "backup.reliability",
+    "production-composition.authority",
     "internal-state.contract",
     "internal-state.campaign",
     "core.infrastructure",

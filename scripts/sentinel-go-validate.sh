@@ -57,6 +57,18 @@ if [ "$PRODUCTION_RUN" -eq 1 ]; then
   sentinel_load_environment --profile go --go-args "${FORWARDED_ARGS[@]}"
 fi
 
+# Normal production GO must download and reverify the protected GitHub
+# certification artifact before it can bind the exact GHCR runtime. Fail here,
+# before bootstrap/network/financial work, when no supported read credential was
+# propagated through the strict environment bridge. The explicit local-full path
+# does not consume GitHub certification and therefore does not require this key.
+if [ "$PRODUCTION_RUN" -eq 1 ] && [ "$LOCAL_FULL" -eq 0 ]; then
+  if [ -z "${SENTINEL_GITHUB_READ_TOKEN:-}" ] && [ -z "${GITHUB_TOKEN:-}" ]; then
+    go_error "CI-certified runtime requires SENTINEL_GITHUB_READ_TOKEN or GITHUB_TOKEN"
+    exit 2
+  fi
+fi
+
 if [ "$PRODUCTION_RUN" -eq 1 ]; then
   go_phase "DEPLOYMENT SECRETS BOOTSTRAP"
   "$PYTHON" scripts/sentinel_deployment_bootstrap.py

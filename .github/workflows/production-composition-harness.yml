@@ -1,0 +1,187 @@
+name: Production composition harness
+
+on:
+  pull_request:
+  merge_group:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: production-composition-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  composition:
+    name: composition-${{ matrix.scope }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+    env:
+      # stock_strategy_shared is intentionally imported as a top-level module.
+      PYTHONPATH: ${{ github.workspace }}/shared
+    strategy:
+      fail-fast: false
+      matrix:
+        scope: ${{ fromJSON(github.event_name == 'pull_request' && '["exact-head","synthetic-merge"]' || '["exact-head"]') }}
+
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 2
+          ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
+
+      - name: Verify tested tree
+        shell: bash
+        run: |
+          set -euo pipefail
+          tested="$(git rev-parse HEAD)"
+          if [ '${{ matrix.scope }}' = 'exact-head' ]; then
+            test "$tested" = '${{ github.event.pull_request.head.sha || github.sha }}'
+          elif [ '${{ github.event_name }}' = 'pull_request' ]; then
+            test "$tested" = "$GITHUB_SHA"
+            test "$(git rev-list --parents -n 1 HEAD | awk '{print NF-1}')" -eq 2
+            base_parent="$(git rev-parse HEAD^1)"
+            head_parent="$(git rev-parse HEAD^2)"
+            test "$head_parent" = '${{ github.event.pull_request.head.sha }}'
+            git fetch --no-tags origin \
+              '${{ github.event.pull_request.base.ref }}:refs/remotes/origin/pr-base'
+            git merge-base --is-ancestor "$base_parent" refs/remotes/origin/pr-base
+          fi
+          mkdir -p artifacts/production-composition
+          printf '%s\n' "$tested" > artifacts/production-composition/tested-commit.txt
+
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065 # v5.6.0
+        with:
+          python-version: '3.12.13'
+
+      - name: Install PostgreSQL physical restore tools
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+          command -v psql
+          test -n "$(find /usr/lib/postgresql -type f -name pg_verifybackup -print -quit)"
+
+      - name: Install locked runtime and test dependencies
+        run: |
+          set -euo pipefail
+          python -m pip install --require-hashes --only-binary=:all: --no-deps \
+            -r sentinel/requirements.lock -r tests/requirements.lock
+          python -m pip check
+
+      - name: Compile composition and authority surfaces
+        run: |
+          python -m compileall -q -f \
+            tests/production_composition \
+            tools/production_composition_harness.py \
+            scripts/sentinel_go_validate_entry.py \
+            scripts/sentinel_go_probe_contract.py \
+            scripts/sentinel_go_verified_entry.py
+
+      - name: Run authority matrix and real host-process regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          python -m pytest tests/production_composition \
+            -q -ra \
+            --junitxml=artifacts/production-composition/junit.xml \
+            2>&1 | tee artifacts/production-composition/pytest.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
+          python tools/verify_test_owner_execution.py \
+            --owner production-composition.authority \
+            --junit artifacts/production-composition/junit.xml \
+            --output artifacts/production-composition/test-owner.json
+          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
+              artifacts/production-composition/pytest.txt; then
+            echo 'REFUSED: production composition suite had non-passes' >&2
+            exit 1
+          fi
+
+      - name: Re-run adjacent GO authority regressions
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          python -m pytest \
+            tests/scripts/test_sentinel_go_validate.py \
+            tests/scripts/test_sentinel_go_ci_runtime.py \
+            tests/scripts/test_sentinel_ci_certification_verify.py \
+            tests/scripts/test_sentinel_ci_certification_verify_redirect.py \
+            tests/scripts/test_sentinel_reviewed_deploy_gate.py \
+            tests/scripts/test_sentinel_bringup_entrypoint.py \
+            tests/scripts/test_sentinel_env_writer_serialization.py \
+            tests/scripts/test_issue240_go_weekend_publication.py \
+            -q -ra \
+            --junitxml=artifacts/production-composition/adjacent-go.xml \
+            2>&1 | tee artifacts/production-composition/adjacent-go.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
+          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
+              artifacts/production-composition/adjacent-go.txt; then
+            echo 'REFUSED: adjacent GO authority suite had non-passes' >&2
+            exit 1
+          fi
+
+      - name: Run physical restore and upgrade seam
+        shell: bash
+        env:
+          ALPACA_HARNESS_REQUIRE_POSTGRES: '1'
+        run: |
+          set -euo pipefail
+          set +e
+          python -m pytest \
+            tests/internal_state/test_physical.py \
+            tests/internal_state/test_contract.py \
+            -q -ra \
+            --junitxml=artifacts/production-composition/physical-restore.xml \
+            2>&1 | tee artifacts/production-composition/physical-restore.txt
+          rc=${PIPESTATUS[0]}
+          set -e
+          if [ "$rc" -ne 0 ]; then
+            exit "$rc"
+          fi
+          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
+              artifacts/production-composition/physical-restore.txt; then
+            echo 'REFUSED: physical restore suite had non-passes' >&2
+            exit 1
+          fi
+
+      - name: Run real Docker/PostgreSQL composition gates
+        shell: bash
+        run: |
+          set -euo pipefail
+          python tools/production_composition_harness.py \
+            --output artifacts/production-composition/live.json
+
+      - name: Verify live evidence
+        run: |
+          python - <<'PY'
+          import json
+          from pathlib import Path
+          p = Path("artifacts/production-composition/live.json")
+          value = json.loads(p.read_text())
+          assert value["schema"] == "sentinel.production-composition-live/1"
+          assert value["matrix_scenarios"] >= 240
+          assert value["all_pass"] is True
+          assert len(value["live_results"]) >= 6
+          PY
+
+      - name: Retain composition evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: production-composition-${{ matrix.scope }}-${{ github.sha }}
+          path: artifacts/production-composition
+          if-no-files-found: error
+          retention-days: 30

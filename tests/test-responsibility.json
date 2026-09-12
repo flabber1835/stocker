@@ -45,6 +45,13 @@
       "ci_job": ".github/workflows/backup-reliability.yml#media-and-recovery",
       "execution": {"kind": "pytest-junit"}
     },
+    "production-composition.authority": {
+      "paths": ["tests/production_composition"],
+      "scopes": ["exact-head", "synthetic-merge"],
+      "ci_job": ".github/workflows/production-composition-harness.yml#composition",
+      "independence": "production-composition",
+      "execution": {"kind": "pytest-junit"}
+    },
     "internal-state.contract": {
       "paths": ["tests/internal_state"],
       "scopes": ["exact-head", "synthetic-merge"],
