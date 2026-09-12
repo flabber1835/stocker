@@ -59,7 +59,8 @@ REQUIRED_PHASES = (
 TICKERS = (
     "SPY", "AAPL", "MSFT", "JPM", "XOM", "JNJ", "PG", "KO", "WMT", "CAT",
     "HD", "V", "MA", "PFE", "UNH", "CVX", "IBM", "GE", "DIS", "MMM",
-)
+) + tuple(f"E2E{i:04d}" for i in range(3_980))
+# The production seed source requires at least 4,000 resolved rows per session.
 SEP_COLUMNS = (
     "ticker", "date", "open", "high", "low", "close", "volume", "dividends",
     "closeunadj", "lastupdated",
@@ -83,6 +84,7 @@ TICKER_COLUMNS = (
 _FIXTURE_READY = False
 _SOURCE_SETTINGS: dict[str, str] = {}
 SOURCE_REQUESTS: list[dict[str, str]] = []
+PAGE_SIZE = 10_000
 
 
 class HarnessFailure(RuntimeError):
@@ -124,7 +126,8 @@ def _in_range(day: dt.date, query: dict[str, list[str]], key: str = "date") -> b
     return True
 
 
-def _price_rows(query: dict[str, list[str]], *, sfp: bool = False) -> list[list[object]]:
+def _price_rows(query: dict[str, list[str]], *, sfp: bool = False,
+                offset: int = 0, limit: int | None = None) -> list[list[object]]:
     rows: list[list[object]] = []
     source_day = dt.datetime.now(dt.timezone.utc).date()
     ticker_filter = query.get("ticker", [None])[0]
@@ -133,14 +136,17 @@ def _price_rows(query: dict[str, list[str]], *, sfp: bool = False) -> list[list[
         if ticker_filter else None
     )
     tickers = ("SPY", "BIL") if sfp else TICKERS
+    if not _in_range(source_day, query, key="lastupdated"):
+        return rows
+    days = [(di, day) for di, day in enumerate(_session_days())
+            if _in_range(day, query)]
     for ti, ticker in enumerate(tickers):
         if allowed is not None and ticker not in allowed:
             continue
-        for di, day in enumerate(_session_days()):
-            if not _in_range(day, query):
-                continue
-            if not _in_range(source_day, query, key="lastupdated"):
-                continue
+        if offset >= len(days):
+            offset -= len(days)
+            continue
+        for di, day in days[offset:]:
             base = 50.0 + ti * 7.0 + di * 0.03
             raw_open = round(base, 4)
             raw_close = round(base * 1.001, 4)
@@ -153,11 +159,15 @@ def _price_rows(query: dict[str, list[str]], *, sfp: bool = False) -> list[list[
                 rows.append(common + [raw_close, raw_close, source_day.isoformat()])
             else:
                 rows.append(common + [raw_close, source_day.isoformat()])
+            if limit is not None and len(rows) >= limit:
+                return rows
+        offset = 0
     return rows
 
 
 def _ticker_rows() -> list[list[object]]:
     source_day = dt.datetime.now(dt.timezone.utc).date().isoformat()
+    days = _session_days()
     result = []
     for i, ticker in enumerate(TICKERS, start=1):
         category = "ETF" if ticker == "SPY" else "Domestic Common Stock"
@@ -166,16 +176,22 @@ def _ticker_rows() -> list[list[object]]:
             "N", category, None, 3571, "Manufacturing", "Technology",
             "Business Equipment", "Computers", "Technology", "Software",
             "5 - Large", "5 - Large", None, "USD", "U.S.A.", source_day,
-            "2000-01-03", "2000-01-03", None, "2000-03-31", None, None, None,
+            days[0].isoformat(), days[0].isoformat(), days[-1].isoformat(),
+            "2000-03-31", None, None, None,
         ])
     return result
 
 
 def _payload(table: str, query: dict[str, list[str]]) -> dict:
+    exporting = query.get("qopts.export") == ["true"]
+    offset = int(query.get("qopts.cursor_id", ["0"])[0])
+    if offset < 0:
+        raise ValueError("invalid fixture cursor")
+    limit = None if exporting else PAGE_SIZE + 1
     if table == "SEP":
-        columns, rows = SEP_COLUMNS, _price_rows(query)
+        columns, rows = SEP_COLUMNS, _price_rows(query, offset=offset, limit=limit)
     elif table == "SFP":
-        columns, rows = SFP_COLUMNS, _price_rows(query, sfp=True)
+        columns, rows = SFP_COLUMNS, _price_rows(query, sfp=True, offset=offset, limit=limit)
     elif table == "ACTIONS":
         # Complete production seed acquisition requires a nonempty whole-table
         # ACTIONS witness. A relation is retained metadata with no cash/share
@@ -189,12 +205,18 @@ def _payload(table: str, query: dict[str, list[str]]) -> dict:
         columns, rows = TICKER_COLUMNS, _ticker_rows()
     else:
         raise KeyError(table)
+    if table not in ("SEP", "SFP"):
+        rows = rows[offset:]
+    next_cursor = None
+    if not exporting and len(rows) > PAGE_SIZE:
+        rows = rows[:PAGE_SIZE]
+        next_cursor = str(offset + PAGE_SIZE)
     return {
         "datatable": {
             "columns": [{"name": name, "type": "text"} for name in columns],
             "data": rows,
         },
-        "meta": {"next_cursor_id": None},
+        "meta": {"next_cursor_id": next_cursor},
     }
 
 
@@ -226,6 +248,7 @@ class _TablesHandler(BaseHTTPRequestHandler):
                 buffer = io.BytesIO()
                 with zipfile.ZipFile(buffer, "w", zipfile.ZIP_DEFLATED) as archive:
                     info = zipfile.ZipInfo(f"{table}.csv", (2000, 1, 1, 0, 0, 0))
+                    info.compress_type = zipfile.ZIP_DEFLATED
                     archive.writestr(info, content.getvalue())
                 blob = buffer.getvalue()
                 path = f"/exports/{table}-{hashlib.sha256(blob).hexdigest()}.zip"

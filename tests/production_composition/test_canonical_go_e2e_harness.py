@@ -45,8 +45,9 @@ def test_fixture_pages_satisfy_consumed_sharadar_protocol():
         "TICKERS": {"table", "permaticker", "ticker", "category", "relatedtickers",
                     "firstpricedate", "lastpricedate", "sector", "isdelisted", "exchange"},
     }
+    day = harness._latest_closed_session().isoformat()
     for table in required:
-        page = harness._payload(table, {})
+        page = harness._payload(table, {"date": [day]})
         names = [item["name"] for item in page["datatable"]["columns"]]
         assert required[table].issubset(names)
         assert page["meta"] == {"next_cursor_id": None}
@@ -59,7 +60,7 @@ def test_fixture_supplies_seed_reference_tickers():
 
 
 def test_fixture_is_large_enough_for_readiness_history():
-    page = harness._payload("SEP", {})
+    page = harness._payload("SEP", {"ticker": ["SPY"]})
     by_spy = [row for row in page["datatable"]["data"] if row[0] == "SPY"]
     assert len(by_spy) >= 252
     assert len({row[1] for row in by_spy}) >= 252
@@ -96,10 +97,11 @@ def test_fixture_refuses_dropped_container_transport_setting(missing):
 def test_real_source_membrane_consumes_local_pages_and_complete_exports(monkeypatch):
     import httpx
     from types import SimpleNamespace
-    from sentinel.feed import sharadar, snapshot_export, snapshot_source
+    from sentinel.feed import sharadar, snapshot_export, snapshot_source, source_authority
     monkeypatch.setenv("SHARADAR_API_KEY", "e2e-sharadar-key")
     monkeypatch.setattr(sharadar, "ALLOW_INSECURE_BASE_URL", True)
     monkeypatch.setattr(sharadar, "FETCH_MAX_RETRIES", 1)
+    monkeypatch.setattr(harness, "PAGE_SIZE", 4_000)
     with harness._source_server() as port:
         def local_only(request):
             assert request.url.host == "127.0.0.1" and request.url.port == port
@@ -111,9 +113,19 @@ def test_real_source_membrane_consumes_local_pages_and_complete_exports(monkeypa
             TimeoutException=httpx.TimeoutException, TransportError=httpx.TransportError,
         )
         monkeypatch.setattr(sharadar, "NDL_BASE", f"http://127.0.0.1:{port}")
-        tickers = list(snapshot_source.fetch_table(sharadar.TICKERS, http=http))
+        guarded = source_authority.StableSharadarFetch(
+            snapshot_source.fetch_table, seed_mode=True)
+        tickers = list(guarded(sharadar.TICKERS, http=http))
         assert {row["ticker"] for row in tickers} == set(harness.TICKERS)
         days = harness._session_days()
+        interval = sharadar.date_params(days[-2].isoformat(), days[-1].isoformat())
+        list(guarded(sharadar.ACTIONS, interval, http=http))
+        list(guarded(sharadar.SFP, {"ticker": "SPY,BIL", **interval}, http=http))
+        seeded = list(guarded(sharadar.SEP, interval, http=http))
+        assert len(seeded) == 2 * len(harness.TICKERS)
+        assert guarded.seed_coverage_evidence["missing_eligible_total"] == 0
+        assert sum(item == {"table": "SEP", "channel": "pages"}
+                   for item in harness.SOURCE_REQUESTS) >= 4
         actions, evidence = snapshot_export.fetch_complete_actions(
             through=days[-1].isoformat(), http=http)
         assert len(actions) == 1

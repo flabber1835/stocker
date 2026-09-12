@@ -137,9 +137,13 @@ insecure-development opt-in, retry count and backoff settings to the container.
 Defaults retain the public HTTPS endpoint and production retry policy. An
 explicit insecure-development endpoint permits HTTP export downloads only from
 that same configured HTTP origin; other export origins still require HTTPS.
+The legacy environment converter deliberately leaves this development opt-in
+unset; each development deployment must select it explicitly.
 
-The production GO E2E fixture implements Tables pages and complete zipped CSV
-exports for TICKERS, ACTIONS and SEP. Before seeding, it inspects the resolved
+The production GO E2E fixture implements cursor-paginated Tables responses and
+complete zipped CSV exports for TICKERS, ACTIONS and SEP. Its 4,000 securities
+have complete listing intervals and preserve the production seed population
+floor. Before seeding, it inspects the resolved
 Compose service and refuses unless the effective endpoint, development opt-in
 and retry settings match its local server. It retains the observed request
 catalogue and uses only fixture credentials. The real feed acquisition,
