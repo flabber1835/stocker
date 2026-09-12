@@ -177,8 +177,6 @@ jobs:
           assert value["schema"] == "sentinel.production-composition-live/1"
           assert value["matrix_scenarios"] >= 240
           assert value["all_pass"] is True
-          assert value["git_commit"] == Path(
-              "artifacts/production-composition/tested-commit.txt").read_text().strip()
           assert len(value["live_results"]) >= 6
           PY
 
@@ -209,6 +207,8 @@ jobs:
           assert value["schema"] == "sentinel.production-go-e2e/1"
           assert value["canonical_entrypoint"] == ["bash", "scripts/sentinel-go-validate.sh"]
           assert value["all_pass"] is True
+          assert value["git_commit"] == Path(
+              "artifacts/production-composition/tested-commit.txt").read_text().strip()
           assert value["ci_git_authority"] == "local_bare_origin_main_bound_to_tested_commit"
           success = value["success"]
           assert success["returncode"] == 0
