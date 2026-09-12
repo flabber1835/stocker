@@ -22,6 +22,7 @@ RUN pip install --no-cache-dir --require-hashes --only-binary=:all: \
  && pip check
 
 WORKDIR /work
+COPY pytest.ini /work/pytest.ini
 COPY tests/ /work/tests/
 COPY tools/ /work/tools/
 # Authority-only surfaces required by the live test-responsibility validator.
