@@ -10,7 +10,13 @@ from research.sharadar_replay.oracle import compare
 from sentinel.feed import calendar
 
 SYMBOLS = tuple(f"S{i:03d}" for i in range(30))
-SECURITIES = {symbol: f"STATE-{symbol}" for symbol in SYMBOLS} | {"BIL": "SENTINEL:BIL"}
+AUTHORITY_TICKER = "TRI"
+AUTHORITY_SECURITY = "STATE-TRI-AUTHORITY"
+AUTHORITY_SESSION = "2026-05-04"
+AUTHORITY_STALE_CASH = 1.36
+AUTHORITY_FINAL_CASH = 1.435518
+SECURITIES = ({symbol: f"STATE-{symbol}" for symbol in SYMBOLS}
+              | {"BIL": "SENTINEL:BIL", AUTHORITY_TICKER: AUTHORITY_SECURITY})
 SEED = "2026-08-17"
 FIRST = "2026-08-18"
 START = "2025-08-01"
@@ -66,6 +72,37 @@ def step(day: str, seed=0, *, faulty=False, shocks=(), observed_after=None):
     tables["ACTIONS"].append(dict(ticker=SYMBOLS[0], date="2026-07-01", action="dividend",
         name=SYMBOLS[0], value=0.5, contraticker=None, contraname=None))
     actions.append((SYMBOLS[0], "2026-07-01", "dividend", SYMBOLS[0], 0.5, None, None))
+
+    # The production corporate-action authority contains one reviewed historical
+    # dispute. The synthetic lab must carry that exact stale Sharadar source fact
+    # once the event is in its observed history; otherwise the production code is
+    # expected to fail closed before lifecycle testing can begin. Keep the carrier
+    # security delisted and one-session-only so it exercises source adjudication
+    # without entering the synthetic investable universe.
+    if AUTHORITY_SESSION in axis:
+        tables["TICKERS"].append(dict(
+            table="SEP", ticker=AUTHORITY_TICKER, permaticker=AUTHORITY_SECURITY,
+            category="Domestic Common Stock", sector="Industrials", exchange="NYSE",
+            relatedtickers="", firstpricedate=AUTHORITY_SESSION,
+            lastpricedate=AUTHORITY_SESSION, isdelisted="Y"))
+        identities.append((
+            AUTHORITY_SECURITY, AUTHORITY_TICKER, "Domestic Common Stock",
+            "Industrials", "", AUTHORITY_SESSION, AUTHORITY_SESSION, True))
+        tables["ACTIONS"].append(dict(
+            ticker=AUTHORITY_TICKER, date=AUTHORITY_SESSION, action="dividend",
+            name=AUTHORITY_TICKER, value=AUTHORITY_STALE_CASH,
+            contraticker=None, contraname=None))
+        actions.append((
+            AUTHORITY_TICKER, AUTHORITY_SESSION, "dividend", AUTHORITY_TICKER,
+            AUTHORITY_STALE_CASH, None, None))
+        tables["SEP"].append(dict(
+            ticker=AUTHORITY_TICKER, date=AUTHORITY_SESSION, open=99.5,
+            close=100.0, closeunadj=100.0, volume=1_000_000,
+            lastupdated=AUTHORITY_SESSION))
+        bars.append((
+            AUTHORITY_SECURITY, AUTHORITY_SESSION, AUTHORITY_TICKER,
+            100.0, 100.0, 99.5, 1_000_000, 1, AUTHORITY_FINAL_CASH))
+
     for index, session in enumerate(axis):
         for ticker, base in (("SPY", 400), ("BIL", 100)):
             factor = math.prod(1 + basis_points / 10000 for start, basis_points in shocks if session >= start)
