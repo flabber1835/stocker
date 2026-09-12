@@ -12,6 +12,12 @@ on:
       - 'sentinel/config.py'
       - 'sentinel/binding.py'
       - 'sentinel/schema*'
+      - 'sentinel/requirements.lock'
+      - 'tests/requirements.lock'
+      - 'shared/**'
+      - 'pytest.ini'
+      - 'tests/conftest.py'
+      - 'tests/sentinel/conftest.py'
       - 'tests/support/alpaca_simulator.py'
       - 'tests/sentinel/test_alpaca*'
       - 'tests/sentinel/test_issue_183_alpaca_hardening.py'
@@ -66,7 +72,7 @@ jobs:
         env:
           PYTHONPATH: shared
           ALPACA_HARNESS_REQUIRE_POSTGRES: '1'
-        run: python tools/alpaca_harness_mutations.py --include-postgres --output artifacts/alpaca/mutations.json
+        run: python tools/alpaca_harness_mutations.py --output artifacts/alpaca/mutations.json
       - name: Retain contract inventory, mutation results and source identity
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
