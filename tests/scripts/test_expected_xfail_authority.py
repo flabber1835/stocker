@@ -1,7 +1,16 @@
 """Falsifiers for the narrow expected-xfail execution authority."""
 from copy import deepcopy
+from pathlib import Path
+import sys
 
 import pytest
+
+# verify_test_owner_execution.py is also a directly executable CLI and imports its
+# sibling helper by module name. Mirror direct-script import semantics here while
+# exercising the verifier functions through the package path.
+TOOLS_DIR = Path(__file__).resolve().parents[2] / "tools"
+if str(TOOLS_DIR) not in sys.path:
+    sys.path.insert(0, str(TOOLS_DIR))
 
 from tools.test_responsibility_lib import ROOT, junit_case_execution, load_authority
 from tools.verify_test_owner_execution import (
