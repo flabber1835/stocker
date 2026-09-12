@@ -34,7 +34,7 @@ REQUIRED_OWNERS = {
 }
 REQUIRED_SCOPES = {"exact-head", "synthetic-merge"}
 EXECUTION_KINDS = {"pytest-junit", "unittest-discovery", "command", "delegated"}
-_JOB_ID = re.compile(r"^  ([A-Za-z0-9_-]+):\s*(?:#.*)?$")
+_JOB_ID = re.compile(r"^  ([A-Za-z0-9_-]+):\s*$")
 _SCOPE_MATRIX = (
     "scope: ${{ fromJSON(github.event_name == 'pull_request' && "
     "'[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}"
@@ -46,27 +46,252 @@ _SCOPE_SHA = (
 _SCOPE_CHECKOUT = "ref: " + _SCOPE_SHA
 _SCOPE_TESTED_COMMIT = "TESTED_COMMIT: " + _SCOPE_SHA
 _SCOPE_ENV_CHECKOUT = "ref: ${{ env.TESTED_COMMIT }}"
+PROTECTED_JOB_NAMES = {
+    "sentinel-${{ matrix.scope }}": (
+        ".github/workflows/sentinel-safety.yml",
+        "certification-and-durability",
+    ),
+    "host-python-38-${{ matrix.scope }}": (
+        ".github/workflows/sentinel-safety.yml",
+        "host-python-38-compatibility",
+    ),
+}
 
 
 def git(*args: str) -> str:
     return subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
 
 
-def _job_body(text: str, job: str) -> str:
+def _strip_unquoted_comment(line: str) -> str:
+    """Strip YAML/shell comments while preserving hashes inside quotes."""
+    single = False
+    double = False
+    escaped = False
+    for index, char in enumerate(line):
+        if escaped:
+            escaped = False
+            continue
+        if char == "\\" and double:
+            escaped = True
+            continue
+        if char == "'" and not double:
+            single = not single
+            continue
+        if char == '"' and not single:
+            double = not double
+            continue
+        if char == "#" and not single and not double:
+            if index == 0 or line[index - 1].isspace():
+                return line[:index].rstrip()
+    return line.rstrip()
+
+
+def _active_yaml_text(text: str) -> str:
+    return "\n".join(_strip_unquoted_comment(line) for line in text.splitlines())
+
+
+def _indent(line: str) -> int:
+    return len(line) - len(line.lstrip(" "))
+
+
+def _workflow_jobs(text: str) -> dict[str, str]:
     lines = text.splitlines(keepends=True)
-    start = None
-    for index, line in enumerate(lines):
-        match = _JOB_ID.match(line.rstrip("\n"))
-        if match and match.group(1) == job:
-            start = index
+    jobs_start = None
+    for index, raw in enumerate(lines):
+        code = _strip_unquoted_comment(raw.rstrip("\n"))
+        if code == "jobs:":
+            jobs_start = index
             break
-    assert start is not None, f"CI job id not found: {job}"
+    assert jobs_start is not None, "workflow has no jobs map"
+
+    starts: list[tuple[str, int]] = []
+    for index in range(jobs_start + 1, len(lines)):
+        code = _strip_unquoted_comment(lines[index].rstrip("\n"))
+        if not code.strip():
+            continue
+        indent = _indent(code)
+        if indent == 0:
+            break
+        if indent == 2:
+            match = _JOB_ID.match(code)
+            if match:
+                starts.append((match.group(1), index))
+
+    result = {}
+    for offset, (name, start) in enumerate(starts):
+        end = starts[offset + 1][1] if offset + 1 < len(starts) else len(lines)
+        for index in range(start + 1, end):
+            code = _strip_unquoted_comment(lines[index].rstrip("\n"))
+            if code.strip() and _indent(code) == 0:
+                end = index
+                break
+        result[name] = "".join(lines[start:end])
+    return result
+
+
+def _job_body(text: str, job: str) -> str:
+    jobs = _workflow_jobs(text)
+    assert job in jobs, f"CI job id not found: {job}"
+    return jobs[job]
+
+
+def _workflow_triggers(text: str) -> set[str]:
+    lines = text.splitlines()
+    for index, raw in enumerate(lines):
+        code = _strip_unquoted_comment(raw)
+        if code.startswith("on:") and _indent(code) == 0:
+            value = code.split(":", 1)[1].strip()
+            if value:
+                if value.startswith("[") and value.endswith("]"):
+                    return {
+                        item.strip().strip("'\"")
+                        for item in value[1:-1].split(",") if item.strip()
+                    }
+                return {value.strip("'\"")}
+            triggers = set()
+            for child in lines[index + 1:]:
+                active = _strip_unquoted_comment(child)
+                if not active.strip():
+                    continue
+                indent = _indent(active)
+                if indent == 0:
+                    break
+                if indent == 2 and ":" in active:
+                    triggers.add(active.strip().split(":", 1)[0])
+            return triggers
+    return set()
+
+
+def _step_slices(job_text: str) -> list[list[str]]:
+    lines = job_text.splitlines()
+    steps_index = None
+    steps_indent = None
+    for index, raw in enumerate(lines):
+        code = _strip_unquoted_comment(raw)
+        if code.strip() == "steps:":
+            steps_index = index
+            steps_indent = _indent(code)
+            break
+    if steps_index is None or steps_indent is None:
+        return []
+
+    starts: list[int] = []
     end = len(lines)
-    for index in range(start + 1, len(lines)):
-        if _JOB_ID.match(lines[index].rstrip("\n")):
+    for index in range(steps_index + 1, len(lines)):
+        code = _strip_unquoted_comment(lines[index])
+        if not code.strip():
+            continue
+        indent = _indent(code)
+        if indent <= steps_indent:
             end = index
             break
-    return "".join(lines[start:end])
+        if indent == steps_indent + 2 and code.lstrip().startswith("- "):
+            starts.append(index)
+
+    result = []
+    for offset, start in enumerate(starts):
+        stop = starts[offset + 1] if offset + 1 < len(starts) else end
+        result.append(lines[start:stop])
+    return result
+
+
+def _field_from_step(step: list[str], key: str) -> str | None:
+    if not step:
+        return None
+    first_code = _strip_unquoted_comment(step[0])
+    step_indent = _indent(first_code)
+    first = first_code.lstrip()[2:]
+    prefix = key + ":"
+    if first.startswith(prefix):
+        return first[len(prefix):].strip().strip("'\"")
+    for raw in step[1:]:
+        code = _strip_unquoted_comment(raw)
+        if not code.strip():
+            continue
+        if _indent(code) != step_indent + 2:
+            continue
+        stripped = code.strip()
+        if stripped.startswith(prefix):
+            return stripped[len(prefix):].strip().strip("'\"")
+    return None
+
+
+def _step_text(step: list[str]) -> str:
+    return "\n".join(_strip_unquoted_comment(line) for line in step)
+
+
+def _step_run(step: list[str]) -> str | None:
+    if not step:
+        return None
+    first_code = _strip_unquoted_comment(step[0])
+    step_indent = _indent(first_code)
+    candidates: list[tuple[int, int, str]] = []
+    first = first_code.lstrip()[2:]
+    if first.startswith("run:"):
+        candidates.append((0, step_indent, first[len("run:"):].strip()))
+    for index, raw in enumerate(step[1:], 1):
+        code = _strip_unquoted_comment(raw)
+        if not code.strip() or _indent(code) != step_indent + 2:
+            continue
+        stripped = code.strip()
+        if stripped.startswith("run:"):
+            candidates.append((index, step_indent + 2, stripped[len("run:"):].strip()))
+    if not candidates:
+        return None
+    index, field_indent, value = candidates[0]
+    if value and value not in {"|", "|-", "|+", ">", ">-", ">+"}:
+        return _strip_unquoted_comment(value)
+
+    body = []
+    for raw in step[index + 1:]:
+        code = _strip_unquoted_comment(raw)
+        if code.strip() and _indent(raw) <= field_indent:
+            break
+        shell = _strip_unquoted_comment(raw)
+        if shell.strip():
+            body.append(shell.strip())
+    return "\n".join(body)
+
+
+def _step_is_unconditional(step: list[str]) -> bool:
+    return _field_from_step(step, "if") is None
+
+
+def _active_run_commands(job_text: str, *, unconditional: bool = False) -> list[str]:
+    commands = []
+    for step in _step_slices(job_text):
+        run = _step_run(step)
+        if run is None:
+            continue
+        if unconditional and not _step_is_unconditional(step):
+            continue
+        condition = _field_from_step(step, "if")
+        if condition is not None:
+            normalized = re.sub(r"\s+", "", condition.lower())
+            if normalized in {"false", "0", "${{false}}", "null"}:
+                continue
+        commands.append(run)
+    return commands
+
+
+def _unconditional_command_present(job_text: str, marker: str) -> bool:
+    return any(marker in command
+               for command in _active_run_commands(job_text, unconditional=True))
+
+
+def _job_name(job_text: str) -> str | None:
+    lines = job_text.splitlines()
+    if not lines:
+        return None
+    job_indent = _indent(_strip_unquoted_comment(lines[0]))
+    for raw in lines[1:]:
+        code = _strip_unquoted_comment(raw)
+        if not code.strip() or _indent(code) != job_indent + 2:
+            continue
+        stripped = code.strip()
+        if stripped.startswith("name:"):
+            return stripped.split(":", 1)[1].strip().strip("'\"")
+    return None
 
 
 def _require_ci_job(owner_name: str, value: object) -> tuple[str, str, str]:
@@ -90,13 +315,26 @@ def _require_scope_binding(name: str, scopes: set[str], job_text: str,
                            workflow_text: str) -> dict:
     assert REQUIRED_SCOPES.issubset(scopes), \
         f"{name}: exact/synthetic scope ownership missing"
-    assert "\n  pull_request:\n" in workflow_text, \
+    assert "pull_request" in _workflow_triggers(workflow_text), \
         f"{name}: declared workflow does not run on pull requests"
-    assert _SCOPE_MATRIX in job_text, \
+
+    active_job = _active_yaml_text(job_text)
+    assert _SCOPE_MATRIX in active_job, \
         f"{name}: declared CI job does not instantiate exact-head and synthetic-merge scopes"
-    direct_checkout = _SCOPE_CHECKOUT in job_text
+
+    steps = _step_slices(job_text)
+    checkout_steps = [
+        step for step in steps
+        if _field_from_step(step, "uses")
+        and _field_from_step(step, "uses").startswith("actions/checkout@")
+        and _step_is_unconditional(step)
+    ]
+    direct_checkout = any(_SCOPE_CHECKOUT in _step_text(step)
+                          for step in checkout_steps)
     tested_commit_checkout = (
-        _SCOPE_TESTED_COMMIT in job_text and _SCOPE_ENV_CHECKOUT in job_text)
+        _SCOPE_TESTED_COMMIT in active_job
+        and any(_SCOPE_ENV_CHECKOUT in _step_text(step) for step in checkout_steps)
+    )
     assert direct_checkout or tested_commit_checkout, \
         f"{name}: declared CI job does not bind scope to exact PR-head/synthetic-merge checkout"
     return {
@@ -114,89 +352,114 @@ def _require_execution_binding(name: str, owner: dict, job_text: str,
     assert kind in EXECUTION_KINDS, f"{name}: invalid execution kind: {kind}"
     if kind == "pytest-junit":
         marker = f"python tools/verify_test_owner_execution.py --owner {name}"
-        assert marker in job_text, (
-            f"{name}: declared CI job does not verify owned-module execution")
+        assert _unconditional_command_present(job_text, marker), (
+            f"{name}: declared CI job does not unconditionally verify owned-module execution")
     elif kind == "unittest-discovery":
         marker = f"python tools/run_unittest_owner.py --owner {name}"
-        assert marker in job_text, (
-            f"{name}: declared CI job does not use owner-driven unittest discovery")
+        assert _unconditional_command_present(job_text, marker), (
+            f"{name}: declared CI job does not use unconditional owner-driven unittest discovery")
     elif kind == "command":
         command = execution.get("command")
         assert isinstance(command, str) and command, f"{name}: missing execution command"
-        assert command in job_text, f"{name}: declared execution command not present in CI job"
+        assert _unconditional_command_present(job_text, command), (
+            f"{name}: declared execution command is not an unconditional active CI step")
     else:
         target = execution.get("owner")
         assert isinstance(target, str) and target in owners, f"{name}: invalid delegated owner"
         target_execution = owners[target].get("execution", {})
-        assert target_execution.get("kind") != "delegated", f"{name}: delegated owner cannot delegate again"
+        assert target_execution.get("kind") != "delegated", \
+            f"{name}: delegated owner cannot delegate again"
         if execution.get("required_contracts") is not None:
             assert isinstance(execution.get("required_contracts"), str), \
                 f"{name}: required_contracts must name an authority section"
     return execution
 
 
-def _require_merge_authority(*, sentinel_text: str | None = None,
-                             sharadar_text: str | None = None) -> dict:
-    sentinel_path = ROOT / ".github/workflows/sentinel-safety.yml"
-    sharadar_path = ROOT / ".github/workflows/sharadar-daily-replay.yml"
-    sentinel = sentinel_path.read_text() if sentinel_text is None else sentinel_text
-    sharadar = sharadar_path.read_text() if sharadar_text is None else sharadar_text
+def _workflow_sources(overrides: dict[str, str] | None = None) -> dict[str, str]:
+    result = {}
+    directory = ROOT / ".github" / "workflows"
+    for path in sorted(directory.glob("*.yml")) + sorted(directory.glob("*.yaml")):
+        result[relative_posix(path)] = path.read_text()
+    if overrides:
+        result.update(overrides)
+    return result
 
-    workflow_permissions = ["checks: read", "actions: read"]
-    missing = [needle for needle in workflow_permissions if needle not in sentinel]
-    assert not missing, f"Sentinel required-check permissions are incomplete: {missing}"
-    assert "python -m unittest -v tests.host_python38.test_" not in sentinel, (
+
+def _require_protected_context_uniqueness(workflows: dict[str, str]) -> dict:
+    found = {name: [] for name in PROTECTED_JOB_NAMES}
+    for workflow, text in workflows.items():
+        try:
+            jobs = _workflow_jobs(text)
+        except AssertionError:
+            continue
+        for job_id, body in jobs.items():
+            name = _job_name(body)
+            if name in found:
+                found[name].append((workflow, job_id))
+
+    for name, expected in PROTECTED_JOB_NAMES.items():
+        assert found[name] == [expected], (
+            f"protected context {name!r} must have exactly one workflow/job owner; "
+            f"expected={expected!r} found={found[name]!r}")
+    return {name: {"workflow": owner[0][0], "job": owner[0][1]}
+            for name, owner in found.items()}
+
+
+def _require_merge_authority(*, sentinel_text: str | None = None,
+                             sharadar_text: str | None = None,
+                             workflow_texts: dict[str, str] | None = None) -> dict:
+    sentinel_path = ".github/workflows/sentinel-safety.yml"
+    sharadar_path = ".github/workflows/sharadar-daily-replay.yml"
+    overrides = dict(workflow_texts or {})
+    if sentinel_text is not None:
+        overrides[sentinel_path] = sentinel_text
+    if sharadar_text is not None:
+        overrides[sharadar_path] = sharadar_text
+    workflows = _workflow_sources(overrides)
+    sentinel = workflows[sentinel_path]
+    sharadar = workflows[sharadar_path]
+
+    assert "python -m unittest -v tests.host_python38.test_" not in \
+        _active_yaml_text(sentinel), (
         "host Python 3.8 ownership regressed to a hand-maintained module list")
 
+    protected = _require_protected_context_uniqueness(workflows)
     carrier_job_id = "certification-and-durability"
     carrier = _job_body(sentinel, carrier_job_id)
-    carrier_name = "name: sentinel-${{ matrix.scope }}"
-    assert carrier_name in carrier, \
-        "Sentinel protected carrier job no longer emits sentinel-${matrix.scope}"
-    assert sentinel.count(carrier_name) == 1, \
-        "Sentinel protected carrier context name must be unique within its workflow"
-    carrier_required = [
-        "python tools/require_check_run.py",
-        "CHECK_SUITE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}",
-        '--sha "$CHECK_SUITE_SHA"',
-        '--name "sharadar-replay-${{ matrix.scope }}-${GITHUB_SHA}"',
-        '--workflow ".github/workflows/sharadar-daily-replay.yml"',
-        "if: github.event_name == 'pull_request' || github.event_name == 'merge_group'",
-        "if: github.event_name == 'push' && github.ref == 'refs/heads/main'",
-    ]
-    missing = [needle for needle in carrier_required if needle not in carrier]
-    assert not missing, f"Sentinel protected carrier job is incomplete: {missing}"
+    assert _job_name(carrier) == "sentinel-${{ matrix.scope }}", \
+        "Sentinel protected carrier job no longer owns sentinel-${matrix.scope}"
 
-    aggregate_name = "name: sharadar-replay-${{ matrix.scope }}-${{ github.sha }}"
-    aggregate_job = _job_body(sharadar, "complete-evidence")
-    assert aggregate_name in aggregate_job, \
-        "Sharadar aggregate check name is not owned by complete-evidence"
-    assert sharadar.count(aggregate_name) == 1, \
-        "Sharadar aggregate check name must be unique within its workflow"
-
-    sharadar_required = [
-        "merge_group:",
-        aggregate_name,
-        _SCOPE_TESTED_COMMIT,
-        _SCOPE_ENV_CHECKOUT,
-        'test "$(git rev-parse HEAD)" = "$TESTED_COMMIT"',
-        'verify_evidence.py evidence --commit "$TESTED_COMMIT"',
+    required_commands = [
+        "-m pytest research/sharadar_replay/tests -q -ra -s",
+        "SHARADAR_REPLAY_SHARDS=1",
+        "research/sharadar_replay/verify_evidence.py",
+        "python tools/verify_test_owner_execution.py --owner sharadar.daily-replay",
     ]
-    missing = [needle for needle in sharadar_required if needle not in sharadar]
-    assert not missing, f"Sharadar merge authority is incomplete: {missing}"
+    missing = [
+        marker for marker in required_commands
+        if not _unconditional_command_present(carrier, marker)
+    ]
+    assert not missing, (
+        "Sentinel protected carrier lacks unconditional in-process Sharadar authority: "
+        f"{missing}")
+    assert not _unconditional_command_present(carrier, "tools/require_check_run.py"), (
+        "Sentinel protected carrier regressed to a point-in-time cross-workflow replay bridge")
+
+    diagnostic_triggers = _workflow_triggers(sharadar)
+    assert "pull_request" not in diagnostic_triggers, \
+        "dedicated Sharadar diagnostic must not create a second PR replay authority"
+    assert "merge_group" not in diagnostic_triggers, \
+        "dedicated Sharadar diagnostic must not create a second merge-queue replay authority"
+
     return {
         "carrier_contexts": ["sentinel-exact-head", "sentinel-synthetic-merge"],
         "carrier_job": carrier_job_id,
-        "dependency_checks": [
-            "sharadar-replay-exact-head-${GITHUB_SHA}",
-            "sharadar-replay-synthetic-merge-${GITHUB_SHA}",
-        ],
-        "check_suite_binding": "pull-request head SHA or merge-group SHA",
-        "event_merge_binding": "dependency check name embeds GITHUB_SHA",
-        "workflow_origin": ".github/workflows/sharadar-daily-replay.yml",
-        "workflow_job": "complete-evidence",
-        "workflow_job_name_unique": True,
-        "tested_commit_binding": "Sharadar TESTED_COMMIT exact-head/synthetic-merge",
+        "replay_authority": "in-process-required-carrier",
+        "replay_owner": "sharadar.daily-replay",
+        "diagnostic_workflow": sharadar_path,
+        "diagnostic_triggers": sorted(diagnostic_triggers),
+        "protected_context_owners": protected,
+        "temporal_binding": "replay executes in the same required check run",
     }
 
 
@@ -261,9 +524,12 @@ def validate(*, base: str | None = None) -> dict:
     required_contracts = validate_contract_selectors(
         authority.get("alpaca", {}).get("required_contracts"))
     required_mutations = authority.get("alpaca", {}).get("required_mutations")
-    assert isinstance(required_mutations, list) and required_mutations, "missing Alpaca mutation authority"
-    assert all(isinstance(v, str) and v for v in required_mutations), "invalid Alpaca mutation id"
-    assert len(required_mutations) == len(set(required_mutations)), "duplicate Alpaca mutation id"
+    assert isinstance(required_mutations, list) and required_mutations, \
+        "missing Alpaca mutation authority"
+    assert all(isinstance(v, str) and v for v in required_mutations), \
+        "invalid Alpaca mutation id"
+    assert len(required_mutations) == len(set(required_mutations)), \
+        "duplicate Alpaca mutation id"
 
     merge_authority = _require_merge_authority()
 
@@ -280,7 +546,7 @@ def validate(*, base: str | None = None) -> dict:
         )
 
     return {
-        "schema": "stocker.test-responsibility-verdict/3",
+        "schema": "stocker.test-responsibility-verdict/4",
         "verdict": "PASS",
         "owners": len(owners),
         "ci_jobs": ci_jobs,
