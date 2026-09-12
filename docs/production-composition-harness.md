@@ -127,6 +127,31 @@ not consume the protected GitHub certification artifact.
 
 ## CI
 
+### Complete GO acceptance (issue #363 item 1)
+
+`tools/production_go_e2e_audit.py` launches the supported operator shell with
+real Docker/Compose/PostgreSQL and exact source-built runtime/test images.
+Sharadar and the PAPER account use local protocol fixtures with dummy keys.
+The resolved CLI environment must select the local source before seed begins.
+The seed stops one XNYS session before the available fixture frontier, so the
+successful GO itself must perform source catch-up and publish the final session.
+
+Acceptance binds the validation bundle, runtime promotion, recreated panel, and
+handoff to the same commit, images, publication, and invocation. It also requires
+the complete ordered production phase transcript and every SHADOW authority gate.
+Current-strategy parity follows `production-certification-separation.md`.
+
+Sensitivity runs deliberately fail the actual called boundaries: host stages,
+schema/feed write authorization, schema migration, feed catch-up, final
+publication check, operational parity, Sharadar readiness, database health,
+validation ZIP creation, requested-target proof, panel recreation, and final
+handoff write. A temporary interpreter/Docker wrapper installs only the selected
+raising mutation; all preceding production work runs normally. The successful
+run uses the production programs unchanged. Each fault must emit its specific
+marker, make GO fail, and prevent subsequent promotion or final success as
+appropriate. This is stage reachability/sensitivity evidence; interruption,
+durable recovery, and convergence campaigns remain issue #363 item 2.
+
 `.github/workflows/production-composition-harness.yml` runs on pull requests,
 merge groups, `main` pushes and manual dispatch.
 

@@ -24,6 +24,8 @@ import tempfile
 import zipfile
 
 import production_go_e2e_harness as base
+import production_go_stage_faults as stage_faults
+from scripts import sentinel_go_validate as go
 
 ROOT = base.ROOT
 POINTER = ROOT / "artifacts" / "sentinel" / "deployment" / "validated-runtime.env"
@@ -160,6 +162,17 @@ def _panel_image_id() -> str:
     return value
 
 
+def _assert_publication_advance(seeded, published, bound_subject: str) -> None:
+    _require(isinstance(seeded, dict) and published["version"] > seeded["version"]
+             and published["visible_frontier"] > seeded["visible_frontier"],
+             "canonical GO did not advance and publish beyond the retained seed")
+    publication_value = go.data_publication_subject_value({
+        key: published[key] for key in ("publication_fingerprint", "visible_frontier")})
+    _require(bound_subject == go._subject_digest(
+        "data_publication", publication_value),
+        "GO publication evidence differs from the actual PostgreSQL publication")
+
+
 def _success_evidence(completed: subprocess.CompletedProcess[str], commit: str) -> dict:
     log = completed.stdout or ""
     phases = base._phase_names(log)
@@ -233,6 +246,9 @@ def _success_evidence(completed: subprocess.CompletedProcess[str], commit: str) 
     }
     _require(bool(subjects.get("data_publication")),
              "validation bundle has no bound publication identity")
+    published = base._publication_identity()
+    seeded = base.SEEDED_PUBLICATION
+    _assert_publication_advance(seeded, published, subjects["data_publication"])
 
     handoff = base._load_json(base.HANDOFF)
     _require(handoff.get("git_commit") == commit,
@@ -267,6 +283,7 @@ def _success_evidence(completed: subprocess.CompletedProcess[str], commit: str) 
         "target": "SHADOW",
         "runtime_identity": runtime_id,
         "test_lens_identity": test_id,
+        "publication_advance": {"seeded": seeded, "published": published},
         "validation_bundle": {
             "path": bundle_path,
             "sha256": bundle_sha256,
@@ -379,6 +396,39 @@ def _proxy_fault(proxy: Path, name: str, expected_phase: str, script: str) -> di
     )
 
 
+def _internal_fault_wrappers(work: Path) -> tuple[Path, Path]:
+    directory = work / "internal-fault-bin"
+    directory.mkdir()
+    for filename, kind in (("docker", "docker"), ("python-stage-fault", "python")):
+        path = directory / filename
+        path.write_text(
+            f"#!{sys.executable}\nimport sys\n"
+            f"sys.path.insert(0, {str(ROOT / 'tools')!r})\n"
+            "from production_go_stage_faults import main\n"
+            f"main({kind!r})\n", encoding="utf-8")
+        path.chmod(0o755)
+    return directory, directory / "python-stage-fault"
+
+
+def _internal_fault(directory: Path, proxy: Path, log_dir: Path, name: str, phase: str) -> dict:
+    docker = shutil.which("docker")
+    _require(docker is not None, "stage sensitivity requires the real Docker executable")
+    completed = base._invoke(extra_env={
+        "PATH": str(directory) + os.pathsep + os.environ["PATH"],
+        "SENTINEL_HOST_PYTHON": str(proxy),
+        "E2E_REAL_PYTHON": sys.executable,
+        "E2E_REAL_DOCKER": docker,
+        "E2E_INTERNAL_STAGE": name,
+    })
+    (log_dir / (name + "-go.log")).write_text(completed.stdout or "", encoding="utf-8")
+    _require(base.SUCCESS not in (completed.stdout or ""),
+             f"internal sensitivity {name} emitted final GO success")
+    return _assert_fault(
+        name, phase, completed, marker="E2E_STAGE_FAULT:" + name,
+        forbid_phase=(None if phase == stage_faults.POST_PHASE
+                      else "PROMOTE EXACT CERTIFIED RUNTIME"))
+
+
 def _git(argv, *, check=True) -> str:
     completed = _run(["git", *argv], timeout=120)
     if check and completed.returncode != 0:
@@ -471,7 +521,13 @@ def run(*, output: Path, sensitivity: bool) -> dict:
                         result["sensitivity"].append(_environment_fault())
                         result["sensitivity"].append(_lock_fault())
                         for spec in FAULTS:
+                            print("E2E sensitivity: " + spec[0], flush=True)
                             result["sensitivity"].append(_proxy_fault(proxy, *spec))
+                        directory, proxy = _internal_fault_wrappers(work)
+                        for spec in stage_faults.STAGES:
+                            print("E2E sensitivity: " + spec[0], flush=True)
+                            result["sensitivity"].append(_internal_fault(
+                                directory, proxy, output.parent, *spec))
                 finally:
                     base._clean_runtime()
 

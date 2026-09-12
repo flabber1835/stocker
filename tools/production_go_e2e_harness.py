@@ -82,6 +82,7 @@ TICKER_COLUMNS = (
 )
 
 _FIXTURE_READY = False
+SEEDED_PUBLICATION: dict | None = None
 _SOURCE_SETTINGS: dict[str, str] = {}
 SOURCE_REQUESTS: list[dict[str, str]] = []
 PAGE_SIZE = 10_000
@@ -404,7 +405,7 @@ def _require_local_source(model: dict, expected: dict[str, str]) -> None:
 
 def _bootstrap_financial_fixture() -> None:
     """Create the supported retained feed state required before production daily GO."""
-    global _FIXTURE_READY
+    global _FIXTURE_READY, SEEDED_PUBLICATION
     if _FIXTURE_READY:
         return
 
@@ -434,6 +435,7 @@ def _bootstrap_financial_fixture() -> None:
         "SOURCE_GIT_SHA=" + commit, "-t", runtime_ref,
         "-f", "Dockerfile.sentinel", ".",
     ], env=env, timeout=1800)
+    print("E2E fixture: exact runtime built", flush=True)
     _run_host([
         "bash", "scripts/sentinel-compose.sh", "--run",
         "up", "-d", "--wait", "sentinel-postgres",
@@ -442,6 +444,7 @@ def _bootstrap_financial_fixture() -> None:
     # Feed mutation is allowed only when the real backup runtime can prove a
     # restore horizon, so establish that horizon before any schema/feed write.
     _run_host(["bash", "scripts/sentinel-base-backup.sh"], env=env, timeout=900)
+    print("E2E fixture: real PostgreSQL backup horizon established", flush=True)
 
     schema_code = (
         "import os; "
@@ -461,19 +464,55 @@ def _bootstrap_financial_fixture() -> None:
     ], env=env, timeout=300)
 
     days = _session_days()
-    if not days:
+    if len(days) < 254:
         raise HarnessFailure("deterministic Sharadar fixture has no seed sessions")
+    # GO must publish the final available session through its actual Phase C.
+    # Keep the supported 252-session startup history before that transition.
+    print("E2E fixture: seed through " + days[-2].isoformat(), flush=True)
     _run_host([
         "bash", "scripts/sentinel-compose.sh", "--run",
         "run", "--rm", "-T", "--no-deps", "sentinel", "feed-seed",
-        "--from", days[0].isoformat(), "--to", days[-1].isoformat(),
+        "--from", days[0].isoformat(), "--to", days[-2].isoformat(),
     ], env=env, timeout=1800)
+    SEEDED_PUBLICATION = _publication_identity(env=env)
+    print("E2E fixture: seed complete; canonical GO starts next", flush=True)
     _FIXTURE_READY = True
 
 
+def _publication_identity(*, env=None) -> dict:
+    code = """
+import json, os
+from sentinel.core.decision import publication_fingerprint
+from sentinel.feed import publication, store
+c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
+try:
+    with c.cursor() as cur:
+        cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
+    with publication.pinned(c, commit=False) as held:
+        print(json.dumps({
+            'publication_fingerprint': publication_fingerprint(held),
+            'visible_frontier': store.latest_visible_session(c),
+            'version': held.version,
+        }, sort_keys=True))
+finally:
+    c.rollback(); c.close()
+"""
+    result = _run_host([
+        "bash", "scripts/sentinel-compose.sh", "--run", "--profile", "cli",
+        "run", "--rm", "-T", "--no-deps", "--entrypoint", "python", "sentinel",
+        "-c", code,
+    ], env=env, timeout=120)
+    value = json.loads(result.stdout)
+    if (not isinstance(value, dict) or type(value.get("version")) is not int
+            or value["version"] < 1):
+        raise HarnessFailure("fixture publication identity is unavailable")
+    return value
+
+
 def _clean_runtime() -> None:
-    global _FIXTURE_READY
+    global _FIXTURE_READY, SEEDED_PUBLICATION
     _FIXTURE_READY = False
+    SEEDED_PUBLICATION = None
     _run_host(
         ["bash", "scripts/sentinel-compose.sh", "--run", "down"],
         timeout=300,
@@ -482,16 +521,23 @@ def _clean_runtime() -> None:
 
 def _invoke(*, target: str = "SHADOW", extra_env: dict[str, str] | None = None,
             timeout: int = 5400, prepare_fixture: bool = True) -> subprocess.CompletedProcess[str]:
+    from types import SimpleNamespace
+    from scripts import sentinel_go_observability as observability
     if prepare_fixture:
         _bootstrap_financial_fixture()
     env = dict(os.environ)
     env.update(extra_env or {})
     env["NO_COLOR"] = "1"
     argv = [*ENTRYPOINT, "--local-full-certification", "--target", target]
-    return subprocess.run(
-        argv, cwd=ROOT, env=env, text=True, stdout=subprocess.PIPE,
-        stderr=subprocess.STDOUT, timeout=timeout, check=False,
-    )
+    # GO already sanitizes its operator output. Retain it and stream the same
+    # transcript so long real certification/preparation runs remain diagnosable.
+    result = observability._streaming_run(
+        SimpleNamespace(_safe_int_env=lambda *_args: timeout),
+        SimpleNamespace(MAX_BOUNDED_INGEST_MS=timeout * 1000),
+        argv, cwd=ROOT, env=env, raw_stream=True)
+    return subprocess.CompletedProcess(
+        argv, result.returncode, stdout=result.stdout + "\n" + result.stderr,
+        stderr="")
 
 
 def _phase_names(output: str) -> list[str]:
