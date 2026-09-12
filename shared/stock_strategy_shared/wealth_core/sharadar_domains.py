@@ -1,8 +1,8 @@
 """Sharadar-specific economic-domain conversions shared by live and replay paths.
 
-Sharadar SEP publishes split-adjusted `close` and split-adjusted `volume`, while
-`closeunadj` is the actual as-traded close. Dollar liquidity is invariant only
-when price and volume are expressed in the same split domain.
+Sharadar SEP publishes split-adjusted `close`, `open`, and `volume`, while
+`closeunadj` is the actual as-traded close. Dollar liquidity and opening price
+are invariant only when every value is expressed in the same split domain.
 
 Sharadar ACTIONS dividend values are stated on the vendor's current
 split-adjusted share basis. Wealth Core, however, owns historical as-traded share
@@ -14,8 +14,8 @@ The source boundary is DECIMAL, even though the canonical engine stores floats.
 Equivalent Sharadar publication rebases must therefore be reduced in an exact
 rational domain before the one final float conversion. Performing the ratio in
 binary float makes representations such as 20.002/100.01 change the last bits of
-volume or dividend economics even when the source publications are exactly
-algebraically equivalent.
+volume, dividend, or raw-open economics even when the source publications are
+exactly algebraically equivalent.
 """
 from __future__ import annotations
 
@@ -71,6 +71,32 @@ def raw_compatible_volume(
     if any(v is None or v <= 0 for v in (adjusted, raw, reported)):
         return None
     result = Fraction(reported) * Fraction(adjusted) / Fraction(raw)
+    out = _finite_float(result)
+    return out if out is not None and out > 0 else None
+
+
+def raw_compatible_price(
+    split_adjusted_price: object,
+    split_adjusted_close: object,
+    raw_close: object,
+) -> Optional[float]:
+    """Convert another split-adjusted SEP price to the raw/as-traded domain.
+
+    ``SEP.open`` and ``SEP.close`` share the same vendor split basis.  The raw
+    open is therefore:
+
+        split_adjusted_open * raw_close / split_adjusted_close
+
+    The ratio is evaluated over exact source-decimal spellings.  Callers may
+    apply their existing presentation/execution rounding after this function;
+    that rounding remains a separate canonical engine contract.
+    """
+    price = _finite_decimal(split_adjusted_price)
+    adjusted = _finite_decimal(split_adjusted_close)
+    raw = _finite_decimal(raw_close)
+    if any(v is None or v <= 0 for v in (price, adjusted, raw)):
+        return None
+    result = Fraction(price) * Fraction(raw) / Fraction(adjusted)
     out = _finite_float(result)
     return out if out is not None and out > 0 else None
 
