@@ -5,6 +5,7 @@ from __future__ import annotations
 import argparse
 import json
 from pathlib import Path
+import platform
 import sys
 import unittest
 
@@ -27,7 +28,14 @@ def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--owner", required=True)
     parser.add_argument("--output", type=Path)
+    parser.add_argument("--require-python")
     args = parser.parse_args()
+
+    python_version = platform.python_version()
+    if args.require_python and python_version != args.require_python:
+        raise RuntimeError(
+            "runtime Python differs from required authority: expected=%s actual=%s" %
+            (args.require_python, python_version))
 
     authority = load_authority()
     modules = owned_test_modules(authority, args.owner)
@@ -63,10 +71,12 @@ def main() -> int:
         and not unexpected_successes
     )
     payload = {
-        "schema": "stocker.unittest-owner-execution/2",
+        "schema": "stocker.unittest-owner-execution/3",
         "verdict": "PASS" if passed else "FAIL",
         "owner": args.owner,
         "python": sys.version,
+        "python_version": python_version,
+        "required_python": args.require_python,
         "modules": collected,
         "testsRun": result.testsRun,
         "failures": len(result.failures),
