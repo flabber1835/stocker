@@ -20,31 +20,51 @@ from tests.internal_state.contract import InvariantFailure, Trace, reduce_trace
 from tests.internal_state.runtime import Lifecycle, plain, write
 from tests.internal_state.scenarios import catalogue, generated
 
+LOCK_PATHS = ("sentinel/requirements.lock", "tests/requirements.lock")
+DEPENDENCIES = ("psycopg", "httpx", "exchange_calendars", "pandas", "numpy", "pydantic", "pytest")
+
 
 def source_identity():
     def git(*args):
         return subprocess.check_output(["git", *args], cwd=ROOT, text=True).strip()
-    return {"commit": git("rev-parse", "HEAD"), "tree": git("rev-parse", "HEAD^{tree}"),
+    return {
+        "commit": git("rev-parse", "HEAD"),
+        "tree": git("rev-parse", "HEAD^{tree}"),
         "tracked_dirty": bool(git("status", "--porcelain", "--untracked-files=no")),
         "python": platform.python_version(),
-        "dependencies": {name: version(name) for name in
-            ("psycopg", "httpx", "exchange_calendars", "pandas", "numpy", "pydantic", "pytest")},
+        "dependencies": {name: version(name) for name in DEPENDENCIES},
         "locks": {path: hashlib.sha256((ROOT / path).read_bytes()).hexdigest()
-                  for path in ("sentinel/requirements.lock", "tests/requirements.lock")},
-        "authority": "synthetic model; no deployment or broker capability certification"}
+                  for path in LOCK_PATHS},
+        "authority": "synthetic model; no deployment or broker capability certification",
+    }
+
+
+def clean_source_identity():
+    identity = source_identity()
+    if identity["tracked_dirty"]:
+        raise RuntimeError("internal-state authority requires a clean tracked source tree")
+    return identity
 
 
 def run_trace(trace, output):
+    identity = clean_source_identity()
     output.mkdir(parents=True, exist_ok=False)
     write(output / "trace.json", trace.envelope())
-    report = source_identity() | {"verdict": "FAIL", "scenario": trace.name,
-        "profile": trace.profile, "seed": trace.seed, "replay": f"python tools/internal_state_harness.py --replay {output / 'trace.json'} --output NEW_DIRECTORY"}
+    report = identity | {
+        "verdict": "FAIL",
+        "scenario": trace.name,
+        "profile": trace.profile,
+        "seed": trace.seed,
+        "replay": f"python tools/internal_state_harness.py --replay {output / 'trace.json'} --output NEW_DIRECTORY",
+    }
     lifecycle = Lifecycle(trace, output)
     try:
         with lifecycle:
             report["postgres"] = lifecycle.cluster.sql("SHOW server_version")[0]
             report["strategy_identity"] = lifecycle.identity
             report.update(lifecycle.run())
+            if source_identity()["tracked_dirty"]:
+                raise RuntimeError("tracked source changed during internal-state scenario")
             report["verdict"] = "PASS"
     except BaseException as exc:
         report["error"] = {"type": type(exc).__name__, "detail": str(exc),
@@ -76,6 +96,7 @@ def main(argv=None):
         parser.error("invalid campaign budget or shard")
     if args.output.exists():
         parser.error("output must be new; prior evidence cannot satisfy this run")
+    starting_identity = clean_source_identity()
     selected = [Trace.decode(json.loads(args.replay.read_text()))] if args.replay else [
         *catalogue(), *(generated(s) for s in range(args.seed_start, args.seed_start + args.seeds))]
     if args.scenario:
@@ -106,15 +127,27 @@ def main(argv=None):
                     write(path / "reduction.json", evidence)
                 except Exception as reduction_error:
                     write(path / "reduction-error.json", {"error": repr(reduction_error)})
-            # A broken fixture should not start dozens of expensive clusters.
             if not isinstance(exc, InvariantFailure):
                 break
-    write(args.output / "campaign.json", source_identity() | {
+    final_identity = source_identity()
+    if final_identity["tracked_dirty"]:
+        failures.append({"scenario": "campaign", "profile": "source", "error": "tracked source changed during campaign"})
+    identity_mismatch = {
+        key: {"start": starting_identity[key], "final": final_identity[key]}
+        for key in ("commit", "tree", "python", "dependencies", "locks")
+        if starting_identity[key] != final_identity[key]
+    }
+    if identity_mismatch:
+        failures.append({"scenario": "campaign", "profile": "runtime", "error": repr(identity_mismatch)})
+    write(args.output / "campaign.json", final_identity | {
         "verdict": "FAIL" if failures or len(reports) != len(selected) else "PASS",
         "planned": [t.name + "-" + t.profile for t in selected],
         "completed": [r["scenario"] + "-" + r["profile"] for r in reports],
-        "failures": failures, "shard": args.shard, "shards": args.shards,
-        "coverage": sorted({c for r in reports for c in r["coverage"]})})
+        "failures": failures,
+        "shard": args.shard,
+        "shards": args.shards,
+        "coverage": sorted({c for r in reports for c in r["coverage"]}),
+    })
     return int(bool(failures) or len(reports) != len(selected))
 
 
