@@ -228,6 +228,9 @@ _COLUMNS = {
         "open": ("double precision", False), "close": ("double precision", False),
         "closeunadj": ("double precision", False),
         _TOTAL_RETURN_COLUMN: ("double precision", False), "volume": ("double precision", False),
+        "open_source": ("text", False), "close_source": ("text", False),
+        "closeunadj_source": ("text", False), "closeadj_source": ("text", False),
+        "volume_source": ("text", False),
     },
     "sentinel_active_ingest_rejections": {
         "observation_id": ("bigint", False), "ticker": ("text", False),
@@ -455,6 +458,29 @@ _TRIGGER_WITNESSES = {
             "execute function sentinel_require_publication_receipt()"),
     },
 }
+
+
+from sentinel.feed.history_mutation_schema import TRACKED_TABLES as _HISTORY_TABLES
+
+_INDEXES["idx_sentinel_publication_window_end"] = False
+_INDEX_WITNESSES["idx_sentinel_publication_window_end"] = (
+    "on public.sentinel_corpus_publications using btree (window_end desc)",)
+_RELATIONS["sentinel_history_mutations"] = ("r", "p", False, False, False)
+_COLUMNS["sentinel_history_mutations"] = {
+    "base_version": ("bigint", True), "writer_run_id": ("text", True),
+    "source_table": ("text", True), "affected_session": ("date", True),
+}
+_PRIMARY_KEYS["sentinel_history_mutations"] = (
+    "primary key (base_version, writer_run_id, source_table, affected_session)")
+_TRIGGER_WITNESSES["sentinel_history_mutations"] = {
+    "sentinel_refuse_append_only_mutation": (
+        "before delete or update", "for each row",
+        "execute function sentinel_refuse_append_only_mutation()"),
+}
+for _table in _HISTORY_TABLES:
+    _TRIGGER_WITNESSES[_table]["sentinel_record_history_mutation"] = (
+        "after insert or delete or update", "for each row",
+        "execute function sentinel_record_history_mutation()")
 
 
 def _fold(value: object) -> str:

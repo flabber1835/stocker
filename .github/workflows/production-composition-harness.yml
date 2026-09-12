@@ -242,7 +242,7 @@ jobs:
               "runtime-promotion",
               "post-validation-handoff",
           }, "preparation": {
-              "schema-feed-authorization", "schema-migration",
+              "schema-feed-permission", "schema-migration",
               "feed-catchup", "publication-check",
           }, "financial": {
               "operational-parity", "sharadar-readiness", "database-health",

@@ -423,7 +423,8 @@ def _expected_effective_equity_dividends(
     raw_start, raw_end = calendar.action_date_window(wanted, wanted)
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT session,action,ticker,value,source_row_id"
+            "SELECT session,action,ticker,"
+            " COALESCE(source_payload->>'value',value::text),source_row_id"
             " FROM sentinel_active_actions"
             " WHERE session BETWEEN %s AND %s"
             " ORDER BY session,ticker,source_row_id", (raw_start, raw_end))
@@ -448,6 +449,16 @@ def _expected_effective_equity_dividends(
         reported[ticker_key] = reported.get(ticker_key, Decimal(0)) + amount
         sources.setdefault(ticker_key, []).append(identity)
 
+    from sentinel.feed.corporate_action_authority import resolve_dividends
+    from sentinel.feed.source_authority.corporate_action_data import (
+        DISPUTED_CASH_EVENTS, CASH_ADJUDICATION_AUTHORITIES)
+    resolution = resolve_dividends(
+        [{"date": str(day), "action": action, "ticker": str(ticker).upper(),
+          "value": value} for day, action, ticker, value, _source in action_rows],
+        [wanted], disputed_events=tuple(
+            item for item in DISPUTED_CASH_EVENTS if item["ticker"] in ticker_rows),
+        authorities=tuple(item for item in CASH_ADJUDICATION_AUTHORITIES
+                          if item["ticker"] in ticker_rows))
     expected: list[dict] = []
     for ticker_key, row in sorted(ticker_rows.items()):
         security_id, ticker, close_signal, close_unadjusted, per_share = row
@@ -460,8 +471,8 @@ def _expected_effective_equity_dividends(
                 f"{ticker} positive dividend lacks bound action evidence")
         converted = _decimal(
             raw_dividend_per_share(
-                float(close_signal), float(close_unadjusted),
-                float(reported_per_share)),
+                close_signal, close_unadjusted,
+                resolution.dividends[(ticker_key, wanted)]),
             where=f"{ticker} normalized dividend per-share")
         if abs(converted - per_share) > DIVIDEND_EVIDENCE_TOLERANCE:
             raise TrialEvidenceRefused(
@@ -478,6 +489,9 @@ def _expected_effective_equity_dividends(
             "reported_per_share": str(reported_per_share),
             "source_row_ids": sorted(source_ids),
             "source": "PUBLISHED_NORMALISED_BAR_AND_SHARADAR_ACTIONS",
+            **({"adjudications": [item.to_dict() for item in resolution.adjudications
+                                  if item.ticker == ticker_key]}
+               if any(item.ticker == ticker_key for item in resolution.adjudications) else {}),
             "settlement_lag_sessions": None,
         })
     return expected
@@ -1002,7 +1016,9 @@ def _previous_verification(conn, before: date) -> dict | None:
         _validate_cash_reference(conn, verified)
         _validate_cash_finality_reference(conn, verified)
         previous = verified
-    return previous
+    from sentinel import paper_performance
+    return paper_performance.project(
+        previous, paper_performance.load(conn, previous.get("binding")))
 
 
 def _terminal_verification_debt(conn, cycle) -> tuple[dict, ...]:
@@ -1822,7 +1838,19 @@ def build_cycle_verification(conn, *, cycle_id: str,
             },
         },
     }
-    return verification
+    from sentinel import paper_performance
+    marker = paper_performance.load(conn, binding)
+    if (expected_paper_dividends and marker is None
+            and paper_performance._account(binding) is not None):
+        # The builder has no writes. It still suppresses performance immediately;
+        # the recorder below durably latches the separately retained evidence.
+        marker = {
+            "account": paper_performance._account(binding),
+            "first_affected_session": min(
+                item["accrued_session"] for item in expected_paper_dividends),
+            "evidence_sha256": None,
+        }
+    return paper_performance.project(verification, marker)
 
 
 def _validate_verification(session: date, state: dict) -> dict:
@@ -2024,9 +2052,12 @@ def record_cycle_verification(conn, *, cycle_id: str,
         _validate_fill_reference(conn, stored)
         _validate_cash_reference(conn, stored)
         _validate_cash_finality_reference(conn, stored)
-        return stored
+        from sentinel import paper_performance
+        return paper_performance.record_and_project(conn, stored)
     result = build_cycle_verification(
         conn, cycle_id=cycle_id, observation_id=observation_id, now=now)
+    from sentinel import paper_performance
+    result = paper_performance.record_and_project(conn, result)
     pending_source_reasons = {
         "CLOSE_NAV_EVIDENCE_MISSING",
         "CLOSE_NAV_EVIDENCE_FUTURE",
@@ -2096,7 +2127,9 @@ def load_verifications(conn) -> list[dict]:
         _validate_fill_reference(conn, verified)
         _validate_cash_reference(conn, verified)
         _validate_cash_finality_reference(conn, verified)
-        result.append(verified)
+        from sentinel import paper_performance
+        result.append(paper_performance.project(
+            verified, paper_performance.load(conn, verified.get("binding"))))
     return result
 
 

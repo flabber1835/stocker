@@ -131,7 +131,10 @@ not consume the protected GitHub certification artifact.
 
 `tools/production_go_e2e_audit.py` launches the supported operator shell with
 real Docker/Compose/PostgreSQL and exact source-built runtime/test images.
-Sharadar and the PAPER account use local protocol fixtures with dummy keys.
+The SHADOW-target run uses a local Sharadar protocol fixture with a dummy key.
+Alpaca credentials are unset, so account preflight follows the supported SHADOW
+path for a deployment without broker credentials. Broker order execution is
+outside this acceptance scope.
 The resolved CLI environment must select the local source before seed begins.
 The seed stops one XNYS session before the available fixture frontier, so the
 successful GO itself must perform source catch-up and publish the final session.

@@ -87,7 +87,7 @@
       "module": "preparation"
     },
     "prepare_paper_plan": {
-      "generated_ast_sha256": "486d1eddabe1339d0c90fe003e2d28b30b448378cb13f4c57f9c88613f6b234d",
+      "generated_ast_sha256": "6971d41e36d5d666705ca71f7ff2f3eaa3a43276f3af31e121a1ec9161a5ba08",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
       "module": "preparation"
     },
@@ -98,6 +98,7 @@
     }
   },
   "design": "docs/production-compact-champion.md",
+  "economic_audit_design": "docs/economic-audit-remediation.md",
   "regression_suites": [
     "tests/champion",
     "tests/v5/test_opening.py",
@@ -107,7 +108,8 @@
     "tests/sentinel/test_v5_opening_execution_freshness.py",
     "tests/sentinel/test_opening_submit_freshness_boundary.py",
     "tests/sentinel/test_issue209_simplified_ldrc_runtime.py",
-    "tests/sentinel/test_automation_runtime.py"
+    "tests/sentinel/test_automation_runtime.py",
+    "tests/sentinel/test_paper_performance_quarantine.py"
   ],
   "schema": "sentinel.production-champion-paper-deltas/1"
 }

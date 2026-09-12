@@ -317,8 +317,9 @@ class TestTheRowsThatMatter:
 
         assert reasons == []
 
+    @pytest.mark.parametrize("quarantined", [False, True])
     def test_trial_source_removes_verified_before_failed_cycle_close(
-            self, monkeypatch):
+            self, monkeypatch, quarantined):
         from types import SimpleNamespace
 
         from sentinel import trial
@@ -348,6 +349,15 @@ class TestTheRowsThatMatter:
         monkeypatch.setattr(feed_store, "connect", lambda _dsn: conn)
         monkeypatch.setattr(sources, "_set_statement_timeout", lambda *_: None)
         monkeypatch.setattr(trial, "load_verifications", lambda _c: [verified])
+        monkeypatch.setattr(trial, "_read_binding", lambda _c: None)
+        if quarantined:
+            from sentinel import paper_performance
+            binding = {"broker": "alpaca", "broker_account_id": "PA-1"}
+            marker = {"account": binding, "first_affected_session": "2026-08-26",
+                      "evidence_sha256": "quarantine-hash"}
+            verified["performance"] = {"total_return": "0.1", "cumulative_factor": "1.1"}
+            monkeypatch.setattr(trial, "_read_binding", lambda _c: binding)
+            monkeypatch.setattr(paper_performance, "load", lambda *_: marker)
         monkeypatch.setattr(publication, "current", lambda _c: None)
         monkeypatch.setattr(
             feed_store, "latest_visible_session", lambda _c: "2026-08-25")
@@ -371,7 +381,12 @@ class TestTheRowsThatMatter:
 
         assert errors == []
         assert rows[0].status is model.FAIL
-        assert "CURRENT CYCLE MAX EXECUTION LATENESS EXCEEDED" in rows[0].value
+        if quarantined:
+            assert "ALPACA PAPER PERFORMANCE INVALID" in rows[0].value
+            assert _details["performance"]["total_return"] is None
+            assert _details["stored_verification_session"] == "2026-08-25"
+        else:
+            assert "CURRENT CYCLE MAX EXECUTION LATENESS EXCEEDED" in rows[0].value
         assert conn.closed
 
     def test_alert_dispatcher_requires_fresh_healthy_delivery(self):

@@ -12,7 +12,7 @@ FINANCIAL_PHASE = "CERTIFICATION + FINANCIAL READINESS"
 POST_PHASE = "POST-VALIDATION HANDOFF"
 
 STAGES = (
-    ("schema-feed-authorization", PREPARATION_PHASE),
+    ("schema-feed-permission", PREPARATION_PHASE),
     ("schema-migration", PREPARATION_PHASE),
     ("feed-catchup", PREPARATION_PHASE),
     ("publication-check", PREPARATION_PHASE),
@@ -41,7 +41,7 @@ def selected_stages(group: str) -> tuple:
     return STAGES
 
 _PREPARATION_HOOKS = {
-    "schema-feed-authorization": ("sentinel.backup_guard", "require_writes_permitted"),
+    "schema-feed-permission": ("sentinel.backup_guard", "require_writes_permitted"),
     "schema-migration": ("sentinel.schema", "ensure_schema"),
     "feed-catchup": ("sentinel.feed.outage_recovery", "catch_up"),
 }

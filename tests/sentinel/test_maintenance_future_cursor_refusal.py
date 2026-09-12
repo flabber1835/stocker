@@ -152,7 +152,7 @@ def test_actions_future_cursor_refuses_before_export_or_vendor_fetch(monkeypatch
 
     with pytest.raises(
         maintenance.SharadarMutationRefused,
-        match="ACTIONS v7 reconciliation cursor .* is ahead of requested reconciliation",
+        match="ACTIONS v8 reconciliation cursor .* is ahead of requested reconciliation",
     ):
         maintenance.reconcile_actions_if_due(
             object(), fetch=forbidden_fetch, through=THROUGH)

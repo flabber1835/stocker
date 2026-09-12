@@ -18,6 +18,13 @@ def test_campaigns_cover_each_internal_stage_once():
 
 
 @pytest.mark.parametrize("name", [name for name, _ in faults.STAGES])
+def test_injected_fault_remains_visible_through_production_redaction(name):
+    from scripts.sentinel_go_probe_contract import safe_detail
+    marker = "E2E_STAGE_FAULT:" + name
+    assert safe_detail(marker) == marker
+
+
+@pytest.mark.parametrize("name", [name for name, _ in faults.STAGES])
 def test_selected_fault_keeps_unrelated_docker_commands_exact(name):
     argv = ["compose", "run", "sentinel", "-c", "print('unrelated readiness preflight')"]
     assert faults.docker_arguments(argv, name) == argv
