@@ -6,7 +6,7 @@ from decimal import Decimal
 import pytest
 
 from sentinel import shadow_observation as SO
-from sentinel.feed import calendar
+from sentinel.feed import actions_map, calendar
 from sentinel.feed.domains import normalise_sep_rows
 from tests.v5.test_shadow_publication_identity import (
     identity,
@@ -94,6 +94,24 @@ def test_high_precision_dividend_source_decimals_are_preserved_before_float():
     assert baseline.vendor.dividend_per_share == 6342.596697
     assert rebased.vendor.dividend_per_share \
         == baseline.vendor.dividend_per_share
+
+
+def test_same_session_actions_dividends_sum_in_exact_source_decimal_space():
+    session = "2026-01-02"
+    dividends = actions_map.dividends_from_actions([
+        {"ticker": "AAA", "date": session, "action": "dividend",
+         "value": "0.1"},
+        {"ticker": "AAA", "date": session, "action": "specialdividend",
+         "value": "0.2"},
+        {"ticker": "AAA", "date": session, "action": "spinoffdividend",
+         "value": "0.00000000000000003"},
+    ], [session])
+
+    assert dividends[("AAA", session)] == Decimal("0.30000000000000003")
+    normalized = _normalise_one(
+        adjusted_close=RAW_CLOSE, raw_close=RAW_CLOSE,
+        dividend=dividends[("AAA", session)])
+    assert normalized.vendor.dividend_per_share == 0.30000000000000003
 
 
 def _publication_rows(axis, *, factor=1, reciprocal=False,
