@@ -113,6 +113,94 @@
       "live-endpoint-refusal": "tests/sentinel/test_alpaca_simulation_harness.py::test_actual_live_or_untrusted_endpoint_is_refused_before_transport",
       "cash-ledger-durability": "tests/sentinel/test_alpaca_execution_entrypoint.py::test_cash_cursor_total_detects_nonlast_ledger_loss"
     },
+    "required_contract_instances": {
+      "unknown-submit-recovery": [
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_lost_post_is_unknown_and_same_key_retry_never_duplicates[live_cash-False]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_lost_post_is_unknown_and_same_key_retry_never_duplicates[live_cash-True]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_lost_post_is_unknown_and_same_key_retry_never_duplicates[paper-False]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_lost_post_is_unknown_and_same_key_retry_never_duplicates[paper-True]"
+      ],
+      "pending-cancel-recovery": [
+        "tests/sentinel/test_execution_state_machine_model.py::test_command_transition_guard_matches_every_independent_model_edge"
+      ],
+      "stable-asset-id": [
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_stable_asset_handle_is_used_at_post[live_cash]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_stable_asset_handle_is_used_at_post[paper]"
+      ],
+      "symbol-rename-handling": [
+        "tests/sentinel/test_issue_209_alpaca_asset_id.py::test_submit_addresses_the_durable_asset_id_not_the_ticker"
+      ],
+      "exact-client-key-corruption": [
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[live_cash-0]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[live_cash-False]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[live_cash-None]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[live_cash-]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[live_cash-payload0]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[live_cash-payload1]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[paper-0]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[paper-False]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[paper-None]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[paper-]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[paper-payload0]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_empty_successful_exact_lookup_is_corruption_not_absence[paper-payload1]"
+      ],
+      "partial-full-fill-accounting": [
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_happy_buy_partial_fill_sell_and_adapter_restart[live_cash]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_happy_buy_partial_fill_sell_and_adapter_restart[paper]"
+      ],
+      "cash-attribution": [
+        "tests/sentinel/test_alpaca_simulation_cash.py::test_deposit_withdrawal_fees_and_dividends_have_distinct_attribution[live_cash]",
+        "tests/sentinel/test_alpaca_simulation_cash.py::test_deposit_withdrawal_fees_and_dividends_have_distinct_attribution[paper]"
+      ],
+      "session-close-constraint": [
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[live_cash-early-close]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[live_cash-holiday-queue]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[live_cash-preopen-queue]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[live_cash-saturday-queue]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[live_cash-summer]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[live_cash-weekend-queue]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[live_cash-winter]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[paper-early-close]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[paper-holiday-queue]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[paper-preopen-queue]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[paper-saturday-queue]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[paper-summer]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[paper-weekend-queue]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_day_order_preserves_partial_fill_until_eligible_session_close[paper-winter]"
+      ],
+      "restart-day-fence": [
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_production_guard_refuses_closed_simulated_clock[live_cash-2026-09-09T20:00:01+00:00]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_production_guard_refuses_closed_simulated_clock[live_cash-2026-09-12T14:00:00+00:00]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_production_guard_refuses_closed_simulated_clock[live_cash-2026-11-02T14:29:59+00:00]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_production_guard_refuses_closed_simulated_clock[live_cash-2026-11-26T14:00:00+00:00]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_production_guard_refuses_closed_simulated_clock[live_cash-2026-11-27T18:00:01+00:00]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_production_guard_refuses_closed_simulated_clock[paper-2026-09-09T20:00:01+00:00]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_production_guard_refuses_closed_simulated_clock[paper-2026-09-12T14:00:00+00:00]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_production_guard_refuses_closed_simulated_clock[paper-2026-11-02T14:29:59+00:00]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_production_guard_refuses_closed_simulated_clock[paper-2026-11-26T14:00:00+00:00]",
+        "tests/sentinel/test_alpaca_simulation_sessions.py::test_production_guard_refuses_closed_simulated_clock[paper-2026-11-27T18:00:01+00:00]"
+      ],
+      "account-binding": [
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_paper_replacement_requires_new_binding"
+      ],
+      "guarded-execution": [
+        "tests/sentinel/test_guarded_execution_broker.py::test_protocol_introspection_forces_every_broker_method_through_guard"
+      ],
+      "live-cash-economics": [
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_paper_and_live_cash_profiles_exercise_actual_economic_differences"
+      ],
+      "live-endpoint-refusal": [
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_actual_live_or_untrusted_endpoint_is_refused_before_transport[http://paper-api.alpaca.markets]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_actual_live_or_untrusted_endpoint_is_refused_before_transport[https://api.alpaca.markets/]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_actual_live_or_untrusted_endpoint_is_refused_before_transport[https://api.alpaca.markets]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_actual_live_or_untrusted_endpoint_is_refused_before_transport[https://paper-api.alpaca.markets.example.com]",
+        "tests/sentinel/test_alpaca_simulation_harness.py::test_actual_live_or_untrusted_endpoint_is_refused_before_transport[https://user@paper-api.alpaca.markets]"
+      ],
+      "cash-ledger-durability": [
+        "tests/sentinel/test_alpaca_execution_entrypoint.py::test_cash_cursor_total_detects_nonlast_ledger_loss[live_cash]",
+        "tests/sentinel/test_alpaca_execution_entrypoint.py::test_cash_cursor_total_detects_nonlast_ledger_loss[paper]"
+      ]
+    },
     "required_mutations": [
       "empty-exact-200-is-absence",
       "stable-asset-id-is-replaced-by-symbol",
