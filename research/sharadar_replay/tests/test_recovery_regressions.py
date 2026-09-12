@@ -160,8 +160,9 @@ def test_persistent_unresolved_split_replays_historical_sep_only_once(
     action_replays = []
 
     def counted(*args, **kwargs):
-        if kwargs.get("chunk_prefix") == "actions":
-            action_replays.append(tuple(kwargs.get("dates") or ()))
+        dates = tuple(kwargs.get("dates") or ())
+        if kwargs.get("chunk_prefix") == "actions" and OLD_CORRECTION in dates:
+            action_replays.append(dates)
         return original(*args, **kwargs)
 
     monkeypatch.setattr(maintenance_impl.renormalize, "renormalize", counted)
