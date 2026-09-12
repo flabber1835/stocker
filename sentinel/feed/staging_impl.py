@@ -42,8 +42,8 @@ provider now decodes Sharadar fractional JSON numbers as ``Decimal``. Converting
 those exact source values to float here would reintroduce publication-rebase
 noise before volume, dividend, and raw-open normalization. Five nullable source
 text columns therefore travel beside the compatibility numerics. They preserve
-the canonical provider spelling through the sort; `staged()` prefers them and
-falls back to the older float columns for pre-upgrade scratch rows. Scratch is
+the canonical provider spelling through the sort; `staged()` returns float-
+compatible values whose string form retains that exact spelling. Scratch is
 cleared before every write, so there is no historical economic migration.
 
 ## UNLOGGED, and what that means when it crashes
@@ -104,6 +104,18 @@ _INSERT = """
 """
 
 
+class _ExactSourceFloat(float):
+    """A normal float that retains the vendor's exact decimal spelling."""
+
+    def __new__(cls, compatibility, source):
+        obj = super().__new__(cls, compatibility)
+        obj._source_text = str(source)
+        return obj
+
+    def __str__(self):
+        return self._source_text
+
+
 def _ensure_exact_columns(conn) -> None:
     """Self-upgrade the UNLOGGED scratch shape before any exact source write."""
     with conn.cursor() as cur:
@@ -120,7 +132,13 @@ def _source_text(value) -> Optional[str]:
 
 
 def _source_or_compat(source, compatibility):
-    return source if source is not None else _f(compatibility)
+    compat = _f(compatibility)
+    if source is None or compat is None:
+        return compat
+    try:
+        return _ExactSourceFloat(compat, source)
+    except (TypeError, ValueError, OverflowError):
+        return compat
 
 
 def stage(conn, rows: Iterable[dict], *, run_id: str, chunk: str) -> int:
