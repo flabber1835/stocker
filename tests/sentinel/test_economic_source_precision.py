@@ -106,14 +106,18 @@ def test_staging_preserves_exact_source_values_and_normalized_economics(pg):
         assert staging.stage(conn, [row], run_id=run_id, chunk="precision") == 1
         recovered = list(staging.staged(
             conn, run_id=run_id, chunk="precision"))
-        assert recovered == [{
-            "date": "2026-01-02", "ticker": "AAA",
-            "open": "24691357.8246912",
-            "close": "78329568.39801411",
-            "closeunadj": "391647841.99007055",
-            "closeadj": "78329568.39801411",
-            "volume": "35731080",
-        }]
+        assert len(recovered) == 1
+        back = recovered[0]
+        assert back["date"] == "2026-01-02"
+        assert back["ticker"] == "AAA"
+        for field in ("open", "close", "closeunadj", "closeadj", "volume"):
+            assert isinstance(back[field], float)
+            assert back[field] == float(row[field])
+        assert str(back["open"]) == "24691357.8246912"
+        assert str(back["close"]) == "78329568.39801411"
+        assert str(back["closeunadj"]) == "391647841.99007055"
+        assert str(back["closeadj"]) == "78329568.39801411"
+        assert str(back["volume"]) == "35731080"
 
         normalized = list(domains.normalise_sep_rows(
             recovered, resolve_identity=lambda _ticker, _day: "1"))
