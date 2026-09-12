@@ -48,11 +48,14 @@ THE ACTIONS DATE IS THE EX-DATE, AND IT IS A CALENDAR DATE
 
 Multiple distributions on one ticker and session are SUMMED, never overwritten:
 an ordinary and a special dividend can share an ex-date, and keeping the last
-row read would silently drop one.
+row read would silently drop one. The sum is performed in Decimal source space;
+a float accumulation here would round authoritative cash economics before the
+raw-share-domain conversion even has a chance to canonicalize them.
 """
 from __future__ import annotations
 
 import bisect
+from decimal import Decimal, InvalidOperation
 from typing import Iterable, Mapping, Sequence
 
 from sentinel.core.terminal import DIVIDEND_ACTIONS, SHARE_SPLIT_ACTIONS
@@ -77,6 +80,17 @@ def snap_to_session(day: str, sessions_sorted: Sequence[str]):
     """The first trading session on or after `day`, or None past the window."""
     i = bisect.bisect_left(sessions_sorted, str(day))
     return sessions_sorted[i] if i < len(sessions_sorted) else None
+
+
+def _positive_decimal(value) -> Decimal | None:
+    """Positive finite ACTIONS amount in its exact source-decimal spelling."""
+    try:
+        amount = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not amount.is_finite() or amount <= 0:
+        return None
+    return amount
 
 
 def split_ratios_from_actions(rows: Iterable[Mapping],
@@ -154,14 +168,14 @@ def split_rows_from_actions(rows: Iterable[Mapping],
 
 def dividends_from_actions(rows: Iterable[Mapping],
                            sessions_sorted: Sequence[str]
-                           ) -> dict[tuple[str, str], float]:
-    """(ticker, session) -> cash dividend per share, on the EX-DATE."""
-    out: dict[tuple[str, str], float] = {}
+                           ) -> dict[tuple[str, str], Decimal]:
+    """(ticker, session) -> exact cash dividend per share, on the EX-DATE."""
+    out: dict[tuple[str, str], Decimal] = {}
     for r in rows:
         if (r.get("action") or "").lower() not in DIVIDEND_ACTIONS:
             continue
-        v = r.get("value")
-        if v is None or float(v) <= 0:
+        amount = _positive_decimal(r.get("value"))
+        if amount is None:
             # A dividend with no stated amount is not a zero dividend, it is an
             # unusable row. Nothing accrues — understating rather than inventing
             # a number — and `unusable_dividend_rows` counts it so the omission
@@ -171,7 +185,7 @@ def dividends_from_actions(rows: Iterable[Mapping],
         if session is None:
             continue
         key = (str(r["ticker"]), session)
-        out[key] = out.get(key, 0.0) + float(v)
+        out[key] = out.get(key, Decimal(0)) + amount
     return out
 
 
@@ -194,7 +208,7 @@ def unusable_dividend_rows_detail(rows: Iterable[Mapping]) -> list[dict]:
         if (r.get("action") or "").lower() not in DIVIDEND_ACTIONS:
             continue
         v = r.get("value")
-        if v is None or float(v) <= 0:
+        if _positive_decimal(v) is None:
             out.append({"ticker": str(r.get("ticker")),
                         "date": str(r.get("date")),
                         "action": str(r.get("action")), "value": v})

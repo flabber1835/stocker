@@ -53,6 +53,7 @@ kept in its own ledger that the run's own ledger never sees.
 """
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 import math
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -111,14 +112,17 @@ class TerminalTerms:
     delivered_security_id: str | None = None
     delivered_ticker: str | None = None
     delivered_issuer_id: str | None = None
-    exchange_ratio: float | None = None
+    # String is accepted so externally sourced contractual ratios can retain
+    # their exact decimal spelling through entitlement arithmetic. Existing
+    # float callers remain supported and are canonicalized through str(float).
+    exchange_ratio: float | str | None = None
     # Price per DELIVERED share used to settle a fractional entitlement. Required
     # only when the conversion actually produces a fraction — demanding it
     # unconditionally would block clean 1:2 conversions that never round.
     cash_in_lieu_price_per_delivered_share: float | None = None
     reference: str = ""
 
-    def completeness(self, shares_in: int) -> tuple[bool, str]:
+    def completeness(self, shares_in: int | float) -> tuple[bool, str]:
         """(complete, reason). `shares_in` matters: whether a conversion needs a
         cash-in-lieu price is a property of THIS holding's share count, not of
         the deal."""
@@ -163,17 +167,33 @@ def _nonneg(x) -> bool:
     return math.isfinite(f) and f >= 0
 
 
-def _split_entitlement(shares_in: int, ratio: float) -> tuple[int, float]:
-    """Whole delivered shares and the leftover fraction.
+def _split_entitlement(shares_in: int | float,
+                       ratio: float | str) -> tuple[int, float]:
+    """Whole delivered shares and the exact contractual leftover fraction.
 
-    `math.floor` on the product, and the fraction is what is left — NOT
-    `round()`. Rounding a 0.6 entitlement up delivers a share the acquirer never
-    issued, and the position would be permanently one share heavier than the
-    broker's.
+    The source terms are decimal economics.  Convert their canonical spelling to
+    ``Decimal``, multiply exactly, and floor exactly.  An additive float epsilon
+    is forbidden here: it cannot distinguish binary representation noise from a
+    genuine entitlement such as 9.9999999995 shares and can therefore invent a
+    whole delivered share while suppressing the cash-in-lieu requirement.
     """
-    exact = shares_in * float(ratio)
-    whole = int(math.floor(exact + 1e-9))
-    return whole, max(0.0, exact - whole)
+    try:
+        shares = Decimal(str(shares_in))
+        exchange = Decimal(str(ratio))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(
+            "conversion entitlement inputs must be finite decimals") from exc
+    if (not shares.is_finite() or not exchange.is_finite()
+            or shares < 0 or exchange <= 0):
+        raise ValueError(
+            "conversion entitlement inputs must be finite and non-negative "
+            "with a positive exchange ratio")
+    exact = shares * exchange
+    if not exact.is_finite():
+        raise ValueError("conversion entitlement is not finite")
+    whole = int(exact.to_integral_value(rounding=ROUND_FLOOR))
+    fraction = exact - Decimal(whole)
+    return whole, float(fraction)
 
 
 # ── applying a terminal action ───────────────────────────────────────────────
@@ -429,7 +449,8 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
     """
     ratio = float(terms.exchange_ratio)
     cash_leg = float(terms.cash_per_share or 0.0) * ep.current_shares
-    delivered, frac = _split_entitlement(ep.current_shares, ratio)
+    delivered, frac = _split_entitlement(
+        ep.current_shares, terms.exchange_ratio)
     lieu = (frac * float(terms.cash_in_lieu_price_per_delivered_share)
             if frac > 0 else 0.0)
 

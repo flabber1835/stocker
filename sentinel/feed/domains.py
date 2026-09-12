@@ -59,6 +59,7 @@ from typing import Iterable, Iterator, Mapping, Optional
 from stock_strategy_shared.split_reconciliation import SplitStreamReconciler
 from stock_strategy_shared.wealth_core.feed import VendorBar
 from stock_strategy_shared.wealth_core.sharadar_domains import (
+    raw_compatible_price,
     raw_compatible_volume,
     raw_dividend_per_share,
 )
@@ -320,7 +321,7 @@ def normalise_sep_rows(
     rows: Iterable[Mapping],
     *,
     resolve_identity=None,
-    dividends: Mapping[tuple[str, str], float] | None = None,
+    dividends: Mapping[tuple[str, str], object] | None = None,
     authoritative_splits: Mapping[tuple[str, str], float] | None = None,
     prior_observations: Mapping[str, tuple] | None = None,
     report: NormalisationReport | None = None,
@@ -380,10 +381,22 @@ def normalise_sep_rows(
                 f"ticker) before calling.")
         last_session = session
         sid = resolve_identity(ticker, session) if resolve_identity else ticker
-        close = _f(r.get("close"))
-        raw = _f(r.get("closeunadj") if "closeunadj" in r else r.get("close_unadjusted"))
-        reported_volume = _positive(r.get("volume"))
-        volume = raw_compatible_volume(close, raw, reported_volume)
+
+        # Keep the vendor's original decimal spellings for economic-domain
+        # conversions. The engine still receives canonical floats below, but a
+        # mathematically equivalent Sharadar rebase must be reduced before any
+        # binary-float rounding can alter volume, dividends, raw opens, or
+        # economic identity hashes.
+        source_open = r.get("open")
+        source_close = r.get("close")
+        source_raw = (r.get("closeunadj") if "closeunadj" in r
+                      else r.get("close_unadjusted"))
+        source_volume = r.get("volume")
+        close = _f(source_close)
+        raw = _f(source_raw)
+        reported_volume = _positive(source_volume)
+        volume = raw_compatible_volume(
+            source_close, source_raw, source_volume)
         if sid is None:
             rep.dropped_no_identity += 1
             rep.dropped_no_identity_by_session[session] = (
@@ -486,21 +499,20 @@ def normalise_sep_rows(
 
         # SEP.open is SPLIT-ADJUSTED like close. The as-traded open is it scaled
         # by the same factor the close carries on this bar — raw/close — NOT by
-        # the split ratio, which describes a change BETWEEN bars.
-        #
-        # ROUNDED to 6 decimals and computed from POSITIVE inputs only, because
-        # that is what the canonical Wealth Core loader does. The rounding looks
-        # cosmetic and is not: `test_loader_parity` compares the two paths' bars
-        # field by field, and a fill price that differs in the twelfth decimal
-        # is still a difference between two engines that are supposed to be one.
-        op_adj = _positive(r.get("open"))
-        raw_open = None
-        if op_adj is not None and close is not None and close > 0:
-            raw_open = round(op_adj * (raw / close), 6)
+        # the split ratio, which describes a change BETWEEN bars.  The source
+        # decimal ratio is resolved exactly before the existing 6-decimal engine
+        # rounding contract is applied.
+        raw_open_exact = raw_compatible_price(
+            source_open, source_close, source_raw)
+        raw_open = (None if raw_open_exact is None
+                    else round(raw_open_exact, 6))
 
-        reported_dividend = float(
-            (dividends or {}).get((ticker, session), 0.0) or 0.0)
-        dividend = raw_dividend_per_share(close, raw, reported_dividend)
+        source_dividend = (dividends or {}).get((ticker, session), 0.0) or 0.0
+        # Preserve the old validation/failure shape for malformed source values,
+        # while passing the untouched source spelling to the exact converter.
+        reported_dividend = float(source_dividend)
+        dividend = raw_dividend_per_share(
+            source_close, source_raw, source_dividend)
         if dividend is None:
             raise RawPriceDomainUnavailable(
                 f"cannot convert positive Sharadar dividend for {ticker} on "
