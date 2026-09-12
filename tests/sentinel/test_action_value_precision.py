@@ -27,7 +27,7 @@ class _Conn:
         return _Cursor(self.rows)
 
 
-def test_active_actions_prefers_exact_source_payload_value_over_float_column():
+def test_active_actions_preserves_float_contract_and_exact_source_spelling():
     exact = "6342.596697"
     rounded_compatibility_value = 6342.596697
     conn = _Conn([(
@@ -42,8 +42,10 @@ def test_active_actions_prefers_exact_source_payload_value_over_float_column():
     rows = actions.active_rows(
         conn, start="2026-01-02", end="2026-01-02")
 
-    assert rows[0]["value"] == exact
-    assert isinstance(rows[0]["value"], str)
+    value = rows[0]["value"]
+    assert isinstance(value, float)
+    assert value == rounded_compatibility_value
+    assert str(value) == exact
 
 
 def test_active_actions_legacy_payload_falls_back_to_compatibility_value():
