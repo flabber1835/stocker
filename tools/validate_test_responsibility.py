@@ -469,6 +469,9 @@ def _require_host_python(job_text: str) -> dict:
     version = _step_scalar(setup[0], ("with", "python-version"))
     require(version == EXPECTED_HOST_PYTHON,
             "host-python38.compatibility: Python runtime must be exactly 3.8.15")
+    require(_safe_command_present(
+        job_text, "python scripts/sentinel_host_python.py", command_start="python"),
+        "host-python38.compatibility: runtime preflight is not executable")
     return {"python": version}
 
 
@@ -485,7 +488,6 @@ def _require_execution_binding(name: str, owner: dict, job_text: str,
     elif kind == "unittest-discovery":
         marker = f"python tools/run_unittest_owner.py --owner {name}"
         if name == "host-python38.compatibility":
-            marker += f" --require-python {EXPECTED_HOST_PYTHON}"
             _require_host_python(job_text)
         require(_safe_command_present(job_text, marker, command_start="python"),
                 f"{name}: declared CI job does not use unconditional owner-driven unittest discovery")
