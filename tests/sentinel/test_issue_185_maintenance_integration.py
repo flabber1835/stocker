@@ -4,6 +4,9 @@ These are deliberately small state-machine tests: they prove that correction
 replay uses the same run identity as the candidate source change, that ACTIONS
 acquisition is bounded to the exact authority window, and that the mutation
 cursor moves only after publication returns.
+
+The retained source-reconciliation layer owns these seams; the public v7 layer
+composes it with the separately tested exceptional cash migration.
 """
 from __future__ import annotations
 
@@ -131,7 +134,7 @@ def test_actions_split_correction_replays_against_candidate_before_publication(
             kind=kwargs["kind"], processed_through=kwargs["through"],
             publication_version=kwargs["publication_version"]))
 
-    maintenance.reconcile_actions_if_due(
+    maintenance._core.reconcile_actions_if_due(
         object(), fetch=object(), through="2026-08-18", force=True)
 
     assert action_params == [{
@@ -204,7 +207,7 @@ def test_full_actions_history_does_not_expand_a_short_price_seed(monkeypatch):
             kind=kwargs["kind"], processed_through=kwargs["through"],
             publication_version=kwargs["publication_version"]))
 
-    maintenance.reconcile_actions_if_due(
+    maintenance._core.reconcile_actions_if_due(
         object(), fetch=object(), through="2026-08-21", force=True)
 
     evidence = events[0]
@@ -275,7 +278,7 @@ def test_semantic_cursor_upgrade_replays_old_blockers_with_unchanged_source(
             kind=kwargs["kind"], processed_through=kwargs["through"],
             publication_version=kwargs["publication_version"]))
 
-    maintenance.reconcile_actions_if_due(
+    maintenance._core.reconcile_actions_if_due(
         object(), fetch=object(), through="2026-08-21", force=True)
 
     assert events == [

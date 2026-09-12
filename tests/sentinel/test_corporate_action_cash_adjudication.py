@@ -7,7 +7,7 @@ from decimal import Decimal
 import pytest
 
 from sentinel.feed import corporate_action_authority as CAA
-from sentinel.feed import ingest, maintenance, sharadar, store
+from sentinel.feed import actions_map, ingest, maintenance, sharadar, store
 from sentinel.feed.source_authority.corporate_action_data import (
     CASH_ADJUDICATION_AUTHORITIES,
 )
@@ -207,18 +207,22 @@ def test_common_mode_sharadar_fact_loses_authority_but_source_is_preserved(conn)
         "5d485827600bfd9d25a3a6c840921346204d1841decb41f9a17c93d8a92c63ee"
 
 
-def test_existing_v6_stale_bar_is_reearned_through_v7_semantic_replay(conn):
-    _seed(conn)
-    with conn.cursor() as cur:
-        # Reconstruct the economic shape of an appliance that had already
-        # earned v6 before the A1 authority existed.
-        cur.execute(
-            "UPDATE sentinel_bars SET dividend_per_share=1.36"
-            " WHERE ticker='TRI' AND session=%s", (EVENT_DAY,))
-        cur.execute(
-            "DELETE FROM sentinel_processed_sessions WHERE cursor_name=%s",
-            (maintenance.ACTIONS_CURSOR_NAME,))
-    conn.commit()
+def test_existing_v6_stale_bar_is_reearned_through_v7_semantic_replay(conn, monkeypatch):
+    # Seed an actual v6 publication using its ordinary source economics. The
+    # current database guards stay active throughout fixture setup and upgrade.
+    with monkeypatch.context() as legacy:
+        legacy.setattr(
+            actions_map, "dividends_from_actions",
+            lambda rows, sessions: CAA.resolve_dividends(
+                rows, sessions, disputed_events=(), authorities=()).dividends)
+        legacy.setattr(
+            maintenance, "reconcile_actions_if_due",
+            maintenance._core.reconcile_actions_if_due)
+        _seed(conn)
+
+    assert maintenance._core.load_actions_cursor(conn).kind == \
+        "sharadar-actions-export-reconcile/v6"
+    assert maintenance.load_actions_cursor(conn) is None
     assert _tri_bar_dividend(conn) == pytest.approx(1.36)
 
     with store.corpus_write_lock(conn):
