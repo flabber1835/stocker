@@ -27,6 +27,7 @@ SAFETY_WORKFLOW_PATH = ".github/workflows/sentinel-safety.yml"
 PUBLICATION_WORKFLOW_ID = 346316730
 PUBLICATION_WORKFLOW_PATH = ".github/workflows/sentinel-publish.yml"
 CERTIFICATION_SCHEMA = "sentinel.software-certification/1"
+CERTIFICATION_SCHEMA_V2 = "sentinel.software-certification/2"
 PROVENANCE_SCHEMA = "sentinel.exact-sha-provenance/4"
 RUNTIME_SCHEMA_EPOCH = "sentinel.behavioral_schema/current"
 SEMANTIC_EPOCH = "sentinel.automation_cycle/1"
@@ -35,6 +36,11 @@ REQUIRED_JOBS = ("host-python-38-exact-head", "sentinel-exact-head")
 REQUIRED_LOCKS = ("sentinel/requirements.lock", "tests/requirements.lock")
 REQUIRED_SUITES = ("operator_scripts", "sentinel", "wealth_core_boundary")
 COUNT_KEYS = ("passed", "failed", "errors", "skipped", "xfailed", "xpassed")
+WEALTH_EXPECTED_XFAILS = frozenset({
+    "tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture",
+    "tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER",
+    "tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash",
+})
 API_ROOT = "https://api.github.com"
 
 _GIT = re.compile(r"^[0-9a-f]{40}$")
@@ -265,28 +271,51 @@ def _require_hex64(value, code, label):
     return value
 
 
-def _verify_counts(tests):
+def _verify_counts(tests, certification_version=1):
     required = tests.get("required_counts")
     suites = tests.get("suite_counts")
+    expected_xfails = tests.get("expected_xfails", {})
+    if certification_version == 1:
+        if "expected_xfails" in tests:
+            _refuse("CERT_TEST_COUNTS_INVALID", "v1 cannot authorize expected failures")
+    elif certification_version == 2:
+        if not isinstance(expected_xfails, dict) or "expected_xfails" not in tests:
+            _refuse("CERT_TEST_COUNTS_INVALID", "expected-failure evidence is missing")
+        if expected_xfails:
+            if set(expected_xfails) != {"wealth_core_boundary"}:
+                _refuse("CERT_TEST_COUNTS_INVALID", "expected failures escape Wealth Core")
+            evidence = expected_xfails["wealth_core_boundary"]
+            if not isinstance(evidence, dict) or set(evidence) != {"nodeids", "junit_sha256"} \
+                    or evidence.get("nodeids") != sorted(WEALTH_EXPECTED_XFAILS):
+                _refuse("CERT_TEST_COUNTS_INVALID", "expected-failure inventory differs")
+            _require_hex64(evidence.get("junit_sha256"),
+                           "CERT_TEST_COUNTS_INVALID", "expected-failure JUnit hash")
+    else:
+        _refuse("CERT_TEST_COUNTS_INVALID", "test count version is unsupported")
+    authorized_xfails = len(WEALTH_EXPECTED_XFAILS) if expected_xfails else 0
     if not isinstance(required, dict) or set(required) != {
             "passed", "suites_completed", "failed", "errors", "skipped",
             "xfailed", "xpassed"}:
         _refuse("CERT_TEST_COUNTS_INVALID", "required test counts are malformed")
-    if required.get("suites_completed") != 3 or type(required.get("passed")) is not int \
-            or required["passed"] <= 0 or any(
-                required.get(key) != 0 for key in COUNT_KEYS if key != "passed"):
+    if type(required.get("suites_completed")) is not int or required["suites_completed"] != 3 \
+            or any(type(required[key]) is not int or required[key] < 0 for key in COUNT_KEYS) \
+            or required["passed"] <= 0 or required["xfailed"] != authorized_xfails or any(
+                required[key] != 0 for key in COUNT_KEYS if key not in ("passed", "xfailed")):
         _refuse("CERT_TEST_COUNTS_INVALID", "required test counts contain non-passes")
     if not isinstance(suites, dict) or set(suites) != set(REQUIRED_SUITES):
         _refuse("CERT_TEST_COUNTS_INVALID", "suite count set is invalid")
-    passed = 0
+    totals = {key: 0 for key in COUNT_KEYS}
     for name in REQUIRED_SUITES:
         row = suites[name]
         if not isinstance(row, dict) or set(row) != set(COUNT_KEYS) \
-                or type(row.get("passed")) is not int or row["passed"] <= 0 \
-                or any(row.get(key) != 0 for key in COUNT_KEYS if key != "passed"):
+                or any(type(row[key]) is not int or row[key] < 0 for key in COUNT_KEYS) \
+                or row["passed"] <= 0 \
+                or row["xfailed"] != (authorized_xfails if name == "wealth_core_boundary" else 0) \
+                or any(row[key] != 0 for key in COUNT_KEYS if key not in ("passed", "xfailed")):
             _refuse("CERT_TEST_COUNTS_INVALID", "suite count row is invalid")
-        passed += row["passed"]
-    if passed != required["passed"]:
+        for key in COUNT_KEYS:
+            totals[key] += row[key]
+    if any(totals[key] != required[key] for key in COUNT_KEYS):
         _refuse("CERT_TEST_COUNTS_INVALID", "suite totals differ from required total")
 
 
@@ -295,8 +324,10 @@ def _verify_manifest(manifest, commit, tree, publication_run):
         "schema", "certification_version", "source", "runtime", "dependencies",
         "tests", "ci", "epochs", "certified_at", "manifest_sha256",
     }
-    if set(manifest) != expected_top or manifest.get("schema") != CERTIFICATION_SCHEMA \
-            or manifest.get("certification_version") != 1:
+    version = manifest.get("certification_version")
+    schemas = {1: CERTIFICATION_SCHEMA, 2: CERTIFICATION_SCHEMA_V2}
+    if set(manifest) != expected_top or type(version) is not int or version not in schemas \
+            or manifest.get("schema") != schemas[version]:
         _refuse("CERT_MANIFEST_SCHEMA_UNKNOWN", "certification schema is unsupported")
     supplied = manifest.get("manifest_sha256")
     _require_hex64(supplied, "CERT_MANIFEST_TAMPERED", "manifest hash")
@@ -351,6 +382,8 @@ def _verify_manifest(manifest, commit, tree, publication_run):
         "manifest_sha256", "required_counts", "suite_counts",
         "required_job_conclusions", "adversarial_evidence", "mutation_evidence",
     }
+    if version == 2:
+        expected_tests.add("expected_xfails")
     if set(tests) != expected_tests:
         _refuse("CERT_MANIFEST_SCHEMA_UNKNOWN", "test evidence schema is malformed")
     _require_hex64(tests.get("manifest_sha256"),
@@ -358,7 +391,7 @@ def _verify_manifest(manifest, commit, tree, publication_run):
     if tests.get("required_job_conclusions") != {
             name: "success" for name in REQUIRED_JOBS}:
         _refuse("CERT_REQUIRED_JOB_FAILED", "manifest required-job conclusions differ")
-    _verify_counts(tests)
+    _verify_counts(tests, version)
     for name in ("adversarial_evidence", "mutation_evidence"):
         evidence = tests.get(name)
         if not isinstance(evidence, dict) or set(evidence) != {"status", "sha256"} \
@@ -449,7 +482,7 @@ def verify_bundle(archive, commit, tree, publication_run):
     _verify_attestation(attestation, str(binding["digest"]))
     ci = binding["ci"]
     return {
-        "schema": CERTIFICATION_SCHEMA,
+        "schema": manifest["schema"],
         "source_commit": commit,
         "source_tree": tree,
         "certified_image": "%s@%s" % (EXPECTED_SUBJECT, binding["digest"]),

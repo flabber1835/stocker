@@ -37,7 +37,7 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
-from typing import Optional, Protocol, Sequence, runtime_checkable
+from typing import Mapping, Optional, Protocol, Sequence, runtime_checkable
 
 from sentinel.execution.states import CommandState
 
@@ -126,6 +126,7 @@ class BrokerCapabilities:
     # semantics have been validated against the real broker.
     account_close_valuation: bool = False
     market_on_open: bool = False
+    regular_session_open_prices: bool = False
 
     def __post_init__(self) -> None:
         if (not isinstance(self.minimum_quantity_increment, Decimal)
@@ -881,6 +882,10 @@ class ExecutionBroker(abc.ABC):
         """
         raise NotImplementedError(
             "this execution adapter does not expose a broker market clock")
+
+    async def opening_prices(self, *, session: date, instruments: Mapping):
+        """Execution-only raw opening prices for the named regular session."""
+        raise NotImplementedError("this adapter has no regular-session opening prices")
 
     async def account_cash_activities(self, *, after: datetime,
                                       through: datetime,

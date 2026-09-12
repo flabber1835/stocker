@@ -263,7 +263,9 @@ def _retain_preparation_diagnostics(runner, completed) -> None:
     setattr(runner, "last_preparation_output", current + "\n" + text)
 
 
-def _lifecycle_refusal(runtime_ref: Optional[str], *, reason: str = "GO_LIFECYCLE_LOCK_NOT_PROVEN_NO_MUTATION"):
+def _lifecycle_refusal(
+        runtime_ref: Optional[str], *,
+        reason: str = "GO_LIFECYCLE_LOCK_NOT_PROVEN_NO_MUTATION"):
     evidence = {
         "reason": reason,
         "mutation_attempted": False,
@@ -280,6 +282,17 @@ def _lifecycle_refusal(runtime_ref: Optional[str], *, reason: str = "GO_LIFECYCL
         broker_mutation_attempts=0,
         evidence_sha256=go._evidence_digest(evidence),
     )
+
+
+def _diagnostic_lifecycle_refusal(
+        runner, runtime_ref: Optional[str], *, phase: str, reason: str,
+        error_type: str):
+    """Retain the exact pre-subprocess authority refusal for final GO evidence."""
+    completed = _preparation_refusal_completed(
+        (), phase=phase, reason_code=reason, error_type=error_type)
+    _retain_preparation_diagnostics(runner, completed)
+    _emit_sanitized_preparation_diagnostics(completed)
+    return _lifecycle_refusal(runtime_ref, reason=reason)
 
 
 class FeedBoundPreparationRunner:
@@ -343,15 +356,25 @@ def probe_prevalidation_preparation(
         runtime_ref: Optional[str], commit: Optional[str], **kwargs):
     """Run one preparation only inside the verified serialized GO lifecycle."""
     if not _VERIFIED_ORCHESTRATION:
-        return _lifecycle_refusal(
-            runtime_ref, reason="GO_VERIFIED_ORCHESTRATION_NOT_PROVEN_NO_MUTATION")
+        return _diagnostic_lifecycle_refusal(
+            runner, runtime_ref,
+            phase="ORCHESTRATION_AUTHORITY",
+            reason="GO_VERIFIED_ORCHESTRATION_NOT_PROVEN_NO_MUTATION",
+            error_type="VerifiedOrchestrationUnavailable")
     if not go_lock.lifecycle_lock_is_held(env):
-        return _lifecycle_refusal(runtime_ref)
+        return _diagnostic_lifecycle_refusal(
+            runner, runtime_ref,
+            phase="LIFECYCLE_LOCK",
+            reason="GO_LIFECYCLE_LOCK_NOT_PROVEN_NO_MUTATION",
+            error_type="LifecycleLockUnavailable")
     if (runtime_ref is None or commit is None
             or go._IMAGE_DIGEST.fullmatch(str(runtime_ref)) is None
             or go._HEX40.fullmatch(str(commit)) is None):
-        return _lifecycle_refusal(
-            runtime_ref, reason="GO_CERTIFIED_IDENTITY_INVALID_NO_MUTATION")
+        return _diagnostic_lifecycle_refusal(
+            runner, runtime_ref,
+            phase="CERTIFIED_IDENTITY",
+            reason="GO_CERTIFIED_IDENTITY_INVALID_NO_MUTATION",
+            error_type="CertifiedIdentityInvalid")
     bound_runner = FeedBoundPreparationRunner(
         runner, runtime_ref=str(runtime_ref), commit=str(commit))
     return _CORE_PREPARATION_PROBE(

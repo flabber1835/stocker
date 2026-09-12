@@ -53,6 +53,7 @@ kept in its own ledger that the run's own ledger never sees.
 """
 from __future__ import annotations
 
+from decimal import Decimal, InvalidOperation, ROUND_FLOOR
 import math
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -111,14 +112,17 @@ class TerminalTerms:
     delivered_security_id: str | None = None
     delivered_ticker: str | None = None
     delivered_issuer_id: str | None = None
-    exchange_ratio: float | None = None
+    # String is accepted so externally sourced contractual ratios can retain
+    # their exact decimal spelling through entitlement arithmetic. Existing
+    # float callers remain supported and are canonicalized through str(float).
+    exchange_ratio: float | str | None = None
     # Price per DELIVERED share used to settle a fractional entitlement. Required
     # only when the conversion actually produces a fraction — demanding it
     # unconditionally would block clean 1:2 conversions that never round.
     cash_in_lieu_price_per_delivered_share: float | None = None
     reference: str = ""
 
-    def completeness(self, shares_in: int) -> tuple[bool, str]:
+    def completeness(self, shares_in: int | float) -> tuple[bool, str]:
         """(complete, reason). `shares_in` matters: whether a conversion needs a
         cash-in-lieu price is a property of THIS holding's share count, not of
         the deal."""
@@ -163,17 +167,33 @@ def _nonneg(x) -> bool:
     return math.isfinite(f) and f >= 0
 
 
-def _split_entitlement(shares_in: int, ratio: float) -> tuple[int, float]:
-    """Whole delivered shares and the leftover fraction.
+def _split_entitlement(shares_in: int | float,
+                       ratio: float | str) -> tuple[int, float]:
+    """Whole delivered shares and the exact contractual leftover fraction.
 
-    `math.floor` on the product, and the fraction is what is left — NOT
-    `round()`. Rounding a 0.6 entitlement up delivers a share the acquirer never
-    issued, and the position would be permanently one share heavier than the
-    broker's.
+    The source terms are decimal economics.  Convert their canonical spelling to
+    ``Decimal``, multiply exactly, and floor exactly.  An additive float epsilon
+    is forbidden here: it cannot distinguish binary representation noise from a
+    genuine entitlement such as 9.9999999995 shares and can therefore invent a
+    whole delivered share while suppressing the cash-in-lieu requirement.
     """
-    exact = shares_in * float(ratio)
-    whole = int(math.floor(exact + 1e-9))
-    return whole, max(0.0, exact - whole)
+    try:
+        shares = Decimal(str(shares_in))
+        exchange = Decimal(str(ratio))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        raise ValueError(
+            "conversion entitlement inputs must be finite decimals") from exc
+    if (not shares.is_finite() or not exchange.is_finite()
+            or shares < 0 or exchange <= 0):
+        raise ValueError(
+            "conversion entitlement inputs must be finite and non-negative "
+            "with a positive exchange ratio")
+    exact = shares * exchange
+    if not exact.is_finite():
+        raise ValueError("conversion entitlement is not finite")
+    whole = int(exact.to_integral_value(rounding=ROUND_FLOOR))
+    fraction = exact - Decimal(whole)
+    return whole, float(fraction)
 
 
 # ── applying a terminal action ───────────────────────────────────────────────
@@ -183,6 +203,8 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
                    last_valid_mark: float | None = None,
                    sessions_since_last_valid_print: int | None = None,
                    executable_price: float | None = None,
+                   phase: str = "OPEN",
+                   executable_price_phase: str = "OPEN",
                    counters: dict | None = None) -> dict:
     """Apply one terminal action, CARRY it, or RECORD that it cannot be applied.
 
@@ -226,6 +248,7 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         last_valid_mark=last_valid_mark,
         sessions_since_last_valid_print=sessions_since_last_valid_print,
         executable_price=executable_price,
+        phase=phase, executable_price_phase=executable_price_phase,
         sessions_pending_terms=state.terminal_pending_sessions.get(sec, 0))
 
     if decision.carries:
@@ -312,7 +335,8 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         # A PROXY settlement: the event is documented, the consideration is not.
         # Deliberately NOT routed through _apply_cash's CASH_MERGER event — that
         # would record a settlement the vendor never stated.
-        res = _apply_proxy(state, slot_id, ep, ledger, session, decision, terms)
+        res = _apply_proxy(state, slot_id, ep, ledger, session, decision, terms,
+                           phase=phase)
     elif terms.kind is TerminalKind.WRITE_OFF:
         res = _apply_write_off(state, slot_id, ep, ledger, session)
     elif terms.kind is TerminalKind.CASH_MERGER:
@@ -344,7 +368,8 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
     # them quietly overwrite the result's — the same collision that put
     # NO_TRUSTWORTHY_MARK where a terms gap belonged and forced
     # `settlement_reason` to be namespaced.
-    return {**res, "terminal_audit": audit}
+    return {**res, "settlement_available_phase": decision.availability_phase.value,
+            "terminal_audit": audit}
 
 
 def _compose_audit(state: PortfolioState, ep: HoldingEpisode, *,
@@ -429,7 +454,8 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
     """
     ratio = float(terms.exchange_ratio)
     cash_leg = float(terms.cash_per_share or 0.0) * ep.current_shares
-    delivered, frac = _split_entitlement(ep.current_shares, ratio)
+    delivered, frac = _split_entitlement(
+        ep.current_shares, terms.exchange_ratio)
     lieu = (frac * float(terms.cash_in_lieu_price_per_delivered_share)
             if frac > 0 else 0.0)
 
@@ -493,7 +519,7 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
 
 
 def _apply_proxy(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
-                 ledger: Ledger, session: str, decision, terms) -> dict:
+                 ledger: Ledger, session: str, decision, terms, *, phase: str) -> dict:
     """Settle a DOCUMENTED termination whose contractual terms are unavailable,
     or an undocumented orphan at zero.
 
@@ -505,7 +531,9 @@ def _apply_proxy(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
     leave the book — but its provenance says ZERO_ORPHAN, which is what
     distinguishes it from a stated worthlessness.
     """
-    from stock_strategy_shared.wealth_core.settlement import SettlementSource
+    from stock_strategy_shared.wealth_core.settlement import SettlementPhase, SettlementSource
+    if not SettlementPhase(phase).permits(decision.availability_phase):
+        raise ValueError("terminal proceeds are unavailable at this session phase")
     px = float(decision.price_per_share or 0.0)
     proceeds = ep.current_shares * px
     event = (EventType.WRITE_OFF
@@ -605,6 +633,7 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
             # As of the EVENT, not as of now — see apply_terminal's note on
             # why re-measuring here makes the settlement branch unreachable.
             sessions_since_last_valid_print=int(rec["stale_at_event"]),
+            phase="CLOSE",
             sessions_pending_terms=state.terminal_pending_sessions[sec])
 
         if decision.carries:
@@ -639,11 +668,12 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
             out.append({"session": session,
                         **apply_terminal(state, terms, ledger=ledger,
                                          session=session,
+                                         phase="CLOSE",
                                          cfg=WealthCoreConfig())})
             continue
         out.append({"session": session,
                     **_apply_proxy(state, slot_id, ep, ledger, session,
-                                   decision, terms),
+                                   decision, terms, phase="CLOSE"),
                     "terminal_audit": audit})
     return out
 
@@ -676,6 +706,7 @@ def sweep_orphans(state: PortfolioState, *, ledger: Ledger, session: str,
             continue
         decision = resolve_settlement(
             terms=None, shares=ep.current_shares,
+            phase="CLOSE",
             sessions_since_last_valid_print=state.sessions_since_valid_mark.get(
                 sec, 0))
         if decision.source is not SettlementSource.ZERO_ORPHAN:
@@ -690,7 +721,7 @@ def sweep_orphans(state: PortfolioState, *, ledger: Ledger, session: str,
             tally(counters, decision, ep.current_shares)
         out.append({"session": session,
                     **_apply_proxy(state, slot_id, ep, ledger, session,
-                                   decision, None),
+                                   decision, None, phase="CLOSE"),
                     "terminal_audit": audit})
     return out
 

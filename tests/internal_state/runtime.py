@@ -34,6 +34,7 @@ from sentinel.core.session import SessionState
 from sentinel.execution import alpaca, broker_cash, executor, journal, reconcile
 from sentinel.feed import calendar, ingest, publication, readiness, sharadar, store
 from sentinel.paper.preparation import _default_paper_strategy, _fresh_warmed_state, _load_marks_and_tickers
+from sentinel.shadow_observation import SHADOW_WARMUP_SESSIONS
 
 from . import broker, market, oracles
 from .market import compare_corpus
@@ -239,9 +240,9 @@ class Lifecycle:
             self.coverage.add("canonical_state")
             if any(slot["occupied_by"] for slot in raw["wealth_core"]["slots"].values()):
                 self.coverage.add("populated_wealth_core")
-            if raw["recent_leadership"]["session_history"]:
+            if raw["median5"]["last_session"]:
                 self.coverage.add("populated_witness")
-            self.coverage.add("persisted_ldrc")
+            self.coverage.add("persisted_recovery")
             if raw["last_decision"]["target_core_exposure"] < 1:
                 self.coverage.add("controller_reduced_exposure")
         if snapshot["commands"]:
@@ -299,7 +300,7 @@ class Lifecycle:
                                 | {"BIL": str(self.provider.step.expected.defensive[-1][-1])})
             prior = catchup.resume_state(conn)
             if prior is None:
-                prior = _fresh_warmed_state(conn, through=day, count=127,
+                prior = _fresh_warmed_state(conn, through=day, count=SHADOW_WARMUP_SESSIONS,
                     account=asyncio.run(broker.adapter(self.service).account_snapshot()),
                     controller_config=self.config, strategy_identity=self.identity,
                     publication_version=publication.require_current(conn).version,
@@ -518,10 +519,9 @@ class Lifecycle:
         elif kind == "media_repair":
             if self.media_saved is None:
                 raise InvalidTrace("media repair requires loss")
-            marker = self.cluster.wal_root / ".sentinel-independent-durable-target-v1"
-            marker.write_bytes(self.media_saved)
-            self.cluster.own(marker)
+            detail = self.cluster.repair_wal_media(self.media_saved)
             self.media_saved = None
+            self.coverage.add("backup_authority_recovered")
         elif kind == "wal_corrupt":
             if self.wal_saved is not None:
                 raise InvalidTrace("nested WAL corruption")

@@ -1020,6 +1020,10 @@ DDL = [
 #: Marks a run abandoned by a process that died. Same `RESTART_ABORTED:` prefix
 #: Stocker's services use, and for the same reason: a caller must be able to tell
 #: "this failed" from "this was interrupted and can simply be re-run".
+from sentinel.feed.history_mutation_schema import DDL as _HISTORY_MUTATION_DDL
+
+DDL.extend(_HISTORY_MUTATION_DDL)
+
 RESTART_ABORT_MARKER = "RESTART_ABORTED"
 
 RECLAIM_ORPHANS = """

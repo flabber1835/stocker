@@ -101,21 +101,23 @@ def load_window(conn, *, start: str, end: str) -> CorpusWindow:
 
     sql = ("SELECT session, security_id, ticker, close_unadjusted,"
            " open_unadjusted, volume,"
-           f" {effective_split_ratio('b')} AS split_ratio, dividend_per_share"
+           f" {effective_split_ratio('b')} AS split_ratio, dividend_per_share, close_signal"
            " FROM sentinel_bars b WHERE session BETWEEN %s AND %s"
            f"   AND {visible_predicate('b')}"
            " ORDER BY session, security_id")
 
     bars_by_session: dict[str, list[VendorBar]] = {}
     with streaming_cursor(conn, sql, (start, end)) as cur:
-        for (session, sid, ticker, raw_close, raw_open, volume, ratio,
-             div) in cur:
+        for row in cur:
+            session, sid, ticker, raw_close, raw_open, volume, ratio, div = row[:8]
+            signal = row[8] if len(row) > 8 else None
             close, vol = _f(raw_close), _f(volume)
             bars_by_session.setdefault(str(session), []).append(VendorBar(
                 session=str(session), security_id=str(sid), ticker=str(ticker),
                 raw_close=close, raw_open=_f(raw_open), volume=vol,
                 split_ratio=float(ratio or 1.0),
                 dividend_per_share=float(div or 0.0),
+                signal_close=_f(signal),
                 # DERIVED here rather than stored, from the same two values the
                 # canonical loader derives it from. `VendorBar.tradeable`
                 # defaults to True, so omitting it declared every bar in the

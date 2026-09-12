@@ -39,7 +39,11 @@ def test_safety_workflow_retains_junit_system_and_mutation_evidence():
     workflow = (
         mutation.REPO / ".github/workflows/sentinel-safety.yml"
     ).read_text(encoding="utf-8")
-    assert "--junitxml=/evidence/sentinel.xml" in workflow
+    assert "--junitxml=/evidence/sentinel-main.xml" in workflow
+    assert "--junitxml=/evidence/sentinel-automation.xml" in workflow
+    assert "python tools/merge_junit.py" in workflow
+    assert "--output /tmp/sentinel-system-evidence/sentinel.xml" in workflow
+    assert "--junit /tmp/sentinel-system-evidence/sentinel.xml" in workflow
     assert "sentinel_adversarial_evidence.py" in workflow
     assert "sentinel_mutation_certify.py" in workflow
     assert workflow.count(

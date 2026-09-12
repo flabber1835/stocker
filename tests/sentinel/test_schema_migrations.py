@@ -32,6 +32,16 @@ from sentinel.execution.plan import ExecutionPlan  # noqa: E402
 from sentinel.feed import store as feed_store  # noqa: E402
 
 
+def test_feed_owned_relations_allow_behavioral_bootstrap_but_unknown_relations_refuse():
+    from sentinel.feed.runtime_schema import _RELATIONS
+
+    assert schema._classify_markerless(_RELATIONS, {}, {}, {}, {}) == "NEW"
+    with pytest.raises(schema.SchemaMigrationRefused, match="unknown behavioral relations"):
+        schema._classify_markerless(
+            {**_RELATIONS, "sentinel_unknown_behavior": ("r", "p", False, False, False)},
+            {}, {}, {}, {})
+
+
 FIXTURES = Path(__file__).with_name("fixtures")
 PRE_ROLLOUT = FIXTURES / "behavioral_schema_pre_rollout_69cdfe8.sql"
 PRE_ROLLOUT_FB97372 = FIXTURES / "behavioral_schema_pre_rollout_fb97372.sql"

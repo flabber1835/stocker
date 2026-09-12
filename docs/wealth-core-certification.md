@@ -1,5 +1,12 @@
 # Wealth Core v1 — certification manifest
 
+**Selected integration, 2026-09-11:** production selects the compact champion's
+V5 twenty-slot book and opening dollar intents. Its source authority and
+verification gates are in
+[production-compact-champion.md](production-compact-champion.md). Historical
+verdicts below retain their original scope. Research equivalence alone does not
+establish full-system reliability or deployment certification.
+
 **Status: NO-GO.** `execution_model` stays `target_portfolio` in production. This
 file is the evidence record: what is proven, what is not, and what the remaining
 evidence runs must show. It is deliberately separate from

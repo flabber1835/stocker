@@ -86,7 +86,8 @@ ADR_RATIO_ACTIONS = frozenset({"adrratiosplit"})
 # The union remains the maintenance/source-change family. Economic consumers
 # must choose the narrower class explicitly.
 SPLIT_ACTIONS = SHARE_SPLIT_ACTIONS | ADR_RATIO_ACTIONS
-DIVIDEND_ACTIONS = frozenset({"dividend", "specialdividend", "spinoffdividend"})
+DIVIDEND_ACTIONS = frozenset({"dividend", "specialdividend"})
+SPINOFF_ACTIONS = frozenset({"spinoff", "spinoffdividend"})
 
 #: Vendor placeholders that mean ABSENCE. `contraticker` carries the literal
 #: string 'N/A' whenever an acquirer is PRIVATE.
@@ -443,7 +444,7 @@ def load_terminal_events(conn, *, start: str, end: str,
             audit.append(_row(
                 "excluded",
                 EXCLUDED_NON_TERMINAL
-                if act in SPLIT_ACTIONS | DIVIDEND_ACTIONS
+                if act in SPLIT_ACTIONS | DIVIDEND_ACTIONS | SPINOFF_ACTIONS
                 else EXCLUDED_UNSUPPORTED))
             continue
 

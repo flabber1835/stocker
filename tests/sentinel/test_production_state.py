@@ -700,12 +700,14 @@ def test_published_loader_reconstructs_prior_split_factor_from_pinned_rows(
         lambda *_, **__: None)
     monkeypatch.setattr(
         "sentinel.feed.publication.current",
-        lambda _: SimpleNamespace(version=7))
+        lambda _: SimpleNamespace(version=7, evidence={}))
     monkeypatch.setattr(
         "sentinel.feed.publication.visible_predicate", lambda _, **kwargs: "TRUE")
     monkeypatch.setattr(
         "sentinel.core.terminal.load_terminal_events",
         lambda *_, **__: TerminalLoadResult(events=[], rows=[]))
+    monkeypatch.setattr(
+        "sentinel.core.spinoffs.load_distributions", lambda *_, **__: ())
     monkeypatch.setattr(
         "sentinel.feed.universe.load_resolver",
         lambda _: SimpleNamespace(resolve_with_reason=lambda *_: None))

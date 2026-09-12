@@ -4,6 +4,7 @@ from __future__ import annotations
 import datetime as dt
 from typing import Optional
 
+from sentinel.feed import actions_reconcile_v7 as _actions_v7
 from sentinel.feed import maintenance_impl as _core
 from sentinel.feed.maintenance_impl import (
     MutationCursorUnavailable,
@@ -11,9 +12,7 @@ from sentinel.feed.maintenance_impl import (
     SourceCursor,
     establish_sep_cursor_after_complete_reconciliation,
     establish_sep_cursor_after_seed,
-    load_actions_cursor,
     load_sep_cursor,
-    reconcile_actions_if_due,
 )
 from sentinel.feed.identity_refresh import validate_sep_mutation_rows
 
@@ -22,10 +21,13 @@ from sentinel.feed.identity_refresh import validate_sep_mutation_rows
 # every retained helper explicitly so implementation-module namespace changes
 # cannot silently expand this production surface.
 SEP_CURSOR_NAME = _core.SEP_CURSOR_NAME
-ACTIONS_CURSOR_NAME = _core.ACTIONS_CURSOR_NAME
-ACTIONS_CURSOR_KIND = _core.ACTIONS_CURSOR_KIND
+ACTIONS_CURSOR_NAME = _actions_v7.ACTIONS_CURSOR_NAME
+ACTIONS_CURSOR_KIND = _actions_v7.ACTIONS_CURSOR_KIND
 ACTIONS_RECONCILE_DAYS = _core.ACTIONS_RECONCILE_DAYS
 ACTIONS_FULL_WINDOW_START = _core.ACTIONS_FULL_WINDOW_START
+
+load_actions_cursor = _actions_v7.load_actions_cursor
+reconcile_actions_if_due = _actions_v7.reconcile_actions_if_due
 
 _read_cursor = _core._read_cursor
 _write_cursor = _core._write_cursor

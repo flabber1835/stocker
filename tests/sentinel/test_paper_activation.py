@@ -185,10 +185,11 @@ def simulator_is_certified(monkeypatch):
     monkeypatch.setattr(
         paper_inspection, "require_certified",
         certification.require_certified_adapter)
-    monkeypatch.setattr(paper_preparation, "load_controller", lambda: CONFIG)
+    # These orchestration cases deliberately retain their explicit legacy
+    # profile. Bind every default caller through the shared selector as well.
+    import sentinel.strategy
     monkeypatch.setattr(
-        paper_preparation, "runtime_strategy_identity",
-        lambda _config, **_kwargs: dict(IDENTITY))
+        sentinel.strategy, "production_strategy", lambda: (CONFIG, dict(IDENTITY)))
     authority_result = lambda *_args, **_kwargs: SimpleNamespace(
         certificate_sha256=ROLLOUT_CERTIFICATE,
         authorization_mode="PAPER_OBSERVATION_ONLY")
@@ -366,7 +367,7 @@ def _prepare(conn, broker, **overrides):
 
 
 def _execute(conn, broker, **overrides):
-    plan = journal.latest_plan(conn)
+    plan = paper_validation._latest_plan_or_refuse(conn)  # noqa: SLF001
     install_preopen_authority = overrides.pop(
         "install_preopen_authority", True)
     if plan is not None and install_preopen_authority:
@@ -2172,9 +2173,8 @@ class TestStrictExecutionGate:
                 (json.dumps({"CORRUPTED": "1"}), durable_plan.plan_id))
         conn.commit()
 
-        corrupted = journal.latest_plan(conn)
-        assert corrupted.plan_id == durable_plan.plan_id
-        assert corrupted.fingerprint() != durable_plan.fingerprint()
+        with pytest.raises(journal.PlanAuthorityMissing):
+            journal.latest_plan(conn)
 
         with pytest.raises(
                 paper.PaperActivationRefused,

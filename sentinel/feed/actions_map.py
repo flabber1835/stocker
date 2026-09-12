@@ -1,7 +1,7 @@
 """SHARADAR/ACTIONS -> authoritative split ratios and dividends. PURE.
 
 The Sentinel-specific ACTIONS mapping lives here, while split orientation is a
-shared pure rule in `stock_strategy_shared.split_reconciliation`.  Sentinel may
+shared pure rule in `stock_strategy_shared.split_reconciliation`. Sentinel may
 not import a retired Stocker SERVICE, and the production and canonical replay
 paths may not own separate share-count semantics.
 
@@ -48,14 +48,23 @@ THE ACTIONS DATE IS THE EX-DATE, AND IT IS A CALENDAR DATE
 
 Multiple distributions on one ticker and session are SUMMED, never overwritten:
 an ordinary and a special dividend can share an ex-date, and keeping the last
-row read would silently drop one.
+row read would silently drop one. The sum is performed in Decimal source space;
+a float accumulation here would round authoritative cash economics before the
+raw-share-domain conversion even has a chance to canonicalize them.
+
+Sharadar remains the ordinary dividend authority. Explicitly disputed cash
+actions pass through `corporate_action_authority`, whose reviewed immutable
+records can supersede one named stale source component only when independent
+final terms were point-in-time available before the effective XNYS session.
 """
 from __future__ import annotations
 
 import bisect
+from decimal import Decimal, InvalidOperation
 from typing import Iterable, Mapping, Sequence
 
 from sentinel.core.terminal import DIVIDEND_ACTIONS, SHARE_SPLIT_ACTIONS
+from stock_strategy_shared.wealth_core.sharadar_domains import AdjudicatedCashDistribution
 from stock_strategy_shared.split_reconciliation import (
     SPLIT_AGREEMENT_TOLERANCE,
     SPLIT_AUTHORITATIVE_APPLIED,
@@ -77,6 +86,17 @@ def snap_to_session(day: str, sessions_sorted: Sequence[str]):
     """The first trading session on or after `day`, or None past the window."""
     i = bisect.bisect_left(sessions_sorted, str(day))
     return sessions_sorted[i] if i < len(sessions_sorted) else None
+
+
+def _positive_decimal(value) -> Decimal | None:
+    """Positive finite ACTIONS amount in its exact source-decimal spelling."""
+    try:
+        amount = value if isinstance(value, Decimal) else Decimal(str(value))
+    except (InvalidOperation, TypeError, ValueError):
+        return None
+    if not amount.is_finite() or amount <= 0:
+        return None
+    return amount
 
 
 def split_ratios_from_actions(rows: Iterable[Mapping],
@@ -154,25 +174,17 @@ def split_rows_from_actions(rows: Iterable[Mapping],
 
 def dividends_from_actions(rows: Iterable[Mapping],
                            sessions_sorted: Sequence[str]
-                           ) -> dict[tuple[str, str], float]:
-    """(ticker, session) -> cash dividend per share, on the EX-DATE."""
-    out: dict[tuple[str, str], float] = {}
-    for r in rows:
-        if (r.get("action") or "").lower() not in DIVIDEND_ACTIONS:
-            continue
-        v = r.get("value")
-        if v is None or float(v) <= 0:
-            # A dividend with no stated amount is not a zero dividend, it is an
-            # unusable row. Nothing accrues — understating rather than inventing
-            # a number — and `unusable_dividend_rows` counts it so the omission
-            # is never silent.
-            continue
-        session = snap_to_session(str(r["date"]), sessions_sorted)
-        if session is None:
-            continue
-        key = (str(r["ticker"]), session)
-        out[key] = out.get(key, 0.0) + float(v)
-    return out
+                           ) -> dict[tuple[str, str], Decimal | AdjudicatedCashDistribution]:
+    """Exact resolved cash per share on the effective ex-date session.
+
+    Ordinary events retain Sharadar ACTIONS authority. A reviewed event in the
+    independent dispute registry must satisfy its PIT/provenance contract before
+    its named stale component can be replaced. Any missing, late, ambiguous, or
+    contradictory flagged evidence raises and prevents publication.
+    """
+    from sentinel.feed.corporate_action_authority import resolve_dividends
+
+    return resolve_dividends(rows, sessions_sorted).dividends
 
 
 def unusable_dividend_rows(rows: Iterable[Mapping]) -> int:
@@ -194,7 +206,7 @@ def unusable_dividend_rows_detail(rows: Iterable[Mapping]) -> list[dict]:
         if (r.get("action") or "").lower() not in DIVIDEND_ACTIONS:
             continue
         v = r.get("value")
-        if v is None or float(v) <= 0:
+        if _positive_decimal(v) is None:
             out.append({"ticker": str(r.get("ticker")),
                         "date": str(r.get("date")),
                         "action": str(r.get("action")), "value": v})

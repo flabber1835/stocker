@@ -14,7 +14,8 @@ from tests.internal_state.contract import digest
 from tests.internal_state.test_market import formed_state, inputs
 
 
-@pytest.mark.parametrize("fault", ["intact", "state", "missing", "session", "anchor", "extra", "strategy"])
+@pytest.mark.parametrize("fault", ["intact", "state", "missing", "session", "anchor", "extra", "strategy",
+                                   "controller", "book", "missing_feed"])
 def test_intermediate_resume_requires_exact_independent_commitment(monkeypatch, fault):
     config, prior = formed_state(days=1)
     day = calendar.next_session(prior.last_processed_session)
@@ -42,6 +43,15 @@ def test_intermediate_resume_requires_exact_independent_commitment(monkeypatch, 
         proof["unrecognized_authority"] = True
     elif fault == "strategy":
         current["strategy_identity"] = dict(current["strategy_identity"], strategy="changed")
+        proof["state_sha256"] = digest(current)
+    elif fault == "controller":
+        current["controller"]["ordinary_stress_age"] = 21
+        proof["state_sha256"] = digest(current)
+    elif fault == "book":
+        current["wealth_core"]["entry_sizing_profile"] = "changed"
+        proof["state_sha256"] = digest(current)
+    elif fault == "missing_feed":
+        del current["feed"]
         proof["state_sha256"] = digest(current)
 
     class ReadOnlyFacts:

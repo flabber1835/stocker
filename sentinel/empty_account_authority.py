@@ -32,7 +32,7 @@ def current_bindings(
         automation_config_sha256: str, paper_base_url: str,
         trust_roots_path: Path = authority.DEFAULT_TRUST_ROOTS_PATH) -> Mapping:
     """Compute the exact current forward-operation identities."""
-    from sentinel.controller.frozen_rule import load as load_controller
+    from sentinel.strategy import controller_for_identity
     from sentinel.execution.authority_gate import (
         PUBLICATION_POLICY_SCHEMA,
         publication_policy_implementation_sha256,
@@ -40,7 +40,7 @@ def current_bindings(
 
     corpus = current_corpus_root_identity(conn)
     metadata = current_metadata_snapshot_identity(conn)
-    controller = load_controller()
+    controller = controller_for_identity(strategy_identity)
     artifacts = authority.runtime_artifact_identity(runtime_identity)
     environment = runtime_identity.get("environment") or {}
     sentinel_source = environment.get("sentinel_source") or {}
@@ -71,6 +71,10 @@ def current_bindings(
             "config_sha256": authority.canonical_sha256(controller.to_dict()),
         },
     })
+    seed["controller"] = {
+        "rule_sha256": controller.digest,
+        "config_sha256": authority.canonical_sha256(controller.to_dict()),
+    }
     bound = authority.bind_current_immutable_identities(
         seed, runtime_identity=runtime_identity,
         strategy_identity=strategy_identity, paper_base_url=paper_base_url,

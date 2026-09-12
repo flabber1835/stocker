@@ -32,7 +32,9 @@ import os
 from dataclasses import dataclass
 from typing import Iterable, Mapping, Optional
 
-from sentinel.core.terminal import DIVIDEND_ACTIONS, SHARE_SPLIT_ACTIONS
+from sentinel.core.terminal import (
+    DIVIDEND_ACTIONS, SHARE_SPLIT_ACTIONS, SPINOFF_ACTIONS, TERMINAL_ACTIONS,
+)
 from sentinel.feed import (
     action_source, anomalies, authority, calendar, publication, recovery,
     renormalize, sharadar, snapshot_export, store, universe)
@@ -339,7 +341,8 @@ def _active_action_rows(conn) -> dict[str, dict]:
 
 def _bar_affecting_action(row: Mapping) -> bool:
     action = str(row.get("action") or "").lower()
-    return action in SHARE_SPLIT_ACTIONS or action in DIVIDEND_ACTIONS
+    return action in (SHARE_SPLIT_ACTIONS | DIVIDEND_ACTIONS
+                      | SPINOFF_ACTIONS | TERMINAL_ACTIONS)
 
 
 def _action_change_dates(conn, rows: Iterable[Mapping]) -> list[str]:

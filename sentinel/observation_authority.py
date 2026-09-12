@@ -227,7 +227,7 @@ def build_candidate(
     """Build reviewed unsigned evidence/claims from current durable facts."""
     from sentinel import binding as binding_mod
     from sentinel.authority import load_rollout_state
-    from sentinel.controller.frozen_rule import load as load_controller
+    from sentinel.strategy import controller_for_identity
     from sentinel.execution.authority_gate import (
         PUBLICATION_POLICY_SCHEMA,
         publication_policy_implementation_sha256,
@@ -268,7 +268,7 @@ def build_candidate(
     image_lock = environment.get("image_lock_sha256")
     corpus = current_corpus_root_identity(conn)
     metadata = current_metadata_snapshot_identity(conn)
-    controller = load_controller()
+    controller = controller_for_identity(strategy_identity)
     policy_implementation = publication_policy_implementation_sha256()
     bindings = {
         "git_commit": artifacts["git_commit"],

@@ -16,11 +16,11 @@ docker run --rm --network none \
   tests/sentinel/test_issue_168_noop_bar_upserts.py \
   tests/sentinel/test_issue_185_sep_reconciliation.py \
   tests/sentinel/test_maintenance_future_cursor_refusal.py \
-  tests/sentinel/test_pr330_authority_regressions.py \
-  tests/sentinel/test_pr330_final_review_fixes.py \
-  tests/sentinel/test_pr330_post_review_fixes.py \
-  tests/sentinel/test_pr330_retirement_postgres.py \
-  tests/sentinel/test_pr330_review_regressions.py \
+  tests/sentinel/test_sep_observation_authority.py \
+  tests/sentinel/test_sep_frozen_source_authority.py \
+  tests/sentinel/test_sep_retirement_mutation_authority.py \
+  tests/sentinel/test_sep_retirement_postgres.py \
+  tests/sentinel/test_sep_retirement_source_authority.py \
   tests/sentinel/test_recent_sep_reconciliation.py \
   tests/sentinel/test_sep_negative_space_economic_guards.py \
   tests/sentinel/test_sep_negative_space_p1_regressions.py \

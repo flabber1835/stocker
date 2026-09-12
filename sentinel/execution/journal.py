@@ -45,7 +45,7 @@ from sentinel.execution.commands import Command
 from sentinel.execution.contract import (
     BrokerFill, BrokerInstrument, BrokerObservation, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
-from sentinel.execution.plan import ExecutionPlan
+from sentinel.execution.plan import ExecutionPlan, OpeningIntent
 from sentinel.execution.states import CommandState, IN_FLIGHT
 
 
@@ -181,7 +181,7 @@ _PLAN_ECONOMICS = ("decision_session", "effective_session", "target_exposure",
                    "account_cash", "cash_residual", "unpriced_securities",
                    "defensive_security", "rollout_mode", "rollout_version",
                    "rollout_certificate_sha256",
-                   "target_basket")
+                   "target_basket", "opening_intents")
 
 
 def _plan_economics(plan: ExecutionPlan) -> dict:
@@ -207,6 +207,7 @@ def _plan_economics(plan: ExecutionPlan) -> dict:
         "rollout_version": plan.rollout_version,
         "rollout_certificate_sha256": plan.rollout_certificate_sha256,
         "target_basket": {k: str(v) for k, v in sorted(plan.target_basket.items())},
+        "opening_intents": [item.to_dict() for item in plan.opening_intents],
     }
 
 
@@ -243,8 +244,15 @@ def save_plan(conn, plan: ExecutionPlan, *, commit: bool = True) -> None:
              plan.rollout_certificate_sha256,
              json.dumps({k: str(v) for k, v in plan.target_basket.items()},
                         sort_keys=True)))
-    if commit:
-        conn.commit()
+        if cur.rowcount == 1 and plan.opening_intents:
+            cur.execute(
+                "INSERT INTO sentinel_processed_sessions (cursor_name,session,state)"
+                " VALUES (%s,%s,%s::jsonb) ON CONFLICT (cursor_name) DO NOTHING",
+                (f"plan-opening-intents:v1:{plan.plan_id}", plan.effective_session,
+                 json.dumps({"kind": "plan-opening-intents/v1", "plan_id": plan.plan_id,
+                     "plan_fingerprint": plan.fingerprint(),
+                     "intents": [item.to_dict() for item in plan.opening_intents]},
+                     sort_keys=True, separators=(",", ":"))))
 
     # DIVERGENCE IS CHECKED HERE, not left to a caller. The original comment
     # said the check lived in `load_plan`'s caller; `core.catchup.catch_up`
@@ -270,6 +278,8 @@ def save_plan(conn, plan: ExecutionPlan, *, commit: bool = True) -> None:
             f"{differing}. The insert is ON CONFLICT DO NOTHING, so the stored "
             f"row wins silently and every later read returns intent nobody "
             f"computed. A plan id must determine the plan.")
+    if commit:
+        conn.commit()
 
 
 def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
@@ -298,7 +308,25 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
             f"plan {plan_id!r} has a corrupt partial rollout-authority stamp")
     unpriced = row[16] if isinstance(row[16], list) else json.loads(row[16] or "[]")
     basket = row[18] if isinstance(row[18], dict) else json.loads(row[18] or "{}")
-    return ExecutionPlan(
+    with conn.cursor() as cur:
+        cur.execute("SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s",
+                    (f"plan-opening-intents:v1:{plan_id}",))
+        intent_row = cur.fetchone()
+    opening, intent_fingerprint = (), None
+    if intent_row is not None:
+        try:
+            raw = intent_row[1] if isinstance(intent_row[1], dict) else json.loads(intent_row[1])
+            if (not isinstance(raw, dict) or set(raw) != {
+                    "kind", "plan_id", "plan_fingerprint", "intents"}
+                    or raw["kind"] != "plan-opening-intents/v1" or raw["plan_id"] != plan_id
+                    or intent_row[0] != row[2] or not isinstance(raw["intents"], list)
+                    or not raw["intents"]):
+                raise ValueError("invalid opening intent authority")
+            opening = tuple(OpeningIntent.from_dict(item) for item in raw["intents"])
+            intent_fingerprint = raw["plan_fingerprint"]
+        except (TypeError, ValueError, ArithmeticError, KeyError) as exc:
+            raise PlanAuthorityMissing("opening intent record is corrupt") from exc
+    plan = ExecutionPlan(
         plan_id=str(row[0]), decision_session=row[1], effective_session=row[2],
         target_exposure=Decimal(str(row[3])),
         data_version=int(row[4]) if row[4] is not None else None,
@@ -317,7 +345,17 @@ def load_plan(conn, plan_id: str) -> Optional[ExecutionPlan]:
         target_basket={k: Decimal(v) for k, v in basket.items()},
         rollout_mode=str(row[19]), rollout_version=int(row[20]),
         rollout_certificate_sha256=str(row[21]) if row[21] else None,
-        superseded_by=str(row[22]) if row[22] else None)
+        superseded_by=str(row[22]) if row[22] else None,
+        opening_intents=opening)
+    fingerprint = plan.fingerprint()
+    suffix = plan_id.removeprefix("sentinel-")
+    deterministic_id = (plan_id.startswith("sentinel-") and len(suffix) == 64
+                        and all(c in "0123456789abcdef" for c in suffix))
+    if ((intent_fingerprint is not None and intent_fingerprint != fingerprint)
+            or (deterministic_id and suffix != fingerprint)):
+        raise PlanAuthorityMissing(
+            "stored plan does not match its deterministic economic identity or opening intent record")
+    return plan
 
 
 def latest_plan(conn) -> Optional[ExecutionPlan]:

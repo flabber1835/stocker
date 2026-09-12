@@ -516,7 +516,7 @@ def test_manual_delayed_preparation_cannot_bypass_due_cycle_gate(monkeypatch):
     through = date(2026, 8, 21)
     now = datetime(2026, 8, 21, 21, tzinfo=timezone.utc)
     conn = object()
-    binding = SimpleNamespace(identity=DEPLOYMENT)
+    binding = SimpleNamespace(identity=DEPLOYMENT, to_dict=lambda: vars(DEPLOYMENT))
     observation = BrokerObservation(observed_at=now)
     rec = SimpleNamespace(observation=observation, observation_id=81)
     account = object()
@@ -539,6 +539,8 @@ def test_manual_delayed_preparation_cannot_bypass_due_cycle_gate(monkeypatch):
         raise paper.PaperActivationRefused("due-cycle gate reached")
 
     broker.account_snapshot = account_snapshot
+    monkeypatch.setattr(
+        "sentinel.paper_performance.scan_entitlements", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(paper_preparation, "assert_paper_url", lambda _url: None)
     monkeypatch.setattr(
         paper_preparation, "_require_certified_paper_broker", lambda _broker: None)

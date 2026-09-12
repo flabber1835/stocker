@@ -1002,7 +1002,7 @@ SUPPORTED_ACTIONS = ("split",)
 # state.  In particular, acquirer-side rows must not freeze an ordinary holding
 # merely because another company was acquired.
 SAFE_NON_BOOK_ACTIONS = frozenset({
-    "listed", "relation", "dividend", "specialdividend", "spinoffdividend",
+    "listed", "relation", "dividend", "specialdividend",
     "acquisitionof", "mergerfrom", "adrratiosplit"})
 
 

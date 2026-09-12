@@ -122,10 +122,15 @@ class VerificationConnection:
             self.result = self.command_rows
         elif normalized.startswith("select broker_order_id,fill_key"):
             self.result = self.fill_rows
+        elif normalized.startswith("select session,state from sentinel_processed_sessions"):
+            self.result = None
         else:
             raise AssertionError(f"unexpected verification SQL: {statement}")
 
     def fetchall(self):
+        return self.result
+
+    def fetchone(self):
         return self.result
 
 

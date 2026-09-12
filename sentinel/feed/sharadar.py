@@ -10,9 +10,18 @@ page envelope, schema, row widths and cursor semantics have been validated.
 Transport-owned authentication/pagination parameters cannot be supplied by a
 caller, and Retry-After is never shortened merely to fit Sentinel's local
 blocking ceiling.
+
+Fractional JSON numbers are decoded as ``Decimal`` at this boundary.  Sharadar
+publication rebases can be mathematically equivalent while differing in decimal
+spelling; converting those source scalars to binary float before volume,
+dividend, or raw-open normalization can change economic identities and cash.
+The provider edge is therefore the first exact-decimal boundary, with one
+intentional float conversion only after canonical domain normalization.
 """
 from __future__ import annotations
 
+from decimal import Decimal
+import json
 import logging
 import math
 import os
@@ -288,6 +297,24 @@ def _decode_page(payload, *, table: str,
     return schema, dt["data"], cursor
 
 
+def _decode_response_json(resp):
+    """Decode provider JSON while retaining exact fractional source decimals.
+
+    Real HTTP responses expose their raw body; parse that body ourselves with
+    ``parse_float=Decimal``. Minimal test doubles from older boundary tests may
+    expose only ``json()``; that compatibility fallback cannot improve precision
+    that the double already discarded, but production never takes it.
+    """
+    raw = getattr(resp, "content", None)
+    if isinstance(raw, (bytes, bytearray)):
+        text = bytes(raw).decode("utf-8")
+        return json.loads(text, parse_float=Decimal)
+    text = getattr(resp, "text", None)
+    if isinstance(text, str):
+        return json.loads(text, parse_float=Decimal)
+    return resp.json()
+
+
 def _fetch_ndl_table(table: str, params: Mapping[str, str] | None = None, *,
                      http=None, sleep=time.sleep,
                      now: Callable[[], datetime] | None = None) -> Iterator[dict]:
@@ -320,7 +347,7 @@ def _fetch_ndl_table(table: str, params: Mapping[str, str] | None = None, *,
                 client, url, q, http=http, sleep=sleep, now=now)
             pages += 1
             try:
-                payload = resp.json()
+                payload = _decode_response_json(resp)
             except Exception as exc:
                 raise SharadarProtocolError(
                     f"{table}: HTTP 200 body is not valid JSON ({type(exc).__name__})") \

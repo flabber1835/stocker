@@ -210,8 +210,24 @@ class WealthCoreConfig:
     # 0 reproduces the pre-lag behaviour exactly, which is what makes the change
     # bisectable rather than entangled with everything else that moved.
     dividend_settlement_lag_sessions: int = 1
+    economic_profile: str = "wealth-core-v1"
 
     def __post_init__(self) -> None:
+        from .median5 import PROFILE
+        from .v5 import PROFILE as V5_PROFILE
+        if self.economic_profile not in ("wealth-core-v1", PROFILE, V5_PROFILE):
+            raise ValueError("unknown Wealth Core economic profile")
+        if self.economic_profile in (PROFILE, V5_PROFILE) and (
+                self.n_slots != 20 or self.entry_weight != 0.05
+                or self.transaction_cost_bps != 10
+                or self.dividend_settlement_lag_sessions != 1
+                or self.minimum_leadership_population != 25
+                or self.top_fraction != 0.10
+                or self.max_admissions_per_session != 1
+                or self.ordering_profile != CANONICAL_PROFILE
+                or self.volatility_profile != DEFAULT_VOLATILITY_PROFILE
+                or self.top_decile_rounding != "ceil"):
+            raise ValueError("Median-5 configuration differs from its frozen profile")
         if self.dividend_settlement_lag_sessions < 0:
             raise ValueError(
                 f"dividend_settlement_lag_sessions must be >= 0, got "
@@ -230,6 +246,8 @@ class WealthCoreConfig:
 
     def config_hash(self) -> str:
         blob = json.dumps({
+            **({"economic_profile": self.economic_profile}
+               if self.economic_profile != "wealth-core-v1" else {}),
             "entry_weight": self.entry_weight, "n_slots": self.n_slots,
             "top_fraction": self.top_fraction,
             "top_decile_rounding": self.top_decile_rounding,
@@ -259,6 +277,7 @@ class SecurityBar:
     raw_close: float | None = None
     eligible: bool = True
     eligibility_reason: str = ""
+    certified_signals: tuple[float, float, float, float] | None = None
 
 
 def score_universe(bars: Sequence[SecurityBar],
@@ -275,6 +294,13 @@ def score_universe(bars: Sequence[SecurityBar],
         if not b.eligible:
             scored.append(DurableScore(b.security_id, b.ticker, None, None, None,
                                        None, False, b.eligibility_reason or "INELIGIBLE"))
+            continue
+        if cfg.economic_profile != "wealth-core-v1":
+            if b.certified_signals is None:
+                raise ValueError("Median-5 requires its durable numerical feature state")
+            mom, rec, vol, score = b.certified_signals
+            scored.append(DurableScore(b.security_id, b.ticker, mom, rec, vol,
+                                       score, False, ""))
             continue
         mom = medium_term_momentum(b.closes)
         rec = recent_return(b.closes)
@@ -371,6 +397,14 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
     by_sec = {s.security_id: s for s in scored}
     d.candidates = scored
     d.eligible_universe_count = sum(1 for b in bars if b.eligible)
+    median_ranked = None
+    if cfg.economic_profile != "wealth-core-v1":
+        from .median5 import rank
+        if state.median5 is None:
+            raise ValueError("Median-5 rank state is absent")
+        median_ranked = rank(scored, state.median5)
+        if d.eligible_universe_count >= cfg.minimum_leadership_population:
+            state.median5["formation_started"] = True
     closes = {b.security_id: (b.closes[-1] if b.closes else None) for b in bars}
 
     # ── 1. exits: trailing stop, then the one-time review ────────────────────
@@ -448,6 +482,8 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
 
     # ── 3. admissions ────────────────────────────────────────────────────────
     ready = [i for i in state.ready_slots() if i not in exiting]
+    if median_ranked is not None and not state.median5["formation_started"]:
+        ready = []
     # Spec §6: initial construction may fill every available slot together;
     # after that, at most one admission per session.
     budget = len(ready) if not state.initialized else cfg.max_admissions_per_session
@@ -475,7 +511,7 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
     pending_issuers = ({state.episodes[i].issuer_id for i in exiting}
                        | state.reserved_issuer_ids())
 
-    ranked = rank_candidates(scored)
+    ranked = rank_candidates(scored) if median_ranked is None else median_ranked
     d.ranked_candidate_count = len(ranked)
 
     # THE EQUITY GATE. Exits, holds and cooldowns above all ran regardless —
@@ -552,10 +588,21 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
             continue
         m = marks.get(cand.security_id)
         px = m.raw_mark_close if (m and m.status.name == "CURRENT") else None
-        shares = whole_shares(equity, px, state.cash, cfg)
-        if shares <= 0:
-            reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px)
-            continue
+        from .v5 import PROFILE as V5_PROFILE, admission as v5_admission
+        intended = None
+        if cfg.economic_profile == V5_PROFILE:
+            intended, why = v5_admission(equity=equity, cash=state.cash,
+                                         price=px, cost_bps=cfg.transaction_cost_bps)
+            if intended is None:
+                reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px,
+                       affordability_reason=why)
+                continue
+            shares = 0
+        else:
+            shares = whole_shares(equity, px, state.cash, cfg)
+            if shares <= 0:
+                reject(cand, Reason.REJECT_INSUFFICIENT_CASH, price=px)
+                continue
         slot_id = ready.pop(0)
         # RESERVE now, not at fill. The order may not fill for many sessions and
         # the slot must be unavailable for every one of them; because the
@@ -567,7 +614,9 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
                                {"durable_score": cand.score, "momentum": cand.momentum,
                                 "recent": cand.recent, "volatility": cand.volatility,
                                 "target_weight": cfg.entry_weight,
-                                "equity_at_decision": equity}))
+                                "equity_at_decision": equity,
+                                **({"intended_dollars": intended}
+                                   if intended is not None else {})}))
         held_secs.add(cand.security_id)
         held_issuers.add(issuer)
         admitted += 1
@@ -579,12 +628,22 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
     return d
 
 
+def entry_cost(shares: float, raw_open: float, cfg: WealthCoreConfig) -> float:
+    """Canonical fill cost, including the frozen float operation order."""
+    return shares * raw_open * (1.0 + cfg.transaction_cost_bps / 10_000.0)
+
+
+def exit_proceeds(shares: float, raw_open: float, cfg: WealthCoreConfig) -> float:
+    """Canonical sale funding, shared with opening account projection."""
+    return shares * raw_open * (1.0 - cfg.transaction_cost_bps / 10_000.0)
+
+
 def apply_entry(state: PortfolioState, *, op: Op, session: str, signal_session: str,
                 raw_open: float, split_adjusted_price: float,
                 issuer_id: str, cfg: WealthCoreConfig) -> None:
     """Execute an admission at the next open (spec §11). Called by the adapter
     once a fill is known — the engine never invents a price."""
-    cost = op.shares * raw_open * (1.0 + cfg.transaction_cost_bps / 10_000.0)
+    cost = entry_cost(op.shares, raw_open, cfg)
     state.cash -= cost
     state.slots[op.slot_id].occupied_by = op.security_id
     state.slots[op.slot_id].release_reservation()   # the claim became a holding
@@ -616,6 +675,6 @@ def apply_exit(state: PortfolioState, *, slot_id: int, raw_open: float,
     take a different name immediately.
     """
     ep = state.episodes.pop(slot_id)
-    state.cash += ep.current_shares * raw_open * (1.0 - cfg.transaction_cost_bps / 10_000.0)
+    state.cash += exit_proceeds(ep.current_shares, raw_open, cfg)
     state.slots[slot_id].start_cooldown()
     state.security_cooldowns[ep.security_id] = 0

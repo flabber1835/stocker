@@ -111,8 +111,11 @@ def test_action_change_dates_replay_only_bar_affecting_actions(monkeypatch):
             "contraname": None,
         },
     }
+    from sentinel.feed.action_source import distinct_rows
+    prior_source = {identity: row for identity, _payload, row
+                    in distinct_rows(prior.values())}
     monkeypatch.setattr(
-        maintenance._core, "_active_action_rows", lambda conn: prior)
+        maintenance._core, "_active_action_rows", lambda conn: prior_source)
 
     # Current source removes the old split (must replay its old effective date),
     # keeps the terminal row (no bar replay), and adds a dividend (must replay).
@@ -172,8 +175,8 @@ def test_semantic_reearn_includes_accepted_resolved_direct_and_adr_dates(
     }
 
 
-@pytest.mark.parametrize("old_epoch", ["v4", "v5"])
-def test_legacy_cursor_cannot_bypass_v6_semantic_reearn(old_epoch):
+@pytest.mark.parametrize("old_epoch", ["v4", "v5", "v6"])
+def test_legacy_cursor_cannot_bypass_v7_semantic_reearn(old_epoch):
     old_name = f"sharadar-actions-export-reconcile:{old_epoch}"
     old_state = {
         "kind": f"sharadar-actions-export-reconcile/{old_epoch}",
@@ -211,4 +214,4 @@ def test_legacy_cursor_cannot_bypass_v6_semantic_reearn(old_epoch):
 
     conn = Conn()
     assert maintenance.load_actions_cursor(conn) is None
-    assert conn.requested == ["sharadar-actions-export-reconcile:v6"]
+    assert conn.requested == ["sharadar-actions-export-reconcile:v9"]

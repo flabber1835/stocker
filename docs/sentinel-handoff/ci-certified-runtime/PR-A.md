@@ -22,6 +22,23 @@ After the complete software suite passes, CI records:
 
 Protected publication independently re-observes the source/tree/image/dependency/test bindings, checks the required exact-head jobs, computes the immutable registry digest, and produces `certification.json` with a canonical `manifest_sha256`.
 
+### Expected-failure evidence (PR #360)
+
+Version 2 of the software-certification input and manifest carries the existing
+three-node Wealth Core golden-hash quarantine through publication and NAS
+verification. Assembly re-runs the permanent owner verifier against the exact
+Wealth Core JUnit file, proving complete collection and the settled physical
+outcomes. The certificate preserves the actual `passed` and `xfailed` counts,
+the three exact node IDs, and the JUnit SHA-256. Each suite and the total must
+agree with this evidence. Ordinary failures, skips, unexpected passes,
+deselection, missing quarantine nodes, and additional expected failures refuse
+certification. The settled inventory is checked at assembly and consumption.
+
+Version 1 certificates retain their all-pass contract. Version 2 certificates
+use the v2 OCI artifact media type. The NAS verifier supports both versions;
+an unknown version or a version/schema mismatch refuses. This evidence change
+preserves the current golden fixtures and strategy economics.
+
 The exact runtime digest receives GitHub Sigstore/SLSA provenance. The certification manifest, provenance, Sigstore bundle, and checksums are retained as a GitHub Actions artifact and attached as an OCI referrer of that exact runtime digest in GHCR.
 
 ## Fail-closed properties

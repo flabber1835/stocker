@@ -1,7 +1,10 @@
 import os
 import re
+import shlex
 import subprocess
 from pathlib import Path
+
+import pytest
 
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
@@ -87,13 +90,27 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "SENTINEL_IMAGE=sentinel:ci" in workflow
     assert workflow.count('--build-arg SOURCE_GIT_SHA="${TESTED_SHA}"') == 2
     assert 'TESTED_SHA="$(git rev-parse HEAD)"' in workflow
-    assert "tests/sentinel -q -ra" in workflow
+    assert 'tests/sentinel "${ignore_args[@]}" -q -ra' in workflow
+    automation_files = (
+        "tests/sentinel/test_automation_service.py",
+        "tests/sentinel/test_issue_201_automation_financial_grade.py",
+        "tests/sentinel/test_automation_p1_continuity.py",
+        "tests/sentinel/test_automation_safety_seams.py",
+        "tests/sentinel/test_automation_process_contracts.py",
+    )
+    assert 'ignore_args+=("--ignore=${path}")' in workflow
+    for path in automation_files:
+        assert workflow.count(path) >= 2
+    assert "python tools/merge_junit.py" in workflow
+    assert "sentinel-main.xml" in workflow
+    assert "sentinel-automation.xml" in workflow
+    assert "--output /tmp/sentinel-system-evidence/sentinel.xml" in workflow
     assert "tee /tmp/sentinel-complete.txt" in workflow
-    assert "the complete Sentinel run skipped tests" in workflow
+    assert "the complete Sentinel partition skipped tests" in workflow
     assert "--network none" in workflow
     assert "docker-compose.sentinel-backup.yml" in workflow
     assert "fetch-depth: 2" in workflow
-    assert "git diff --check HEAD^1 HEAD" in workflow
+    assert "git diff --check HEAD^ HEAD" in workflow
 
 
 def test_pull_request_safety_is_read_only_and_publication_is_main_only():
@@ -126,33 +143,39 @@ def test_pull_request_safety_is_read_only_and_publication_is_main_only():
 
 def test_pull_request_ci_proves_it_is_testing_the_synthetic_merge():
     workflow = _read(".github/workflows/sentinel-safety.yml")
+    proof = _read("tools/verify_ci_scope.py")
     assert "pull_request:\n    branches: [main]" in workflow
     assert "merge_group:" in workflow
     assert 'scope: ${{ fromJSON(github.event_name == \'pull_request\'' in workflow
-    assert 'if [ \'${{ matrix.scope }}\' = \'exact-head\' ]' in workflow
-    assert 'test "$TESTED_SHA" = "$expected_head"' in workflow
-    assert 'test "$TESTED_SHA" = "$GITHUB_SHA"' in workflow
+    assert workflow.count("python tools/verify_ci_scope.py") == 2
+    assert workflow.count("if: ${{ matrix.scope == 'exact-head' }}") >= 10
+    assert '--expected-head "$EXPECTED_HEAD"' in workflow
+    assert '--expected-base "$EXPECTED_BASE"' in workflow
+    assert '--expected-event-sha "$GITHUB_SHA"' in workflow
     assert 'echo "TESTED_SHA=$TESTED_SHA" >> "$GITHUB_ENV"' in workflow
     assert "printf -- '- commit: `%s`\\n' \"$TESTED_SHA\"" in workflow
     for variable in ("tree_hash", "GITHUB_RUN_ID", "dependency_lock_hash",
                      "runtime_digest", "test_manifest_hash"):
         assert f'"${variable}"' in workflow
     assert "printf '%s\\n' \"$TESTED_SHA\"" in workflow
-    assert "git rev-list --parents -n 1 HEAD" in workflow
-    assert 'if [ "$parent_count" -ne 2 ]' in workflow
-    assert "pull-request checkout is not a synthetic merge commit" in workflow
-    assert "git merge-base --is-ancestor HEAD^1 HEAD" in workflow
-    assert "git merge-base --is-ancestor HEAD^2 HEAD" in workflow
+    assert 'git(root, "rev-list", "--parents", "-n", "1", "HEAD")' in proof
+    assert 'actual_base == base' in proof
+    assert 'actual_head == head' in proof
+    assert 'tested_tree == head_tree' in proof
+    assert '"tree_evidence_reused": True' in proof
     assert "name: sentinel-${{ matrix.scope }}" in workflow
     assert "name: host-python-38-${{ matrix.scope }}" in workflow
 
 
 def test_main_push_runs_exact_sha_safety_and_branch_coverage():
     workflow = _read(".github/workflows/sentinel-safety.yml")
-    assert "push:\n    branches:\n      - main" in workflow
-    assert "- 'codex/**'" in workflow
+    assert "push:\n    branches: [main]" in workflow
+    assert "- 'codex/**'" not in workflow
+    assert "- 'fix/**'" not in workflow
+    assert "- 'stabilization/**'" not in workflow
     assert "coverage run --branch" in workflow
-    assert "tests/sentinel/test_pr293_automation_fixes.py" in workflow
+    assert "tests/sentinel/test_automation_safety_seams.py" in workflow
+    assert "tests/sentinel/test_automation_process_contracts.py" in workflow
     assert "coverage report --precision=2 --fail-under=80.00" in workflow
     for evidence in (
             "source tree", "workflow run", "dependency locks",
@@ -237,21 +260,42 @@ def test_ci_compiles_python_and_syntax_checks_every_tracked_shell_script():
 
 def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
     workflow = _read(".github/workflows/sentinel-safety.yml")
-    protected_logs = (
-        "/tmp/sentinel-complete.txt",
-        "/tmp/sentinel-scripts.txt",
-        "/tmp/wealth-core-prospective.txt",
-    )
     assert workflow.count("set -euo pipefail") >= 4
-    assert workflow.count("-q -ra 2>&1 | tee") == len(protected_logs)
-    for log in protected_logs:
-        assert f"-q -ra 2>&1 | tee {log}" in workflow
+    assert "2>&1 | tee /tmp/sentinel-complete.txt" in workflow
+    assert "2>&1 | tee -a /tmp/sentinel-complete.txt" in workflow
+    # Check the actual pipeline's arguments across shell continuations. JUnit
+    # output belongs to the same pytest invocation as its retained text log.
+    commands = workflow.replace("\\\n", "")
+    for junit, log in (("scripts.xml", "sentinel-scripts.txt"),
+                       ("wealth-core.xml", "wealth-core-prospective.txt")):
+        pipeline = re.search(
+            rf"docker run\b[^\n]+\| tee /tmp/{re.escape(log)}", commands)
+        assert pipeline, log
+        arguments = shlex.split(pipeline.group())
+        for argument in ("-q", "-ra", f"--junitxml=/evidence/{junit}", "2>&1"):
+            assert argument in arguments, (log, argument)
+    assert "main_status=${PIPESTATUS[0]}" in workflow
+    assert "coverage_status=${PIPESTATUS[0]}" in workflow
+    assert "test_status=${PIPESTATUS[0]}" in workflow
     assert workflow.count("[0-9]+ skipped") == 1
 
     skip_summary = re.compile(r"(^|, )[0-9]+ skipped(,| in |$)")
     assert skip_summary.search("1865 passed, 1 skipped in 10.0s")
     assert skip_summary.search("1 skipped in 1.0s")
     assert not skip_summary.search("434 passed, 3 xfailed in 10.0s")
+
+
+@pytest.mark.parametrize("removed", [
+    "set -euo pipefail", "-ra", "--junitxml=/evidence/scripts.xml",
+    "--junitxml=/evidence/wealth-core.xml", "2>&1", "test_status=${PIPESTATUS[0]}",
+    "| tee /tmp/sentinel-scripts.txt", "| tee /tmp/wealth-core-prospective.txt",
+])
+def test_ci_log_contract_rejects_missing_evidence_or_failure_controls(monkeypatch, removed):
+    workflow = _read(".github/workflows/sentinel-safety.yml")
+    assert removed in workflow
+    monkeypatch.setitem(globals(), "_read", lambda _: workflow.replace(removed, ""))
+    with pytest.raises(AssertionError):
+        test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail()
 
 
 def test_expected_golden_drift_is_exact_strict_xfail_not_a_suite_mask():

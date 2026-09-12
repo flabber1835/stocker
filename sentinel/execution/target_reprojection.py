@@ -26,6 +26,7 @@ from stock_strategy_shared.wealth_core.shares import is_integral, split_shares
 
 CURSOR_PREFIX = "plan-target-projection:v2:"
 KIND = "plan-target-projection/v2"
+OPENING_KIND = "plan-target-projection/v3"
 
 
 class TargetProjectionRefused(RuntimeError):
@@ -209,10 +210,13 @@ class TargetProjection:
     action_evidence: tuple[Mapping[str, object], ...]
     cancelled_pending_opens: Mapping[str, tuple[Decimal, ...]]
     target_basket: Mapping[str, Decimal]
+    opening_sizing: Mapping[str, object] | None = None
 
     def _content_payload(self) -> dict:
         return {
-            "kind": KIND,
+            "kind": OPENING_KIND if self.opening_sizing is not None else KIND,
+            **({"opening_sizing": dict(self.opening_sizing)}
+               if self.opening_sizing is not None else {}),
             "plan_id": self.plan_id,
             "plan_fingerprint": self.plan_fingerprint,
             "through_session": self.through_session.isoformat(),
@@ -431,8 +435,11 @@ def _decode(raw, *, plan_id: str, session) -> TargetProjection:
         "action_multipliers", "action_evidence", "cancelled_pending_opens",
         "target_basket",
         "projection_fingerprint"}
+    if isinstance(state, dict) and state.get("kind") == OPENING_KIND:
+        expected.add("opening_sizing")
     if (not isinstance(state, dict) or set(state) != expected
-            or state.get("kind") != KIND or state.get("plan_id") != plan_id):
+            or state.get("kind") not in (KIND, OPENING_KIND) or state.get("plan_id") != plan_id
+            or (state.get("kind") == OPENING_KIND and not isinstance(state.get("opening_sizing"), dict))):
         raise TargetProjectionRefused(
             f"target projection for {plan_id} has an unknown state shape")
     try:
@@ -469,7 +476,8 @@ def _decode(raw, *, plan_id: str, session) -> TargetProjection:
             for key, values in state["cancelled_pending_opens"].items()},
         target_basket={
             str(key): _decimal(value, where=f"stored target {key}")
-            for key, value in state["target_basket"].items()})
+            for key, value in state["target_basket"].items()},
+        opening_sizing=state.get("opening_sizing"))
     if state["projection_fingerprint"] != projection.fingerprint():
         raise TargetProjectionRefused(
             f"target projection for {plan_id} has a corrupt fingerprint")
@@ -519,6 +527,8 @@ def assert_projection(
     """Bind the executor input to the original plan and its durable record."""
     if projection.plan_id != plan.plan_id:
         raise TargetProjectionRefused("target projection names another plan")
+    if bool(plan.opening_intents) != (projection.opening_sizing is not None):
+        raise TargetProjectionRefused("opening intents require their durable sizing evidence")
     if projection.plan_fingerprint != plan.fingerprint():
         raise TargetProjectionRefused(
             "target projection names different immutable plan economics")

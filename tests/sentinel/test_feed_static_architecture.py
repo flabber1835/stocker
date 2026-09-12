@@ -111,7 +111,7 @@ def test_reverse_import_order_keeps_implementation_callables_stable():
 
 def test_public_feed_exports_are_direct_canonical_object_bindings():
     from sentinel.feed import (
-        _publication_impl, maintenance, maintenance_impl, publication,
+        _publication_impl, actions_reconcile_v7, maintenance, maintenance_impl, publication,
         readiness, readiness_impl, sep_reconciliation,
         sep_reconciliation_impl, staging, staging_impl,
     )
@@ -124,9 +124,10 @@ def test_public_feed_exports_are_direct_canonical_object_bindings():
 
     assert maintenance.SourceCursor is maintenance_impl.SourceCursor
     assert maintenance.load_sep_cursor is maintenance_impl.load_sep_cursor
+    assert maintenance.load_actions_cursor is actions_reconcile_v7.load_actions_cursor
     assert (
         maintenance.reconcile_actions_if_due
-        is maintenance_impl.reconcile_actions_if_due
+        is actions_reconcile_v7.reconcile_actions_if_due
     )
 
     assert readiness.Check is readiness_impl.Check

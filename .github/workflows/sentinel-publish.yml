@@ -258,11 +258,11 @@ jobs:
           final_digest="$(oras resolve "$FINAL_REF")"
           test "$final_digest" = "$SUBJECT_DIGEST"
           oras attach \
-            --artifact-type application/vnd.stocker.sentinel.software-certification.v1 \
+            --artifact-type application/vnd.stocker.sentinel.software-certification.v2 \
             --annotation "org.opencontainers.image.revision=${{ github.event.workflow_run.head_sha }}" \
             --format json \
             "${SUBJECT_NAME}@${SUBJECT_DIGEST}" \
-            certification.json:application/vnd.stocker.sentinel.software-certification.v1+json \
+            certification.json:application/vnd.stocker.sentinel.software-certification.v2+json \
             provenance.json:application/vnd.stocker.sentinel.provenance.v4+json \
             attestation.sigstore.json:application/vnd.dev.sigstore.bundle.v0.3+json \
             SHA256SUMS:text/plain \
@@ -278,7 +278,7 @@ jobs:
           PY
           )"
           oras discover \
-            --artifact-type application/vnd.stocker.sentinel.software-certification.v1 \
+            --artifact-type application/vnd.stocker.sentinel.software-certification.v2 \
             --format json "${SUBJECT_NAME}@${SUBJECT_DIGEST}" \
             > /tmp/sentinel-certification-discovery.json
           CERTIFICATION_DIGEST="$certification_digest" python - <<'PY'

@@ -8,10 +8,51 @@ owning ingest's candidate overlay while that run normalises its price rows.
 """
 from __future__ import annotations
 
+from collections.abc import Mapping
+
 PENDING = "PENDING"
 PUBLISHED = "PUBLISHED"
 ABORTED = "ABORTED"
 SUPERSEDED = "SUPERSEDED"
+
+
+class _ExactSourceFloat(float):
+    """A compatibility float whose string form retains source-decimal evidence.
+
+    ACTIONS ``value`` has historically been a float at this API boundary.  The
+    durable source payload now carries the exact canonical decimal spelling as
+    well.  Economic consumers recover that spelling through ``str(value)`` while
+    existing callers keep ordinary float equality, hashing, arithmetic, and
+    serialization behaviour.
+    """
+
+    def __new__(cls, compatibility, source):
+        obj = super().__new__(cls, compatibility)
+        obj._source_text = str(source)
+        return obj
+
+    def __str__(self):
+        return self._source_text
+
+
+def _economic_value(source_payload, fallback):
+    """Preserve the float contract while carrying the exact ACTIONS spelling.
+
+    The compatibility ``value`` column is DOUBLE PRECISION.  New observations
+    also retain the source row as canonical JSONB whose ``value`` field is a
+    normalized decimal string.  Wrapping the compatibility float lets exact
+    decimal consumers recover the durable spelling through ``str(value)`` while
+    every existing numeric caller still sees a float.  Legacy rows whose source
+    payload predates that evidence simply use the compatibility column.
+    """
+    if isinstance(source_payload, Mapping):
+        value = source_payload.get("value")
+        if value is not None and fallback is not None:
+            try:
+                return _ExactSourceFloat(fallback, value)
+            except (TypeError, ValueError, OverflowError):
+                pass
+    return fallback
 
 
 def active_rows(conn, *, start: str, end: str,
@@ -29,7 +70,8 @@ def active_rows(conn, *, start: str, end: str,
     keyed = {
         str(source_row_id):
         {"ticker": str(ticker), "date": str(session), "action": str(action),
-         "name": name, "value": value, "contraticker": contraticker,
+         "name": name, "value": _economic_value(source_payload, value),
+         "contraticker": contraticker,
          "contraname": contraname, "source_row_id": str(source_row_id),
          "source_payload": source_payload}
         for (source_row_id, source_payload, ticker, session, action, name, value,
@@ -51,7 +93,8 @@ def active_rows(conn, *, start: str, end: str,
                 else:
                     keyed[key] = {
                         "ticker": str(ticker), "date": str(session),
-                        "action": str(action), "name": name, "value": value,
+                        "action": str(action), "name": name,
+                        "value": _economic_value(source_payload, value),
                         "contraticker": contraticker, "contraname": contraname,
                         "source_row_id": key, "source_payload": source_payload}
     return [keyed[key] for key in sorted(keyed,

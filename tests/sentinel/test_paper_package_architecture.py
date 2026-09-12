@@ -174,7 +174,10 @@ def test_equivalence_manifest_covers_every_canonical_definition():
         (ROOT / "docs" / "paper-lifecycle-equivalence.json").read_text(
             encoding="utf-8"))
     assert manifest["source_sha256"] == 'c14cc619ca19e91b53e3f618543ea782e97f5a87bdde65af6370bd313bd63ffe'
-    expected = set(manifest["definitions"]) | {"_require_mutation_backup"}
+    delta = json.loads((ROOT / "docs" / "production-champion-paper-deltas.json").read_text())
+    assert delta["schema"] == "sentinel.production-champion-paper-deltas/1"
+    revisions = delta["definitions"]
+    expected = set(manifest["definitions"]) | set(revisions) | {"_require_mutation_backup"}
     actual = set()
     for module_name in MODULES:
         tree = ast.parse(
@@ -188,7 +191,13 @@ def test_equivalence_manifest_covers_every_canonical_definition():
                     # both public and canonical imports and exception classes.
                     assert module_name == "validation"
                     continue
-                record = manifest["definitions"][node.name]
+                if node.name in revisions:
+                    record = revisions[node.name]
+                    assert record["module"] == module_name
+                    assert record["historical_ast_sha256"] == manifest["definitions"].get(
+                        node.name, {}).get("generated_ast_sha256")
+                else:
+                    record = manifest["definitions"][node.name]
                 _check_and_remove_backup_gate_delta(node)
                 normalized = ast.dump(
                     node, annotate_fields=True, include_attributes=False)
@@ -198,7 +207,7 @@ def test_equivalence_manifest_covers_every_canonical_definition():
 
 
 def _check_and_remove_backup_gate_delta(node):
-    """Check PR344's exact safety additions against frozen lifecycle bodies."""
+    """Check exact post-decomposition safety additions against frozen bodies."""
     operations = {
         "prepare_paper_plan": "paper plan preparation",
         "execute_paper_plan": "paper order execution",
@@ -210,6 +219,28 @@ def _check_and_remove_backup_gate_delta(node):
             + repr(operations[node.name]) + ")").body[0]
         assert ast.dump(node.body[1]) == ast.dump(expected)
         del node.body[1]
+    elif node.name == "_execute_current_paper_plan":
+        expected = ast.parse(
+            "opening_prices = _opening_resolution_freshness_or_refuse("
+            "conn, plan=plan, deployment=binding.identity, now_et=now_et)"
+        ).body[0]
+        predecessor = ast.parse(
+            "_execution_window_or_refuse(plan.effective_session, now_et)"
+        ).body[0]
+        matches = []
+        for parent in ast.walk(node):
+            for field in ("body", "orelse", "finalbody"):
+                statements = getattr(parent, field, None)
+                if not isinstance(statements, list):
+                    continue
+                for index, statement in enumerate(statements):
+                    if ast.dump(statement) == ast.dump(expected):
+                        matches.append((statements, index))
+        assert len(matches) == 1
+        statements, index = matches[0]
+        assert index > 0
+        assert ast.dump(statements[index - 1]) == ast.dump(predecessor)
+        del statements[index]
     elif node.name == "recover_automated_paper_cycle":
         locks = [call for call in ast.walk(node)
                  if isinstance(call, ast.Call)

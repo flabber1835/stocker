@@ -9,9 +9,31 @@ from sentinel.core.production import warm_session_state
 from sentinel.core.session import Controller, DefensiveBar, PublishedSession, SessionState
 from sentinel.feed import calendar
 from sentinel.paper.preparation import _default_paper_strategy
+from sentinel.shadow_observation import SHADOW_WARMUP_SESSIONS
 
 from tests.internal_state import market, oracles
 from tests.internal_state.contract import InvariantFailure
+
+
+def test_reviewed_cash_fixture_normalizes_the_complete_old_share_event():
+    from sentinel.feed import actions_map
+    from sentinel.feed.domains import normalise_sep_rows
+
+    facts = market.step(market.SEED)
+    rows = [r for r in facts.tables["SEP"] if r["ticker"] == "TRI"]
+    actions = [r for r in facts.tables["ACTIONS"] if r["ticker"] == "TRI"]
+    days = sorted(r["date"] for r in rows)
+    assert days == ["2026-05-01", "2026-05-04"]
+    splits, ambiguous = actions_map.split_rows_from_actions(actions, days)
+    assert not ambiguous
+    normalized = list(normalise_sep_rows(
+        rows, authoritative_splits=splits,
+        dividends=actions_map.dividends_from_actions(actions, days)))
+    event = normalized[-1].vendor
+    assert event.split_ratio == 0.984560
+    assert 1000 * event.split_ratio * event.dividend_per_share == pytest.approx(1435.518)
+    oracle = [r for r in facts.expected.bars if r[2] == "TRI"]
+    assert (event.split_ratio, event.dividend_per_share) == oracle[-1][-2:]
 
 
 def test_same_session_provider_retry_advances_observation_only():
@@ -61,12 +83,21 @@ def inputs(day, seed=0, shocks=()):
     bars = {}
     for row in facts.bars:
         bars.setdefault(row[1], []).append(VendorBar(row[1], row[0], row[2], row[4], row[5], row[6],
-                                                  split_ratio=row[7], dividend_per_share=row[8]))
+            split_ratio=row[7], dividend_per_share=row[8], signal_close=row[3]))
+    # Publication changes revalidate every retained series, including securities
+    # whose last observation predates the previous session. Match the production
+    # loader's latest positive historical observation per security.
+    anchors = {bar.security_id: bar for session in axis[:-1]
+               for bar in bars.get(session, ())
+               if bar.raw_close > 0 and bar.signal_close > 0}
     published = PublishedSession(session=day, data_version=2, bars=bars[day], meta=meta,
+        history_proof={"schema": "sentinel.strategy-history-mutations/1",
+                       "baseline_version": 1, "publication_version": 2, "changes": []},
         sectors={sid: "Industrials" for sid in meta},
         spy_closeadj=[r[1] for r in facts.spy[-127:]], spy_sessions=axis[-127:],
         spy_expected_sessions=axis[-127:], defensive_bar=DefensiveBar(*facts.defensive[-1]),
-        defensive_previous_bar=DefensiveBar(*facts.defensive[-2]))
+        defensive_previous_bar=DefensiveBar(*facts.defensive[-2]),
+        signal_basis_anchors=anchors)
     return bars, meta, published
 
 
@@ -75,7 +106,10 @@ def formed_state(seed=0, days=3):
     state = SessionState.fresh(starting_cash=100000, controller=Controller(config), strategy_identity=identity)
     day = market.FIRST
     bars, meta, _ = inputs(day, seed)
-    warm = SimpleNamespace(sessions=market.sessions(day)[-128:-1], bars_by_session=bars, meta=meta)
+    warm = SimpleNamespace(
+        sessions=market.sessions(day)[-SHADOW_WARMUP_SESSIONS-1:-1],
+        bars_by_session=bars, meta=meta,
+        median5_spy_closes=dict(market.step(day, seed).expected.spy))
     state = warm_session_state(state, warm, publication_version=1, prospective_concordance_witness=True)
     for _ in range(days):
         _, _, published = inputs(day, seed)
@@ -89,13 +123,14 @@ def formed_state(seed=0, days=3):
     return config, state
 
 
-def test_fictional_market_populates_actual_wealth_core_witness_and_ldrc():
+def test_fictional_market_populates_actual_champion_book_witness_and_recovery():
     _, state = formed_state()
     raw = state.to_dict()
     oracles.canonical_state(raw, identity=state.strategy_identity, cursor=state.last_processed_session)
     assert any(slot["occupied_by"] for slot in raw["wealth_core"]["slots"].values())
-    assert raw["recent_leadership"]["session_history"]
-    assert raw["ldrc"]["last_session"] == state.last_processed_session
+    assert raw["median5"]["last_session"] == state.last_processed_session
+    assert raw["median5"]["witness_nav"]
+    assert raw["median5"]["version"] == 2
 
 
 def test_restart_preserves_all_path_dependent_state_on_next_session():
@@ -124,7 +159,7 @@ def test_fictional_drawdown_drives_the_actual_controller_and_preserves_history()
         exposures.append(raw["last_decision"]["target_core_exposure"])
         day = calendar.next_session(day)
     assert min(exposures) < 1, exposures
-    assert state.ldrc["last_session"] == state.last_processed_session
+    assert state.median5["last_session"] == state.last_processed_session
 
 
 @pytest.mark.parametrize("fault,invariant", [("cash", "shadow_cash_conservation"),

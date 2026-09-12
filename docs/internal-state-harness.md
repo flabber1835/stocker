@@ -10,7 +10,7 @@ canonical Wealth Core and Sentinel state, production plan construction, Alpaca
 wire execution/reconciliation, environment preflight and physical PostgreSQL
 backup/restore in one disposable lifecycle. The current production paper
 strategy selector supplies the configuration and source identity, including
-Concordance witness and Simplified LD-RC state. Existing economics, configuration,
+the compact champion's Median-5 witness and REC8 recovery state. Existing economics, configuration,
 golden fixtures, account capabilities and production authority remain authoritative.
 
 The implementation lives in `tests/internal_state/` with a CLI under `tools/`.
@@ -55,7 +55,7 @@ recovery states have explicitly named halt expectations.
 Check invariants after every successful action and every expected refusal:
 
 - Slots, episodes, reservations and pending entries agree; occupied shares are
-  positive and rolling feed series stay inside the 127-session restart window.
+  positive and rolling feed series stay inside the 260-session restart window.
 - Shadow cash and shares reconcile to ledger deltas; broker cash and positions
   reconcile to the simulator's independent fill/capital history. Broker numeric
   values use exact Decimal arithmetic. Synthetic shadow float accounting uses
@@ -94,6 +94,15 @@ broker order. Deployment, security, revision, instrument, side and quantity
 remain identical to the independent pre-restore history.
 
 ## Physical recovery and clocks
+
+The `media_repair` action restores the durable-target marker, requests a fresh
+WAL archive through the production probe, and waits for that exact segment and
+checksum to become published. The production backup runtime authority must
+then accept the complete restore chain before the action completes. PostgreSQL
+may still be retrying a failed archive after the filesystem marker returns;
+the marker alone does not establish completed repair. Recovery has a bounded
+deadline and retains a failure if archive publication or production validation
+fails.
 
 Each lifecycle owns a unique temporary PostgreSQL data directory, port and media
 root. Physical commands use the same installed PostgreSQL binaries. The production

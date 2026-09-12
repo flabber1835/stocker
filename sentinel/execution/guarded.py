@@ -2,7 +2,7 @@
 
 The grants identify *who may ask* and the callbacks decide whether that grant
 is still current.  Neither grant contains target quantities, prices, weights,
-or any other plan economics; those remain exclusively in the canonical durable
+nor any other plan economics; those remain exclusively in the canonical durable
 execution plan and command journal.
 
 Callbacks are deliberately invoked for every operation rather than being
@@ -16,7 +16,7 @@ from __future__ import annotations
 
 import re
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date, datetime, timedelta
 from decimal import Decimal
 from enum import Enum
 from typing import Awaitable, Callable, Sequence, TypeAlias
@@ -65,6 +65,7 @@ class BrokerOperation(str, Enum):
     ACCOUNT_FILL_INTERVAL_EVIDENCE = "account_fill_interval_evidence"
     RESOLVE_INSTRUMENT = "resolve_instrument"
     MARKET_CLOCK = "market_clock"
+    OPENING_PRICES = "opening_prices"
     ACCOUNT_CASH_ACTIVITIES = "account_cash_activities"
     OBSERVE = "observe"
     OBSERVE_WITH_TERMINAL_RECOVERY = "observe_with_terminal_recovery"
@@ -352,12 +353,18 @@ class GuardedExecutionBroker(ExecutionBroker):
 
     async def market_clock(self):
         if not self.supports_market_clock:
-            raise AttributeError("execution broker does not expose a market clock")
+            raise AttributeError("execution broker does not expose a broker market clock")
 
         async def read():
             return await self._inner.market_clock()
 
         return await self._read(BrokerOperation.MARKET_CLOCK, read)
+
+    async def opening_prices(self, *, session: date, instruments):
+        self.capabilities.require("regular_session_open_prices")
+        async def read():
+            return await self._inner.opening_prices(session=session, instruments=instruments)
+        return await self._read(BrokerOperation.OPENING_PRICES, read)
 
     async def account_cash_activities(self, *, after: datetime,
                                       through: datetime,
@@ -405,12 +412,12 @@ class GuardedExecutionBroker(ExecutionBroker):
                 "preparation grant is read-only; submit refused before "
                 "transport")
 
-        # XNYS remains the outer execution authority.  For increases, the
-        # production Alpaca adapter contributes one final independent witness:
-        # its market clock.  This is intentionally BEFORE the mutation-authority
-        # callback so that callback can still return immediately into POST with
-        # no intervening await.  A clock failure is known-before-transport and
-        # therefore must never be translated to UNKNOWN.
+        # XNYS remains the outer execution authority. For increases, require a
+        # fresh broker clock before any mutation and a second non-awaiting clock
+        # read after the signed mutation authority returns. The latter closes the
+        # race where account/instrument/authority I/O begins inside the opening
+        # window but reaches POST after the certified next-open deadline.
+        clock = None
         if side is Side.BUY and self.supports_market_clock:
             try:
                 clock = await self.market_clock()
@@ -449,6 +456,26 @@ class GuardedExecutionBroker(ExecutionBroker):
                     f"durable={instrument}, current={current}")
 
         await self._authorize_mutation(BrokerOperation.SUBMIT)
+        if side is Side.BUY and self.supports_market_clock:
+            try:
+                now_reader = getattr(self._inner, "_now", None)
+                now = (now_reader() if callable(now_reader)
+                       else getattr(clock, "timestamp", None))
+                if not isinstance(now, datetime) or now.tzinfo is None:
+                    raise ValueError("broker has no fresh timezone-aware submission clock")
+                from sentinel.feed import calendar
+                opened, closed = calendar.session_window(now.date())
+                latest = min(closed, opened + timedelta(seconds=120))
+                if not opened <= now <= latest:
+                    raise ValueError(
+                        f"increase freshness expired at {latest.isoformat()}; "
+                        f"submission time is {now.isoformat()}")
+            except PreTransportAuthorityRefused:
+                raise
+            except Exception as exc:                          # noqa: BLE001
+                raise PreTransportAuthorityRefused(
+                    "increase refused at final next-open freshness boundary: "
+                    f"{type(exc).__name__}: {exc}") from exc
         return await self._inner.submit(
             client_key=client_key, instrument=instrument,
             side=side, quantity=quantity)

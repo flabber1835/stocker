@@ -269,8 +269,10 @@ def run_sessions(*, sessions: Sequence[str],
         seen_terminal_events.add(key)
 
     cfg = cfg or WealthCoreConfig()
+    from .v5 import PROFILE as V5_PROFILE
     state = state if state is not None else PortfolioState.fresh(
-        starting_cash, cfg.n_slots if hasattr(cfg, "n_slots") else 25)
+        starting_cash, cfg.n_slots if hasattr(cfg, "n_slots") else 25,
+        entry_sizing_profile=(V5_PROFILE if cfg.economic_profile == V5_PROFILE else None))
     # `initialized` is NOT set here. It means "the book has been constructed",
     # and `decide` reads it to choose between filling every free slot at once
     # (the opening) and one admission per session (steady state). Setting it
@@ -282,6 +284,15 @@ def run_sessions(*, sessions: Sequence[str],
     last_known = last_known if last_known is not None else {}
     feed = feed if feed is not None else Feed(
         meta, eligibility_cfg, metadata_timeline)
+    if cfg.economic_profile != "wealth-core-v1":
+        from .median5 import fresh
+        if state.median5 is None:
+            if state.session_index or feed._session_index >= 0:
+                raise ValueError("Median-5 requires fresh state or its complete restart image")
+            state.median5 = fresh()
+        feed.median5_state = state.median5
+    elif state.median5 is not None:
+        raise ValueError("Median-5 state cannot run under the legacy economic profile")
 
     events_by_session: dict[str, list[TerminalEvent]] = {}
     for ev in terminal_events:

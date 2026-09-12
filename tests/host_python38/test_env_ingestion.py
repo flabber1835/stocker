@@ -351,7 +351,8 @@ class EnvHarness(unittest.TestCase):
                    "elif sys.argv[1] == 'rev-parse': print('a'*40)\n" if name == "git" else ""))
             (binary / name).chmod(0o700)
         return {"PATH": str(binary) + os.pathsep + os.environ.get("PATH", "/usr/bin:/bin"),
-                "SENTINEL_HOST_PYTHON": sys.executable, "SENTINEL_GO_LOCK_HELD": "1"}
+                "SENTINEL_HOST_PYTHON": sys.executable, "SENTINEL_GO_LOCK_HELD": "1",
+                "SENTINEL_GITHUB_READ_TOKEN": CANARY + "_github"}
 
     def run_shell(self, launcher, process, *args, pass_fds=()):
         return subprocess.run(["bash", "scripts/" + launcher] + list(args), cwd=str(self.root),

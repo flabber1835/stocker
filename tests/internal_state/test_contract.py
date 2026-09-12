@@ -10,16 +10,26 @@ from tests.internal_state.scenarios import catalogue, generated
 from tests.internal_state.ci_gate import acceptance
 
 
-@pytest.mark.parametrize("mutation", ["empty", "skip", "failure", "missing", "exit"])
+@pytest.mark.parametrize(
+    "mutation", ["empty", "skip", "xfail", "xpass", "deselect", "failure", "missing", "exit"])
 def test_full_suite_gate_cannot_pass_incomplete_results(mutation):
-    report = dict(collected=["a", "b"], passed={"a": 1, "b": 2}, failures={}, skipped={},
-                  expected_failures={}, exitstatus=0)
+    report = dict(
+        collected=["a", "b"], deselected=[], passed={"a": 1, "b": 2},
+        failures={}, skipped={}, expected_failures={}, unexpected_successes={}, exitstatus=0)
     assert acceptance(**report)
     if mutation == "empty":
         report["collected"], report["passed"] = [], {}
     elif mutation == "skip":
         report["passed"].pop("b")
         report["skipped"]["b"] = "missing prerequisite"
+    elif mutation == "xfail":
+        report["passed"].pop("b")
+        report["expected_failures"]["b"] = "known failure"
+    elif mutation == "xpass":
+        report["passed"].pop("b")
+        report["unexpected_successes"]["b"] = "unexpected pass"
+    elif mutation == "deselect":
+        report["deselected"].append("c")
     elif mutation == "failure":
         report["failures"]["a"] = "failure"
     elif mutation == "missing":
@@ -93,10 +103,11 @@ def test_independent_accounting_kills_false_facts(money, fault, expected):
 @pytest.fixture
 def state():
     day = "2026-10-20"
-    return {"strategy_identity": {"fixture": "frozen"}, "last_processed_session": day,
+    return {"strategy_identity": {"fixture": "frozen", "strategy": "sentinel-compact-champion-v1"}, "last_processed_session": day,
         "controller": {"last_session": day}, "last_decision": {"session": day, "target_core_exposure": .55},
-        "recent_leadership": {"last_session": day}, "ldrc": {"last_session": day}, "shadow_peak_nav": 1000,
-        "wealth_core": {"slots": {str(i): {"occupied_by": None} for i in range(25)}, "cash": 100000, "episodes": {}},
+        "median5": {"last_session": day, "version": 2, "previous_desired": .55,
+                    "full_streak": 0, "recent_positive_streak": 0}, "shadow_peak_nav": 1000,
+        "wealth_core": {"slots": {str(i): {"occupied_by": None} for i in range(20)}, "cash": 100000, "episodes": {}},
         "ledger": {"events": []}, "pending": [],
         "feed": {"series": {"ABC": {"sessions": [day], "session_indices": [1],
             "signal_closes": [10], "raw_closes": [10], "volumes": [100]}}}}
@@ -104,7 +115,7 @@ def state():
 
 @pytest.mark.parametrize("fault,expected", [
     ("cursor", "state_cursor_atomicity"), ("witness", "witness_cursor"),
-    ("ldrc", "ldrc_cursor"), ("exposure", "exposure_bounds"),
+    ("recovery", "recovery_allocation"), ("exposure", "exposure_bounds"),
     ("slot", "one_slot_per_episode"), ("future", "no_future_observation"),
     ("nan", "finite_state"), ("identity", "strategy_identity")])
 def test_independent_state_contract_kills_corruption(state, fault, expected):
@@ -112,10 +123,13 @@ def test_independent_state_contract_kills_corruption(state, fault, expected):
     canonical_state(state, identity=identity, cursor="2026-10-20")
     if fault == "cursor":
         state["last_processed_session"] = "2026-10-19"
-    elif fault in {"witness", "ldrc"}:
-        state["recent_leadership" if fault == "witness" else "ldrc"]["last_session"] = "2026-10-19"
+    elif fault == "witness":
+        state["median5"]["last_session"] = "2026-10-19"
+    elif fault == "recovery":
+        state["median5"]["previous_desired"] = 1.
     elif fault == "exposure":
         state["last_decision"]["target_core_exposure"] = 1.01
+        state["median5"]["previous_desired"] = 1.01
     elif fault == "slot":
         state["wealth_core"]["slots"]["0"]["occupied_by"] = "same"
         state["wealth_core"]["slots"]["1"]["occupied_by"] = "same"

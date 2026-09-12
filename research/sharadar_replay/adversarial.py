@@ -154,15 +154,20 @@ def build_adversarial_scenarios(seed):
         tables = copy.deepcopy(bad.tables)
         if label == 'wrong_ratio':
             for row in tables['ACTIONS']:
-                if row['action'] == 'split':
+                if row['ticker'] == 'AAA' and row['action'] == 'split':
                     row['value'] = 3
-            expected_actions = tuple((*r[:4], 3, *r[5:]) if r[2] == 'split' else r
+            expected_actions = tuple((*r[:4], 3, *r[5:])
+                                     if r[0] == 'AAA' and r[2] == 'split' else r
                                      for r in bad.expected.actions)
             expected_bars = tuple((*r[:7], 1, r[8]) if r[0] == 'SIM-AAA' and r[1] == SPLIT else r
                                   for r in bad.expected.bars)
         else:
-            tables['ACTIONS'] = tuple(r for r in tables['ACTIONS'] if r['action'] != 'split')
-            expected_actions = tuple(r for r in bad.expected.actions if r[2] != 'split')
+            tables['ACTIONS'] = tuple(
+                r for r in tables['ACTIONS']
+                if not (r['ticker'] == 'AAA' and r['action'] == 'split'))
+            expected_actions = tuple(
+                r for r in bad.expected.actions
+                if not (r[0] == 'AAA' and r[2] == 'split'))
             expected_bars = bad.expected.bars
         bad = bad.model_copy(update={'tables': tables, 'expected': bad.expected.model_copy(
             update={'bars': expected_bars, 'actions': expected_actions})})

@@ -27,6 +27,32 @@ from typing import Mapping, Optional
 
 
 @dataclass(frozen=True)
+class OpeningIntent:
+    security_id: str
+    slot_id: int
+    intended_dollars: Decimal
+
+    def __post_init__(self):
+        if not isinstance(self.security_id, str) or not self.security_id:
+            raise ValueError("opening intent requires security identity")
+        if type(self.slot_id) is not int or not 0 <= self.slot_id < 20:
+            raise ValueError("opening intent requires a V5 slot")
+        if (not isinstance(self.intended_dollars, Decimal)
+                or not self.intended_dollars.is_finite() or self.intended_dollars <= 0):
+            raise ValueError("opening intent dollars must be positive finite Decimal")
+
+    def to_dict(self):
+        return {"security_id": self.security_id, "slot_id": self.slot_id,
+                "intended_dollars": str(self.intended_dollars)}
+
+    @classmethod
+    def from_dict(cls, raw):
+        if not isinstance(raw, dict) or set(raw) != {"security_id", "slot_id", "intended_dollars"}:
+            raise ValueError("invalid opening intent shape")
+        return cls(raw["security_id"], raw["slot_id"], Decimal(raw["intended_dollars"]))
+
+
+@dataclass(frozen=True)
 class ExecutionPlan:
     plan_id: str
     decision_session: date
@@ -51,8 +77,19 @@ class ExecutionPlan:
     rollout_version: int = 1
     rollout_certificate_sha256: Optional[str] = None
     superseded_by: Optional[str] = None
+    opening_intents: tuple[OpeningIntent, ...] = ()
 
     def __post_init__(self) -> None:
+        if not isinstance(self.opening_intents, tuple):
+            raise ValueError("opening intents must be an immutable tuple")
+        if any(not isinstance(item, OpeningIntent) for item in self.opening_intents):
+            raise ValueError("opening intents require typed values")
+        ids = [item.security_id for item in self.opening_intents]
+        slots = [item.slot_id for item in self.opening_intents]
+        if len(set(ids)) != len(ids) or len(set(slots)) != len(slots) or slots != sorted(slots):
+            raise ValueError("opening intents must have unique identities in slot order")
+        if any(self.target_basket.get(sid) != Decimal(0) for sid in ids):
+            raise ValueError("opening dollar intents require zero provisional quantities")
         scalars = (
             ("target_exposure", self.target_exposure),
             ("account_nav", self.account_nav),
@@ -122,6 +159,8 @@ class ExecutionPlan:
             "rollout_version": self.rollout_version,
             "rollout_certificate_sha256": self.rollout_certificate_sha256,
         }
+        if self.opening_intents:
+            payload["opening_intents"] = [item.to_dict() for item in self.opening_intents]
         blob = json.dumps(payload, sort_keys=True, separators=(",", ":"))
         # This digest is also the production plan id suffix. Truncating it to
         # 64 bits made a hash collision a mutation-authority bypass: two
@@ -132,6 +171,8 @@ class ExecutionPlan:
 
     def to_dict(self) -> dict:
         return {
+            **({"opening_intents": [item.to_dict() for item in self.opening_intents]}
+               if self.opening_intents else {}),
             "plan_id": self.plan_id,
             "decision_session": self.decision_session.isoformat(),
             "effective_session": self.effective_session.isoformat(),

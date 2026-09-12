@@ -127,12 +127,10 @@ def cmd_create_empty_paper_binding_candidate(
 def _current_system_identities() -> tuple[dict, dict]:
     """Compute the exact runtime and strategy identities used by authority."""
     from sentinel import identity
-    from sentinel.controller.frozen_rule import load as load_controller
-    from sentinel.core.decision import runtime_strategy_identity
+    from sentinel.strategy import production_strategy
 
-    controller = load_controller()
-    return (identity.rehearsal_identity(),
-            runtime_strategy_identity(controller))
+    _controller, strategy = production_strategy()
+    return identity.rehearsal_identity(), strategy
 
 
 def _require_administrative_access(

@@ -1,5 +1,13 @@
 # Certifying the Sentinel controller — what is proven, and what step 2 blocks on
 
+**Selected integration, 2026-09-11:** the compact champion and its independent
+PR #352 research result are pinned in
+[production-compact-champion.md](production-compact-champion.md). PR #354 updates
+the production strategy and its regression tests. Historical replay belongs to
+the subsequent replay PR. The older controller
+certifications below retain their original scope; they do not certify this
+integration or a full-system twenty-year replay.
+
 > **Status after `23f268b`: the RECOVERY OVERLAY is certified exactly. The
 > SEVERE PATH is implemented and NOT certified.** Step 2 was to close that gap
 > by sourcing SPY and recomputing the fast path from raw inputs. Three findings

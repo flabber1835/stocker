@@ -2,11 +2,7 @@ name: Sentinel safety
 
 on:
   push:
-    branches:
-      - main
-      - 'fix/**'
-      - 'codex/**'
-      - 'stabilization/**'
+    branches: [main]
   pull_request:
     branches: [main]
   merge_group:
@@ -14,6 +10,8 @@ on:
 
 permissions:
   contents: read
+  checks: read
+  actions: read
 
 concurrency:
   group: sentinel-safety-${{ github.event.pull_request.number || github.ref }}
@@ -31,6 +29,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
+          fetch-depth: 2
           ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
 
       - name: Install the minimum supported NAS host Python
@@ -38,20 +37,43 @@ jobs:
         with:
           python-version: '3.8.15'
 
+      - name: Prove exact execution or synthetic-tree equivalence
+        env:
+          CI_SCOPE: ${{ matrix.scope }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
+        run: |
+          python tools/verify_ci_scope.py \
+            --scope "$CI_SCOPE" \
+            --expected-head "$EXPECTED_HEAD" \
+            --expected-base "$EXPECTED_BASE" \
+            --expected-event-sha "$GITHUB_SHA" \
+            --output artifacts/host-python38/scope-proof.json
+
       - name: Exercise host certification helpers on Python 3.8
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
+          mkdir -p artifacts/host-python38
           python --version
           python scripts/sentinel_host_python.py
-          python -m unittest -v tests.host_python38.test_host_compat
-          python -m unittest -v tests.host_python38.test_env_ingestion
+          python tools/run_unittest_owner.py --owner host-python38.compatibility --output artifacts/host-python38/execution.json
           python tools/sentinel_env_mutation_check.py
           python -m compileall -q -f scripts
+
+      - name: Retain host Python 3.8 execution evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: host-python38-${{ matrix.scope }}
+          path: artifacts/host-python38/
+          if-no-files-found: error
+          retention-days: 30
 
   certification-and-durability:
     name: sentinel-${{ matrix.scope }}
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    timeout-minutes: 55
     strategy:
       fail-fast: false
       matrix:
@@ -62,30 +84,34 @@ jobs:
           fetch-depth: 2
           ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
 
-      - name: Verify the checked-out pull-request merge result
-        shell: bash
+      - name: Prove exact execution or synthetic-tree equivalence
+        env:
+          CI_SCOPE: ${{ matrix.scope }}
+          EXPECTED_HEAD: ${{ github.event.pull_request.head.sha || github.sha }}
+          EXPECTED_BASE: ${{ github.event.pull_request.base.sha || github.sha }}
         run: |
           set -euo pipefail
-          expected_head='${{ github.event.pull_request.head.sha || github.sha }}'
+          mkdir -p /tmp/sentinel-scope-proof
+          python tools/verify_ci_scope.py \
+            --scope "$CI_SCOPE" \
+            --expected-head "$EXPECTED_HEAD" \
+            --expected-base "$EXPECTED_BASE" \
+            --expected-event-sha "$GITHUB_SHA" \
+            --output /tmp/sentinel-scope-proof/proof.json
           TESTED_SHA="$(git rev-parse HEAD)"
-          if [ '${{ matrix.scope }}' = 'exact-head' ]; then
-            test "$TESTED_SHA" = "$expected_head"
-          else
-            test "$TESTED_SHA" = "$GITHUB_SHA"
-            parent_count="$(git rev-list --parents -n 1 HEAD | awk '{print NF - 1}')"
-            if [ "$parent_count" -ne 2 ]; then
-              echo "REFUSED: pull-request checkout is not a synthetic merge commit" >&2
-              exit 1
-            fi
-            expected_base='${{ github.event.pull_request.base.sha }}'
-            git merge-base --is-ancestor HEAD^1 HEAD
-            git merge-base --is-ancestor HEAD^2 HEAD
-            test "$(git rev-parse HEAD^1)" = "$expected_base"
-            test "$(git rev-parse HEAD^2)" = "$expected_head"
-          fi
           echo "TESTED_SHA=$TESTED_SHA" >> "$GITHUB_ENV"
+          cat /tmp/sentinel-scope-proof/proof.json >> "$GITHUB_STEP_SUMMARY"
+
+      - name: Retain CI scope proof
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sentinel-scope-proof-${{ matrix.scope }}
+          path: /tmp/sentinel-scope-proof/proof.json
+          if-no-files-found: error
+          retention-days: 30
 
       - name: Build the single pinned Sentinel runtime and CI test lens
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
           docker build \
@@ -100,24 +126,28 @@ jobs:
                "$(docker image inspect sentinel:latest --format '{{.Id}}')"
 
       - name: Exercise the production non-root runtime boundary
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/test-pr301-runtime-boundaries.sh sentinel:ci
 
       - name: Falsify exact-XID PostgreSQL physical recovery
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/test-pr301-pitr-recovery.sh
 
       - name: Regress PR330 retirement boundaries on PostgreSQL 16
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail
           bash scripts/test-pr330-postgres-retirement.sh sentinel-test:ci
 
       - name: Record exact-SHA promotion evidence
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -146,6 +176,7 @@ jobs:
           } >> "$GITHUB_STEP_SUMMARY"
 
       - name: Compile the executable Python and test surfaces
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           docker run --rm --network none --entrypoint python \
             sentinel-test:ci -m compileall -q -f \
@@ -155,29 +186,96 @@ jobs:
             /work/tests/scripts \
             /work/tools /work/repo/scripts
 
-      - name: Run the complete Sentinel suite without network access
+      - name: Run complete Sentinel coverage with one execution per test
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/sentinel-system-evidence
+          automation_files=(
+            tests/sentinel/test_automation_service.py
+            tests/sentinel/test_issue_201_automation_financial_grade.py
+            tests/sentinel/test_automation_p1_continuity.py
+            tests/sentinel/test_automation_safety_seams.py
+            tests/sentinel/test_automation_process_contracts.py
+          )
+          ignore_args=()
+          for path in "${automation_files[@]}"; do
+            ignore_args+=("--ignore=${path}")
+          done
+
           set +e
           docker run --rm --network none \
             -v /tmp/sentinel-system-evidence:/evidence \
-            sentinel-test:ci --junitxml=/evidence/sentinel.xml \
-            tests/sentinel -q -ra 2>&1 | tee /tmp/sentinel-complete.txt
-          test_status=${PIPESTATUS[0]}
+            sentinel-test:ci tests/sentinel "${ignore_args[@]}" -q -ra \
+            --junitxml=/evidence/sentinel-main.xml \
+            2>&1 | tee /tmp/sentinel-complete.txt
+          main_status=${PIPESTATUS[0]}
           set -e
-          if [ "$test_status" -ne 0 ]; then
-            echo '--- Sentinel failure tail ---' >&2
+          if [ "$main_status" -ne 0 ]; then
+            echo '--- Sentinel main-suite failure tail ---' >&2
             tail -n 240 /tmp/sentinel-complete.txt >&2
-            exit "$test_status"
+            exit "$main_status"
+          fi
+
+          set +e
+          docker run --rm --network none \
+            -v /tmp/sentinel-system-evidence:/evidence \
+            --entrypoint sh sentinel-test:ci -c '
+              python -m coverage run --branch \
+                --source=sentinel.automation.service \
+                -m pytest \
+                tests/sentinel/test_automation_service.py \
+                tests/sentinel/test_issue_201_automation_financial_grade.py \
+                tests/sentinel/test_automation_p1_continuity.py \
+                tests/sentinel/test_automation_safety_seams.py \
+                tests/sentinel/test_automation_process_contracts.py \
+                -q -ra --junitxml=/evidence/sentinel-automation.xml &&
+              python -m coverage report --precision=2 --fail-under=80.00
+            ' 2>&1 | tee -a /tmp/sentinel-complete.txt
+          coverage_status=${PIPESTATUS[0]}
+          set -e
+          if [ "$coverage_status" -ne 0 ]; then
+            echo '--- Sentinel automation coverage failure tail ---' >&2
+            tail -n 240 /tmp/sentinel-complete.txt >&2
+            exit "$coverage_status"
           fi
           if grep -Eq '(^|, )[0-9]+ skipped(,| in |$)' \
               /tmp/sentinel-complete.txt; then
-            echo 'REFUSED: the complete Sentinel run skipped tests' >&2
+            echo 'REFUSED: the complete Sentinel partition skipped tests' >&2
             exit 1
           fi
+          python tools/merge_junit.py \
+            --output /tmp/sentinel-system-evidence/sentinel.xml \
+            /tmp/sentinel-system-evidence/sentinel-main.xml \
+            /tmp/sentinel-system-evidence/sentinel-automation.xml
+          python tools/verify_test_owner_execution.py --owner sentinel.complete \
+            --junit /tmp/sentinel-system-evidence/sentinel.xml \
+            --output /tmp/sentinel-system-evidence/sentinel-owner.json
 
-      - name: Gate full Sharadar replay through required Sentinel check
+      - name: Verify champion transitions and production opening durability
+        if: ${{ matrix.scope == 'exact-head' }}
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            -v /tmp/sentinel-system-evidence:/evidence \
+            sentinel-test:ci tests/champion tests/median5 tests/v5 -q -ra \
+            --junitxml=/evidence/champion.xml \
+            2>&1 | tee /tmp/champion-regressions.txt
+          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
+              /tmp/champion-regressions.txt; then
+            echo 'REFUSED: champion production regressions had non-passes' >&2
+            exit 1
+          fi
+          python tools/verify_test_owner_execution.py --owner production-champion.regressions \
+            --junit /tmp/sentinel-system-evidence/champion.xml \
+            --output /tmp/sentinel-system-evidence/champion-owner.json
+          docker run --rm --network none --entrypoint python \
+            sentinel-test:ci /work/tools/champion_mutation_check.py
+          docker run --rm --network none --entrypoint python \
+            sentinel-test:ci /work/tools/v5_mutation_check.py
+
+      - name: Require full Sharadar replay authority
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -220,6 +318,9 @@ jobs:
             --entrypoint python sentinel-test:ci \
             -m pytest research/sharadar_replay/tests -q -ra -s \
             --junitxml=/evidence/0/junit.xml
+          python tools/verify_test_owner_execution.py --owner sharadar.daily-replay \
+            --junit-glob '/tmp/sharadar-required-evidence/**/junit.xml' \
+            --output /tmp/sharadar-required-evidence/test-owner.json
           docker run --rm --network none \
             -v "$PWD/research:/work/research:ro" \
             -v /tmp/sharadar-required-evidence:/evidence:ro \
@@ -228,7 +329,7 @@ jobs:
             /evidence --commit "${TESTED_SHA}" --shards 1
 
       - name: Build system adversarial evidence
-        if: always()
+        if: ${{ matrix.scope == 'exact-head' && always() }}
         run: |
           python tools/sentinel_adversarial_evidence.py \
             --junit /tmp/sentinel-system-evidence/sentinel.xml \
@@ -237,7 +338,7 @@ jobs:
             --tested-sha "${TESTED_SHA}"
 
       - name: Retain system adversarial evidence
-        if: always()
+        if: ${{ matrix.scope == 'exact-head' && always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sentinel-system-${{ matrix.scope }}-${{ env.TESTED_SHA }}
@@ -246,11 +347,15 @@ jobs:
           retention-days: 30
 
       - name: Run operator and bring-up script tests without network access
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
           set +e
-          docker run --rm --network none sentinel-test:ci \
-            tests/scripts -q -ra 2>&1 | tee /tmp/sentinel-scripts.txt
+          docker run --rm --network none \
+            -v /tmp/sentinel-system-evidence:/evidence \
+            sentinel-test:ci tests/scripts -q -ra \
+            --junitxml=/evidence/scripts.xml \
+            2>&1 | tee /tmp/sentinel-scripts.txt
           test_status=${PIPESTATUS[0]}
           set -e
           if [ "$test_status" -ne 0 ]; then
@@ -263,39 +368,26 @@ jobs:
             echo 'REFUSED: the script/control suite had non-passes' >&2
             exit 1
           fi
+          python tools/verify_test_owner_execution.py --owner scripts.operator \
+            --junit /tmp/sentinel-system-evidence/scripts.xml \
+            --output /tmp/sentinel-system-evidence/scripts-owner.json
 
-      - name: Enforce automation branch coverage
+      - name: Run the prospective Wealth Core boundary with exact xfail authority
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
-          docker run --rm --network none --entrypoint sh sentinel-test:ci -c '
-            python -m coverage run --branch \
-              --source=sentinel.automation.service \
-              -m pytest \
-              tests/sentinel/test_automation_service.py \
-              tests/sentinel/test_issue_201_automation_financial_grade.py \
-              tests/sentinel/test_automation_p1_continuity.py \
-              tests/sentinel/test_pr293_review_blockers.py \
-              tests/sentinel/test_pr293_automation_fixes.py \
-              -q -ra &&
-            python -m coverage report --precision=2 --fail-under=80.00
-          '
-
-      - name: Run the prospective Wealth Core boundary without skips
-        run: |
-          set -euo pipefail
-          docker run --rm --network none sentinel-test:ci \
+          docker run --rm --network none \
+            -v /tmp/sentinel-system-evidence:/evidence \
+            sentinel-test:ci \
             tests/wealth_core \
-            --deselect tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture \
-            --deselect tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER \
-            --deselect tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash \
-            -q -ra 2>&1 | tee /tmp/wealth-core-prospective.txt
-          if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
-              /tmp/wealth-core-prospective.txt; then
-            echo 'REFUSED: the prospective Wealth Core run had non-passes' >&2
-            exit 1
-          fi
+            -q -ra --junitxml=/evidence/wealth-core.xml \
+            2>&1 | tee /tmp/wealth-core-prospective.txt
+          python tools/verify_test_owner_execution.py --owner wealth-core.prospective \
+            --junit /tmp/sentinel-system-evidence/wealth-core.xml \
+            --output /tmp/sentinel-system-evidence/wealth-core-owner.json
 
       - name: Validate shell and Compose surfaces
+        if: ${{ matrix.scope == 'exact-head' }}
         env:
           SENTINEL_POSTGRES_PASSWORD: ci-not-a-production-secret
           SENTINEL_PUBLICATION_RECEIPT_KEY: ci-publication-receipt-key-not-production
@@ -309,7 +401,7 @@ jobs:
           set -euo pipefail
           mapfile -d '' shell_scripts < <(git ls-files -z -- '*.sh')
           if [ "${#shell_scripts[@]}" -eq 0 ]; then
-            echo 'REFUSED: no tracked shell scripts were found' >&2
+            echo "REFUSED: no tracked shell scripts were found" >&2
             exit 1
           fi
           bash -n "${shell_scripts[@]}"
@@ -339,13 +431,10 @@ jobs:
             -f docker-compose.sentinel-backup.yml \
             -f docker-compose.sentinel-automation.yml \
             --profile authorized-cli config --quiet
-          if [ '${{ matrix.scope }}' = 'synthetic-merge' ]; then
-            git diff --check HEAD^1 HEAD
-          else
-            git diff --check HEAD^ HEAD
-          fi
+          git diff --check HEAD^ HEAD
 
       - name: Kill reviewed production mutants
+        if: ${{ matrix.scope == 'exact-head' }}
         run: |
           set -euo pipefail
           mkdir -p /tmp/sentinel-mutation-evidence
@@ -357,7 +446,7 @@ jobs:
             --output /evidence/report.json
 
       - name: Retain mutation evidence
-        if: always()
+        if: ${{ matrix.scope == 'exact-head' && always() }}
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
         with:
           name: sentinel-mutation-${{ matrix.scope }}-${{ env.TESTED_SHA }}
@@ -366,6 +455,7 @@ jobs:
           retention-days: 30
 
       - name: Assemble reusable software certification input
+        if: ${{ matrix.scope == 'exact-head' }}
         shell: bash
         run: |
           set -euo pipefail
@@ -379,6 +469,7 @@ jobs:
             --sentinel-summary /tmp/sentinel-complete.txt \
             --operator-summary /tmp/sentinel-scripts.txt \
             --wealth-summary /tmp/wealth-core-prospective.txt \
+            --wealth-junit /tmp/sentinel-system-evidence/wealth-core.xml \
             --adversarial-report /tmp/sentinel-system-evidence/report.json \
             --mutation-report /tmp/sentinel-mutation-evidence/report.json \
             --output /tmp/sentinel-tested-image/software-certification-input.json
