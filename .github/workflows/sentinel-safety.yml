@@ -248,23 +248,7 @@ jobs:
           docker run --rm --network none --entrypoint python \
             sentinel-test:ci /work/tools/v5_mutation_check.py
 
-      - name: Require Sharadar replay authority before PR merge
-        if: github.event_name == 'pull_request' || github.event_name == 'merge_group'
-        env:
-          GITHUB_TOKEN: ${{ github.token }}
-          CHECK_SUITE_SHA: ${{ github.event.pull_request.head.sha || github.sha }}
-        run: |
-          set -euo pipefail
-          python tools/require_check_run.py \
-            --repository "$GITHUB_REPOSITORY" \
-            --sha "$CHECK_SUITE_SHA" \
-            --name "sharadar-replay-${{ matrix.scope }}-${GITHUB_SHA}" \
-            --workflow ".github/workflows/sharadar-daily-replay.yml" \
-            --timeout-seconds 900 \
-            --poll-seconds 10
-
-      - name: Gate protected main publication through full Sharadar replay
-        if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+      - name: Require full Sharadar replay authority
         shell: bash
         run: |
           set -euo pipefail
@@ -307,6 +291,9 @@ jobs:
             --entrypoint python sentinel-test:ci \
             -m pytest research/sharadar_replay/tests -q -ra -s \
             --junitxml=/evidence/0/junit.xml
+          python tools/verify_test_owner_execution.py --owner sharadar.daily-replay \
+            --junit-glob '/tmp/sharadar-required-evidence/**/junit.xml' \
+            --output /tmp/sharadar-required-evidence/test-owner.json
           docker run --rm --network none \
             -v "$PWD/research:/work/research:ro" \
             -v /tmp/sharadar-required-evidence:/evidence:ro \
