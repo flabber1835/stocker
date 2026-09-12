@@ -73,6 +73,7 @@ def _publication_rows(axis, *, factor=1, reciprocal=False,
                       volume_correction=0, dividend_correction=Decimal(0)):
     rows = []
     dividends = {}
+    event_index = min(70, len(axis) - 1) if axis else None
     for i, day in enumerate(axis):
         # Every raw price remains exactly divisible by 3, 5, 7 and 10 in finite
         # decimal arithmetic, so the rebases below are genuinely equivalent.
@@ -80,7 +81,7 @@ def _publication_rows(axis, *, factor=1, reciprocal=False,
         adjusted, volume, dividend = _source_values(
             factor, reciprocal=reciprocal, raw_close=raw,
             raw_volume=RAW_VOLUME, raw_dividend=RAW_DIVIDEND)
-        if i == 70:
+        if i == event_index:
             volume += volume_correction
             dividend += dividend_correction
             dividends[("AAA", day)] = str(dividend)
