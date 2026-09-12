@@ -21,7 +21,7 @@ EDGE_EVIDENCE = {
     "lock_to_verified_entry": (
         "tests/production_composition/test_lock_process_boundary.py",
         "tests/production_composition/test_phase_c_authority_process.py",
-        "tests/production_composition/test_preparation_diagnostics.py",
+        "tests/production_composition/test_go_preparation_authority.py",
         "tests/scripts/test_sentinel_go_validate.py",
     ),
     "env_file_to_shell": (
@@ -47,14 +47,14 @@ EDGE_EVIDENCE = {
     ),
     "certification_to_preparation": (
         "tests/production_composition/test_phase_c_authority_process.py",
-        "tests/production_composition/test_preparation_diagnostics.py",
+        "tests/production_composition/test_go_preparation_authority.py",
         "tests/production_composition/test_operator_entry_process.py",
         "tests/scripts/test_sentinel_go_validate.py",
     ),
     "lock_to_preparation": (
         "tests/production_composition/test_phase_c_authority_process.py",
         "tests/production_composition/test_lock_process_boundary.py",
-        "tests/production_composition/test_preparation_diagnostics.py",
+        "tests/production_composition/test_go_preparation_authority.py",
         "tests/scripts/test_sentinel_go_validate.py",
     ),
     "backup_to_database_mutation": (
@@ -64,7 +64,7 @@ EDGE_EVIDENCE = {
     ),
     "certified_identity_to_feed_binding": (
         "tests/production_composition/test_phase_c_authority_process.py",
-        "tests/production_composition/test_preparation_diagnostics.py",
+        "tests/production_composition/test_go_preparation_authority.py",
         "tests/scripts/test_sentinel_go_validate.py",
         "tests/internal_state/test_contract.py",
     ),
@@ -107,7 +107,7 @@ EDGE_EVIDENCE = {
         "tests/scripts/test_sentinel_reviewed_deploy_gate.py",
     ),
     "failure_to_bundle": (
-        "tests/production_composition/test_preparation_diagnostics.py",
+        "tests/production_composition/test_go_preparation_authority.py",
         "tests/scripts/test_sentinel_go_validate.py",
         "tests/scripts/test_go_certification_observability.py",
     ),

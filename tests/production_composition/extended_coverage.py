@@ -22,7 +22,7 @@ EXTENDED_EVIDENCE = {
     ),
     "docker_lifecycle_fault": (
         "tests/production_composition/test_docker_network_faults.py",
-        "tests/production_composition/test_promotion_handoff_atomicity.py",
+        "tests/production_composition/test_runtime_handoff_atomicity.py",
         "tools/production_composition_harness.py",
     ),
     "concurrency_cross_actor": (
@@ -39,13 +39,13 @@ EXTENDED_EVIDENCE = {
         "tests/production_composition/test_ci_runtime_boundary.py",
     ),
     "promotion_handoff_atomicity": (
-        "tests/production_composition/test_promotion_handoff_atomicity.py",
+        "tests/production_composition/test_runtime_handoff_atomicity.py",
         "tests/production_composition/test_filesystem_evidence_faults.py",
         "tests/scripts/test_sentinel_reviewed_deploy_gate.py",
     ),
     "evidence_survivability": (
         "tests/production_composition/test_filesystem_evidence_faults.py",
-        "tests/production_composition/test_preparation_diagnostics.py",
+        "tests/production_composition/test_go_preparation_authority.py",
         "tests/scripts/test_sentinel_go_validate.py",
     ),
 }
