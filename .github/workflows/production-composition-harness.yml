@@ -30,7 +30,7 @@ jobs:
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
         with:
-          fetch-depth: 0
+          fetch-depth: 2
           ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
 
       - name: Verify tested tree
@@ -183,6 +183,11 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
+          # The harness creates a local bare origin/main at the already-tested
+          # commit. Permit that temporary receiver to accept the shallow commit
+          # object graph supplied by actions/checkout; production Git checks run
+          # unchanged against the exact commit and local origin/main.
+          git config --global receive.shallowUpdate true
           python tools/production_go_e2e_audit.py \
             --sensitivity \
             --output artifacts/production-composition/production-go-e2e.json
