@@ -487,6 +487,8 @@ def _bootstrap_financial_fixture() -> None:
 
 
 def _publication_identity(*, env=None) -> dict:
+    from scripts import sentinel_env
+
     code = """
 import json, os
 from sentinel.core.decision import publication_fingerprint
@@ -504,7 +506,9 @@ try:
 finally:
     c.rollback(); c.close()
 """
-    env = dict(os.environ) if env is None else env
+    env = sentinel_env.merge(
+        sentinel_env.load(ROOT / ".env", required=True),
+        os.environ if env is None else env)
     postgres_container = _compose_service_container_id("sentinel-postgres", env=env)
     # Observe through the same isolated database connection used during fixture
     # setup. Operational Compose intentionally forbids entrypoint overrides.
@@ -514,6 +518,7 @@ finally:
     result = _run_host([
         "docker", "run", "--rm", "--network", f"container:{postgres_container}",
         "--entrypoint", "python", "-e", f"SENTINEL_DATABASE_URL={database_url}",
+        "-e", "SENTINEL_PUBLICATION_RECEIPT_KEY",
         f"sentinel-go-runtime:{_git_head()}", "-c", code,
     ], env=env, timeout=120)
     value = json.loads(result.stdout)

@@ -1,6 +1,9 @@
 from __future__ import annotations
 
 import importlib.util
+import hashlib
+import hmac
+import json
 import os
 from pathlib import Path
 import subprocess
@@ -98,6 +101,57 @@ def test_fixture_supports_the_current_cash_adjudication_migration(monkeypatch):
     assert audit[0]["normalized_bar_dividend_per_share"] == "1.435518"
     assert "TRI" in harness.TICKERS
     assert len(harness.TICKERS) == 4_000
+
+
+def test_publication_observer_authenticates_with_the_fixture_receipt_key(
+        monkeypatch, tmp_path):
+    from scripts import sentinel_env
+    from sentinel.feed import publication
+
+    key_name = publication.RECEIPT_KEY_ENV
+    monkeypatch.delenv(key_name, raising=False)
+    monkeypatch.setattr(harness, "ROOT", tmp_path)
+    monkeypatch.setattr(harness, "_SOURCE_SETTINGS", {})
+    monkeypatch.setattr(harness, "_docker_host_gateway", lambda: "127.0.0.1")
+    monkeypatch.setattr(harness, "_git_head", lambda: "a" * 40)
+    harness._write_env(tmp_path / ".env", port=8123, backup_dir=tmp_path / "backup")
+    seeded_key = sentinel_env.load(tmp_path / ".env")[key_name]
+    receipt = {"publication_version": 1, "run_id": "fixture-seed"}
+    expected = hmac.new(
+        seeded_key.encode(), json.dumps(
+            receipt, sort_keys=True, separators=(",", ":")).encode(),
+        hashlib.sha256).hexdigest()
+    observed = []
+
+    def run_host(argv, *, env, timeout):
+        if argv[0] == "bash":
+            checked = subprocess.run(
+                ["bash", "-c",
+                 '. "$1"; PYTHON="$2"; shift 2; sentinel_require_compose_envelope "$@"',
+                 "observer-test", str(ROOT / "scripts/sentinel-env.sh"),
+                 sys.executable, "base", *argv[3:]],
+                text=True, capture_output=True, timeout=10, check=False)
+            assert checked.returncode == 0, checked.stderr
+            return subprocess.CompletedProcess(argv, 0, stdout="b" * 64 + "\n")
+        assert argv[:2] == ["docker", "run"]
+        # Apply Docker's explicit environment forwarding, then authenticate a
+        # receipt with the actual production guard. Ambient host values alone
+        # cannot make a missing container setting pass this check.
+        container_env = {}
+        for index, arg in enumerate(argv[:-1]):
+            if arg in {"-e", "--env"}:
+                name, separator, value = argv[index + 1].partition("=")
+                container_env[name] = value if separator else env.get(name, "")
+        with monkeypatch.context() as process:
+            process.delenv(key_name, raising=False)
+            for name, value in container_env.items():
+                process.setenv(name, value)
+            observed.append(publication._receipt_hmac(receipt))
+        return subprocess.CompletedProcess(argv, 0, stdout='{"version": 1}')
+
+    monkeypatch.setattr(harness, "_run_host", run_host)
+    harness._publication_identity()
+    assert observed == [expected]
 
 
 def test_compose_propagates_sharadar_transport_with_safe_defaults():

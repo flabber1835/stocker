@@ -137,7 +137,9 @@ The seed stops one XNYS session before the available fixture frontier, so the
 successful GO itself must perform source catch-up and publish the final session.
 The before/after publication observer runs in the exact built runtime against
 the fixture PostgreSQL container, holding a read-only repeatable-read pin. This
-test observation does not require an operational Compose execution override.
+observer loads the same fixture receipt key through the canonical environment
+parser so it verifies the seed's signed publication chain. The test observation
+does not require an operational Compose execution override.
 When the retained window includes May 2026, the fixture includes TRI and the
 reviewed stale vendor dividend observation. The production v7 migration applies
 its own adjudication and records the canonical cash audit.
