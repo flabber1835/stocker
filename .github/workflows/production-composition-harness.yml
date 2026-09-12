@@ -95,6 +95,10 @@ jobs:
           if [ "$rc" -ne 0 ]; then
             exit "$rc"
           fi
+          python tools/verify_test_owner_execution.py \
+            --owner production-composition.authority \
+            --junit artifacts/production-composition/junit.xml \
+            --output artifacts/production-composition/test-owner.json
           if grep -Eq '(^|, )[0-9]+ (skipped|xfailed|xpassed)(,| in |$)' \
               artifacts/production-composition/pytest.txt; then
             echo 'REFUSED: production composition suite had non-passes' >&2
