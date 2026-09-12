@@ -66,5 +66,5 @@ def test_credential_and_registry_edges_are_bound_to_new_host_composition_tests()
 
 
 def test_failure_evidence_edge_is_bound_to_exact_diagnostic_regression():
-    assert "tests/production_composition/test_preparation_diagnostics.py" in \
+    assert "tests/production_composition/test_go_preparation_authority.py" in \
         EDGE_EVIDENCE["failure_to_bundle"]
