@@ -1,23 +1,18 @@
-"""Falsifiers for permanent test ownership and cross-workflow merge authority."""
+"""Falsifiers for permanent test ownership and merge authority."""
 from __future__ import annotations
 
 from copy import deepcopy
 
 import pytest
 
-from tools.require_check_run import (
-    action_run_and_job_ids,
-    check_verdict,
-    select_check,
-    verify_workflow_origin,
-)
 from tools.test_responsibility_lib import (
     ROOT, canonical_nodeid, junit_execution, load_authority, resolve_contracts,
     validate_contract_selectors,
 )
 from tools.validate_test_responsibility import (
-    _job_body, _require_merge_authority, _require_scope_binding,
-    validate as validate_responsibility,
+    _job_body, _require_execution_binding, _require_merge_authority,
+    _require_protected_context_uniqueness, _require_scope_binding,
+    _workflow_triggers, validate as validate_responsibility,
 )
 from tools.verify_test_owner_execution import _delegated_required_contracts
 
@@ -81,125 +76,6 @@ def test_junit_evidence_exposes_owned_modules_that_are_missing_or_skipped(tmp_pa
     assert "tests/scripts/test_merge_junit.py::test_skipped" not in logical
 
 
-def test_required_check_bridge_accepts_only_exact_github_actions_success():
-    runs = [
-        {"id": 1, "name": "sharadar-replay-exact-head-extra", "status": "completed",
-         "conclusion": "success", "app": {"slug": "github-actions"}},
-        {"id": 2, "name": "sharadar-replay-exact-head", "status": "completed",
-         "conclusion": "success", "app": {"slug": "other-app"}},
-        {"id": 3, "name": "sharadar-replay-exact-head", "status": "completed",
-         "conclusion": "failure", "started_at": "2026-09-11T20:00:00Z",
-         "app": {"slug": "github-actions"}},
-    ]
-    selected = select_check(runs, "sharadar-replay-exact-head")
-    assert selected["id"] == 3
-    assert check_verdict(selected) == "FAIL"
-    assert check_verdict(None) == "WAIT"
-    assert check_verdict({"status": "in_progress"}) == "WAIT"
-    assert check_verdict({"status": "completed", "conclusion": "success"}) == "PASS"
-
-
-def test_required_check_bridge_prefers_new_queued_run_over_old_success():
-    name = "sharadar-replay-synthetic-merge-deadbeef"
-    runs = [
-        {"id": 101, "name": name, "status": "completed", "conclusion": "success",
-         "started_at": "2026-09-11T20:00:00Z", "app": {"slug": "github-actions"}},
-        {"id": 102, "name": name, "status": "queued", "conclusion": None,
-         "started_at": None, "app": {"slug": "github-actions"}},
-    ]
-    selected = select_check(runs, name)
-    assert selected["id"] == 102
-    assert check_verdict(selected) == "WAIT"
-
-
-def test_required_check_bridge_requires_unique_actions_job_workflow_and_head_sha():
-    name = "sharadar-replay-exact-head-merge123"
-    check = {
-        "name": name,
-        "head_sha": "head-123",
-        "details_url": "https://github.com/flabber1835/stocker/actions/runs/77/job/88",
-    }
-    assert action_run_and_job_ids(check) == (77, 88)
-
-    def fetch_ok(repository, suffix, token):
-        assert repository == "flabber1835/stocker"
-        assert token == "token"
-        if suffix == "actions/jobs/88":
-            return {"run_id": 77, "head_sha": "head-123"}
-        if suffix == "actions/runs/77/jobs?per_page=100":
-            return {"total_count": 1, "jobs": [{"id": 88, "name": name}]}
-        if suffix == "actions/runs/77":
-            return {
-                "path": ".github/workflows/sharadar-daily-replay.yml",
-                "head_sha": "head-123",
-            }
-        raise AssertionError(suffix)
-
-    origin = verify_workflow_origin(
-        "flabber1835/stocker", check,
-        ".github/workflows/sharadar-daily-replay.yml", "head-123", "token",
-        fetch_json=fetch_ok)
-    assert origin["workflow_run_id"] == 77
-    assert origin["job_id"] == 88
-    assert origin["job_name"] == name
-
-    def wrong_workflow(repository, suffix, token):
-        if suffix == "actions/jobs/88":
-            return {"run_id": 77, "head_sha": "head-123"}
-        if suffix == "actions/runs/77/jobs?per_page=100":
-            return {"total_count": 1, "jobs": [{"id": 88, "name": name}]}
-        return {"path": ".github/workflows/spoof.yml", "head_sha": "head-123"}
-
-    with pytest.raises(RuntimeError, match="came from workflow"):
-        verify_workflow_origin(
-            "flabber1835/stocker", check,
-            ".github/workflows/sharadar-daily-replay.yml", "head-123", "token",
-            fetch_json=wrong_workflow)
-    with pytest.raises(RuntimeError, match="attached to"):
-        verify_workflow_origin(
-            "flabber1835/stocker", check,
-            ".github/workflows/sharadar-daily-replay.yml", "another-sha", "token",
-            fetch_json=fetch_ok)
-
-
-def test_required_check_bridge_rejects_duplicate_same_name_job_in_workflow_run():
-    name = "sharadar-replay-exact-head-merge123"
-    check = {
-        "name": name,
-        "head_sha": "head-123",
-        "details_url": "https://github.com/flabber1835/stocker/actions/runs/77/job/88",
-    }
-
-    def duplicate_jobs(repository, suffix, token):
-        if suffix == "actions/jobs/88":
-            return {"run_id": 77, "head_sha": "head-123"}
-        if suffix == "actions/runs/77/jobs?per_page=100":
-            return {
-                "total_count": 2,
-                "jobs": [
-                    {"id": 88, "name": name},
-                    {"id": 89, "name": name},
-                ],
-            }
-        if suffix == "actions/runs/77":
-            return {
-                "path": ".github/workflows/sharadar-daily-replay.yml",
-                "head_sha": "head-123",
-            }
-        raise AssertionError(suffix)
-
-    with pytest.raises(RuntimeError, match="job name is not unique"):
-        verify_workflow_origin(
-            "flabber1835/stocker", check,
-            ".github/workflows/sharadar-daily-replay.yml", "head-123", "token",
-            fetch_json=duplicate_jobs)
-
-
-def test_required_check_bridge_rejects_non_actions_details_url():
-    with pytest.raises(RuntimeError, match="does not expose"):
-        action_run_and_job_ids({"details_url": "https://example.invalid/not-actions"})
-
-
 def test_directory_owner_discovery_automatically_includes_a_new_test_module(tmp_path):
     from tools.test_responsibility_lib import owned_test_modules
 
@@ -218,50 +94,165 @@ def test_directory_owner_discovery_automatically_includes_a_new_test_module(tmp_
 
 
 def test_ci_job_binding_is_scoped_to_the_declared_job():
-    workflow = """jobs:\n  owner:\n    steps:\n      - run: echo owner\n  neighbor:\n    steps:\n      - run: python tools/verify_test_owner_execution.py --owner example\n"""
+    workflow = """jobs:
+  owner:
+    steps:
+      - run: echo owner
+  neighbor:
+    steps:
+      - run: python tools/verify_test_owner_execution.py --owner example
+"""
     owner = _job_body(workflow, "owner")
     neighbor = _job_body(workflow, "neighbor")
     assert "verify_test_owner_execution.py" not in owner
     assert "verify_test_owner_execution.py" in neighbor
 
 
-def test_scope_binding_rejects_declared_scope_without_matrix_or_exact_checkout():
+def test_owner_execution_requires_unconditional_executable_run():
+    owner = {"execution": {"kind": "pytest-junit"}}
+    owners = {"example": owner}
+    marker = "python tools/verify_test_owner_execution.py --owner example"
+
+    commented = f"""  owner:
+    steps:
+      - run: |
+          # {marker}
+"""
+    with pytest.raises(AssertionError, match="unconditionally verify"):
+        _require_execution_binding("example", owner, commented, owners)
+
+    disabled = f"""  owner:
+    steps:
+      - if: false
+        run: {marker}
+"""
+    with pytest.raises(AssertionError, match="unconditionally verify"):
+        _require_execution_binding("example", owner, disabled, owners)
+
+    inline_comment = f"""  owner:
+    steps:
+      - run: echo harmless # {marker}
+"""
+    with pytest.raises(AssertionError, match="unconditionally verify"):
+        _require_execution_binding("example", owner, inline_comment, owners)
+
+    active = f"""  owner:
+    steps:
+      - run: {marker}
+"""
+    assert _require_execution_binding("example", owner, active, owners) == owner["execution"]
+
+
+def test_scope_binding_rejects_missing_or_disabled_exact_checkout():
     workflow = "name: test\non:\n  pull_request:\n    branches: [main]\njobs:\n"
     matrix = (
         "scope: ${{ fromJSON(github.event_name == 'pull_request' && "
-        "'[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}"
-    )
+        "'[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}")
     checkout = (
         "ref: ${{ matrix.scope == 'exact-head' && "
-        "(github.event.pull_request.head.sha || github.sha) || github.sha }}"
-    )
+        "(github.event.pull_request.head.sha || github.sha) || github.sha }}")
     scopes = {"exact-head", "synthetic-merge"}
-    result = _require_scope_binding(
-        "owner", scopes, f"{matrix}\n{checkout}\n", workflow)
+    job = f"""  owner:
+    strategy:
+      matrix:
+        {matrix}
+    steps:
+      - uses: actions/checkout@pinned
+        with:
+          {checkout}
+"""
+    result = _require_scope_binding("owner", scopes, job, workflow)
     assert result["scopes"] == ["exact-head", "synthetic-merge"]
 
     with pytest.raises(AssertionError, match="instantiate exact-head"):
-        _require_scope_binding("owner", scopes, checkout, workflow)
+        _require_scope_binding("owner", scopes, job.replace(matrix, "scope: exact-head"), workflow)
     with pytest.raises(AssertionError, match="exact PR-head/synthetic-merge checkout"):
-        _require_scope_binding("owner", scopes, matrix, workflow)
+        _require_scope_binding("owner", scopes, job.replace(checkout, "ref: main"), workflow)
+    with pytest.raises(AssertionError, match="exact PR-head/synthetic-merge checkout"):
+        _require_scope_binding(
+            "owner", scopes,
+            job.replace("      - uses:", "      - if: false\n        uses:"),
+            workflow)
     with pytest.raises(AssertionError, match="does not run on pull requests"):
-        _require_scope_binding("owner", scopes, f"{matrix}\n{checkout}", "name: test\njobs:\n")
+        _require_scope_binding("owner", scopes, job, "name: test\non:\n  workflow_dispatch:\njobs:\n")
 
 
-def test_sharadar_bridge_must_remain_in_the_protected_sentinel_carrier_job():
+def test_sharadar_pr_authority_is_in_process_in_required_sentinel_carrier():
+    result = _require_merge_authority()
+    assert result["carrier_job"] == "certification-and-durability"
+    assert result["replay_authority"] == "in-process-required-carrier"
+    assert result["replay_owner"] == "sharadar.daily-replay"
+    assert result["temporal_binding"] == "replay executes in the same required check run"
+    diagnostic = (ROOT / ".github/workflows/sharadar-daily-replay.yml").read_text()
+    assert _workflow_triggers(diagnostic) == {"workflow_dispatch"}
+
+
+def test_merge_authority_rejects_commented_or_disabled_replay_evidence():
     sentinel = (ROOT / ".github/workflows/sentinel-safety.yml").read_text()
     sharadar = (ROOT / ".github/workflows/sharadar-daily-replay.yml").read_text()
-    marker = "python tools/require_check_run.py"
-    assert sentinel.count(marker) == 1
-    moved = sentinel.replace(marker, "python -c 'pass'", 1)
-    moved += (
-        "\n  unprotected-spoof:\n"
-        "    name: spoof\n"
-        "    steps:\n"
-        "      - run: python tools/require_check_run.py\n"
+    marker = "python tools/verify_test_owner_execution.py --owner sharadar.daily-replay"
+    assert marker in sentinel
+
+    commented = sentinel.replace(marker, "# " + marker, 1)
+    with pytest.raises(AssertionError, match="in-process Sharadar authority"):
+        _require_merge_authority(sentinel_text=commented, sharadar_text=sharadar)
+
+    header = "      - name: Require full Sharadar replay authority\n        shell: bash\n"
+    assert header in sentinel
+    disabled = sentinel.replace(
+        header,
+        "      - name: Require full Sharadar replay authority\n"
+        "        if: false\n"
+        "        shell: bash\n",
+        1,
     )
-    with pytest.raises(AssertionError, match="protected carrier job is incomplete"):
-        _require_merge_authority(sentinel_text=moved, sharadar_text=sharadar)
+    with pytest.raises(AssertionError, match="in-process Sharadar authority"):
+        _require_merge_authority(sentinel_text=disabled, sharadar_text=sharadar)
+
+
+def test_protected_context_names_are_unique_across_all_workflows():
+    sentinel_path = ".github/workflows/sentinel-safety.yml"
+    sentinel = (ROOT / sentinel_path).read_text()
+    assert _require_protected_context_uniqueness({sentinel_path: sentinel})
+
+    spoof = """name: spoof
+on:
+  pull_request:
+jobs:
+  spoof:
+    name: sentinel-${{ matrix.scope }}
+    steps:
+      - run: true
+"""
+    with pytest.raises(AssertionError, match="must have exactly one workflow/job owner"):
+        _require_protected_context_uniqueness({
+            sentinel_path: sentinel,
+            ".github/workflows/spoof.yml": spoof,
+        })
+
+    commented = """name: harmless
+on:
+  pull_request:
+jobs:
+  harmless:
+    # name: sentinel-${{ matrix.scope }}
+    name: harmless
+    steps:
+      - run: true
+"""
+    assert _require_protected_context_uniqueness({
+        sentinel_path: sentinel,
+        ".github/workflows/harmless.yml": commented,
+    })
+
+
+def test_dedicated_sharadar_workflow_cannot_become_second_pr_authority():
+    sentinel = (ROOT / ".github/workflows/sentinel-safety.yml").read_text()
+    sharadar = (ROOT / ".github/workflows/sharadar-daily-replay.yml").read_text()
+    assert _workflow_triggers(sharadar) == {"workflow_dispatch"}
+    mutated = sharadar.replace("on:\n  workflow_dispatch:\n", "on:\n  pull_request:\n    branches: [main]\n  workflow_dispatch:\n")
+    with pytest.raises(AssertionError, match="second PR replay authority"):
+        _require_merge_authority(sentinel_text=sentinel, sharadar_text=mutated)
 
 
 def test_live_test_responsibility_authority_is_valid():
@@ -269,6 +260,11 @@ def test_live_test_responsibility_authority_is_valid():
     assert result["verdict"] == "PASS"
     assert result["unowned_tests"] == []
     assert set(result["scope_bindings"]) == set(result["ci_jobs"])
-    assert result["merge_authority"]["carrier_job"] == "certification-and-durability"
-    assert result["merge_authority"]["workflow_job"] == "complete-evidence"
-    assert result["merge_authority"]["workflow_job_name_unique"] is True
+    merge = result["merge_authority"]
+    assert merge["carrier_job"] == "certification-and-durability"
+    assert merge["replay_authority"] == "in-process-required-carrier"
+    assert merge["diagnostic_triggers"] == ["workflow_dispatch"]
+    assert merge["protected_context_owners"]["sentinel-${{ matrix.scope }}"] == {
+        "workflow": ".github/workflows/sentinel-safety.yml",
+        "job": "certification-and-durability",
+    }
