@@ -441,6 +441,7 @@ jobs:
             --sentinel-summary /tmp/sentinel-complete.txt \
             --operator-summary /tmp/sentinel-scripts.txt \
             --wealth-summary /tmp/wealth-core-prospective.txt \
+            --wealth-junit /tmp/sentinel-system-evidence/wealth-core.xml \
             --adversarial-report /tmp/sentinel-system-evidence/report.json \
             --mutation-report /tmp/sentinel-mutation-evidence/report.json \
             --output /tmp/sentinel-tested-image/software-certification-input.json

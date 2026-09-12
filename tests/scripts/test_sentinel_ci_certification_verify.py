@@ -111,6 +111,20 @@ def _attestation():
     }
 
 
+def test_v2_bundle_preserves_expected_failure_evidence_and_reports_its_schema():
+    manifest = _manifest()
+    manifest["schema"] = verify.CERTIFICATION_SCHEMA_V2
+    manifest["certification_version"] = 2
+    manifest["tests"]["required_counts"]["xfailed"] = 3
+    manifest["tests"]["suite_counts"]["wealth_core_boundary"]["xfailed"] = 3
+    manifest["tests"]["expected_xfails"] = {"wealth_core_boundary": {
+        "nodeids": sorted(verify.WEALTH_EXPECTED_XFAILS), "junit_sha256": "6" * 64,
+    }}
+    result = verify.verify_bundle(_archive(_rehash(manifest)), COMMIT, TREE, PUBLICATION)
+    assert result["schema"] == verify.CERTIFICATION_SCHEMA_V2
+    assert result["software_certification"] == "VERIFIED"
+
+
 def _archive(manifest=None, provenance_mutator=None, attestation=None):
     manifest = manifest or _manifest()
     certification = _canonical(manifest) + b"\n"

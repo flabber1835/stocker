@@ -43,8 +43,11 @@ def test_junit_distinguishes_pytest_xfail_from_an_ordinary_skip(tmp_path):
 
 
 def test_expected_xfail_inventory_is_exact_and_cannot_expand_from_the_manifest():
+    from scripts.sentinel_ci_certification_verify import WEALTH_EXPECTED_XFAILS
+
     authority = load_authority()
     settled = SETTLED_EXPECTED_XFAILS[OWNER]
+    assert settled == WEALTH_EXPECTED_XFAILS
     assert _expected_xfails(authority, OWNER) == settled
 
     widened = deepcopy(authority)
