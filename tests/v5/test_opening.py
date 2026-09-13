@@ -105,8 +105,9 @@ def test_sale_proceeds_and_slot_order_fund_the_opening_once():
     env, plan = case(cash=100., entries=2, sale=True)
     result = opening_sizing.resolve(env, plan, base(env, plan), prices(env, plan))
     assert result.target_basket == {"SEC-AAA": D(10), "SEC-BBB": D(0), "SEC-X": D(0)}
-    # Canonical float accounting: 1099 - 10 * 100 * 1.001.
-    assert D(result.opening_sizing["cash_after_entries"]) == D("98.00000000000011")
+    # One rounding after exact decimal economics; no multiplication-order dust.
+    expected = D(1099) - D(10) * D(100) * D('1.001')
+    assert D(result.opening_sizing["cash_after_entries"]) == expected == D(98)
     assert D(result.opening_sizing["sales"][0]["proceeds"]) == D(999)
     assert D(result.opening_sizing["entries"][0]["cash_before"]) == 1099
 

@@ -48,7 +48,8 @@ kept in its own ledger that the run's own ledger never sees.
 """
 from __future__ import annotations
 
-from decimal import Decimal, InvalidOperation, ROUND_FLOOR
+from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 import math
 from dataclasses import asdict, dataclass, field
 from enum import Enum
@@ -117,6 +118,7 @@ class TerminalTerms:
     # unconditionally would block clean 1:2 conversions that never round.
     cash_in_lieu_price_per_delivered_share: float | None = None
     reference: str = ""
+    entitlement_aggregation: str = "HOLDER"
 
     def completeness(self, shares_in: int | float) -> tuple[bool, str]:
         """(complete, reason). `shares_in` matters: whether a conversion needs a
@@ -130,6 +132,8 @@ class TerminalTerms:
                 return False, "MISSING_CASH_PER_SHARE"
             return True, ""
         if k in (TerminalKind.CONVERSION, TerminalKind.CASH_PLUS_STOCK):
+            if self.entitlement_aggregation != "HOLDER":
+                return False, "UNSUPPORTED_ENTITLEMENT_AGGREGATION"
             if k is TerminalKind.CASH_PLUS_STOCK and not _nonneg(self.cash_per_share):
                 return False, "MISSING_CASH_PER_SHARE"
             if not (self.delivered_security_id and self.delivered_ticker
@@ -163,33 +167,72 @@ def _nonneg(x) -> bool:
     return math.isfinite(f) and f >= 0
 
 
-def _split_entitlement(shares_in: int | float,
-                       ratio: float | str) -> tuple[int, float]:
+def _split_entitlement(shares_in: int | float | Fraction,
+                       ratio: float | str) -> tuple[int, Fraction]:
     """Whole delivered shares and the exact contractual leftover fraction.
 
     The source terms are decimal economics.  Convert their canonical spelling to
-    ``Decimal``, multiply exactly, and floor exactly.  An additive float epsilon
+    exact rationals, multiply exactly, and floor exactly. An additive float epsilon
     is forbidden here: it cannot distinguish binary representation noise from a
     genuine entitlement such as 9.9999999995 shares and can therefore invent a
     whole delivered share while suppressing the cash-in-lieu requirement.
     """
     try:
-        shares = Decimal(str(shares_in))
+        shares = (shares_in if isinstance(shares_in, Fraction)
+                  else Fraction(str(shares_in)))
         exchange = Decimal(str(ratio))
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise ValueError(
             "conversion entitlement inputs must be finite decimals") from exc
-    if (not shares.is_finite() or not exchange.is_finite()
+    if (not exchange.is_finite()
             or shares < 0 or exchange <= 0):
         raise ValueError(
             "conversion entitlement inputs must be finite and non-negative "
             "with a positive exchange ratio")
-    exact = shares * exchange
-    if not exact.is_finite():
-        raise ValueError("conversion entitlement is not finite")
-    whole = int(exact.to_integral_value(rounding=ROUND_FLOOR))
-    fraction = exact - Decimal(whole)
-    return whole, float(fraction)
+    exact = shares * Fraction(exchange)
+    whole = exact.numerator // exact.denominator
+    return whole, exact - whole
+
+
+@dataclass(frozen=True)
+class _ConversionAllocation:
+    delivered: float
+    fraction: Fraction
+    cash_leg: float
+    cash_in_lieu: float
+    cash_after: float
+
+
+def _conversion_allocations(held, terms, cash_before: float):
+    """Allocate one holder delivery pro rata while retaining every source lot."""
+    quantities = [Fraction(str(ep.current_shares)) for _, ep in held]
+    total = sum(quantities, Fraction(0))
+    whole, fraction = _split_entitlement(total, terms.exchange_ratio)
+    cash_leg = total * Fraction(str(terms.cash_per_share or 0))
+    lieu = (fraction * Fraction(str(terms.cash_in_lieu_price_per_delivered_share))
+            if fraction else Fraction(0))
+    allocated = []
+    delivered_so_far = cash_leg_so_far = lieu_so_far = 0.0
+    cumulative_weight = Fraction(0)
+    for index, quantity in enumerate(quantities):
+        weight = quantity / total
+        cumulative_weight += weight
+        last = index == len(held) - 1
+        delivered = (float(whole) - delivered_so_far if last
+                     else float(whole * weight))
+        if whole and (not math.isfinite(delivered) or delivered <= 0):
+            raise TermsIncomplete("conversion allocation exceeds share precision")
+        episode_cash = float(cash_leg) - cash_leg_so_far if last else float(cash_leg * weight)
+        episode_lieu = float(lieu) - lieu_so_far if last else float(lieu * weight)
+        cash_after = cash_before + float((cash_leg + lieu) * cumulative_weight)
+        if (episode_cash < 0 or episode_lieu < 0 or not math.isfinite(cash_after)):
+            raise TermsIncomplete("conversion allocation exceeds cash precision")
+        allocated.append(_ConversionAllocation(
+            delivered, fraction * weight, episode_cash, episode_lieu, cash_after))
+        delivered_so_far += delivered
+        cash_leg_so_far += episode_cash
+        lieu_so_far += episode_lieu
+    return allocated
 
 
 # ── applying a terminal action ───────────────────────────────────────────────
@@ -229,7 +272,10 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
                 "security_id": terms.security_id}
 
     sec = terms.security_id
-    total_shares = sum(ep.current_shares for _, ep in held)
+    total_shares = sum((Fraction(str(ep.current_shares)) for _, ep in held), Fraction(0))
+    if (terms.kind in (TerminalKind.CONVERSION, TerminalKind.CASH_PLUS_STOCK)
+            and terms.entitlement_aggregation != "HOLDER"):
+        raise TermsIncomplete("UNSUPPORTED_ENTITLEMENT_AGGREGATION")
 
     # A DIFFERENT event arriving mid-grace restarts the clock. Inheriting the
     # first event's age could settle the second one immediately, which is the
@@ -243,18 +289,10 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         state.terminal_carry_audit.pop(sec, None)
         already_pending = False
 
-    # Completeness can depend on an episode's fractional entitlement.  A
-    # security-level event must never settle the complete prefix and strand the
-    # first incomplete episode, so the least-complete episode decides the one
-    # group transition.  When every episode is complete, the aggregate share
-    # count gives the waterfall the event's complete notional.
-    incomplete = next(
-        (ep for _, ep in held if not terms.completeness(ep.current_shares)[0]),
-        None)
+    # Internal lots are one holder. Only its aggregate remainder needs CIL.
     decision = resolve_settlement(
         terms=terms,
-        shares=(incomplete.current_shares if incomplete is not None
-                else total_shares),
+        shares=total_shares,
         last_valid_mark=last_valid_mark,
         sessions_since_last_valid_print=sessions_since_last_valid_print,
         executable_price=executable_price,
@@ -339,8 +377,7 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         # BLOCKED, not approximated, and recorded on the STATE so it survives a
         # restart. `resolved_equity` goes None on the next mark, which stops
         # admissions until somebody supplies the terms.
-        _, why = terms.completeness(
-            incomplete.current_shares if incomplete is not None else total_shares)
+        _, why = terms.completeness(total_shares)
         state.unresolved_terminals[sec] = why
         state.terminal_pending_sessions.pop(sec, None)
         state.terminal_pending_terms.pop(sec, None)
@@ -363,9 +400,7 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
     if (decision.source is SettlementSource.EXACT_TERMS
             and terms.kind in (TerminalKind.CONVERSION,
                                TerminalKind.CASH_PLUS_STOCK)
-            and any(_split_entitlement(ep.current_shares,
-                                       terms.exchange_ratio)[0] > 0
-                    for _, ep in held)):
+            and _split_entitlement(total_shares, terms.exchange_ratio)[0] > 0):
         if not (_positive(source_signal_to_raw_scale)
                 and _positive(delivered_signal_to_raw_scale)):
             why = "MISSING_CONVERSION_SIGNAL_BASIS"
@@ -394,6 +429,11 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
                         / float(source_signal_to_raw_scale)
                         / float(terms.exchange_ratio))
 
+    allocations = (_conversion_allocations(held, terms, state.cash)
+                   if decision.source is SettlementSource.EXACT_TERMS
+                   and terms.kind in (TerminalKind.CONVERSION, TerminalKind.CASH_PLUS_STOCK)
+                   else None)
+
     # Settling, by whatever route: the grace is over for this security.
     # Tallied HERE, before dispatch, because every _apply_* path releases the
     # episode and the share count is gone afterwards. The audit is composed here
@@ -413,7 +453,7 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
     state.terminal_carry_audit.pop(sec, None)
 
     results = []
-    for slot_id, ep in held:
+    for index, (slot_id, ep) in enumerate(held):
         if decision.source is not SettlementSource.EXACT_TERMS:
             # A PROXY settlement: the event is documented, the consideration
             # is not. Deliberately not a stated CASH_MERGER.
@@ -427,7 +467,8 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         else:
             res = _apply_conversion(
                 state, slot_id, ep, ledger, session, terms, cfg,
-                signal_domain_scale=float(signal_scale))
+                signal_domain_scale=float(signal_scale),
+                allocation=allocations[index])
         results.append(res)
     # The NON-CASH consideration is only knowable AFTER dispatch: the delivered
     # share count comes from `_split_entitlement`, which truncates, so it cannot
@@ -575,7 +616,8 @@ def _apply_cash(state, slot_id, ep, ledger, session, per_share, terms) -> dict:
 def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
                       ledger: Ledger, session: str, terms: TerminalTerms,
                       cfg: WealthCoreConfig, *,
-                      signal_domain_scale: float) -> dict:
+                      signal_domain_scale: float,
+                      allocation: _ConversionAllocation) -> dict:
     """Transfer the episode into the delivered security.
 
     The episode CONTINUES: same slot, same age, same review flag. A conversion
@@ -584,28 +626,28 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
     the strategy never chose to leave.
     """
     ratio = float(terms.exchange_ratio)
-    cash_leg = float(terms.cash_per_share or 0.0) * ep.current_shares
-    delivered, frac = _split_entitlement(
-        ep.current_shares, terms.exchange_ratio)
-    lieu = (frac * float(terms.cash_in_lieu_price_per_delivered_share)
-            if frac > 0 else 0.0)
+    delivered, frac = allocation.delivered, allocation.fraction
+    cash_leg, lieu = allocation.cash_leg, allocation.cash_in_lieu
 
     before_shares, before_sec = ep.current_shares, ep.security_id
     ledger.post(session=session, event_type=EventType.CONVERSION,
-                cash_before=state.cash, cash_delta=cash_leg + lieu,
+                cash_before=state.cash, cash_delta=allocation.cash_after - state.cash,
                 security_id=ep.security_id, ticker=ep.ticker,
                 shares_delta=delivered - before_shares,
                 price=terms.cash_per_share, reason=terms.kind.value,
                 detail={"delivered_security_id": terms.delivered_security_id,
                         "delivered_ticker": terms.delivered_ticker,
                         "exchange_ratio": ratio,
+                        "exchange_ratio_exact": str(terms.exchange_ratio),
                         "shares_in": before_shares,
                         "shares_delivered": delivered,
-                        "fractional_entitlement": round(frac, 10),
+                        "fractional_entitlement": round(float(frac), 10),
+                        "exact_fractional_entitlement": str(frac),
+                        "entitlement_aggregation": terms.entitlement_aggregation,
                         "cash_in_lieu": round(lieu, 10),
                         "cash_consideration": round(cash_leg, 10),
                         "reference": terms.reference})
-    state.cash += cash_leg + lieu
+    state.cash = allocation.cash_after
 
     if delivered <= 0:
         # The entitlement rounded to nothing: this is economically a cash
@@ -626,6 +668,8 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
         "kind": terms.kind.value, "session": session,
         "from_security_id": before_sec, "from_ticker": ep.ticker,
         "shares_in": before_shares, "exchange_ratio": ratio,
+        "exchange_ratio_exact": str(terms.exchange_ratio),
+        "entitlement_aggregation": terms.entitlement_aggregation,
         "shares_delivered": delivered,
         "cash_consideration": round(cash_leg, 10),
         "cash_in_lieu": round(lieu, 10),

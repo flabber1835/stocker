@@ -218,4 +218,4 @@ def test_legacy_cursor_cannot_bypass_v7_semantic_reearn(old_epoch):
 
     conn = Conn()
     assert maintenance.load_actions_cursor(conn) is None
-    assert conn.requested == ["sharadar-actions-export-reconcile:v9"]
+    assert conn.requested == ["sharadar-actions-export-reconcile:v10"]

@@ -37,5 +37,5 @@ def opening_quantity(*, intended: float, cash: float, price: float,
     if (not all(math.isfinite(x) for x in (intended, cash, price, cost_bps))
             or intended <= 0 or cash < 0 or price <= 0 or cost_bps < 0):
         raise ValueError("invalid V5 opening sizing economics")
-    return affordable_whole_shares(
-        max(0., min(intended, cash)), price, cost_bps)
+    intended_quantity = math.floor(intended / (price * (1 + cost_bps / 10_000)))
+    return min(intended_quantity, affordable_whole_shares(cash, price, cost_bps))

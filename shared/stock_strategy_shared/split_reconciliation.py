@@ -13,6 +13,7 @@ from __future__ import annotations
 
 import math
 from dataclasses import dataclass
+from fractions import Fraction
 from typing import Mapping
 
 
@@ -46,23 +47,29 @@ def _ratios_close(left: float, right: float) -> bool:
         * max(abs(float(left)), abs(float(right)), 1e-12))
 
 
-def canonical_split_multiplier(stated: float) -> float:
-    """Recover an exact simple reverse ratio from vendor decimal spelling.
+def canonical_split_multiplier(stated: float, derived: float | None = None,
+                               bounds: tuple[float, float] | None = None) -> float:
+    """Reconstruct only a uniquely evidenced five-decimal reciprocal ratio.
 
-    ACTIONS commonly spells a 1-for-N stock split to five decimal places (for
-    example ``0.03333``). Applying that decimal literally turns 300 shares into
-    9.999, while the broker event creates 10. The direct value still owns the
-    economics; this function only reconstructs ``1/N`` when that rational lies
-    inside the same strict one-percent representation band.
+    Price agreement is not source precision. In particular 1/10.89958 must not
+    become 1/11 merely because those multipliers are within one percent.
     """
     value = float(stated)
     if not math.isfinite(value) or value <= 0 or value >= 1:
         return value
-    denominator = round(1.0 / value)
-    if denominator <= 1:
+    exact = Fraction(str(stated))
+    if (exact * 100_000).denominator != 1 or derived is None:
         return value
-    rational = 1.0 / denominator
-    return rational if _ratios_close(value, rational) else value
+    half = Fraction(1, 200_000)
+    if exact <= half:
+        return value
+    lower, upper = 1 / (exact + half), 1 / (exact - half)
+    first, last = math.ceil(lower), math.floor(upper)
+    if first != last or first <= 1:
+        return value
+    rational = 1.0 / first
+    matches, _ = split_ratio_matches(rational, derived, bounds)
+    return rational if matches else value
 
 
 def split_ratio_from_prices(
@@ -161,26 +168,28 @@ def resolve_split_orientation(
         return 1.0, SPLIT_UNRESOLVED
 
     evidence = split_price_evidence(derived)
+    applied = canonical_split_multiplier(stated, derived, bounds)
     if evidence is not None:
-        matches, quantized = split_ratio_matches(value, evidence, bounds)
-        if matches:
-            return canonical_split_multiplier(value), (
+        matches, quantized = split_ratio_matches(applied, evidence, bounds)
+        stated_matches, stated_quantized = split_ratio_matches(value, evidence, bounds)
+        if matches and stated_matches:
+            return applied, (
                 SPLIT_CORROBORATED_QUANTIZED
-                if quantized else SPLIT_CORROBORATED_DIRECT)
+                if quantized or stated_quantized else SPLIT_CORROBORATED_DIRECT)
         return 1.0, SPLIT_UNRESOLVED
 
     # Small explicit actions need stronger proof than the generic 1% ratio
     # tolerance: the stated ratio must be physically possible given SEP's known
     # mill rounding on all four prices.
     if (derived is not None and bounds is not None
-            and bounds[0] <= value <= bounds[1]):
-        return canonical_split_multiplier(value), SPLIT_CORROBORATED_QUANTIZED
+            and bounds[0] <= applied <= bounds[1]):
+        return applied, SPLIT_CORROBORATED_QUANTIZED
 
     if explicit_no_event:
         if raw_refutes_event:
             return 1.0, SPLIT_RESOLVED_NO_EVENT
         return 1.0, SPLIT_UNRESOLVED
-    return canonical_split_multiplier(value), SPLIT_AUTHORITATIVE_APPLIED
+    return value, SPLIT_AUTHORITATIVE_APPLIED
 
 
 class SplitAuthority(dict):
@@ -244,10 +253,11 @@ class SplitStreamReconciler:
                 bridge_bounds = split_ratio_bounds(
                     pending.prev_close, pending.prev_raw, close, raw)
                 matches, _quantized = split_ratio_matches(
-                    stated, bridge, bridge_bounds)
+                    canonical_split_multiplier(stated, bridge, bridge_bounds),
+                    bridge, bridge_bounds)
                 if matches:
                     return SplitDecision(
-                        canonical_split_multiplier(stated),
+                        canonical_split_multiplier(stated, bridge, bridge_bounds),
                         SPLIT_CORROBORATED_BRIDGED, stated, bridge,
                         prior_key=pending.prior_key,
                         prior_disposition=SPLIT_RESOLVED_NO_EVENT)
@@ -265,11 +275,12 @@ class SplitStreamReconciler:
             future_key, future_stated = future
             future_stated = float(future_stated)
             matches, _quantized = split_ratio_matches(
-                future_stated, evidence, bounds)
+                canonical_split_multiplier(future_stated, derived, bounds),
+                evidence, bounds)
             if matches:
                 self.consumed.add(future_key)
                 return SplitDecision(
-                    canonical_split_multiplier(future_stated),
+                    canonical_split_multiplier(future_stated, derived, bounds),
                     SPLIT_CORROBORATED_SHIFTED,
                     future_stated, derived)
             if prev_close is not None and prev_raw is not None:

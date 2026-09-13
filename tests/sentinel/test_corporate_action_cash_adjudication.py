@@ -207,7 +207,7 @@ def test_common_mode_sharadar_fact_loses_authority_but_source_is_preserved(conn)
         source = cur.fetchone()
         cur.execute(
             "SELECT evidence FROM sentinel_corpus_publications"
-            " WHERE evidence->>'kind'='actions_economic_semantics_v9'"
+            " WHERE evidence->>'kind'='actions_economic_semantics_v10'"
             " ORDER BY version DESC LIMIT 1")
         publication = cur.fetchone()
     assert source is not None and float(source[0]) == pytest.approx(1.36)
@@ -242,7 +242,7 @@ def test_existing_stale_bar_is_reearned_through_current_semantic_replay(conn, mo
         cursor = maintenance.reconcile_actions_if_due(
             conn, fetch=tri_vendor(), through=END, force=True)
 
-    assert cursor.kind == "sharadar-actions-export-reconcile/v9"
+    assert cursor.kind == "sharadar-actions-export-reconcile/v10"
     assert _tri_bar_dividend(conn) == pytest.approx(CASH_PER_NEW_SHARE)
     with conn.cursor() as cur:
         cur.execute("SELECT MAX(version) FROM sentinel_corpus_publications")
@@ -297,7 +297,7 @@ def test_v8_correct_amount_wrong_basis_is_replayed_once_and_old_state_refused(co
         assert _tri_bar_dividend(resumed) == CASH_PER_NEW_SHARE
         with resumed.cursor() as cur:
             cur.execute("SELECT COUNT(*) FROM sentinel_corpus_publications"
-                        " WHERE evidence->>'kind'='actions_economic_semantics_v9'")
+                        " WHERE evidence->>'kind'='actions_economic_semantics_v10'")
             assert cur.fetchone()[0] == 1
         with pytest.raises(HistoryReconstructionRequired):
             require_history_compatible(

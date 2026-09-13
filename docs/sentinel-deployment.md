@@ -1803,7 +1803,9 @@ base backups plus all WAL needed from the oldest retained base. Never prune WAL
 until a newer base has passed both `pg_verifybackup` and the restore drill.
 
 The supported backup overlay sets `SENTINEL_RUNTIME_BACKUP_AUTHORITY=REQUIRED_V1`
-for the CLI; unattended services carry the same requirement. New feed, plan and
+for the CLI; unattended services, including standby leadership, carry the same
+requirement. A root-owned policy marker baked into the immutable runtime also
+requires the proof independently of environment flag omission. New feed, plan and
 execution mutations prove the complete selected base-to-archived-frontier WAL
 chain at their common writer locks. Each broker submit/cancel repeats that proof
 on a fresh authority connection. Broker observations, recovery-journal updates,
@@ -1910,8 +1912,13 @@ rounding interval; the tolerance itself is not widened.
 Sharadar can spell a simple reverse ratio to five decimals (for example
 ``split=0.03333`` for 1-for-30). After the direct value is corroborated, the
 shared resolver reconstructs ``1/N`` only when that simple rational lies inside
-the same strict one-percent representation band. This changes arithmetic
-representation, not event authority, and makes broker-unit projection exact.
+the source's five-decimal half-quantum interval, is the unique integer-denominator
+candidate, and is corroborated by independent price evidence. The one-percent
+price agreement band cannot authorize ratio rewriting. Higher-precision and
+non-integer consolidations retain their stated value. The applied ratio is
+corroborated on direct and date-bridge paths alike. See
+[issue 373 remediation](economic-audit-373-remediation.md) for the semantic
+replay and exact accounting contracts.
 
 A stock-split ACTIONS date may disagree with the SEP adjustment transition by
 one exchange session.  The stream reconciler may shift the event to the prior

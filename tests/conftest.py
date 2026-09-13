@@ -12,6 +12,20 @@ from pathlib import Path
 
 import pytest
 
+
+@pytest.fixture(autouse=True)
+def isolated_image_backup_policy(tmp_path, monkeypatch):
+    """Unit fixtures are developer environments, even inside the CI image.
+
+    A synthetic database has no deployed backup media. Substitute only that
+    filesystem identity; explicit REQUIRED_V1 flags still enforce every real
+    media/lock check. Dedicated policy tests install the production marker bytes.
+    Container/process boundary probes run outside this in-process fixture.
+    """
+    from sentinel import backup_runtime_authority
+    monkeypatch.setattr(backup_runtime_authority, "POLICY_MARKER",
+                        tmp_path / "absent-production-backup-policy")
+
 _SERVICE_MAP = {
     "alpaca_sync":        "alpaca-sync",
     "api":                "api",

@@ -12,6 +12,7 @@ services:
     security_opt: ["no-new-privileges:true"]
     entrypoint: ["python", "-m", "sentinel.automation_supervisor"]
     environment:
+      SENTINEL_RUNTIME_BACKUP_AUTHORITY: REQUIRED_V1
       ALPACA_BASE_URL: ${ALPACA_BASE_URL:-https://paper-api.alpaca.markets}
       ALPACA_API_KEY: ${ALPACA_API_KEY:-}
       ALPACA_SECRET_KEY: ${ALPACA_SECRET_KEY:-}

@@ -51,6 +51,7 @@ COPY shared/ /work/repo/shared/
 COPY Dockerfile.sentinel /work/repo/Dockerfile.sentinel
 COPY Dockerfile.sentinel-authorized /work/repo/Dockerfile.sentinel-authorized
 COPY deploy/sentinel-authorized-runtime-v1 /work/repo/deploy/sentinel-authorized-runtime-v1
+COPY deploy/sentinel-backup-policy-v1 /work/repo/deploy/sentinel-backup-policy-v1
 COPY docker-compose.sentinel.yml /work/repo/docker-compose.sentinel.yml
 COPY docker-compose.sentinel-automation.yml /work/repo/docker-compose.sentinel-automation.yml
 COPY docker-compose.sentinel-automation-standby.yml /work/repo/docker-compose.sentinel-automation-standby.yml
