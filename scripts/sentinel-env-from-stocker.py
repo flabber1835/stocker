@@ -110,6 +110,8 @@ GENERATE = {
 #: classified here or in CARRY, rather than silently defaulting.
 #:
 DELIBERATELY_UNSET = {
+    "SHARADAR_ALLOW_INSECURE_BASE_URL":
+        "development transport opt-in must be selected explicitly, never inherited",
     "SENTINEL_REVIEWED_DEPLOYMENT_MODE":
         "selected by the reviewed deployment workflow, never inherited",
     "SENTINEL_SHADOW_OBSERVATION_ID":

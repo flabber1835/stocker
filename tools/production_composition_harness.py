@@ -9,6 +9,7 @@ from pathlib import Path
 import subprocess
 import sys
 import tempfile
+import time
 import uuid
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -103,16 +104,27 @@ def _environment(timeout_seconds: int):
     return env
 
 
-def _verify_sql(path: Path, project: str, *, label: str):
-    completed = _run([
-        "docker", "compose", *_compose_args(path, project),
-        "exec", "-T", "sentinel-postgres",
-        "psql", "-U", "postgres", "-d", "postgres", "-Atqc",
-        "SELECT 1",
-    ])
-    if completed.returncode != 0 or completed.stdout.strip() != "1":
-        raise HarnessFailure(
-            f"{label}: PostgreSQL semantic probe failed rc={completed.returncode}")
+def _verify_sql(path: Path, project: str, *, label: str,
+                timeout_seconds: float = 10.0):
+    deadline = time.monotonic() + timeout_seconds
+    last = None
+    while True:
+        completed = _run([
+            "docker", "compose", *_compose_args(path, project),
+            "exec", "-T", "sentinel-postgres",
+            "psql", "-U", "postgres", "-d", "postgres", "-Atqc",
+            "SELECT 1",
+        ])
+        if completed.returncode == 0 and completed.stdout.strip() == "1":
+            return
+        last = completed
+        if time.monotonic() >= deadline:
+            detail = (completed.stderr or completed.stdout or "").strip()[-600:]
+            raise HarnessFailure(
+                f"{label}: PostgreSQL semantic probe failed "
+                f"rc={completed.returncode}: {detail}"
+            )
+        time.sleep(0.25)
 
 
 def _ensure_ready(path: Path, project: str, *, timeout_seconds: int, label: str):
@@ -124,7 +136,12 @@ def _ensure_ready(path: Path, project: str, *, timeout_seconds: int, label: str)
     )
     if failure is not None:
         raise HarnessFailure(f"{label}: unexpected refusal {failure}")
-    _verify_sql(path, project, label=label)
+    _verify_sql(
+        path,
+        project,
+        label=label,
+        timeout_seconds=min(10.0, float(timeout_seconds)),
+    )
 
 
 def _docker_case(tmp: Path, *, name: str, text: str, timeout_seconds: int,
@@ -141,7 +158,12 @@ def _docker_case(tmp: Path, *, name: str, text: str, timeout_seconds: int,
             if failure is not None:
                 raise HarnessFailure(f"{name}: unexpected refusal {failure}")
             if verify_sql:
-                _verify_sql(path, project, label=name)
+                _verify_sql(
+                    path,
+                    project,
+                    label=name,
+                    timeout_seconds=min(10.0, float(timeout_seconds)),
+                )
             if restart:
                 _require([
                     "docker", "compose", *_compose_args(path, project),
