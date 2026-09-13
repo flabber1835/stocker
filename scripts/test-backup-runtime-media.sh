@@ -66,6 +66,13 @@ initialize() { (cd "$repo"; . scripts/sentinel-backup-lib.sh; sentinel_backup_ro
 initialize
 "${compose[@]}" up -d --wait --wait-timeout 90 sentinel-postgres
 sql() { "${compose[@]}" exec -T sentinel-postgres psql -U sentinel -d sentinel -Atq -v ON_ERROR_STOP=1 -c "$1"; }
+url="host=$work/socket user=sentinel dbname=sentinel"
+# Production migrates the additive schema before any backup process starts.
+# This fresh-database media fixture must exercise that same ordering before the
+# backup publishes its append-only operator evidence.
+"$SENTINEL_HOST_PYTHON" -c \
+  'import sys; from sentinel import schema; from sentinel.feed import store; c = store.connect(sys.argv[1]); schema.ensure_schema(c); c.close()' \
+  "$url"
 sql 'CREATE TABLE private_payload (id integer PRIMARY KEY); INSERT INTO private_payload VALUES (42);'
 created="$(cd "$repo"; bash scripts/sentinel-base-backup.sh)"
 printf '%s\n' "$created"
@@ -73,7 +80,6 @@ backup="$(printf '%s\n' "$created" | sed -n 's/^verified_base_backup://p')"
 name="${backup##*/}"
 [[ "$name" =~ ^base-[0-9]{8}T[0-9]{6}Z$ ]] || fail "missing completed production base"
 # The host probe reaches the network-isolated database through its Unix socket.
-url="host=$work/socket user=sentinel dbname=sentinel"
 probe() { "$SENTINEL_HOST_PYTHON" tests/backup/physical_runtime_probe.py "$url" "$1"; }
 probe ready
 (cd "$repo"; bash scripts/sentinel-backup-status.sh --backup "$backup")
