@@ -21,6 +21,8 @@ signal that depends on that close.
 """
 from __future__ import annotations
 
+import math
+
 from stock_strategy_shared.wealth_core.shares import (
     affordable_whole_shares,
     as_json as _shares_json,
@@ -631,13 +633,15 @@ def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],
 
 
 def entry_cost(shares: float, raw_open: float, cfg: WealthCoreConfig) -> float:
-    """Canonical fill cost, including the frozen float operation order."""
-    return shares * raw_open * (1.0 + cfg.transaction_cost_bps / 10_000.0)
+    """Canonical fill cost, rounded once after exact decimal arithmetic."""
+    from .shares import traded_cash
+    return traded_cash(shares, raw_open, cfg.transaction_cost_bps, buy=True)
 
 
 def exit_proceeds(shares: float, raw_open: float, cfg: WealthCoreConfig) -> float:
     """Canonical sale funding, shared with opening account projection."""
-    return shares * raw_open * (1.0 - cfg.transaction_cost_bps / 10_000.0)
+    from .shares import traded_cash
+    return traded_cash(shares, raw_open, cfg.transaction_cost_bps, buy=False)
 
 
 def apply_entry(state: PortfolioState, *, op: Op, session: str, signal_session: str,
@@ -646,6 +650,8 @@ def apply_entry(state: PortfolioState, *, op: Op, session: str, signal_session: 
     """Execute an admission at the next open (spec §11). Called by the adapter
     once a fill is known — the engine never invents a price."""
     cost = entry_cost(op.shares, raw_open, cfg)
+    if not math.isfinite(cost) or cost < 0 or cost > state.cash:
+        raise ValueError("entry cost exceeds canonical cash budget")
     state.cash -= cost
     state.slots[op.slot_id].occupied_by = op.security_id
     state.slots[op.slot_id].release_reservation()   # the claim became a holding

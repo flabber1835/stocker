@@ -360,9 +360,8 @@ def _is_proven_same_session_consolidation(
         state: PortfolioState, terminal_terms: Sequence) -> bool:
     """True only when complete terms will collapse this whole held group.
 
-    The terminal adapter applies one event to one matching episode. Requiring a
-    unique source security for every converted leg avoids treating one event as
-    authority to convert several duplicate lots.
+    Each source security needs one complete holder-level event. Several source
+    episodes share its aggregate entitlement and remain provenance allocations.
     """
     from stock_strategy_shared.wealth_core.terminal import TerminalKind
 
@@ -379,18 +378,19 @@ def _is_proven_same_session_consolidation(
 
     targets: set[str] = set()
     converted = False
-    for security_id, count in sorted(counts.items()):
+    for security_id in sorted(counts):
         matching = terms_by_security.get(security_id, [])
         if not matching:
             targets.add(security_id)
             continue
-        if count != 1 or len(matching) != 1:
+        if len(matching) != 1:
             return False
-        slot_id = next(slot for slot, sec, _prior in holdings
-                       if sec == security_id)
+        from fractions import Fraction
+        quantity = sum((Fraction(str(ep.current_shares))
+                        for ep in state.episodes.values()
+                        if ep.security_id == security_id), Fraction(0))
         terms = matching[0]
-        complete, _reason = terms.completeness(
-            state.episodes[slot_id].current_shares)
+        complete, _reason = terms.completeness(quantity)
         delivered = getattr(terms, "delivered_security_id", None)
         if not complete or not delivered:
             return False
@@ -522,10 +522,28 @@ def _cancel_pending_issuer_conflicts(
             rejected[key]["slot_id"], rejected[key]["security_id"]))]
 
 
+def _preflight_splits(state: PortfolioState, bars: Sequence[DailyBar],
+                      pending: Sequence[PendingOrder]) -> None:
+    """Refuse an unrepresentable batch before any canonical object changes."""
+    for bar in bars:
+        if bar.split_ratio == 1.0:
+            continue
+        prices = [p for p in (bar.raw_open, bar.raw_mark_close) if _positive(p)]
+        price = max(prices) if prices else None
+        quantities = [ep.current_shares for ep in state.episodes.values()
+                      if ep.security_id == bar.security_id]
+        quantities.extend(po.shares for po in pending
+                          if po.security_id == bar.security_id
+                          and po.intended_dollars is None)
+        for quantity in quantities:
+            split_shares(quantity, bar.split_ratio, raw_price=price)
+
+
 def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger,
                  session: str, pending: Sequence[PendingOrder] = ()) -> list[dict]:
     """Step 1. Share counts change FIRST, so every later calculation — marks,
     equity, exit sizing — reads the post-split count."""
+    _preflight_splits(state, bars, pending)
     transformed: list[dict] = []
     for b in bars:
         if b.split_ratio == 1.0:
@@ -649,14 +667,15 @@ def _transform_pending_for_terminal(
                     continue
                 after = ep.current_shares
             else:
+                from .terminal import _split_entitlement
                 ok, why = terms.completeness(po.shares)
-                after = split_shares(po.shares, terms.exchange_ratio)
-                if not ok or after <= 0 or not is_integral(after):
+                after, fraction = _split_entitlement(po.shares, terms.exchange_ratio)
+                if not ok or after <= 0 or fraction:
                     cancelled.append(_cancelled_order(
                         state, po, session=session,
                         reason="TERMINAL_INTENT_INEXPRESSIBLE",
                         terms_reason=(why or "FRACTIONAL_ENTRY_ENTITLEMENT"),
-                        transformed_shares=_as_json(after)))
+                        transformed_shares=_as_json(float(after + fraction))))
                     continue
                 after = int(after)
 
@@ -842,6 +861,7 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
         raise ValueError("canonical entry sizing profile differs from configuration")
     for order in pending:
         order.validate_sizing(open_time=cfg.economic_profile == V5_PROFILE)
+    _preflight_splits(state, bars, pending)
     by_sec = {b.security_id: b for b in bars}
     res_cancelled: list[dict] = []
     # Name cooldowns actually STARTED by this session's release transitions.

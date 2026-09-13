@@ -49,6 +49,7 @@ def terminal_terms_economics(terms: TerminalTerms) -> tuple:
         terms.delivered_issuer_id,
         terms.exchange_ratio,
         terms.cash_in_lieu_price_per_delivered_share,
+        terms.entitlement_aggregation,
     )
 
 

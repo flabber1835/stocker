@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+from pathlib import Path
 import re
 import shlex
 import time
@@ -31,6 +32,8 @@ from sentinel import backup_guard
 
 AUTHORITY_ENV = "SENTINEL_RUNTIME_BACKUP_AUTHORITY"
 AUTHORITY_VALUE = "REQUIRED_V1"
+POLICY_MARKER = Path("/opt/sentinel/backup-policy-v1")
+POLICY_BYTES = b"sentinel-runtime-backup/REQUIRED_V1\n"
 MARKER = ".sentinel-independent-durable-target-v1"
 MARKER_CONTENT = "sentinel-independent-durable-target-v1"
 BASE_ROOT = "/sentinel-backup/base"
@@ -60,7 +63,16 @@ def _is_media_error(exc: Exception) -> bool:
 
 
 def enabled() -> bool:
-    return str(os.environ.get(AUTHORITY_ENV, "")).strip() == AUTHORITY_VALUE
+    value = str(os.environ.get(AUTHORITY_ENV, "")).strip()
+    if value not in ("", AUTHORITY_VALUE):
+        raise BackupRuntimeRefused("unsupported runtime backup authority policy")
+    try:
+        marker = POLICY_MARKER.read_bytes()
+    except FileNotFoundError:
+        marker = None
+    if marker is not None and marker != POLICY_BYTES:
+        raise BackupRuntimeRefused("invalid baked runtime backup authority policy")
+    return marker is not None or value == AUTHORITY_VALUE
 
 
 def _read_text(conn, path: str, *, missing_ok: bool) -> str | None:

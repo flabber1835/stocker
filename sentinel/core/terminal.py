@@ -192,8 +192,8 @@ CONFLICTING_TERMINAL_TERMS = "CONFLICTING_TERMINAL_TERMS"
 """Richest terminal siblings disagree on mapped economics. Apply none."""
 
 EXCLUDED_ABSENT_FROM_CORPUS = "SECURITY_ABSENT_FROM_CORPUS"
-"""No bar carries this ticker anywhere in the window, so no book could have held
-it and no termination of it can change one.
+"""An unresolved ticker has no published price/rejection through the window end.
+Resolved permanent identities are never excluded for lacking current prices.
 
 DELIBERATELY KEYED ON THE RAW VENDOR TICKER, not on a resolved security. Keying
 on resolution would make this bucket swallow exactly the failures it must not
@@ -332,7 +332,7 @@ class TerminalLoadResult:
 
 
 def _corpus_tickers(conn, start: str, end: str) -> set:
-    """Every ticker the VENDOR PRICED in the window, by raw symbol.
+    """Every ticker priced or rejected through end, including prior holdings.
 
     STORED BARS *UNION* INGEST REJECTIONS, and the union is the whole point.
 
@@ -364,12 +364,12 @@ def _corpus_tickers(conn, start: str, end: str) -> set:
         # different rules is how "absent from the corpus" would start excluding
         # terminations of securities the book can actually see.
         cur.execute("SELECT DISTINCT ticker FROM sentinel_bars b"
-                    " WHERE session BETWEEN %s AND %s"
-                    f"   AND {visible_predicate('b')}", (start, end))
+                    " WHERE session <= %s"
+                    f"   AND {visible_predicate('b')}", (end,))
         priced = {str(t[0]).upper() for t in cur.fetchall() if t[0]}
     try:
         from sentinel.feed import store as feed_store
-        priced |= feed_store.rejected_tickers(conn, start, end)
+        priced |= feed_store.rejected_tickers(conn, "0001-01-01", end)
     except Exception:                                # noqa: BLE001
         # An older corpus with no rejection table. Deliberately tolerated on
         # READ — but readiness carries its own check for the same condition, so
@@ -411,7 +411,7 @@ def load_terminal_events(conn, *, start: str, end: str,
             " ORDER BY session,ticker,action,source_row_id", (raw_start, raw_end))
         rows = cur.fetchall()
 
-    priced = _corpus_tickers(conn, start, end)
+    priced = None
     out: list = []
     audit: list = []
     terminal_candidates: list[TerminalCandidate] = []
@@ -448,12 +448,6 @@ def load_terminal_events(conn, *, start: str, end: str,
                 else EXCLUDED_UNSUPPORTED))
             continue
 
-        # RELEVANCE, decided before identity so a mapping failure cannot be
-        # reclassified as irrelevant by its own consequences.
-        if priced and tk.upper() not in priced:
-            audit.append(_row("excluded", EXCLUDED_ABSENT_FROM_CORPUS))
-            continue
-
         if resolve_with_reason is not None:
             sid, why = resolve_with_reason(tk, effective)
         elif resolve_identity is not None:
@@ -462,6 +456,14 @@ def load_terminal_events(conn, *, start: str, end: str,
             sid, why = None, "NO_PERMANENT_ID"
 
         if not sid:
+            # Historical raw-symbol evidence remains independent of identity
+            # success. A missing event-day print cannot hide a carried holding.
+            # Fully resolved daily loads need no scan of historical bars.
+            if priced is None:
+                priced = _corpus_tickers(conn, start, end)
+            if priced and tk.upper() not in priced:
+                audit.append(_row("excluded", EXCLUDED_ABSENT_FROM_CORPUS))
+                continue
             audit.append(_row("unresolved", why))
             continue
 

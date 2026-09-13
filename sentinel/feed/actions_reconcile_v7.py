@@ -1,4 +1,4 @@
-"""ACTIONS epoch v9 — adjudicated cash and typed in-kind distributions.
+"""ACTIONS epoch v10 — preserve source-precision split authority.
 
 The v6 implementation remains the complete Sharadar ACTIONS source authority.
 This public epoch composes that source proof with the A1 semantic migration: a
@@ -6,6 +6,7 @@ reviewed disputed cash action is replayed once through the ordinary normalized
 bar path before a current cursor can be earned. The v8 epoch removed
 historical spin-off value that earlier decoders incorrectly booked as cash.
 The v9 epoch preserves combined-event cash entitlement on its old-share basis.
+The v10 epoch replays retained splits after correcting reciprocal reconstruction.
 """
 from __future__ import annotations
 
@@ -14,12 +15,12 @@ import datetime as dt
 from sentinel.feed import corporate_action_authority
 from sentinel.feed import maintenance_impl as _core
 
-ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v9"
-ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v9"
+ACTIONS_CURSOR_NAME = "sharadar-actions-export-reconcile:v10"
+ACTIONS_CURSOR_KIND = "sharadar-actions-export-reconcile/v10"
 
 
 def load_actions_cursor(conn):
-    """Only v9 may authorize current public ACTIONS semantics."""
+    """Only v10 may authorize current public ACTIONS semantics."""
     return _core._read_cursor(
         conn, ACTIONS_CURSOR_NAME, ACTIONS_CURSOR_KIND)
 
@@ -95,20 +96,23 @@ def _cash_adjudication_audit(conn, *, run_id: str, dates, windows) -> list[dict]
 
 
 def _cash_semantic_migration(conn, *, fetch, through: dt.date):
-    """Replay every retained reviewed cash event through canonical ingest logic."""
+    """Replay retained cash, split and in-kind events through canonical ingest."""
     market_start, market_end = _core._retained_market_bounds(conn)
     cash_dates = corporate_action_authority.semantic_replay_dates(
         market_start=market_start,
         market_end=min(market_end, through.isoformat()))
-    from sentinel.core.terminal import SPINOFF_ACTIONS
+    from sentinel.core.terminal import SPINOFF_ACTIONS, SPLIT_ACTIONS
     from sentinel.feed import actions, calendar
     raw_start, raw_end = calendar.action_date_window(
         market_start, min(market_end, through.isoformat()))
-    spin_rows = [row for row in actions.active_rows(
-        conn, start=raw_start, end=raw_end)
+    retained_rows = actions.active_rows(conn, start=raw_start, end=raw_end)
+    spin_rows = [row for row in retained_rows
         if str(row.get("action") or "").lower() in SPINOFF_ACTIONS
         and market_start <= calendar.session_on_or_after(str(row["date"])) <= market_end]
-    dates = sorted(set(cash_dates) | {str(row["date"]) for row in spin_rows})
+    split_rows = [row for row in retained_rows
+                  if str(row.get("action") or "").lower() in SPLIT_ACTIONS
+                  and market_start <= calendar.session_on_or_after(str(row["date"])) <= market_end]
+    dates = sorted(set(cash_dates) | {str(row["date"]) for row in spin_rows + split_rows})
     if not dates:
         return _core.publication.require_current(conn)
 
@@ -123,7 +127,7 @@ def _cash_semantic_migration(conn, *, fetch, through: dt.date):
         chunks_total=len(windows))
     replayed = _core.renormalize.renormalize(
         conn, fetch=fetch, run=run, dates=dates,
-        chunk_prefix="action-economics-v9",
+        chunk_prefix="action-economics-v10",
         market_start=market_start, market_end=market_end)
     adjudication_audit = _cash_adjudication_audit(
         conn, run_id=run.progress.run_id, dates=cash_dates, windows=windows
@@ -133,10 +137,16 @@ def _cash_semantic_migration(conn, *, fetch, through: dt.date):
         conn, run_id=run.progress.run_id,
         window_start=windows[0][0], window_end=windows[-1][1],
         evidence={
-            "kind": "actions_economic_semantics_v9",
+            "kind": "actions_economic_semantics_v10",
             "semantic_epoch": ACTIONS_CURSOR_KIND,
             "authority": corporate_action_authority.authority_manifest(),
             "adjudications": adjudication_audit,
+            "split_authority": [
+                {"ticker": str(row["ticker"]), "date": str(row["date"]),
+                 "source_row_id": str(row["source_row_id"]),
+                 "stated_multiplier": str(row.get("value")),
+                 "policy": "SOURCE_PRECISION_CORROBORATED_RECIPROCAL_V1"}
+                for row in split_rows],
             "in_kind_distributions": [
                 {"ticker": str(row["ticker"]), "date": str(row["date"]),
                  "source_row_id": str(row["source_row_id"]),
@@ -156,17 +166,17 @@ def _cash_semantic_migration(conn, *, fetch, through: dt.date):
 
 def reconcile_actions_if_due(conn, *, fetch=_core.sharadar.fetch_table,
                              through: str, force: bool = False):
-    """Earn complete source authority plus v9 economic semantics."""
+    """Earn complete source authority plus v10 economic semantics."""
     _core.store._assert_corpus_locked(conn)
     hi = dt.date.fromisoformat(str(through))
     prior = load_actions_cursor(conn)
     if prior is not None and prior.processed_through > hi:
         raise _core.SharadarMutationRefused(
-            f"ACTIONS v9 reconciliation cursor {prior.processed_through} is "
+            f"ACTIONS v10 reconciliation cursor {prior.processed_through} is "
             f"ahead of requested reconciliation through {hi}")
 
     # v6 proves the complete current Sharadar ACTIONS snapshot and handles all
-    # ordinary changed-row/recovery semantics. v9 may be granted only after it.
+    # ordinary changed-row/recovery semantics. v10 may be granted only after it.
     _core.reconcile_actions_if_due(
         conn, fetch=fetch, through=hi.isoformat(), force=force)
 

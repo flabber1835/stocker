@@ -70,8 +70,11 @@ COPY docs/sentinel-reference-implementation/ \
 # separate runtime intent, signed authority and account/environment checks.
 COPY deploy/sentinel-authorized-runtime-v1 \
     /opt/sentinel/authorized-runtime-v1
+COPY deploy/sentinel-backup-policy-v1 /opt/sentinel/backup-policy-v1
 USER root
 RUN install -d -m 0755 /opt/sentinel/bin \
+    && chmod 0444 /opt/sentinel/backup-policy-v1 \
+    && chown root:root /opt/sentinel/backup-policy-v1 \
     && chmod 0444 /opt/sentinel/authorized-runtime-v1 \
     && chown root:root /opt/sentinel/authorized-runtime-v1 \
     && printf '%s\n' \

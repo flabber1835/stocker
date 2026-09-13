@@ -4,6 +4,7 @@ docs/sentinel-handoff/00_README/FROZEN_SENTINEL_1P1_RULE.json text eol=lf
 # copies them into the runtime image.
 sentinel/trust_roots.json text eol=lf
 deploy/sentinel-authorized-runtime-v1 text eol=lf
+deploy/sentinel-backup-policy-v1 text eol=lf
 *.sh text eol=lf
 # This CSV is a byte-pinned certification falsifier.  Treating it as text lets
 # core.autocrlf change its SHA-256 in a Windows checkout before the runner can

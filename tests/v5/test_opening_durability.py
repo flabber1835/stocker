@@ -65,6 +65,32 @@ def test_opening_plan_round_trip_and_immutable_dollars(conn):
         journal.save_plan(conn, changed)
 
 
+def test_issue373_exact_cash_quantity_survives_durable_unknown_recovery(conn):
+    env, plan = case(cash=7487.48)
+    env.pending[0]['intended_dollars'] = 10000.
+    plan = replace(plan, deployment_id=DEPLOY.deployment_id, broker=DEPLOY.broker,
+                   broker_account_id=DEPLOY.broker_account_id,
+                   takeover_epoch=DEPLOY.takeover_epoch, shadow_snapshot_hash=env.state_hash,
+                   opening_intents=(OpeningIntent('SEC-AAA', 0, D(10000)),))
+    plan = replace(plan, plan_id='sentinel-' + plan.fingerprint())
+    executor.adopt_plan(conn, plan)
+    projection = projections.record_projection(conn, opening_sizing.resolve(
+        env, plan, base(env, plan), prices(env, plan, price='5.44')))
+    assert projection.target_basket['SEC-AAA'] == 1375
+    assert D(projection.opening_sizing['cash_after_entries']) == 0
+    b = broker().schedule_submit(FaultKind.ACCEPT_THEN_TIMEOUT)
+    # This simulator prices every instrument at $100 internally. Give its
+    # independent paper account enough cash for that diagnostic convention.
+    b.cash = b.equity = D(200000)
+    first = execute(conn, b, plan, projection)
+    assert [(c.quantity, c.state) for c in first.submitted] == [(D(1375), CommandState.UNKNOWN)]
+    restored_plan = journal.load_plan(conn, plan.plan_id)
+    restored = projections.load_projection(conn, plan_id=plan.plan_id)
+    assert restored == projection
+    assert execute(conn, b, restored_plan, restored).submitted == ()
+    assert len([call for call in b.calls if call.startswith('submit:')]) == 1
+
+
 def test_lost_opening_intent_record_refuses_plan_reload(conn):
     env, plan = setup_plan(conn)
     with conn.cursor() as cur:

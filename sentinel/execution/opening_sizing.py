@@ -216,8 +216,8 @@ def resolve(state, plan, projection,
         price = float(prices.prices[intent.security_id])
         intended = float(intent.intended_dollars)
         budget = min(intended, cash)
-        # Division, floor division and cash multiplication retain the frozen
-        # float order. An exact Decimal notional cap can change a whole share.
+        # The canonical exact decimal-spelling quotient and booked cost share
+        # one arithmetic contract, including exactly affordable boundaries.
         quantity = min(v5.opening_quantity(
             intended=intended, cash=cash, price=price,
             cost_bps=cfg.transaction_cost_bps), affordable_shares(cash, price, cfg))

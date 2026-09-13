@@ -1,6 +1,8 @@
 """Execution must preserve the frozen book at numerical share boundaries."""
 from copy import deepcopy
 from decimal import Decimal as D
+import json
+import math
 
 import pytest
 
@@ -67,6 +69,8 @@ def compare_opening(*, equity, price, cash=None, entries=1, sale=False,
         assert D(entry['core_shares']) == buys.get(sid, 0)
         assert projected.target_basket[sid] == buys.get(sid, 0)
     assert float(projected.opening_sizing['cash_after_entries']) == book.cash
+    assert book.cash >= 0
+    assert PortfolioState.from_dict(json.loads(json.dumps(book.to_dict()))).to_dict() == book.to_dict()
     assert env.to_dict() == before
     return buys, projected
 
@@ -96,6 +100,36 @@ def test_exactly_affordable_quantity_survives_the_fill_cap():
     buys, _ = compare_opening(
         equity=2_002_800.8, cash=cash, price=price)
     assert buys == {'SEC-AAA': 1_000}
+
+
+@pytest.mark.parametrize('cash', [math.nextafter(7487.48, 0.), 7487.47,
+                                7487.48, math.nextafter(7487.48, math.inf), 7487.49])
+def test_issue373_exact_cash_booking_and_neighbors(cash):
+    expected = int(D(str(cash)) // (D('5.44') * D('1.001')))
+    buys, projection = compare_opening(equity=157487.48, cash=cash, price=5.44, entries=2)
+    assert buys.get('SEC-AAA') == expected
+    if cash == 7487.48:
+        assert expected == 1375
+        assert D(projection.opening_sizing['cash_after_entries']) == 0
+
+
+def test_opening_cash_guard_refuses_a_broken_cost_implementation(monkeypatch):
+    monkeypatch.setattr(opening_sizing, 'entry_cost', lambda *args: 10_000.)
+    from sentinel.execution.target_reprojection import TargetProjectionRefused
+    with pytest.raises(TargetProjectionRefused, match='cash budget'):
+        compare_opening(equity=157487.48, cash=7487.48, price=5.44)
+
+
+def test_canonical_entry_guard_refuses_overspending_before_mutation():
+    from stock_strategy_shared.wealth_core.engine import Op, Operation, apply_entry
+    state = PortfolioState.fresh(7487.48)
+    before = deepcopy(state.to_dict())
+    with pytest.raises(ValueError, match='canonical cash budget'):
+        apply_entry(state, op=Op(operation=Operation.OPEN_SLOT_POSITION, reason='TEST',
+                                security_id='SEC-A', ticker='A', slot_id=0, shares=1376),
+                    session='2026-08-12', signal_session='2026-08-11', raw_open=5.44,
+                    split_adjusted_price=5.44, issuer_id='I:A', cfg=v5.config())
+    assert state.to_dict() == before
 
 
 @pytest.mark.parametrize('cash,price', [(.1001, .01), (100.1, 1.), (5164.159, 51.59),

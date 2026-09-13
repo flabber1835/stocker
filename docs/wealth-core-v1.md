@@ -113,15 +113,18 @@ equal signal bases would turn a data gap into a trailing-stop decision. A deal
 that genuinely delivers less value than the target's market price can still stop
 the position out, and that is correct.
 
-Fractional entitlements **floor** and are settled in cash. `math.floor`, not
-`round()` — rounding up delivers a share the acquirer never issued, and the
-position is permanently one share heavier than the broker's.
+Fractional entitlements **floor once per holder/security** and are settled in
+cash. Internal episodes receive pro-rata ownership of the aggregate delivery;
+their independent ages, stops and source lots survive. Exact rational arithmetic
+classifies the remainder before float storage. See
+[issue 373 remediation](economic-audit-373-remediation.md) for aggregation,
+unsupported conventions and numeric representability.
 
 A terminal row is a **security-level event**, not an episode-level event. More
 than one episode may own the security after earlier conversion consolidation.
-The handler preflights the event once against every matching episode, then
-applies it to all of them in ascending slot order. It never settles a prefix:
-if any episode lacks required terms or conversion price-basis evidence, every
+The handler preflights the aggregate entitlement, then applies its allocations
+to all episodes in ascending slot order. It never settles a prefix:
+if the holder lacks required terms or conversion price-basis evidence, every
 episode remains held under the one security-level pending or blocked state.
 Settlement output retains one audit record per episode while counters continue
 to count one security-level event and its aggregate notional.
@@ -298,13 +301,12 @@ complete, plausible run beforehand.
    comprehension keyed on it — one position vanished from equity, and every later
    admission was sized off the short number.
 
-V5 opening sizing and fill-time affordability use one whole-share quotient
-helper. Both evaluate `math.floor(available / per_share_cost)` with the
-identical float expression, including transaction cost. Python's float
-`available // per_share_cost` is not substituted: at exact affordability
-boundaries it can be one lower than `math.floor(available / per_share_cost)`,
-which would make the canonical fill undercut the quantity the same book just
-sized.
+V5 and the fill cap use one exact cash-affordability contract, including
+transaction cost. V5 retains its frozen intended-dollar float quotient, capped
+by that exact affordable quantity. Convert the final cost once to float for
+storage. This preserves exactly cash-affordable whole shares without emitting
+negative cash through divergent binary multiplication order. See
+[issue 373 remediation](economic-audit-373-remediation.md).
 
 ## Source-lot provenance
 
