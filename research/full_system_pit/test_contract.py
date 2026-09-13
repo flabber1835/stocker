@@ -98,6 +98,33 @@ def test_production_warmup_preflight_refuses_and_accepts_exact_prior_sessions(tm
     assert passed["available_observation_sessions"] == 1
 
 
+def test_truth_compiler_accepts_an_earlier_package_start_without_moving_replay():
+    from research.full_system_pit import authority, truth
+
+    manifest = {"window": {
+        "warmup_start": "2005-01-03",
+        "measurement_start": authority.MEASUREMENT,
+        "end": authority.END,
+    }}
+    members = truth.observation_members(manifest)
+
+    assert members[0] == "observations-2005.csv.gz"
+    assert members[-1] == "observations-2026.csv.gz"
+    assert len(members) == 22
+
+
+def test_truth_compiler_refuses_a_package_start_after_first_transition():
+    from research.full_system_pit import authority, truth
+
+    manifest = {"window": {
+        "warmup_start": "2006-01-04",
+        "measurement_start": authority.MEASUREMENT,
+        "end": authority.END,
+    }}
+    with pytest.raises(ValueError, match="starts after"):
+        truth.observation_members(manifest)
+
+
 def test_runtime_manifest_binds_current_production_without_rewriting():
     from research.full_system_pit import runtime
 

@@ -39,14 +39,29 @@ def number(value, default=None):
     return result
 
 
+def observation_members(manifest):
+    window = manifest["window"]
+    source_start = str(window["warmup_start"])
+    if source_start > a.WARMUP:
+        raise ValueError("canonical package starts after the replay transition")
+    if window["measurement_start"] != a.MEASUREMENT or window["end"] != a.END:
+        raise ValueError("canonical package measurement window changed")
+    start_year = int(source_start[:4])
+    end_year = int(a.END[:4])
+    return tuple(
+        f"observations-{year}.csv.gz"
+        for year in range(start_year, end_year + 1)
+    )
+
+
 def validate_package(root):
     manifest = json.loads((root / "manifest.json").read_text())
     assert manifest["status"] == "PASS"
     assert manifest["schema"] == "backtester.canonical-pit-dataset/2"
-    assert manifest["window"] == dict(warmup_start=a.WARMUP, measurement_start=a.MEASUREMENT, end=a.END)
+    observations = observation_members(manifest)
     h = hashlib.sha256()
     members = manifest["members"]
-    expected = {f"observations-{y}.csv.gz" for y in range(2006, 2027)} | {
+    expected = set(observations) | {
         "metadata-timeline.csv.gz", "actions.csv.gz", "terminal-events.csv.gz",
         "cash.csv.gz", "benchmark.csv.gz", "session-hashes.csv"}
     assert set(members) == expected
@@ -61,6 +76,7 @@ def validate_package(root):
 
 def compile_truth(root, output, *, estimate):
     manifest = validate_package(root)
+    source_start = str(manifest["window"]["warmup_start"])
     if output.exists():
         raise ValueError("private truth output already exists")
     db = sqlite3.connect(output)
@@ -77,12 +93,13 @@ def compile_truth(root, output, *, estimate):
         CREATE TABLE identity(body TEXT);
     """)
     previous, counts = {}, {}
-    for year in range(2006, 2027):
+    for filename in observation_members(manifest):
+        year = int(filename.removeprefix("observations-").removesuffix(".csv.gz"))
         count = 0
         batch = []
-        for r in rows(root / f"observations-{year}.csv.gz"):
+        for r in rows(root / filename):
             day, sid, ticker = r["session"], r["security_id"], r["ticker"]
-            if not a.WARMUP <= day <= a.END:
+            if not source_start <= day <= a.END:
                 raise ValueError("observation outside frozen window")
             batch.append((day, sid, ticker, number(r["raw_open"]), number(r["raw_close"]),
                 number(r["signal_close"]), number(r["reported_volume"]),
@@ -111,7 +128,7 @@ def compile_truth(root, output, *, estimate):
                 batch.clear()
             count += 1
         db.executemany("INSERT INTO obs VALUES(?,?,?,?,?,?,?,?,?,?)", batch)
-        assert count == manifest["members"][f"observations-{year}.csv.gz"]["rows"]
+        assert count == manifest["members"][filename]["rows"]
         counts[str(year)] = count
         db.commit()
         print(json.dumps(dict(phase="compile", year=year, observations=count)), flush=True)
@@ -131,8 +148,11 @@ def compile_truth(root, output, *, estimate):
         CREATE INDEX terminals_day ON terminals(day);
     """)
     sessions = [r[0] for r in db.execute("SELECT day FROM reference ORDER BY day")]
-    assert len(sessions) == a.OBSERVATIONS and sessions[0] == a.WARMUP and sessions[-1] == a.END
-    assert len([d for d in sessions if d >= a.MEASUREMENT]) == a.MEASURED
+    replay_sessions = [day for day in sessions if a.WARMUP <= day <= a.END]
+    assert (len(replay_sessions) == a.OBSERVATIONS
+            and replay_sessions[0] == a.WARMUP
+            and replay_sessions[-1] == a.END)
+    assert len([d for d in replay_sessions if d >= a.MEASUREMENT]) == a.MEASURED
     identity = dict(schema="full-system-private-truth/1", dataset_sha256=a.DATASET_SHA256,
         observations=counts, sessions=sessions, compiler_sha256=sha(__file__),
         classification=estimate.summary(), vendor_vintages="reconstructed_split_basis_v1",

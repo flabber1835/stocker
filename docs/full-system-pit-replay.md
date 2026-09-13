@@ -81,6 +81,17 @@ expensive physical run unless a new immutable package adds the missing
 pre-2006 authority. Backdating current metadata or weakening the 252-session
 contract is not an allowed repair.
 
+The pinned XNYS calendar resolves that required prefix to 2005-01-03 through
+2005-12-30. An extended package keeps the first strategy transition and
+measurement window unchanged, sets its manifest `window.warmup_start` to
+2005-01-03 or earlier, and contains a contiguous `observations-YYYY.csv.gz`
+member for every covered year. Its cash/benchmark histories and the metadata,
+action, and terminal authorities cover the same prefix. Publication requires a
+new immutable dataset hash and OCI package digest; neither may be inferred from
+the existing package. The compiler accepts an earlier declared package start,
+but the production preflight still derives and checks every required session
+from the pinned calendar before any replay can pass.
+
 ## Information and time
 
 The provider owns an immutable economic history and a versioned delivery
