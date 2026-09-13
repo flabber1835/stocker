@@ -57,6 +57,7 @@ def main():
     try:
         server.start()
         conn = S.connect(server.sync_dsn)
+        S.migrate_schema(conn)  # Explicit initialization of the fresh audit database.
         S.require_feed_schema(conn)
         bars = [(PREV, 'OLD'), (PREV, 'KEEP')] + [(d, 'KEEP') for d in SESSIONS]
         S.write_bars(conn, [NormalisedBar(close_signal=100., vendor=VendorBar(
