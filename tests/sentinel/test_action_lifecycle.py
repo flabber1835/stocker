@@ -245,9 +245,23 @@ def test_v5_semantic_reearn_repairs_unchanged_accepted_legacy_split_economics(
         for row in actions.active_rows(
             conn, start=maintenance.ACTIONS_FULL_WINDOW_START, end=END)}
     assert active_ids == before_ids, "the source identities were unchanged"
+    # The v6 source reconciliation and v10 economic replay publish separate
+    # evidence. Read each through the cursor that owns it instead of assuming
+    # the most recent publication still describes source reconciliation.
+    source_cursor = maintenance._core.load_actions_cursor(conn)
+    assert source_cursor is not None
+    with conn.cursor() as cur:
+        cur.execute("SELECT evidence FROM sentinel_corpus_publications WHERE version=%s",
+                    (source_cursor.publication_version,))
+        source_evidence = cur.fetchone()[0]
+    assert source_evidence["changed_action_dates"] == 0
+    assert source_evidence["semantic_upgrade_dates"] >= 1
     publication = P.require_current(conn)
-    assert publication.evidence["changed_action_dates"] == 0
-    assert publication.evidence["semantic_upgrade_dates"] >= 1
+    assert source_cursor.publication_version < publication.version == cursor.publication_version
+    assert publication.evidence["semantic_epoch"] == maintenance.ACTIONS_CURSOR_KIND
+    assert publication.evidence["affected_action_dates"] == [EVENT]
+    assert {row["source_row_id"] for row in publication.evidence["split_authority"]} == {
+        row["source_row_id"] for row in actions.active_rows(conn, start=EVENT, end=EVENT)}
     dispositions = {
         row["kind"] for row in anomalies.active_rows(
             conn, start=PRIOR, end=END,
