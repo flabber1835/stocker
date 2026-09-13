@@ -78,6 +78,101 @@ def test_reported_zero_volume_is_present_and_remains_distinct_from_missing(tmp_p
     assert SeedSessionCounts().add(missing,resolved=True).volume==0
 
 
+def test_production_warmup_preflight_refuses_and_accepts_exact_prior_sessions(tmp_path):
+    from research.full_system_pit.preflight import assess
+
+    path = fixture(tmp_path)
+    required = ["2005-12-30"]
+    refused = assess(path, required_sessions=required)
+    assert refused["status"] == "REFUSED_INCOMPLETE_PRODUCTION_WARMUP"
+    assert refused["missing_observation_sessions"] == required
+    with sqlite3.connect(path) as db:
+        db.execute("INSERT INTO reference VALUES(?,?,?,?,?)",
+                   (required[0], 99., 1., 1., "proxy"))
+        db.execute("INSERT INTO obs VALUES(?,?,?,?,?,?,?,?,?,?)",
+                   (required[0], "0", "PRE", 10., 10., 10.,
+                    1000., 1000., 1., 0.))
+    passed = assess(path, required_sessions=required)
+    assert passed["status"] == "PASS"
+    assert passed["available_reference_sessions"] == 1
+    assert passed["available_observation_sessions"] == 1
+
+
+def test_runtime_manifest_binds_current_production_without_rewriting():
+    from research.full_system_pit import runtime
+
+    root = Path(__file__).resolve().parents[2]
+    manifest = runtime.build_manifest(root)
+    assert manifest["schema"] == "full-system-production-runtime/2"
+    assert manifest["runtime_rewritten"] is False
+    assert manifest["revision"] == runtime.git_revision(root)
+    assert manifest["strategy"]["strategy"] == "sentinel-compact-champion-v1"
+    assert manifest["files"] == runtime.source_manifest(root)
+
+
+def test_first_reference_divergence_is_retained_without_a_cascade():
+    from research.full_system_pit.compare import FrozenReferenceDiagnostic
+
+    class Frozen:
+        processed = ["d0"]
+        calls = 0
+        def observe(self, *_args):
+            self.calls += 1
+            raise Divergence("cash", 1, 2)
+
+    diagnostic = FrozenReferenceDiagnostic.__new__(FrozenReferenceDiagnostic)
+    diagnostic.comparison = Frozen()
+    diagnostic.first_divergence = None
+    first = diagnostic.observe("d1", None, None, None)
+    second = diagnostic.observe("d2", None, None, None)
+    assert first == {"status": "DIVERGED", "first_divergence": {
+        "session": "d1", "gate": "cash", "expected": 1, "actual": 2}}
+    assert second == {"status": "NOT_COMPARED_AFTER_FIRST_DIVERGENCE"}
+    assert diagnostic.comparison.calls == 1
+    assert diagnostic.finish()["matched_sessions"] == 1
+
+
+def test_corrected_performance_continues_independently_of_reference(monkeypatch):
+    from types import SimpleNamespace
+    from research.full_system_pit import authority
+    from research.full_system_pit.compare import CorrectedPerformance
+
+    monkeypatch.setattr(authority, "MEASUREMENT", "2000-01-03")
+    monkeypatch.setattr(authority, "END", "2000-01-04")
+    monkeypatch.setattr(authority, "MEASURED", 2)
+    performance = CorrectedPerformance()
+    def state(nav, target):
+        return SimpleNamespace(
+            last_evidence={"observation": {"shadow_nav": nav}},
+            last_decision={"target_core_exposure": target})
+    performance.observe("2000-01-03", state(100., 1.), 100., (1., 1.))
+    performance.observe("2000-01-04", state(110., 1.), 105., (1., 1.))
+    result = performance.finish()
+    assert result["status"] == "PASS_CORRECTED_PRODUCTION_PERFORMANCE"
+    assert result["ending_multiple"] == pytest.approx(1.10)
+
+
+def test_held_event_attribution_excludes_not_held_and_binds_full_payload():
+    from research.full_system_pit.attribution import HeldEventAttribution
+
+    attribution = HeldEventAttribution()
+    attribution.observe_transition({"terminal_results": [
+        {"session": "d1", "security_id": "S1", "kind": "CASH_MERGER",
+         "method": "EXACT_TERMS", "settlement_available_phase": "OPEN",
+         "old_shares": 10, "cash_per_old_share": 7, "proceeds": 70,
+         "applied": True},
+        {"session": "d1", "security_id": "S2", "reason": "NOT_HELD",
+         "applied": False},
+    ]})
+    result = attribution.finish()
+    assert result["observed_terminal_results"] == 2
+    assert result["held_event_rows"] == 1
+    assert result["settlement_methods"] == {"EXACT_TERMS": 1}
+    assert result["availability_phases"] == {"OPEN": 1}
+    assert result["total_observed_proceeds"] == "70"
+    assert result["rows"][0]["source_payload"]["old_shares"] == 10
+
+
 def test_cursor_is_bound_to_query_and_publication(tmp_path):
     p=provider(tmp_path)
     token=request(p).json()["meta"]["next_cursor_id"]

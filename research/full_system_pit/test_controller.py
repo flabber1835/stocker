@@ -1,4 +1,4 @@
-"""Run from the staged runtime, with this directory on pytest's explicit path."""
+"""Prove the replay uses the checked-out compact champion production path."""
 from __future__ import annotations
 
 from datetime import date, timedelta
@@ -7,7 +7,7 @@ import random
 
 import pytest
 
-from sentinel.controller import champion_frozen, champion_replay, ex3_v6, median5
+from sentinel.controller import champion, champion_config, champion_frozen, median5
 from sentinel.controller.machine import Controller, Observation
 from sentinel.core.session import SessionState
 from sentinel.core.decision import runtime_strategy_identity
@@ -34,7 +34,7 @@ def observations(count):
 def test_registered_runtime_and_restart_identity():
     from sentinel.paper.preparation import _default_paper_strategy
     cfg, identity = _default_paper_strategy()
-    assert cfg.strategy_id == "research-champion-compact-no-ramp-v1"
+    assert cfg.strategy_id == "sentinel-compact-champion-v1"
     assert identity["research_reference_source_sha256"] == "3fcf274dc5dba5b01ff3c637b62922f27c5dfe2e3b28e7f3a416e1bfeba09663"
     state = SessionState.fresh(starting_cash=100000, controller=Controller(cfg), strategy_identity=identity)
     assert len(state.wealth_core["slots"]) == 20
@@ -42,9 +42,9 @@ def test_registered_runtime_and_restart_identity():
 
 
 def test_controller_attachment_matches_frozen_transitions_and_restarts():
-    cfg = ex3_v6.load()
+    cfg = champion_config.load()
     controller = Controller(cfg)
-    actual, overlay = controller.initial_state(), median5.fresh()
+    actual, overlay = controller.initial_state(), median5.fresh(champion=True)
     native, candidate = champion_frozen.Native(), champion_frozen.CandidateA()
     effective = previous = 1.
     rng = random.Random(352331)
@@ -55,13 +55,13 @@ def test_controller_attachment_matches_frozen_transitions_and_restarts():
             ob.spy_vol_ratio, ob.stops20, ob.shadow_nav))
         actual, decision = controller.step(observation=ob, state=actual)
         assert decision.target_core_exposure == expected_native
-        assert {k: actual[v] for k, v in champion_replay.NATIVE_FIELDS.items()} == native.__dict__
+        assert {k: actual[v] for k, v in champion.NATIVE_FIELDS.items()} == native.__dict__
         r20 = rng.choice([None, -.085, 0., .03, .12])
         r40 = rng.choice([None, -.04, -.03999999, .02])
         expected = candidate.step(expected_native, effective, ob.shadow_drawdown,
             r20, r40, ob.spy_r20, ob.shadow_r20)
         effective, previous = previous, expected_native
-        overlay, result = ex3_v6.recover(state=overlay, native=expected_native,
+        overlay, result = champion_config.recover(state=overlay, native=expected_native,
             wc_drawdown=ob.shadow_drawdown, recent_r20=r20, recent_r40=r40,
             spy_r20=ob.spy_r20, wc_r20=ob.shadow_r20)
         assert (result["desired_allocation"], result["reason"]) == expected
@@ -75,7 +75,7 @@ def test_controller_attachment_matches_frozen_transitions_and_restarts():
 @pytest.mark.parametrize("field,value", [("ramp_active", True), ("_r40_history", [.01]),
                                         ("ordinary_stress_age", 21)])
 def test_incompatible_native_state_is_rejected(field, value):
-    controller = Controller(ex3_v6.load())
+    controller = Controller(champion_config.load())
     state = controller.initial_state()
     state[field] = value
     with pytest.raises(ValueError):
@@ -83,49 +83,34 @@ def test_incompatible_native_state_is_rejected(field, value):
 
 
 def test_counter_corruption_and_missing_audit_are_rejected():
-    state = median5.fresh()
+    state = median5.fresh(champion=True)
     state["full_streak"] = 9
     args = dict(native=1., wc_drawdown=0., recent_r20=.01, recent_r40=.01, spy_r20=0., wc_r20=.01)
     with pytest.raises(ValueError, match="snapshot"):
-        ex3_v6.recover(state=state, **args)
-    state = median5.fresh()
+        champion_config.recover(state=state, **args)
+    state = median5.fresh(champion=True)
     del state["champion_audit"]
     with pytest.raises(ValueError):
-        ex3_v6.recover(state=state, **args)
+        champion_config.recover(state=state, **args)
 
 
 def test_rebound_and_cleared_latch_follow_selected_champion():
-    state = median5.fresh()
+    state = median5.fresh(champion=True)
     state.update(episode=True, previous_native=0., previous_desired=0.)
-    after, decision = ex3_v6.recover(state=state, native=1., wc_drawdown=-.15,
+    after, decision = champion_config.recover(state=state, native=1., wc_drawdown=-.15,
         recent_r20=-.10, recent_r40=-.10, spy_r20=.12, wc_r20=-.01)
     assert after["episode"] and decision["desired_allocation"] == 0.
     assert "SPY_V_REBOUND" not in decision["reason"]
 
 
-def test_initial_spy_prefix_observes_only_available_dates():
-    import math
-    from types import SimpleNamespace
-    from sentinel.feed.calendar import sessions_in_range
-    from sentinel.regime.spy import spy_regime
-    dates=sessions_in_range("2006-01-03","2006-03-02")
-    for count in (1,20,21,40):
-        prefix=dates[:count]
-        prices=[100.+i+(i%3) for i in range(count)]
-        published=SimpleNamespace(session=prefix[-1],spy_sessions=prefix,
-            spy_expected_sessions=prefix,spy_closeadj=prices)
-        prior=SimpleNamespace(feed={"session_index":count-2},wealth_core={"episodes":{}},pending=[])
-        actual=champion_replay.warmup_regime(published,prior)
-        expected=spy_regime(prices)
-        if count<21:
-            assert math.isnan(actual.spy_r20)
-        else:
-            assert actual==expected
-        published.spy_sessions=prefix[:-1]
-        with pytest.raises(ValueError,match="bootstrap prefix"):
-            champion_replay.warmup_regime(published,prior)
-    published=SimpleNamespace(session=dates[-1],spy_sessions=dates,
-        spy_expected_sessions=dates,spy_closeadj=[100.]*len(dates))
-    prior=SimpleNamespace(feed={"session_index":39},wealth_core={"episodes":{}},pending=[])
-    with pytest.raises(ValueError,match="bootstrap prefix"):
-        champion_replay.warmup_regime(published,prior)
+def test_replay_has_no_short_tail_loader_or_readiness_override():
+    import inspect
+    from research.full_system_pit import run
+
+    assert not hasattr(run, "sql_warmup")
+    advance = inspect.getsource(run.Experiment.advance)
+    readiness = inspect.getsource(run.Experiment.day_step)
+    assert "production.load_published_session" in advance
+    assert "self.completed < 40" not in advance
+    assert 'require("production_readiness"' in readiness
+    assert "WARMUP_NO_ELIGIBLE_PORTFOLIO" not in readiness

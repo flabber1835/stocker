@@ -22,15 +22,6 @@ jobs:
         with:
           path: work
           fetch-depth: 2
-      - name: Fetch the exact runtime base
-        working-directory: work
-        run: git fetch --depth=1 origin 4bba6875b07288cf6ebc6a149b926075b1e41c60
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: f6ad7b543fbd20ffe363127d1120f4472caa9360
-          path: champion-src
-          persist-credentials: false
-          sparse-checkout: research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/sources
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: 2a1bd486241ae524eac395490b135cc79715e497
@@ -44,16 +35,15 @@ jobs:
           python -m pip check
           sudo apt-get update
           sudo apt-get install -y postgresql
-      - name: Stage the exact champion runtime
-        working-directory: work
+      - name: Bind the exact checked-out production runtime
         run: |
-          python -m research.full_system_pit.stage --repo . --output ../staged-runtime --champion ../champion-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/sources/compact_simplified_no_ramp.py > ../runtime-manifest.json
-      - name: Falsify transport, causality, state identity and controller transitions
-        working-directory: staged-runtime
+          PYTHONPATH=work/shared:work python -m research.full_system_pit.runtime --repo work --output runtime-manifest.json
+      - name: Falsify transport, causality, runtime identity and controller transitions
+        working-directory: work
         env:
           PYTHONPATH: shared
         run: |
-          python -m pytest research/full_system_pit/test_contract.py research/full_system_pit/test_controller.py tests/median5/test_book.py tests/v5/test_opening.py -q --tb=short
+          python -m pytest research/full_system_pit/test_contract.py research/full_system_pit/test_controller.py tests/champion/test_controller.py tests/median5/test_book.py tests/v5/test_opening.py tests/sentinel/test_combined_event_economics.py tests/wealth_core/test_exact_corporate_action_economics.py tests/wealth_core/test_terminal_opening_causality.py -q --tb=short
       - name: Restore the immutable compiled provider index
         id: truth-cache
         uses: actions/cache/restore@0057852bfaa89a56745cba8c7296529d2fc39830
@@ -81,13 +71,18 @@ jobs:
             provider-truth.sqlite
             provider-truth.json
             provider-truth.sha256
+      - name: Require complete production warmup authority
+        env:
+          PYTHONPATH: work/shared:work
+        run: |
+          python -m research.full_system_pit.preflight --truth provider-truth.sqlite --output preflight.json
       - name: Replay the entire daily schedule
-        working-directory: staged-runtime
+        working-directory: work
         env:
           PYTHONPATH: shared
         run: |
           set -o pipefail
-          python -m research.full_system_pit.run --truth ../provider-truth.sqlite --reference ../reference-src/research/champion-certification-20y-v1/results/34544522249-1 --output ../evidence 2>&1 | tee ../replay.log
+          python -m research.full_system_pit.run --truth ../provider-truth.sqlite --reference ../reference-src/research/champion-certification-20y-v1/results/34544522249-1 --runtime-manifest ../runtime-manifest.json --output ../evidence 2>&1 | tee ../replay.log
       - name: Retain all phase evidence and the first divergence
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
@@ -97,6 +92,7 @@ jobs:
             evidence/
             replay.log
             runtime-manifest.json
+            preflight.json
             provider-truth.json
             package-integrity.json
             final-corpus-validation.json

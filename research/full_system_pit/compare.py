@@ -4,6 +4,7 @@ from __future__ import annotations
 import csv
 import gzip
 import json
+import datetime as dt
 import math
 from pathlib import Path
 from collections import defaultdict
@@ -151,3 +152,100 @@ class Comparison:
         equal("cagr", target["cagr"], cagr)
         return dict(cagr=cagr, ending_multiple=self.nav, observations=len(self.processed),
                     measured=len(self.measured))
+
+
+class FrozenReferenceDiagnostic:
+    """Consume the frozen oracle only until its first production difference."""
+
+    def __init__(self, root):
+        self.comparison = Comparison(root)
+        self.first_divergence = None
+
+    def observe(self, day, state, opened, cash_factors):
+        if self.first_divergence is not None:
+            return {"status": "NOT_COMPARED_AFTER_FIRST_DIVERGENCE"}
+        try:
+            result = self.comparison.observe(
+                day, state, opened, cash_factors)
+        except Divergence as exc:
+            self.first_divergence = {
+                "session": day,
+                "gate": exc.gate,
+                "expected": exc.expected,
+                "actual": exc.actual,
+            }
+            return {
+                "status": "DIVERGED",
+                "first_divergence": dict(self.first_divergence),
+            }
+        return {"status": "MATCHED", "reference": result}
+
+    def finish(self):
+        if self.first_divergence is not None:
+            return {
+                "status": "DIVERGED",
+                "equivalent": False,
+                "matched_sessions": len(self.comparison.processed),
+                "first_divergence": dict(self.first_divergence),
+            }
+        result = self.comparison.finish()
+        return {"status": "MATCHED", "equivalent": True, **result}
+
+
+class CorrectedPerformance:
+    """Measure the production path independently of the frozen reference."""
+
+    def __init__(self):
+        self.previous_equity = None
+        self.allocation = 1.0
+        self.pending = 1.0
+        self.nav = 1.0
+        self.measured = []
+
+    def observe(self, day, state, opened, cash_factors):
+        evidence, decision = state.last_evidence, state.last_decision
+        shadow_nav = float(evidence["observation"]["shadow_nav"])
+        desired = float(decision["target_core_exposure"])
+        if day >= a.MEASUREMENT:
+            if self.previous_equity is not None:
+                if cash_factors is None:
+                    raise ValueError(
+                        "corrected performance requires published defensive returns")
+                gap, intraday = cash_factors
+                old, new = self.allocation, self.pending
+                if old == new:
+                    factor = (old * shadow_nav / self.previous_equity
+                              + (1 - old) * gap * intraday)
+                else:
+                    factor = (1 + old * (opened / self.previous_equity - 1)
+                              + (1 - old) * (gap - 1))
+                    factor *= 1 - .001 * abs(new - old)
+                    factor *= (1 + new * (shadow_nav / opened - 1)
+                               + (1 - new) * (intraday - 1))
+                self.nav *= factor
+            self.allocation = self.pending
+            self.previous_equity = shadow_nav
+            self.measured.append(day)
+        self.pending = desired
+        return {
+            "shadow_nav": shadow_nav,
+            "scalar_nav": self.nav,
+            "allocation": self.allocation,
+            "next_target": self.pending,
+        }
+
+    def finish(self):
+        require("corrected_measured_sessions", a.MEASURED, len(self.measured))
+        require("corrected_measurement_start", a.MEASUREMENT, self.measured[0])
+        require("corrected_measurement_end", a.END, self.measured[-1])
+        years = ((dt.date.fromisoformat(a.END)
+                  - dt.date.fromisoformat(a.MEASUREMENT)).days / 365.25)
+        cagr = self.nav ** (1 / years) - 1
+        return {
+            "status": "PASS_CORRECTED_PRODUCTION_PERFORMANCE",
+            "measurement_start": self.measured[0],
+            "measurement_end": self.measured[-1],
+            "measured_sessions": len(self.measured),
+            "ending_multiple": self.nav,
+            "cagr": cagr,
+        }

@@ -1,7 +1,6 @@
-"""Daily historical system experiment. Every transition uses the growing SQL corpus.
+"""Daily historical system experiment against the checked-out production tree.
 
-Run only in the staged research runtime. Failure evidence is a result; it never
-becomes a performance-equivalence PASS or deployment certification.
+Failure evidence is a result; it never becomes deployment certification.
 """
 from __future__ import annotations
 
@@ -21,49 +20,12 @@ import traceback
 from unittest.mock import patch
 
 from . import authority as a, broker
-from .compare import Comparison, equal
+from .attribution import HeldEventAttribution
+from .compare import CorrectedPerformance, FrozenReferenceDiagnostic, equal
 from .evidence import Evidence, digest, plain, require, verify
+from .preflight import require_authority
 from .provider import Provider
-from .stage import source_manifest, sha
-
-
-def sql_warmup(conn, day, *, known_feed_security_ids=()):
-    """The first forty closes, when a full SPY tail does not exist yet.
-
-    All rows are loaded from an actual pinned publication. No assets can be
-    eligible during this prefix. The ordinary production loader takes over on
-    close 41; its readiness, identity and dated-tail checks remain intact.
-    """
-    from sentinel.core import loader, production
-    from sentinel.core.session import PublishedSession, DefensiveBar, FeedAnchor
-    from sentinel.core.terminal import load_terminal_events
-    from sentinel.feed import publication, universe
-    publication.assert_operationally_coherent(conn, frontier=day,
-        extra_security_ids=tuple(known_feed_security_ids))
-    pub = publication.require_current(conn)
-    window = loader.load_window(conn, start=day, end=day)
-    meta = loader.load_meta(conn, as_of=day)
-    visible = publication.visible_predicate("r", sep_retirements=False)
-    spy = conn.execute("SELECT session,closeadj FROM sentinel_spy_total_return r WHERE session<=%s AND "
-                       + visible + " ORDER BY session", (day,)).fetchall()
-    if not 1 <= len(spy) <= 40 or str(spy[-1][0]) != day:
-        raise ValueError("short-tail bootstrap called outside its prefix")
-    defensive = conn.execute("SELECT session,security_id,ticker,open_signal,close_signal,close_adjusted,close_unadjusted "
-        "FROM sentinel_defensive_bars r WHERE session<=%s AND " + visible + " ORDER BY session DESC LIMIT 2", (day,)).fetchall()
-    resolver = universe.load_resolver(conn)
-    terminals = load_terminal_events(conn, start=day, end=day, resolve_with_reason=resolver.resolve_with_reason)
-    require("warmup_terminal_resolution", [], list(terminals.unresolved))
-    require("warmup_terminal_conservation", True, terminals.conservation_holds())
-    bars = window.bars_by_session[day]
-    anchors = {bar.security_id: FeedAnchor(bar.security_id, bar.ticker, "SID:"+bar.security_id, 1.)
-               for bar in bars if bar.security_id not in known_feed_security_ids}
-    return PublishedSession(day, pub.version, bars, meta, loader.load_sectors(conn, as_of=day),
-        [float(p) for _, p in spy], [str(s) for s, _ in spy], [str(s) for s, _ in spy],
-        terminals.events, anchors,
-        defensive_bar=DefensiveBar(*[str(v) if i<3 else v for i,v in enumerate(defensive[0])]),
-        defensive_previous_bar=DefensiveBar(*[str(v) if i<3 else v for i,v in enumerate(defensive[1])]) if len(defensive)>1 else None,
-        signal_basis_anchors=production.load_signal_basis_anchors(conn, session=day,
-            security_ids=known_feed_security_ids))
+from .runtime import harness_manifest, git_revision, source_manifest
 
 
 def corpus_check(conn, provider, day):
@@ -153,11 +115,15 @@ def final_corpus_check(conn,provider):
 
 
 class Experiment:
-    def __init__(self, args, evidence):
+    def __init__(self, args, evidence, runtime_manifest, preflight):
         self.args, self.evidence = args, evidence
+        self.runtime_manifest = runtime_manifest
+        self.preflight = preflight
         self.at = datetime.fromisoformat(a.WARMUP+"T00:00:00+00:00")
         self.day = a.WARMUP
-        self.comparison = Comparison(args.reference)
+        self.comparison = FrozenReferenceDiagnostic(args.reference)
+        self.performance = CorrectedPerformance()
+        self.attribution = HeldEventAttribution()
         self.cluster = self.manager = None
         self.stack = ExitStack()
         self.completed = 0
@@ -177,6 +143,11 @@ class Experiment:
             receipt["retained_export"] = self.evidence.file(self.provider.exports / (receipt["export"]+".zip"))
         self.event("sharadar_response", receipt)
 
+    def core_transition(self, phase, payload):
+        require("core_transition_phase", "wealth_core_transition", phase)
+        self.attribution.observe_transition(payload)
+        return self.event(phase, payload)
+
     def connection(self):
         from sentinel.feed import store
         return store.connect(self.cluster.dsn, statement_timeout_ms=120000)
@@ -194,10 +165,13 @@ class Experiment:
             require("truth_source", a.DATASET_SHA256, self.provider.identity["dataset_sha256"])
             self.cluster = PhysicalCluster().start()
             self.stack.enter_context(self.cluster.runtime())
-            self.stack.enter_context(simulated_runtime(self.provider, commit=a.BASE))
+            self.stack.enter_context(simulated_runtime(
+                self.provider, commit=self.runtime_manifest["revision"]))
             self.manager, self.service = broker.manager(self.at.isoformat())
             self.cfg, self.identity = _default_paper_strategy()
             require("selected_champion", a.STRATEGY, self.cfg.strategy_id)
+            require("selected_strategy_identity",
+                    self.runtime_manifest["strategy"], self.identity)
             env_path = self.cluster.root / "simulation.env"
             environment(env_path, self.cluster.root)
             startup(env_path)
@@ -210,7 +184,9 @@ class Experiment:
                     (self.at-timedelta(days=1),self.at-timedelta(days=1)))
                 conn.commit()
                 alpaca.database_incarnation(conn)
-            result.update(strategy=self.identity, cluster=self.cluster.checkpoints["provisioned"],
+            result.update(strategy=self.identity,
+                          runtime_revision=self.runtime_manifest["revision"],
+                          cluster=self.cluster.checkpoints["provisioned"],
                           provider_identity=self.provider.identity)
 
     async def execute(self, conn):
@@ -273,7 +249,6 @@ class Experiment:
         from stock_strategy_shared.wealth_core import adapter
         from sentinel.core.session import SessionState
         from tools.median5_equivalence import opening_estimate
-        loader = sql_warmup if self.completed < 40 else production.load_published_session
         original = adapter._resolved_open_equity
         observations = []
         def observed(state,bars,ledger):
@@ -281,11 +256,11 @@ class Experiment:
             observations.append(opening_estimate(state,bars,ledger,SessionState.from_dict(prior)))
             return value
         def load(conn, day, **kw):
-            published = loader(conn, day, **kw)
+            published = production.load_published_session(conn, day, **kw)
             self.event("published_inputs", published)
             self.cash_audit=published_cash_factors(published)
             return published
-        with patch.object(adapter,"_resolved_open_equity",observed), trace_wealth_core(self.event):
+        with patch.object(adapter,"_resolved_open_equity",observed), trace_wealth_core(self.core_transition):
             result = production.advance_and_persist(conn,day,prior,load_published=load,
                 controller_config=self.cfg,strategy_identity=self.identity,commit_pin=False)
         require("one_opening_boundary",1,len(observations))
@@ -317,7 +292,9 @@ class Experiment:
         with self.connection() as conn:
             with self.boundary("ingestion") as result:
                 if self.completed == 0:
-                    progress = ingest.seed(conn,date_from=a.WARMUP,date_to=day)
+                    progress = ingest.seed(
+                        conn, date_from=self.preflight["required_first"],
+                        date_to=day)
                 else:
                     progress = ingest.daily(conn,today=day)
                 result["progress"] = plain(progress)
@@ -326,16 +303,21 @@ class Experiment:
             with self.boundary("readiness") as result:
                 report = readiness.check_readiness(conn,today=self.at.isoformat())
                 result["report"] = plain(report)
-                if self.completed >= 126:
-                    require("production_readiness",[],[plain(c) for c in report.failures])
-                else:
-                    result["phase"] = "WARMUP_NO_ELIGIBLE_PORTFOLIO"
+                require("production_readiness",[],[plain(c) for c in report.failures])
             with self.boundary("strategy_and_plan") as result:
                 prior = catchup.resume_state(conn)
                 if prior is None:
                     require("fresh_state_only_at_start",0,self.completed)
-                    prior = SessionState.fresh(starting_cash=100000.,controller=Controller(self.cfg),
-                        strategy_identity=self.identity).to_dict()
+                    from sentinel.paper.preparation import _fresh_warmed_state
+                    account = asyncio.run(
+                        broker.adapter(self.service).account_snapshot())
+                    prior = _fresh_warmed_state(
+                        conn, through=day,
+                        count=a.PRODUCTION_WARMUP_SESSIONS,
+                        account=account, controller_config=self.cfg,
+                        strategy_identity=self.identity,
+                        publication_version=publication.require_current(conn).version,
+                    ).to_dict()
                 outcome = catchup.catch_up(conn,through=day,missed=[day],state=prior,
                     advance_state=self.advance,decide=lambda d,s:self.decide(conn,d,s))
                 raw = catchup.resume_state(conn)
@@ -343,15 +325,20 @@ class Experiment:
                 state = SessionState.from_dict(raw)
                 result.update(state_sha256=state.state_hash, state={k:v for k,v in raw.items() if k!="feed"},
                     feed_sha256=digest(raw["feed"]),feed_securities=len(raw["feed"]["series"]),wire=self.service.drain())
-                if self.completed < 126:
-                    require("warmup_no_positions",{},state.wealth_core["episodes"])
                 if self.completed % 63 == 0:
                     result["restart_state"] = self.evidence.object(raw)
             with self.boundary("independent_comparison") as result:
                 if self.cash_audit is not None:
                     equal("published_cash_gap",cash["gap"],self.cash_audit[0])
                     equal("published_cash_intraday",cash["intraday"],self.cash_audit[1])
-                result.update(self.comparison.observe(day,state,self.open_audit[0],self.cash_audit))
+                corrected = self.performance.observe(
+                    day,state,self.open_audit[0],self.cash_audit)
+                frozen = self.comparison.observe(
+                    day,state,self.open_audit[0],self.cash_audit)
+                result.update(corrected=corrected, frozen_reference=frozen)
+                if frozen["status"] == "DIVERGED":
+                    self.event("first_reference_divergence",
+                               frozen["first_divergence"])
                 result["published_cash_factors"]=self.cash_audit
                 result["opening_carried_marks"] = self.open_audit[1]
                 snapshot = self.service.snapshot()
@@ -371,7 +358,9 @@ class Experiment:
 
     def run(self):
         self.start()
-        sessions = self.provider.identity["sessions"]
+        sessions = [day for day in self.provider.identity["sessions"]
+                    if a.WARMUP <= day <= a.END]
+        require("replay_observation_schedule", a.OBSERVATIONS, len(sessions))
         for day in sessions:
             if day > self.args.through:
                 break
@@ -387,8 +376,18 @@ class Experiment:
                     "sharadar_response","published_inputs","wealth_core_transition","execution_plan"}
                 for day in sessions:
                     require("instrumentation_coverage:"+day,[],sorted(required-set(self.evidence.phases.get(day,()))))
-                result.update(self.comparison.finish())
-            return dict(status="PASS_FULL_SYSTEM_HISTORICAL_REPLAY",**result)
+                corrected = self.performance.finish()
+                frozen = self.comparison.finish()
+                attribution = self.attribution.finish()
+                self.evidence.write("HELD_EVENT_ATTRIBUTION.json", attribution)
+                result.update(
+                    corrected_production_replay=corrected,
+                    frozen_reference_comparison=frozen,
+                    held_event_attribution={
+                        key: value for key, value in attribution.items()
+                        if key != "rows"},
+                )
+            return dict(status="PASS_CORRECTED_PRODUCTION_REPLAY",**result)
         return dict(status="PASS_PREFIX_ONLY",sessions=self.completed,through=self.day,
                     full_equivalence_confirmed=False)
 
@@ -436,21 +435,34 @@ def main():
     parser.add_argument("--truth",type=Path,required=True)
     parser.add_argument("--reference",type=Path,required=True)
     parser.add_argument("--output",type=Path,required=True)
+    parser.add_argument("--runtime-manifest",type=Path,required=True)
     parser.add_argument("--through",default=a.END)
     args = parser.parse_args()
     runtime = Path(__file__).resolve().parents[2]
-    manifest = json.loads((runtime / "REPLAY_RUNTIME.json").read_text())
+    manifest = json.loads(args.runtime_manifest.read_text())
+    require("runtime_schema", "full-system-production-runtime/2",
+            manifest.get("schema"))
+    require("runtime_not_rewritten", False,
+            manifest.get("runtime_rewritten"))
+    require("runtime_revision", manifest["revision"],
+            git_revision(runtime))
     require("runtime_bytes",manifest["files"],source_manifest(runtime))
     require("harness_bytes",manifest["harness_files"],
-            {p.name:sha(p) for p in sorted(Path(__file__).parent.glob("*.py"))})
+            harness_manifest())
+    from sentinel.strategy import production_strategy
+    controller, strategy_identity = production_strategy()
+    require("runtime_strategy", manifest["strategy"], strategy_identity)
+    require("runtime_controller", manifest["controller"], controller.to_dict())
     if args.through < a.WARMUP or args.through > a.END:
         raise ValueError("requested range outside authority")
+    preflight = require_authority(args.truth)
     identity = dict(runtime=manifest,reference_commit=a.REFERENCE_COMMIT,reference_run=a.REFERENCE_RUN,
         through=args.through, dataset_sha256=a.DATASET_SHA256, production_certification=False,
+        preflight=preflight,
         simulated_services=["Sharadar","Alpaca","market clock"],
         service_clock="real PostgreSQL/WAL time", harness_commit=os.environ.get("GITHUB_SHA"))
     evidence = Evidence(args.output,identity)
-    experiment = Experiment(args,evidence)
+    experiment = Experiment(args,evidence,manifest,preflight)
     status = 0
     try:
         result = experiment.run()
