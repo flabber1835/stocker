@@ -31,6 +31,13 @@ def bar(**over):
     return DailyBar(**base)
 
 
+def test_signal_to_raw_scale_names_the_conversion_price_basis():
+    b = bar(signal_close_split_adj_div_unadj=25.0,
+            raw_open=50.0, raw_mark_close=50.0)
+    assert b.signal_to_raw_scale == pytest.approx(0.5)
+    assert b.signal_open_split_adj_div_unadj == pytest.approx(25.0)
+
+
 class TestAmbiguousNamesAreRefused:
     @pytest.mark.parametrize("name", sorted(BANNED_FIELD_NAMES))
     def test_every_domainless_name_is_rejected(self, name):

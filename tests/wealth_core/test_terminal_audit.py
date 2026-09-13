@@ -96,6 +96,46 @@ def run(*, mid_grace_bars=(), carry_mark=90.0, shares=10):
     return st, led, counters, audits
 
 
+def test_multi_episode_terminal_carry_round_trips_and_settles_every_slot():
+    st, led = seated(shares=10), Ledger()
+    st.slots[1].occupied_by = "S1"
+    st.episodes[1] = HoldingEpisode(
+        "S1", "T1", "I1", 1, "d0", "d0", 100.0, 100.0,
+        5, 5, 100.0)
+    last_known, counters = {"S1": 90.0}, empty_counters()
+
+    announced = step_session(
+        session="d1", state=st, bars=[], pending=[], ledger=led,
+        last_known=last_known, cfg=CFG, strategy_id=SID,
+        strategy_version=VER, security_bars=tradeability_only_bars([], None),
+        terminal_terms=[terms()], settlement_counters=counters)
+    assert len(announced.terminal_results) == 2
+    assert {row["shares_at_carry"] for row in announced.terminal_results} == {
+        10, 5}
+    assert counters["pending_terms_carried"] == 1
+    assert counters["pending_terms_carried_notional"] == 1_350.0
+
+    st = PortfolioState.from_dict(st.to_dict())
+    settlement_rows = []
+    for index in range(C1_GRACE_SESSIONS + 1):
+        result = step_session(
+            session=f"q{index}", state=st, bars=[], pending=[], ledger=led,
+            last_known=last_known, cfg=CFG, strategy_id=SID,
+            strategy_version=VER,
+            security_bars=tradeability_only_bars([], None),
+            settlement_counters=counters)
+        settlement_rows.extend(row for row in result.terminal_results
+                               if row.get("applied"))
+
+    assert not st.episodes
+    assert st.cash == pytest.approx(10_000.0 + 15 * 90.0)
+    assert len(settlement_rows) == 2
+    assert {row["terminal_audit"]["shares_at_settlement"]
+            for row in settlement_rows} == {10, 5}
+    assert counters["derived_last_mark_settlements"] == 1
+    assert counters["derived_last_mark_settlements_notional"] == 1_350.0
+
+
 def test_terminal_audit_serialization_has_no_nested_mutable_aliases():
     state = seated()
     state.terminal_carry_audit["S1"] = {
@@ -462,10 +502,12 @@ class TestTheFieldSetIsFinal:
             delivered_issuer_id="I2", exchange_ratio=1.435,
             cash_in_lieu_price_per_delivered_share=140.0,
             reference="test/converted")
-        res = step_session(session="d2", state=st, bars=[], pending=[],
+        bars = [db("S1", "d2", signal=90.0, open_=90.0, mark=90.0),
+                db("S2", "d2", signal=100.0, open_=100.0, mark=100.0)]
+        res = step_session(session="d2", state=st, bars=bars, pending=[],
                            ledger=led, last_known=lk, cfg=CFG, strategy_id=SID,
                            strategy_version=VER,
-                           security_bars=tradeability_only_bars([], None),
+                           security_bars=tradeability_only_bars(bars, None),
                            terminal_terms=[conv], settlement_counters=c)
         a, = [r["terminal_audit"] for r in res.terminal_results
               if r.get("terminal_audit")]

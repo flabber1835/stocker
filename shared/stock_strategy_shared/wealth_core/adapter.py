@@ -49,7 +49,7 @@ from stock_strategy_shared.wealth_core.shares import (
 )
 from stock_strategy_shared.wealth_core.state import PortfolioState
 from stock_strategy_shared.wealth_core.terminal_audit import (
-    record_grace_print, record_grace_split)
+    carry_for_episode, carry_records, record_grace_print, record_grace_split)
 
 
 class IssuerFamilyCollision(RuntimeError):
@@ -64,6 +64,15 @@ class IssuerFamilyCollision(RuntimeError):
         super().__init__(
             "session-effective issuer metadata violates the one-position-per-"
             f"issuer invariant; refusing before fills: {self.evidence!r}")
+
+
+def _terminal_result_rows(result: dict, *, session: str) -> list[dict]:
+    """Expose one report/audit row per episode without reapplying the event."""
+    episode_results = result.get("episode_results")
+    if not episode_results:
+        return [{"session": session, **result}]
+    return [{"session": session, **episode_result}
+            for episode_result in episode_results]
 
 
 @dataclass
@@ -540,9 +549,12 @@ def apply_splits(state: PortfolioState, bars: Sequence[DailyBar], ledger: Ledger
             # `shares_at_carry` is therefore already post-split.
             carry = state.terminal_carry_audit.get(b.security_id)
             if carry is not None:
-                record_grace_split(carry, session=session, ratio=b.split_ratio,
-                                   shares_before=before,
-                                   shares_after=ep.current_shares)
+                episode_carry = carry_for_episode(carry, ep.slot_id)
+                if episode_carry is not None:
+                    record_grace_split(
+                        episode_carry, session=session, ratio=b.split_ratio,
+                        shares_before=before,
+                        shares_after=ep.current_shares)
             # The episode peak is a SPLIT-ADJUSTED price, so it needs no
             # rescaling — that is the entire reason the signal domain is
             # split-adjusted. Rescaling here would double-apply the split.
@@ -902,6 +914,11 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                  executable_price=(float(_b.raw_open)
                                    if _b is not None and _b.can_execute
                                    else None),
+                 source_signal_to_raw_scale=(
+                     _b.signal_to_raw_scale if _b is not None else None),
+                 delivered_signal_to_raw_scale=(
+                     by_sec[terms.delivered_security_id].signal_to_raw_scale
+                     if terms.delivered_security_id in by_sec else None),
                  counters=settlement_counters)
         for slot_id, predecessor_security_id in (
                 episodes_before_terminal.items()):
@@ -913,7 +930,8 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
             session=session)
         order_transformations.extend(transformed)
         res_cancelled.extend(cancelled)
-        terminal_results.append({"session": session, **terminal_result})
+        terminal_results.extend(_terminal_result_rows(
+            terminal_result, session=session))
         if terminal_result.get("blocked"):
             # The opening pass has no usable settlement. Retain the causal
             # prior-mark evidence for a possible closing-phase resolution.
@@ -1098,12 +1116,18 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
             last_valid_mark=prior_mark,
             sessions_since_last_valid_print=prior_stale,
             executable_price=float(bar.raw_mark_close), phase="CLOSE",
-            executable_price_phase="CLOSE", counters=settlement_counters)
+            executable_price_phase="CLOSE",
+            source_signal_to_raw_scale=bar.signal_to_raw_scale,
+            delivered_signal_to_raw_scale=(
+                by_sec[terms.delivered_security_id].signal_to_raw_scale
+                if terms.delivered_security_id in by_sec else None),
+            counters=settlement_counters)
         transformed, cancelled = _transform_pending_for_terminal(
             state, pending, terms=terms, result=closing_result, session=session)
         order_transformations.extend(transformed)
         res_cancelled.extend(cancelled)
-        terminal_results.append({"session": session, **closing_result})
+        terminal_results.extend(_terminal_result_rows(
+            closing_result, session=session))
 
     # ── 7. decide ────────────────────────────────────────────────────────────
     held = state.held_security_ids()
@@ -1132,8 +1156,9 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
             # price rather than at the mark the carry was authorised against.
             carry = state.terminal_carry_audit.get(sec)
             if carry is not None:
-                record_grace_print(carry, session=session,
-                                   price=float(m.raw_mark_close))
+                for episode_carry in carry_records(carry):
+                    record_grace_print(episode_carry, session=session,
+                                       price=float(m.raw_mark_close))
         else:
             state.sessions_since_valid_mark[sec] = (
                 state.sessions_since_valid_mark.get(sec, 0) + 1)
@@ -1161,7 +1186,9 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                            terminated=terminated,
                            counters=settlement_counters)
     if swept:
-        terminal_results.extend(swept)
+        for result in swept:
+            terminal_results.extend(_terminal_result_rows(
+                result, session=result.get("session", session)))
         held = state.held_security_ids()
         marks = build_marks(bars, held, last_known,
                             state.unresolved_terminals,

@@ -328,7 +328,11 @@ class PortfolioState:
     # at fault. See `_AUDIT_ONLY_STATE_KEYS`.
 
     # security_id -> the carry provenance record built by
-    # `terminal_audit.new_carry_record`, for the C1 grace currently being served.
+    # `terminal_audit.new_carry_record`, for the C1 grace currently being
+    # served. The common one-episode case is the historic flat record. A
+    # conversion-collided security uses
+    # {"episode_records": {str(slot_id): <record>}} so each episode retains its
+    # own share-count provenance under the one security-level grace clock.
     terminal_carry_audit: dict[str, dict] = field(default_factory=dict)
 
     # security_id -> the SESSION of its most recent trustworthy print. The price

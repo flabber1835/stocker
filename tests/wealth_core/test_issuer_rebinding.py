@@ -194,7 +194,8 @@ def test_same_session_corporate_action_consolidation_remains_valid():
 
     result = step(
         state, [], [bar("TARGET_A", "ISSUER_ACQUIRER"),
-                    bar("TARGET_B", "ISSUER_ACQUIRER")],
+                    bar("TARGET_B", "ISSUER_ACQUIRER"),
+                    bar("ACQUIRER", "ISSUER_ACQUIRER")],
         terminal_terms=terms)
 
     assert result.cancelled == []
@@ -220,6 +221,7 @@ def test_conversion_into_an_already_held_issuer_refuses_before_fills():
     with pytest.raises(IssuerFamilyCollision) as caught:
         step(state, pending, [
             bar("TARGET", "ISSUER_TARGET"),
+            bar("DELIVERED_CLASS", "ISSUER_ACQUIRER"),
             bar("EXISTING_CLASS", "ISSUER_ACQUIRER"),
             bar("BUY", "ISSUER_OTHER")], terminal_terms=terms)
 

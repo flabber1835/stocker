@@ -154,7 +154,8 @@ def test_pending_close_follows_forward_reverse_and_fractional_conversion(
     state, pending, ledger = held(shares, cash=0.0), pending_close(shares), Ledger()
     result, _ = step(
         state, pending, session="d1",
-        bars=[bar("NEW", "NEW", "d1", price=50.0)], ledger=ledger,
+        bars=[bar("OLD", "OLD", "d1", price=100.0),
+              bar("NEW", "NEW", "d1", price=50.0)], ledger=ledger,
         terms=[conversion("d1", ratio, lieu=lieu)])
 
     assert pending == [] and 0 not in state.episodes
@@ -212,7 +213,8 @@ def test_mixed_consideration_never_retargets_a_pending_open_or_loses_cash_leg():
 
     result, _ = step(
         state, pending, session="d1",
-        bars=[bar("NEW", "NEW", "d1", price=20.0)], terms=[terms])
+        bars=[bar("OLD", "OLD", "d1", price=100.0),
+              bar("NEW", "NEW", "d1", price=20.0)], terms=[terms])
 
     assert pending == []
     assert state.slots[0].reserved_for is None
@@ -267,7 +269,10 @@ def test_restart_after_split_transform_is_identical_to_uninterrupted_fill():
 def test_restart_after_conversion_transform_is_identical_to_uninterrupted_fill():
     state, pending, ledger = held(10, cash=0.0), pending_close(10), Ledger()
     first, _ = step(
-        state, pending, session="d1", bars=[], ledger=ledger,
+        state, pending, session="d1",
+        bars=[bar("OLD", "OLD", "d1", price=100.0, tradeable=False),
+              bar("NEW", "NEW", "d1", price=70.0, tradeable=False)],
+        ledger=ledger,
         terms=[conversion("d1", 1.5)])
     assert first.transformed[0]["to_security_id"] == "NEW"
     assert pending[0].to_dict()["transformations"]

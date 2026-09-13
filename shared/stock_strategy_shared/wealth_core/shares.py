@@ -54,6 +54,7 @@ deterministic rather than accumulating drift.
 from __future__ import annotations
 
 from decimal import Decimal, ROUND_HALF_EVEN, localcontext
+import math
 
 #: Decimal places a share quantity is held to after a corporate action.
 #: Comfortably finer than any real entitlement and comfortably coarser than the
@@ -83,6 +84,22 @@ def split_shares(before, ratio) -> float:
             _Q, rounding=ROUND_HALF_EVEN))
 
 
+def affordable_whole_shares(cash: float, price: float,
+                            cost_bps: float) -> int:
+    """Whole shares purchasable with ``cash``, including traded-side cost.
+
+    V5 opening sizing and the shared fill cap call this exact quotient. In
+    particular, do not replace ``math.floor(cash / per_share)`` with ``cash //
+    per_share``: binary floats can make the latter one share smaller at an exact
+    boundary.
+    """
+    if (not all(math.isfinite(float(x)) for x in (cash, price, cost_bps))
+            or cash <= 0 or price <= 0 or cost_bps < 0):
+        return 0
+    per_share = price * (1.0 + cost_bps / 10_000.0)
+    return max(0, math.floor(cash / per_share))
+
+
 def is_integral(x) -> bool:
     return float(x) == int(float(x))
 
@@ -103,4 +120,5 @@ def as_json(x):
     return int(f) if f == int(f) else f
 
 
-__all__ = ["SHARE_DP", "as_json", "is_integral", "split_shares"]
+__all__ = ["SHARE_DP", "affordable_whole_shares", "as_json", "is_integral",
+           "split_shares"]

@@ -387,12 +387,31 @@ def validate_payload(d, *, cooldown_sessions):
     carry_audit = _mapping(
         d.get("terminal_carry_audit"), "terminal_carry_audit",
         absent_empty=True)
+    from stock_strategy_shared.wealth_core.terminal_audit import (
+        EPISODE_RECORDS_KEY)
     for sec, record in carry_audit.items():
         _text(sec, "terminal_carry_audit key")
         if sec not in held:
             _fail("terminal_carry_audit",
                   "contains non-held security %s" % sec)
-        _mapping(record, "terminal_carry_audit[%s]" % sec)
+        record = _mapping(record, "terminal_carry_audit[%s]" % sec)
+        if EPISODE_RECORDS_KEY in record:
+            records = _mapping(
+                record.get(EPISODE_RECORDS_KEY),
+                "terminal_carry_audit[%s].%s" % (sec, EPISODE_RECORDS_KEY))
+            expected_slots = {
+                str(slot_id) for slot_id, episode in episodes.items()
+                if episode["security_id"] == sec
+            }
+            if set(records) != expected_slots:
+                _fail("terminal_carry_audit[%s].%s"
+                      % (sec, EPISODE_RECORDS_KEY),
+                      "slot keys disagree with held episodes")
+            for slot_id, episode_record in records.items():
+                _mapping(
+                    episode_record,
+                    "terminal_carry_audit[%s].%s[%s]"
+                    % (sec, EPISODE_RECORDS_KEY, slot_id))
 
     last_mark_session = _mapping(
         d.get("last_valid_mark_session"), "last_valid_mark_session",
