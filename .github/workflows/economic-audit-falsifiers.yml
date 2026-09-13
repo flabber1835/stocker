@@ -39,7 +39,7 @@ jobs:
           set -euo pipefail
           mkdir -p evidence
           docker run --rm --network none --entrypoint python sentinel-test:ci -c 'import sys,json,importlib.metadata as m; assert sys.version_info[:3] == (3,12,13); print(json.dumps({"python":sys.version,"dependencies":{n:m.version(n) for n in ("numpy","pandas","exchange_calendars","pydantic","psycopg")}},indent=2))' > evidence/runtime.json
-          for probe in conversion_aggregation noninteger_reverse_split; do
+          for probe in conversion_aggregation noninteger_reverse_split terminal_daily_exclusion_postgres; do
             docker run --rm --network none --entrypoint python -v "$PWD/audit/audit_evidence/economic_373:/audit:ro" sentinel-test:ci "/audit/$probe.py" > "evidence/$probe.json"
             cat "evidence/$probe.json"
           done
