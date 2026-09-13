@@ -1,0 +1,145 @@
+name: Economic audit 373 continuation evidence
+on:
+  push:
+    branches: [audit/economic-373-snapshot]
+    paths: [.github/workflows/economic-audit-continuation.yml]
+permissions:
+  contents: read
+concurrency:
+  group: economic-audit-373-continuation
+  cancel-in-progress: false
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 40
+    steps:
+      - name: Read exact audited production source
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 09dde38d270ad069a006ee3cb458037d42ade316
+          persist-credentials: false
+      - name: Verify and export complete tracked audit source
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 09dde38d270ad069a006ee3cb458037d42ade316
+          test "$(git rev-parse HEAD^{tree})" = d80c655c42e1abfef83b2d031766bf295a2c9181
+          mkdir -p /tmp/audit-source /tmp/audit-evidence
+          git archive --format=tar HEAD | gzip > /tmp/audit-source/source-complete.tar.gz
+          git ls-tree -r -l HEAD > /tmp/audit-source/source-tree.tsv
+          git rev-parse HEAD HEAD^{tree} > /tmp/audit-source/revision.txt
+          (cd /tmp/audit-source && sha256sum source-complete.tar.gz source-tree.tsv > SHA256SUMS)
+      - name: Retain complete tracked source
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: economic-audit-373-complete-source-09dde38
+          path: /tmp/audit-source/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Build exact production runtime and test lens
+        run: |
+          set -euo pipefail
+          docker build --build-arg SOURCE_GIT_SHA=09dde38d270ad069a006ee3cb458037d42ade316 -f Dockerfile.sentinel -t sentinel:ci .
+          docker build --build-arg SENTINEL_IMAGE=sentinel:ci --build-arg SOURCE_GIT_SHA=09dde38d270ad069a006ee3cb458037d42ade316 -f Dockerfile.sentinel-test -t sentinel-test:ci .
+          docker run --rm --network none --entrypoint python sentinel-test:ci -c 'import sys,json,importlib.metadata as m; assert sys.version_info[:3] == (3,12,13); print(json.dumps({"python":sys.version,"dependencies":{n:m.version(n) for n in ("numpy","pandas","exchange_calendars","pydantic","psycopg","pytest")}},indent=2))' > /tmp/audit-evidence/runtime.json
+      - name: Export reusable offline numerical and PostgreSQL test runtime
+        continue-on-error: true
+        run: |
+          mkdir -p /tmp/audit-runtime
+          docker run --rm --network none --entrypoint sh -v /tmp/audit-runtime:/evidence sentinel-test:ci -c '
+            set -eu
+            pgver=$(ls /usr/lib/postgresql | sort -V | tail -1)
+            printf "%s\n" "$pgver" > /evidence/postgres-version.txt
+            ldd /usr/local/bin/python3.12 /usr/lib/postgresql/$pgver/bin/* /usr/lib/postgresql/$pgver/lib/*.so 2>/dev/null | awk "/=> \\/.* \\(/ {print \$3}" | sort -u > /tmp/runtime-libraries.txt
+            tar -czf /evidence/offline-runtime.tar.gz /usr/local /usr/lib/postgresql /usr/share/postgresql -T /tmp/runtime-libraries.txt
+            cd /evidence && sha256sum offline-runtime.tar.gz > SHA256SUMS
+          '
+      - name: Retain offline audit runtime
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: economic-audit-373-offline-runtime-09dde38
+          path: /tmp/audit-runtime/
+          if-no-files-found: warn
+          retention-days: 7
+      - name: Median-5 reviewed mutation falsifiers on Python 3.12
+        id: mutations
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint python -v /tmp/audit-evidence:/evidence sentinel-test:ci tools/median5_mutation_check.py --output /evidence/median5-mutations.json 2>&1 | tee /tmp/audit-evidence/median5-mutations.log
+      - name: Physical PostgreSQL economic persistence and revision tranche
+        id: postgres
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint python -v /tmp/audit-evidence:/evidence sentinel-test:ci -m pytest -q -ra --junitxml=/evidence/postgres-economic.xml \
+            tests/sentinel/test_history_mutation_publication.py \
+            tests/sentinel/test_strategy_history_mutations.py \
+            tests/sentinel/test_catchup_atomicity.py \
+            tests/sentinel/test_issue_209_state_commitment.py \
+            tests/sentinel/test_journal_and_reconcile.py \
+            tests/sentinel/test_dual_reconciliation.py \
+            tests/sentinel/test_generated_economic_sequences.py \
+            tests/sentinel/test_alpaca_simulation_durability.py \
+            tests/sentinel/test_execution_state_machine_model.py \
+            tests/sentinel/test_process_death_recovery.py \
+            tests/sentinel/test_p0_recovery_and_staleness.py \
+            tests/sentinel/test_high_impact_durable_remediation.py \
+            tests/sentinel/test_full_production_trading_day.py \
+            tests/sentinel/test_corpus_publication.py \
+            tests/sentinel/test_action_lifecycle.py \
+            tests/sentinel/test_actions_wiring.py \
+            tests/sentinel/test_split_seam.py \
+            tests/sentinel/test_plan_currency_race.py \
+            tests/sentinel/test_projection_and_executor.py \
+            tests/sentinel/test_two_phase.py \
+            tests/sentinel/test_guarded_execution_broker.py \
+            tests/sentinel/test_alpaca_execution_entrypoint.py \
+            tests/sentinel/test_paper_performance_quarantine.py 2>&1 | tee /tmp/audit-evidence/postgres-economic.log
+      - name: Compound corporate action and complete recovery-wiring tranche
+        id: compound
+        continue-on-error: true
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --entrypoint python -v /tmp/audit-evidence:/evidence sentinel-test:ci -m pytest -q -ra --junitxml=/evidence/compound-economic.xml \
+            tests/wealth_core/test_pending_corporate_actions.py \
+            tests/wealth_core/test_restart_matrix.py \
+            tests/wealth_core/test_restore_economic_invariants.py \
+            tests/wealth_core/test_restore_nested_economic_invariants.py \
+            tests/wealth_core/test_terminal_audit.py \
+            tests/wealth_core/test_conversion_collision.py \
+            tests/wealth_core/test_exact_corporate_action_economics.py \
+            tests/sentinel/test_production_recovery_wiring.py \
+            tests/sentinel/test_reboot_outage_recovery.py \
+            tests/sentinel/test_production_outage_recovery.py \
+            tests/sentinel/test_combined_event_economics.py \
+            tests/sentinel/test_alpaca_restart_day_fence.py \
+            tests/median5 2>&1 | tee /tmp/audit-evidence/compound-economic.log
+      - name: Retain evidence and explicit outcomes
+        if: always()
+        env:
+          MUTATION_OUTCOME: ${{ steps.mutations.outcome }}
+          POSTGRES_OUTCOME: ${{ steps.postgres.outcome }}
+          COMPOUND_OUTCOME: ${{ steps.compound.outcome }}
+        run: |
+          printf 'baseline=09dde38d270ad069a006ee3cb458037d42ade316\nmutation=%s\npostgres=%s\ncompound=%s\n' "$MUTATION_OUTCOME" "$POSTGRES_OUTCOME" "$COMPOUND_OUTCOME" > /tmp/audit-evidence/outcomes.txt
+          cat /tmp/audit-evidence/outcomes.txt >> "$GITHUB_STEP_SUMMARY"
+          (cd /tmp/audit-evidence && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+      - name: Upload continuation evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: economic-audit-373-continuation-09dde38
+          path: /tmp/audit-evidence/
+          if-no-files-found: error
+          retention-days: 30
+      - name: Require all executed tranches to pass
+        if: always()
+        env:
+          MUTATION_OUTCOME: ${{ steps.mutations.outcome }}
+          POSTGRES_OUTCOME: ${{ steps.postgres.outcome }}
+          COMPOUND_OUTCOME: ${{ steps.compound.outcome }}
+        run: |
+          test "$MUTATION_OUTCOME" = success
+          test "$POSTGRES_OUTCOME" = success
+          test "$COMPOUND_OUTCOME" = success
