@@ -141,6 +141,14 @@ descending-session contract; provenance can make PostgreSQL prefer the latter.
 Required-index schema validation remains unchanged. This gate does not replace
 full GO acceptance.
 
+Feed-only databases may not yet have the behavioral cursor table. Read-only
+cursor loaders check relation presence and report absent cursor evidence in
+that case; they neither create the table nor abort the caller's transaction.
+This is not readiness authority: required maintenance evidence still fails when
+absent, and full-runtime schema validation still refuses a missing behavioral
+table. Test both absent-table and installed-table read-only boundaries before
+the campaign matrix.
+
 ### Complete GO acceptance (issue #363 item 1)
 
 `tools/production_go_e2e_audit.py` launches the supported operator shell with

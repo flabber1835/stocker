@@ -196,9 +196,13 @@ def test_legacy_cursor_cannot_bypass_v7_semantic_reearn(old_epoch):
             return None
 
         def execute(self, sql, params=()):
-            if "WHERE cursor_name=%s" in sql:
+            if sql == "SELECT to_regclass(%s)":
+                self.row = ("sentinel_processed_sessions",)
+            elif "WHERE cursor_name=%s" in sql:
                 self.conn.requested.append(params[0])
                 self.row = self.conn.rows.get(params[0])
+            else:
+                raise AssertionError(f"unexpected cursor SQL: {sql}")
 
         def fetchone(self):
             return self.row

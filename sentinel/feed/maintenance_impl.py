@@ -104,14 +104,14 @@ class LastUpdatedTrackingFetch:
 
 
 def _ensure_cursor_table(conn) -> None:
-    """Install the durable source-cursor table before the first cursor access.
+    """Install the durable source-cursor table at a writer boundary.
 
     #185 introduced maintenance cursors after the original Sentinel schema was
     already widely deployed.  The first implementation referenced the table but
     never created it, so a clean database and every upgraded appliance failed on
     the first seed/daily/readiness cursor read with UndefinedTable.  Keep the
-    migration colocated with the cursor authority so no caller can observe a
-    half-installed contract.  CREATE IF NOT EXISTS is idempotent and remains in
+    migration colocated with the cursor writer. Readers report absent evidence
+    without installing schema. CREATE IF NOT EXISTS is idempotent and remains in
     the caller's transaction; the surrounding operation decides when it commits.
     """
     with conn.cursor() as cur:
@@ -127,6 +127,9 @@ def _read_cursor(conn, name: str, kind: str) -> Optional[SourceCursor]:
     # Schema installation belongs to migration/writers. Readiness calls this
     # loader inside a read-only transaction, where even IF NOT EXISTS DDL fails.
     with conn.cursor() as cur:
+        cur.execute("SELECT to_regclass(%s)", ("sentinel_processed_sessions",))
+        if cur.fetchone()[0] is None:
+            return None
         cur.execute(
             "SELECT session,state FROM sentinel_processed_sessions"
             " WHERE cursor_name=%s", (name,))

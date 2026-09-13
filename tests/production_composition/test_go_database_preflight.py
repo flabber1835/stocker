@@ -6,7 +6,7 @@ import pytest
 
 from scripts import sentinel_go_validate as go
 from sentinel import schema
-from sentinel.feed import maintenance, recent_reconciliation, store
+from sentinel.feed import maintenance, readiness, recent_reconciliation, store
 from tests.support.postgres import _EphemeralPostgres
 
 
@@ -24,21 +24,40 @@ def conn():
         server.stop()
 
 
+@pytest.mark.parametrize("table_installed", [False, True])
 @pytest.mark.parametrize("loader", [
     maintenance.load_sep_cursor, maintenance.load_actions_cursor,
     recent_reconciliation.load_cursor,
 ])
-def test_real_cursor_loader_is_read_only(conn, loader):
+def test_real_cursor_loader_is_read_only(conn, loader, table_installed):
     conn.rollback()
+    if not table_installed:
+        with conn.cursor() as cur:
+            cur.execute("ALTER TABLE sentinel_processed_sessions"
+                        " RENAME TO preflight_saved_cursors")
+        conn.commit()
     with conn.cursor() as cur:
         cur.execute("BEGIN TRANSACTION READ ONLY")
     try:
         assert loader(conn) is None
+        result = readiness._impl.Readiness()
+        readiness._add_source_maintenance_checks(
+            conn, result, today="2026-08-18", required_through="2026-08-18")
+        assert len(result.checks) == 3
+        assert all(check.status == readiness.FAIL for check in result.checks)
+        assert not result.ready
         with conn.cursor() as cur:
             cur.execute("SELECT 1")
             assert cur.fetchone() == (1,)
+            cur.execute("SELECT to_regclass('sentinel_processed_sessions')")
+            assert (cur.fetchone()[0] is not None) == table_installed
     finally:
         conn.rollback()
+        if not table_installed:
+            with conn.cursor() as cur:
+                cur.execute("ALTER TABLE preflight_saved_cursors"
+                            " RENAME TO sentinel_processed_sessions")
+            conn.commit()
 
 
 def _nodes(node):
