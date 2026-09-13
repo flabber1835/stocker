@@ -169,8 +169,30 @@ def test_held_event_attribution_excludes_not_held_and_binds_full_payload():
     assert result["held_event_rows"] == 1
     assert result["settlement_methods"] == {"EXACT_TERMS": 1}
     assert result["availability_phases"] == {"OPEN": 1}
+    assert result["held_rows_by_security"] == {"S1": 1}
     assert result["total_observed_proceeds"] == "70"
     assert result["rows"][0]["source_payload"]["old_shares"] == 10
+
+
+def test_held_event_attribution_projects_nested_episode_audit():
+    from research.full_system_pit.attribution import HeldEventAttribution
+
+    attribution = HeldEventAttribution()
+    attribution.observe_transition({"terminal_results": [{
+        "session": "d2", "security_id": "S2", "applied": True,
+        "settlement_source": "EXECUTABLE_PRINT",
+        "settlement_available_phase": "CLOSE",
+        "terminal_audit": {
+            "security_id": "S2", "shares_at_settlement": 12,
+            "settlement_method": "EXECUTABLE_PRINT",
+            "settlement_notional": 84,
+        },
+    }]})
+
+    result = attribution.finish()
+    assert result["held_rows_by_security"] == {"S2": 1}
+    assert result["rows"][0]["shares_at_settlement"] == 12
+    assert result["rows"][0]["settlement_notional"] == 84
 
 
 def test_cursor_is_bound_to_query_and_publication(tmp_path):

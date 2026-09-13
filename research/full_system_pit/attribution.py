@@ -40,10 +40,12 @@ class HeldEventAttribution:
             if terminal.get("reason") == "NOT_HELD":
                 continue
             raw = dict(terminal)
+            audit = (raw.get("terminal_audit")
+                     if isinstance(raw.get("terminal_audit"), dict) else {})
             selected = {
-                key: raw[key]
+                key: raw[key] if key in raw else audit[key]
                 for key in ECONOMIC_FIELDS
-                if key in raw
+                if key in raw or key in audit
             }
             selected["source_payload_sha256"] = digest(raw)
             selected["source_payload"] = raw
@@ -52,6 +54,7 @@ class HeldEventAttribution:
     def finish(self):
         methods = Counter()
         phases = Counter()
+        securities = Counter()
         total_proceeds = Decimal(0)
         for row in self.rows:
             method = (row.get("settlement_method") or row.get("method")
@@ -61,6 +64,8 @@ class HeldEventAttribution:
                      or row.get("phase") or "UNSPECIFIED")
             methods[str(method)] += 1
             phases[str(phase)] += 1
+            security_id = row.get("security_id") or "UNSPECIFIED"
+            securities[str(security_id)] += 1
             proceeds = _money(row.get("proceeds"))
             if proceeds is not None:
                 total_proceeds += proceeds
@@ -72,6 +77,7 @@ class HeldEventAttribution:
             "rows_sha256": digest(self.rows),
             "settlement_methods": dict(sorted(methods.items())),
             "availability_phases": dict(sorted(phases.items())),
+            "held_rows_by_security": dict(sorted(securities.items())),
             "total_observed_proceeds": str(total_proceeds),
             "rows": self.rows,
         }
