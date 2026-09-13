@@ -188,11 +188,11 @@ marker, make GO fail, and prevent subsequent promotion or final success as
 appropriate. This is stage reachability/sensitivity evidence; interruption,
 durable recovery, and convergence campaigns remain issue #363 item 2.
 
-CI partitions sensitivity into operator, preparation, financial, and handoff
+Manual full GO partitions sensitivity into operator, preparation, financial, and handoff
 campaigns. Every campaign starts with a complete real GO success and then runs
 its selected faults through new operator invocations. This preserves full
 production certification in each invocation while keeping the campaigns within
-the job time limit. Both existing required composition check names aggregate all
+the job time limit. The composition acceptance check aggregates all selected
 campaigns; any failed or cancelled campaign prevents acceptance.
 
 Synthetic-merge verification binds the checked-out GitHub merge SHA and its
@@ -202,6 +202,15 @@ does not replace verification of the actual merge parents and current ancestry.
 
 `.github/workflows/production-composition-harness.yml` runs on pull requests,
 merge groups, `main` pushes and manual dispatch.
+
+Automatic events run the fast database preflight and one composition smoke job
+(focused contracts, host-process regressions, physical restore seam and small
+Docker/PostgreSQL gates). They do not launch canonical full GO or claim its
+certification evidence. Only `workflow_dispatch` launches all four full-GO
+campaigns and requires their canonical evidence. In GitHub Actions, select
+**Production composition harness**, choose **Run workflow**, and select the
+reviewed branch/ref. This policy changes scheduling only: exact-build identity,
+full-GO acceptance and runtime-promotion protections remain unchanged.
 
 Acceptance requires:
 

@@ -12,6 +12,7 @@ import sys
 import shutil
 
 import pytest
+import yaml
 
 ROOT = Path(__file__).resolve().parents[2]
 PATH = ROOT / "tools" / "production_go_e2e_harness.py"
@@ -19,6 +20,35 @@ SPEC = importlib.util.spec_from_file_location("production_go_e2e_harness", PATH)
 assert SPEC is not None and SPEC.loader is not None
 harness = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(harness)
+
+
+def _require_manual_full_go(workflow):
+    composition = workflow["jobs"]["composition"]
+    assert composition["strategy"]["matrix"]["campaign"] == (
+        "${{ fromJSON(github.event_name == 'workflow_dispatch' && "
+        "'[\"operator\",\"preparation\",\"financial\",\"handoff\"]' || '[\"smoke\"]') }}")
+    steps = composition["steps"]
+    launchers = [step for step in steps
+                 if "python tools/production_go_e2e_audit.py" in step.get("run", "")]
+    assert len(launchers) == 1
+    evidence = next(step for step in steps
+                    if step.get("name") == "Verify canonical GO evidence")
+    for step in [*launchers, evidence]:
+        assert step.get("if") == "github.event_name == 'workflow_dispatch'"
+    assert "if" not in workflow["jobs"]["database-preflight"]
+    assert "if" not in composition
+
+
+def test_full_go_is_manual_but_fast_checks_remain_automatic():
+    workflow = yaml.safe_load(
+        (ROOT / ".github/workflows/production-composition-harness.yml").read_text())
+    _require_manual_full_go(workflow)
+    for step in workflow["jobs"]["composition"]["steps"]:
+        if step.get("if") == "github.event_name == 'workflow_dispatch'":
+            guard = step.pop("if")
+            with pytest.raises(AssertionError):
+                _require_manual_full_go(workflow)
+            step["if"] = guard
 
 
 def test_script_process_can_load_production_session_calendar(tmp_path):
