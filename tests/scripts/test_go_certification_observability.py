@@ -44,6 +44,20 @@ def test_failure_node_capture_is_bounded_sanitized_and_color_safe():
     )
 
 
+def test_failed_check_diagnostics_are_bounded_and_name_only():
+    checks = ["recent XNYS axis", "warmup_revision_input_complete",
+              "recent XNYS axis", "password=must-not-appear",
+              "https://example.invalid/private"]
+    checks.extend("safe-check-%02d" % index for index in range(40))
+
+    result = obs.safe_failed_checks(checks)
+
+    assert result[:2] == (
+        "recent XNYS axis", "warmup_revision_input_complete")
+    assert len(result) == 32
+    assert not any("password" in item or "http" in item for item in result)
+
+
 def test_only_networkless_test_runs_and_builds_stream_raw_output():
     assert obs._raw_stream_is_safe([
         "docker", "build", "-t", "candidate", "."])

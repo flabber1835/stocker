@@ -17,6 +17,7 @@ module has no side effects.
 from __future__ import annotations
 
 from dataclasses import dataclass
+import json
 import os
 import queue
 import re
@@ -48,9 +49,30 @@ CERTIFICATION_SUITE_LABELS = (
 
 _ANSI_RE = re.compile(r"\x1b\[[0-9;]*m")
 _SAFE_NODE_RE = re.compile(r"^tests/[A-Za-z0-9_./:\-\[\],=+()]+$")
+_SAFE_CHECK_RE = re.compile(r"^[A-Za-z0-9][A-Za-z0-9 ._/%+:-]{0,95}$")
+_UNSAFE_CHECK_RE = re.compile(
+    r"(?:\b(?:api[_-]?key|authorization|password|secret|token)\b|://)",
+    re.IGNORECASE,
+)
 _MAX_FAILURE_NODES = 12
 _HEARTBEAT_SECONDS = 10.0
 _INSTALLED_MARKER = "_sentinel_go_observability_installed"
+
+
+def safe_failed_checks(value: Any) -> Tuple[str, ...]:
+    """Retain bounded check names without exposing diagnostic detail."""
+    if not isinstance(value, (list, tuple)):
+        return ()
+    result = []
+    for item in value:
+        name = str(item)
+        if (_SAFE_CHECK_RE.fullmatch(name)
+                and _UNSAFE_CHECK_RE.search(name) is None
+                and name not in result):
+            result.append(name)
+        if len(result) >= 32:
+            break
+    return tuple(result)
 
 
 def _use_color() -> bool:
@@ -446,6 +468,10 @@ def install(*, go: Any, controller: Any) -> None:
     base_runner = controller.DiagnosticRunner
 
     class ObservableDiagnosticRunner(base_runner):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            self.last_readiness_failed_checks = ()
+
         def run(self, argv, *, env=None, cwd=go.ROOT):
             command = [str(item) for item in argv]
             completed = _streaming_run(
@@ -455,6 +481,17 @@ def install(*, go: Any, controller: Any) -> None:
             if ("SENTINEL_GO_PREPARATION" in text
                     or any("SENTINEL_GO_PREPARATION=" in item for item in command)):
                 self.last_preparation_output = text
+            marker = "SENTINEL_GO_READINESS="
+            for line in text.splitlines():
+                if not line.startswith(marker):
+                    continue
+                try:
+                    payload = json.loads(line[len(marker):])
+                except json.JSONDecodeError:
+                    break
+                self.last_readiness_failed_checks = safe_failed_checks(
+                    payload.get("failed_checks") if isinstance(payload, dict) else None)
+                break
             return completed
 
     @dataclass(frozen=True)
@@ -539,6 +576,10 @@ def install(*, go: Any, controller: Any) -> None:
         result = original_readiness(*args, **kwargs)
         (_pass if result.status == go.PASS else _fail)(
             "Sharadar readiness %s" % result.status)
+        failed = safe_failed_checks(getattr(
+            args[0], "last_readiness_failed_checks", ())) if args else ()
+        if result.status != go.PASS and failed:
+            _warn("Sharadar readiness failed checks: " + ", ".join(failed))
         return result
 
     def probe_db_health(*args, **kwargs):
@@ -546,6 +587,12 @@ def install(*, go: Any, controller: Any) -> None:
         result = original_db_health(*args, **kwargs)
         (_pass if result[1].status == go.PASS else _fail)(
             "database financial health %s" % result[1].status)
+        failed = safe_failed_checks([
+            name for name, passed in getattr(result[0], "checks", {}).items()
+            if passed is not True
+        ])
+        if result[1].status != go.PASS and failed:
+            _warn("database financial failed checks: " + ", ".join(failed))
         return result
 
     go.probe_git = probe_git

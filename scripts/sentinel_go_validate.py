@@ -1328,6 +1328,7 @@ try:
         'checks_total': len(result.checks),
         'checks_passed': sum(1 for item in result.checks if item.ok),
         'failures': len(result.failures),
+        'failed_checks': [str(item.name) for item in result.checks if not item.ok],
         'transaction_read_only': True,
     }, sort_keys=True))
 finally:
