@@ -30,6 +30,13 @@ def test_restore_upgrade_is_a_real_postgres_gate_in_composition_ci():
     assert "physical-restore.xml" in workflow
 
 
+def test_composition_ci_retains_go_bundle_on_refusal():
+    workflow = (ROOT / ".github" / "workflows" /
+                "production-composition-harness.yml").read_text(encoding="utf-8")
+    assert "artifacts/production-composition" in workflow
+    assert "artifacts/sentinel/go-validation" in workflow
+
+
 def test_extended_fault_campaign_is_additive_to_original_authority_matrix():
     from tests.production_composition.contract import scenarios
     from tests.production_composition.extended_contract import EXTENDED_CASES

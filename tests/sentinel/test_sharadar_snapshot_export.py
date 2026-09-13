@@ -192,6 +192,29 @@ def test_complete_ticker_export_returns_only_sep_identity_keys(monkeypatch):
     assert evidence["sep_identity_keys"] == 2
 
 
+@pytest.mark.parametrize("enabled,base,link,accepted", [
+    (True, "http://127.0.0.1:8000", "http://127.0.0.1:8000/export.zip", True),
+    (False, "http://127.0.0.1:8000", "http://127.0.0.1:8000/export.zip", False),
+    (True, "http://127.0.0.1:8000", "http://127.0.0.1:8001/export.zip", False),
+    (True, "http://127.0.0.1:8000", "http://example.com/export.zip", False),
+    (True, "https://example.com", "http://example.com/export.zip", False),
+])
+def test_http_export_requires_explicit_same_origin_development(
+        monkeypatch, enabled, base, link, accepted):
+    monkeypatch.setattr(snapshot_export.sharadar, "ALLOW_INSECURE_BASE_URL", enabled)
+    monkeypatch.setattr(snapshot_export.sharadar, "NDL_BASE", base)
+    http = _Http([_Response(content=b"fixture-export")])
+    if accepted:
+        assert snapshot_export._safe_download(
+            http.client, link, http=http, sleep=lambda _: None, now=None) == b"fixture-export"
+        assert len(http.client.calls) == 1
+    else:
+        with pytest.raises(snapshot_export.SharadarSnapshotExportError, match="non-HTTPS"):
+            snapshot_export._safe_download(
+                http.client, link, http=http, sleep=lambda _: None, now=None)
+        assert http.client.calls == []
+
+
 def test_paginated_ticker_keyset_must_exactly_match_fresh_export():
     rows = [
         {"table": "SEP", "permaticker": "P1", "ticker": "AAA"},

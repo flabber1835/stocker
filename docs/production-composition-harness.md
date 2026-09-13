@@ -127,8 +127,90 @@ not consume the protected GitHub certification artifact.
 
 ## CI
 
+### Early database probe gate
+
+Before starting the campaign matrix, CI executes focused PostgreSQL contracts
+for maintenance cursor reads inside a read-only transaction and predecessor
+plans with populated publication metadata. Cursor reads must issue SELECT only;
+schema creation belongs to explicit migration or the writer boundary. The plan
+guard forbids sorting price-history subtrees, while allowing small publication
+metadata subqueries to sort. The predecessor lookup must have a one-row limit,
+security equality and a strict session bound in its index condition. Either a
+forward predecessor-index scan or a backward primary-key scan satisfies the
+descending-session contract; provenance can make PostgreSQL prefer the latter.
+Required-index schema validation remains unchanged. This gate does not replace
+full GO acceptance.
+
+Feed-only databases may not yet have the behavioral cursor table. Read-only
+cursor loaders check relation presence and report absent cursor evidence in
+that case; they neither create the table nor abort the caller's transaction.
+This is not readiness authority: required maintenance evidence still fails when
+absent, and full-runtime schema validation still refuses a missing behavioral
+table. Test both absent-table and installed-table read-only boundaries before
+the campaign matrix.
+
+### Complete GO acceptance (issue #363 item 1)
+
+`tools/production_go_e2e_audit.py` launches the supported operator shell with
+real Docker/Compose/PostgreSQL and exact source-built runtime/test images.
+The SHADOW-target run uses a local Sharadar protocol fixture with a dummy key.
+Alpaca credentials are unset, so account preflight follows the supported SHADOW
+path for a deployment without broker credentials. Broker order execution is
+outside this acceptance scope.
+The resolved CLI environment must select the local source before seed begins.
+The seed stops one XNYS session before the available fixture frontier, so the
+successful GO itself must perform source catch-up and publish the final session.
+Fixture setup creates a verified physical base backup before seeding and a new
+one after the bulk load. The latter bounds the retained WAL required for normal
+GO mutations without changing production's 1 GiB runtime verification limit.
+The before/after publication observer runs in the exact built runtime against
+the fixture PostgreSQL container, holding a read-only repeatable-read pin. This
+observer loads the same fixture receipt key through the canonical environment
+parser so it verifies the seed's signed publication chain. The test observation
+does not require an operational Compose execution override.
+When the retained window includes May 2026, the fixture includes TRI and the
+reviewed stale vendor dividend observation. The production v7 migration applies
+its own adjudication and records the canonical cash audit.
+
+Acceptance binds the validation bundle, runtime promotion, recreated panel, and
+handoff to the same commit, images, publication, and invocation. It also requires
+the complete ordered production phase transcript and every SHADOW authority gate.
+Current-strategy parity follows `production-certification-separation.md`.
+
+Sensitivity runs deliberately fail the actual called boundaries: host stages,
+schema/feed write authorization, schema migration, feed catch-up, final
+publication check, operational parity, Sharadar readiness, database health,
+validation ZIP creation, requested-target proof, panel recreation, and final
+handoff write. A temporary interpreter/Docker wrapper installs only the selected
+raising mutation; all preceding production work runs normally. The successful
+run uses the production programs unchanged. Each fault must emit its specific
+marker, make GO fail, and prevent subsequent promotion or final success as
+appropriate. This is stage reachability/sensitivity evidence; interruption,
+durable recovery, and convergence campaigns remain issue #363 item 2.
+
+Manual full GO partitions sensitivity into operator, preparation, financial, and handoff
+campaigns. Every campaign starts with a complete real GO success and then runs
+its selected faults through new operator invocations. This preserves full
+production certification in each invocation while keeping the campaigns within
+the job time limit. The composition acceptance check aggregates all selected
+campaigns; any failed or cancelled campaign prevents acceptance.
+
+Synthetic-merge verification binds the checked-out GitHub merge SHA and its
+exact PR-head parent. Its base parent must belong to the freshly fetched base
+branch. The event's base SHA can precede a concurrent base-branch update, so it
+does not replace verification of the actual merge parents and current ancestry.
+
 `.github/workflows/production-composition-harness.yml` runs on pull requests,
 merge groups, `main` pushes and manual dispatch.
+
+Automatic events run the fast database preflight and one composition smoke job
+(focused contracts, host-process regressions, physical restore seam and small
+Docker/PostgreSQL gates). They do not launch canonical full GO or claim its
+certification evidence. Only `workflow_dispatch` launches all four full-GO
+campaigns and requires their canonical evidence. In GitHub Actions, select
+**Production composition harness**, choose **Run workflow**, and select the
+reviewed branch/ref. This policy changes scheduling only: exact-build identity,
+full-GO acceptance and runtime-promotion protections remain unchanged.
 
 Acceptance requires:
 

@@ -1015,6 +1015,14 @@ DDL = [
         volume     DOUBLE PRECISION)""",
     """ALTER TABLE sentinel_sep_staging
         ADD COLUMN IF NOT EXISTS closeadj DOUBLE PRECISION""",
+    # Preserve exact vendor decimals across staging. Installation belongs to
+    # the explicit migration; neither staging reads nor writes may change DDL.
+    """ALTER TABLE sentinel_sep_staging
+        ADD COLUMN IF NOT EXISTS open_source TEXT,
+        ADD COLUMN IF NOT EXISTS close_source TEXT,
+        ADD COLUMN IF NOT EXISTS closeunadj_source TEXT,
+        ADD COLUMN IF NOT EXISTS closeadj_source TEXT,
+        ADD COLUMN IF NOT EXISTS volume_source TEXT""",
 ]
 
 #: Marks a run abandoned by a process that died. Same `RESTART_ABORTED:` prefix

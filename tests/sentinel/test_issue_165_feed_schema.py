@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 import inspect
+from contextlib import nullcontext
 import os
 from pathlib import Path
 import re
@@ -13,6 +14,7 @@ from sentinel.cli import account as account_cli
 from sentinel.cli import feed as feed_cli
 from sentinel.cli import paper as paper_cli
 from sentinel.feed import runtime_schema
+from sentinel.feed import staging
 from sentinel.feed import store as feed_store
 
 
@@ -93,6 +95,30 @@ def test_runtime_validator_function_is_select_only():
     assert "migrate_feed_schema" not in source
     assert "conn.commit()" not in source
     assert "pg_try_advisory_xact_lock_shared" in source
+
+
+@pytest.mark.parametrize("operation", ["stage", "staged"])
+def test_staging_never_installs_columns_during_normal_io(monkeypatch, operation):
+    class RuntimeCursor(RecordingCursor):
+        rowcount = 0
+
+        def execute(self, sql, params=None):
+            assert DDL_WORD.search(str(sql)) is None, "runtime staging executed DDL"
+            super().execute(sql, params)
+
+    class RuntimeConnection(RecordingConnection):
+        def cursor(self):
+            return RuntimeCursor(self)
+
+    monkeypatch.setattr(
+        feed_store, "streaming_cursor",
+        lambda *_args, **_kwargs: nullcontext(iter(())))
+    conn = RuntimeConnection()
+    scope = {"run_id": "00000000-0000-0000-0000-000000000165", "chunk": "ddl"}
+    if operation == "stage":
+        assert staging.stage(conn, (), **scope) == 0
+    else:
+        assert list(staging.staged(conn, **scope)) == []
 
 
 def test_runtime_validation_refuses_missing_schema_without_any_write_or_ddl():

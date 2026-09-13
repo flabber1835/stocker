@@ -61,6 +61,38 @@ access or mutate the production book.
 
 ## Preserved evidence boundary
 
+### GO operational parity (PR #366)
+
+GO selects the current strategy through `sentinel.strategy.production_strategy`.
+Its `wealth_core_nas_parity` gate proves prospective startup and restart
+equivalence on the current published operational inputs. Each exact image
+loads the production 252-session feature warm-up, advances the visible frontier
+through the canonical kernel, and repeats that transition from serialized
+prior state. The prior/input hashes must remain unchanged; the resulting state
+and decision must survive serialization exactly. Runtime and certified test
+lens reports must name identical strategy/configuration, input, state, and
+decision hashes. In CI-certified runtime mode both roles use the same immutable
+image, so one execution supplies that identical-image comparison.
+
+Both probes hold a read-only, repeatable-read publication pin. The reports bind
+the source revision, installed source identities, proof helper bytes, explicit
+starting cash, warm-up identity, publication fingerprint, and visible frontier.
+A publication change between images invalidates the comparison. Existing
+database-health, current-source readiness, durable-state, and execution gates
+retain their separate responsibilities.
+
+This proof certifies operational startup capability and image/restart
+equivalence. Historical strategy performance and retained-book catch-up remain
+separate claims. `tools/sentinel_forward_chain.py` and its frozen Sentinel 1.1
+tape remain historical certification evidence; their 1998–2026 corpus cannot
+certify the current compact champion's operational startup. Synthetic E2E data
+exercises the production workflow and carries no historical-performance claim.
+
+The existing gate id and `full_forward_decision_replay` timing field remain
+wire-compatible with validation schema version 1. That timing now measures the
+complete operational parity probe across the required images; its existing
+upper bound and combined pre-open timing budget remain enforced.
+
 The pre-separation strict-PIT work remains preserved at
 `research/backtester@7f12174273dfa071a25614d2c4a1be8ebfdfbc3a`. Its
 certified corpora, results, fixtures, and replay environment remain evidence;
