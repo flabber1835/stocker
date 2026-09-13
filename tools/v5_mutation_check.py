@@ -31,7 +31,7 @@ from sentinel.core import decision
 from sentinel.execution import opening_prices, opening_sizing, executor, target_reprojection
 from sentinel.execution.plan import OpeningIntent
 from sentinel.paper import targets
-from stock_strategy_shared.wealth_core import v5, adapter
+from stock_strategy_shared.wealth_core import adapter, engine, shares, v5
 from stock_strategy_shared.wealth_core.feed import SecuritySeries
 
 
@@ -59,9 +59,6 @@ def run():
          opening_sizing, "resolve", rewritten(opening_sizing.resolve,
              "quantity = min(v5.opening_quantity(\n            intended=intended, cash=cash, price=price,\n            cost_bps=cfg.transaction_cost_bps), affordable_shares(cash, price, cfg))",
              'quantity = int((Decimal(str(budget)) / (Decimal(str(price)) * Decimal("1.001"))).to_integral_value(rounding=ROUND_FLOOR))')),
-        ("opening_affordability_cap_ignored",
-         lambda: rounding_checks.test_cash_limited_opening_uses_canonical_affordability(.1001, .01),
-         opening_sizing, "affordable_shares", lambda *a: 10**12),
         ("opening_split_share_precision_ignored",
          lambda: rounding_checks.test_sale_funding_and_repeated_entries_preserve_float_cash_order(1./30.),
          opening_sizing, "split_shares", lambda shares, ratio: float(shares)*float(ratio)),
@@ -135,7 +132,14 @@ def run():
         ("opening_price_replaced_by_close_sizing",
          checks.test_open_budget_uses_actual_price_cash_and_released_cushion,
          v5, "opening_quantity", rewritten(v5.opening_quantity,
-             "(price * (1 + cost_bps / 10_000))", "(100.0 * (1 + cost_bps / 10_000))")),
+             "max(0., min(intended, cash)), price, cost_bps)",
+             "max(0., min(intended, cash)), 100.0, cost_bps)")),
+        ("opening_exact_affordability_uses_float_floor_division",
+         rounding_checks.test_exactly_affordable_quantity_survives_the_fill_cap,
+         engine, "affordable_whole_shares", rewritten(
+             shares.affordable_whole_shares,
+             "return max(0, math.floor(cash / per_share))",
+             "return max(0, int(cash // per_share))")),
         ("negative_cost_accepted", lambda: checks.test_invalid_costs_refuse(-1.),
          v5, "admission", rewritten(v5.admission, " or cost_bps < 0", "")),
         ("r40_equality_accepted", checks.test_rec8_strict_r40_boundary_and_latch_release,
