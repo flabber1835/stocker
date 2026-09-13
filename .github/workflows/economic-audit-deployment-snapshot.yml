@@ -1,0 +1,45 @@
+name: Economic audit 373 executable-source snapshot
+on:
+  push:
+    branches: [audit/economic-373-snapshot]
+    paths: [.github/workflows/economic-audit-deployment-snapshot.yml]
+permissions:
+  contents: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 09dde38d270ad069a006ee3cb458037d42ade316
+          persist-credentials: false
+      - name: Export every tracked file except original SEC data ZIP archives
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 09dde38d270ad069a006ee3cb458037d42ade316
+          test "$(git rev-parse HEAD^{tree})" = d80c655c42e1abfef83b2d031766bf295a2c9181
+          mkdir -p /tmp/audit-source
+          git ls-tree -r -l HEAD > /tmp/audit-source/source-tree.tsv
+          git rev-parse HEAD HEAD^{tree} > /tmp/audit-source/revision.txt
+          python - <<'PY'
+          import subprocess, pathlib, gzip
+          paths=subprocess.check_output(['git','ls-tree','-r','--name-only','HEAD']).decode().splitlines()
+          omitted=[p for p in paths if p.startswith('sec-filings/') and p.endswith('.zip')]
+          included=[p for p in paths if p not in omitted]
+          root=pathlib.Path('/tmp/audit-source')
+          (root/'omitted-sec-data-archives.txt').write_text('\n'.join(omitted)+'\n')
+          (root/'included-files.txt').write_text('\n'.join(included)+'\n')
+          subprocess.run(['git','archive','--format=tar','--output=/tmp/source.tar','HEAD',*included],check=True)
+          with open('/tmp/source.tar','rb') as src, gzip.open(root/'executable-source.tar.gz','wb') as dst:
+              import shutil
+              shutil.copyfileobj(src,dst)
+          print({'included':len(included),'omitted_original_data_archives':len(omitted)})
+          PY
+          (cd /tmp/audit-source && sha256sum executable-source.tar.gz source-tree.tsv included-files.txt omitted-sec-data-archives.txt > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: economic-audit-373-executable-source-09dde38
+          path: /tmp/audit-source/
+          if-no-files-found: error
+          retention-days: 30
