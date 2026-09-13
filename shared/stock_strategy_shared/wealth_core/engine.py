@@ -21,7 +21,10 @@ signal that depends on that close.
 """
 from __future__ import annotations
 
-from stock_strategy_shared.wealth_core.shares import as_json as _shares_json
+from stock_strategy_shared.wealth_core.shares import (
+    affordable_whole_shares,
+    as_json as _shares_json,
+)
 
 import hashlib
 import json
@@ -372,8 +375,7 @@ def affordable_shares(cash: float, price: float | None,
     """
     if price is None or price <= 0 or cash <= 0:
         return 0
-    per_share = price * (1.0 + cfg.transaction_cost_bps / 10_000.0)
-    return max(0, int(cash // per_share))
+    return affordable_whole_shares(cash, price, cfg.transaction_cost_bps)
 
 
 def decide(*, session: str, state: PortfolioState, bars: Sequence[SecurityBar],

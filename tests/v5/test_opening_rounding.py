@@ -9,6 +9,7 @@ from sentinel.core.decision import build_execution_plan
 from sentinel.execution import opening_sizing
 from stock_strategy_shared.wealth_core import v5
 from stock_strategy_shared.wealth_core.adapter import PendingOrder, step_session
+from stock_strategy_shared.wealth_core.engine import affordable_shares
 from stock_strategy_shared.wealth_core.ledger import Ledger
 from stock_strategy_shared.wealth_core.prices import DailyBar
 from stock_strategy_shared.wealth_core.state import PortfolioState
@@ -77,6 +78,24 @@ def compare_opening(*, equity, price, cash=None, entries=1, sale=False,
 def test_admitted_dollars_match_canonical_whole_share_boundaries(equity, price, expected):
     buys, _ = compare_opening(equity=equity, price=price)
     assert buys == {'SEC-AAA': expected}
+
+
+def test_exactly_affordable_quantity_survives_the_fill_cap():
+    """``cash // per_share`` returns 999 at this exact 1,000-share boundary
+    even though the sizing quotient correctly returns 1,000."""
+    cash, price = 100_140.04, 100.04
+    cfg = v5.config()
+    intended = 2_002_800.8 * 0.05
+
+    sized = v5.opening_quantity(
+        intended=intended, cash=cash, price=price,
+        cost_bps=cfg.transaction_cost_bps)
+    capped = affordable_shares(cash, price, cfg)
+    assert sized == capped == 1_000
+
+    buys, _ = compare_opening(
+        equity=2_002_800.8, cash=cash, price=price)
+    assert buys == {'SEC-AAA': 1_000}
 
 
 @pytest.mark.parametrize('cash,price', [(.1001, .01), (100.1, 1.), (5164.159, 51.59),

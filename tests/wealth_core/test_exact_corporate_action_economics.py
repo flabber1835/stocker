@@ -110,7 +110,9 @@ def test_true_near_integer_fraction_requires_cash_in_lieu():
     state = _book(shares=10)
     result = apply_terminal(
         state, _conversion(ratio=0.99999999995, lieu=None),
-        ledger=Ledger(), session="d9", cfg=CFG)
+        ledger=Ledger(), session="d9", cfg=CFG,
+        source_signal_to_raw_scale=1.0,
+        delivered_signal_to_raw_scale=1.0)
     assert result["applied"] is False
     assert result["reason"] == "MISSING_CASH_IN_LIEU_PRICE"
     assert state.episodes[0].security_id == "S1"
@@ -121,7 +123,9 @@ def test_true_near_integer_fraction_delivers_nine_and_pays_fractional_cash():
     state, ledger = _book(shares=10), Ledger()
     result = apply_terminal(
         state, _conversion(ratio=0.99999999995, lieu=100.0),
-        ledger=ledger, session="d9", cfg=CFG)
+        ledger=ledger, session="d9", cfg=CFG,
+        source_signal_to_raw_scale=1.0,
+        delivered_signal_to_raw_scale=1.0)
 
     assert result["applied"] is True
     assert result["shares_delivered"] == 9
@@ -140,7 +144,9 @@ def test_exact_integer_entitlement_needs_no_cash_in_lieu():
     state = _book(shares=10)
     result = apply_terminal(
         state, _conversion(ratio=1.0, lieu=None),
-        ledger=Ledger(), session="d9", cfg=CFG)
+        ledger=Ledger(), session="d9", cfg=CFG,
+        source_signal_to_raw_scale=1.0,
+        delivered_signal_to_raw_scale=1.0)
     assert result["applied"] is True
     assert result["shares_delivered"] == 10
     assert result["cash_in_lieu"] == 0.0

@@ -151,12 +151,24 @@ class DailyBar:
         puts the open on the signal basis without the adapter having to supply a
         fourth price and without any chance of the two disagreeing.
         """
-        if not (_positive(self.raw_open) and _positive(self.raw_close_for_scale)
+        factor = self.signal_to_raw_scale
+        if not (_positive(self.raw_open) and _positive(factor)):
+            return None
+        return float(self.raw_open) * factor
+
+    @property
+    def signal_to_raw_scale(self) -> float | None:
+        """This security's same-session signal-price basis.
+
+        Multiplying a raw price by this scale expresses it in the signal
+        domain.  Conversion needs the source and delivered scales because their
+        cumulative split histories are independent.
+        """
+        if not (_positive(self.raw_close_for_scale)
                 and _positive(self.signal_close_split_adj_div_unadj)):
             return None
-        factor = (float(self.signal_close_split_adj_div_unadj)
-                  / float(self.raw_close_for_scale))
-        return float(self.raw_open) * factor
+        return (float(self.signal_close_split_adj_div_unadj)
+                / float(self.raw_close_for_scale))
 
     @property
     def raw_close_for_scale(self) -> float | None:

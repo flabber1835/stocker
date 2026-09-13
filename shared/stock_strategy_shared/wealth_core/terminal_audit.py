@@ -64,6 +64,33 @@ from typing import Any, Mapping, Optional
 from stock_strategy_shared.wealth_core.shares import as_json as _as_json
 
 
+# A security normally has one episode and retains the historic flat carry-record
+# shape.  Conversion consolidation can leave several episodes on one permanent
+# security; only that case needs a slot-keyed envelope.
+EPISODE_RECORDS_KEY = "episode_records"
+
+
+def carry_for_episode(carry: Mapping[str, Any] | None,
+                      slot_id: int) -> dict | None:
+    if carry is None:
+        return None
+    records = carry.get(EPISODE_RECORDS_KEY)
+    if isinstance(records, Mapping):
+        record = records.get(str(slot_id))
+        return record if isinstance(record, dict) else None
+    return carry if isinstance(carry, dict) else None
+
+
+def carry_records(carry: Mapping[str, Any] | None) -> list[dict]:
+    if carry is None:
+        return []
+    records = carry.get(EPISODE_RECORDS_KEY)
+    if isinstance(records, Mapping):
+        return [records[key] for key in sorted(records, key=int)
+                if isinstance(records[key], dict)]
+    return [carry] if isinstance(carry, dict) else []
+
+
 def _shares(x):
     """Canonical share serialisation, None-tolerant — the audit records
     `shares_at_carry` as absent for an episode that never carried."""
@@ -499,7 +526,8 @@ def reconcile(audits, *, carried_only: bool = True) -> dict:
     }
 
 
-__all__ = ["AUDIT_FIELDS", "CASH_SETTLING_KINDS", "KIND_CASH", "KIND_MIXED",
-           "KIND_NON_CASH", "KIND_ZERO", "MONEY_DP", "episode_audit",
+__all__ = ["AUDIT_FIELDS", "CASH_SETTLING_KINDS", "EPISODE_RECORDS_KEY",
+           "KIND_CASH", "KIND_MIXED", "KIND_NON_CASH", "KIND_ZERO",
+           "MONEY_DP", "carry_for_episode", "carry_records", "episode_audit",
            "new_carry_record", "record_grace_print", "record_grace_split",
            "reconcile", "settlement_kind_for", "with_non_cash_consideration"]

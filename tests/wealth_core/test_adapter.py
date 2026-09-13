@@ -143,7 +143,8 @@ class TestResolvedOpenEquity:
         pending = [PendingOrder(
             Operation.CLOSE_POSITION, "S1", "T1", 0, 10, "d0", "EXIT")]
         result = step(
-            st, [db("S2", open_=55.0, mark=55.0, signal=55.0)],
+            st, [db("S1", open_=100.0, mark=100.0, signal=100.0),
+                 db("S2", open_=55.0, mark=55.0, signal=55.0)],
             pending=pending,
             terminal_terms=[TerminalTerms(
                 session="d1", security_id="S1",
@@ -159,13 +160,36 @@ class TestResolvedOpenEquity:
         assert result.fills[0]["security_id"] == "S2"
         assert result.fills[0]["shares"] == 20
 
+    def test_conversion_uses_each_securitys_signal_basis_before_decide(self):
+        from stock_strategy_shared.wealth_core.terminal import (
+            TerminalKind, TerminalTerms)
+
+        st = seated(cash=1_000.0, shares=100)
+        st.episodes[0].entry_raw_open = 100.0
+        st.episodes[0].entry_split_adjusted_price = 100.0
+        st.episodes[0].episode_peak_split_adjusted_close = 100.0
+        result = step(
+            st, [db("S1", open_=100.0, mark=100.0, signal=100.0),
+                 db("S2", open_=50.0, mark=50.0, signal=25.0)],
+            terminal_terms=[TerminalTerms(
+                session="d1", security_id="S1",
+                kind=TerminalKind.CONVERSION,
+                delivered_security_id="S2", delivered_ticker="T2",
+                delivered_issuer_id="I2", exchange_ratio=2.0,
+                reference="test/signal-basis-conversion")])
+
+        assert st.episodes[0].episode_peak_split_adjusted_close == 25.0
+        assert not any(op.operation is Operation.CLOSE_POSITION
+                       for op in result.decision.operations)
+
     def test_conversion_without_delivered_open_evidence_refuses_open_value(self):
         from stock_strategy_shared.wealth_core.terminal import (
             TerminalKind, TerminalTerms)
 
         st = seated(cash=1_000.0, shares=10)
         result = step(
-            st, [],
+            st, [db("S1", open_=100.0, mark=100.0, signal=100.0),
+                 db("S2", open_=None, mark=55.0, signal=55.0)],
             terminal_terms=[TerminalTerms(
                 session="d1", security_id="S1",
                 kind=TerminalKind.CONVERSION,

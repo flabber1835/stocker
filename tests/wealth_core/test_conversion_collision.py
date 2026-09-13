@@ -89,7 +89,9 @@ def collided():
             delivered_issuer_id=ACQ_ISSUER, exchange_ratio=ratio,
             cash_in_lieu_price_per_delivered_share=100.0,
             reference=f"regression/{sec}"),
-            ledger=led, session="d9", cfg=CFG)
+            ledger=led, session="d9", cfg=CFG,
+            source_signal_to_raw_scale=1.0,
+            delivered_signal_to_raw_scale=1.0)
     return st, led
 
 
@@ -192,7 +194,9 @@ class TestAThirdCollisionStillAggregates:
                 session="d9", security_id=sec, kind=TerminalKind.CONVERSION,
                 delivered_security_id=ACQUIRER, delivered_ticker=ACQ_TICKER,
                 delivered_issuer_id=ACQ_ISSUER, exchange_ratio=1.0),
-                ledger=led, session="d9", cfg=CFG)
+                ledger=led, session="d9", cfg=CFG,
+                source_signal_to_raw_scale=1.0,
+                delivered_signal_to_raw_scale=1.0)
         assert st.shares_by_security()[ACQUIRER] == 600
         assert len(st.lots_by_security()[ACQUIRER]) == 3
 

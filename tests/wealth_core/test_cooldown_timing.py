@@ -222,7 +222,8 @@ def test_continuing_conversion_ages_delivered_security_cooldown_normally() -> No
 
     run_session(
         state,
-        [daily_bar("S2", session="conversion")],
+        [daily_bar("S1", session="conversion"),
+         daily_bar("S2", session="conversion")],
         session="conversion",
         terminal_terms=[TerminalTerms(
             session="conversion",

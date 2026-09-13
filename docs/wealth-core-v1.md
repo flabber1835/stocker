@@ -95,16 +95,36 @@ A conversion **continues** the episode — same slot, same age, same review flag
 because a takeover is not an exit, and restarting the clock would reset the
 review age and the stop peak for a position the strategy never chose to leave.
 
-Per-share accounting state divides by the exchange ratio, which preserves
-**position value** exactly: at the peak the position was worth
-`shares x peak_old`, and the same value over `shares x ratio` shares is
-`peak_old / ratio` each. That is the quantity the stop measures. A consequence
-worth knowing: a deal that genuinely delivers less value than the target's market
-price *will* stop the position out, and that is correct.
+Raw per-share accounting state divides by the exchange ratio. Signal-domain
+state cannot use that ratio alone: source and delivered securities have
+independent cumulative split adjustments. The adapter therefore supplies each
+security's same-session signal-to-raw scale and translates entry price and peak
+as
+
+```text
+old signal value / exchange ratio
+    x delivered signal-to-raw scale / source signal-to-raw scale
+```
+
+That expresses the continuing episode in the delivered security's signal-price
+domain while preserving the position-value anchor. Missing either scale blocks
+the conversion before shares, cash, identity, or ledger state changes; assuming
+equal signal bases would turn a data gap into a trailing-stop decision. A deal
+that genuinely delivers less value than the target's market price can still stop
+the position out, and that is correct.
 
 Fractional entitlements **floor** and are settled in cash. `math.floor`, not
 `round()` — rounding up delivers a share the acquirer never issued, and the
 position is permanently one share heavier than the broker's.
+
+A terminal row is a **security-level event**, not an episode-level event. More
+than one episode may own the security after earlier conversion consolidation.
+The handler preflights the event once against every matching episode, then
+applies it to all of them in ascending slot order. It never settles a prefix:
+if any episode lacks required terms or conversion price-basis evidence, every
+episode remains held under the one security-level pending or blocked state.
+Settlement output retains one audit record per episode while counters continue
+to count one security-level event and its aggregate notional.
 
 ## Session-effective issuer-family changes
 
@@ -277,6 +297,14 @@ complete, plausible run beforehand.
    two episodes on one `security_id`, and `shares_by_security` was a dict
    comprehension keyed on it — one position vanished from equity, and every later
    admission was sized off the short number.
+
+V5 opening sizing and fill-time affordability use one whole-share quotient
+helper. Both evaluate `math.floor(available / per_share_cost)` with the
+identical float expression, including transaction cost. Python's float
+`available // per_share_cost` is not substituted: at exact affordability
+boundaries it can be one lower than `math.floor(available / per_share_cost)`,
+which would make the canonical fill undercut the quantity the same book just
+sized.
 
 ## Source-lot provenance
 

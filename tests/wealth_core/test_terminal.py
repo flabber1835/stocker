@@ -9,7 +9,8 @@ from __future__ import annotations
 
 import pytest
 
-from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
+from stock_strategy_shared.wealth_core.engine import (
+    Operation, SecurityBar, WealthCoreConfig, decide)
 from stock_strategy_shared.wealth_core.adapter import build_marks
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
 from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus
@@ -39,6 +40,17 @@ def book(shares=100, entry=50.0, peak=60.0, sec="S1", cash=10_000.0):
 
 def terms(kind, **kw):
     return TerminalTerms(session="d9", security_id="S1", kind=kind, **kw)
+
+
+def add_same_security_episode(st, *, slot_id=1, shares=50, entry=40.0,
+                              peak=45.0):
+    st.slots[slot_id].occupied_by = "S1"
+    st.episodes[slot_id] = HoldingEpisode(
+        security_id="S1", ticker="T1", issuer_id="I1", slot_id=slot_id,
+        signal_date="d0", entry_date="d1", entry_raw_open=entry,
+        entry_split_adjusted_price=entry, initial_shares=shares,
+        current_shares=shares, episode_peak_split_adjusted_close=peak,
+        market_sessions_held=20)
 
 
 # ── completeness: the block, not the guess ──────────────────────────────────
@@ -100,9 +112,88 @@ class TestIncompleteTermsBlock:
         assert 0 not in st.episodes
 
 
+class TestSecurityLevelTerminalEvent:
+
+    def test_cash_merger_settles_every_episode_on_the_security(self):
+        st, led = book(shares=100), Ledger()
+        add_same_security_episode(st, shares=50)
+
+        result = apply_terminal(
+            st, terms(TerminalKind.CASH_MERGER, cash_per_share=20.0),
+            ledger=led, session="d9", cfg=CFG)
+
+        assert result["affected_episode_count"] == 2
+        assert result["proceeds"] == pytest.approx(3_000.0)
+        assert st.cash == pytest.approx(13_000.0)
+        assert not st.episodes
+        assert len(result["terminal_audits"]) == 2
+        assert [event.shares_delta for event in led.events] == [-100, -50]
+
+    def test_write_off_removes_every_episode_on_the_security(self):
+        st, led = book(shares=100), Ledger()
+        add_same_security_episode(st, shares=50)
+
+        result = apply_terminal(
+            st, terms(TerminalKind.WRITE_OFF), ledger=led,
+            session="d9", cfg=CFG)
+
+        assert result["affected_episode_count"] == 2
+        assert result["proceeds"] == 0.0
+        assert not st.episodes
+        assert [event.shares_delta for event in led.events] == [-100, -50]
+
+    def test_stock_conversion_translates_every_episode_on_the_security(self):
+        st, led = book(shares=100, entry=50.0, peak=60.0), Ledger()
+        add_same_security_episode(st, shares=50, entry=40.0, peak=45.0)
+
+        result = apply_terminal(
+            st, terms(
+                TerminalKind.CONVERSION, delivered_security_id="S2",
+                delivered_ticker="T2", delivered_issuer_id="I2",
+                exchange_ratio=2.0),
+            ledger=led, session="d9", cfg=CFG,
+            source_signal_to_raw_scale=1.0,
+            delivered_signal_to_raw_scale=0.5)
+
+        assert result["affected_episode_count"] == 2
+        assert result["shares_delivered"] == 300
+        assert [st.episodes[slot].security_id for slot in (0, 1)] == ["S2", "S2"]
+        assert [st.episodes[slot].current_shares for slot in (0, 1)] == [200, 100]
+        assert st.episodes[0].episode_peak_split_adjusted_close == \
+            pytest.approx(15.0)
+        assert st.episodes[1].episode_peak_split_adjusted_close == \
+            pytest.approx(11.25)
+        assert len(led.events) == 2
+
+    def test_one_incomplete_episode_blocks_the_entire_conversion(self):
+        st, led = book(shares=100), Ledger()
+        add_same_security_episode(st, shares=101)
+        before = st.to_dict()
+
+        result = apply_terminal(
+            st, terms(
+                TerminalKind.CONVERSION, delivered_security_id="S2",
+                delivered_ticker="T2", delivered_issuer_id="I2",
+                exchange_ratio=0.5),
+            ledger=led, session="d9", cfg=CFG,
+            source_signal_to_raw_scale=1.0,
+            delivered_signal_to_raw_scale=1.0)
+
+        assert result["reason"] == "MISSING_CASH_IN_LIEU_PRICE"
+        assert result["affected_episode_count"] == 2
+        assert st.episodes[0].current_shares == 100
+        assert st.episodes[1].current_shares == 101
+        assert st.episodes[0].security_id == st.episodes[1].security_id == "S1"
+        assert st.cash == before["cash"]
+        assert not led.events
+
+
 # ── conversion ──────────────────────────────────────────────────────────────
 
 class TestConversion:
+
+    BASIS = {"source_signal_to_raw_scale": 1.0,
+             "delivered_signal_to_raw_scale": 1.0}
 
     def conv(self, ratio=0.5, lieu=140.0, cash=None, kind=TerminalKind.CONVERSION):
         return terms(kind, delivered_security_id="S2", delivered_ticker="T2",
@@ -112,7 +203,8 @@ class TestConversion:
 
     def test_the_episode_CONTINUES_rather_than_restarting(self):
         st, led = book(shares=100), Ledger()
-        apply_terminal(st, self.conv(), ledger=led, session="d9", cfg=CFG)
+        apply_terminal(st, self.conv(), ledger=led, session="d9", cfg=CFG,
+                       **self.BASIS)
         ep = st.episodes[0]
         assert ep.security_id == "S2" and ep.ticker == "T2" and ep.issuer_id == "I2"
         assert ep.market_sessions_held == 40, (
@@ -123,7 +215,7 @@ class TestConversion:
     def test_accounting_state_rescales_so_POSITION_VALUE_is_preserved(self):
         st = book(shares=100, entry=50.0, peak=60.0)
         apply_terminal(st, self.conv(ratio=0.5), ledger=Ledger(), session="d9",
-                       cfg=CFG)
+                       cfg=CFG, **self.BASIS)
         ep = st.episodes[0]
         assert ep.current_shares == 50
         # 100 shares at a 60.0 peak is the same position value as 50 shares at
@@ -132,10 +224,47 @@ class TestConversion:
         assert ep.entry_split_adjusted_price == pytest.approx(100.0)
         assert ep.entry_raw_open == pytest.approx(100.0)
 
+    def test_conversion_translates_the_peak_into_the_delivered_signal_domain(self):
+        """Falsifier: ratio-only translation leaves the peak at 50 and queues
+        a false stop against the delivered security's 25 signal close."""
+        st = book(shares=100, entry=100.0, peak=100.0)
+        apply_terminal(
+            st, self.conv(ratio=2.0), ledger=Ledger(), session="d9", cfg=CFG,
+            source_signal_to_raw_scale=1.0,
+            delivered_signal_to_raw_scale=0.5)
+
+        ep = st.episodes[0]
+        assert ep.current_shares == 200
+        assert ep.entry_raw_open == pytest.approx(50.0)
+        assert ep.entry_split_adjusted_price == pytest.approx(25.0)
+        assert ep.episode_peak_split_adjusted_close == pytest.approx(25.0)
+
+        decision = decide(
+            session="d9", state=st,
+            bars=[SecurityBar("S2", "T2", "I2", [25.0] * 127)],
+            marks={"S2": Mark("S2", MarkStatus.CURRENT,
+                              raw_mark_close=50.0)},
+            cfg=CFG, strategy_id="stocker_wealth_core_v1",
+            strategy_version=1)
+        assert not any(op.operation is Operation.CLOSE_POSITION
+                       for op in decision.operations), (
+            "a value-preserving conversion must not queue a trailing-stop exit")
+
+    def test_missing_conversion_signal_basis_blocks_before_mutation(self):
+        st, led = book(shares=100, entry=100.0, peak=100.0), Ledger()
+        before = st.to_dict()
+        result = apply_terminal(
+            st, self.conv(ratio=2.0), ledger=led, session="d9", cfg=CFG)
+        assert result["reason"] == "MISSING_CONVERSION_SIGNAL_BASIS"
+        assert st.to_dict() == {**before,
+                                "unresolved_terminals": {
+                                    "S1": "MISSING_CONVERSION_SIGNAL_BASIS"}}
+        assert not led.events
+
     def test_a_fraction_is_paid_in_cash_and_is_attributable(self):
         st, led = book(shares=101), Ledger()
         res = apply_terminal(st, self.conv(ratio=0.5, lieu=140.0), ledger=led,
-                             session="d9", cfg=CFG)
+                             session="d9", cfg=CFG, **self.BASIS)
         assert st.episodes[0].current_shares == 50          # floor(50.5)
         assert res["cash_in_lieu"] == pytest.approx(0.5 * 140.0)
         ev = next(e for e in led.events if e.event_type.value == "CONVERSION")
@@ -148,13 +277,13 @@ class TestConversion:
     def test_a_fraction_is_never_rounded_UP_into_shares_nobody_delivered(self):
         st = book(shares=199)
         apply_terminal(st, self.conv(ratio=0.5), ledger=Ledger(), session="d9",
-                       cfg=CFG)
+                       cfg=CFG, **self.BASIS)
         assert st.episodes[0].current_shares == 99, "floor(99.5), not round()"
 
     def test_a_fractional_conversion_without_a_lieu_price_is_refused(self):
         st = book(shares=101)
         res = apply_terminal(st, self.conv(ratio=0.5, lieu=None), ledger=Ledger(),
-                             session="d9", cfg=CFG)
+                             session="d9", cfg=CFG, **self.BASIS)
         assert res["reason"] == "MISSING_CASH_IN_LIEU_PRICE"
         assert st.episodes[0].security_id == "S1", "nothing may be applied"
 
@@ -163,14 +292,14 @@ class TestConversion:
         never round."""
         st = book(shares=100)
         res = apply_terminal(st, self.conv(ratio=0.5, lieu=None), ledger=Ledger(),
-                             session="d9", cfg=CFG)
+                             session="d9", cfg=CFG, **self.BASIS)
         assert res["applied"] is True
 
     def test_cash_plus_stock_pays_BOTH_legs(self):
         st, led = book(shares=100), Ledger()
         res = apply_terminal(st, self.conv(ratio=0.5, cash=18.0,
                                            kind=TerminalKind.CASH_PLUS_STOCK),
-                             ledger=led, session="d9", cfg=CFG)
+                             ledger=led, session="d9", cfg=CFG, **self.BASIS)
         assert res["cash_consideration"] == pytest.approx(1800.0)
         assert st.episodes[0].current_shares == 50
         assert st.cash == pytest.approx(11_800.0)
@@ -197,12 +326,12 @@ class TestConversion:
             entry_split_adjusted_price=20.0, initial_shares=200,
             current_shares=200, episode_peak_split_adjusted_close=25.0)
         apply_terminal(st, self.conv(ratio=0.5), ledger=Ledger(), session="d9",
-                       cfg=CFG)
+                       cfg=CFG, **self.BASIS)
         apply_terminal(st, TerminalTerms(
             session="d9", security_id="S9", kind=TerminalKind.CONVERSION,
             delivered_security_id="S2", delivered_ticker="T2",
             delivered_issuer_id="I2", exchange_ratio=0.5),
-            ledger=Ledger(), session="d9", cfg=CFG)
+            ledger=Ledger(), session="d9", cfg=CFG, **self.BASIS)
         assert st.shares_by_security()["S2"] == 150, "50 + 100, not one of them"
 
 

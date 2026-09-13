@@ -25,18 +25,13 @@ complete, plausible run:
 None of them raise. The block does.
 
 THE CONVERSION PEAK, which is the subtle one. An episode's trailing stop is
-anchored on a peak in the OLD security's price domain, and after a conversion
-the closes arrive in the NEW one. Resetting the peak would silently loosen a
-risk control at the exact moment a holding changes identity; carrying it
-unchanged would compare prices on two unrelated scales. Both are wrong in the
-direction of doing nothing when a position falls.
-
-So the peak is rescaled by the exchange ratio, and the justification is that the
-stop protects POSITION VALUE rather than per-share price. At the peak the
-position was worth `shares_in x peak_old`; after conversion the same value
-spread over `shares_in x ratio` shares is `peak_old / ratio` per share. Dividing
-by the ratio therefore preserves the exact drawdown the stop measures. The entry
-prices are rescaled the same way and for the same reason.
+anchored on a peak in the OLD security's signal-price domain, and after a
+conversion the closes arrive in the NEW one's independently split-adjusted
+domain. Raw per-share accounting divides by the exchange ratio. Signal-domain
+entry and peak values additionally multiply by the delivered security's
+signal-to-raw scale divided by the source security's scale. Without both scales
+the conversion blocks before any mutation; assuming they are equal can invent a
+drawdown and a trailing-stop exit on a value-preserving corporate action.
 
 FINAL-SESSION REPORTING keeps three things apart that are routinely added
 together:
@@ -65,7 +60,8 @@ from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus
 from stock_strategy_shared.wealth_core.shares import as_json as _as_json
 from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
 from stock_strategy_shared.wealth_core.terminal_audit import (
-    episode_audit, new_carry_record, with_non_cash_consideration)
+    EPISODE_RECORDS_KEY, carry_for_episode, episode_audit, new_carry_record,
+    with_non_cash_consideration)
 
 
 class TerminalKind(str, Enum):
@@ -205,6 +201,8 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
                    executable_price: float | None = None,
                    phase: str = "OPEN",
                    executable_price_phase: str = "OPEN",
+                   source_signal_to_raw_scale: float | None = None,
+                   delivered_signal_to_raw_scale: float | None = None,
                    counters: dict | None = None) -> dict:
     """Apply one terminal action, CARRY it, or RECORD that it cannot be applied.
 
@@ -221,16 +219,17 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
     diverge.
     """
     from stock_strategy_shared.wealth_core.settlement import (
-        SettlementSource, resolve_settlement, tally, tally_pending_entry)
+        SettlementDecision, SettlementSource, resolve_settlement, tally,
+        tally_pending_entry)
 
-    slot_id = next((s for s, ep in sorted(state.episodes.items())
-                    if ep.security_id == terms.security_id), None)
-    if slot_id is None:
+    held = [(slot_id, ep) for slot_id, ep in sorted(state.episodes.items())
+            if ep.security_id == terms.security_id]
+    if not held:
         return {"applied": False, "reason": "NOT_HELD",
                 "security_id": terms.security_id}
 
-    ep = state.episodes[slot_id]
     sec = terms.security_id
+    total_shares = sum(ep.current_shares for _, ep in held)
 
     # A DIFFERENT event arriving mid-grace restarts the clock. Inheriting the
     # first event's age could settle the second one immediately, which is the
@@ -241,10 +240,21 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
     if already_pending and prior_ref != terms.reference:
         state.terminal_pending_sessions.pop(sec, None)
         state.terminal_pending_terms.pop(sec, None)
+        state.terminal_carry_audit.pop(sec, None)
         already_pending = False
 
+    # Completeness can depend on an episode's fractional entitlement.  A
+    # security-level event must never settle the complete prefix and strand the
+    # first incomplete episode, so the least-complete episode decides the one
+    # group transition.  When every episode is complete, the aggregate share
+    # count gives the waterfall the event's complete notional.
+    incomplete = next(
+        (ep for _, ep in held if not terms.completeness(ep.current_shares)[0]),
+        None)
     decision = resolve_settlement(
-        terms=terms, shares=ep.current_shares,
+        terms=terms,
+        shares=(incomplete.current_shares if incomplete is not None
+                else total_shares),
         last_valid_mark=last_valid_mark,
         sessions_since_last_valid_print=sessions_since_last_valid_print,
         executable_price=executable_price,
@@ -281,41 +291,108 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
         # `already_pending` is the same guard the counter uses, so the record and
         # the tally begin on the same session by construction.
         if not already_pending:
-            state.terminal_carry_audit[sec] = new_carry_record(
-                carry_session=session, shares_at_carry=ep.current_shares,
-                carry_price=float(decision.price_per_share),
-                last_trustworthy_print_session=state.last_valid_mark_session.get(
-                    sec))
+            records = {
+                str(slot_id): new_carry_record(
+                    carry_session=session, shares_at_carry=ep.current_shares,
+                    carry_price=float(decision.price_per_share),
+                    last_trustworthy_print_session=(
+                        state.last_valid_mark_session.get(sec)))
+                for slot_id, ep in held
+            }
+            state.terminal_carry_audit[sec] = (
+                next(iter(records.values())) if len(records) == 1
+                else {EPISODE_RECORDS_KEY: records})
         if counters is not None:
-            tally_pending_entry(counters, decision, ep.current_shares,
+            tally_pending_entry(counters, decision, total_shares,
                                 already_pending=already_pending)
-        carry = state.terminal_carry_audit.get(sec) or {}
-        return {"applied": False, "pending": True, "security_id": sec,
-                "ticker": ep.ticker, "kind": terms.kind.value,
-                # The carry side of the reconciliation, on the record that
-                # announces the carry. `terminal_results` previously recorded a
-                # carry with a price and NO share count, which is why the
-                # rehearsal's $283.04 could not be attributed to a security.
+        episode_results = []
+        carry_state = state.terminal_carry_audit.get(sec)
+        for slot_id, ep in held:
+            carry = carry_for_episode(carry_state, slot_id) or {}
+            episode_results.append({
+                "applied": False, "pending": True, "security_id": sec,
+                "ticker": ep.ticker, "slot_id": slot_id,
+                "kind": terms.kind.value,
                 "shares_at_carry": carry.get("shares_at_carry"),
                 "carry_price": carry.get("carry_price"),
                 "carry_notional": (
                     None if carry.get("shares_at_carry") is None
-                    else round(carry["shares_at_carry"] * carry["carry_price"], 2)),
+                    else round(carry["shares_at_carry"]
+                               * carry["carry_price"], 2)),
                 "last_trustworthy_print_session": carry.get(
                     "last_trustworthy_print_session"),
-                **decision.provenance()}
+                **decision.provenance()})
+        if len(episode_results) == 1:
+            episode_results[0].pop("slot_id")
+            return episode_results[0]
+        return {
+            "applied": False, "pending": True, "security_id": sec,
+            "kind": terms.kind.value, "affected_episode_count": len(held),
+            "shares_at_carry": _as_json(total_shares),
+            "carry_price": decision.price_per_share,
+            "carry_notional": round(
+                total_shares * float(decision.price_per_share), 2),
+            "episode_results": episode_results,
+            **decision.provenance()}
 
     if not decision.settles:
         # BLOCKED, not approximated, and recorded on the STATE so it survives a
         # restart. `resolved_equity` goes None on the next mark, which stops
         # admissions until somebody supplies the terms.
-        ok, why = terms.completeness(ep.current_shares)
+        _, why = terms.completeness(
+            incomplete.current_shares if incomplete is not None else total_shares)
         state.unresolved_terminals[sec] = why
+        state.terminal_pending_sessions.pop(sec, None)
+        state.terminal_pending_terms.pop(sec, None)
         if counters is not None:
-            tally(counters, decision, ep.current_shares)
-        return {"applied": False, "reason": why, "blocked": True,
-                "security_id": sec, "kind": terms.kind.value,
-                **decision.provenance()}
+            tally(counters, decision, total_shares)
+        result = {"applied": False, "reason": why, "blocked": True,
+                  "security_id": sec, "kind": terms.kind.value,
+                  **decision.provenance()}
+        if len(held) > 1:
+            result.update({"affected_episode_count": len(held),
+                           "episode_results": [
+                               {**result, "slot_id": slot_id,
+                                "ticker": ep.ticker}
+                               for slot_id, ep in held]})
+        return result
+
+    # No continuing delivered shares means there is no signal state to
+    # translate.  One is the neutral value for that release-only path.
+    signal_scale = 1.0
+    if (decision.source is SettlementSource.EXACT_TERMS
+            and terms.kind in (TerminalKind.CONVERSION,
+                               TerminalKind.CASH_PLUS_STOCK)
+            and any(_split_entitlement(ep.current_shares,
+                                       terms.exchange_ratio)[0] > 0
+                    for _, ep in held)):
+        if not (_positive(source_signal_to_raw_scale)
+                and _positive(delivered_signal_to_raw_scale)):
+            why = "MISSING_CONVERSION_SIGNAL_BASIS"
+            decision = SettlementDecision(
+                source=SettlementSource.UNRESOLVED, price_per_share=None,
+                event_known=True, terms_complete=True,
+                settlement_exact=False, reason=why,
+                detail={"kind": terms.kind.value,
+                        "reference": terms.reference})
+            state.unresolved_terminals[sec] = why
+            state.terminal_pending_sessions.pop(sec, None)
+            state.terminal_pending_terms.pop(sec, None)
+            if counters is not None:
+                tally(counters, decision, total_shares)
+            result = {"applied": False, "reason": why, "blocked": True,
+                      "security_id": sec, "kind": terms.kind.value,
+                      **decision.provenance()}
+            if len(held) > 1:
+                result.update({"affected_episode_count": len(held),
+                               "episode_results": [
+                                   {**result, "slot_id": slot_id,
+                                    "ticker": ep.ticker}
+                                   for slot_id, ep in held]})
+            return result
+        signal_scale = (float(delivered_signal_to_raw_scale)
+                        / float(source_signal_to_raw_scale)
+                        / float(terms.exchange_ratio))
 
     # Settling, by whatever route: the grace is over for this security.
     # Tallied HERE, before dispatch, because every _apply_* path releases the
@@ -323,56 +400,101 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
     # and for the same reason, and additionally BEFORE the three pops below —
     # `grace_sessions` comes from `terminal_pending_sessions`, which the next
     # line clears.
-    audit = _compose_audit(state, ep, terms=terms, decision=decision,
-                           session=session)
+    audits = [
+        _compose_audit(state, slot_id, ep, terms=terms, decision=decision,
+                       session=session)
+        for slot_id, ep in held
+    ]
     if counters is not None:
-        tally(counters, decision, ep.current_shares)
+        tally(counters, decision, total_shares)
     state.unresolved_terminals.pop(sec, None)
     state.terminal_pending_sessions.pop(sec, None)
     state.terminal_pending_terms.pop(sec, None)
+    state.terminal_carry_audit.pop(sec, None)
 
-    if decision.source is not SettlementSource.EXACT_TERMS:
-        # A PROXY settlement: the event is documented, the consideration is not.
-        # Deliberately NOT routed through _apply_cash's CASH_MERGER event — that
-        # would record a settlement the vendor never stated.
-        res = _apply_proxy(state, slot_id, ep, ledger, session, decision, terms,
-                           phase=phase)
-    elif terms.kind is TerminalKind.WRITE_OFF:
-        res = _apply_write_off(state, slot_id, ep, ledger, session)
-    elif terms.kind is TerminalKind.CASH_MERGER:
-        res = _apply_cash(state, slot_id, ep, ledger, session,
-                          float(terms.cash_per_share), terms)
-    else:
-        res = _apply_conversion(state, slot_id, ep, ledger, session, terms, cfg)
+    results = []
+    for slot_id, ep in held:
+        if decision.source is not SettlementSource.EXACT_TERMS:
+            # A PROXY settlement: the event is documented, the consideration
+            # is not. Deliberately not a stated CASH_MERGER.
+            res = _apply_proxy(state, slot_id, ep, ledger, session, decision,
+                               terms, phase=phase)
+        elif terms.kind is TerminalKind.WRITE_OFF:
+            res = _apply_write_off(state, slot_id, ep, ledger, session)
+        elif terms.kind is TerminalKind.CASH_MERGER:
+            res = _apply_cash(state, slot_id, ep, ledger, session,
+                              float(terms.cash_per_share), terms)
+        else:
+            res = _apply_conversion(
+                state, slot_id, ep, ledger, session, terms, cfg,
+                signal_domain_scale=float(signal_scale))
+        results.append(res)
     # The NON-CASH consideration is only knowable AFTER dispatch: the delivered
     # share count comes from `_split_entitlement`, which truncates, so it cannot
     # be predicted from the ratio alone. Merged rather than recomputed here, so
     # the audit reports what the conversion actually delivered rather than a
     # second derivation of it that could disagree.
-    if res.get("applied") and terms.kind in (TerminalKind.CONVERSION,
-                                             TerminalKind.CASH_PLUS_STOCK):
-        audit = with_non_cash_consideration(
-            audit,
-            delivered_security_id=res.get("delivered_security_id"),
-            delivered_ticker=terms.delivered_ticker,
-            shares_delivered=res.get("shares_delivered"),
-            exchange_ratio=terms.exchange_ratio,
-            cash_consideration=res.get("cash_consideration"),
-            cash_in_lieu=res.get("cash_in_lieu"),
-            # False when the entitlement rounded to nothing: the position LEAVES
-            # rather than persisting at zero shares in a security that would then
-            # be marked forever.
-            episode_continues=bool(res.get("converted")))
+    if terms.kind in (TerminalKind.CONVERSION, TerminalKind.CASH_PLUS_STOCK):
+        audits = [
+            with_non_cash_consideration(
+                audit,
+                delivered_security_id=res.get("delivered_security_id"),
+                delivered_ticker=terms.delivered_ticker,
+                shares_delivered=res.get("shares_delivered"),
+                exchange_ratio=terms.exchange_ratio,
+                cash_consideration=res.get("cash_consideration"),
+                cash_in_lieu=res.get("cash_in_lieu"),
+                episode_continues=bool(res.get("converted")))
+            for audit, res in zip(audits, results)
+        ]
+
+    # A continuing conversion does not call `_release`, so retire the source
+    # security's price history explicitly once every source episode moved.
+    if not any(ep.security_id == sec for ep in state.episodes.values()):
+        state.sessions_since_valid_mark.pop(sec, None)
+        state.last_valid_mark_session.pop(sec, None)
+
+    if len(results) == 1:
+        return {**results[0],
+                "settlement_available_phase": decision.availability_phase.value,
+                "terminal_audit": audits[0]}
+
+    episode_results = [
+        {**res, "slot_id": slot_id,
+         "settlement_available_phase": decision.availability_phase.value,
+         "terminal_audit": audit}
+        for (slot_id, _), res, audit in zip(held, results, audits)
+    ]
+    aggregate = {
+        "applied": True, "kind": results[0]["kind"], "security_id": sec,
+        "affected_episode_count": len(results),
+        "episode_results": episode_results,
+        "terminal_audits": audits,
+        "settlement_available_phase": decision.availability_phase.value,
+    }
+    if any("proceeds" in res for res in results):
+        aggregate["proceeds"] = sum(res.get("proceeds", 0.0)
+                                    for res in results)
+    if terms.kind in (TerminalKind.CONVERSION, TerminalKind.CASH_PLUS_STOCK):
+        aggregate.update({
+            "converted": any(res.get("converted") for res in results),
+            "delivered_security_id": terms.delivered_security_id,
+            "shares_delivered": sum(res.get("shares_delivered", 0)
+                                    for res in results),
+            "cash_in_lieu": sum(res.get("cash_in_lieu", 0.0)
+                                for res in results),
+            "cash_consideration": sum(res.get("cash_consideration", 0.0)
+                                      for res in results),
+        })
     # NESTED rather than spread, deliberately: the audit has its own
     # `security_id`, `ticker` and event fields, and flattening would let one of
     # them quietly overwrite the result's — the same collision that put
     # NO_TRUSTWORTHY_MARK where a terms gap belonged and forced
     # `settlement_reason` to be namespaced.
-    return {**res, "settlement_available_phase": decision.availability_phase.value,
-            "terminal_audit": audit}
+    return aggregate
 
 
-def _compose_audit(state: PortfolioState, ep: HoldingEpisode, *,
+def _compose_audit(state: PortfolioState, slot_id: int, ep: HoldingEpisode, *,
                    terms: TerminalTerms | None, decision, session: str) -> dict:
     """One episode's terminal audit, built BEFORE the holding is released.
 
@@ -392,7 +514,8 @@ def _compose_audit(state: PortfolioState, ep: HoldingEpisode, *,
         event_session=(terms.session if terms is not None else None),
         event_kind=(terms.kind.value if terms is not None else None),
         event_reference=(terms.reference if terms is not None else None),
-        carry=state.terminal_carry_audit.get(ep.security_id),
+        carry=carry_for_episode(
+            state.terminal_carry_audit.get(ep.security_id), slot_id),
         settlement_session=session,
         settlement_method=decision.source.value,
         shares_at_settlement=ep.current_shares,
@@ -403,6 +526,13 @@ def _compose_audit(state: PortfolioState, ep: HoldingEpisode, *,
 def _release(state: PortfolioState, slot_id: int, ep: HoldingEpisode) -> None:
     state.episodes.pop(slot_id)
     state.slots[slot_id].start_cooldown()
+    if any(other.security_id == ep.security_id
+           for other in state.episodes.values()):
+        carry = state.terminal_carry_audit.get(ep.security_id)
+        records = (carry or {}).get(EPISODE_RECORDS_KEY)
+        if isinstance(records, dict):
+            records.pop(str(slot_id), None)
+        return
     state.security_cooldowns[ep.security_id] = 0
     # Every per-security counter dies with the holding. Leaving staleness or a
     # pending grace behind would let a LATER re-entry into the same security
@@ -444,7 +574,8 @@ def _apply_cash(state, slot_id, ep, ledger, session, per_share, terms) -> dict:
 
 def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
                       ledger: Ledger, session: str, terms: TerminalTerms,
-                      cfg: WealthCoreConfig) -> dict:
+                      cfg: WealthCoreConfig, *,
+                      signal_domain_scale: float) -> dict:
     """Transfer the episode into the delivered security.
 
     The episode CONTINUES: same slot, same age, same review flag. A conversion
@@ -485,8 +616,10 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
                 "security_id": before_sec, "cash_in_lieu": lieu,
                 "cash_consideration": cash_leg}
 
-    # Per-share accounting state rescales by the ratio, which preserves POSITION
-    # value exactly — see the module docstring on why the peak must move.
+    # Raw per-share accounting rescales by the exchange ratio. Signal state also
+    # crosses between the independently adjusted source and delivered domains;
+    # `signal_domain_scale` contains both operations and was validated before
+    # any episode in this security-level event was mutated.
     # Provenance BEFORE the identity is overwritten — after this block there is
     # no other record that these shares were once a different company.
     ep.source_lots = list(ep.source_lots) + [{
@@ -505,10 +638,9 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
     ep.current_shares = delivered
     ep.initial_shares = max(1, int(round(ep.initial_shares * ratio)))
     ep.entry_raw_open = ep.entry_raw_open / ratio
-    ep.entry_split_adjusted_price = ep.entry_split_adjusted_price / ratio
+    ep.entry_split_adjusted_price *= signal_domain_scale
     if ep.episode_peak_split_adjusted_close is not None:
-        ep.episode_peak_split_adjusted_close = \
-            ep.episode_peak_split_adjusted_close / ratio
+        ep.episode_peak_split_adjusted_close *= signal_domain_scale
     state.slots[slot_id].occupied_by = ep.security_id
 
     return {"applied": True, "kind": terms.kind.value, "converted": True,
@@ -592,8 +724,6 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
     sessions and settles, where a reset would let one print every ninth session
     hold a slot forever.
     """
-    from stock_strategy_shared.wealth_core.settlement import (
-        SettlementSource, resolve_settlement, tally)
     out: list[dict] = []
     done = resolved_this_session or set()
 
@@ -602,14 +732,14 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
             # Already decided by an ACTIONS row this session — `apply_terminal`
             # has spoken and re-deciding here would age the counter twice.
             continue
-        slot_id = next((s for s, ep in sorted(state.episodes.items())
-                        if ep.security_id == sec), None)
-        if slot_id is None:
+        held = [(slot_id, ep)
+                for slot_id, ep in sorted(state.episodes.items())
+                if ep.security_id == sec]
+        if not held:
             state.terminal_pending_sessions.pop(sec, None)
             state.terminal_pending_terms.pop(sec, None)
+            state.terminal_carry_audit.pop(sec, None)
             continue
-
-        ep = state.episodes[slot_id]
 
         # `sessions_since_valid_mark` was updated from THIS session's marks
         # immediately before this pass, so 0 (absent) means "printed today".
@@ -626,55 +756,15 @@ def sweep_pending_terms(state: PortfolioState, *, ledger: Ledger, session: str,
             continue
         raw = rec["terms"]
         terms = TerminalTerms(**{**raw, "kind": TerminalKind(raw["kind"])})
-
-        decision = resolve_settlement(
-            terms=terms, shares=ep.current_shares,
+        result = apply_terminal(
+            state, terms, ledger=ledger, session=session,
             last_valid_mark=last_known.get(sec),
             # As of the EVENT, not as of now — see apply_terminal's note on
             # why re-measuring here makes the settlement branch unreachable.
             sessions_since_last_valid_print=int(rec["stale_at_event"]),
-            phase="CLOSE",
-            sessions_pending_terms=state.terminal_pending_sessions[sec])
-
-        if decision.carries:
-            continue
-        if not decision.settles:
-            # The mark went stale or vanished DURING the grace. Block rather
-            # than settle on a price no longer trustworthy, and stop carrying.
-            ok, why = terms.completeness(ep.current_shares)
-            state.unresolved_terminals[sec] = why
-            state.terminal_pending_sessions.pop(sec, None)
-            state.terminal_pending_terms.pop(sec, None)
-            if counters is not None:
-                tally(counters, decision, ep.current_shares)
-            out.append({"session": session, "applied": False, "blocked": True,
-                        "security_id": sec, "reason": why,
-                        **decision.provenance()})
-            continue
-
-        # Before the pops, so the grace length survives into the record — this
-        # is the expiry path, where that number is the whole story.
-        audit = _compose_audit(state, ep, terms=terms, decision=decision,
-                               session=session)
-        if counters is not None:
-            tally(counters, decision, ep.current_shares)
-        state.unresolved_terminals.pop(sec, None)
-        state.terminal_pending_sessions.pop(sec, None)
-        state.terminal_pending_terms.pop(sec, None)
-        if decision.source is SettlementSource.EXACT_TERMS:  # pragma: no cover
-            # Unreachable from this pass today: the stored terms are by
-            # construction the incomplete ones. Kept so that a future caller
-            # which UPDATES stored terms cannot silently take the proxy path.
-            out.append({"session": session,
-                        **apply_terminal(state, terms, ledger=ledger,
-                                         session=session,
-                                         phase="CLOSE",
-                                         cfg=WealthCoreConfig())})
-            continue
-        out.append({"session": session,
-                    **_apply_proxy(state, slot_id, ep, ledger, session,
-                                   decision, terms, phase="CLOSE"),
-                    "terminal_audit": audit})
+            phase="CLOSE", cfg=WealthCoreConfig(), counters=counters)
+        if not result.get("pending"):
+            out.append({"session": session, **result})
     return out
 
 
@@ -715,7 +805,7 @@ def sweep_orphans(state: PortfolioState, *, ledger: Ledger, session: str,
         # is the entire condition. The audit therefore has a settlement side and
         # no event and no carry — and a zero settlement price that is a DECISION,
         # so `settlement_notional` is 0.0 rather than None.
-        audit = _compose_audit(state, ep, terms=None, decision=decision,
+        audit = _compose_audit(state, slot_id, ep, terms=None, decision=decision,
                                session=session)
         if counters is not None:
             tally(counters, decision, ep.current_shares)
