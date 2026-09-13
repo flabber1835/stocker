@@ -15,7 +15,29 @@ concurrency:
   cancel-in-progress: true
 
 jobs:
+  database-preflight:
+    name: GO database preflight
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    env:
+      PYTHONPATH: ${{ github.workspace }}/shared
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.13'
+      - name: Install PostgreSQL and locked dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+          python -m pip install --require-hashes --only-binary=:all: --no-deps \
+            -r sentinel/requirements.lock -r tests/requirements.lock
+          python -m pip check
+      - name: Exercise real read-only cursors and predecessor plan
+        run: python -m pytest tests/production_composition/test_go_database_preflight.py -q -ra
+
   composition:
+    needs: database-preflight
     name: go-campaign-${{ matrix.scope }}-${{ matrix.campaign }}
     runs-on: ubuntu-latest
     timeout-minutes: 180

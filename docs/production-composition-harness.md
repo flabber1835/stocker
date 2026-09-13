@@ -127,6 +127,20 @@ not consume the protected GitHub certification artifact.
 
 ## CI
 
+### Early database probe gate
+
+Before starting the campaign matrix, CI executes focused PostgreSQL contracts
+for maintenance cursor reads inside a read-only transaction and predecessor
+plans with populated publication metadata. Cursor reads must issue SELECT only;
+schema creation belongs to explicit migration or the writer boundary. The plan
+guard forbids sorting price-history subtrees, while allowing small publication
+metadata subqueries to sort. The predecessor lookup must have a one-row limit,
+security equality and a strict session bound in its index condition. Either a
+forward predecessor-index scan or a backward primary-key scan satisfies the
+descending-session contract; provenance can make PostgreSQL prefer the latter.
+Required-index schema validation remains unchanged. This gate does not replace
+full GO acceptance.
+
 ### Complete GO acceptance (issue #363 item 1)
 
 `tools/production_go_e2e_audit.py` launches the supported operator shell with

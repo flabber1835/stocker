@@ -124,7 +124,8 @@ def _ensure_cursor_table(conn) -> None:
 
 
 def _read_cursor(conn, name: str, kind: str) -> Optional[SourceCursor]:
-    _ensure_cursor_table(conn)
+    # Schema installation belongs to migration/writers. Readiness calls this
+    # loader inside a read-only transaction, where even IF NOT EXISTS DDL fails.
     with conn.cursor() as cur:
         cur.execute(
             "SELECT session,state FROM sentinel_processed_sessions"
@@ -181,6 +182,7 @@ def load_actions_cursor(conn) -> Optional[SourceCursor]:
 
 def _write_cursor(conn, *, name: str, kind: str, through: dt.date,
                   publication_version: int) -> SourceCursor:
+    _ensure_cursor_table(conn)
     prior = _read_cursor(conn, name, kind)
     if prior is not None and through < prior.processed_through:
         raise SharadarMutationRefused(

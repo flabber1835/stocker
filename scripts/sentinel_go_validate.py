@@ -1431,6 +1431,22 @@ def plan_root(value):
         value = json.loads(value)
     return value[0]['Plan']
 
+def bounded_predecessor_lookup(plan):
+    for limit in plan:
+        if limit.get('Node Type') != 'Limit' or limit.get('Plan Rows') != 1:
+            continue
+        for scan in limit.get('Plans', ()):
+            condition = scan.get('Index Cond', '')
+            if (scan.get('Relation Name') == 'sentinel_bars'
+                    and scan.get('Node Type') in {'Index Scan', 'Index Only Scan'}
+                    and (scan.get('Index Name'), scan.get('Scan Direction')) in {
+                        ('idx_sentinel_bars_predecessor', 'Forward'),
+                        ('sentinel_bars_pkey', 'Backward')}
+                    and 'security_id = ids.security_id' in condition
+                    and 'session < ' in condition):
+                return True
+    return False
+
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 contender = None
 try:
@@ -1529,14 +1545,13 @@ try:
                 and node.get('Node Type') in {'Seq Scan', 'Parallel Seq Scan'}
                 for node in plan)
 
-        predecessor_indexes = {
-            node.get('Index Name') for node in predecessor_plan
-            if node.get('Index Name')}
         frontier_indexes = {
             node.get('Index Name') for node in frontier_plan
             if node.get('Index Name')}
         predecessor_bad_shape = any(
             node.get('Node Type') in {'Sort', 'Gather Merge'}
+            and any(child.get('Relation Name') == 'sentinel_bars'
+                    for child in nodes(node))
             for node in predecessor_plan)
         checks = {
             'behavioral_schema_exact': True,
@@ -1559,7 +1574,7 @@ try:
                 and frontier_after == frontier),
             'required_indexes_exact': True,
             'predecessor_query_plan_indexed': bool(
-                'idx_sentinel_bars_predecessor' in predecessor_indexes
+                bounded_predecessor_lookup(predecessor_plan)
                 and not relation_has_seq_scan(
                     predecessor_plan, 'sentinel_bars')
                 and not predecessor_bad_shape),
