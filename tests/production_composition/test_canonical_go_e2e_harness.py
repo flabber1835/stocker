@@ -117,6 +117,37 @@ def test_fixture_supports_the_current_cash_adjudication_migration(monkeypatch):
     assert len(harness.TICKERS) == 4_000
 
 
+def test_fixture_represents_the_complete_tri_cash_and_consolidation(monkeypatch):
+    import datetime as dt
+    from decimal import Decimal
+    from sentinel.feed import actions_map, corporate_action_authority as authority
+    from sentinel.feed.domains import normalise_sep_rows
+
+    days = tuple(dt.date(2026, 5, day) for day in (1, 4, 5))
+    monkeypatch.setattr(harness, "_session_days", lambda: days)
+
+    def records(table):
+        payload = harness._payload(table, {})["datatable"]
+        names = [item["name"] for item in payload["columns"]]
+        return [dict(zip(names, row)) for row in payload["data"]]
+
+    sep = [row for row in records("SEP") if row["ticker"] == "TRI"]
+    actions = records("ACTIONS")
+    sessions = [day.isoformat() for day in days]
+    splits, ambiguous = actions_map.split_rows_from_actions(actions, sessions)
+    resolved = authority.resolve_dividends(actions, sessions)
+    normalized = list(normalise_sep_rows(
+        sep, resolve_identity=lambda *_args: "TRI",
+        authoritative_splits=splits, dividends=resolved.dividends))
+    event = next(row.vendor for row in normalized
+                 if row.vendor.session == "2026-05-04")
+
+    assert not ambiguous
+    assert event.split_ratio == pytest.approx(0.984560)
+    assert event.dividend_per_share == pytest.approx(
+        float(Decimal("1.435518") / Decimal("0.984560")))
+
+
 def test_bootstrapped_fixture_leaves_a_bounded_real_backup_authority(
         monkeypatch, tmp_path):
     from sentinel import backup_runtime_authority as authority
@@ -283,7 +314,8 @@ def test_real_source_membrane_consumes_local_pages_and_complete_exports(monkeypa
         actions, evidence = snapshot_export.fetch_complete_actions(
             through=days[-1].isoformat(), http=http)
         assert actions[0]["action"] == "relation"
-        assert {row["action"] for row in actions} <= {"relation", "dividend"}
+        assert {row["action"] for row in actions} <= {
+            "relation", "dividend", "split"}
         assert actions[0]["action"] == "relation"
         snapshot_export.require_actions_refresh(
             through=days[-1].isoformat(), evidence=evidence, http=http)

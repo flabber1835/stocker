@@ -153,17 +153,30 @@ def _price_rows(query: dict[str, list[str]], *, sfp: bool = False,
             continue
         for di, day in days[offset:]:
             base = 50.0 + ti * 7.0 + di * 0.03
-            raw_open = round(base, 4)
-            raw_close = round(base * 1.001, 4)
+            source_open = round(base, 4)
+            source_close = round(base * 1.001, 4)
+            volume = 2_000_000 + ti * 10_000
+            # TRI's reviewed 2026-05-04 event is one combined old-share cash
+            # entitlement plus share consolidation. Preserve both price and
+            # volume domains across that consolidation.
+            before_tri_consolidation = (
+                ticker == "TRI" and day < dt.date(2026, 5, 4))
+            close_unadjusted = (
+                round(source_close * 0.984560, 4)
+                if before_tri_consolidation else source_close)
+            source_volume = (
+                int(round(volume * 0.984560))
+                if before_tri_consolidation else volume)
             common = [
-                ticker, day.isoformat(), raw_open, round(base * 1.006, 4),
-                round(base * 0.994, 4), raw_close, 2_000_000 + ti * 10_000,
+                ticker, day.isoformat(), source_open, round(base * 1.006, 4),
+                round(base * 0.994, 4), source_close, source_volume,
                 1.36 if ticker == "TRI" and day == dt.date(2026, 5, 4) else 0.0,
             ]
             if sfp:
-                rows.append(common + [raw_close, raw_close, source_day.isoformat()])
+                rows.append(common + [source_close, close_unadjusted,
+                                       source_day.isoformat()])
             else:
-                rows.append(common + [raw_close, source_day.isoformat()])
+                rows.append(common + [close_unadjusted, source_day.isoformat()])
             if limit is not None and len(rows) >= limit:
                 return rows
         offset = 0
@@ -213,6 +226,8 @@ def _payload(table: str, query: dict[str, list[str]]) -> dict:
         if day <= event_day <= _session_days()[-1] and _in_range(event_day, query):
             rows.append([event_day.isoformat(), "dividend", "TRI", "TRI fixture security",
                          1.36, None, None])
+            rows.append([event_day.isoformat(), "split", "TRI", "TRI fixture security",
+                         0.984560, None, None])
     elif table == "TICKERS":
         columns, rows = TICKER_COLUMNS, _ticker_rows()
     else:
