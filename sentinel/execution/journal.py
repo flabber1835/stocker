@@ -763,6 +763,50 @@ def fill_fingerprint(fill: BrokerFill) -> str:
     ))
     return hashlib.sha256(blob.encode("utf-8")).hexdigest()[:24]
 
+
+class FillEconomicsChanged(RuntimeError):
+    """A broker-native fill identity was reused with different economics."""
+
+
+def _write_fills(cur, fills: Sequence[BrokerFill]) -> int:
+    written = 0
+    for fill in fills:
+        key = fill_fingerprint(fill)
+        cur.execute(
+            "INSERT INTO sentinel_fills (broker_order_id, fill_key,"
+            " client_key, quantity, price, filled_at)"
+            " VALUES (%s,%s,%s,%s,%s,%s)"
+            " ON CONFLICT (broker_order_id, fill_key) DO NOTHING",
+            (fill.broker_order_id, key, fill.client_key,
+             str(fill.quantity), str(fill.price), fill.filled_at))
+        written += cur.rowcount
+        cur.execute(
+            "SELECT broker_order_id,client_key,quantity,price,filled_at"
+            " FROM sentinel_fills WHERE fill_key=%s ORDER BY broker_order_id",
+            (key,))
+        matching = cur.fetchall()
+        if not matching:
+            raise RuntimeError("fill vanished immediately after insertion")
+        if (len(matching) != 1
+                or str(matching[0][0]) != fill.broker_order_id):
+            raise FillEconomicsChanged(
+                "broker-native fill identity was reused across broker orders")
+        _stored_order, stored_client, quantity, price, filled_at = matching[0]
+        expected_time = (
+            fill.filled_at.astimezone(timezone.utc)
+            if fill.filled_at is not None else None)
+        stored_time = (
+            _aware_utc(filled_at, "stored fill time")
+            if filled_at is not None else None)
+        if (Decimal(str(quantity)) != fill.quantity
+                or Decimal(str(price)) != fill.price
+                or stored_time != expected_time
+                or (stored_client is not None
+                    and stored_client != fill.client_key)):
+            raise FillEconomicsChanged(
+                "broker fill identity was reused with different economics")
+    return written
+
 def record_fills(conn, fills: Sequence[BrokerFill]) -> int:
     """Idempotent on the fill's CONTENT, not on its position in a response.
 
@@ -770,18 +814,8 @@ def record_fills(conn, fills: Sequence[BrokerFill]) -> int:
     them: the same fill twice inflates the position Sentinel believes it holds
     and generates a spurious sell.
     """
-    written = 0
-    with conn.cursor() as cur:
-        for fill in fills:
-            cur.execute(
-                "INSERT INTO sentinel_fills (broker_order_id, fill_key,"
-                " client_key, quantity, price, filled_at)"
-                " VALUES (%s,%s,%s,%s,%s,%s)"
-                " ON CONFLICT (broker_order_id, fill_key) DO NOTHING",
-                (fill.broker_order_id, fill_fingerprint(fill), fill.client_key,
-                 str(fill.quantity), str(fill.price), fill.filled_at))
-            written += cur.rowcount
-    conn.commit()
+    with JournalUnitOfWork(conn), conn.cursor() as cur:
+        written = _write_fills(cur, fills)
     return written
 
 
@@ -989,6 +1023,9 @@ def record_observation(conn, observation: BrokerObservation,
         })
 
     with JournalUnitOfWork(conn), conn.cursor() as cur:
+        # Fill activity and the observation that discovered it are one commit.
+        # The dispatcher can reconstruct a missing alert after any later crash.
+        _write_fills(cur, observation.fills)
         cur.execute(
             "INSERT INTO sentinel_observations (observed_at,"
             " terminal_recovery_through, completeness, positions, orders,"

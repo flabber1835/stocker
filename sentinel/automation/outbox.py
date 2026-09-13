@@ -24,11 +24,14 @@ _ALERT_COLUMNS = (
     "delivery_expires_at,last_error,ack_state,acknowledged_by,acknowledged_at,"
     "acknowledgement,created_at,updated_at,delivered_at"
 )
+# Every operator-visible non-success transition must be reconstructible after
+# the commit/notify crash boundary. RETRY_WAIT is the one amber state; the
+# remaining states are red terminal incidents.
 _RECOVERABLE_CYCLE_STATES = frozenset({
-    "RECONCILING", "RETRY_WAIT", "MISSED_STATE_ONLY", "SUPERSEDED", "BLOCKED",
+    "RETRY_WAIT", "BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED",
 })
 _CYCLE_STATE_ACTION = {
-    "RECONCILING": "EXECUTED",
+    "RECONCILING": "TRANSPORT_SUBMITTED",
     "RETRY_WAIT": "RETRY_SCHEDULED",
     "MISSED_STATE_ONLY": "SUPERSEDED",
     "SUPERSEDED": "SUPERSEDED",
@@ -175,21 +178,93 @@ def _cycle_event_alert(row) -> dict[str, Any]:
             "RETRY_WAIT transition was not classified as notifier eligible")
     reason = (detail.get("failure_detail") or detail.get("failure_code")
               or f"cycle entered {state}")
-    key = f"cycle-event:{int(seq)}"
+    if state == "RETRY_WAIT":
+        phase = str(detail.get("retry_phase") or "UNKNOWN")
+        failure_identity = str(
+            detail.get("exception_fingerprint")
+            or detail.get("failure_code") or reason)
+        incident = hashlib.sha256(
+            failure_identity.encode("utf-8")).hexdigest()[:24]
+        key = (
+            f"cycle-recovery:{cycle_id}:{int(control_generation)}:"
+            f"{phase}:{incident}")
+        # Stable incident content: later attempts deliberately converge on the
+        # first outbox row instead of mutating it or notifying every retry.
+        payload_detail = {
+            key: detail.get(key) for key in (
+                "retry_phase", "phase_max_attempts", "first_failure_at",
+                "exception_fingerprint", "failure_code")
+            if detail.get(key) is not None
+        }
+        reason = str(detail.get("failure_code") or f"{phase} retry scheduled")
+    else:
+        # The immutable event sequence is the incident identity. Retaining the
+        # established key also prevents this rollout from renotifying old red
+        # events under a new spelling.
+        key = f"cycle-event:{int(seq)}"
+        payload_detail = detail
+    payload = {
+        "cycle_id": str(cycle_id),
+        "action": action,
+        "reason": str(reason),
+        "state": state,
+        "control_generation": int(control_generation),
+        "detail": payload_detail,
+        "reconstructed_from_durable_event": True,
+    }
+    if state != "RETRY_WAIT":
+        payload["cycle_event_seq"] = int(seq)
+        payload["fence_token"] = int(fence_token)
     return {
         "idempotency_key": key,
         "event_type": f"AUTOMATION_{action}",
-        "severity": "CRITICAL" if state == "BLOCKED" else "WARN",
+        "severity": (
+            "WARN" if state == "RETRY_WAIT" else "CRITICAL"),
+        "payload": payload,
+    }
+
+
+def _fill_alert(row) -> dict[str, Any]:
+    (broker_order_id, fill_key, fill_client_key, command_client_key,
+     quantity, price, filled_at, side, security_id, symbol,
+     identity_count) = row
+    contradictory_client_key = bool(
+        fill_client_key is not None
+        and fill_client_key != command_client_key)
+    if (identity_count != 1 or not command_client_key
+            or contradictory_client_key or not side or not security_id
+            or not symbol or filled_at is None):
+        key = f"fill-integrity:{broker_order_id}:{fill_key}"
+        return {
+            "idempotency_key": key,
+            "event_type": "FILL_NOTIFICATION_IDENTITY_INVALID",
+            "severity": "CRITICAL",
+            "payload": {
+                "reason": (
+                    "durable fill cannot be bound to exactly one immutable "
+                    "Sentinel command identity"),
+                "broker_order_id": str(broker_order_id),
+                "fill_key": str(fill_key),
+                "command_identity_count": int(identity_count or 0),
+                "reconstructed_from_durable_fill": True,
+            },
+        }
+    key = f"fill:{broker_order_id}:{fill_key}"
+    return {
+        "idempotency_key": key,
+        "event_type": "BROKER_FILL",
+        "severity": "TRADE",
         "payload": {
-            "cycle_event_seq": int(seq),
-            "cycle_id": str(cycle_id),
-            "action": action,
-            "reason": str(reason),
-            "state": state,
-            "control_generation": int(control_generation),
-            "fence_token": int(fence_token),
-            "detail": detail,
-            "reconstructed_from_durable_event": True,
+            "client_key": str(command_client_key),
+            "side": str(side).upper(),
+            "ticker": str(symbol),
+            "security_id": str(security_id),
+            "quantity": str(quantity),
+            "price": str(price),
+            "filled_at": filled_at.isoformat(),
+            "broker_order_id": str(broker_order_id),
+            "fill_key": str(fill_key),
+            "reconstructed_from_durable_fill": True,
         },
     }
 
@@ -201,7 +276,7 @@ def _control_event_alert(row) -> dict[str, Any]:
     return {
         "idempotency_key": key,
         "event_type": f"AUTOMATION_{action}",
-        "severity": "CRITICAL",
+        "severity": "WARN" if str(action) == "DEACTIVATED" else "CRITICAL",
         "payload": {
             "control_event_seq": int(seq),
             "generation": int(generation),
@@ -259,26 +334,48 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
     """Materialize alert deficits from committed immutable cycle events.
 
     The state transition is the durable fact. A crash can occur after that
-    commit and before the ordinary notifier enqueues its alert. For alert-worthy
-    states we use the event sequence as the sole notification identity.  The
-    ordinary notifier uses the same identity, so every interleaving converges
-    on exactly one immutable outbox row.
+    commit and before the ordinary notifier enqueues its alert. Red transitions
+    retain their event identity; retries converge by cycle, generation, phase,
+    and failure fingerprint. The migration boundary prevents historical replay.
     """
     with conn.cursor() as cur:
         cur.execute(
-            "SELECT seq,cycle_id,to_state,control_generation,fence_token,detail"
-            " FROM sentinel_automation_cycle_events"
-            " WHERE to_state = ANY(%s)"
-            " AND (to_state <> 'RETRY_WAIT' OR"
-            "      detail->>'notifier_action' = 'RETRY_SCHEDULED')"
-            " ORDER BY seq",
+            "SELECT e.seq,e.cycle_id,e.to_state,e.control_generation,"
+            " e.fence_token,e.detail"
+            " FROM sentinel_automation_cycle_events e"
+            " CROSS JOIN sentinel_notification_policy p"
+            " WHERE p.id=1 AND e.at>=p.web_push_activated_at"
+            " AND e.to_state = ANY(%s)"
+            " AND (e.to_state <> 'RETRY_WAIT' OR"
+            "      e.detail->>'notifier_action' = 'RETRY_SCHEDULED')"
+            " ORDER BY e.seq",
             (list(sorted(_RECOVERABLE_CYCLE_STATES)),))
         events = list(cur.fetchall())
         cur.execute(
-            "SELECT seq,generation,action,actor,reason,detail"
-            " FROM sentinel_automation_events WHERE action='KILL_ENGAGED'"
-            " ORDER BY seq")
+            "SELECT e.seq,e.generation,e.action,e.actor,e.reason,e.detail"
+            " FROM sentinel_automation_events e"
+            " CROSS JOIN sentinel_notification_policy p"
+            " WHERE p.id=1 AND e.at>=p.web_push_activated_at"
+            " AND e.action IN ('DEACTIVATED','KILL_ENGAGED') ORDER BY e.seq")
         control_events = list(cur.fetchall())
+        cur.execute(
+            "SELECT f.broker_order_id,f.fill_key,f.client_key,c.client_key,"
+            " f.quantity,f.price,f.filled_at,"
+            " c.side,c.security_id,c.symbol,c.identity_count"
+            " FROM sentinel_fills f"
+            " CROSS JOIN sentinel_notification_policy p"
+            " LEFT JOIN LATERAL ("
+            "   SELECT client_key,side,security_id,symbol,"
+            "          COUNT(*) OVER () AS identity_count"
+            "   FROM sentinel_commands c"
+            "   WHERE (f.client_key IS NOT NULL AND c.client_key=f.client_key)"
+            "      OR c.broker_order_id=f.broker_order_id"
+            "   ORDER BY (c.client_key=f.client_key) DESC,c.updated_at DESC"
+            "   LIMIT 1"
+            " ) c ON TRUE"
+            " WHERE p.id=1 AND f.filled_at>=p.web_push_activated_at"
+            " ORDER BY f.filled_at,f.broker_order_id,f.fill_key")
+        fills = list(cur.fetchall())
 
         for event in events:
             alert = _cycle_event_alert(event)
@@ -293,6 +390,17 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
                  alert["severity"], _json(alert["payload"])))
         for event in control_events:
             alert = _control_event_alert(event)
+            cur.execute(
+                "INSERT INTO sentinel_alert_outbox"
+                " (alert_id,idempotency_key,schema_version,event_type,severity,"
+                " payload,state,max_attempts,next_attempt_at)"
+                " VALUES (%s,%s,1,%s,%s,%s::jsonb,'PENDING',8,clock_timestamp())"
+                " ON CONFLICT (idempotency_key) DO NOTHING",
+                (_alert_id(alert["idempotency_key"]),
+                 alert["idempotency_key"], alert["event_type"],
+                 alert["severity"], _json(alert["payload"])))
+        for fill in fills:
+            alert = _fill_alert(fill)
             cur.execute(
                 "INSERT INTO sentinel_alert_outbox"
                 " (alert_id,idempotency_key,schema_version,event_type,severity,"

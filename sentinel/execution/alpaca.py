@@ -1607,8 +1607,9 @@ class HardenedAlpacaExecutionBroker(OriginalAlpaca):
                     price=_required_dec(
                         item.get("price"),
                         where=f"activity {activity_id} price"),
-                    filled_at=_parse_ts(
-                        item.get("transaction_time")),
+                    filled_at=_required_aware_ts(
+                        item.get("transaction_time"),
+                        where=f"activity {activity_id} transaction_time"),
                 ))
             if len(page) < ACTIVITY_PAGE_SIZE:
                 return tuple(out)
@@ -1645,6 +1646,7 @@ class HardenedAlpacaExecutionBroker(OriginalAlpaca):
         # back to its exact order so a CANCELLED/FILLED command cannot age
         # out of closed-order pagination and then mutate silently (#127).
         orders = list(observed.orders)
+        fills: Sequence[contract.BrokerFill] = ()
         known_order_ids = {o.broker_order_id for o in orders}
         if terminal_floor is not None:
             fills = await self._recent_fills_bounded(
@@ -1678,6 +1680,7 @@ class HardenedAlpacaExecutionBroker(OriginalAlpaca):
             completeness=completeness,
             terminal_recovery_through=observed.terminal_recovery_through,
             account_identity=account_before,
+            fills=tuple(fills),
         )
 
 CurrentAlpaca = HardenedAlpacaExecutionBroker

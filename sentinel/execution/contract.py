@@ -371,6 +371,17 @@ class BrokerFill:
     def __post_init__(self) -> None:
         _require_decimal("BrokerFill.quantity", self.quantity)
         _require_decimal("BrokerFill.price", self.price)
+        if (not isinstance(self.broker_order_id, str)
+                or not self.broker_order_id.strip()):
+            raise ValueError("BrokerFill.broker_order_id must be non-empty")
+        if (not self.quantity.is_finite() or self.quantity <= 0
+                or not self.price.is_finite() or self.price <= 0):
+            raise ValueError("BrokerFill quantity and price must be positive and finite")
+        if (self.filled_at is not None
+                and (not isinstance(self.filled_at, datetime)
+                     or self.filled_at.tzinfo is None
+                     or self.filled_at.utcoffset() is None)):
+            raise ValueError("BrokerFill.filled_at must be timezone-aware")
 
 
 @dataclass(frozen=True)
@@ -678,6 +689,10 @@ class BrokerObservation:
     #: Exact-key reads required to finalize recovery authority. These are
     #: collected before the observation is journaled or commands are mutated.
     exact_order_evidence: tuple = ()
+    #: Complete broker-native fill activities encountered while recovering the
+    #: observation window. The reconciler binds Sentinel-owned rows to their
+    #: immutable command key before journaling them atomically.
+    fills: tuple = ()
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None:
@@ -743,6 +758,19 @@ class BrokerObservation:
                              self.account_identity.account_id))):
                 raise ValueError(
                     "exact-order evidence account differs from observation")
+        fill_identities: set[tuple] = set()
+        for fill in self.fills:
+            if not isinstance(fill, BrokerFill):
+                raise TypeError("observation fill evidence must be typed")
+            identity = (
+                ("native", str(getattr(fill, "activity_id")))
+                if getattr(fill, "activity_id", None) else
+                ("content", fill.broker_order_id, str(fill.quantity),
+                 str(fill.price), fill.filled_at.isoformat()
+                 if fill.filled_at else ""))
+            if identity in fill_identities:
+                raise ValueError("BrokerObservation repeats fill identity")
+            fill_identities.add(identity)
 
     @property
     def is_complete(self) -> bool:

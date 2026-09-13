@@ -13,7 +13,7 @@ from datetime import datetime, timezone
 from pathlib import Path
 from typing import Callable, Mapping, Protocol
 
-from sentinel import backup_runtime_authority
+from sentinel import backup_runtime_authority, operational_evidence
 from sentinel.authority import (
     AuthorityRefused,
     PAPER_OBSERVATION_ONLY,
@@ -312,9 +312,11 @@ def build_fresh_execution_guard(
               result: object | None) -> None:
         assert_paper_url(paper_base_url)
         with closing(connection_factory()) as conn:
+            backup_proof = None
+            evidence_written = False
             try:
                 if operation not in _READ_OPERATIONS:
-                    backup_runtime_authority.require(
+                    backup_proof = backup_runtime_authority.require(
                         conn, operation=f"broker {operation.value} mutation")
                 validate_grant(conn, grant, operation, result)
                 rollout = load_rollout_state(conn)
@@ -375,6 +377,13 @@ def build_fresh_execution_guard(
                         raise AuthorityRefused(
                             "broker result account does not match the guarded "
                             "grant")
+                if isinstance(result, BrokerAccountSnapshot):
+                    operational_evidence.record_account_snapshot(conn, result)
+                    evidence_written = True
+                if backup_proof and backup_proof.get("enabled") is True:
+                    operational_evidence.record_backup_proof(
+                        conn, kind="RUNTIME_CHAIN", proof=backup_proof)
+                    evidence_written = True
             except Exception as exc:                          # noqa: BLE001
                 if isinstance(grant, AutomationExecutionGrant):
                     from sentinel.automation import store as automation_store
@@ -401,6 +410,8 @@ def build_fresh_execution_guard(
                     holder_id=grant.holder_id,
                     fence_token=grant.fence_token,
                     control_generation=grant.control_generation)
+            elif evidence_written:
+                conn.commit()
 
     async def before_read(grant, operation):
         check(grant, operation, None)

@@ -30,7 +30,18 @@ from __future__ import annotations
 
 from dataclasses import dataclass, field
 from datetime import datetime, timedelta, timezone
-from typing import Optional
+from decimal import Decimal, InvalidOperation
+from typing import Mapping, Optional
+
+from sentinel.operational_status import (
+    FAIL,
+    OK,
+    PENDING,
+    UNKNOWN,
+    WARN,
+    RecoveryEvidence,
+    effective_status,
+)
 
 #: Performance is permitted only inside the versioned trial-verification
 #: projection.  Kept as a compatibility name so old callers fail visibly if
@@ -38,24 +49,6 @@ from typing import Optional
 NO_PERFORMANCE_HERE = False
 
 MAXIMUM_FUTURE_SKEW = timedelta(seconds=5)
-
-OK = "ok"
-"""Measured, fresh, and within contract."""
-
-WARN = "warn"
-"""True but wants attention — stale inside tolerance, or a degraded reading."""
-
-FAIL = "fail"
-"""Measured and wrong. Something needs a human."""
-
-PENDING = "pending"
-"""Not built or not yet reached. Distinct from FAIL because "no execution path
-exists yet" is a project state, not an outage — conflating them trains an
-operator to ignore red."""
-
-UNKNOWN = "unknown"
-"""Could not be read. NEVER rendered as zero: the difference between "no
-unresolved terminals" and "nobody could count them" is the entire point."""
 
 _STATUS_RANK = {OK: 0, PENDING: 1, WARN: 2, FAIL: 3, UNKNOWN: 3}
 
@@ -69,6 +62,12 @@ SHADOW_ROW_KEYS = frozenset({
 })
 
 FINANCIAL_AUTHORITY_ROW_KEYS = TRIAL_ROW_KEYS | SHADOW_ROW_KEYS
+# Verification verdicts are current safety facts.  The numeric P/L/account
+# projections remain informational for operational health, but a withdrawn
+# trial/shadow verification must be able to turn the headline red.
+OPERATIONAL_INFORMATIONAL_ROW_KEYS = (
+    FINANCIAL_AUTHORITY_ROW_KEYS
+    - {"trial_verification", "shadow_verification"})
 
 
 @dataclass(frozen=True)
@@ -90,11 +89,21 @@ class Row:
     #: How old this row's fact may be before it reads STALE. None = timeless
     #: (an ownership event is true until superseded; a feed frontier is not).
     freshness: Optional[timedelta] = None
+    #: Required-current facts fail red when stale unless a bounded reviewed
+    #: recovery is durably active. Historical/informational rows leave this
+    #: false and retain the old visible-staleness behavior.
+    required_current: bool = False
+    recovery: Optional[RecoveryEvidence] = None
+    #: Producer-derived validity boundary. This is preferred over an elapsed
+    #: duration when the next durable cycle/session deadline is known.
+    valid_until: Optional[datetime] = None
 
     def staleness(self, now: datetime) -> Optional[timedelta]:
         return None if self.as_of is None else now - self.as_of
 
     def is_stale(self, now: datetime) -> bool:
+        if self.valid_until is not None:
+            return now > self.valid_until
         if self.as_of is None or self.freshness is None:
             return False
         return (now - self.as_of) > self.freshness
@@ -104,13 +113,11 @@ class Row:
                 and self.as_of - now > MAXIMUM_FUTURE_SKEW)
 
     def effective_status(self, now: datetime) -> str:
-        """A stale OK is a WARN. Staleness cannot IMPROVE a status — a row that
-        is already failing does not become merely stale."""
-        if self.is_future(now):
-            return FAIL
-        if self.is_stale(now) and _STATUS_RANK[self.status] < _STATUS_RANK[WARN]:
-            return WARN
-        return self.status
+        """Apply the shared operator recoverability policy."""
+        return effective_status(
+            self.status, stale=self.is_stale(now), future=self.is_future(now),
+            required_current=self.required_current, recovery=self.recovery,
+            now=now)
 
 
 @dataclass(frozen=True)
@@ -126,14 +133,16 @@ class Panel:
 
     @property
     def overall(self) -> str:
-        """The worst row wins, and PENDING never counts.
+        """The worst row wins; only optional PENDING rows are omitted.
 
         A half-built system is full of pending rows; letting them drive the
-        headline would leave it permanently amber and teach the reader that the
-        colour means nothing.
+        headline would leave it permanently amber. A required-current PENDING
+        fact is a failed dependency and therefore still participates as red.
         """
-        live = [r.effective_status(self.now) for r in self.rows
-                if r.status is not PENDING]
+        live = [
+            r.effective_status(self.now) for r in self.rows
+            if r.status != PENDING or r.required_current
+        ]
         if self.source_errors:
             live.append(FAIL)
         return max(live, key=lambda s: _STATUS_RANK[s]) if live else PENDING
@@ -147,9 +156,11 @@ class Panel:
         failing.  PENDING retains its existing meaning: a deliberately absent
         non-runtime capability is not an outage.
         """
-        live = [r.effective_status(self.now) for r in self.rows
-                if (r.key not in FINANCIAL_AUTHORITY_ROW_KEYS
-                    and r.status is not PENDING)]
+        live = [
+            r.effective_status(self.now) for r in self.rows
+            if (r.key not in OPERATIONAL_INFORMATIONAL_ROW_KEYS
+                and (r.status != PENDING or r.required_current))
+        ]
         if self.source_errors:
             live.append(FAIL)
         return max(live, key=lambda s: _STATUS_RANK[s]) if live else OK
@@ -331,6 +342,8 @@ def exposure_row(*, exposure: Optional[float],
                  controller_active: Optional[bool], adopted: bool = True,
                  session: Optional[str] = None,
                  as_of: Optional[datetime] = None,
+                 valid_until: Optional[datetime] = None,
+                 recovery: Optional[RecoveryEvidence] = None,
                  error: Optional[str] = None) -> Row:
     """`1.00 PINNED` and `1.00 computed` are different facts and the panel must
     never let them look alike.
@@ -348,17 +361,21 @@ def exposure_row(*, exposure: Optional[float],
     if controller_active and adopted:
         return Row("exposure", "Exposure", f"{exposure:.2f}", OK,
                    f"durable current controller plan{where}", as_of,
-                   freshness=timedelta(days=4))
+                   freshness=timedelta(minutes=10), required_current=True,
+                   recovery=recovery, valid_until=valid_until)
     if controller_active:
         return Row("exposure", "Exposure", f"{exposure:.2f} NOT ADOPTED", WARN,
                    f"canonical controller decision has no current plan{where}",
-                   as_of, freshness=timedelta(days=4))
+                   as_of, freshness=timedelta(minutes=10),
+                   required_current=True, recovery=recovery,
+                   valid_until=valid_until)
     status = PENDING if adopted else WARN
     detail = ("durable current rollout pins exposure at 1.00"
               if adopted else "pinned rollout has no current plan")
     return Row("exposure", "Exposure", f"{exposure:.2f} PINNED", status,
-               detail + where, as_of,
-               freshness=(timedelta(days=4) if as_of else None))
+               detail + where, as_of, freshness=timedelta(minutes=10),
+               required_current=True, recovery=recovery,
+               valid_until=valid_until)
 
 
 #: A verdict older than this describes a corpus that has since been through a
@@ -371,7 +388,9 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
              ready: Optional[bool], checks_passed: int, checks_total: int,
              as_of: Optional[datetime], error: Optional[str] = None,
              ingest_running: bool = False,
-             checked_at: Optional[datetime] = None) -> Row:
+             checked_at: Optional[datetime] = None,
+             ingest_updated_at: Optional[datetime] = None,
+             frontier_ahead: bool = False) -> Row:
     """The data contract, not a row count.
 
     §8 is explicit that "126 rows" is not the test, so this reports the contract
@@ -386,14 +405,23 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
         # hours every time a seed runs. The ingest row is authoritative during
         # an ingest; this row defers to it.
         if ingest_running:
-            return Row("feed", "Feed", "BUILDING", PENDING,
+            return Row("feed", "Feed", "BUILDING", WARN,
                        f"frontier not readable during an ingest — {error}",
-                       as_of)
+                       as_of, required_current=True,
+                       recovery=RecoveryEvidence(
+                           phase="FEED_INGEST", automatic=True,
+                           deadline=(ingest_updated_at + timedelta(minutes=15)
+                                     if ingest_updated_at else None)))
         return Row("feed", "Feed", "UNREADABLE", UNKNOWN,
                    f"could not read the feed — {error}", as_of)
     if frontier is None:
         return Row("feed", "Feed", "EMPTY", WARN,
-                   "no sessions ingested yet — run feed-seed", as_of)
+                   "no sessions ingested yet — run feed-seed", as_of,
+                   required_current=True)
+    if frontier_ahead:
+        return Row("feed", "Feed", f"{frontier} · FRONTIER AHEAD", FAIL,
+                   "frontier is in the future or is not an exchange session",
+                   as_of, required_current=True)
     behind = ("" if sessions_behind is None
               else f" · {sessions_behind} session{'s' if sessions_behind != 1 else ''} behind")
     # THREE states, not two. `ready is None` means the contract check did not
@@ -403,11 +431,17 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
     # both wrong and the fastest way to teach an operator to ignore the colour.
     # Same rule as the crash brake's `evaluable`: one flag must not answer both
     # "the evidence says no" and "there is no evidence".
+    if sessions_behind is None:
+        return Row("feed", "Feed", f"{frontier} · LAG UNKNOWN", UNKNOWN,
+                   "exchange-session currency could not be established",
+                   as_of, required_current=True)
     if ready is None:
         return Row("feed", "Feed", f"{frontier}{behind}", WARN,
                    "contract NOT CHECKED — no verdict has ever been stored. "
                    "Run `check-data`; this is 'we have not asked', not 'the "
-                   "corpus failed'.", as_of, freshness=timedelta(days=4))
+                   "corpus failed'.", as_of, required_current=True,
+                   valid_until=(checked_at + VERDICT_STALE_AFTER
+                                if checked_at else None))
     verdict = ("contract READY" if ready else "contract NOT READY")
 
     # WHEN IT WAS MEASURED, always, and an explicit warning once it is old.
@@ -415,25 +449,22 @@ def feed_row(*, frontier: Optional[str], sessions_behind: Optional[int],
     # verdict — so the age is the only thing separating a current answer from
     # one that predates a re-ingest. Undated, a day-old PASS reads as now.
     age = ""
-    stale = False
     if checked_at is not None:
-        delta = datetime.now(timezone.utc) - checked_at
-        stale = delta > VERDICT_STALE_AFTER
-        hours = delta.total_seconds() / 3600
-        age = (f" · checked {hours:.0f}h ago" if hours >= 1
-               else f" · checked {delta.total_seconds() / 60:.0f}m ago")
-        if stale:
-            age += " — STALE, re-run check-data"
+        age = f" · checked {checked_at.isoformat()}"
 
     status = OK if ready else FAIL
-    if ready and stale:
-        # Reported, not downgraded to a failure. The verdict was a PASS and
-        # saying otherwise would be inventing a result; what is uncertain is
-        # whether it still applies.
-        status = WARN
+    if ready and sessions_behind > 0:
+        status = WARN if ingest_running else FAIL
     return Row("feed", "Feed", f"{frontier}{behind}", status,
                f"{verdict} {checks_passed}/{checks_total}{age}", as_of,
-               freshness=timedelta(days=4))
+               required_current=True,
+               recovery=(RecoveryEvidence(
+                   phase="FEED_INGEST", automatic=True,
+                   deadline=(ingest_updated_at + timedelta(minutes=15)
+                             if ingest_updated_at else None))
+                         if ingest_running and sessions_behind > 0 else None),
+               valid_until=(checked_at + VERDICT_STALE_AFTER
+                            if checked_at else None))
 
 
 def ingest_row(*, kind: Optional[str], status: Optional[str],
@@ -459,8 +490,13 @@ def ingest_row(*, kind: Optional[str], status: Optional[str],
                    error_message or detail, updated_at)
     if status == "running":
         return Row("ingest", "Ingest",
-                   f"{kind} {pct:.0f}% · {chunks_done}/{chunks_total}", OK,
-                   detail, updated_at, freshness=timedelta(minutes=15))
+                   f"{kind} {pct:.0f}% · {chunks_done}/{chunks_total}", WARN,
+                   detail, updated_at, freshness=timedelta(minutes=15),
+                   required_current=True,
+                   recovery=RecoveryEvidence(
+                       phase="FEED_INGEST", automatic=True,
+                       deadline=(updated_at + timedelta(minutes=15)
+                                 if updated_at else None)))
     return Row("ingest", "Ingest", f"{kind} complete", OK, detail, updated_at)
 
 
@@ -471,6 +507,8 @@ def book_row(*, available: Optional[bool], slots_used: Optional[int] = None,
              unpriced_securities: Optional[int] = None,
              pending_actions: Optional[int] = None,
              as_of: Optional[datetime] = None,
+             valid_until: Optional[datetime] = None,
+             recovery: Optional[RecoveryEvidence] = None,
              error: Optional[str] = None) -> Row:
     """The book, with `blocked` and `unresolved` on the SAME LINE as the NAV.
 
@@ -504,13 +542,17 @@ def book_row(*, available: Optional[bool], slots_used: Optional[int] = None,
         f"cash ${cash:,.0f} · {pending_actions or 0} pending")
     return Row("book", "Book",
                f"{slots_used}/{slots_total} slots · NAV ${nav:,.0f}",
-               status, detail, as_of, freshness=timedelta(days=4))
+               status, detail, as_of, freshness=timedelta(minutes=10),
+               required_current=True, recovery=recovery,
+               valid_until=valid_until)
 
 
 def terminals_row(*, counters: Optional[dict] = None,
                   current_unresolved: Optional[int] = None,
                   current_pending: Optional[int] = None,
                   as_of: Optional[datetime] = None,
+                  valid_until: Optional[datetime] = None,
+                  recovery: Optional[RecoveryEvidence] = None,
                   error: Optional[str] = None) -> Row:
     """The settlement counters, which are the honest headline.
 
@@ -532,15 +574,20 @@ def terminals_row(*, counters: Optional[dict] = None,
             return Row("terminals", "Terminals",
                        f"UNRESOLVED {current_unresolved}", FAIL,
                        value + " · canonical current state", as_of,
-                       freshness=timedelta(days=4))
+                       freshness=timedelta(minutes=10), required_current=True,
+                       valid_until=valid_until)
         if current_pending:
             return Row("terminals", "Terminals", value, WARN,
                        "terms are still inside the documented carry window",
-                       as_of, freshness=timedelta(days=4))
+                       as_of, freshness=timedelta(minutes=10),
+                       required_current=True, recovery=recovery,
+                       valid_until=valid_until)
         return Row("terminals", "Terminals", "CLEAR", OK,
                    "no unresolved or carried terminal event in canonical state; "
                    "cumulative settlement mix is not persisted here",
-                   as_of, freshness=timedelta(days=4))
+                   as_of, freshness=timedelta(minutes=10),
+                   required_current=True, recovery=recovery,
+                   valid_until=valid_until)
     if not counters:
         return Row("terminals", "Terminals", "NONE YET", PENDING,
                    "no terminal events resolved on this book", as_of)
@@ -572,6 +619,8 @@ def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
                uncertain_commands: Optional[int] = None,
                command_as_of: Optional[datetime] = None,
                as_of: Optional[datetime] = None,
+               recovery: Optional[RecoveryEvidence] = None,
+               valid_until: Optional[datetime] = None,
                error: Optional[str] = None) -> Row:
     """Broker state, shown for RECONCILIATION only.
 
@@ -582,8 +631,12 @@ def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
     `agrees` form remains for pure-model callers that already hold a verdict.
     """
     if error or available is None:
-        return Row("broker", "Broker", "UNKNOWN", UNKNOWN,
-                   error or "durable broker evidence could not be read", as_of)
+        return Row(
+            "broker", "Broker", "RETRYING" if recovery else "UNKNOWN",
+            WARN if recovery else UNKNOWN,
+            error or "durable broker evidence could not be read", as_of,
+            required_current=True, recovery=recovery,
+            valid_until=valid_until)
     if not available:
         return Row("broker", "Broker", "NOT SYNCED", PENDING,
                    "no durable broker observation yet", as_of)
@@ -597,10 +650,12 @@ def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
         if agrees is False:
             return Row("broker", "Broker", f"{positions} positions", FAIL,
                        "DISAGREES with the shadow — the shadow is authoritative",
-                       as_of, freshness=timedelta(days=4))
+                       as_of, freshness=timedelta(minutes=10),
+                       required_current=True, valid_until=valid_until)
         return Row("broker", "Broker", f"{positions} positions", OK,
                    "agrees with the shadow", as_of,
-                   freshness=timedelta(days=4))
+                   freshness=timedelta(minutes=10), required_current=True,
+                   valid_until=valid_until)
 
     complete = str(completeness or "").upper()
     runtime = str(runtime_state or "").upper()
@@ -615,17 +670,25 @@ def broker_row(*, available: Optional[bool], positions: Optional[int] = None,
               f"{journal_age}")
     if not complete or not runtime:
         return Row("broker", "Broker", value, UNKNOWN,
-                   detail, as_of, freshness=timedelta(days=4))
+                   detail, as_of, freshness=timedelta(minutes=10),
+                   required_current=True, recovery=recovery,
+                   valid_until=valid_until)
     if complete != "COMPLETE":
         return Row("broker", "Broker", value, FAIL,
-                   detail, as_of, freshness=timedelta(days=4))
+                   detail, as_of, freshness=timedelta(minutes=10),
+                   required_current=True, recovery=recovery,
+                   valid_until=valid_until)
     if runtime != "RUNNING" or uncertain:
         if uncertain:
             detail += f" · {uncertain} indeterminate command(s)"
-        return Row("broker", "Broker", value, FAIL,
-                   detail, as_of, freshness=timedelta(days=4))
+        status = WARN if recovery is not None else FAIL
+        return Row("broker", "Broker", value, status,
+                   detail, as_of, freshness=timedelta(minutes=10),
+                   required_current=True, recovery=recovery,
+                   valid_until=valid_until)
     return Row("broker", "Broker", value, OK, detail, as_of,
-               freshness=timedelta(days=4))
+               freshness=timedelta(minutes=10), required_current=True,
+               recovery=recovery, valid_until=valid_until)
 
 
 def automation_row(*, installed: Optional[bool] = False,
@@ -653,8 +716,8 @@ def automation_row(*, installed: Optional[bool] = False,
                    f"supervisor-healthy and operationally inert · {kill} · "
                    f"{suffix}", updated_at)
     if killed:
-        return Row("automation", "Automation", "ENABLED · KILLED", WARN,
-                   f"supervisor-healthy but broker access is blocked · "
+        return Row("automation", "Automation", "ENABLED · KILLED", FAIL,
+                   f"operator action required; broker access is blocked · "
                    f"{suffix}", updated_at)
     return Row("automation", "Automation", "ENABLED · KILL RELEASED", OK,
                f"operational policy permits leader election · {suffix}",
@@ -669,6 +732,7 @@ def automation_leader_row(*, installed: Optional[bool],
                           heartbeat_at: Optional[datetime] = None,
                           expires_at: Optional[datetime] = None,
                           active: Optional[bool] = None,
+                          recovery_deadline: Optional[datetime] = None,
                           error: Optional[str] = None) -> Row:
     """Current database-fenced leader lease, evaluated by database time."""
     if error or installed is None:
@@ -689,9 +753,14 @@ def automation_leader_row(*, installed: Optional[bool],
                    "INACTIVE BY POLICY", PENDING, lease, heartbeat_at)
     if not active:
         return Row("automation_leader", "Automation leader", "NO LIVE LEADER",
-                   WARN, lease, heartbeat_at)
+                   WARN, lease, heartbeat_at, required_current=bool(enabled),
+                   recovery=RecoveryEvidence(
+                       phase="LEADER_ELECTION", automatic=True,
+                       deadline=recovery_deadline))
     return Row("automation_leader", "Automation leader",
-               f"{holder} · fence {fence}", OK, lease, heartbeat_at)
+               f"{holder} · fence {fence}", OK, lease, heartbeat_at,
+               freshness=timedelta(seconds=30), required_current=bool(enabled),
+               valid_until=expires_at)
 
 
 def automation_cycle_row(*, installed: Optional[bool],
@@ -704,6 +773,18 @@ def automation_cycle_row(*, installed: Optional[bool],
                          clean_reconciliation_id: Optional[str] = None,
                          failure_code: Optional[str] = None,
                          failure_detail: Optional[str] = None,
+                         attempt_count: Optional[int] = None,
+                         phase_attempt_count: Optional[int] = None,
+                         phase_max_attempts: Optional[int] = None,
+                         first_failure_at: Optional[str] = None,
+                         exception_fingerprint: Optional[str] = None,
+                         terminal_reason: Optional[str] = None,
+                         prepare_at: Optional[datetime] = None,
+                         execution_open_at: Optional[datetime] = None,
+                         execute_at: Optional[datetime] = None,
+                         execution_close_at: Optional[datetime] = None,
+                         created_at: Optional[datetime] = None,
+                         completed_at: Optional[datetime] = None,
                          updated_at: Optional[datetime] = None,
                          error: Optional[str] = None) -> Row:
     """Latest durable cycle, including its next wake and last clean proof."""
@@ -721,7 +802,8 @@ def automation_cycle_row(*, installed: Optional[bool],
                        f"{failure_detail or 'no detail'}")
         return Row("automation_cycle", "Automation cycle", "NO CYCLES",
                    FAIL if failure_code or failure_detail else (
-                       WARN if enabled else PENDING), detail)
+                       WARN if enabled else PENDING), detail,
+                   required_current=bool(enabled))
     normalized = str(state or "").upper()
     detail = (
         f"cycle {cycle_id} · decision {decision_session or 'unknown'} · "
@@ -731,8 +813,17 @@ def automation_cycle_row(*, installed: Optional[bool],
     if failure_code or failure_detail:
         detail += (f" · failure {failure_code or 'UNCLASSIFIED'}: "
                    f"{failure_detail or 'no detail'}")
+    recovery = None
     if normalized == "RETRY_WAIT":
         status = WARN
+        recovery = RecoveryEvidence(
+            phase="AUTOMATION_RETRY",
+            automatic=True,
+            attempt=(phase_attempt_count if phase_attempt_count is not None
+                     else attempt_count),
+            maximum_attempts=phase_max_attempts,
+            next_attempt_at=next_wake_at,
+            operator_required=bool(terminal_reason))
     elif failure_code or failure_detail:
         status = FAIL
     elif not normalized:
@@ -740,17 +831,228 @@ def automation_cycle_row(*, installed: Optional[bool],
     elif normalized in {"BLOCKED", "MISSED_STATE_ONLY", "SUPERSEDED"}:
         status = FAIL
     elif normalized == "SUCCEEDED":
-        status = OK
+        status = OK if clean_reconciliation_id else FAIL
+        if not clean_reconciliation_id:
+            detail += " · invalid success: clean reconciliation is absent"
     else:
         status = WARN if enabled else PENDING
+        deadlines = {
+            "DISCOVERED": prepare_at,
+            "REFRESHING_DATA": execution_open_at,
+            "PREPARING": execution_open_at,
+            "PLAN_READY": execution_close_at,
+            "WAITING_OPEN": execution_close_at,
+            "EXECUTING": execution_close_at,
+            "RECONCILING": execution_close_at,
+        }
+        recovery = RecoveryEvidence(
+            phase=f"AUTOMATION_{normalized or 'UNKNOWN'}",
+            automatic=True, next_attempt_at=next_wake_at,
+            deadline=deadlines.get(normalized))
     return Row("automation_cycle", "Automation cycle",
-               normalized or "UNKNOWN", status, detail, updated_at)
+               normalized or "UNKNOWN", status, detail, updated_at,
+               required_current=bool(enabled), recovery=recovery)
+
+
+_AUTOMATION_STEP_DEFINITIONS = (
+    ("discovery", "1 · Cycle discovery"),
+    ("data", "2 · Data refresh"),
+    ("prepare", "3 · Plan preparation"),
+    ("open", "4 · Market-open wait"),
+    ("transport", "5 · Order transport"),
+    ("reconcile", "6 · Broker reconciliation"),
+    ("complete", "7 · Cycle completion"),
+)
+_AUTOMATION_STATE_STEP = {
+    "DISCOVERED": 0,
+    "REFRESHING_DATA": 1,
+    "PREPARING": 2,
+    "PLAN_READY": 3,
+    "WAITING_OPEN": 3,
+    "EXECUTING": 4,
+    "RECONCILING": 5,
+    "SUCCEEDED": 6,
+    "MISSED_STATE_ONLY": 6,
+    "SUPERSEDED": 6,
+    "BLOCKED": 6,
+}
+_AUTOMATION_RETRY_STEP = {
+    "REFRESH": 1,
+    "PREFLIGHT_RECOVER": 1,
+    "PREPARE": 2,
+    "EXECUTE": 4,
+    "RECOVER": 5,
+}
+
+
+def automation_step_rows(
+        *, installed: Optional[bool], enabled: Optional[bool] = None,
+        cycle: Optional[Mapping] = None, events=(),
+        error: Optional[str] = None) -> list[Row]:
+    """Expand one durable cycle into explicit, non-authoritative progress.
+
+    Later permitted transitions prove earlier gates were passed, even when an
+    optional intermediate state was skipped. They never prove a future step.
+    """
+    if error or installed is None:
+        detail = error or "automation step evidence could not be read"
+        return [
+            Row(f"automation_step_{key}", label, "UNKNOWN", UNKNOWN, detail)
+            for key, label in _AUTOMATION_STEP_DEFINITIONS
+        ]
+    if not installed:
+        return [
+            Row(f"automation_step_{key}", label, "NOT INSTALLED", PENDING,
+                "automation is not installed")
+            for key, label in _AUTOMATION_STEP_DEFINITIONS
+        ]
+    if not enabled:
+        return [
+            Row(f"automation_step_{key}", label, "MAINTENANCE", PENDING,
+                "automation is deliberately disabled")
+            for key, label in _AUTOMATION_STEP_DEFINITIONS
+        ]
+    cycle = dict(cycle or {})
+    if not cycle.get("cycle_id"):
+        return [
+            Row(
+                f"automation_step_{key}", label,
+                "MISSING" if index == 0 else "NOT REACHED",
+                FAIL if index == 0 else PENDING,
+                "enabled automation has no durable current cycle",
+                required_current=index == 0)
+            for index, (key, label) in enumerate(
+                _AUTOMATION_STEP_DEFINITIONS)
+        ]
+
+    state = str(cycle.get("state") or "").upper()
+    diagnostic = cycle.get("diagnostic")
+    diagnostic = dict(diagnostic) if isinstance(diagnostic, Mapping) else {}
+    retry_phase = str(
+        cycle.get("retry_phase") or diagnostic.get("retry_phase") or ""
+    ).upper()
+    terminal = state in {"SUCCEEDED", "MISSED_STATE_ONLY", "SUPERSEDED", "BLOCKED"}
+
+    normalized_events = []
+    for event in events or ():
+        if not isinstance(event, Mapping):
+            continue
+        normalized_events.append(dict(event))
+    observed_indices = []
+    step_times: dict[int, datetime] = {}
+    for event in normalized_events:
+        for field in ("from_state", "to_state"):
+            event_state = str(event.get(field) or "").upper()
+            if event_state in _AUTOMATION_STATE_STEP:
+                index = _AUTOMATION_STATE_STEP[event_state]
+                observed_indices.append(index)
+                at = event.get("at")
+                if isinstance(at, datetime):
+                    step_times[index] = max(step_times.get(index, at), at)
+
+    state_index = _AUTOMATION_STATE_STEP.get(state)
+    if state == "RETRY_WAIT":
+        state_index = _AUTOMATION_RETRY_STEP.get(
+            retry_phase, max(observed_indices, default=0))
+    progress_index = max(
+        [index for index in observed_indices if index < 6]
+        + ([state_index] if state_index is not None and state_index < 6 else []),
+        default=0)
+
+    deadlines = {
+        0: cycle.get("prepare_at"),
+        1: cycle.get("execution_open_at"),
+        2: cycle.get("execution_open_at"),
+        3: cycle.get("execution_close_at"),
+        4: cycle.get("execution_close_at"),
+        5: cycle.get("execution_close_at"),
+    }
+    retry = RecoveryEvidence(
+        phase=f"AUTOMATION_{retry_phase or 'RETRY'}",
+        automatic=True,
+        attempt=(cycle.get("phase_attempt_count")
+                 if cycle.get("phase_attempt_count") is not None
+                 else cycle.get("attempt_count")),
+        maximum_attempts=cycle.get("phase_max_attempts"),
+        next_attempt_at=cycle.get("next_wake_at"),
+        operator_required=bool(cycle.get("terminal_reason")),
+    )
+    failed_index = None
+    if terminal and state != "SUCCEEDED":
+        failed_index = _AUTOMATION_RETRY_STEP.get(retry_phase, progress_index)
+
+    rows: list[Row] = []
+    for index, (key, label) in enumerate(_AUTOMATION_STEP_DEFINITIONS):
+        row_key = f"automation_step_{key}"
+        if index == 6 and terminal:
+            success = (
+                state == "SUCCEEDED"
+                and bool(cycle.get("clean_reconciliation_id")))
+            rows.append(Row(
+                row_key, label, state, OK if success else FAIL,
+                (f"clean reconciliation {cycle.get('clean_reconciliation_id')}"
+                 if success else
+                 f"{cycle.get('failure_code') or state}: "
+                 f"{cycle.get('failure_detail') or ('clean reconciliation is absent'
+                    if state == 'SUCCEEDED' else 'operator action required')}"),
+                cycle.get("completed_at") or cycle.get("updated_at"),
+                required_current=True))
+            continue
+        if failed_index == index:
+            rows.append(Row(
+                row_key, label, "FAILED", FAIL,
+                f"{cycle.get('failure_code') or state}: "
+                f"{cycle.get('failure_detail') or 'operator action required'}",
+                cycle.get("updated_at"), required_current=True))
+            continue
+        if terminal:
+            passed = index < progress_index or (
+                state == "SUCCEEDED" and index < 6)
+        else:
+            passed = state_index is not None and index < state_index
+        if passed:
+            rows.append(Row(
+                row_key, label, "COMPLETE", OK,
+                f"durable cycle advanced beyond this gate to {state}",
+                step_times.get(index) or cycle.get("updated_at")))
+            continue
+        if not terminal and index == state_index:
+            if state == "RETRY_WAIT":
+                attempt = retry.attempt if retry.attempt is not None else "?"
+                maximum = (retry.maximum_attempts
+                           if retry.maximum_attempts is not None else "?")
+                value = f"RETRY {attempt}/{maximum}"
+                detail = (
+                    f"{retry_phase or 'UNKNOWN'} · next "
+                    f"{cycle.get('next_wake_at') or 'unknown'}")
+                recovery = retry
+            else:
+                value = state
+                detail = (
+                    f"current automatic step · deadline "
+                    f"{deadlines.get(index) or 'unknown'}")
+                recovery = RecoveryEvidence(
+                    phase=f"AUTOMATION_{key.upper()}", automatic=True,
+                    next_attempt_at=cycle.get("next_wake_at"),
+                    deadline=deadlines.get(index))
+            rows.append(Row(
+                row_key, label, value, WARN, detail,
+                cycle.get("updated_at"), required_current=True,
+                recovery=recovery))
+            continue
+        rows.append(Row(
+            row_key, label, "NOT REACHED", PENDING,
+            "future step in the current durable cycle"))
+    return rows
 
 
 def automation_alerts_row(*, installed: Optional[bool],
                           pending: Optional[int] = None,
                           dead_letter: Optional[int] = None,
                           unacknowledged: Optional[int] = None,
+                          retry_attempt: Optional[int] = None,
+                          retry_max_attempts: Optional[int] = None,
+                          next_attempt_at: Optional[datetime] = None,
                           as_of: Optional[datetime] = None,
                           error: Optional[str] = None) -> Row:
     """Durable outbox pressure; missing data never renders as zero."""
@@ -765,17 +1067,33 @@ def automation_alerts_row(*, installed: Optional[bool],
                    UNKNOWN, "alert counts are incomplete", as_of)
     value = (f"{pending} pending · {dead_letter} DLQ · "
              f"{unacknowledged} unacked")
-    status = FAIL if dead_letter else (
-        WARN if pending or unacknowledged else OK)
+    status = FAIL if dead_letter or unacknowledged else (
+        WARN if pending else OK)
     return Row("automation_alerts", "Automation alerts", value, status,
-               "SELECT-only projection of the durable alert outbox", as_of)
+               "SELECT-only projection of the durable alert outbox", as_of,
+               required_current=True,
+               recovery=(RecoveryEvidence(
+                   phase="ALERT_DELIVERY", automatic=True,
+                   attempt=retry_attempt,
+                   maximum_attempts=retry_max_attempts,
+                   next_attempt_at=next_attempt_at)
+                         if pending and not dead_letter and not unacknowledged
+                         else None))
 
 
 def alert_dispatcher_row(*, installed: Optional[bool],
                          dispatchers: Optional[list[dict]] = None,
+                         push_required: bool = False,
+                         active_subscriptions: Optional[int] = None,
+                         retired_subscriptions: Optional[int] = None,
+                         last_push_success_at: Optional[datetime] = None,
+                         last_push_failure_at: Optional[datetime] = None,
+                         retry_attempt: Optional[int] = None,
+                         retry_max_attempts: Optional[int] = None,
+                         next_attempt_at: Optional[datetime] = None,
                          maximum_age_seconds: float = 30,
                          error: Optional[str] = None) -> Row:
-    """Durable webhook reachability, independently checked by Docker health."""
+    """Durable alert-dispatcher and first-party delivery health."""
     if error or installed is None:
         return Row("alert_dispatcher", "Alert delivery", "UNKNOWN", UNKNOWN,
                    error or "alert dispatcher health could not be read")
@@ -794,15 +1112,17 @@ def alert_dispatcher_row(*, installed: Optional[bool],
         age = item.get("heartbeat_age_seconds")
         if (not isinstance(age, (int, float)) or age < 0
                 or age > maximum_age_seconds or state == "FAILED"
-                or (state == "HEALTHY"
-                    and item.get("last_success_at") is None)):
+                or state not in {"STARTING", "HEALTHY", "DEGRADED"}):
             failed.append(identity)
         elif state != "HEALTHY":
             degraded.append(identity)
     healthy = len(dispatchers) - len(failed) - len(degraded)
     value = (f"{healthy} healthy · {len(degraded)} degraded · "
              f"{len(failed)} failed")
-    status = FAIL if failed else (WARN if degraded else OK)
+    missing_push = push_required and active_subscriptions == 0
+    unknown_push = push_required and active_subscriptions is None
+    status = FAIL if failed or missing_push or unknown_push else (
+        WARN if degraded else OK)
     detail_parts = []
     for item in dispatchers:
         detail_parts.append(
@@ -812,11 +1132,245 @@ def alert_dispatcher_row(*, installed: Optional[bool],
             f"{item.get('consecutive_failures')} · last success "
             f"{item.get('last_success_at') or 'none'} · "
             f"{item.get('last_error') or 'no error'}")
+    if push_required:
+        detail_parts.append(
+            "Web Push subscriptions "
+            f"{active_subscriptions if active_subscriptions is not None else 'UNKNOWN'} active"
+            f" · {retired_subscriptions if retired_subscriptions is not None else 'UNKNOWN'} retired"
+            f" · last success {last_push_success_at or 'none'}"
+            f" · last failure {last_push_failure_at or 'none'}")
     as_of = max(
         (item.get("heartbeat_at") for item in dispatchers
          if item.get("heartbeat_at") is not None), default=None)
     return Row("alert_dispatcher", "Alert delivery", value, status,
-               " | ".join(detail_parts), as_of)
+               " | ".join(detail_parts), as_of, required_current=True,
+                   recovery=(RecoveryEvidence(
+                   phase="ALERT_TRANSPORT", automatic=True,
+                   attempt=retry_attempt,
+                   maximum_attempts=retry_max_attempts,
+                   next_attempt_at=next_attempt_at)
+                         if degraded and not failed and not missing_push
+                         and not unknown_push else None))
+
+
+def alpaca_account_row(
+        *, available: Optional[bool], broker: Optional[str] = None,
+        account_id: Optional[str] = None,
+        expected_account_id: Optional[str] = None,
+        status: Optional[str] = None, flags: Optional[dict] = None,
+        equity=None, cash=None, buying_power=None, multiplier=None,
+        observed_at: Optional[datetime] = None,
+        valid_until: Optional[datetime] = None,
+        recovery: Optional[RecoveryEvidence] = None,
+        error: Optional[str] = None) -> Row:
+    """Latest account result already admitted through the execution membrane."""
+    if error or available is None:
+        return Row(
+            "alpaca_account", "Alpaca Account",
+            "RETRYING" if recovery else "UNKNOWN",
+            WARN if recovery else UNKNOWN,
+            error or "durable account evidence could not be read", observed_at,
+            required_current=True, recovery=recovery,
+            valid_until=valid_until)
+    if not available:
+        return Row(
+            "alpaca_account", "Alpaca Account", "NO DURABLE SNAPSHOT", FAIL,
+            "run the guarded account-snapshot path; the panel never polls Alpaca",
+            observed_at, required_current=True)
+    normalized_broker = str(broker or "").lower()
+    normalized_status = str(status or "").upper()
+    if (normalized_broker != "alpaca" or not account_id
+            or not expected_account_id):
+        return Row(
+            "alpaca_account", "Alpaca Account", "IDENTITY UNKNOWN", UNKNOWN,
+            "broker, observed account, and bound account are all required",
+            observed_at, required_current=True)
+    if account_id != expected_account_id:
+        return Row(
+            "alpaca_account", "Alpaca Account", "IDENTITY MISMATCH", FAIL,
+            f"observed {account_id} · bound {expected_account_id}", observed_at,
+            required_current=True)
+    if any(value is None for value in (
+            equity, cash, buying_power, multiplier)):
+        return Row(
+            "alpaca_account", "Alpaca Account", "ECONOMICS INCOMPLETE", UNKNOWN,
+            f"account {account_id} lacks equity/cash/buying-power/multiplier",
+            observed_at, required_current=True)
+    try:
+        equity_value = Decimal(str(equity))
+        cash_value = Decimal(str(cash))
+        buying_power_value = Decimal(str(buying_power))
+        multiplier_value = Decimal(str(multiplier))
+    except (InvalidOperation, TypeError, ValueError) as exc:
+        return Row(
+            "alpaca_account", "Alpaca Account", "ECONOMICS INVALID", FAIL,
+            f"account {account_id} has non-decimal economics", observed_at,
+            required_current=True)
+    flags = dict(flags or {})
+    blocking = sorted(
+        key for key in (
+            "trading_blocked", "account_blocked", "trade_suspended_by_user")
+        if flags.get(key) is True)
+    economics_failures = []
+    if not all(value.is_finite() for value in (
+            equity_value, cash_value, buying_power_value, multiplier_value)):
+        economics_failures.append("non-finite economics")
+    else:
+        if equity_value <= 0:
+            economics_failures.append("nonpositive equity")
+        if cash_value < 0:
+            economics_failures.append("negative cash")
+        if buying_power_value < 0:
+            economics_failures.append("negative buying power")
+        if multiplier_value != Decimal(1):
+            economics_failures.append("multiplier is not cash-only 1")
+        if abs(buying_power_value - cash_value) > Decimal("1.00"):
+            economics_failures.append(
+                "buying power differs from cash by more than $1")
+    state_ok = (
+        normalized_status == "ACTIVE" and not blocking
+        and not economics_failures)
+    value = f"{normalized_status or 'UNKNOWN'} · {account_id}"
+    detail = (
+        f"equity ${equity_value:,.2f} · cash ${cash_value:,.2f} · "
+        f"buying power ${buying_power_value:,.2f} · multiplier {multiplier_value}"
+        + (f" · FLAGS {', '.join(blocking)}" if blocking else
+           " · no blocking flags")
+        + (f" · CONTRACT {', '.join(economics_failures)}"
+           if economics_failures else " · cash-only contract valid"))
+    return Row(
+        "alpaca_account", "Alpaca Account", value,
+        OK if state_ok else FAIL, detail, observed_at,
+        freshness=timedelta(minutes=10), required_current=True,
+        recovery=recovery, valid_until=valid_until)
+
+
+def backup_restore_row(
+        *, base_at: Optional[datetime], restore_at: Optional[datetime],
+        runtime_at: Optional[datetime] = None,
+        base_proof: Optional[dict] = None,
+        restore_proof: Optional[dict] = None,
+        runtime_proof: Optional[dict] = None,
+        now: datetime, recovery: Optional[RecoveryEvidence] = None,
+        runtime_valid_until: Optional[datetime] = None,
+        error: Optional[str] = None) -> Row:
+    """Daily base-backup and monthly restore-drill evidence."""
+    stamps = [stamp for stamp in (base_at, restore_at, runtime_at) if stamp]
+    as_of = max(stamps) if stamps else None
+    if error:
+        return Row("backup_restore", "Backup / Restore", "UNKNOWN", UNKNOWN,
+                   error, as_of, required_current=True)
+    missing = []
+    if base_at is None:
+        missing.append("base backup")
+    if restore_at is None:
+        missing.append("restore drill")
+    if runtime_at is None:
+        missing.append("runtime restore chain")
+    if missing:
+        return Row(
+            "backup_restore", "Backup / Restore", "MISSING EVIDENCE", FAIL,
+            "missing " + " and ".join(missing), as_of, required_current=True)
+    assert base_at is not None and restore_at is not None and runtime_at is not None
+    base_age = now - base_at
+    restore_age = now - restore_at
+    lag_failures = []
+    hard_failures = []
+    if base_age > timedelta(hours=26):
+        lag_failures.append("base backup exceeds 26h objective")
+    if restore_age > timedelta(days=31):
+        hard_failures.append("restore drill exceeds 31d objective")
+    if runtime_valid_until is None or now > runtime_valid_until:
+        lag_failures.append("runtime restore-chain proof is past its cadence")
+    base_proof = dict(base_proof or {})
+    restore_proof = dict(restore_proof or {})
+    runtime_proof = dict(runtime_proof or {})
+    base_name_value = str(base_proof.get("base_backup") or "")
+    system_id = str(base_proof.get("system_identifier") or "")
+    if not all(base_proof.get(key) for key in (
+            "base_backup", "marker", "marker_lsn", "marker_wal",
+            "system_identifier")):
+        hard_failures.append("complete base/WAL proof is malformed")
+    try:
+        wal_segments = int(runtime_proof.get("wal_segments") or 0)
+    except (TypeError, ValueError):
+        wal_segments = 0
+    if (runtime_proof.get("enabled") is not True
+            or runtime_proof.get("wal_integrity") != "sha256-sidecar-v1"
+            or not runtime_proof.get("recoverable_from_wal")
+            or not runtime_proof.get("recoverable_through_wal")
+            or wal_segments < 1):
+        hard_failures.append("runtime restore-chain authority is invalid")
+    if (str(runtime_proof.get("base_backup") or "") != base_name_value
+            or str(runtime_proof.get("system_identifier") or "") != system_id):
+        hard_failures.append("runtime chain disagrees with base backup")
+    # A monthly semantic drill normally names an older daily base generation.
+    # It remains valid through its 31-day objective as long as it proves the
+    # same database system identity; requiring it to name today's base would
+    # make every successful daily backup falsely turn the panel red.
+    if (restore_proof.get("physical_only") is not False
+            or not restore_proof.get("base_backup")
+            or str(restore_proof.get("system_identifier") or "") != system_id
+            or not restore_proof.get("marker")
+            or not restore_proof.get("target_lsn")):
+        hard_failures.append("full semantic restore proof is invalid")
+    base_name = base_name_value or "invalid"
+    value = (
+        f"BASE {base_age.total_seconds() / 3600:.1f}h · "
+        f"RESTORE {restore_age.total_seconds() / 86400:.1f}d")
+    runtime = (
+        f" · runtime chain {runtime_at.isoformat()}" if runtime_at else
+        " · no later runtime-chain proof")
+    detail = f"{base_name}{runtime}"
+    failures = [*hard_failures, *lag_failures]
+    if failures:
+        detail += " · " + " · ".join(failures)
+    recoverable = bool(lag_failures and not hard_failures and recovery is not None)
+    return Row(
+        "backup_restore", "Backup / Restore", value,
+        WARN if recoverable else (FAIL if failures else OK), detail, as_of,
+        required_current=True, recovery=(recovery if recoverable else None))
+
+
+def runtime_identity_row(
+        *, runtime_git: Optional[str], runtime_image: Optional[str],
+        reviewed_git: Optional[str], reviewed_image: Optional[str],
+        certificate_sha256: Optional[str], lifecycle_current: Optional[bool],
+        authority_verdict: Optional[str], checked_at: Optional[datetime],
+        valid_until: Optional[datetime] = None,
+        error: Optional[str] = None) -> Row:
+    """Compare runtime observations with signed reviewed artifact claims."""
+    if error:
+        return Row("runtime_identity", "Runtime Identity", "UNKNOWN", UNKNOWN,
+                   error, checked_at, required_current=True)
+    missing = [name for name, value in (
+        ("runtime Git", runtime_git), ("runtime image", runtime_image),
+        ("reviewed Git", reviewed_git), ("reviewed image", reviewed_image),
+        ("certificate", certificate_sha256), ("authority verdict", authority_verdict),
+        ("checked at", checked_at),
+    ) if not value]
+    if missing:
+        return Row(
+            "runtime_identity", "Runtime Identity", "INCOMPLETE", FAIL,
+            "missing " + ", ".join(missing), checked_at,
+            required_current=True)
+    matches = (
+        lifecycle_current is True
+        and str(authority_verdict).upper() == "PASS"
+        and runtime_git == reviewed_git
+        and runtime_image == reviewed_image)
+    value = (
+        f"GIT {str(runtime_git)[:12]} · IMAGE {str(runtime_image)[:19]}")
+    detail = (
+        f"reviewed Git {reviewed_git} · reviewed image {reviewed_image} · "
+        f"certificate {str(certificate_sha256)[:12]} · "
+        f"lifecycle {'current' if lifecycle_current else 'invalid'} · "
+        f"authority {str(authority_verdict).upper()}")
+    return Row(
+        "runtime_identity", "Runtime Identity", value,
+        OK if matches else FAIL, detail, checked_at,
+        freshness=timedelta(minutes=5), required_current=True,
+        valid_until=valid_until)
 
 
 def execution_authority_row(
@@ -833,6 +1387,8 @@ def execution_authority_row(
         authority_generation: Optional[int] = None,
         lifecycle_current: Optional[bool] = None,
         verdict_binding_matches: Optional[bool] = None,
+        reviewed_git_commit: Optional[str] = None,
+        reviewed_image_digest: Optional[str] = None,
         error: Optional[str] = None) -> Row:
     """Durable runtime verdict plus clearly non-authoritative lifecycle facts.
 
@@ -892,19 +1448,23 @@ def execution_authority_row(
     else:
         status = FAIL
     detail = (f"persisted runtime verdict: {runtime_detail or 'no detail'}; "
-              f"{lifecycle}")
+              f"{lifecycle}; reviewed Git "
+              f"{reviewed_git_commit or 'missing'} · reviewed image "
+              f"{reviewed_image_digest or 'missing'}")
     digest = f" · {certificate_sha256[:12]}" if certificate_sha256 else ""
     return Row("authority", "Paper execution authority",
                f"{verdict}{digest}", status, detail, checked_at,
-               freshness=timedelta(minutes=5))
+               freshness=timedelta(minutes=5), required_current=True)
 
 
-__all__ = ["FAIL", "FINANCIAL_AUTHORITY_ROW_KEYS", "NO_PERFORMANCE_HERE",
+__all__ = ["FAIL", "FINANCIAL_AUTHORITY_ROW_KEYS",
+           "OPERATIONAL_INFORMATIONAL_ROW_KEYS", "NO_PERFORMANCE_HERE",
            "OK", "PENDING", "Panel", "Row", "SHADOW_ROW_KEYS",
            "TRIAL_ROW_KEYS", "UNKNOWN", "WARN", "automation_alerts_row",
            "alert_dispatcher_row",
            "automation_cycle_row", "automation_leader_row", "automation_row",
-           "book_row", "broker_row",
+           "automation_step_rows",
+           "alpaca_account_row", "backup_restore_row", "book_row", "broker_row",
            "execution_authority_row", "exposure_row", "feed_row", "ingest_row",
-           "ownership_row", "paper_reconciliation_row",
+           "ownership_row", "paper_reconciliation_row", "runtime_identity_row",
            "shadow_metric_row", "shadow_verification_row", "terminals_row"]

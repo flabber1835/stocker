@@ -63,7 +63,7 @@ are checked before side effects using the existing deployment bounds.
 Automation interval checks use the effective service defaults from
 `docker-compose.sentinel-automation.yml`: lease 12 seconds, heartbeat and control
 poll 3 seconds, retry base 5 seconds, retry maximum and callback deadline 900
-seconds, and alert maximum attempts 1,000,000. Every validation compares heartbeat
+seconds, and alert maximum attempts 8. Every validation compares heartbeat
 against lease, retry base against maximum, and callback deadline against
 heartbeat, including when an operator supplies just one member of a pair.
 Regression tests independently resolve the Compose environment and call the real
@@ -75,11 +75,14 @@ and GO for paper/dual targets, plus broker bring-up, also validate its callback
 deadline against that effective heartbeat. SHADOW retains its broker-free
 preflight and does not require an alert dispatcher.
 
-Broker installation, GO and bring-up require a usable HTTPS
-`SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL` before Git, receipt provisioning or
-service operations. Missing, empty, comment-only, whitespace-only and placeholder
-values refuse, including an explicit empty process override of a configured file.
-The setting is listed in `.env.example` and stays operator-owned.
+Broker installation, GO and bring-up require one complete alert transport before
+Git, receipt provisioning or service operations. The preferred transport is a
+P-256 VAPID public/private keypair, `mailto:` or HTTPS VAPID subject, and one
+stable HTTPS `SENTINEL_PUBLIC_ORIGIN`. The optional migration webhook alone also
+satisfies the transport gate. A partial VAPID set, malformed base64url key,
+non-HTTPS origin, missing transport, placeholder, or explicit empty override
+refuses. The VAPID private scalar and webhook stay operator-owned secrets; the
+VAPID public key and public origin are deliberately passed to the panel.
 
 The direct automation Compose wrapper applies the external-alert endpoint and
 dispatcher timing prerequisites to potentially mutating or unknown commands before
@@ -94,16 +97,17 @@ boundary, so an option value named `config` cannot select inspection for `up`.
 This helper requires existing receipt authority and supports process-only
 configuration.
 
-Webhook URL parsing and property-validation errors become a safe reason code
+Webhook/origin/key parsing and property-validation errors become a safe reason code
 and key name. Malformed Unicode delimiters, IPv6 authorities and ports never
 expose parser exception text. The webhook is also part of GO's shared secret
 inventory for streaming diagnostics and validation-bundle scans.
 
-The shared automation Compose graph passes an optional webhook value to the
-dispatcher. SHADOW and maintenance also load this graph, and their configuration
-must resolve when external alert delivery is unconfigured. The dispatcher retains
-its mandatory startup validation. Host regressions compare required service inputs
-and the real dispatcher startup contract in addition to automation timing fields.
+The shared automation Compose graph passes optional webhook and VAPID values to
+the dispatcher. SHADOW and maintenance also load this graph, and their
+configuration must resolve when external alert delivery is unconfigured. The
+dispatcher retains mandatory startup validation when launched. Host regressions
+compare required service inputs and the real dispatcher startup contract in
+addition to automation timing fields.
 
 Durably recoverable account/deployment/image identities and discovered signing
 keys retain their existing later discovery gate. Configuration validation does

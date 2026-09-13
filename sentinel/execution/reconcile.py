@@ -554,8 +554,46 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
             initial_order_id=(
                 initial.broker_order_id if initial is not None else None),
             order=lookup.order))
+    joined_orders = list(observation.orders)
+    joined_orders.extend(
+        evidence.order for evidence in exact_evidence
+        if evidence.order is not None)
+    orders_by_broker_id = {}
+    for order in joined_orders:
+        prior = orders_by_broker_id.get(order.broker_order_id)
+        if (prior is not None
+                and (prior.client_key, prior.instrument.security_id,
+                     prior.side, prior.quantity)
+                != (order.client_key, order.instrument.security_id,
+                    order.side, order.quantity)):
+            return ReconciliationResult(
+                runtime_state=RuntimeState.BROKER_DEGRADED,
+                observation=observation,
+                detail="fill recovery order identity is contradictory")
+        orders_by_broker_id[order.broker_order_id] = order
+    sentinel_fills = []
+    for fill in observation.fills:
+        order = orders_by_broker_id.get(fill.broker_order_id)
+        if order is None:
+            return ReconciliationResult(
+                runtime_state=RuntimeState.BROKER_DEGRADED,
+                observation=observation,
+                detail="fill recovery omitted exact broker order identity")
+        if fill.client_key not in (None, order.client_key):
+            return ReconciliationResult(
+                runtime_state=RuntimeState.BROKER_DEGRADED,
+                observation=observation,
+                detail="fill recovery changed immutable client-key identity")
+        if is_sentinel_key(order.client_key):
+            if fill.filled_at is None:
+                return ReconciliationResult(
+                    runtime_state=RuntimeState.BROKER_DEGRADED,
+                    observation=observation,
+                    detail="Sentinel fill omitted broker fill time")
+            sentinel_fills.append(replace(fill, client_key=order.client_key))
     observation = replace(
-        observation, exact_order_evidence=tuple(exact_evidence))
+        observation, exact_order_evidence=tuple(exact_evidence),
+        fills=tuple(sentinel_fills))
 
     observation_seq = journal.record_observation(
         conn, observation, RuntimeState.RECONCILING.value)

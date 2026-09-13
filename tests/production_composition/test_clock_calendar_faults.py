@@ -79,9 +79,13 @@ def test_sharadar_publication_final_boundary_is_exact_and_timezone_aware():
     assert eligible.tzinfo == timezone.utc
     assert eligible == datetime(2026, 9, 11, 3, 45, tzinfo=timezone.utc)
 
-    with pytest.raises(shadow_runtime.ShadowRuntimeRefused, match="not source-final"):
+    with pytest.raises(
+            shadow_runtime.ShadowSourceFinalPending,
+            match="not source-final") as pending:
         shadow_runtime._require_publication_not_before(
             session, now=eligible - timedelta(microseconds=1))
+    assert pending.value.session == session
+    assert pending.value.eligible_at == eligible
 
     assert shadow_runtime._require_publication_not_before(
         session, now=eligible) == eligible

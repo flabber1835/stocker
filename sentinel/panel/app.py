@@ -1,14 +1,14 @@
-"""The panel's HTTP surface. THREE read-only routes and nothing else.
+"""The Caesar's Palace panel HTTP surface.
 
     GET /            the panel
     GET /health      database and required-schema readiness
     GET /panel.json  the same model as JSON, for scripting
+    GET /operational-health the panel's exact recoverability verdict
 
-NO WRITE ROUTES, and none may be added. Sentinel's write paths liquidate
-accounts; this process exists so a phone can look at the system, and the only
-safe way to guarantee it cannot act is for the verbs not to exist. It also never
-constructs a broker: a page refreshing every 30 seconds on a desk would
-otherwise be an unattended API client hitting Alpaca all night.
+The only write surface permitted here is the separately implemented Web Push
+subscription enrollment router. It cannot express financial intent. No route
+constructs a broker: a page refreshing every 30 seconds on a desk must never
+become an unattended API client hitting Alpaca all night.
 
 `/health` is readiness, not mere process liveness. A panel process that can
 serve HTML but cannot read the canonical binding/feed schema is not ready to
@@ -21,14 +21,27 @@ import os
 from pathlib import Path
 
 from fastapi import FastAPI, HTTPException
-from fastapi.responses import HTMLResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
 
 from sentinel import shadow_segments
+from sentinel.operational_status import color
 from sentinel.panel import model
+from sentinel.panel.pwa import MANIFEST, SERVICE_WORKER
 from sentinel.panel.render import REFRESH_SECONDS, render
+from sentinel.panel.push_enrollment import router as push_enrollment_router
 from sentinel.panel.sources import build_panel
 
-app = FastAPI(title="Sentinel panel", docs_url=None, redoc_url=None)
+app = FastAPI(title="Caesar's Palace", docs_url=None, redoc_url=None)
+app.include_router(push_enrollment_router)
+_STATIC_DIR = Path(__file__).with_name("static")
+
+
+@app.middleware("http")
+async def _never_cache_operator_evidence(request, call_next):
+    """Cover success and framework-generated error responses uniformly."""
+    response = await call_next(request)
+    response.headers["Cache-Control"] = "no-store"
+    return response
 
 _REQUIRED_SCHEMA_PROBES = (
     "SELECT id, deployment_id, broker, broker_account_id, takeover_epoch, "
@@ -47,6 +60,11 @@ _REQUIRED_SCHEMA_PROBES = (
     "unpriced_securities, rollout_mode, rollout_version, "
     "rollout_certificate_sha256, superseded_by, created_at "
     "FROM sentinel_execution_plans LIMIT 0",
+    "SELECT cycle_id,state,decision_session,effective_session,prepare_at,"
+    " execution_open_at,execute_at,execution_close_at,completed_at,updated_at"
+    " FROM sentinel_automation_cycles LIMIT 0",
+    "SELECT cycle_id,from_state,to_state,detail,at"
+    " FROM sentinel_automation_cycle_events LIMIT 0",
     "SELECT id, mode, version, certificate_sha256, updated_at "
     "FROM sentinel_rollout_state LIMIT 0",
     "SELECT version, name, migration_sha256, bootstrap_kind, source_git_oid, "
@@ -54,6 +72,21 @@ _REQUIRED_SCHEMA_PROBES = (
     "SELECT seq, observed_at, completeness, positions, orders, runtime_state "
     "FROM sentinel_observations LIMIT 0",
     "SELECT state, updated_at FROM sentinel_commands LIMIT 0",
+    "SELECT broker,broker_account_id,status,flags,equity,cash,buying_power,"
+    " multiplier,observed_at FROM sentinel_broker_account_evidence LIMIT 0",
+    "SELECT kind,evidence_sha256,proof,observed_at"
+    " FROM sentinel_backup_evidence LIMIT 0",
+    "SELECT subscription_id,endpoint,p256dh,auth,user_agent,created_at,"
+    " refreshed_at,last_successful_push_at,last_failed_push_at,retired_at,"
+    " retire_reason"
+    " FROM sentinel_web_push_subscriptions LIMIT 0",
+    "SELECT id,web_push_activated_at"
+    " FROM sentinel_notification_policy LIMIT 0",
+    "SELECT alert_id,recipient_count,delivery_required,initialized_at"
+    " FROM sentinel_web_push_fanouts LIMIT 0",
+    "SELECT alert_id,subscription_id,state,attempt_count,last_status_code,"
+    " last_error,created_at,updated_at,delivered_at"
+    " FROM sentinel_web_push_deliveries LIMIT 0",
 )
 
 
@@ -186,6 +219,8 @@ def panel_json() -> JSONResponse:
     return JSONResponse(
         {
             "overall": p.overall,
+            "operational": p.operational,
+            "color": color(p.operational),
             "as_of": p.now.isoformat(),
             "source_errors": p.source_errors,
             "rows": [
@@ -193,7 +228,13 @@ def panel_json() -> JSONResponse:
                  "status": r.effective_status(p.now), "detail": r.detail,
                  "as_of": r.as_of.isoformat() if r.as_of else None,
                  "stale": r.is_stale(p.now),
-                 "future": r.is_future(p.now)}
+                 "future": r.is_future(p.now),
+                 "required_current": r.required_current,
+                 "valid_until": (
+                     r.valid_until.isoformat() if r.valid_until else None),
+                 "recovery": (
+                     r.recovery.to_dict(p.now) if r.recovery else None),
+                 "color": color(r.effective_status(p.now))}
                 for r in p.rows
             ],
             "trial_details": p.trial_details,
@@ -201,6 +242,33 @@ def panel_json() -> JSONResponse:
         },
         headers={"Cache-Control": "no-store"},
     )
+
+
+@app.get("/manifest.webmanifest")
+def manifest() -> JSONResponse:
+    return JSONResponse(
+        MANIFEST, media_type="application/manifest+json",
+        headers={"Cache-Control": "no-store"})
+
+
+@app.get("/service-worker.js")
+def service_worker() -> Response:
+    return Response(
+        SERVICE_WORKER, media_type="application/javascript",
+        headers={"Cache-Control": "no-store", "Service-Worker-Allowed": "/"})
+
+
+@app.get("/static/{asset}")
+def static_asset(asset: str) -> FileResponse:
+    allowed = {
+        "caesars-palace-180.png", "caesars-palace-192.png",
+        "caesars-palace-512.png",
+    }
+    if asset not in allowed:
+        raise HTTPException(404, "asset not found")
+    return FileResponse(
+        _STATIC_DIR / asset, media_type="image/png",
+        headers={"Cache-Control": "no-store"})
 
 
 def _probe_database(dsn: str) -> None:
@@ -232,6 +300,28 @@ def health() -> dict:
             503, f"sentinel database/schema not ready: "
                  f"{type(exc).__name__}: {exc}") from exc
     return {"status": "ready", "service": "sentinel-panel"}
+
+
+@app.get("/operational-health")
+def operational_health() -> JSONResponse:
+    """The same required-fact verdict shown on the operator panel."""
+    state_dir, dsn = _config()
+    p = _shadow_segment_disclosure(
+        build_panel(state_dir=state_dir, database_url=dsn), dsn)
+    body = {
+        "status": p.operational,
+        "color": color(p.operational),
+        "as_of": p.now.isoformat(),
+        "red_rows": [
+            row.key for row in p.rows
+            if color(row.effective_status(p.now)) == "red"
+            and row.key not in model.OPERATIONAL_INFORMATIONAL_ROW_KEYS
+        ],
+        "source_errors": list(p.source_errors),
+    }
+    status_code = 503 if body["color"] == "red" else 200
+    return JSONResponse(
+        body, status_code=status_code, headers={"Cache-Control": "no-store"})
 
 
 __all__ = ["app"]

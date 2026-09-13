@@ -11,14 +11,17 @@ until its durable checkpoints converge.
 from __future__ import annotations
 
 import argparse
+import hashlib
 import json
 import os
 import signal
 import subprocess
 import sys
 import time
+from datetime import datetime, timezone
 from pathlib import Path
 
+from sentinel.feed import calendar
 from sentinel.shadow_recovery import ShadowServiceConfig, service_health
 from sentinel.shadow_worker import (
     EXIT_AVAILABILITY, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
@@ -30,6 +33,83 @@ LATCH_FILE = Path("/tmp/sentinel-shadow-supervisor-critical.json")
 
 def _touch() -> None:
     HEARTBEAT_FILE.touch(exist_ok=True)
+
+
+def _enqueue_alert(*, idempotency_key: str, event_type: str,
+                   severity: str, payload: dict) -> None:
+    """Best-effort durable projection; reporting cannot soften local state."""
+    from sentinel.automation import outbox
+    from sentinel.config import SentinelConfig
+    from sentinel.feed import store as feed_store
+
+    database_url = SentinelConfig.from_env().database_url
+    if not database_url:
+        raise RuntimeError("database URL is absent")
+    conn = feed_store.connect(database_url)
+    try:
+        outbox.enqueue(
+            conn, idempotency_key=idempotency_key,
+            event_type=event_type, severity=severity, payload=payload,
+            max_attempts=8)
+    finally:
+        conn.close()
+
+
+def _source_recovery_alert(*, now: datetime | None = None) -> None:
+    """Project one causal/provider incident and its following-open escalation."""
+    instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    try:
+        target = calendar.latest_closed_session(instant)
+        following = calendar.next_session(target)
+        opened, _closed = calendar.session_window(following)
+        deadline = opened.astimezone(timezone.utc)
+        expired = instant >= deadline
+        _enqueue_alert(
+            idempotency_key=(
+                f"shadow-source:{target}:"
+                f"{'deadline-missed' if expired else 'not-ready'}"),
+            event_type=(
+                "SHADOW_SOURCE_DEADLINE_MISSED" if expired
+                else "SHADOW_SOURCE_RECOVERY_PENDING"),
+            severity="CRITICAL" if expired else "WARN",
+            payload={
+                "decision_session": target,
+                "state": (
+                    "RECOVERY_DEADLINE_MISSED" if expired
+                    else "SOURCE_RECOVERY_PENDING"),
+                "recovery_deadline_at": deadline.isoformat(),
+                "detail": (
+                    "shadow source recovery missed the following XNYS open; "
+                    "operator action is required" if expired else
+                    "shadow is waiting on causal source/provider recovery; "
+                    "see the dashboard for current evidence"),
+            })
+    except Exception as exc:                                  # noqa: BLE001
+        print(
+            "WARNING: shadow source-recovery notification unavailable: "
+            f"{type(exc).__name__}", file=sys.stderr, flush=True)
+
+
+def _semantic_retry_alert(*, now: datetime | None = None) -> None:
+    """Project one coalesced bounded semantic-retry incident per session."""
+    instant = (now or datetime.now(timezone.utc)).astimezone(timezone.utc)
+    try:
+        target = calendar.latest_closed_session(instant)
+        _enqueue_alert(
+            idempotency_key=f"shadow-semantic:{target}:retrying",
+            event_type="SHADOW_SEMANTIC_RETRY_PENDING",
+            severity="WARN",
+            payload={
+                "decision_session": target,
+                "state": "BOUNDED_SEMANTIC_RETRY",
+                "detail": (
+                    "shadow semantic retry remains below its reviewed "
+                    "threshold; see the dashboard for current evidence"),
+            })
+    except Exception as exc:                                  # noqa: BLE001
+        print(
+            "WARNING: shadow semantic-retry notification unavailable: "
+            f"{type(exc).__name__}", file=sys.stderr, flush=True)
 
 
 def _terminate(child: subprocess.Popen, *, grace_seconds: float = 5.0) -> None:
@@ -51,6 +131,25 @@ def _latch(reason: str, *, failures: int | None = None) -> None:
         "latched_at_unix": time.time(),
     }
     LATCH_FILE.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    # The latch remains the local fail-closed authority.  This best-effort
+    # projection gives the independent dispatcher one durable critical event
+    # when PostgreSQL is still available; inability to report never clears or
+    # softens the latch.
+    try:
+        incident = hashlib.sha256(
+            json.dumps(
+                {"reason": str(reason), "failures": failures},
+                sort_keys=True, separators=(",", ":")).encode("utf-8")
+        ).hexdigest()
+        _enqueue_alert(
+            idempotency_key=f"shadow-supervisor-latch:{incident}",
+            event_type="SHADOW_SUPERVISOR_LATCHED",
+            severity="CRITICAL",
+            payload={"reason": str(reason), "failures": failures})
+    except Exception as exc:                                  # noqa: BLE001
+        print(
+            "CRITICAL: shadow latch notification unavailable: "
+            f"{type(exc).__name__}", file=sys.stderr, flush=True)
     print(
         "CRITICAL: shadow supervisor latched unhealthy: " + str(reason),
         file=sys.stderr, flush=True)
@@ -168,11 +267,15 @@ def run() -> int:
                     "shadow publisher exceeded bounded semantic retry threshold",
                     failures=consecutive_failures)
                 return _latched_wait(lambda: stopping)
+            _semantic_retry_alert()
+        elif code in {EXIT_WAITING, EXIT_AVAILABILITY}:
+            _source_recovery_alert()
+            consecutive_failures = 0
         else:
-            # SUCCESS, causal WAITING, typed external AVAILABILITY loss, and a
-            # bounded hard timeout are responsive states. The latter may repeat
-            # while a multi-hour/multi-day resumable catch-up advances durable
-            # checkpoints. Financial health stays red until convergence.
+            # SUCCESS and a bounded hard timeout are responsive states. The
+            # latter may repeat while a multi-hour/multi-day resumable catch-up
+            # advances durable checkpoints. Financial health stays red until
+            # convergence.
             consecutive_failures = 0
 
         deadline = time.monotonic() + config.poll_seconds

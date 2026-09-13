@@ -222,8 +222,14 @@ class SimulatedBroker(ExecutionBroker):
         resting = self._by_key(client_key)
         if resting is None:
             raise AssertionError(f"no resting order for {client_key}")
-        amount = resting.remaining if qty is None else Decimal(qty)
-        amount = min(amount, resting.remaining)
+        requested = resting.remaining if qty is None else Decimal(qty)
+        if not requested.is_finite() or requested <= 0:
+            if qty is None and resting.remaining == 0:
+                return
+            raise ValueError("simulated fill quantity must be positive and finite")
+        amount = min(requested, resting.remaining)
+        if amount == 0:
+            return
         resting.filled += amount
         signed = amount if resting.side is Side.BUY else -amount
         instrument, held = self._positions.get(

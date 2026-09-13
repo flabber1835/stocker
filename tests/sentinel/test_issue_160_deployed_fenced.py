@@ -5,7 +5,7 @@ import importlib.util
 import json
 import os
 import sys
-from datetime import date
+from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
 
@@ -231,7 +231,7 @@ def test_fenced_runtime_uses_canonical_ingest_without_broker(monkeypatch):
     asyncio.run(obj._fenced_data_wake(conn))
 
     assert ingested == ["2026-08-18"]
-    assert alerts[-1]["event_type"] == "AUTOMATION_FENCED_DATA_READY"
+    assert alerts == []
 
 
 def test_fenced_vendor_lag_is_retained_not_raised(monkeypatch):
@@ -246,6 +246,9 @@ def test_fenced_vendor_lag_is_retained_not_raised(monkeypatch):
     monkeypatch.setattr(
         automation_runtime.schedule, "for_clock",
         lambda *_args, **_kwargs: SimpleNamespace(decision_session=date(2026, 8, 18)))
+    monkeypatch.setattr(
+        automation_runtime, "_fenced_recovery_deadline",
+        lambda _session: datetime.max.replace(tzinfo=timezone.utc))
     monkeypatch.setattr(automation_runtime.feed_store, "require_feed_schema", lambda _c: None)
     monkeypatch.setattr(automation_runtime.schema, "require_runtime_schema", lambda _c: None)
     monkeypatch.setattr(
@@ -263,6 +266,104 @@ def test_fenced_vendor_lag_is_retained_not_raised(monkeypatch):
     assert rolled_back == [True]
     assert alerts[-1]["event_type"] == "AUTOMATION_FENCED_DATA_NOT_READY"
     assert alerts[-1]["payload"]["state"] == "DEPLOYED_FENCED"
+    assert alerts[-1]["idempotency_key"] == \
+        "fenced-data:2026-08-18:not-ready"
+    assert alerts[-1]["payload"]["detail"] == (
+        "fenced data progression is not ready; see the dashboard for current "
+        "feed and readiness evidence")
+
+
+def test_fenced_source_recovery_escalates_once_at_following_open(monkeypatch):
+    obj = object.__new__(automation_runtime.ProductionAutomation)
+    obj.automation_config = SimpleNamespace(alert_max_attempts=8)
+    obj._fenced_data_next_wake = None
+    obj._fenced_data_poll_seconds = 300
+    conn = SimpleNamespace(rollback=lambda: None)
+    alerts = []
+
+    monkeypatch.setattr(
+        automation_runtime.schedule, "for_clock",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            decision_session=date(2026, 8, 18)))
+    monkeypatch.setattr(
+        automation_runtime, "_fenced_recovery_deadline",
+        lambda _session: datetime.min.replace(tzinfo=timezone.utc))
+    monkeypatch.setattr(
+        automation_runtime.feed_store, "require_feed_schema", lambda _c: None)
+    monkeypatch.setattr(
+        automation_runtime.schema, "require_runtime_schema", lambda _c: None)
+    monkeypatch.setattr(
+        automation_runtime.feed_store, "latest_visible_session",
+        lambda _c: "2026-08-17")
+    monkeypatch.setattr(
+        automation_runtime.ingest, "daily",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            RuntimeError("provider still unavailable")))
+    monkeypatch.setattr(
+        automation_runtime.outbox, "enqueue",
+        lambda _c, **kwargs: alerts.append(kwargs))
+
+    asyncio.run(obj._fenced_data_wake(conn))
+
+    assert len(alerts) == 1
+    assert alerts[0]["idempotency_key"] == \
+        "fenced-data:2026-08-18:deadline-missed"
+    assert alerts[0]["event_type"] == \
+        "AUTOMATION_FENCED_DATA_DEADLINE_MISSED"
+    assert alerts[0]["severity"] == "CRITICAL"
+    assert alerts[0]["payload"]["readiness"] == "RECOVERY_DEADLINE_MISSED"
+
+
+def test_expected_shadow_source_final_wait_shares_fenced_amber_incident(
+        monkeypatch):
+    from sentinel import shadow_runtime
+
+    obj = object.__new__(automation_runtime.ProductionAutomation)
+    obj.automation_config = SimpleNamespace(alert_max_attempts=8)
+    obj._fenced_data_next_wake = None
+    obj._fenced_data_poll_seconds = 300
+    obj._shadow_observation_enabled = True
+    obj._shadow_observation_id = "primary"
+    obj._shadow_starting_cash = 100_000
+    conn = SimpleNamespace(rollback=lambda: None)
+    alerts = []
+    eligible = datetime(2026, 8, 19, 3, 45, tzinfo=timezone.utc)
+
+    monkeypatch.setattr(
+        automation_runtime.schedule, "for_clock",
+        lambda *_args, **_kwargs: SimpleNamespace(
+            decision_session=date(2026, 8, 18)))
+    monkeypatch.setattr(
+        automation_runtime, "_fenced_recovery_deadline",
+        lambda _session: datetime.max.replace(tzinfo=timezone.utc))
+    monkeypatch.setattr(
+        automation_runtime.feed_store, "require_feed_schema", lambda _c: None)
+    monkeypatch.setattr(
+        automation_runtime.schema, "require_runtime_schema", lambda _c: None)
+    monkeypatch.setattr(
+        automation_runtime.feed_store, "latest_visible_session",
+        lambda _c: "2026-08-18")
+    monkeypatch.setattr(
+        automation_runtime.readiness, "check_readiness",
+        lambda *_args, **_kwargs: SimpleNamespace(ready=True))
+    monkeypatch.setattr(
+        automation_runtime.readiness, "save_snapshot",
+        lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        shadow_runtime, "advance_ready_shadow",
+        lambda *_args, **_kwargs: (_ for _ in ()).throw(
+            shadow_runtime.ShadowSourceFinalPending("2026-08-18", eligible)))
+    monkeypatch.setattr(
+        automation_runtime.outbox, "enqueue",
+        lambda _c, **kwargs: alerts.append(kwargs))
+
+    asyncio.run(obj._fenced_data_wake(conn))
+
+    assert len(alerts) == 1
+    assert alerts[0]["idempotency_key"] == \
+        "fenced-data:2026-08-18:not-ready"
+    assert alerts[0]["event_type"] == "AUTOMATION_FENCED_DATA_NOT_READY"
+    assert alerts[0]["severity"] == "WARN"
 
 
 def test_fenced_shadow_mode_advances_without_constructing_broker(monkeypatch):
@@ -315,11 +416,7 @@ def test_fenced_shadow_mode_advances_without_constructing_broker(monkeypatch):
 
     asyncio.run(obj._fenced_data_wake(conn))
 
-    assert [item["event_type"] for item in alerts] == [
-        "SHADOW_OBSERVATION_VERIFIED", "AUTOMATION_FENCED_DATA_READY"]
-    assert alerts[0]["payload"]["verification"] == "VERIFIED"
-    assert alerts[1]["payload"]["shadow_observation"]["strategy_nav"] == \
-        "100100"
+    assert alerts == []
 
 
 def test_shadow_mode_configuration_is_explicit_and_finite():

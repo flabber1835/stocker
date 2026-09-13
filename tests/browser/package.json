@@ -1,0 +1,15 @@
+{
+  "name": "sentinel-operator-browser-tests",
+  "private": true,
+  "version": "1.0.0",
+  "engines": {
+    "node": ">=20"
+  },
+  "scripts": {
+    "install-browsers": "playwright install --with-deps chromium webkit",
+    "test": "playwright test"
+  },
+  "devDependencies": {
+    "@playwright/test": "1.63.0"
+  }
+}

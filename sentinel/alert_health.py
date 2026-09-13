@@ -69,7 +69,9 @@ def heartbeat(conn, *, dispatcher_id: str) -> DispatcherHealth:
         with conn.cursor() as cur:
             cur.execute(
                 "UPDATE sentinel_alert_dispatcher_health SET"
-                " heartbeat_at=clock_timestamp(),updated_at=clock_timestamp()"
+                " heartbeat_at=clock_timestamp(),"
+                " state=CASE WHEN state='STARTING' THEN 'HEALTHY' ELSE state END,"
+                " updated_at=clock_timestamp()"
                 " WHERE dispatcher_id=%s", (identity,))
             if cur.rowcount != 1:
                 raise AlertDispatcherUnhealthy(
@@ -186,10 +188,9 @@ def require_healthy(
     if health.state == FAILED:
         raise AlertDispatcherUnhealthy(
             f"dispatcher transport is failed: {health.last_error}")
-    if (health.last_success_at is None
-            and startup_age > startup_grace_seconds):
+    if health.state == STARTING and startup_age > startup_grace_seconds:
         raise AlertDispatcherUnhealthy(
-            "dispatcher has not proved webhook delivery within startup grace")
+            "dispatcher has not completed its first healthy loop within startup grace")
     return health
 
 

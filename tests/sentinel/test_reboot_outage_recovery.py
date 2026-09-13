@@ -8,7 +8,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel import backup_guard, backup_runtime_authority
+from sentinel import backup_guard, backup_runtime_authority, operational_evidence
 from sentinel.automation import store as automation_store
 from sentinel.automation.model import (
     AutomationConfig,
@@ -164,7 +164,11 @@ def test_unbounded_retry_backoff_saturates_without_huge_integer_growth():
 class _Conn:
     def __init__(self):
         self.rollbacks = 0
+        self.commits = 0
         self.closed = False
+
+    def commit(self):
+        self.commits += 1
 
     def rollback(self):
         self.rollbacks += 1
@@ -186,6 +190,29 @@ def test_temporary_backup_loss_is_typed_transient(monkeypatch):
     )
     with pytest.raises(TransientInfrastructureFailure, match="temporarily"):
         runtime._require_backup_for_new_mutation("test mutation")
+    assert conn.rollbacks == 1
+    assert conn.closed is True
+
+
+def test_successful_automation_backup_check_publishes_runtime_proof(monkeypatch):
+    runtime = object.__new__(ProductionAutomation)
+    conn = _Conn()
+    runtime.connect = lambda: conn
+    proof = {"enabled": True, "base_backup": "base-20260913"}
+    recorded = []
+    monkeypatch.setattr(
+        backup_runtime_authority, "require", lambda *_a, **_k: proof)
+    monkeypatch.setattr(
+        backup_guard, "require_writes_permitted",
+        lambda *_a, **_k: "permitted")
+    monkeypatch.setattr(
+        operational_evidence, "record_backup_proof",
+        lambda connection, **kwargs: recorded.append((connection, kwargs)))
+
+    assert runtime._require_backup_for_new_mutation("test mutation") == \
+        "permitted"
+    assert recorded == [(conn, {"kind": "RUNTIME_CHAIN", "proof": proof})]
+    assert conn.commits == 1
     assert conn.rollbacks == 1
     assert conn.closed is True
 
@@ -291,7 +318,7 @@ def test_unattended_services_enable_runtime_restore_horizon():
     compose = (ROOT / "docker-compose.sentinel-automation.yml").read_text(
         encoding="utf-8")
     assert compose.count("SENTINEL_RUNTIME_BACKUP_AUTHORITY: REQUIRED_V1") >= 2
-    assert "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS:-1000000" in compose
+    assert "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS:-8" in compose
 
 
 def test_shadow_timeout_is_restartable_not_terminal_latch():

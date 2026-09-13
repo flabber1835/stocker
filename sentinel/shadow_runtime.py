@@ -78,6 +78,17 @@ class ShadowRuntimeRefused(ShadowObservationRefused):
     """The unattended shadow composition cannot preserve verified lineage."""
 
 
+class ShadowSourceFinalPending(ShadowRuntimeRefused):
+    """The reviewed provider publication boundary has not arrived yet."""
+
+    def __init__(self, session: str, eligible_at: datetime) -> None:
+        self.session = str(session)
+        self.eligible_at = eligible_at.astimezone(timezone.utc)
+        super().__init__(
+            f"shadow session {self.session} is not source-final before "
+            f"reviewed Sharadar not-before {self.eligible_at.isoformat()}")
+
+
 def _starting_cash(value: Decimal | str | int | float) -> Decimal:
     if isinstance(value, bool):
         raise ShadowRuntimeRefused(
@@ -121,9 +132,7 @@ def _require_publication_not_before(
     observed = now.astimezone(timezone.utc)
     eligible = publication_not_before(session)
     if observed < eligible:
-        raise ShadowRuntimeRefused(
-            f"shadow session {session} is not source-final before reviewed "
-            f"Sharadar not-before {eligible.isoformat()}")
+        raise ShadowSourceFinalPending(session, eligible)
     return eligible
 
 
@@ -806,6 +815,7 @@ def classify_shadow_lineage(
 
 __all__ = [
     "SHADOW_PUBLICATION_TIMING_POLICY", "ShadowRuntimeRefused",
-    "WARMUP_SESSIONS", "advance_ready_shadow", "classify_shadow_lineage",
-    "publication_not_before", "verified_shadow_status",
+    "ShadowSourceFinalPending", "WARMUP_SESSIONS", "advance_ready_shadow",
+    "classify_shadow_lineage", "publication_not_before",
+    "verified_shadow_status",
 ]
