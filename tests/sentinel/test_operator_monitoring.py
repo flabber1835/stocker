@@ -1,4 +1,4 @@
-"""Issue #369: recoverability, quiet push, and iPhone operator contract."""
+"""Permanent operator monitoring, recoverability, and Web Push contracts."""
 from __future__ import annotations
 
 import asyncio
