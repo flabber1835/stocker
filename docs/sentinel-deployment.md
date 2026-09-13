@@ -1819,6 +1819,11 @@ base establishes a recovery horizon archived by the checksum-aware producer.
 
 ### 10h. The panel reports durable facts, never deployment-stage placeholders
 
+The complete operator status, cadence, notification, Web Push, and mobile
+acceptance contract is [sentinel-operator-monitoring.md](sentinel-operator-monitoring.md).
+That contract is part of deployment safety: green is current and valid, amber
+means bounded reviewed automatic recovery, and red means operator action.
+
 The read-only panel is an operational projection of the canonical PostgreSQL
 records. Once the production state and execution projection exist, it must not
 keep reporting hard-coded scaffolding values (an assumed `1.00 PINNED`, book

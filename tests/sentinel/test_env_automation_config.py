@@ -10,11 +10,14 @@ from unittest import mock
 
 import pytest
 import yaml
+from cryptography.hazmat.primitives import serialization
+from cryptography.hazmat.primitives.asymmetric import ec
 
 from sentinel.automation_runtime import (
     AUTOMATION_CONFIG_ENV_BY_FIELD, config_from_env,
 )
 from sentinel import alert_service
+from sentinel.web_push import VapidCredentials, b64url_encode
 
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
@@ -40,6 +43,20 @@ GENERATED = {
     "SENTINEL_RUNTIME_IMAGE_DIGEST": "sha256:" + "a" * 64,
     "SENTINEL_TEST_IMAGE_DIGEST": "sha256:" + "b" * 64,
 }
+
+
+def web_push_environment():
+    private = ec.derive_private_key(7, ec.SECP256R1())
+    public = private.public_key().public_bytes(
+        serialization.Encoding.X962,
+        serialization.PublicFormat.UncompressedPoint)
+    return {
+        "SENTINEL_PUBLIC_ORIGIN": "https://caesars-palace.tailnet.example",
+        "SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY": b64url_encode(
+            (7).to_bytes(32, "big")),
+        "SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY": b64url_encode(public),
+        "SENTINEL_WEB_PUSH_VAPID_SUBJECT": "mailto:sentinel@example.test",
+    }
 
 
 def compose_model():
@@ -117,6 +134,41 @@ def test_valid_webhook_agrees_with_dispatcher_configuration():
     alert_service.WebhookAlertAdapter(deployed["SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"])
     config_from_env(deployed)
     preflight.validate(BASE, profile="install", target="DUAL_RUN_OBSERVATION")
+
+
+def test_valid_web_push_replaces_the_migration_webhook_requirement():
+    candidate = {
+        key: value for key, value in BASE.items()
+        if key != "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}
+    candidate.update(web_push_environment())
+
+    preflight.validate(
+        candidate, profile="install", target="DUAL_RUN_OBSERVATION")
+    deployed = service_environment(
+        "sentinel-alert-dispatcher", {}, configured=candidate)
+    assert deployed["SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"] == ""
+    VapidCredentials.from_base64url(
+        private_key=deployed["SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY"],
+        public_key=deployed["SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY"],
+        subject=deployed["SENTINEL_WEB_PUSH_VAPID_SUBJECT"])
+
+
+@pytest.mark.parametrize("name,value", [
+    ("SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY", "A" * 42 + "+A"),
+    ("SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY", b64url_encode(bytes(32))),
+    ("SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY", b64url_encode(b"\x03" + bytes(64))),
+])
+def test_host_preflight_rejects_noncanonical_or_invalid_vapid_shape(
+        name, value):
+    candidate = {
+        key: setting for key, setting in BASE.items()
+        if key != "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL"}
+    candidate.update(web_push_environment())
+    candidate[name] = value
+
+    with pytest.raises(preflight.EnvRefused, match="INVALID_WEB_PUSH_VAPID_KEY"):
+        preflight.validate(
+            candidate, profile="install", target="DUAL_RUN_OBSERVATION")
 
 
 @pytest.mark.parametrize("service", ["sentinel-automation", "sentinel-authorized-cli"])

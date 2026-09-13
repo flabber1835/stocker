@@ -25,6 +25,8 @@ BASE_SHADOW = {
     "SENTINEL_POSTGRES_PASSWORD": "synthetic-database-password",
     "SHARADAR_API_KEY": "synthetic-sharadar-key",
     "SENTINEL_BACKUP_DIR": "/synthetic/external/backup",
+    "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL":
+        "https://alerts.example.test/sentinel",
 }
 
 
@@ -65,7 +67,9 @@ class EnvReviewFixes(unittest.TestCase):
             (root / ".env").write_text(
                 "SENTINEL_POSTGRES_PASSWORD=synthetic-database-password\n"
                 "SHARADAR_API_KEY=synthetic-sharadar-key\n"
-                "SENTINEL_BACKUP_DIR=/synthetic/external/backup\n",
+                "SENTINEL_BACKUP_DIR=/synthetic/external/backup\n"
+                "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL="
+                "https://alerts.example.test/sentinel\n",
                 encoding="utf-8")
             fake_bin = root / "bin"
             fake_bin.mkdir()

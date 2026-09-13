@@ -451,6 +451,28 @@ def test_native_fill_activity_ids_preserve_economic_multiplicity():
     assert journal.fill_fingerprint(first) != journal.fill_fingerprint(second)
 
 
+def test_native_fill_activity_id_cannot_move_between_broker_orders(conn):
+    common = dict(
+        activity_id="fill-account-global-1",
+        client_key=None,
+        quantity=Decimal(1),
+        price=Decimal("100"),
+        filled_at=datetime(2026, 8, 19, 17, tzinfo=UTC),
+    )
+    first = NativeBrokerFill(broker_order_id="order-1", **common)
+    contradictory = NativeBrokerFill(broker_order_id="order-2", **common)
+
+    assert journal.record_fills(conn, [first]) == 1
+    with pytest.raises(journal.FillEconomicsChanged,
+                       match="reused across broker orders"):
+        journal.record_fills(conn, [contradictory])
+
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT broker_order_id FROM sentinel_fills ORDER BY broker_order_id")
+        assert cur.fetchall() == [("order-1",)]
+
+
 def test_terminal_fill_recovery_replays_full_sse_lifetime_for_backfills():
     late = activity_event(
         activity_type="TRD",

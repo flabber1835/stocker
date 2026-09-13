@@ -1,0 +1,78 @@
+name: Sentinel operator browser
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+  merge_group:
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: sentinel-operator-browser-${{ github.event.pull_request.number || github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  browser:
+    name: iPhone WebKit and PWA
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683 # v4.2.2
+        with:
+          fetch-depth: 1
+          ref: ${{ github.event.pull_request.head.sha || github.sha }}
+
+      - name: Install the locked browser test runtime
+        run: |
+          set -euo pipefail
+          node --version
+          npm --version
+          npm ci --prefix tests/browser
+          npm run install-browsers --prefix tests/browser
+
+      - name: Exercise the real operator page in WebKit and Chromium
+        run: |
+          set -euo pipefail
+          tested_sha="$(git rev-parse HEAD)"
+          container="sentinel-operator-browser-${GITHUB_RUN_ID}"
+          cleanup() {
+            docker rm -f "$container" >/dev/null 2>&1 || true
+          }
+          trap cleanup EXIT
+          docker build \
+            --build-arg SOURCE_GIT_SHA="$tested_sha" \
+            -f Dockerfile.sentinel -t sentinel:operator-browser .
+          docker run -d --name "$container" \
+            -p 127.0.0.1:18004:8004 \
+            --entrypoint python sentinel:operator-browser \
+            -m uvicorn sentinel.panel.app:app \
+            --host 0.0.0.0 --port 8004 >/dev/null
+          ready=0
+          for _ in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:18004/ >/dev/null; then
+              ready=1
+              break
+            fi
+            sleep 1
+          done
+          if [ "$ready" -ne 1 ]; then
+            docker logs "$container" >&2
+            exit 1
+          fi
+          SENTINEL_BROWSER_BASE_URL=http://127.0.0.1:18004 \
+            npm test --prefix tests/browser
+
+      - name: Retain browser failure evidence
+        if: failure()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02 # v4.6.2
+        with:
+          name: sentinel-operator-browser-${{ github.run_id }}
+          path: |
+            tests/browser/playwright-report/
+            tests/browser/test-results/
+          if-no-files-found: warn
+          retention-days: 14

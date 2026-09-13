@@ -194,6 +194,32 @@ async def test_process_backed_callback_uses_most_specific_reviewed_base(
     assert type(exc_info.value) is SoftwareDefect
 
 
+@pytest.mark.skipif(sys.platform != "linux", reason="requires fork supervision")
+@pytest.mark.asyncio
+async def test_process_backed_callback_preserves_reviewed_failure_domain(
+        monkeypatch) -> None:
+    class BackupRetry(TransientInfrastructureFailure):
+        failure_domain = "BACKUP"
+
+    async def fail(_context):
+        raise BackupRetry("archive catch-up pending")
+
+    monkeypatch.setattr(
+        service_module.store, "register_instance", lambda *_args, **_kwargs: None)
+    monkeypatch.setattr(
+        service_module.store, "heartbeat_lease", lambda *_args, **_kwargs: None)
+
+    with pytest.raises(TransientInfrastructureFailure) as exc_info:
+        await _service()._invoke(  # noqa: SLF001 - production IPC contract
+            fail,
+            _CallbackContext(),
+            permit=object(),
+            phase="PREPARE",
+            heartbeat_conn_factory=_HeartbeatConnection)
+    assert type(exc_info.value) is TransientInfrastructureFailure
+    assert exc_info.value.failure_domain == "BACKUP"
+
+
 def _psycopg_operational_error(sqlstate: str) -> BaseException:
     exception_type = type(
         "OperationalError",

@@ -195,7 +195,7 @@ _TARGET_CATALOG_SHA256 = {
 # column/type/null/default, constraints, indexes and triggers while ignoring
 # deployment-local OIDs and column order.
 _STAGE4_CATALOG_SHA256 = (
-    "d876dd9583b517bb0a69b7a02d9d869fb32773eb0e44debbe0831c6dc6e73415")
+    "475a0eced6176a0deb31aadf43a18d5b4a525786ee5dd38560386c86e84cfc40")
 
 # Corpus tables may legitimately be installed before behavioral schema (the
 # prepare CLI does exactly that).  They do not disqualify a database from being
@@ -245,6 +245,12 @@ _STAGE4_TABLES = frozenset({
     "sentinel_alert_outbox",
     "sentinel_alert_delivery_events",
     "sentinel_alert_dispatcher_health",
+    "sentinel_notification_policy",
+    "sentinel_web_push_subscriptions",
+    "sentinel_web_push_fanouts",
+    "sentinel_web_push_deliveries",
+    "sentinel_broker_account_evidence",
+    "sentinel_backup_evidence",
     "sentinel_automation_service_instances",
     "sentinel_observation_provenance",
     "sentinel_trial_strategy_evidence",
@@ -266,6 +272,29 @@ _STAGE4_RUNTIME_REQUIRED_COLUMNS = {
         "dispatcher_id", "started_at", "heartbeat_at", "state",
         "last_attempt_at", "last_success_at", "consecutive_failures",
         "last_error", "updated_at",
+    }),
+    "sentinel_notification_policy": frozenset({
+        "id", "web_push_activated_at",
+    }),
+    "sentinel_web_push_subscriptions": frozenset({
+        "subscription_id", "endpoint", "p256dh", "auth", "user_agent",
+        "created_at", "refreshed_at", "last_successful_push_at",
+        "last_failed_push_at", "retired_at", "retire_reason",
+    }),
+    "sentinel_web_push_fanouts": frozenset({
+        "alert_id", "recipient_count", "delivery_required", "initialized_at",
+    }),
+    "sentinel_web_push_deliveries": frozenset({
+        "alert_id", "subscription_id", "state", "attempt_count",
+        "last_status_code", "last_error", "created_at", "updated_at",
+        "delivered_at",
+    }),
+    "sentinel_broker_account_evidence": frozenset({
+        "seq", "broker", "broker_account_id", "status", "flags",
+        "equity", "cash", "buying_power", "multiplier", "observed_at",
+    }),
+    "sentinel_backup_evidence": frozenset({
+        "seq", "kind", "evidence_sha256", "proof", "observed_at",
     }),
 }
 
@@ -1083,6 +1112,88 @@ DDL = (
     """CREATE INDEX IF NOT EXISTS idx_sentinel_alert_dispatcher_health_heartbeat
         ON sentinel_alert_dispatcher_health (heartbeat_at)""",
 
+    # One migration-time boundary prevents the first Web Push deployment from
+    # replaying historical fills and retry incidents to a newly enrolled phone.
+    # Its singleton is seeded only when this table is first created.
+    """CREATE TABLE IF NOT EXISTS sentinel_notification_policy (
+        id                    INT PRIMARY KEY CHECK (id = 1),
+        web_push_activated_at TIMESTAMPTZ NOT NULL)""",
+
+    """CREATE TABLE IF NOT EXISTS sentinel_web_push_subscriptions (
+        subscription_id     TEXT PRIMARY KEY CHECK (
+            subscription_id ~ '^[0-9a-f]{64}$'),
+        endpoint            TEXT        NOT NULL UNIQUE CHECK (
+            endpoint ~ '^https://'),
+        p256dh              TEXT        NOT NULL CHECK (length(p256dh) > 0),
+        auth                TEXT        NOT NULL CHECK (length(auth) > 0),
+        user_agent          TEXT        NOT NULL DEFAULT '',
+        created_at          TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        refreshed_at        TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        last_successful_push_at TIMESTAMPTZ,
+        last_failed_push_at TIMESTAMPTZ,
+        retired_at          TIMESTAMPTZ,
+        retire_reason       TEXT,
+        CHECK ((retired_at IS NULL AND retire_reason IS NULL)
+            OR (retired_at IS NOT NULL AND retire_reason IS NOT NULL)))""",
+    """ALTER TABLE sentinel_web_push_subscriptions
+        ADD COLUMN IF NOT EXISTS last_successful_push_at TIMESTAMPTZ""",
+    """ALTER TABLE sentinel_web_push_subscriptions
+        ADD COLUMN IF NOT EXISTS last_failed_push_at TIMESTAMPTZ""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_web_push_active
+        ON sentinel_web_push_subscriptions (refreshed_at,subscription_id)
+        WHERE retired_at IS NULL""",
+
+    """CREATE TABLE IF NOT EXISTS sentinel_broker_account_evidence (
+        seq                 BIGSERIAL PRIMARY KEY,
+        broker              TEXT        NOT NULL,
+        broker_account_id   TEXT        NOT NULL,
+        status              TEXT        NOT NULL,
+        flags               JSONB       NOT NULL,
+        equity              NUMERIC     NOT NULL,
+        cash                NUMERIC     NOT NULL,
+        buying_power        NUMERIC,
+        multiplier          NUMERIC,
+        observed_at         TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_broker_account_evidence_latest
+        ON sentinel_broker_account_evidence (observed_at DESC,seq DESC)""",
+
+    """CREATE TABLE IF NOT EXISTS sentinel_backup_evidence (
+        seq                 BIGSERIAL PRIMARY KEY,
+        kind                TEXT        NOT NULL CHECK (kind IN (
+            'BASE_BACKUP','RUNTIME_CHAIN','RESTORE_DRILL')),
+        evidence_sha256     TEXT        NOT NULL CHECK (
+            evidence_sha256 ~ '^[0-9a-f]{64}$'),
+        proof               JSONB       NOT NULL,
+        observed_at         TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
+    # Content identity is deliberately non-unique: re-observing unchanged
+    # valid proof must advance freshness through a new append-only row.
+    """ALTER TABLE sentinel_backup_evidence DROP CONSTRAINT IF EXISTS
+        sentinel_backup_evidence_evidence_sha256_key""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_backup_evidence_latest
+        ON sentinel_backup_evidence (kind,observed_at DESC,seq DESC)""",
+
+    """CREATE TABLE IF NOT EXISTS sentinel_web_push_fanouts (
+        alert_id             TEXT PRIMARY KEY REFERENCES sentinel_alert_outbox(alert_id),
+        recipient_count      INT         NOT NULL CHECK (recipient_count >= 0),
+        delivery_required    BOOLEAN     NOT NULL,
+        initialized_at       TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp())""",
+    """CREATE TABLE IF NOT EXISTS sentinel_web_push_deliveries (
+        alert_id             TEXT        NOT NULL REFERENCES sentinel_alert_outbox(alert_id),
+        subscription_id      TEXT        NOT NULL REFERENCES sentinel_web_push_subscriptions(subscription_id),
+        state                TEXT        NOT NULL CHECK (state IN (
+            'PENDING','DELIVERED','RETIRED')),
+        attempt_count        INT         NOT NULL DEFAULT 0 CHECK (attempt_count >= 0),
+        last_status_code     INT,
+        last_error           TEXT,
+        created_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        updated_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
+        delivered_at         TIMESTAMPTZ,
+        PRIMARY KEY (alert_id,subscription_id),
+        CHECK ((state = 'DELIVERED' AND delivered_at IS NOT NULL)
+            OR (state <> 'DELIVERED' AND delivered_at IS NULL)))""",
+    """CREATE INDEX IF NOT EXISTS idx_sentinel_web_push_deliveries_pending
+        ON sentinel_web_push_deliveries (alert_id,state,subscription_id)""",
+
     """CREATE TABLE IF NOT EXISTS sentinel_automation_service_instances (
         instance_id          TEXT PRIMARY KEY,
         started_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -1792,7 +1903,9 @@ def _validate_stage4_runtime(cur, catalog) -> None:
         raise _operator_refusal(
             "Stage-4 complete operational catalog fingerprint is incompatible "
             f"(observed {catalog_sha})")
-    for table in ("sentinel_automation_control", "sentinel_automation_lease"):
+    for table in (
+            "sentinel_automation_control", "sentinel_automation_lease",
+            "sentinel_notification_policy"):
         cur.execute(f"SELECT COUNT(*) FROM public.{table} WHERE id=1")
         if int(cur.fetchone()[0]) != 1:
             raise _operator_refusal(
@@ -1887,6 +2000,8 @@ def ensure_schema(conn) -> None:
             automation_control_exists = (
                 "sentinel_automation_control" in relations)
             automation_lease_exists = "sentinel_automation_lease" in relations
+            notification_policy_exists = (
+                "sentinel_notification_policy" in relations)
 
             if _LEDGER_TABLE in relations:
                 _validate_ledgered(cur, catalog)
@@ -1907,6 +2022,11 @@ def ensure_schema(conn) -> None:
                 cur.execute(_INITIAL_AUTOMATION_CONTROL)
             if not automation_lease_exists:
                 cur.execute(_INITIAL_AUTOMATION_LEASE)
+            if not notification_policy_exists:
+                cur.execute(
+                    "INSERT INTO sentinel_notification_policy"
+                    " (id,web_push_activated_at)"
+                    " VALUES (1,clock_timestamp())")
             final_catalog = _read_catalog(cur)
             _validate_backup_infrastructure(*final_catalog)
             _validate_ledgered(cur, final_catalog)

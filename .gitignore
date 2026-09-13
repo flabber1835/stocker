@@ -45,6 +45,9 @@ Thumbs.db
 .pytest_cache/
 .coverage
 htmlcov/
+tests/browser/node_modules/
+tests/browser/playwright-report/
+tests/browser/test-results/
 
 # Local agent dependency sandboxes
 .codex-piptools/

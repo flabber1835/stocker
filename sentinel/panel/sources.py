@@ -93,9 +93,13 @@ _AUTOMATION_COLUMNS = {
         "plan_id", "plan_fingerprint",
         "last_clean_reconciliation_id", "next_wake_at", "failure_code",
         "failure_detail", "attempt_count", "diagnostic", "updated_at",
-        "created_at"},
+        "created_at", "prepare_at", "execution_open_at", "execute_at",
+        "execution_close_at", "completed_at"},
+    "sentinel_automation_cycle_events": {
+        "cycle_id", "from_state", "to_state", "detail", "at"},
     "sentinel_alert_outbox": {
-        "state", "ack_state", "updated_at"},
+        "state", "ack_state", "severity", "attempt_count", "max_attempts",
+        "next_attempt_at", "updated_at"},
     "sentinel_alert_dispatcher_health": {
         "dispatcher_id", "heartbeat_at", "state", "last_attempt_at",
         "last_success_at", "consecutive_failures", "last_error",
@@ -103,6 +107,11 @@ _AUTOMATION_COLUMNS = {
     "sentinel_automation_service_instances": {
         "instance_id", "state", "heartbeat_at", "next_wake_at",
         "last_error", "updated_at"},
+}
+_PUSH_COLUMNS = {
+    "sentinel_web_push_subscriptions": {
+        "subscription_id", "retired_at", "last_successful_push_at",
+        "last_failed_push_at"},
 }
 _AUTHORITY_COLUMNS = {
     "sentinel_execution_authority_state": {
@@ -238,7 +247,7 @@ def _runtime_schema(conn) -> dict[str, set[str]]:
 
 
 def _automation_schema(conn) -> dict[str, set[str]]:
-    expected = {**_AUTOMATION_COLUMNS, **_AUTHORITY_COLUMNS}
+    expected = {**_AUTOMATION_COLUMNS, **_AUTHORITY_COLUMNS, **_PUSH_COLUMNS}
     with conn.cursor() as cur:
         cur.execute(
             "SELECT table_name, column_name FROM information_schema.columns"
@@ -434,8 +443,9 @@ def _state_view(snapshot) -> dict:
 
 
 def _exposure_row(state_view, plan, rollout, *, state_error: str | None,
-                  plan_error: str | None,
-                  rollout_error: str | None) -> model.Row:
+                  plan_error: str | None, rollout_error: str | None,
+                  valid_until: datetime | None = None,
+                  recovery: model.RecoveryEvidence | None = None) -> model.Row:
     if state_error or plan_error or rollout_error:
         detail = "; ".join(
             v for v in (state_error, plan_error, rollout_error) if v)
@@ -461,7 +471,8 @@ def _exposure_row(state_view, plan, rollout, *, state_error: str | None,
         return model.exposure_row(
             exposure=(1.0 if rollout["mode"] == "PINNED_1_00" else exposure),
             controller_active=(rollout["mode"] == "CONTROLLER"), adopted=False,
-            session=decision_session, as_of=state_view["updated_at"])
+            session=decision_session, as_of=state_view["updated_at"],
+            valid_until=valid_until, recovery=recovery)
     plan_exposure = _finite_float(
         plan["target_exposure"], label="current plan exposure")
     if plan["decision_session"] != decision_session:
@@ -479,13 +490,15 @@ def _exposure_row(state_view, plan, rollout, *, state_error: str | None,
             raise ValueError("pinned rollout plan exposure is not exactly 1")
         return model.exposure_row(
             exposure=plan_exposure, controller_active=False, adopted=True,
-            session=decision_session, as_of=plan["created_at"])
+            session=decision_session, as_of=plan["created_at"],
+            valid_until=valid_until, recovery=recovery)
     if Decimal(str(plan_exposure)) != Decimal(str(exposure)):
         raise ValueError(
             "controller rollout plan and canonical decision disagree")
     return model.exposure_row(
         exposure=plan_exposure, controller_active=True, adopted=True,
-        session=decision_session, as_of=plan["created_at"])
+        session=decision_session, as_of=plan["created_at"],
+        valid_until=valid_until, recovery=recovery)
 
 
 def _ownership(state_dir: Path, database_url: str = "") -> model.Row:
@@ -594,10 +607,13 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
         #
         # No DB, no timeout budget: the calendar is a pinned local library.
         behind = None
+        ahead = False
         if frontier:
             from sentinel.feed import calendar as _cal
             try:
-                behind = _cal.freshness(str(frontier)).sessions_behind
+                freshness = _cal.freshness(str(frontier))
+                behind = freshness.sessions_behind
+                ahead = freshness.ahead
             except Exception:                            # noqa: BLE001
                 # No calendar ⇒ UNKNOWN, rendered as blank. Never 0: the panel
                 # must not report a corpus current on the strength of a check
@@ -620,7 +636,9 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                            # is the one way a stale verdict does harm.
                            checked_at=_utc(checked_at),
                            error=(f"frontier {front_err}" if front_err else None),
-                           ingest_running=(run.get("status") == "running")),
+                           ingest_running=(run.get("status") == "running"),
+                           ingest_updated_at=_utc(run.get("updated_at")),
+                           frontier_ahead=ahead),
             model.ingest_row(kind=run.get("kind"), status=run.get("status"),
                              chunks_done=int(run.get("chunks_done") or 0),
                              chunks_total=int(run.get("chunks_total") or 0),
@@ -697,6 +715,9 @@ def _automation_lease(conn, generation: int) -> dict:
         "holder": holder, "fence": int(fence),
         "heartbeat_at": _utc(heartbeat), "expires_at": _utc(expires),
         "active": bool(active),
+        "recovery_deadline": (
+            _utc(heartbeat) + timedelta(seconds=30)
+            if _utc(heartbeat) is not None else None),
     }
 
 
@@ -708,6 +729,8 @@ def _latest_automation_cycle(conn) -> dict | None:
             " last_clean_reconciliation_id,"
             " failure_code,"
             " failure_detail,attempt_count,diagnostic,updated_at"
+            ",prepare_at,execution_open_at,execute_at,execution_close_at"
+            ",created_at,completed_at"
             " FROM sentinel_automation_cycles"
             " ORDER BY decision_session DESC,created_at DESC LIMIT 1")
         row = cur.fetchone()
@@ -715,7 +738,8 @@ def _latest_automation_cycle(conn) -> dict | None:
         return None
     (cycle_id, state, decision_session, effective_session, plan_id,
      plan_fingerprint, next_wake, clean, failure_code, failure_detail,
-     attempt_count, diagnostic, updated_at) = row
+     attempt_count, diagnostic, updated_at, prepare_at, execution_open_at,
+     execute_at, execution_close_at, created_at, completed_at) = row
     if not isinstance(diagnostic, dict):
         try:
             diagnostic = json.loads(diagnostic or "{}")
@@ -733,12 +757,42 @@ def _latest_automation_cycle(conn) -> dict | None:
         "failure_code": failure_code, "failure_detail": failure_detail,
         "attempt_count": int(attempt_count),
         "phase_attempt_count": diagnostic.get("phase_attempt_count"),
+        "phase_max_attempts": diagnostic.get("phase_max_attempts"),
+        "retry_phase": diagnostic.get("retry_phase"),
         "first_failure_at": diagnostic.get("first_failure_at"),
         "latest_failure_at": diagnostic.get("latest_failure_at"),
         "exception_fingerprint": diagnostic.get("exception_fingerprint"),
+        "failure_domain": diagnostic.get("failure_domain"),
         "terminal_reason": diagnostic.get("terminal_reason"),
         "updated_at": _utc(updated_at),
+        "prepare_at": _utc(prepare_at),
+        "execution_open_at": _utc(execution_open_at),
+        "execute_at": _utc(execute_at),
+        "execution_close_at": _utc(execution_close_at),
+        "created_at": _utc(created_at),
+        "completed_at": _utc(completed_at),
     }
+
+
+def _automation_cycle_events(conn, cycle_id: str) -> list[dict]:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT from_state,to_state,detail,at"
+            " FROM sentinel_automation_cycle_events"
+            " WHERE cycle_id=%s ORDER BY seq", (cycle_id,))
+        rows = cur.fetchall()
+    events = []
+    for from_state, to_state, detail, at in rows:
+        if not isinstance(detail, dict):
+            try:
+                detail = json.loads(detail or "{}")
+            except (TypeError, json.JSONDecodeError):
+                detail = {}
+        events.append({
+            "from_state": from_state, "to_state": to_state,
+            "detail": detail, "at": _utc(at),
+        })
+    return events
 
 
 def _automation_alert_counts(conn) -> dict:
@@ -747,15 +801,28 @@ def _automation_alert_counts(conn) -> dict:
             "SELECT"
             " COUNT(*) FILTER (WHERE state IN ('PENDING','DELIVERING')) ,"
             " COUNT(*) FILTER (WHERE state='DEAD_LETTER'),"
-            " COUNT(*) FILTER (WHERE ack_state='UNACKNOWLEDGED'),"
+            " COUNT(*) FILTER (WHERE ack_state='UNACKNOWLEDGED'"
+            "   AND severity='CRITICAL'),"
+            " MAX(attempt_count) FILTER (WHERE state IN"
+            "   ('PENDING','DELIVERING')) ,"
+            " MIN(max_attempts) FILTER (WHERE state IN"
+            "   ('PENDING','DELIVERING')) ,"
+            " MIN(next_attempt_at) FILTER (WHERE state IN"
+            "   ('PENDING','DELIVERING')) ,"
             " MAX(updated_at) FROM sentinel_alert_outbox")
         row = cur.fetchone()
     if row is None:
         raise ValueError("durable alert outbox aggregate returned no row")
-    pending, dead, unacknowledged, updated_at = row
+    (pending, dead, unacknowledged, retry_attempt, retry_max_attempts,
+     next_attempt_at, updated_at) = row
     return {
         "pending": int(pending), "dead_letter": int(dead),
         "unacknowledged": int(unacknowledged),
+        "retry_attempt": (
+            None if retry_attempt is None else int(retry_attempt)),
+        "retry_max_attempts": (
+            None if retry_max_attempts is None else int(retry_max_attempts)),
+        "next_attempt_at": _utc(next_attempt_at),
         "updated_at": _utc(updated_at),
     }
 
@@ -775,6 +842,100 @@ def _alert_dispatchers(conn) -> list[dict]:
         "consecutive_failures": int(row[5]), "last_error": row[6],
         "heartbeat_age_seconds": float(row[7]),
     } for row in rows]
+
+
+def _push_subscription_counts(conn) -> dict:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT"
+            " COUNT(*) FILTER (WHERE retired_at IS NULL),"
+            " COUNT(*) FILTER (WHERE retired_at IS NOT NULL),"
+            " MAX(last_successful_push_at),MAX(last_failed_push_at)"
+            " FROM sentinel_web_push_subscriptions")
+        row = cur.fetchone()
+    if row is None:
+        raise ValueError("Web Push subscription aggregate returned no row")
+    return {
+        "active_subscriptions": int(row[0]),
+        "retired_subscriptions": int(row[1]),
+        "last_push_success_at": _utc(row[2]),
+        "last_push_failure_at": _utc(row[3]),
+    }
+
+
+def _cycle_recovery(
+        cycle: Mapping | None, *, phases: tuple[str, ...] | None = None,
+        failure_domains: tuple[str, ...] | None = None,
+                    ) -> model.RecoveryEvidence | None:
+    """Conservatively project only a durable, bounded automatic retry."""
+    if not cycle or str(cycle.get("state") or "").upper() != "RETRY_WAIT":
+        return None
+    retry_phase = str(cycle.get("retry_phase") or "").upper()
+    if phases is not None and retry_phase not in phases:
+        return None
+    failure_domain = str(cycle.get("failure_domain") or "").upper()
+    if (failure_domains is not None
+            and failure_domain not in failure_domains):
+        return None
+    return model.RecoveryEvidence(
+        phase=f"AUTOMATION_{retry_phase or 'RECOVERY'}",
+        automatic=True,
+        attempt=cycle.get("phase_attempt_count"),
+        maximum_attempts=cycle.get("phase_max_attempts"),
+        next_attempt_at=cycle.get("next_wake_at"),
+        operator_required=bool(cycle.get("terminal_reason")))
+
+
+def _runtime_valid_until(
+        cycle: Mapping | None, fact_at: datetime | None, *,
+        broker_fact: bool = False) -> datetime | None:
+    """Use the durable scheduler cadence, with a ten-minute active fallback."""
+    if fact_at is None:
+        return None
+    state = str((cycle or {}).get("state") or "").upper()
+    retry_phase = str((cycle or {}).get("retry_phase") or "").upper()
+    broker_active = (
+        state in {"EXECUTING", "RECONCILING"}
+        or (state == "RETRY_WAIT" and retry_phase in {
+            "PREFLIGHT_RECOVER", "EXECUTE", "RECOVER"}))
+    if broker_fact and broker_active:
+        return fact_at + timedelta(minutes=10)
+    wake = (cycle or {}).get("next_wake_at")
+    if isinstance(wake, datetime) and wake > fact_at:
+        return wake
+    decision_session = (cycle or {}).get("decision_session")
+    if decision_session:
+        try:
+            from sentinel.automation import schedule
+            from sentinel.automation.model import AutomationConfig
+            from sentinel.feed import calendar
+
+            next_decision = calendar.next_session(str(decision_session))
+            return schedule.for_decision_session(
+                next_decision, AutomationConfig()).prepare_at
+        except Exception:                                    # noqa: BLE001
+            # Invalid or out-of-range durable session evidence must not gain a
+            # generous inferred lifetime. The caller will fail it stale soon.
+            pass
+    return fact_at + timedelta(minutes=10)
+
+
+def _observation_recovery(
+        cycle: Mapping | None) -> model.RecoveryEvidence | None:
+    retry = _cycle_recovery(
+        cycle, phases=("PREFLIGHT_RECOVER", "RECOVER", "EXECUTE"))
+    if retry is not None:
+        return retry
+    if (cycle and str(cycle.get("state") or "").upper()
+            == "RECONCILING"):
+        updated = cycle.get("updated_at")
+        deadline = (
+            updated + timedelta(minutes=10)
+            if isinstance(updated, datetime) else None)
+        return model.RecoveryEvidence(
+            phase="BROKER_REOBSERVATION", automatic=True,
+            deadline=deadline)
+    return None
 
 
 def _latest_automation_instance(conn) -> dict | None:
@@ -869,6 +1030,11 @@ def _authority_lifecycle(conn) -> dict:
         lifecycle = "REVOKED"
     if digest is not None and lifecycle is None:
         lifecycle = "MISSING LIFECYCLE"
+    deployment_artifacts = (
+        claims.get("deployment_artifacts") if isinstance(claims, Mapping)
+        else None)
+    if not isinstance(deployment_artifacts, Mapping):
+        deployment_artifacts = {}
     return {
         "authority_generation": int(generation),
         "certificate_sha256": str(digest) if digest else None,
@@ -882,7 +1048,186 @@ def _authority_lifecycle(conn) -> dict:
         "maximum_exposure": (str(claims.get("maximum_exposure"))
                              if claims.get("maximum_exposure") is not None
                              else None),
+        "reviewed_git_commit": deployment_artifacts.get("git_commit"),
+        "reviewed_image_digest": deployment_artifacts.get(
+            "runtime_image_digest"),
     }
+
+
+def _latest_account_evidence(conn) -> dict | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT broker,broker_account_id,status,flags,equity,cash,"
+            " buying_power,multiplier,observed_at"
+            " FROM sentinel_broker_account_evidence"
+            " ORDER BY observed_at DESC,seq DESC LIMIT 1")
+        row = cur.fetchone()
+    if row is None:
+        return None
+    flags = _json_mapping(row[3], label="broker account flags")
+    return {
+        "broker": str(row[0]), "account_id": str(row[1]),
+        "status": str(row[2]), "flags": flags,
+        "equity": Decimal(str(row[4])), "cash": Decimal(str(row[5])),
+        "buying_power": (
+            None if row[6] is None else Decimal(str(row[6]))),
+        "multiplier": None if row[7] is None else Decimal(str(row[7])),
+        "observed_at": _utc(row[8]),
+    }
+
+
+def _bound_account_id(conn) -> str | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT broker_account_id FROM sentinel_account_binding"
+            " WHERE id=1 AND ownership_state='OWNED'")
+        rows = cur.fetchall()
+    if len(rows) > 1:
+        raise ValueError("account binding singleton is not unique")
+    return str(rows[0][0]) if rows else None
+
+
+def _latest_backup_evidence(conn, kind: str) -> dict | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT proof,observed_at FROM sentinel_backup_evidence"
+            " WHERE kind=%s ORDER BY observed_at DESC,seq DESC LIMIT 1",
+            (kind,))
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {
+        "proof": _json_mapping(row[0], label=f"{kind} backup proof"),
+        "observed_at": _utc(row[1]),
+    }
+
+
+def _runtime_verdict(conn) -> dict | None:
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT authority_verdict,authority_checked_at"
+            " FROM sentinel_automation_control WHERE id=1")
+        row = cur.fetchone()
+    if row is None:
+        return None
+    return {"verdict": row[0], "checked_at": _utc(row[1])}
+
+
+def _operator_evidence_rows(
+        database_url: str, *, now: datetime) -> tuple[list[model.Row], list[str]]:
+    """Account, backup and runtime identity from append-only durable evidence."""
+    if not database_url:
+        detail = "SENTINEL_DATABASE_URL is unset"
+        return ([
+            model.alpaca_account_row(available=None, error=detail),
+            model.backup_restore_row(
+                base_at=None, restore_at=None, now=now, error=detail),
+            model.runtime_identity_row(
+                runtime_git=None, runtime_image=None, reviewed_git=None,
+                reviewed_image=None, certificate_sha256=None,
+                lifecycle_current=None, authority_verdict=None,
+                checked_at=None, error=detail),
+        ], [detail])
+
+    from sentinel.feed import store as feed_store
+
+    conn = None
+    try:
+        conn = feed_store.connect(_bounded_dsn(database_url))
+        account, account_error = _read(
+            conn, _latest_account_evidence, STATEMENT_TIMEOUT_MS, default=None)
+        bound, binding_error = _read(
+            conn, _bound_account_id, STATEMENT_TIMEOUT_MS, default=None)
+        base, base_error = _read(
+            conn, lambda c: _latest_backup_evidence(c, "BASE_BACKUP"),
+            STATEMENT_TIMEOUT_MS, default=None)
+        restore, restore_error = _read(
+            conn, lambda c: _latest_backup_evidence(c, "RESTORE_DRILL"),
+            STATEMENT_TIMEOUT_MS, default=None)
+        runtime_backup, runtime_backup_error = _read(
+            conn, lambda c: _latest_backup_evidence(c, "RUNTIME_CHAIN"),
+            STATEMENT_TIMEOUT_MS, default=None)
+        lifecycle, lifecycle_error = _read(
+            conn, _authority_lifecycle, STATEMENT_TIMEOUT_MS, default=None)
+        verdict, verdict_error = _read(
+            conn, _runtime_verdict, STATEMENT_TIMEOUT_MS, default=None)
+        cycle, _cycle_error = _read(
+            conn, _latest_automation_cycle,
+            STATEMENT_TIMEOUT_MS, default=None)
+
+        account_detail = account_error or binding_error
+        account_recovery = _cycle_recovery(
+            cycle, phases=("PREFLIGHT_RECOVER", "RECOVER", "EXECUTE"))
+        account_row = (
+            model.alpaca_account_row(
+                available=None, error=account_detail,
+                observed_at=(account or {}).get("observed_at"))
+            if account_detail else
+            model.alpaca_account_row(
+                available=account is not None, expected_account_id=bound,
+                valid_until=_runtime_valid_until(
+                    cycle, (account or {}).get("observed_at"),
+                    broker_fact=True),
+                recovery=account_recovery,
+                **(account or {})))
+
+        backup_error = base_error or restore_error or runtime_backup_error
+        backup_row = model.backup_restore_row(
+            base_at=(base or {}).get("observed_at"),
+            restore_at=(restore or {}).get("observed_at"),
+            runtime_at=(runtime_backup or {}).get("observed_at"),
+            base_proof=(base or {}).get("proof"),
+            restore_proof=(restore or {}).get("proof"),
+            runtime_proof=(runtime_backup or {}).get("proof"),
+            # PostgreSQL archive catch-up may self-heal while the automation's
+            # typed backup retry remains bounded. Phase or error prose alone
+            # can never lend that recovery budget to backup evidence.
+            now=now, recovery=_cycle_recovery(
+                cycle, failure_domains=("BACKUP",)),
+            runtime_valid_until=_runtime_valid_until(
+                cycle, (runtime_backup or {}).get("observed_at")),
+            error=backup_error)
+
+        identity_error = lifecycle_error or verdict_error
+        lifecycle = dict(lifecycle or {})
+        runtime_verdict = dict(verdict or {})
+        identity_row = model.runtime_identity_row(
+            runtime_git=os.environ.get("SENTINEL_GIT_COMMIT", "").strip(),
+            runtime_image=os.environ.get(
+                "SENTINEL_RUNTIME_IMAGE_DIGEST", "").strip(),
+            reviewed_git=lifecycle.get("reviewed_git_commit"),
+            reviewed_image=lifecycle.get("reviewed_image_digest"),
+            certificate_sha256=lifecycle.get("certificate_sha256"),
+            lifecycle_current=lifecycle.get("lifecycle_current"),
+            authority_verdict=runtime_verdict.get("verdict"),
+            checked_at=runtime_verdict.get("checked_at"),
+            error=identity_error)
+
+        errors = []
+        for label, error in (
+                ("account", account_detail), ("backup", backup_error),
+                ("runtime identity", identity_error)):
+            if error:
+                errors.append(f"operator {label}: {error}")
+        return [account_row, backup_row, identity_row], errors
+    except Exception as exc:                                  # noqa: BLE001
+        detail = _short(exc)
+        return ([
+            model.alpaca_account_row(available=None, error=detail),
+            model.backup_restore_row(
+                base_at=None, restore_at=None, now=now, error=detail),
+            model.runtime_identity_row(
+                runtime_git=None, runtime_image=None, reviewed_git=None,
+                reviewed_image=None, certificate_sha256=None,
+                lifecycle_current=None, authority_verdict=None,
+                checked_at=None, error=detail),
+        ], [f"operator database: {detail}"])
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:                                 # noqa: BLE001
+                pass
 
 
 def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
@@ -894,6 +1239,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
             model.automation_row(installed=None, error=detail),
             model.automation_leader_row(installed=None, error=detail),
             model.automation_cycle_row(installed=None, error=detail),
+            *model.automation_step_rows(installed=None, error=detail),
             model.automation_alerts_row(installed=None, error=detail),
             model.alert_dispatcher_row(installed=None, error=detail),
         ], [detail])
@@ -912,6 +1258,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                 model.automation_row(installed=None, error=detail),
                 model.automation_leader_row(installed=None, error=detail),
                 model.automation_cycle_row(installed=None, error=detail),
+                *model.automation_step_rows(installed=None, error=detail),
                 model.automation_alerts_row(installed=None, error=detail),
                 model.alert_dispatcher_row(installed=None, error=detail),
             ], [detail])
@@ -925,6 +1272,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                 model.automation_row(installed=False),
                 model.automation_leader_row(installed=False),
                 model.automation_cycle_row(installed=False),
+                *model.automation_step_rows(installed=False),
                 model.automation_alerts_row(installed=False),
                 model.alert_dispatcher_row(installed=False),
             ]
@@ -948,6 +1296,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                     model.automation_row(installed=None, error=detail),
                     model.automation_leader_row(installed=None, error=detail),
                     model.automation_cycle_row(installed=None, error=detail),
+                    *model.automation_step_rows(installed=None, error=detail),
                     model.automation_alerts_row(installed=None, error=detail),
                     model.alert_dispatcher_row(installed=None, error=detail),
                 ]
@@ -964,6 +1313,8 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                             installed=True, error=detail),
                         model.automation_cycle_row(
                             installed=True, error=detail),
+                        *model.automation_step_rows(
+                            installed=True, error=detail),
                         model.automation_alerts_row(
                             installed=True, error=detail),
                         model.alert_dispatcher_row(
@@ -977,6 +1328,14 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                     cycle, cycle_error = _read(
                         conn, _latest_automation_cycle,
                         STATEMENT_TIMEOUT_MS, default=None)
+                    cycle_events = []
+                    cycle_events_error = None
+                    if cycle is not None:
+                        cycle_events, cycle_events_error = _read(
+                            conn,
+                            lambda c: _automation_cycle_events(
+                                c, str(cycle["cycle_id"])),
+                            STATEMENT_TIMEOUT_MS, default=[])
                     instance, instance_error = _read(
                         conn, _latest_automation_instance,
                         STATEMENT_TIMEOUT_MS, default=None)
@@ -986,6 +1345,27 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                     dispatchers, dispatchers_error = _read(
                         conn, _alert_dispatchers,
                         STATEMENT_TIMEOUT_MS, default=None)
+                    push_required = bool(os.environ.get(
+                        "SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY", "").strip())
+                    push_counts: dict = {}
+                    push_error = None
+                    push_columns = set(found.get(
+                        "sentinel_web_push_subscriptions") or ())
+                    if push_required:
+                        missing_push = (
+                            _PUSH_COLUMNS[
+                                "sentinel_web_push_subscriptions"]
+                            - push_columns)
+                        if missing_push:
+                            push_error = (
+                                "missing schema "
+                                "sentinel_web_push_subscriptions("
+                                + ", ".join(sorted(missing_push)) + ")")
+                        else:
+                            value, push_error = _read(
+                                conn, _push_subscription_counts,
+                                STATEMENT_TIMEOUT_MS, default=None)
+                            push_counts = dict(value or {})
                     cycle_view = dict(cycle or {})
                     if instance:
                         if cycle_view.get("next_wake_at") is None:
@@ -1007,6 +1387,10 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                         model.automation_cycle_row(
                             installed=True, enabled=control["enabled"],
                             error=cycle_error or instance_error, **cycle_view),
+                        *model.automation_step_rows(
+                            installed=True, enabled=control["enabled"],
+                            cycle=cycle_view, events=cycle_events,
+                            error=cycle_error or cycle_events_error),
                         model.automation_alerts_row(
                             installed=True, error=alerts_error,
                             as_of=(alerts or {}).get("updated_at"),
@@ -1014,7 +1398,14 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                                if key != "updated_at"}),
                         model.alert_dispatcher_row(
                             installed=True, dispatchers=dispatchers,
-                            error=dispatchers_error),
+                            push_required=push_required,
+                            retry_attempt=(alerts or {}).get("retry_attempt"),
+                            retry_max_attempts=(alerts or {}).get(
+                                "retry_max_attempts"),
+                            next_attempt_at=(alerts or {}).get(
+                                "next_attempt_at"),
+                            error=dispatchers_error or push_error,
+                            **push_counts),
                     ]
 
         authority_errors: list[str] = []
@@ -1076,7 +1467,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
 
         raw_errors = (
             ([] if not automation_present else
-             [row.detail for row in automation if row.status is model.UNKNOWN])
+             [row.detail for row in automation if row.status == model.UNKNOWN])
             + authority_errors)
         errors = []
         for error in raw_errors:
@@ -1091,6 +1482,7 @@ def _automation_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
             model.automation_row(installed=None, error=detail),
             model.automation_leader_row(installed=None, error=detail),
             model.automation_cycle_row(installed=None, error=detail),
+            *model.automation_step_rows(installed=None, error=detail),
             model.automation_alerts_row(installed=None, error=detail),
             model.alert_dispatcher_row(installed=None, error=detail),
         ], [f"automation database: {detail}"])
@@ -1704,6 +2096,9 @@ def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
         if command_error is None:
             commands, command_error = _read(
                 conn, _active_commands, STATEMENT_TIMEOUT_MS, default=None)
+        recovery_cycle, _recovery_cycle_error = _read(
+            conn, _latest_automation_cycle,
+            STATEMENT_TIMEOUT_MS, default=None)
 
         state_view = None
         if state_error is None and state_snapshot is not None:
@@ -1712,10 +2107,20 @@ def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
             except Exception as exc:                         # noqa: BLE001
                 state_error = _short(exc)
 
+        state_recovery = _cycle_recovery(
+            recovery_cycle, phases=("REFRESH", "PREPARE"))
+        broker_recovery = _observation_recovery(recovery_cycle)
+        state_valid_until = _runtime_valid_until(
+            recovery_cycle, (state_view or {}).get("updated_at"))
+        plan_valid_until = _runtime_valid_until(
+            recovery_cycle, (plan or {}).get("created_at"))
+
         try:
             exposure = _exposure_row(
                 state_view, plan, rollout, state_error=state_error,
-                plan_error=plan_error, rollout_error=rollout_error)
+                plan_error=plan_error, rollout_error=rollout_error,
+                valid_until=plan_valid_until or state_valid_until,
+                recovery=state_recovery)
         except Exception as exc:                             # noqa: BLE001
             plan_error = _short(exc)
             exposure = model.exposure_row(
@@ -1743,11 +2148,15 @@ def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                     unpriced_securities=(len(plan["unpriced_securities"])
                                          if plan is not None else None),
                     pending_actions=state_view["pending"],
-                    as_of=state_view["updated_at"])
+                    as_of=state_view["updated_at"],
+                    valid_until=state_valid_until,
+                    recovery=state_recovery)
             terminals = model.terminals_row(
                 current_unresolved=state_view["unresolved"],
                 current_pending=state_view["carried"],
-                as_of=state_view["updated_at"])
+                as_of=state_view["updated_at"],
+                valid_until=state_valid_until,
+                recovery=state_recovery)
 
         if observation_error or command_error:
             detail = "; ".join(
@@ -1790,7 +2199,11 @@ def _runtime_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                     working_orders=working_orders, active_commands=active,
                     uncertain_commands=uncertain,
                     command_as_of=commands["updated_at"],
-                    as_of=observation["observed_at"])
+                    as_of=observation["observed_at"],
+                    recovery=broker_recovery,
+                    valid_until=_runtime_valid_until(
+                        recovery_cycle, observation["observed_at"],
+                        broker_fact=True))
             except Exception as exc:                         # noqa: BLE001
                 observation_error = _short(exc)
                 broker = model.broker_row(
@@ -1850,24 +2263,26 @@ def build_panel(*, state_dir: Path, database_url: str,
         errors.append("ownership binding")
     feed_rows, feed_errs = _feed_rows(database_url)
     errors.extend(feed_errs)
-    # The legacy runtime projection treats every RECONCILING observation as a
-    # hard failure because it was designed for finalized broker-trial evidence.
-    # In informational dual mode ordinary partial fills are amber and the
-    # dedicated PAPER row above owns that distinction.
-    runtime_rows, runtime_errs = (
-        ([], []) if dual_mode else _runtime_rows(database_url))
+    # Reviewed dual mode changes performance authority, not visibility into
+    # the execution membrane. Durable runtime rows are always projected.
+    runtime_rows, runtime_errs = _runtime_rows(database_url)
     errors.extend(runtime_errs)
     automation_rows, automation_errs = _automation_rows(database_url)
     errors.extend(automation_errs)
+    operator_rows, operator_errs = _operator_evidence_rows(
+        database_url, now=now)
+    errors.extend(operator_errs)
 
     rows = [
         *financial_rows,
         own,
         automation_rows[0],
+        *operator_rows,
+        automation_rows[1],
         *runtime_rows[:1],
         *feed_rows,
         *runtime_rows[1:],
-        *automation_rows[1:],
+        *automation_rows[2:],
     ]
     return model.Panel(rows=rows, now=now, source_errors=errors,
                        trial_details=trial_details,

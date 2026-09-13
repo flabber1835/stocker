@@ -735,8 +735,11 @@ def test_renderer_exposes_owner_audit_without_a_write_control():
     assert "SEC-A dividend entitlement" in html
     assert "Alpaca paper unsupported; no compensation applied" in html
     assert "Trial session history" in html
-    for forbidden in ("<form", "<button", "<input", 'type="submit"'):
+    for forbidden in ("<form", "<input", 'type="submit"'):
         assert forbidden not in html.lower()
+    assert html.lower().count("<button") == 2
+    assert 'id="push-enable"' in html
+    assert 'id="push-remove"' in html
 
 
 def test_split_ages_plan_target_before_position_comparison():

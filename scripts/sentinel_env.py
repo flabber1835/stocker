@@ -3,6 +3,8 @@
 from __future__ import annotations
 
 import argparse
+import base64
+import binascii
 from decimal import Decimal, InvalidOperation
 from ipaddress import IPv6Address
 import os
@@ -13,6 +15,12 @@ import sys
 import unicodedata
 from typing import Dict, Mapping, Optional, Sequence
 from urllib.parse import urlparse
+
+
+_BASE64URL = re.compile(r"[A-Za-z0-9_-]+\Z")
+_P256_ORDER = int(
+    "FFFFFFFF00000000FFFFFFFFFFFFFFFFBCE6FAADA7179E84F3B9CAC2FC632551",
+    16)
 
 ROOT = Path(__file__).resolve().parents[1]
 MAX_BYTES = 1024 * 1024
@@ -82,7 +90,7 @@ AUTOMATION_INTEGER_DEFAULTS = {
     "SENTINEL_AUTOMATION_EXECUTE_MAX_ATTEMPTS": (8, 1),
     "SENTINEL_AUTOMATION_RECOVER_MAX_ATTEMPTS": (8, 1),
     "SENTINEL_AUTOMATION_ALERT_CLAIM_SECONDS": (60, 3),
-    "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS": (1000000, 1),
+    "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS": (8, 1),
 }
 # The alert service omits lease/heartbeat from its Compose environment and thus
 # uses this runtime-model heartbeat. The service differential binds that fact.
@@ -457,6 +465,55 @@ def _validate_semantics(env: Mapping[str, str], *, alert_dispatcher: bool) -> No
                 _fail("INVALID_ALERT_WEBHOOK_URL",
                       key="SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL")
 
+    vapid_names = (
+        "SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY",
+        "SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY",
+        "SENTINEL_WEB_PUSH_VAPID_SUBJECT",
+    )
+    vapid_values = tuple(str(env.get(name, "")).strip() for name in vapid_names)
+    if any(vapid_values) and not all(vapid_values):
+        _fail("INCOMPLETE_WEB_PUSH_VAPID_CONFIGURATION")
+    if all(vapid_values):
+        decoded_keys = {}
+        for name, expected_length in zip(vapid_names[:2], (32, 65)):
+            value = str(env[name]).strip()
+            if _BASE64URL.fullmatch(value) is None:
+                _fail("INVALID_WEB_PUSH_VAPID_KEY", key=name)
+            try:
+                decoded = base64.b64decode(
+                    value + "=" * (-len(value) % 4),
+                    altchars=b"-_", validate=True)
+            except (ValueError, TypeError, binascii.Error):
+                _fail("INVALID_WEB_PUSH_VAPID_KEY", key=name)
+            canonical = base64.urlsafe_b64encode(decoded).rstrip(b"=").decode("ascii")
+            if len(decoded) != expected_length or canonical != value:
+                _fail("INVALID_WEB_PUSH_VAPID_KEY", key=name)
+            decoded_keys[name] = decoded
+        private_bytes = decoded_keys[vapid_names[0]]
+        public_bytes = decoded_keys[vapid_names[1]]
+        scalar = int.from_bytes(private_bytes, "big")
+        if not 0 < scalar < _P256_ORDER:
+            _fail("INVALID_WEB_PUSH_VAPID_KEY", key=vapid_names[0])
+        if public_bytes[0] != 4:
+            _fail("INVALID_WEB_PUSH_VAPID_KEY", key=vapid_names[1])
+        if not (vapid_values[2].startswith("mailto:")
+                or vapid_values[2].startswith("https://")):
+            _fail("INVALID_WEB_PUSH_VAPID_SUBJECT",
+                  key="SENTINEL_WEB_PUSH_VAPID_SUBJECT")
+        origin = str(env.get("SENTINEL_PUBLIC_ORIGIN", "")).strip()
+        try:
+            parsed_origin = urlparse(origin)
+            valid_origin = (
+                parsed_origin.scheme == "https" and bool(parsed_origin.hostname)
+                and not parsed_origin.username and not parsed_origin.password
+                and parsed_origin.path in {"", "/"}
+                and not parsed_origin.params and not parsed_origin.query
+                and not parsed_origin.fragment)
+        except ValueError:
+            valid_origin = False
+        if not valid_origin:
+            _fail("INVALID_WEB_PUSH_PUBLIC_ORIGIN", key="SENTINEL_PUBLIC_ORIGIN")
+
     deploy_ints = {
         "SENTINEL_DEPLOY_BOOTSTRAP_POSTGRES_TIMEOUT_SECONDS": (1, None),
         "SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS": (0, 1800),
@@ -501,7 +558,18 @@ def validate(env: Mapping[str, str], *, profile: str, target: Optional[str] = No
     if broker_credentials:
         required += ["ALPACA_API_KEY", "ALPACA_SECRET_KEY"]
     if alert_dispatcher:
-        required.append("SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL")
+        has_webhook = usable(env.get("SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL", ""))
+        has_web_push = all(usable(env.get(name, "")) for name in (
+            "SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY",
+            "SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY",
+            "SENTINEL_WEB_PUSH_VAPID_SUBJECT",
+            "SENTINEL_PUBLIC_ORIGIN",
+        ))
+        if not has_webhook and not has_web_push:
+            raise EnvRefused(
+                ".env REQUIRED_ALERT_TRANSPORT_MISSING: configure an HTTPS "
+                "SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL or complete Web Push "
+                "VAPID settings")
     invalid = [key for key in required if not usable(env.get(key, ""))]
     if invalid:
         raise EnvRefused(".env REQUIRED_VALUES_MISSING_OR_PLACEHOLDER: " + ", ".join(invalid))

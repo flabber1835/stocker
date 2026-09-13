@@ -59,6 +59,8 @@ def sql():
         print("1000|00000001")
     elif "CREATE TABLE IF NOT EXISTS sentinel_backup_recovery_markers" in query:
         return event("marker-row", lambda: 0)
+    elif "INSERT INTO sentinel_backup_evidence" in query:
+        return 0
     elif "pg_current_wal_lsn()::text" in query:
         marker = re.search(r"SELECT '([^|]+)\|'", query).group(1)
         print(f"{marker}|0/03000040|{WAL}")

@@ -84,6 +84,7 @@ class Database:
         self.frontier = wal_name(5)
         self.statements = []
         self.locks = {}
+        self.backup_evidence = []
         self.commits = 0
         self.rollbacks = 0
 
@@ -195,6 +196,11 @@ class Cursor:
             self.rows = [("0/500040",)]
         elif query == "SELECT pg_walfile_name(pg_switch_wal())":
             self.rows = [(wal_name(6),)]
+        elif query.startswith("INSERT INTO sentinel_backup_evidence"):
+            kind, digest, proof = params
+            evidence = (kind, json.loads(proof))
+            db.backup_evidence.append((digest, evidence))
+            self.rows = [evidence]
         else:
             raise AssertionError(f"Unexpected SQL in backup adapter: {query}")
 

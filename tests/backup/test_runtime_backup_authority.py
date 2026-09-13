@@ -263,14 +263,17 @@ def test_common_backup_errors_keep_retry_and_operator_checkpoint_identity():
     assert isinstance(unavailable, backup_guard.BackupUnavailable)
     assert isinstance(unavailable, ConnectionError)
     assert isinstance(invalid, backup_guard.BackupConfigurationRefused)
-    assert isinstance(automation_runtime.classify_dependency_failure(unavailable),
-                      TransientInfrastructureFailure)
-    assert isinstance(automation_runtime.classify_dependency_failure(invalid),
-                      PermanentOperationalRefusal)
+    transient = automation_runtime.classify_dependency_failure(unavailable)
+    permanent = automation_runtime.classify_dependency_failure(invalid)
+    assert isinstance(transient, TransientInfrastructureFailure)
+    assert isinstance(permanent, PermanentOperationalRefusal)
+    assert transient.failure_domain == "BACKUP"
+    assert permanent.failure_domain == "BACKUP"
     assert isinstance(unavailable, paper_refusal_types())
     assert isinstance(invalid, paper_refusal_types())
     classified = RetryableBackupUnavailable("existing typed retry")
     assert automation_runtime.classify_dependency_failure(classified) is classified
+    assert classified.failure_domain == "BACKUP"
 
 
 def test_runtime_reads_only_required_horizon(world):

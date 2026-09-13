@@ -7,7 +7,7 @@ window corrections cannot silently become published authority.
 from __future__ import annotations
 
 import asyncio
-from datetime import date
+from datetime import date, datetime, timezone
 from types import SimpleNamespace
 
 import pytest
@@ -231,6 +231,9 @@ class TestRetrySemantics:
             lambda _now, _config: SimpleNamespace(
                 decision_session=date(2026, 8, 18)))
         monkeypatch.setattr(
+            automation_runtime, "_fenced_recovery_deadline",
+            lambda _session: datetime.max.replace(tzinfo=timezone.utc))
+        monkeypatch.setattr(
             automation_runtime.feed_store, "require_feed_schema",
             lambda _conn: None)
         monkeypatch.setattr(
@@ -257,9 +260,13 @@ class TestRetrySemantics:
         assert len(alerts) == 1
         assert alerts[0]["event_type"] == "AUTOMATION_FENCED_DATA_NOT_READY"
         assert alerts[0]["severity"] == "WARN"
+        assert alerts[0]["idempotency_key"] == \
+            "fenced-data:2026-08-18:not-ready"
         assert alerts[0]["payload"]["state"] == "DEPLOYED_FENCED"
         assert alerts[0]["payload"]["readiness"] == "DATA_NOT_READY"
-        assert "TickerMetadataIncomplete" in alerts[0]["payload"]["detail"]
+        assert alerts[0]["payload"]["detail"] == (
+            "fenced data progression is not ready; see the dashboard for "
+            "current feed and readiness evidence")
 
 
 @pytest.fixture(scope="module")

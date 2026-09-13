@@ -9,7 +9,6 @@ from __future__ import annotations
 
 import asyncio
 import errno
-import hashlib
 import os
 import socket
 import uuid
@@ -73,6 +72,73 @@ REFRESH_TRANSIENT_FAILURES = (
     feed_authority.VendorPublicationUnstable,
     feed_authority.FrontierDomainIncomplete,
 )
+BACKUP_FAILURE_DOMAIN = "BACKUP"
+
+
+class BackupTransientFailure(TransientInfrastructureFailure):
+    """Reviewed automatic backup/archive recovery is still in budget."""
+
+    failure_domain = BACKUP_FAILURE_DOMAIN
+
+
+class BackupPermanentFailure(PermanentOperationalRefusal):
+    """Backup configuration or integrity requires operator intervention."""
+
+    failure_domain = BACKUP_FAILURE_DOMAIN
+
+
+def _fenced_recovery_deadline(decision_session: str) -> datetime:
+    """Return the following XNYS open that ends automatic source recovery."""
+    effective_session = calendar.next_session(decision_session)
+    opened, _closed = calendar.session_window(effective_session)
+    return opened.astimezone(timezone.utc)
+
+
+def _enqueue_fenced_recovery_alert(
+        conn, *, decision_session: str, now: datetime,
+        max_attempts: int):
+    """Coalesce source lag until its following-open deadline, then escalate."""
+    try:
+        deadline = _fenced_recovery_deadline(decision_session)
+    except Exception:                                      # calendar must fail red
+        return outbox.enqueue(
+            conn,
+            idempotency_key=(
+                f"fenced-data:{decision_session}:deadline-unverifiable"),
+            event_type="AUTOMATION_FENCED_DATA_DEADLINE_UNVERIFIABLE",
+            severity="CRITICAL",
+            payload={
+                "decision_session": decision_session,
+                "state": "DEPLOYED_FENCED",
+                "readiness": "RECOVERY_DEADLINE_UNVERIFIABLE",
+                "detail": (
+                    "fenced source recovery deadline cannot be verified; "
+                    "operator action is required"),
+            },
+            max_attempts=max_attempts)
+    expired = now.astimezone(timezone.utc) >= deadline
+    return outbox.enqueue(
+        conn,
+        idempotency_key=(
+            f"fenced-data:{decision_session}:"
+            f"{'deadline-missed' if expired else 'not-ready'}"),
+        event_type=(
+            "AUTOMATION_FENCED_DATA_DEADLINE_MISSED" if expired
+            else "AUTOMATION_FENCED_DATA_NOT_READY"),
+        severity="CRITICAL" if expired else "WARN",
+        payload={
+            "decision_session": decision_session,
+            "state": "DEPLOYED_FENCED",
+            "readiness": (
+                "RECOVERY_DEADLINE_MISSED" if expired else "DATA_NOT_READY"),
+            "recovery_deadline_at": deadline.isoformat(),
+            "detail": (
+                "fenced source recovery missed the following XNYS open; "
+                "operator action is required" if expired else
+                "fenced data progression is not ready; see the dashboard "
+                "for current feed and readiness evidence"),
+        },
+        max_attempts=max_attempts)
 
 AUTOMATION_CONFIG_ENV_BY_FIELD = MappingProxyType({
     "publication_timing_policy":
@@ -124,9 +190,9 @@ def classify_dependency_failure(
     if isinstance(exc, AutomationRefused):
         return exc
     if isinstance(exc, BackupConfigurationRefused):
-        return PermanentOperationalRefusal(f"backup integrity refused: {exc}")
+        return BackupPermanentFailure(f"backup integrity refused: {exc}")
     if isinstance(exc, BackupUnavailable):
-        return TransientInfrastructureFailure(f"backup temporarily unavailable: {exc}")
+        return BackupTransientFailure(f"backup temporarily unavailable: {exc}")
     if isinstance(exc, REFRESH_TRANSIENT_FAILURES):
         return transient_refresh_failure(exc)
     if isinstance(exc, sharadar.MissingApiKey):
@@ -1177,6 +1243,12 @@ class ProductionAutomation:
                        "detail": str(result)[:4000]}
         else:
             cycle_id = result.cycle.cycle_id if result.cycle else "none"
+            # Submission followed by reconciliation is not completion and is
+            # not a reason to wake an operator. The durable state remains on
+            # the panel under its accurate TRANSPORT_SUBMITTED meaning.
+            if (result.cycle is not None
+                    and result.cycle.state.value == "RECONCILING"):
+                return None
             if (result.cycle is not None
                     and result.cycle.state.value
                     in outbox._RECOVERABLE_CYCLE_STATES):
@@ -1289,19 +1361,8 @@ class ProductionAutomation:
                     f"{target}; visible={visible!r}")
         except Exception as exc:                              # noqa: BLE001
             conn.rollback()
-            detail = f"{type(exc).__name__}: {exc}"[:4000]
-            digest = hashlib.sha256(detail.encode("utf-8")).hexdigest()[:16]
-            outbox.enqueue(
-                conn,
-                idempotency_key=f"fenced-data:{target}:not-ready:{digest}",
-                event_type="AUTOMATION_FENCED_DATA_NOT_READY",
-                severity="WARN",
-                payload={
-                    "decision_session": target,
-                    "state": "DEPLOYED_FENCED",
-                    "readiness": "DATA_NOT_READY",
-                    "detail": detail,
-                },
+            _enqueue_fenced_recovery_alert(
+                conn, decision_session=target, now=now,
                 max_attempts=self.automation_config.alert_max_attempts)
             return next_wake
         shadow_result = None
@@ -1312,48 +1373,32 @@ class ProductionAutomation:
                     conn, through=target,
                     observation_id=self._shadow_observation_id,
                     starting_cash=self._shadow_starting_cash)
-            except Exception as exc:                          # noqa: BLE001
+            except shadow_runtime.ShadowSourceFinalPending:
                 conn.rollback()
-                detail = f"{type(exc).__name__}: {exc}"[:4000]
-                digest = hashlib.sha256(
-                    detail.encode("utf-8")).hexdigest()[:16]
+                _enqueue_fenced_recovery_alert(
+                    conn, decision_session=target, now=now,
+                    max_attempts=self.automation_config.alert_max_attempts)
+                return next_wake
+            except Exception:                                 # noqa: BLE001
+                conn.rollback()
                 outbox.enqueue(
                     conn,
-                    idempotency_key=(
-                        f"shadow-observation:{target}:not-verified:{digest}"),
+                    idempotency_key=f"shadow-observation:{target}:not-verified",
                     event_type="SHADOW_OBSERVATION_NOT_VERIFIED",
                     severity="CRITICAL",
                     payload={
                         "decision_session": target,
                         "state": "DEPLOYED_FENCED_SHADOW",
                         "verification": "NOT_VERIFIED",
-                        "detail": detail,
+                        "detail": (
+                            "shadow verification refused; see the dashboard "
+                            "and service logs for current evidence"),
                     },
                     max_attempts=self.automation_config.alert_max_attempts)
                 return next_wake
-            outbox.enqueue(
-                conn,
-                idempotency_key=(
-                    f"shadow-observation:{target}:"
-                    f"{shadow_result.record_sha256}"),
-                event_type="SHADOW_OBSERVATION_VERIFIED",
-                severity="INFO",
-                payload=shadow_result.to_dict(),
-                max_attempts=self.automation_config.alert_max_attempts)
-        outbox.enqueue(
-            conn,
-            idempotency_key=f"fenced-data:{target}:ready",
-            event_type="AUTOMATION_FENCED_DATA_READY",
-            severity="WARN",
-            payload={
-                "decision_session": target,
-                "state": "DEPLOYED_FENCED",
-                "readiness": "DATA_READY",
-                "frontier": target,
-                "shadow_observation": (
-                    shadow_result.to_dict() if shadow_result is not None else None),
-            },
-            max_attempts=self.automation_config.alert_max_attempts)
+        # Success is visible as green/current durable evidence in the panel.
+        # It is intentionally silent: neither routine green nor recovery back
+        # to green is a reason to wake the operator.
         return next_wake
 
     async def control_wake(self, conn):

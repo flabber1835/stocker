@@ -1,7 +1,8 @@
 #!/usr/bin/env bash
 # Restore one physical backup into an isolated disposable volume, replay its
 # marker, promote it, and validate it with the exact Sentinel runtime image.
-# The primary database is read-only to this script.
+# The primary database is read-only except for one append-only operator proof
+# written only after the disposable restore passes full semantic validation.
 set -euo pipefail
 
 cd "$(dirname "$0")/.."
@@ -177,6 +178,22 @@ docker exec "$CONTAINER" psql -U sentinel -d sentinel -v ON_ERROR_STOP=1 -Atc \
    END $$;'
 echo "physical_wal_replay_ready:true backup=$LATEST"
 
+record_restore_evidence() {
+  # The disposable database proves restore; the live primary stores only the
+  # resulting operator evidence. This never feeds strategy or execution state.
+  ${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
+    -v ON_ERROR_STOP=1 -Atc "
+      WITH evidence AS (
+        SELECT jsonb_build_object(
+          'base_backup','$NAME','marker','$MARKER','target_lsn','$TARGET_LSN',
+          'system_identifier','$SYSTEM_ID','physical_only',false) AS proof
+      )
+      INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof)
+      SELECT 'RESTORE_DRILL',
+             encode(sha256(convert_to(proof::text,'UTF8')),'hex'),proof
+        FROM evidence;" >/dev/null
+}
+
 if [ "$PHYSICAL_ONLY" -eq 1 ]; then
   exit 0
 fi
@@ -215,3 +232,4 @@ docker run --rm --network "$NETWORK" --read-only --cap-drop ALL \
   -e SENTINEL_RESTORE_DATABASE_PASSWORD="$SENTINEL_POSTGRES_PASSWORD" \
   --entrypoint python "$RUNTIME_IMAGE" -m sentinel.restore_validation
 echo "restore_semantics_ready:true backup=$LATEST image=$RUNTIME_IMAGE"
+record_restore_evidence

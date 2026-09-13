@@ -276,6 +276,13 @@ def test_dispatcher_health_transitions_and_recovers_durably(conn) -> None:
     starting = alert_health.register(conn, dispatcher_id="primary")
     assert starting.state == alert_health.STARTING
 
+    idle = alert_health.heartbeat(conn, dispatcher_id="primary")
+    assert idle.state == alert_health.HEALTHY
+    assert idle.last_success_at is None
+    alert_health.require_healthy(
+        conn, dispatcher_id="primary", maximum_age_seconds=30,
+        startup_grace_seconds=300)
+
     healthy = alert_health.record_success(conn, dispatcher_id="primary")
     assert healthy.state == alert_health.HEALTHY
     assert healthy.consecutive_failures == 0

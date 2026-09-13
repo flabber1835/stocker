@@ -157,8 +157,8 @@ services:
   # keep working across the retirement.
   #
   # NO PROFILE: unlike either command/orchestration surface, this one is meant
-  # to be UP. It has no write routes and never constructs a broker — a phone
-  # refreshing it every 30s must not become an unattended API client.
+  # to be UP. It never constructs a broker. Its only write routes enroll or
+  # retire this browser's non-financial Web Push subscription.
   sentinel-panel:
     build:
       context: .
@@ -201,6 +201,10 @@ services:
       SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256: ${SENTINEL_VALIDATED_DATA_PUBLICATION_SHA256:-}
       SENTINEL_GIT_COMMIT: ${SENTINEL_GIT_COMMIT:-}
       SENTINEL_RUNTIME_IMAGE_DIGEST: ${SENTINEL_RUNTIME_IMAGE_DIGEST:-}
+      # Public browser configuration only. The VAPID private key belongs solely
+      # to the independent alert dispatcher.
+      SENTINEL_PUBLIC_ORIGIN: ${SENTINEL_PUBLIC_ORIGIN:-}
+      SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY: ${SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY:-}
       # DELIBERATELY NO ALPACA CREDENTIALS. The panel has no code path to the
       # broker, and withholding the keys means that stays true even if one is
       # added by mistake.

@@ -1,10 +1,9 @@
 """Independent external alert dispatcher for unattended Sentinel automation.
 
 The trading worker only enqueues durable outbox rows. This process owns delivery
-and requires a real HTTPS webhook; local logging is deliberately not accepted as
-successful unattended notification. Database loss and scheduler silence are
-reported directly because the failed component cannot be trusted to enqueue its
-own incident.
+and requires first-party Web Push or the migration webhook. Database loss is
+reported through the optional independent webhook when available because a
+database-backed subscription cannot report loss of its own database.
 """
 from __future__ import annotations
 
@@ -20,9 +19,11 @@ import httpx
 from sentinel import alert_health
 from sentinel.automation import outbox
 from sentinel.automation.health import read_health
+from sentinel.automation.model import AutomationRefused
 from sentinel.automation_runtime import config_from_env
 from sentinel.config import SentinelConfig
 from sentinel.feed import store as feed_store
+from sentinel.web_push import VapidCredentials, WebPushAlertAdapter
 
 
 class AlertTransportFailure(RuntimeError):
@@ -126,19 +127,91 @@ def _report_transport_failure(exc: BaseException) -> None:
         f"{type(exc).__name__}: {exc}", file=sys.stderr, flush=True)
 
 
+def _enqueue_health_incident(conn, *, health, max_attempts: int):
+    """Converge a health alarm with its authoritative transition event.
+
+    BLOCKED/terminal cycle and kill events already have immutable identities.
+    Reusing those identities avoids waking the operator twice for one incident.
+    Scheduler/authority failures without such an event get one stable health
+    identity for the current generation and cycle.
+    """
+    cycle_state = str(health.latest_cycle_state or "").upper()
+    if (health.policy_state == "BLOCKED" and health.latest_cycle_id
+            and cycle_state == "BLOCKED"):
+        try:
+            return outbox.enqueue_cycle_transition_alert(
+                conn, cycle_id=str(health.latest_cycle_id), state=cycle_state)
+        except AutomationRefused:
+            conn.rollback()
+    if health.policy_state in {
+            "KILLED_BROKER_OUTCOME_UNRESOLVED",
+            "DISABLED_BROKER_OUTCOME_UNRESOLVED",
+    }:
+        try:
+            return outbox.enqueue_latest_kill_alert(conn)
+        except AutomationRefused:
+            conn.rollback()
+    identity = (
+        health.policy_state, health.control_generation,
+        health.latest_cycle_id, health.latest_cycle_state,
+        health.broker_outcome_unresolved)
+    return outbox.enqueue(
+        conn,
+        idempotency_key=(
+            "automation-health:" + ":".join(str(part) for part in identity)),
+        event_type="AUTOMATION_OPERATIONAL_RED",
+        severity="CRITICAL",
+        payload={
+            "reason": health.policy_state,
+            "control_generation": health.control_generation,
+            "leader_holder": health.leader_holder,
+            "latest_cycle_id": health.latest_cycle_id,
+            "latest_cycle_state": health.latest_cycle_state,
+            "broker_outcome_unresolved": health.broker_outcome_unresolved,
+        },
+        max_attempts=max_attempts)
+
+
 async def run() -> int:
     config = SentinelConfig.from_env()
     if not config.database_url:
         print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return 2
     url = os.environ.get("SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL", "").strip()
-    if not url:
-        print("REFUSED: SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL is required",
-              file=sys.stderr)
-        return 2
     timeout = float(os.environ.get(
         "SENTINEL_AUTOMATION_ALERT_WEBHOOK_TIMEOUT_SECONDS", "10"))
-    adapter = WebhookAlertAdapter(url, timeout_seconds=timeout)
+    webhook_adapter = (
+        WebhookAlertAdapter(url, timeout_seconds=timeout) if url else None)
+    vapid_private = os.environ.get(
+        "SENTINEL_WEB_PUSH_VAPID_PRIVATE_KEY", "").strip()
+    vapid_public = os.environ.get(
+        "SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY", "").strip()
+    vapid_subject = os.environ.get(
+        "SENTINEL_WEB_PUSH_VAPID_SUBJECT", "").strip()
+    vapid_values = (vapid_private, vapid_public, vapid_subject)
+    web_push_configured = all(vapid_values)
+    if any(vapid_values) and not all(vapid_values):
+        print("REFUSED: Web Push VAPID configuration is incomplete",
+              file=sys.stderr)
+        return 2
+    if web_push_configured:
+        try:
+            credentials = VapidCredentials.from_base64url(
+                private_key=vapid_private, public_key=vapid_public,
+                subject=vapid_subject)
+        except ValueError:
+            print("REFUSED: Web Push VAPID configuration is invalid",
+                  file=sys.stderr)
+            return 2
+        adapter = WebPushAlertAdapter(
+            connection_factory=lambda: feed_store.connect(config.database_url),
+            credentials=credentials, timeout_seconds=timeout)
+    elif webhook_adapter is not None:
+        adapter = webhook_adapter
+    else:
+        print("REFUSED: configure Web Push VAPID or an HTTPS alert webhook",
+              file=sys.stderr)
+        return 2
     automation = config_from_env()
     poll = float(os.environ.get("SENTINEL_AUTOMATION_ALERT_POLL_SECONDS", "2"))
     if poll <= 0 or poll > 60:
@@ -170,8 +243,10 @@ async def run() -> int:
                 pass
 
     holder = f"alert-dispatcher-{os.getpid()}"
-    last_database_bucket: int | None = None
-    last_health_key: tuple[str, int] | None = None
+    database_incident_bucket: int | None = None
+    database_incident_detail: str | None = None
+    database_incident_reported = False
+    last_health_key: tuple | None = None
     last_probe_at: float | None = None
     registered = False
     externally_critical = {
@@ -180,6 +255,28 @@ async def run() -> int:
         "KILLED_BROKER_OUTCOME_UNRESOLVED",
         "DISABLED_BROKER_OUTCOME_UNRESOLVED",
     }
+
+    def report_database_failure(*, detail: str) -> None:
+        nonlocal database_incident_bucket
+        nonlocal database_incident_detail
+        nonlocal database_incident_reported
+        if database_incident_bucket is None:
+            database_incident_bucket = int(time.time() // 60)
+            database_incident_detail = detail
+        if database_incident_reported:
+            return
+        if webhook_adapter is not None:
+            try:
+                webhook_adapter.deliver_database_failure(
+                    str(database_incident_detail), database_incident_bucket)
+                database_incident_reported = True
+            except AlertTransportFailure as alert_exc:
+                _report_transport_failure(alert_exc)
+        else:
+            _report_transport_failure(AlertTransportFailure(
+                detail, retryable=True))
+            database_incident_reported = True
+
     while not stopped.is_set():
         conn = None
         result = None
@@ -194,14 +291,8 @@ async def run() -> int:
                 registered = True
             health = read_health(conn)
         except Exception as exc:  # noqa: BLE001
-            bucket = int(time.time() // 60)
-            if bucket != last_database_bucket:
-                try:
-                    adapter.deliver_database_failure(
-                        f"{type(exc).__name__}: {exc}", bucket)
-                    last_database_bucket = bucket
-                except AlertTransportFailure as alert_exc:
-                    _report_transport_failure(alert_exc)
+            report_database_failure(
+                detail=f"{type(exc).__name__}: {exc}")
             if conn is not None:
                 conn.close()
             await _sleep_or_stop(stopped, poll)
@@ -216,22 +307,14 @@ async def run() -> int:
                          "DISABLED_BROKER_OUTCOME_UNRESOLVED",
                      }))
             if active_incident:
-                bucket = int(time.time() // 60)
-                health_key = (health.policy_state, bucket)
+                health_key = (
+                    health.policy_state, health.control_generation,
+                    health.latest_cycle_id, health.latest_cycle_state,
+                    health.broker_outcome_unresolved)
                 if health_key != last_health_key:
-                    adapter.deliver_health_failure(
-                        health.policy_state,
-                        {
-                            "control_generation": health.control_generation,
-                            "leader_holder": health.leader_holder,
-                            "latest_cycle_id": health.latest_cycle_id,
-                            "latest_cycle_state": health.latest_cycle_state,
-                            "broker_outcome_unresolved":
-                                health.broker_outcome_unresolved,
-                        },
-                        bucket)
-                    alert_health.record_success(
-                        conn, dispatcher_id=dispatcher_id)
+                    _enqueue_health_incident(
+                        conn, health=health,
+                        max_attempts=automation.alert_max_attempts)
                     last_health_key = health_key
             result = await outbox.dispatch_once(
                 conn, adapter=adapter, holder_id=holder,
@@ -250,11 +333,12 @@ async def run() -> int:
                     conn, dispatcher_id=dispatcher_id)
 
             monotonic_now = time.monotonic()
-            if (last_probe_at is None
-                    or monotonic_now - last_probe_at >= probe_seconds):
+            if (webhook_adapter is not None and not web_push_configured
+                    and (last_probe_at is None
+                         or monotonic_now - last_probe_at >= probe_seconds)):
                 probe_bucket = int(time.time() // probe_seconds)
                 try:
-                    adapter.deliver_dispatcher_probe(
+                    webhook_adapter.deliver_dispatcher_probe(
                         dispatcher_id, probe_bucket)
                     alert_health.record_success(
                         conn, dispatcher_id=dispatcher_id)
@@ -265,7 +349,9 @@ async def run() -> int:
                         maximum_failures=maximum_failures)
                     _report_transport_failure(exc)
                 last_probe_at = monotonic_now
-            last_database_bucket = None
+            database_incident_bucket = None
+            database_incident_detail = None
+            database_incident_reported = False
         except AlertTransportFailure as exc:
             if conn is not None:
                 try:
@@ -281,14 +367,8 @@ async def run() -> int:
         except Exception as exc:  # noqa: BLE001
             # Exceptions from database-backed outbox state remain database
             # incidents. Transport failures are typed and handled above.
-            bucket = int(time.time() // 60)
-            if bucket != last_database_bucket:
-                try:
-                    adapter.deliver_database_failure(
-                        f"{type(exc).__name__}: {exc}", bucket)
-                    last_database_bucket = bucket
-                except AlertTransportFailure as alert_exc:
-                    _report_transport_failure(alert_exc)
+            report_database_failure(
+                detail=f"{type(exc).__name__}: {exc}")
             await _sleep_or_stop(stopped, poll)
             continue
         finally:

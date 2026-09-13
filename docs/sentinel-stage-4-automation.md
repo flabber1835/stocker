@@ -828,19 +828,24 @@ max-execution-lateness boundary and the regular execution close.
 Alert transport has its own durable health contract.  Each dispatcher uses one
 stable configured identity and persists heartbeat, last transport attempt,
 last success, consecutive failures, terminal/dead-letter state, and the last
-error.  A periodic idempotent webhook probe prevents an idle outbox from being
-mistaken for proven reachability.  Network errors, 408/425/429, and 5xx are
-retryable; other 4xx responses are terminal configuration/destination failures
-and dead-letter immediately.  The dispatcher must inspect every
+error.  The migration webhook retains its periodic idempotent transport probe.
+Web Push deliberately has no periodic probe because every received push must
+be visible and healthy notifications are prohibited; its row distinguishes a
+fresh dispatcher heartbeat from the last real delivery result. Network errors,
+408/425/429, and 5xx are retryable; other 4xx responses are terminal
+configuration/destination failures and dead-letter immediately. The dispatcher
+must inspect every
 `DispatchResult`: a retry schedules durable degraded health and a dead letter
 is immediately failed health.
 
 Both dispatcher containers have a database-backed health check.  It fails on
 stale heartbeat, bounded consecutive transport failures, terminal transport
 failure, or any dead letter.  This Docker-health path is independent of the
-webhook that failed, so the same broken endpoint cannot hide its own loss of
-delivery.  The panel projects the durable dispatcher state as a separate row;
-stderr remains diagnostic evidence, not the only alarm.
+transport that failed, so the same broken destination cannot hide its own loss
+of delivery.  The panel projects the durable dispatcher state as a separate
+row; stderr remains diagnostic evidence, not the only alarm. Web Push is the
+preferred operator channel; the legacy webhook remains a bounded migration
+adapter only.
 
 The paper-trial financial headline is governed separately by
 `docs/sentinel-trial-verification.md`. Operationally safe cycle outcomes do not

@@ -215,7 +215,7 @@ class TestTheRowsThatMatter:
         assert row is not None
         assert row.value == "UNKNOWN" and row.status is model.UNKNOWN
 
-    def test_disabled_and_killed_are_healthy_policy_but_not_ready(self):
+    def test_disabled_is_maintenance_but_enabled_kill_is_red(self):
         disabled = model.automation_row(
             installed=True, enabled=False, killed=True, generation=3)
         killed = model.automation_row(
@@ -225,7 +225,7 @@ class TestTheRowsThatMatter:
         assert disabled.status is model.WARN
         assert "supervisor-healthy" in disabled.detail
         assert killed.value == "ENABLED · KILLED"
-        assert killed.status is model.WARN
+        assert killed.status is model.FAIL
 
     @pytest.mark.parametrize("state", ("MISSED_STATE_ONLY", "SUPERSEDED"))
     def test_non_success_terminal_cycle_is_immediately_red(self, state):
@@ -389,7 +389,7 @@ class TestTheRowsThatMatter:
             assert "CURRENT CYCLE MAX EXECUTION LATENESS EXCEEDED" in rows[0].value
         assert conn.closed
 
-    def test_alert_dispatcher_requires_fresh_healthy_delivery(self):
+    def test_alert_dispatcher_requires_fresh_loop_without_test_pushes(self):
         healthy = model.alert_dispatcher_row(
             installed=True,
             dispatchers=[{
@@ -409,7 +409,7 @@ class TestTheRowsThatMatter:
             }])
         missing = model.alert_dispatcher_row(
             installed=True, dispatchers=[])
-        false_healthy = model.alert_dispatcher_row(
+        quiet_idle = model.alert_dispatcher_row(
             installed=True,
             dispatchers=[{
                 "dispatcher_id": "primary", "state": "HEALTHY",
@@ -421,7 +421,7 @@ class TestTheRowsThatMatter:
         assert healthy.status is model.OK
         assert stale.status is model.FAIL
         assert missing.status is model.FAIL
-        assert false_healthy.status is model.FAIL
+        assert quiet_idle.status is model.OK
 
     def test_lifecycle_active_never_manufactures_a_runtime_verdict(self):
         row = model.execution_authority_row(
@@ -592,8 +592,10 @@ class TestItCannotHang:
         """
         r = model.feed_row(frontier=None, sessions_behind=None, ready=None,
                            checks_passed=0, checks_total=0, as_of=NOW,
-                           error="frontier timed out", ingest_running=True)
-        assert r.status is model.PENDING and r.value == "BUILDING"
+                           error="frontier timed out", ingest_running=True,
+                           ingest_updated_at=NOW)
+        assert r.status is model.WARN and r.value == "BUILDING"
+        assert r.effective_status(NOW) is model.WARN
         # With NO ingest running, the same timeout IS a real unknown.
         idle = model.feed_row(frontier=None, sessions_behind=None, ready=None,
                               checks_passed=0, checks_total=0, as_of=NOW,
@@ -900,7 +902,8 @@ class TestAutomationRowsAreDurableFacts:
 
     def _install(self, monkeypatch, *, found=None, control=None,
                  lease=None, cycle=None, alerts=None, dispatchers=None,
-                 lifecycle=None, instance=None, service_verdict=None):
+                 lifecycle=None, instance=None, service_verdict=None,
+                 cycle_events=None):
         from sentinel.feed import store as feed_store
         from sentinel.panel import sources
 
@@ -922,6 +925,9 @@ class TestAutomationRowsAreDurableFacts:
             lambda _conn, _generation: lease)
         monkeypatch.setattr(
             sources, "_latest_automation_cycle", lambda _conn: cycle)
+        monkeypatch.setattr(
+            sources, "_automation_cycle_events",
+            lambda _conn, _cycle_id: list(cycle_events or []))
         monkeypatch.setattr(
             sources, "_automation_alert_counts", lambda _conn: alerts)
         monkeypatch.setattr(
@@ -1111,6 +1117,7 @@ class TestAutomationRowsAreDurableFacts:
         query_functions = (
             sources._automation_schema, sources._automation_control,
             sources._automation_lease, sources._latest_automation_cycle,
+            sources._automation_cycle_events,
             sources._automation_alert_counts,
             sources._latest_automation_instance,
             sources._service_authority_verdict,
@@ -1127,18 +1134,28 @@ class TestItCannotAct:
 
     def test_there_are_NO_write_routes(self):
         from sentinel.panel.app import app
-        for route in app.routes:
+        from sentinel.panel.push_enrollment import router as push_router
+        writes = set()
+        for route in [*app.routes, *push_router.routes]:
             for m in (getattr(route, "methods", None) or set()):
-                assert m in {"GET", "HEAD", "OPTIONS"}, (
-                    f"{route.path} accepts {m}. Sentinel's write paths "
-                    f"liquidate accounts; this process must not have verbs.")
+                if m not in {"GET", "HEAD", "OPTIONS"}:
+                    writes.add((route.path, m))
+        assert writes == {
+            ("/push/subscriptions", "POST"),
+            ("/push/subscriptions/refresh", "POST"),
+            ("/push/subscriptions/remove", "POST"),
+        }, "only the non-financial Web Push enrollment boundary may write"
 
     def test_the_page_has_no_form_or_button(self):
         html = render(build_panel(state_dir="/nonexistent", database_url="",
                                   now=NOW))
         low = html.lower()
-        for tag in ("<form", "<button", "<input", 'type="submit"'):
+        for tag in ("<form", "<input", 'type="submit"'):
             assert tag not in low, f"{tag} on a read-only panel"
+        assert low.count("<button") == 2
+        assert 'id="push-enable"' in low and 'id="push-remove"' in low
+        for authority in ("buy", "sell", "order", "quantity", "liquidate"):
+            assert f">{authority}<" not in low
 
     def test_performance_is_never_shown_without_an_explicit_verdict(self):
         panel = _panel(
@@ -1159,7 +1176,7 @@ class TestItCannotAct:
         html = render(panel)
         for event in ("pageshow", "visibilitychange", "online", "offline"):
             assert event in html
-        assert "TRIAL NOT VERIFIED — NOT CURRENT" in html
+        assert "OPERATIONAL RED — STATUS NOT CURRENT" in html
         assert "event.persisted" in html
         assert "age > budget" in html and "age < -5000" in html
         script = html.split("<script>", 1)[1].split("</script>", 1)[0]
@@ -1300,11 +1317,11 @@ class TestReviewedDualAuthority:
 
         html = render(panel)
 
-        assert "OPERATIONAL RED — REVIEW REQUIRED" in html
+        assert "OPERATIONAL RED — OPERATOR ACTION REQUIRED" in html
         assert "SHADOW VERIFIED THROUGH 2026-08-20" in html
         assert ('data-key="shadow_verification" data-status="ok"' in html)
         assert "PAPER NOT VERIFIED · MISMATCH · BLOCKED" in html
-        assert "Sentinel Strategy" in html
+        assert "CAESAR'S PALACE" in html
 
     def test_ordinary_paper_pending_is_amber_and_never_strategy_performance(self):
         panel = _panel(
@@ -1316,7 +1333,7 @@ class TestReviewedDualAuthority:
 
         html = render(panel)
 
-        assert "OPERATIONAL AMBER — PAPER EVIDENCE PENDING" in html
+        assert "OPERATIONAL AMBER — NO ACTION REQUIRED YET" in html
         assert "PAPER NOT VERIFIED · PENDING" in html
         assert "TRIAL VERIFIED" not in html
 
@@ -1702,10 +1719,15 @@ class TestReviewedDualAuthority:
                 "ownership", "Ownership", "SENTINEL OWNED"))
         monkeypatch.setattr(
             sources, "_feed_rows", lambda *_args, **_kwargs: ([], []))
+        broker = model.Row("broker", "Broker", "CURRENT")
+        book = model.Row("book", "Book", "CURRENT")
         monkeypatch.setattr(
             sources, "_runtime_rows",
-            lambda *_args, **_kwargs: pytest.fail(
-                "dual mode read the legacy finalized-trial runtime projection"))
+            lambda *_args, **_kwargs: ([book, broker], []))
+        account = model.Row("alpaca_account", "Alpaca Account", "ACTIVE")
+        monkeypatch.setattr(
+            sources, "_operator_evidence_rows",
+            lambda *_args, **_kwargs: ([account], []))
         monkeypatch.setattr(
             sources, "_automation_rows", lambda *_args, **_kwargs: ([
                 model.Row("authority", "Authority", "PASS"),
@@ -1718,8 +1740,9 @@ class TestReviewedDualAuthority:
         assert panel.row("shadow_verification") is not None
         assert panel.row("paper_reconciliation") is not None
         assert panel.row("trial_verification") is None
-        assert panel.row("broker") is None
-        assert panel.row("book") is None
+        assert panel.row("broker") is broker
+        assert panel.row("book") is book
+        assert panel.row("alpaca_account") is account
 
 
 # ── 6. it renders ────────────────────────────────────────────────────────────

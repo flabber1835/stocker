@@ -2187,6 +2187,16 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     as Wealth Core/controller code. Missing or changed semantics identity
     refuses state restore, catch-up, planning and execution; a later
     `data_version` is not permission to launder an older path-dependent book.
+65  Operator status and Web Push follow the single recoverability and durable
+    notification contract in `docs/sentinel-operator-monitoring.md`. Green is
+    current and valid, amber has bounded reviewed automatic recovery, and red
+    requires an operator. Green and recovery-to-green never send a push.
+66  A fill notification is derived only from one immutable `sentinel_fills`
+    row joined to its immutable command identity. Crash reconstruction uses the
+    same fill key, so each partial fill becomes one logical alert without making
+    broker polling or the panel an execution input. A broker-native activity
+    identity is account-global: observing its fill key under a different broker
+    order is contradictory evidence and refuses the complete journal unit.
 ```
 
 Every one of these is falsifiable, and each should fail a test when violated.

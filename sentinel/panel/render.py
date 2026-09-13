@@ -1,10 +1,10 @@
 """The panel's HTML. PURE: takes a `Panel`, returns a string.
 
-ONE PAGE, NO TABS, NO SCRIPTS THAT DO ANYTHING. The Stocker dashboard had eight
-tabs and a trade-approval button; this replaces all of it. Read-only means there
-is no control on this page that could ever submit, approve or liquidate — not
-disabled, ABSENT. A button that is merely disabled is one CSS bug away from
-being a button.
+ONE PAGE, NO TABS, NO FINANCIAL ACTIONS. The Stocker dashboard had eight tabs
+and a trade-approval button; this replaces all of it. Read-only means there is
+no control on this page that could ever submit, approve or liquidate — not
+disabled, ABSENT. The only buttons manage this browser's notification delivery
+capability and are isolated behind the narrow subscription router.
 
 MOBILE FIRST, and specifically for a phone held in one hand at 22:47 wondering
 whether the seed is still alive. The layout is a single column at every width;
@@ -12,8 +12,8 @@ there is no breakpoint at which content moves, because the failure mode of a
 responsive dashboard is that the thing you needed was in the column that
 collapsed.
 
-JavaScript has negative authority only: it invalidates an old DOM before a full
-reload. It never computes or promotes a financial verdict.
+JavaScript can invalidate an old DOM and manage a Web Push subscription. It
+never computes or promotes a financial verdict and cannot express an order.
 """
 from __future__ import annotations
 
@@ -76,12 +76,16 @@ body{
   font:15px/1.45 ui-sans-serif,-apple-system,BlinkMacSystemFont,"SF Pro Text",
        "Segoe UI",Roboto,sans-serif;
   -webkit-text-size-adjust:100%;
-  padding:max(16px,env(safe-area-inset-top)) 16px
-          max(24px,env(safe-area-inset-bottom));
+  padding:max(16px,env(safe-area-inset-top))
+          max(16px,env(safe-area-inset-right))
+          max(24px,env(safe-area-inset-bottom))
+          max(16px,env(safe-area-inset-left));
 }
 .wrap{max-width:560px;margin:0 auto}
 header{display:block;margin:4px 2px 14px}
 h1{font-size:17px;font-weight:650;letter-spacing:.02em;margin:0}
+.brand{display:flex;align-items:center;gap:10px}
+.brand img{width:42px;height:42px;border-radius:10px;flex:0 0 auto}
 .state{
   display:inline-block;margin-top:8px;font-size:12px;font-weight:650;letter-spacing:.06em;
   padding:4px 10px;border-radius:999px;text-transform:uppercase;
@@ -92,6 +96,13 @@ h1{font-size:17px;font-weight:650;letter-spacing:.02em;margin:0}
 .state.fail{background:var(--failbg);color:var(--fail)}
 .state.pending{background:var(--pendingbg);color:var(--pending)}
 .state.unknown{background:var(--failbg);color:var(--fail)}
+.heartbeat{
+  display:block;margin-top:7px;color:var(--muted);font-size:12px;
+  font-variant-numeric:tabular-nums;letter-spacing:.03em;
+}
+.heartbeat::before{content:"●";color:var(--ok);margin-right:7px}
+.not-current .heartbeat{color:var(--fail);font-weight:650}
+.not-current .heartbeat::before{color:var(--fail)}
 .err{
   background:var(--failbg);color:var(--fail);border-radius:12px;
   padding:12px 14px;margin-bottom:12px;font-size:13px;
@@ -132,7 +143,111 @@ table{width:100%;border-collapse:collapse;font-size:12px;font-variant-numeric:ta
 th,td{padding:7px 6px;text-align:left;border-top:1px solid var(--line);vertical-align:top}
 th{color:var(--muted);font-weight:600;letter-spacing:.04em}
 .not-current .row.ok{border-color:var(--fail)}
+.push-card{
+  background:var(--card);border:1px solid var(--line);border-radius:14px;
+  padding:13px 15px;margin:10px 0;box-shadow:var(--shadow);
+}
+.push-actions{display:flex;flex-wrap:wrap;gap:8px;margin-top:8px}
+button{
+  appearance:none;border:1px solid var(--line);border-radius:10px;
+  background:var(--ink);color:var(--card);font:inherit;font-weight:650;
+  min-height:44px;padding:9px 13px;cursor:pointer;
+}
+button.secondary{background:transparent;color:var(--ink)}
+button[hidden]{display:none}
+#push-status{font-size:13px;color:var(--muted);overflow-wrap:anywhere}
+@media (max-width:360px){
+  body{font-size:14px}.row{padding:12px}.value{font-size:16px}
+}
+@media (prefers-reduced-motion:reduce){*{scroll-behavior:auto!important}}
 """
+
+
+PUSH_SCRIPT = r"""
+(function(){
+  var card = document.getElementById("push-card");
+  var enable = document.getElementById("push-enable");
+  var remove = document.getElementById("push-remove");
+  var status = document.getElementById("push-status");
+  function message(value) { status.textContent = value; }
+  function decode(value) {
+    var padding = "=".repeat((4 - value.length % 4) % 4);
+    var binary = atob((value + padding).replace(/-/g, "+").replace(/_/g, "/"));
+    return Uint8Array.from(binary, function(ch) { return ch.charCodeAt(0); });
+  }
+  async function registration() {
+    return navigator.serviceWorker.register("/service-worker.js", {scope: "/", updateViaCache: "none"});
+  }
+  async function refreshButtons() {
+    var reg = await registration();
+    var sub = await reg.pushManager.getSubscription();
+    enable.textContent = sub ? "Send test notification" : "Enable notifications";
+    remove.hidden = !sub;
+    message(sub ? "Notifications enabled on this device." : "Notifications are off on this device.");
+  }
+  if (!(window.isSecureContext && "serviceWorker" in navigator &&
+        "PushManager" in window && "Notification" in window)) {
+    card.hidden = false;
+    enable.hidden = true;
+    message("Web Push is unavailable here. On iPhone, install this HTTPS page to the Home Screen.");
+    return;
+  }
+  card.hidden = false;
+  refreshButtons().catch(function() { message("Notification status could not be read."); });
+  enable.addEventListener("click", async function() {
+    enable.disabled = true;
+    try {
+      var permission = await Notification.requestPermission();
+      if (permission !== "granted") { throw new Error("Notification permission was not granted."); }
+      var reg = await registration();
+      var sub = await reg.pushManager.getSubscription();
+      if (!sub) {
+        var config = await fetch("/push/config", {cache: "no-store"}).then(function(response) {
+          if (!response.ok) { throw new Error("Push configuration is unavailable."); }
+          return response.json();
+        });
+        sub = await reg.pushManager.subscribe({
+          userVisibleOnly: true,
+          applicationServerKey: decode(config.applicationServerKey)
+        });
+      }
+      var body = sub.toJSON();
+      body.test_id = crypto.randomUUID();
+      var response = await fetch("/push/subscriptions", {
+        method: "POST", credentials: "same-origin", cache: "no-store",
+        headers: {"Content-Type": "application/json"}, body: JSON.stringify(body)
+      });
+      if (!response.ok) { throw new Error("Subscription could not be saved."); }
+      message("Subscribed. A single test notification is queued.");
+      remove.hidden = false;
+      enable.textContent = "Send test notification";
+    } catch (error) {
+      message(error && error.message ? error.message : "Notification enrollment failed.");
+    } finally { enable.disabled = false; }
+  });
+  remove.addEventListener("click", async function() {
+    remove.disabled = true;
+    try {
+      var reg = await registration();
+      var sub = await reg.pushManager.getSubscription();
+      if (sub) {
+        var response = await fetch("/push/subscriptions/remove", {
+          method: "POST", credentials: "same-origin", cache: "no-store",
+          headers: {"Content-Type": "application/json"},
+          body: JSON.stringify({endpoint: sub.endpoint})
+        });
+        if (!response.ok) { throw new Error("Subscription removal could not be saved."); }
+        await sub.unsubscribe();
+      }
+      message("Notifications removed from this device.");
+      remove.hidden = true;
+      enable.textContent = "Enable notifications";
+    } catch (error) {
+      message(error && error.message ? error.message : "Notification removal failed.");
+    } finally { remove.disabled = false; }
+  });
+})();
+""".strip()
 
 
 def _row_html(r: Row, now: datetime) -> str:
@@ -278,6 +393,15 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
     now = panel.now
     overall = panel.overall
     operational = panel.operational
+    if operational == OK:
+        headline_status = OK
+        operational_headline = "OPERATIONAL GREEN — HEALTHY AND CURRENT"
+    elif operational in {WARN, PENDING}:
+        headline_status = WARN
+        operational_headline = "OPERATIONAL AMBER — NO ACTION REQUIRED YET"
+    else:
+        headline_status = FAIL
+        operational_headline = "OPERATIONAL RED — OPERATOR ACTION REQUIRED"
     errs = "".join(
         f'<div class="err">source unreadable — {_esc(e)}</div>'
         for e in panel.source_errors)
@@ -301,12 +425,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
         else:
             trial_status = FAIL
             trial_headline = shadow.value
-        page_name = "Sentinel Strategy"
-        page_heading = "SENTINEL STRATEGY"
+        page_name = "Caesar's Palace"
+        page_heading = "CAESAR'S PALACE"
         footer_authority = (
             "certified shadow is performance authority · Alpaca PAPER is "
             "informational only")
-        stale_headline = "OPERATIONAL STATUS NOT CURRENT"
     else:
         trial = panel.row("trial_verification")
         trial_status = trial.effective_status(now) if trial is not None else FAIL
@@ -331,11 +454,11 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
                  if row.key in TRIAL_ROW_KEYS and row.status == OK else row)
                 for row in panel.rows
             ]
-        page_name = "Sentinel Trial"
-        page_heading = "SENTINEL TRIAL"
+        page_name = "Caesar's Palace"
+        page_heading = "CAESAR'S PALACE"
         footer_authority = (
             "paper account · performance is explicitly verified or unverified")
-        stale_headline = "TRIAL NOT VERIFIED — NOT CURRENT"
+    stale_headline = "OPERATIONAL RED — STATUS NOT CURRENT"
     rows = "".join(_row_html(r, now) for r in rendered_rows)
     stamp = now.astimezone(timezone.utc).strftime("%Y-%m-%d %H:%M:%SZ")
     generated = now.astimezone(timezone.utc).isoformat()
@@ -347,20 +470,35 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
 <meta name="apple-mobile-web-app-capable" content="yes">
 <meta name="apple-mobile-web-app-status-bar-style" content="default">
 <meta name="apple-mobile-web-app-title" content="{_esc(page_name)}">
+<meta name="theme-color" content="#b3261e">
 <meta http-equiv="Cache-Control" content="no-store, max-age=0">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="apple-touch-icon" sizes="180x180" href="/static/caesars-palace-180.png">
 <title>{_esc(page_name)}</title>
 <style>{CSS}</style>
 </head><body data-generated-at="{_esc(generated)}"
              data-max-age-seconds="{PRESENTATION_MAX_AGE_SECONDS}">
 <div class="wrap">
 <header>
-  <h1>{_esc(page_heading)}</h1>
-  <span id="trial-state" class="state {trial_status}">{_esc(trial_headline)}</span>
+  <div class="brand"><img src="/static/caesars-palace-192.png" alt="">
+    <h1>{_esc(page_heading)}</h1></div>
+  <span id="operational-state" class="state {headline_status}">{_esc(operational_headline)}</span>
+  <span id="dashboard-heartbeat" class="heartbeat" role="status"
+        aria-live="polite">DASHBOARD HEARTBEAT · UPDATED 0s AGO</span>
 </header>
-{errs}{rows}{details}
+{errs}
+<section id="push-card" class="push-card" hidden aria-label="Notifications">
+  <div class="label">Notifications</div>
+  <div id="push-status" aria-live="polite">Checking this device…</div>
+  <div class="push-actions">
+    <button id="push-enable" type="button">Enable notifications</button>
+    <button id="push-remove" class="secondary" type="button" hidden>Remove</button>
+  </div>
+</section>
+{rows}{details}
 <footer>
   as of {_esc(stamp)} · refreshes every {refresh_seconds}s<br>
-  read-only · {_esc(footer_authority)}<br>
+  financially read-only · {_esc(footer_authority)}<br>
   operational condition: {_esc(operational)} · all-row condition: {_esc(overall)}
 </footer>
 </div>
@@ -369,15 +507,20 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
 // only the server can earn it again by returning a new complete document.
 (function(){{
   var invalidated = false;
-  var badge = document.getElementById("trial-state");
+  var badge = document.getElementById("operational-state");
+  var heartbeat = document.getElementById("dashboard-heartbeat");
   var generated = Date.parse(document.body.dataset.generatedAt);
   var budget = Number(document.body.dataset.maxAgeSeconds) * 1000;
+  var hasBeenVisible = document.visibilityState === "visible";
+  var wentToBackground = false;
+  var wentOffline = !navigator.onLine;
   function invalidate(andReload){{
     if (!invalidated){{
       invalidated = true;
       document.documentElement.classList.add("not-current");
       badge.className = "state fail";
       badge.textContent = "{_esc(stale_headline)}";
+      heartbeat.textContent = "DASHBOARD HEARTBEAT LOST · STATUS STALE";
     }}
     if (andReload && navigator.onLine){{ location.reload(); }}
   }}
@@ -385,21 +528,39 @@ def render(panel: Panel, *, refresh_seconds: int = REFRESH_SECONDS) -> str:
     var age = Date.now() - generated;
     if (!Number.isFinite(age) || age > budget || age < -5000){{
       invalidate(true);
+    }} else if (!invalidated){{
+      heartbeat.textContent = "DASHBOARD HEARTBEAT · UPDATED " +
+        Math.max(0, Math.floor(age / 1000)) + "s AGO";
     }}
   }}
   window.addEventListener("pageshow", function(event){{
     if (event.persisted){{ invalidate(true); }} else {{ checkAge(); }}
   }});
   document.addEventListener("visibilitychange", function(){{
-    if (document.visibilityState === "visible"){{ invalidate(true); }}
+    if (document.visibilityState === "hidden" && hasBeenVisible){{
+      wentToBackground = true;
+    }} else if (document.visibilityState === "visible"){{
+      if (wentToBackground){{ invalidate(true); }}
+      hasBeenVisible = true;
+    }}
   }});
-  window.addEventListener("online", function(){{ invalidate(true); }});
-  window.addEventListener("offline", function(){{ invalidate(false); }});
+  window.addEventListener("online", function(){{
+    if (wentOffline){{ invalidate(true); }}
+  }});
+  window.addEventListener("offline", function(){{
+    wentOffline = true;
+    invalidate(false);
+  }});
+  if (wentOffline){{ invalidate(false); }}
   setInterval(checkAge, 1000);
   setTimeout(function(){{ invalidate(true); }}, {refresh_seconds * 1000});
 }})();
 </script>
+<script>{PUSH_SCRIPT}</script>
 </body></html>"""
 
 
-__all__ = ["CSS", "PRESENTATION_MAX_AGE_SECONDS", "REFRESH_SECONDS", "render"]
+__all__ = [
+    "CSS", "PRESENTATION_MAX_AGE_SECONDS", "PUSH_SCRIPT", "REFRESH_SECONDS",
+    "render",
+]

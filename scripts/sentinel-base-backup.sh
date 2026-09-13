@@ -193,5 +193,21 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
   test -f "/sentinel-backup/base/$NAME/sentinel-pitr-base-identity" || {
   echo "REFUSED: promoted backup lost its PITR base identity" >&2; exit 4; }
 
+# Publish a compact, append-only operator proof only after promotion and WAL
+# coverage have both succeeded. Values interpolated here are regex-validated
+# machine identities, never operator text.
+${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
+  -v ON_ERROR_STOP=1 -Atc "
+    WITH evidence AS (
+      SELECT jsonb_build_object(
+        'base_backup','$NAME','marker','$MARKER','marker_lsn','$MARKER_LSN',
+        'marker_wal','$MARKER_WAL','system_identifier','$SYSTEM_ID',
+        'xid8_before','$PITR_XID8_BEFORE','xid8_after','$PITR_XID8_AFTER') AS proof
+    )
+    INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof)
+    SELECT 'BASE_BACKUP',
+           encode(sha256(convert_to(proof::text,'UTF8')),'hex'),proof
+      FROM evidence;" >/dev/null
+
 echo "SENTINEL_BASE_BACKUP_DB_MUTATION=RECOVERY_MARKER_SCHEMA_AND_ROW"
 echo "verified_base_backup:$BACKUP_ROOT/base/$NAME"

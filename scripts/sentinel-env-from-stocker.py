@@ -132,6 +132,12 @@ DELIBERATELY_UNSET = {
         "selected by the certified deployment/promotion workflow; inheriting "
         "a stale mutable or digest-qualified image reference from a retired "
         "deployment could run an image the current promotion did not select",
+    "SENTINEL_PUBLIC_ORIGIN":
+        "selected as the stable Tailscale HTTPS origin for this deployment, "
+        "never inherited from the retired application",
+    "SENTINEL_WEB_PUSH_VAPID_PUBLIC_KEY":
+        "generated with the deployment-owned Web Push VAPID identity, never "
+        "inherited independently of its private key and subject",
 }
 
 #: Dropped, and NAMED in the report rather than dropped silently. Anyone who

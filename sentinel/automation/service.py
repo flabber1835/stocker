@@ -110,6 +110,13 @@ _CHILD_EXCEPTION_TYPES = {
         TransientInfrastructureFailure,
     )
 }
+_REVIEWED_FAILURE_DOMAINS = frozenset({"BACKUP"})
+
+
+def _failure_domain(exc: BaseException) -> str | None:
+    """Return only a reviewed domain carried by a typed callback failure."""
+    domain = str(getattr(exc, "failure_domain", "") or "").strip().upper()
+    return domain if domain in _REVIEWED_FAILURE_DOMAINS else None
 
 
 def _reviewed_child_exception_type(
@@ -186,6 +193,7 @@ def _callback_child(  # pragma: no cover - measured by process fault tests
             "actual_qualname": type(exc).__qualname__,
             "detail": str(exc),
             "reviewed": reviewed_class is not None,
+            "failure_domain": _failure_domain(exc),
         }
     try:
         channel.send_bytes(json.dumps(
@@ -230,7 +238,12 @@ def _decode_child_callback(payload: bytes):
         raise KeyboardInterrupt(detail)
     trusted = _CHILD_EXCEPTION_TYPES.get((module, qualname))
     if bool(envelope.get("reviewed")) and trusted is not None:
-        raise trusted(detail)
+        decoded = trusted(detail)
+        failure_domain = str(
+            envelope.get("failure_domain") or "").strip().upper()
+        if failure_domain in _REVIEWED_FAILURE_DOMAINS:
+            decoded.failure_domain = failure_domain
+        raise decoded
     actual_module = str(envelope.get("actual_module", module))
     actual_qualname = str(envelope.get("actual_qualname", qualname))
     raise SoftwareDefect(
@@ -437,6 +450,9 @@ class AutomationService:
                 f"{type(exc).__module__}.{type(exc).__qualname__}"),
             "exception_fingerprint": self._exception_fingerprint(exc),
         }
+        failure_domain = _failure_domain(exc)
+        if failure_domain:
+            diagnostic["failure_domain"] = failure_domain
         return terminal, diagnostic
 
     def _handle_callback_failure(

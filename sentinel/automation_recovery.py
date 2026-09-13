@@ -37,6 +37,7 @@ from datetime import datetime, timezone
 from sentinel import (
     backup_guard,
     backup_runtime_authority,
+    operational_evidence,
     paper,
     shadow_segments,
 )
@@ -51,8 +52,14 @@ from sentinel.execution.guarded import BrokerAuthorityRefused
 
 
 class RetryableBackupUnavailable(
-        TransientInfrastructureFailure, backup_guard.BackupUnavailable):
+        base.BackupTransientFailure, backup_guard.BackupUnavailable):
     """Temporary durability loss retaining the public backup-fence identity."""
+
+
+class BackupIntegrityRefused(NonRetryableCallbackRefused):
+    """Terminal backup evidence failure with an explicit durable domain."""
+
+    failure_domain = base.BACKUP_FAILURE_DOMAIN
 
 
 # Exact messages are produced only by the first-plan pre-adoption gates.
@@ -107,16 +114,22 @@ class ProductionAutomation(base.ProductionAutomation):
         conn = self.connect()
         try:
             try:
-                backup_runtime_authority.require(conn, operation=operation)
-                return backup_guard.require_writes_permitted(
+                proof = backup_runtime_authority.require(
                     conn, operation=operation)
+                status = backup_guard.require_writes_permitted(
+                    conn, operation=operation)
+                if proof and proof.get("enabled") is True:
+                    operational_evidence.record_backup_proof(
+                        conn, kind="RUNTIME_CHAIN", proof=proof)
+                    conn.commit()
+                return status
             except (backup_guard.BackupUnavailable,
                     backup_runtime_authority.BackupRuntimeUnavailable) as exc:
                 raise RetryableBackupUnavailable(
                     f"backup durability is temporarily unavailable: {exc}") from exc
             except (backup_guard.BackupConfigurationRefused,
                     backup_runtime_authority.BackupRuntimeRefused) as exc:
-                raise NonRetryableCallbackRefused(
+                raise BackupIntegrityRefused(
                     "backup durability configuration/integrity refused: "
                     f"{exc}") from exc
         finally:

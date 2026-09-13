@@ -233,11 +233,12 @@ class TestItIsWrittenWhereTheCheckAlreadyRUNS:
                              ready=True, checks_passed=9, checks_total=9,
                              as_of=now,
                              checked_at=now - _dt.timedelta(hours=30))
-        assert "STALE" in old.detail
-        assert old.status is model.WARN, (
-            "reported, not downgraded to a failure — the verdict WAS a pass, "
-            "and inventing a different result is not the same as saying it may "
-            "no longer apply")
+        assert "checked" in old.detail
+        assert old.status is model.OK, (
+            "the stored evidence remains the verdict that actually ran")
+        assert old.effective_status(now) is model.FAIL, (
+            "a required-current stale PASS must fail the shared operator "
+            "policy until bounded automatic recovery is durably proven")
 
     def test_a_stale_FAILURE_stays_a_failure(self, conn):
         """Age cannot launder a red verdict into a warning. The corpus failed a
