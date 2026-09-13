@@ -1,0 +1,46 @@
+name: Economic audit 373 source snapshot
+
+on:
+  push:
+    branches: [audit/economic-373-snapshot]
+    paths: [.github/workflows/economic-audit-snapshot.yml]
+
+permissions:
+  contents: read
+
+concurrency:
+  group: economic-audit-373-snapshot
+  cancel-in-progress: false
+
+jobs:
+  snapshot:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 09dde38d270ad069a006ee3cb458037d42ade316
+          fetch-depth: 1
+          persist-credentials: false
+      - name: Export exact audited source and complete tracked-file inventory
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = 09dde38d270ad069a006ee3cb458037d42ade316
+          test "$(git rev-parse HEAD^{tree})" = d80c655c42e1abfef83b2d031766bf295a2c9181
+          mkdir -p /tmp/economic-audit-373
+          git rev-parse HEAD HEAD^{tree} > /tmp/economic-audit-373/revision.txt
+          git ls-tree -r -l HEAD > /tmp/economic-audit-373/source-tree.tsv
+          git archive --format=tar.gz --output=/tmp/economic-audit-373/source.tar.gz HEAD \
+            shared sentinel tests tools scripts config docs .github research \
+            Makefile pytest.ini AGENTS.md CLAUDE.md Dockerfile.sentinel \
+            Dockerfile.sentinel-test .dockerignore .gitattributes .gitignore listing.csv
+          cd /tmp/economic-audit-373
+          sha256sum source.tar.gz source-tree.tsv revision.txt > SHA256SUMS
+          ls -lh
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: economic-audit-373-source-09dde38d270ad069a006ee3cb458037d42ade316
+          path: /tmp/economic-audit-373/
+          if-no-files-found: error
+          retention-days: 14
