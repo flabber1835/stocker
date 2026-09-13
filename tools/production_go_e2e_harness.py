@@ -193,7 +193,7 @@ def _ticker_rows() -> list[list[object]]:
             "SEP", 100000 + i, ticker, f"{ticker} fixture security", "NYSE",
             "N", category, None, 3571, "Manufacturing", "Technology",
             "Business Equipment", "Computers", "Technology", "Software",
-            "5 - Large", "5 - Large", None, "USD", "U.S.A.", source_day,
+            "5 - Large", "5 - Large", ticker, "USD", "U.S.A.", source_day,
             days[0].isoformat(), days[0].isoformat(), days[-1].isoformat(),
             "2000-03-31", None, None, None,
         ])
@@ -500,6 +500,20 @@ def _bootstrap_financial_fixture() -> None:
         "run", "--rm", "-T", "--no-deps", "sentinel", "feed-seed",
         "--from", days[0].isoformat(), "--to", days[-2].isoformat(),
     ], env=env, timeout=1800)
+    # PostgreSQL deliberately does not promise useful plans for a freshly bulk-
+    # loaded relation until statistics exist. Production has autovacuum history;
+    # the short-lived fixture must establish the equivalent planner authority
+    # before the read-only GO health probe evaluates the predecessor index.
+    _run_host([
+        "docker", "run", "--rm", "--network", f"container:{postgres_container}",
+        "--entrypoint", "python", "-e", f"SENTINEL_DATABASE_URL={schema_url}",
+        runtime_ref, "-c",
+        "import os; from sentinel.feed import store; "
+        "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
+        "cur=c.cursor(); cur.execute('ANALYZE sentinel_bars'); "
+        "c.commit(); cur.close(); c.close()",
+    ], env=env, timeout=300)
+    print("E2E fixture: planner statistics established", flush=True)
     # The bulk load can exceed the runtime's bounded WAL verification budget.
     # Start normal GO from a new verified base covering that retained corpus.
     _run_host(["bash", "scripts/sentinel-base-backup.sh"], env=env, timeout=900)

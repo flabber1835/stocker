@@ -58,6 +58,20 @@ def test_failed_check_diagnostics_are_bounded_and_name_only():
     assert not any("password" in item or "http" in item for item in result)
 
 
+def test_failed_check_reason_diagnostics_require_safe_names_and_opaque_codes():
+    result = obs.safe_failed_check_reasons([
+        {"name": "SEP mutation watermark", "reason": "BEHIND_FRONTIER"},
+        {"name": "password=must-not-appear", "reason": "CHECK_FAILED"},
+        {"name": "issuer keys", "reason": "unsafe-detail"},
+        {"name": "issuer keys", "reason": "MISSING_AUTHORITY"},
+    ])
+
+    assert result == (
+        "SEP mutation watermark [BEHIND_FRONTIER]",
+        "issuer keys [MISSING_AUTHORITY]",
+    )
+
+
 def test_only_networkless_test_runs_and_builds_stream_raw_output():
     assert obs._raw_stream_is_safe([
         "docker", "build", "-t", "candidate", "."])

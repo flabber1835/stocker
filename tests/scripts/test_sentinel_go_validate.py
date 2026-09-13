@@ -460,6 +460,7 @@ def test_readiness_probe_code_enforces_read_only_and_never_saves_snapshot():
     assert "BEGIN TRANSACTION READ ONLY" in go._READINESS_CODE
     assert "transaction_read_only" in go._READINESS_CODE
     assert "failed_checks" in go._READINESS_CODE
+    assert "failed_check_reasons" in go._READINESS_CODE
     assert "save_snapshot" not in go._READINESS_CODE
     assert "ensure_schema" not in go._READINESS_CODE
 
@@ -483,6 +484,7 @@ def test_readiness_runs_exact_runtime_digest_and_requires_sharadar_authority():
                         "checks_passed": 17,
                         "failures": 0,
                         "failed_checks": [],
+                        "failed_check_reasons": [],
                         "transaction_read_only": True,
                     }) + "\n"), stderr="")
 

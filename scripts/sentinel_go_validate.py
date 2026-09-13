@@ -1316,6 +1316,23 @@ def probe_active_wealth_parity(
 _READINESS_CODE = r'''
 import json, os
 from sentinel.feed import readiness, store
+
+def failure_reason(item):
+    detail = str(item.detail or '').casefold()
+    if 'ahead of readiness observation date' in detail:
+        return 'AHEAD_OF_OBSERVATION'
+    if 'behind' in detail and 'frontier' in detail:
+        return 'BEHIND_FRONTIER'
+    if 'current publication is' in detail:
+        return 'PUBLICATION_VERSION_MISMATCH'
+    if detail.startswith('no ') or ' is empty' in detail:
+        return 'MISSING_AUTHORITY'
+    if 'is due every' in detail:
+        return 'STALE_AUTHORITY'
+    if 'cannot be validated' in detail or 'could not be evaluated' in detail:
+        return 'INVALID_AUTHORITY'
+    return 'CHECK_FAILED'
+
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
     with c.cursor() as cur:
@@ -1329,6 +1346,10 @@ try:
         'checks_passed': sum(1 for item in result.checks if item.ok),
         'failures': len(result.failures),
         'failed_checks': [str(item.name) for item in result.checks if not item.ok],
+        'failed_check_reasons': [
+            {'name': str(item.name), 'reason': failure_reason(item)}
+            for item in result.checks if not item.ok
+        ],
         'transaction_read_only': True,
     }, sort_keys=True))
 finally:

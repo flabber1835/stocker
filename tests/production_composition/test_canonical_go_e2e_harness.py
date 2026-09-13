@@ -71,6 +71,15 @@ def test_fixture_vendor_clock_is_bound_to_latest_closed_session(monkeypatch):
     assert tickers[0][harness.TICKER_COLUMNS.index("lastupdated")] == closed.isoformat()
 
 
+def test_fixture_supplies_an_issuer_key_for_every_security():
+    rows = harness._payload("TICKERS", {})["datatable"]["data"]
+    related = harness.TICKER_COLUMNS.index("relatedtickers")
+
+    assert len(rows) == len(harness.TICKERS)
+    assert all(row[related] == row[harness.TICKER_COLUMNS.index("ticker")]
+               for row in rows)
+
+
 def test_fixture_supplies_seed_reference_tickers():
     page = harness._payload("SFP", {"ticker": ["SPY,BIL"]})
     assert {row[0] for row in page["datatable"]["data"]} == {"SPY", "BIL"}
@@ -167,9 +176,10 @@ def test_bootstrapped_fixture_leaves_a_bounded_real_backup_authority(
     settings = {"NDL_BASE_URL": "http://fixture.invalid"}
     monkeypatch.setattr(harness, "_SOURCE_SETTINGS", settings)
     seeded = False
+    analyzed = False
 
     def run_host(argv, *, env, timeout):
-        nonlocal seeded
+        nonlocal seeded, analyzed
         output = ""
         if "config" in argv:
             output = json.dumps({"services": {"sentinel": {"environment": settings}}})
@@ -179,6 +189,9 @@ def test_bootstrapped_fixture_leaves_a_bounded_real_backup_authority(
                 world.media.segment(index)
             world.frontier = wal_name(9)
             seeded = True
+        elif any("ANALYZE sentinel_bars" in str(item) for item in argv):
+            assert seeded
+            analyzed = True
         elif "scripts/sentinel-base-backup.sh" in argv and seeded:
             # A new physical generation moves the required recovery horizon;
             # old WAL remains retained and never acquires new checksum authority.
@@ -195,7 +208,7 @@ def test_bootstrapped_fixture_leaves_a_bounded_real_backup_authority(
 
     monkeypatch.setattr(harness, "_run_host", run_host)
     harness._bootstrap_financial_fixture()
-    assert seeded and harness._FIXTURE_READY
+    assert seeded and analyzed and harness._FIXTURE_READY
     proven = authority.require(world, operation="GO after fixture bootstrap")
     assert proven["wal_segments"] == 2
 

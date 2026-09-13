@@ -54,6 +54,7 @@ _UNSAFE_CHECK_RE = re.compile(
     r"(?:\b(?:api[_-]?key|authorization|password|secret|token)\b|://)",
     re.IGNORECASE,
 )
+_SAFE_REASON_RE = re.compile(r"^[A-Z][A-Z_]{0,63}$")
 _MAX_FAILURE_NODES = 12
 _HEARTBEAT_SECONDS = 10.0
 _INSTALLED_MARKER = "_sentinel_go_observability_installed"
@@ -70,6 +71,26 @@ def safe_failed_checks(value: Any) -> Tuple[str, ...]:
                 and _UNSAFE_CHECK_RE.search(name) is None
                 and name not in result):
             result.append(name)
+        if len(result) >= 32:
+            break
+    return tuple(result)
+
+
+def safe_failed_check_reasons(value: Any) -> Tuple[str, ...]:
+    """Retain only sanitized check names paired with opaque reason codes."""
+    if not isinstance(value, (list, tuple)):
+        return ()
+    result = []
+    for item in value:
+        if not isinstance(item, dict) or set(item) != {"name", "reason"}:
+            continue
+        names = safe_failed_checks([item["name"]])
+        reason = str(item["reason"])
+        if not names or _SAFE_REASON_RE.fullmatch(reason) is None:
+            continue
+        rendered = "%s [%s]" % (names[0], reason)
+        if rendered not in result:
+            result.append(rendered)
         if len(result) >= 32:
             break
     return tuple(result)
@@ -471,6 +492,7 @@ def install(*, go: Any, controller: Any) -> None:
         def __init__(self, *args, **kwargs):
             super().__init__(*args, **kwargs)
             self.last_readiness_failed_checks = ()
+            self.last_readiness_failed_check_reasons = ()
 
         def run(self, argv, *, env=None, cwd=go.ROOT):
             command = [str(item) for item in argv]
@@ -491,6 +513,9 @@ def install(*, go: Any, controller: Any) -> None:
                     break
                 self.last_readiness_failed_checks = safe_failed_checks(
                     payload.get("failed_checks") if isinstance(payload, dict) else None)
+                self.last_readiness_failed_check_reasons = safe_failed_check_reasons(
+                    payload.get("failed_check_reasons")
+                    if isinstance(payload, dict) else None)
                 break
             return completed
 
@@ -578,8 +603,11 @@ def install(*, go: Any, controller: Any) -> None:
             "Sharadar readiness %s" % result.status)
         failed = safe_failed_checks(getattr(
             args[0], "last_readiness_failed_checks", ())) if args else ()
+        reasons = (getattr(
+            args[0], "last_readiness_failed_check_reasons", ()) if args else ())
         if result.status != go.PASS and failed:
-            _warn("Sharadar readiness failed checks: " + ", ".join(failed))
+            _warn("Sharadar readiness failed checks: " + ", ".join(
+                reasons or failed))
         return result
 
     def probe_db_health(*args, **kwargs):
