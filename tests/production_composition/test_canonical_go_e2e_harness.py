@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import importlib.util
+import datetime as dt
 import hashlib
 import hmac
 import json
@@ -56,6 +57,18 @@ def test_fixture_pages_satisfy_consumed_sharadar_protocol():
         assert required[table].issubset(names)
         assert page["meta"] == {"next_cursor_id": None}
         assert all(len(row) == len(names) for row in page["datatable"]["data"])
+
+
+def test_fixture_vendor_clock_is_bound_to_latest_closed_session(monkeypatch):
+    closed = dt.date(2026, 9, 11)
+    monkeypatch.setattr(harness, "_latest_closed_session", lambda: closed)
+    monkeypatch.setattr(harness, "_session_days", lambda: (closed,))
+
+    sep = harness._payload("SEP", {"ticker": ["SPY"]})["datatable"]["data"]
+    tickers = harness._payload("TICKERS", {})["datatable"]["data"]
+
+    assert sep[0][harness.SEP_COLUMNS.index("lastupdated")] == closed.isoformat()
+    assert tickers[0][harness.TICKER_COLUMNS.index("lastupdated")] == closed.isoformat()
 
 
 def test_fixture_supplies_seed_reference_tickers():

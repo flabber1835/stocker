@@ -130,7 +130,11 @@ def _in_range(day: dt.date, query: dict[str, list[str]], key: str = "date") -> b
 def _price_rows(query: dict[str, list[str]], *, sfp: bool = False,
                 offset: int = 0, limit: int | None = None) -> list[list[object]]:
     rows: list[list[object]] = []
-    source_day = dt.datetime.now(dt.timezone.utc).date()
+    # The production source-authority membrane refuses observations whose
+    # vendor mutation clock is newer than the replay's causal ceiling.  Bind
+    # deterministic fixture mutations to the latest closed market session,
+    # not the runner's UTC wall-clock date (which can already be tomorrow).
+    source_day = _latest_closed_session()
     ticker_filter = query.get("ticker", [None])[0]
     allowed = (
         {item.strip().upper() for item in ticker_filter.split(",") if item.strip()}
@@ -167,7 +171,7 @@ def _price_rows(query: dict[str, list[str]], *, sfp: bool = False,
 
 
 def _ticker_rows() -> list[list[object]]:
-    source_day = dt.datetime.now(dt.timezone.utc).date().isoformat()
+    source_day = _latest_closed_session().isoformat()
     days = _session_days()
     result = []
     for i, ticker in enumerate(TICKERS, start=1):
