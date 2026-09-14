@@ -6,12 +6,14 @@ authorize execution. The hint is ordinary durable automation diagnostic data.
 from __future__ import annotations
 
 import datetime as dt
+from decimal import Decimal, InvalidOperation
 import json
 from itertools import islice
 import re
 
 from sentinel.automation.model import SourceDataPending
 from sentinel.feed import authority, sharadar, symbol_identity
+from sentinel.source_diagnostic import COLLISION_PREFIX
 
 
 def _bounded(rows, limit):
@@ -28,7 +30,8 @@ def _bounded(rows, limit):
 
 
 def _validate_hint(value):
-    if not isinstance(value, dict) or set(value) != {"session", "identities"}:
+    if not isinstance(value, dict) or set(value) not in (
+            {"session", "identities"}, {"session", "identities", "symbols"}):
         raise ValueError("invalid source probe hint")
     session = dt.date.fromisoformat(value["session"]).isoformat()
     identities = value["identities"]
@@ -36,10 +39,31 @@ def _validate_hint(value):
             or any(not isinstance(v, str) or not re.fullmatch(r"[0-9]{1,20}", v)
                    for v in identities) or len(set(identities)) != len(identities)):
         raise ValueError("invalid source probe identities")
-    return {"session": session, "identities": sorted(identities)}
+    result = {"session": session, "identities": sorted(identities)}
+    if "symbols" in value:
+        symbols = value["symbols"]
+        if (not isinstance(symbols, list) or not 1 <= len(symbols) <= 64
+                or any(not isinstance(v, str) or not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,19}", v)
+                       for v in symbols) or len(set(symbols)) != len(symbols)):
+            raise ValueError("invalid source probe symbols")
+        result["symbols"] = sorted(symbols)
+    return result
 
 
 def coverage_hint(detail: str):
+    if COLLISION_PREFIX in detail:
+        try:
+            evidence = json.loads(detail.split(COLLISION_PREFIX, 1)[1])
+            groups = evidence["identity_collisions"]
+            if (evidence["identity_collision_total"] != len(groups)
+                    or any(g["session"] != evidence["session"] or
+                           len(g["source_tickers"]) != g["source_tickers_total"] for g in groups)):
+                return None  # Never turn a truncated witness into a complete probe.
+            return _validate_hint({"session": evidence["session"],
+                "identities": sorted({str(g["permaticker"]) for g in groups}),
+                "symbols": sorted({s for g in groups for s in g["source_tickers"]})})
+        except (ValueError, TypeError, KeyError):
+            return None
     marker = "Sharadar SEP seed eligible-set coverage refused: "
     if marker not in detail:
         return None
@@ -71,7 +95,7 @@ def require_recovery_probe(hint, *, through: str, fetch=None) -> None:
                              coherence.observe_tickers(second))
     if {str(row.get("permaticker")) for row in rows} != set(request["identities"]):
         raise SourceDataPending("source identity probe is still incomplete")
-    symbols = sorted({str(row.get("ticker") or "") for row in rows})
+    symbols = sorted({str(row.get("ticker") or "") for row in rows} | set(request.get("symbols", ())))
     if any(not re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,19}", v) for v in symbols):
         raise SourceDataPending("source identity probe has invalid labels")
     # Follow only explicit rename rows connected to the small failed key set.
@@ -117,16 +141,32 @@ def require_recovery_probe(hint, *, through: str, fetch=None) -> None:
     symbols = sorted({str(r["ticker"]) for r in (*projection.rows, *projection.alias_rows)
                       if str(r.get("permaticker")) in request["identities"]
                       and resolver.resolve(str(r["ticker"]), request["session"])
-                      == str(r["permaticker"])})
+                      == str(r["permaticker"])} | set(request.get("symbols", ())))
     if not symbols:
         raise SourceDataPending("source identity probe has no unambiguous labels")
-    bars = _bounded(fetch(sharadar.SEP, {"ticker": ",".join(symbols),
+    from sentinel.feed.source_authority import CanonicalSourceFetch
+    def bounded_sample(table, params=None):
+        # Enforce the bound before either stability traversal consumes a source
+        # that might ignore the requested ticker filter.
+        return _bounded(fetch(table, params), 64)
+    sample = authority.StableSharadarFetch(CanonicalSourceFetch(bounded_sample))
+    bars = _bounded(sample(sharadar.SEP, {"ticker": ",".join(symbols),
                                    "date.gte": request["session"],
                                    "date.lte": request["session"]}), 64)
-    found = [resolver.resolve(str(row.get("ticker") or ""), request["session"])
-             for row in bars if str(row.get("date")) == request["session"]
-             and float(row.get("closeunadj") or 0) > 0]
-    if (set(found) != set(request["identities"]) or len(found) != len(set(found))):
+    found = []
+    for row in bars:
+        try:
+            price = Decimal(str(row.get("closeunadj")))
+            valid_price = price.is_finite() and price > 0
+        except InvalidOperation:
+            valid_price = False
+        if (str(row.get("date")) != request["session"]
+                or row.get("ticker") not in symbols or not valid_price):
+            raise SourceDataPending("source membership probe has an invalid price row")
+        found.append(resolver.resolve(str(row["ticker"]), request["session"]))
+    expected = set(request["identities"])
+    covered = expected.issubset(found) if "symbols" in request else set(found) == expected
+    if (not covered or None in found or len(found) != len(set(found))):
         raise SourceDataPending("source membership probe is still incomplete or ambiguous")
 
 

@@ -120,7 +120,7 @@ def test_small_probe_follows_restated_actions_but_never_publishes():
     source_probe.require_recovery_probe(
         {"session": "2026-09-08", "identities": ["111101", "113467"]},
         through=THROUGH, fetch=fetch)
-    assert sum(table == sharadar.SEP for table, _ in calls) == 1
+    assert sum(table == sharadar.SEP for table, _ in calls) == 2
     assert all(set(params["ticker"].split(",")) <= {"CYCN", "KRSA", "PHGE", "HLSQ"}
                for table, params in calls if "ticker" in params)
 

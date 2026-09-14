@@ -3,6 +3,44 @@ import subprocess
 import sys
 
 cases = [
+    ("collision_guard_disabled", """
+from sentinel.feed.source_authority import coverage
+coverage.require_no_collisions = lambda *a, **k: None
+""", "test_concurrent_source_symbols.py::test_all_observed_collisions_and_prices_survive_go_and_are_order_independent"),
+    ("early_identity_check_disabled", """
+from sentinel.feed.source_authority import StableSharadarFetch
+StableSharadarFetch.preflight_seed_identity = lambda *a, **k: None
+""", "test_concurrent_source_symbols.py::test_early_refusal_does_not_request_actions_export_or_mutate"),
+    ("collision_probe_drops_symbols", """
+import inspect
+from sentinel.feed import source_probe
+source = inspect.getsource(source_probe.require_recovery_probe)
+fragment = ' | set(request.get("symbols", ()))'
+assert source.count(fragment) == 2
+exec(source.replace(fragment, ''), source_probe.__dict__)
+""", "test_concurrent_source_symbols.py::test_worker_wait_keeps_all_symbols_and_corrected_metadata_permits_full_retry"),
+    ("collision_probe_unbounded_read", """
+import inspect
+from sentinel.feed import source_probe
+source = inspect.getsource(source_probe.require_recovery_probe)
+line = 'return _bounded(fetch(table, params), 64)'
+assert source.count(line) == 1
+exec(source.replace(line, 'return fetch(table, params)'), source_probe.__dict__)
+""", "test_concurrent_source_symbols.py::test_probe_stops_an_oversized_response_before_stability_materialization"),
+    ("collision_probe_filters_bad_price", """
+import inspect
+from sentinel.feed import source_probe
+source = inspect.getsource(source_probe.require_recovery_probe)
+line = 'raise SourceDataPending("source membership probe has an invalid price row")'
+assert source.count(line) == 1
+exec(source.replace(line, 'continue'), source_probe.__dict__)
+""", "test_concurrent_source_symbols.py::test_probe_checks_each_price_even_when_population_domain_floor_passes"),
+    ("collision_is_terminal_failure", """
+from sentinel import automation_runtime
+from sentinel.feed.source_authority import SeedIdentityCollision
+automation_runtime.REFRESH_TRANSIENT_FAILURES = tuple(
+    cls for cls in automation_runtime.REFRESH_TRANSIENT_FAILURES if cls is not SeedIdentityCollision)
+""", "test_concurrent_source_symbols.py::test_worker_wait_keeps_all_symbols_and_corrected_metadata_permits_full_retry"),
     ("undated_anchor_join", """
 from sentinel.feed import symbol_lineage
 symbol_lineage.Occurrences.anchor_applies = lambda *args: True

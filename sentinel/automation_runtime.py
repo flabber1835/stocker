@@ -62,12 +62,14 @@ from sentinel.feed import authority as feed_authority
 from sentinel.feed import (
     calendar, coherence, identity_refresh, ingest, publication, readiness, sharadar)
 from sentinel.feed import store as feed_store
+from sentinel.feed.source_authority import SeedIdentityCollision
 
 
 PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE = \
     "PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE"
 TARGET_PROJECTION_REFUSED = "TARGET_PROJECTION_REFUSED"
 REFRESH_TRANSIENT_FAILURES = (
+    SeedIdentityCollision,
     coherence.TickerMetadataIncomplete,
     coherence.SepListingPopulationIncomplete,
     identity_refresh.SepMutationIdentityRefused,

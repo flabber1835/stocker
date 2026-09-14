@@ -7,6 +7,7 @@ import json
 import re
 
 PREFIX = "Sharadar SEP seed eligible-set coverage refused: "
+COLLISION_PREFIX = "Sharadar SEP seed identity collision refused: "
 FAILURE_MARKER = "SENTINEL_GO_PREPARATION_FAILURE="
 _PROHIBITED = ("http://", "https://", "api_key", "api-key", "password",
                "authorization", "postgres://", "postgresql://", "apca-api-")
@@ -30,17 +31,22 @@ def _bounded_public(value, depth=0):
 
 
 def coverage_diagnostic(raw):
-    if not isinstance(raw, str) or not raw.startswith(PREFIX) or len(raw) > 32768:
+    if not isinstance(raw, str) or len(raw) > 32768:
+        return None
+    prefix = next((p for p in (PREFIX, COLLISION_PREFIX) if raw.startswith(p)), None)
+    if prefix is None:
         return None
     try:
-        value = json.loads(raw[len(PREFIX):])
+        value = json.loads(raw[len(prefix):])
     except (ValueError, TypeError):
         return None
     if not isinstance(value, dict):
         return None
     keys = ("session", "expected_eligible", "received_eligible", "missing_eligible_total",
             "missing_eligible", "unresolved_source_tickers", "unexpected_eligible_total",
-            "unexpected_eligible", "unresolved_eligible_risk_total", "identity_diagnostics")
+            "unexpected_eligible", "unresolved_eligible_risk_total", "identity_diagnostics",
+            "identity_collision_total", "collision_source_rows_total", "identity_collisions",
+            "collision_sha256")
     result = {key: value[key] for key in keys if key in value}
     if (not re.fullmatch(r"\d{4}-\d{2}-\d{2}", str(result.get("session", "")))
             or not _bounded_public(result)):

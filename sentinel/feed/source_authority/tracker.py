@@ -28,6 +28,9 @@ class LastUpdatedTrackingFetch:
     def preflight_seed_membership(self, *, date_from, date_to):
         return self._fetch.preflight_seed_membership(date_from=date_from, date_to=date_to)
 
+    def preflight_seed_identity(self, **kwargs):
+        return self._fetch.preflight_seed_identity(**kwargs)
+
     def __call__(self, table, params=None, **kwargs):
         rows = self._fetch(table, params, **kwargs)
         if table != sharadar.SEP:

@@ -121,6 +121,8 @@ def run_generation(conn, *, recovery_plan, fetch, final_hi, boundary,
     lo, hi = recovery_plan.date_from, recovery_plan.date_to
     with CapturedRows() as captured:
         captured.capture(guarded, sharadar.TICKERS)
+        guarded.preflight_seed_identity(tickers=captured(sharadar.TICKERS), fetch=fetch,
+                                        date_from=lo, date_to=hi)
         plan = None
         with progress.phase("identity_preflight"):
             try:

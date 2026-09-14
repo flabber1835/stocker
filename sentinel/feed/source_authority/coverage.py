@@ -9,6 +9,7 @@ from typing import Mapping, Sequence
 
 from sentinel.feed import calendar, sharadar
 from .dates import SourceAuthorityRefused, _canonical_key
+from .collisions import bar_witness, require_no_collisions
 from .seed_model import (
     SEED_COVERAGE_EXCEPTIONS, SeedListing, SeedListingProjection,
     _exception_matches,
@@ -31,8 +32,12 @@ class SeedCoverageAccumulator:
             CREATE TABLE observed (
                 session TEXT NOT NULL, permaticker TEXT NOT NULL,
                 ticker TEXT NOT NULL, category TEXT NOT NULL,
-                eligible INTEGER NOT NULL,
+                eligible INTEGER NOT NULL, payload TEXT NOT NULL,
                 PRIMARY KEY(session,permaticker)) WITHOUT ROWID;
+            CREATE TABLE identity_collisions (
+                session TEXT NOT NULL, permaticker TEXT NOT NULL,
+                ticker TEXT NOT NULL, payload TEXT NOT NULL,
+                PRIMARY KEY(session,permaticker,ticker)) WITHOUT ROWID;
             CREATE TABLE unresolved_risk (
                 session TEXT NOT NULL, ticker TEXT NOT NULL,
                 PRIMARY KEY(session,ticker)) WITHOUT ROWID;
@@ -65,21 +70,35 @@ class SeedCoverageAccumulator:
         try:
             self._db.execute(
                 "INSERT INTO observed"
-                " (session,permaticker,ticker,category,eligible)"
-                " VALUES (?,?,?,?,?)",
+                " (session,permaticker,ticker,category,eligible,payload)"
+                " VALUES (?,?,?,?,?,?)",
                 (session, identity, ticker, listing.category,
-                 int(listing.common_equity)))
+                 int(listing.common_equity), bar_witness(row)))
         except sqlite3.IntegrityError as exc:
             prior = self._db.execute(
-                "SELECT ticker FROM observed WHERE session=? AND permaticker=?",
+                "SELECT ticker,payload FROM observed WHERE session=? AND permaticker=?",
                 (session, identity)).fetchone()
-            raise SourceAuthorityRefused(
-                f"SEP seed resolves more than one ticker to canonical identity "
-                f"{identity} on {session}: {prior[0] if prior else '?'} and "
-                f"{ticker}") from exc
+            if prior is None or prior[0] == ticker:
+                raise SourceAuthorityRefused(
+                    f"SEP seed repeats source key {ticker}/{session}") from exc
+            self._db.execute("INSERT OR IGNORE INTO identity_collisions VALUES (?,?,?,?)",
+                             (session, identity, *prior))
+            try:
+                self._db.execute("INSERT INTO identity_collisions VALUES (?,?,?,?)",
+                                 (session, identity, ticker, bar_witness(row)))
+            except sqlite3.IntegrityError as duplicate:
+                raise SourceAuthorityRefused(
+                    f"SEP seed repeats source key {ticker}/{session}") from duplicate
+            # Capture is private until require_complete succeeds. Retain all
+            # distinct witnesses instead of hiding later collisions behind one.
         return True
 
+    def require_no_collisions(self, *, date_from: str, date_to: str) -> None:
+        require_no_collisions(self._db, projection=self.projection, resolve=self.resolve,
+                              date_from=date_from, date_to=date_to)
+
     def require_complete(self, *, date_from: str, date_to: str) -> dict:
+        self.require_no_collisions(date_from=date_from, date_to=date_to)
         sessions = list(calendar.sessions_in_range(date_from, date_to))
         if not sessions:
             raise SourceAuthorityRefused(

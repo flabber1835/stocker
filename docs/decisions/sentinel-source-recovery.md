@@ -130,6 +130,50 @@ Bounded structured coverage diagnostics retain rejected paths, reason codes,
 anchor intervals and source-claim fingerprints in the GO bundle instead of
 losing the reason behind a truncated exception string.
 
+## Concurrent source symbols (September 14 market-wide capture)
+
+The operator capture `sep-identity-evidence-20260914T200116Z-50da6578.zip`
+(SHA-256 `89bb5da971cc2f886a1ee1e9a086c53a526224ee8997a859e87e358a24978488`)
+contains two matching reads of all 20,966 SEP TICKERS rows, 26,220 rename
+ACTIONS rows, and market-wide SEP on July 1 and September 11. The first date
+has no identity collision; the second has two: OCLTU/OCLT -> 6401005 and
+BRTMU/BRTM -> 6399775. Both successors lack their own TICKERS identity. Their
+bars have different prices and volume. These are actual source rows, not a
+synthetic population substituted around a single failure.
+
+Issuer filings independently explain the distinction: OceanLight's
+[September 10 release](https://www.sec.gov/Archives/edgar/data/2137679/000182912626010007/oceanlightacq_ex99-1.htm)
+and B&R's
+[September 8 release](https://www.sec.gov/Archives/edgar/data/2131350/000119312526385209/d102609dex991.htm)
+describe separate trading of shares while unseparated units continue trading.
+Those filings explain the diagnosis; they do not supply a Sharadar permanent
+identity or become an alternative runtime data source.
+
+Paired rename records are therefore insufficient when observed SEP symbols
+collide at the permanent-security/session grain. Do not resolve this by
+first/last price, volume, ticker suffix, a generated permanent ID, ignoring the
+successor, or reducing the eligible denominator. Keep the entire candidate
+unpublished. Collect every collision in the acquired sample before refusing,
+with deterministic bounded examples, total counts, and a digest covering all
+collision witnesses. Preserve the source prices, native listing anchors,
+derived aliases, and paired rename evidence in the existing GO diagnostic
+envelope. A true repeated source key remains a separate integrity failure.
+
+Run the small membership samples using independently repeated rename-only
+requests before the complete ACTIONS export and annual SEP capture. Repeat the
+check against the captured complete ACTIONS authority before history replay;
+the early sample grants no publication evidence. Both endpoints are acquired
+before reporting a collision, so a first-date conflict cannot hide a second.
+
+The typed identity-collision refusal is a source-data wait in REFRESH. Its
+durable hint retains the involved symbols as well as permanent IDs: querying
+only aliases that still resolve can hide a conflicting successor after a
+metadata update. Bounded rechecks must retain that context and refuse unknown
+or duplicate resolved identities. Corrected TICKERS may establish distinct
+identities; a successful recheck then permits the full proof, never publication
+or broker execution by itself. Unchanged captured data must continue to refuse.
+The code repair cannot manufacture the provider metadata needed for GO.
+
 ## Recovery
 
 Recognized source incompleteness stays a durable REFRESH wait. Source waiting

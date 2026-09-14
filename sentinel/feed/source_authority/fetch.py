@@ -7,7 +7,7 @@ import tempfile
 from typing import Mapping, Optional
 
 from sentinel.feed import coherence, sharadar, snapshot_source
-from .dates import SepUpdateEnvelope, SourceAuthorityRefused, _strict_date
+from .dates import SeedIdentityCollision, SepUpdateEnvelope, SourceAuthorityRefused, _strict_date
 from .duplicates import CanonicalSourceFetch, _is_matching_update_request
 from .coverage import SeedCoverageAccumulator
 from .seed_model import SeedListingProjection
@@ -121,7 +121,18 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                 source_digest=self.identity_projection.digest(self._seed_projection.source_digest))
         return rows
 
-    def preflight_seed_membership(self, *, date_from, date_to):
+    def preflight_seed_identity(self, *, tickers, fetch, date_from, date_to):
+        """Detect source identity conflicts before requesting the full ACTIONS export."""
+        if not self._seed_mode:
+            return
+        from sentinel.feed import symbol_identity
+        rows = list(tickers)
+        actions = symbol_identity.stable_rename_rows(fetch, through=date_to)
+        identity = symbol_identity.SymbolProjection(rows, actions, through=date_to)
+        self.preflight_seed_membership(date_from=date_from, date_to=date_to,
+                                      identity_projection=identity)
+
+    def preflight_seed_membership(self, *, date_from, date_to, identity_projection=None):
         """Small diagnostic samples; never add them to publication evidence."""
         if not self._seed_mode:
             return
@@ -138,9 +149,16 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
         sessions = [session for session in sessions if session not in contextual]
         if not sessions:
             return
-        for session in sorted({sessions[0], sessions[-1]}):
-            coverage = SeedCoverageAccumulator(self._seed_projection, self._seed_resolver.resolve)
-            try:
+        projection, resolver = self._seed_projection, self._seed_resolver
+        if identity_projection is not None:
+            projection = SeedListingProjection(
+                (*identity_projection.rows, *identity_projection.alias_rows),
+                source_digest=identity_projection.digest(coherence.observe_tickers(identity_projection.rows).digest))
+            resolver = identity_projection.resolver()
+        sampled = sorted({sessions[0], sessions[-1]})
+        coverage = SeedCoverageAccumulator(projection, resolver.resolve)
+        try:
+            for session in sampled:
                 # Both traversals use the canonical source, including duplicate
                 # and price/date guards. Full capture still brackets all inputs.
                 sample = authority.StableSharadarFetch(self._canonical_fetch)
@@ -148,12 +166,14 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                     for row in sample(sharadar.SEP, sharadar.date_params(session, session)):
                         coverage.add(row)
                         count[0] += 1
-                    try:
-                        coverage.require_complete(date_from=session, date_to=session)
-                    except SourceAuthorityRefused as exc:
-                        raise coherence.SeedHistoryIncomplete(str(exc)) from exc
-            finally:
-                coverage.close()
+            coverage.require_no_collisions(date_from=sampled[0], date_to=sampled[-1])
+            for session in sampled:
+                try:
+                    coverage.require_complete(date_from=session, date_to=session)
+                except SourceAuthorityRefused as exc:
+                    raise coherence.SeedHistoryIncomplete(str(exc)) from exc
+        finally:
+            coverage.close()
 
     def _validated_seed_replay(self, rows, params):
         date_from = str(params.get("date.gte") or "")
@@ -181,6 +201,8 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
             try:
                 evidence = coverage.require_complete(
                     date_from=date_from, date_to=date_to)
+            except SeedIdentityCollision:
+                raise
             except SourceAuthorityRefused as exc:
                 raise coherence.SeedHistoryIncomplete(str(exc)) from exc
             coherence.assert_seed_history(
