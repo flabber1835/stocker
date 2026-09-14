@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
+import ast
 import importlib.util
 import json
 import os
@@ -846,9 +847,17 @@ def test_upgrade_preparation_uses_exact_runtime_without_broker_authority():
     command, prepared_env = runner.calls[-1]
     assert "schema.ensure_schema(c)" in command[-1]
     assert "store.migrate_schema(c)" in command[-1]
-    assert ("ingest.daily(c, today=target)" in command[-1]
-            or "outage_recovery.catch_up(c, target_session=target)"
-            in command[-1])
+    # Preparation overlays can format this call across lines. Check the actual
+    # connection and target arguments, rather than one source-code spelling.
+    assert any(
+        isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
+        and isinstance(node.func.value, ast.Name)
+        and (node.func.value.id, node.func.attr) in {("ingest", "daily"), ("outage_recovery", "catch_up")}
+        and node.args and isinstance(node.args[0], ast.Name) and node.args[0].id == "c"
+        and any(keyword.arg == ("today" if node.func.attr == "daily" else "target_session")
+                and isinstance(keyword.value, ast.Name) and keyword.value.id == "target"
+                for keyword in node.keywords)
+        for node in ast.walk(ast.parse(command[-1])))
     assert "publication_not_before(target)" in command[-1]
     assert "now < execution_open" in command[-1]
     assert "visible == target" in command[-1]

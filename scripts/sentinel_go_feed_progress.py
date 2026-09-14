@@ -6,6 +6,7 @@ from datetime import datetime
 PREFIX = "SENTINEL_FEED_PROGRESS="
 STAGES = frozenset({
     "actions_export", "actions_refresh", "identity_preflight", "identity_rebuild",
+    "seed_membership_preflight",
     "seed_database_replay", "post_seed_proof", "database_tickers",
     "database_actions", "database_spy", "database_prices",
 } | {kind + "_" + table for kind in ("capture", "download")

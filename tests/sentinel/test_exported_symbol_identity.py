@@ -13,23 +13,31 @@ from sentinel.feed import (coherence, ingest, seed_capture, sharadar, snapshot_s
                            source_authority, source_probe)
 from test_historical_symbol_identity import HISTORICAL_RENAMES, THROUGH
 from test_seed_symbol_transition import OLD_LISTINGS
+from test_reused_symbol_identity import REUSED_LISTING, COMPLETED_REUSED_ACTIONS
 
 HISTORICAL_DAY = "2025-07-01"
 
 
 def nas_provider(*, days=(HISTORICAL_DAY,), fault=None):
     # Synthetic ordinary names meet the unmodified production population floor.
-    # The two identity records and all ten rename rows are the NAS diagnostic.
+    # Include the reused listing missing from the first two regressions. The
+    # final XNDU/to/XNDU completion and all prices are explicitly synthetic.
     listings = [dict(OLD_LISTINGS[0], ticker=f"T{i}", permaticker=i + 1,
                      relatedtickers="", firstpricedate=days[0], lastpricedate=THROUGH)
-                for i in range(5604)] + [dict(r) for r in OLD_LISTINGS]
-    labels = [f"T{i}" for i in range(5604)] + ["KRSA", "HLSQ"]
+                for i in range(5603)] + [dict(r) for r in (*OLD_LISTINGS, REUSED_LISTING)]
+    labels = [f"T{i}" for i in range(5603)] + ["KRSA", "HLSQ"]
+    if fault == "overlapping-reuse":
+        listings[-1]["firstpricedate"] = "2018-12-14"
     bars = [dict(ticker=ticker, date=day, open=10, close=10, closeunadj=10,
                  volume=1000, lastupdated="2026-09-13") for day in days for ticker in labels
-            if not (fault == "missing-price" and ticker == "KRSA" and day == days[0])]
+            if not (ticker == "KRSA" and (
+                (fault == "missing-price" and day == days[0])
+                or (fault == "missing-last-price" and day == days[-1])))]
+    bars.extend(dict(bars[0], ticker="CHACU", date=day) for day in days
+                if REUSED_LISTING["firstpricedate"] <= day <= REUSED_LISTING["lastpricedate"])
     if fault == "duplicate-alias":
         bars.append(dict(bars[0], ticker="CYCN"))
-    actions = [dict(row) for row in HISTORICAL_RENAMES
+    actions = [dict(row) for row in HISTORICAL_RENAMES + COMPLETED_REUSED_ACTIONS
                if not (fault == "missing-older-pair" and row["date"] == "2019-04-02"
                        and row["action"] == "tickerchangeto")]
     provider = Provider(page_size=4000, variation_seed=19)
@@ -60,7 +68,7 @@ def test_exported_full_history_covers_the_exact_nas_failed_session(fault):
             captured.capture(guarded, sharadar.TICKERS)
             captured.capture(guarded, sharadar.ACTIONS, actions_params)
             exported = list(captured(sharadar.ACTIONS, actions_params))
-            assert len(exported) == (9 if fault == "missing-older-pair" else 10)
+            assert len(exported) == (13 if fault == "missing-older-pair" else 14)
             assert any(row["date"] == "2019-10-29" and row["ticker"] == "HLSQ"
                        and row["contraticker"] == "PHGE" for row in exported)
             assert all(row["value"] is None for row in exported)  # Real CSV decoding.
@@ -102,15 +110,28 @@ def test_cheap_retry_probe_follows_all_historical_labels_over_filtered_http():
     assert len(requests) == 1
     assert requests[0]["date.gte"] == requests[0]["date.lte"] == HISTORICAL_DAY
     assert set(requests[0]["ticker"].split(",")) == {
-        "CYCNV", "CYCN", "KRSA", "CHACU", "CHAC", "PHGE", "HLSQ"}
+        "CYCNV", "CYCN", "KRSA", "PHGE", "HLSQ"}
+    metadata = [r["query"] for r in provider.transcript if r.get("table") == sharadar.TICKERS]
+    assert any("CHACU" in r.get("ticker", "").split(",") for r in metadata)
+    assert any("XNDU" in r.get("ticker", "").split(",") for r in metadata)
 
 
-@pytest.mark.parametrize("fault", [None, "missing-older-pair"])
+def test_cheap_retry_cannot_hide_conflicting_context_from_full_projection():
+    from sentinel.automation.model import SourceDataPending
+    provider = nas_provider(fault="overlapping-reuse")
+    with simulated_runtime(provider, commit="a" * 40):
+        with pytest.raises(SourceDataPending, match="incomplete or ambiguous"):
+            source_probe.require_recovery_probe(
+                {"session": HISTORICAL_DAY, "identities": ["111101", "113467"]}, through=THROUGH)
+
+
+@pytest.mark.parametrize("fault", [None, "missing-older-pair", "missing-last-price"])
 def test_production_capture_rebuild_and_publication_with_complete_history(fault, monkeypatch):
     from sentinel.feed import actions, domains, publication, recovery, seed_coherence, store, universe
     from tests.support.postgres import _EphemeralPostgres
 
-    # Four market sessions keep this production seed bounded. The separate
+    # Four market sessions / 5,605 active identities keep this seed bounded;
+    # CHACU is delisted by September. The separate
     # capture regression above uses the NAS's actual failed historical session.
     # Only HTTP transport, clock and test producer identity are substituted;
     # coverage, rebuild, normalization, post-seed proof and publication all run.
@@ -154,6 +175,12 @@ def test_production_capture_rebuild_and_publication_with_complete_history(fault,
                     assert publication.require_current(conn).version == baseline.version
                     assert conn.execute("SELECT COUNT(*) FROM feed_ingest_runs").fetchone()[0] == 0
                     assert conn.execute("SELECT COUNT(*) FROM sentinel_bars").fetchone()[0] == 2
+                    sep_requests = [r["query"] for r in provider.transcript
+                                    if r.get("table") == sharadar.SEP]
+                    assert sep_requests and all(r["date.gte"] == r["date.lte"]
+                                                for r in sep_requests)
+                    expected_days = {days[0], THROUGH} if fault == "missing-last-price" else {days[0]}
+                    assert {r["date.gte"] for r in sep_requests} == expected_days
                     return
                 result, _ = ingest._run_seed_generation(conn, recovery_plan=plan,
                     fetch=snapshot_source.fetch_table, final_hi=THROUGH, boundary="2026-09-14")
@@ -175,7 +202,9 @@ def test_production_capture_rebuild_and_publication_with_complete_history(fault,
                                     "WHERE security_id=%s ORDER BY session", (sid,)).fetchall()
                 assert [(str(day), ticker, float(close)) for day, ticker, close in rows] == [
                     (day, new, 10.0) for day in days]
-            assert len(actions.active_rows(conn, start="1900-01-01", end=THROUGH)) == 10
-            assert conn.execute("SELECT COUNT(*) FROM sentinel_bars").fetchone()[0] == 4 * 5606
+            assert resolver.resolve("CHACU", "2025-07-01") == "644444"
+            assert resolver.resolve("CHAC", "2025-07-01") != "113467"
+            assert len(actions.active_rows(conn, start="1900-01-01", end=THROUGH)) == 14
+            assert conn.execute("SELECT COUNT(*) FROM sentinel_bars").fetchone()[0] == 4 * 5605
     finally:
         server.stop()

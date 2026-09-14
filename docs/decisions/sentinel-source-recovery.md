@@ -79,6 +79,57 @@ name-only changes do not alter this identity comparison. This keeps the
 preflight and database resolver consistent without redownloading full history
 for an ordinary rename inside the daily window.
 
+## Dated ticker reuse (September 14 follow-up)
+
+The `eded086` NAS failure includes a second, unrelated CHACU/CHAC history.
+TICKERS identifies CHACU as permanent ID 644444, listed 2025-05-19 through
+2026-03-26, while PHGE is ID 113467. ACTIONS takes the older CHACU/CHAC
+occurrences to PHGE/HLSQ in 2019/2026, and the newer occurrences to XNDU in
+2025/2026. An undated connected component joins unrelated businesses. This
+supersedes the blanket refusal of reused symbols above, not the prohibition on
+ambiguous identity or incomplete rename evidence.
+
+Build dated paths of paired rename events: a successor continues into its next
+departure only before another arrival reuses that spelling. Separate departures
+from a starting spelling are distinct candidate occurrences. Each candidate
+still requires a complete, strictly chronological, nonbranching path, valid
+restated primary labels, and exactly one permanent identity/category anchored
+by TICKERS overlapping the corresponding occurrence (including its transition
+date). Unpaired claims in that occurrence or naming its terminal primary refuse
+the path. Disjoint paths anchored to the same permanent ID refuse together.
+Rows for a later occurrence are context, not anchors for the earlier business.
+Undated or overlapping competing anchors remain ambiguous and grant no alias.
+
+Restated source aliases may span the anchored security's history, but must be
+clipped before a later reuse and after a prior occurrence. Raw TICKERS rows are
+unchanged and remain in the ambiguity check. Never let HLSQ resolve to 644444,
+or CHACU prices in 2025 resolve to 113467. Broker labels remain event-dated.
+All consumers reconstruct the same projection from scoped raw observations.
+
+Tests must carry the actual reused CHACU TICKERS row and both ACTIONS lineages,
+including incomplete unrelated lineages, competing overlapping anchors, mixed
+pair formats, input reordering, missing real prices and duplicate canonical bars.
+Run those observations through exported CSV capture and PostgreSQL publication,
+not just the pure resolver. Record which missing source rows are synthetic.
+The reused listing replaces a synthetic ordinary listing: the revised fixture
+has 5,606 eligible identities on the failed July session and 5,605 in the four
+September sessions, after the reused CHACU listing's recorded end date.
+
+Before annual SEP capture, check exact membership on the first and last market
+sessions using bounded date requests and the same canonical identity/coverage
+rules. This is diagnostic only: it contributes no publication evidence and does
+not replace stable full-history capture, source bracketing, or post-seed proof.
+Use the first and last self-contained sample sessions: dates with existing
+reviewed source-onset exceptions require observations from other sessions and
+are left to full capture. Sampling must not invent their first-observation
+evidence or introduce a new refusal for an already supported source boundary.
+A failed sample must stop before an annual download or database replay. The
+known-failure retry probe must fetch TICKERS for all discovered historical labels
+as well as requested permanent IDs, so it sees the same reused-label context.
+Bounded structured coverage diagnostics retain rejected paths, reason codes,
+anchor intervals and source-claim fingerprints in the GO bundle instead of
+losing the reason behind a truncated exception string.
+
 ## Recovery
 
 Recognized source incompleteness stays a durable REFRESH wait. Source waiting

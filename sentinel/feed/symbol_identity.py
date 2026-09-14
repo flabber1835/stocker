@@ -11,10 +11,10 @@ import hashlib
 import json
 from typing import Iterable, Mapping
 
-from sentinel.feed import action_source, calendar, universe
+from sentinel.feed import action_source, calendar, universe, symbol_lineage
 
 RENAME_TYPES = ("tickerchangeto", "tickerchangefrom")
-SCHEMA = "sentinel.symbol-identity/1"
+SCHEMA = "sentinel.symbol-identity/2"
 Claim = tuple[str, str, str]  # source date, primary ticker, contraticker
 
 
@@ -86,12 +86,6 @@ class SymbolProjection:
         pairs = _pair_claims(changes_from, changes_to)
         edges = [Rename(day, old, new, tuple(sorted(pair.source_ids)))
                  for (day, old, new), pair in pairs.items()]
-        adjacency: dict[str, set[str]] = {}
-        by_old: dict[str, list[Rename]] = {}
-        for edge in edges:
-            adjacency.setdefault(edge.old, set()).add(edge.new)
-            adjacency.setdefault(edge.new, set()).add(edge.old)
-            by_old.setdefault(edge.old, []).append(edge)
         claim_index: dict[str, set[tuple[str, str, str]]] = {}
         for claim in changes_from:
             for symbol in claim[1:]:
@@ -106,45 +100,56 @@ class SymbolProjection:
                 anchors.setdefault(str(row.get("ticker") or "").upper(), []).append(row)
         self.chains: dict[str, tuple[Rename, ...]] = {}
         self.alias_rows: list[dict] = []
-        remaining = set(adjacency)
-        while remaining:
-            pending, component = [min(remaining)], set()
-            while pending:
-                symbol = pending.pop()
-                if symbol not in component:
-                    component.add(symbol)
-                    pending.extend(adjacency[symbol] - component)
-            remaining -= component
-            chain = sorted((edge for symbol in component for edge in by_old.get(symbol, ())),
-                           key=lambda edge: (edge.date, edge.old, edge.new))
+        self.rejections: list[dict] = []
+        occurrences = symbol_lineage.Occurrences(edges, through=self.through)
+        for chain in occurrences.paths():
+            component = {symbol for edge in chain for symbol in (edge.old, edge.new)}
+            context = sorted((row for symbol in component for row in anchors.get(symbol, ())),
+                             key=lambda row: json.dumps(row, sort_keys=True, default=str))
+            def refuse(reason):
+                self.rejections.append({"reason_code": reason, "symbols": sorted(component),
+                    "anchors": [{key: row.get(key) for key in (
+                        "ticker", "permaticker", "category", "firstpricedate", "lastpricedate")}
+                        for row in context],
+                    "source_ids": sorted({sid for edge in chain for sid in edge.source_ids})})
             # Every node has at most one predecessor/successor, and dates are
-            # strictly increasing. Reuse, branches and cycles grant no alias.
+            # strictly increasing within this occurrence. Branches and cycles
+            # grant no alias; separate dated occurrences may reuse a spelling.
             if (len(chain) != len(component) - 1
                     or len({edge.old for edge in chain}) != len(chain)
                     or len({edge.new for edge in chain}) != len(chain)
                     or any(a.new != b.old or a.date >= b.date
                            for a, b in zip(chain, chain[1:]))):
+                refuse("RENAME_PATH_AMBIGUOUS")
                 continue
-            claims = set().union(*(claim_index.get(symbol, set()) for symbol in component))
-            to_claims = set().union(*(to_claim_index.get(symbol, set()) for symbol in component))
+            windows = occurrences.windows(chain)
+            claims = {claim for symbol in component for claim in claim_index.get(symbol, ())
+                      if symbol_lineage.touches(claim, windows, chain[-1].new)}
+            to_claims = {claim for symbol in component for claim in to_claim_index.get(symbol, ())
+                         if symbol_lineage.touches(claim, windows, chain[-1].new)}
             chain_pairs = [pairs[(edge.date, edge.old, edge.new)] for edge in chain]
             # Do not discard an unpaired or conflicting older source claim to
             # salvage a more recent pair from the same identity component.
             if (claims != set().union(*(pair.from_claims for pair in chain_pairs))
                     or to_claims != set().union(*(pair.to_claims for pair in chain_pairs))):
+                refuse("RENAME_CLAIMS_INCOMPLETE_OR_COMPETING")
                 continue
             successors = {edge.new: index for index, edge in enumerate(chain)}
             # A restated primary must be this event's successor or a later one
             # in the same proven chain, never an unrelated or earlier label.
             if any(successors.get(claim[1], -1) < index
                    for index, pair in enumerate(chain_pairs) for claim in pair.from_claims):
+                refuse("RENAME_PRIMARY_OUTSIDE_PATH")
                 continue
-            source = [row for symbol in component for row in anchors.get(symbol, ())]
+            source = [row for row in context
+                      if occurrences.anchor_applies(row, windows[str(row["ticker"]).upper()])]
             identities = {str(row.get("permaticker") or "").strip() for row in source}
             categories = {row.get("category") for row in source}
             if len(identities) != 1 or "" in identities or len(categories) != 1:
+                refuse("RENAME_ANCHOR_IDENTITY_OR_CATEGORY_AMBIGUOUS")
                 continue
             if not all(row.get("firstpricedate") and row.get("lastpricedate") for row in source):
+                refuse("RENAME_ANCHOR_INTERVAL_MISSING")
                 continue
             first = min(str(row["firstpricedate"]) for row in source)
             last = max(str(row["lastpricedate"]) for row in source)
@@ -156,17 +161,19 @@ class SymbolProjection:
                         or last != prior[0] or first > last
                         or not all(universe._delisted_observation(row) is False
                                    for row in source)):
+                    refuse("RENAME_ANCHOR_INTERVAL_UNSUPPORTED")
                     continue
             latest = chain[-1]
             if latest.new not in anchors:
                 anchored = [edge for edge in chain if edge.old in anchors]
                 predecessor_edge = anchored[-1] if anchored else latest
-                prior = calendar.previous_sessions(predecessor_edge.date, 2)
+                prior = calendar.previous_sessions(latest.date, 2)
                 predecessor = [row for row in source if row.get("ticker") == predecessor_edge.old]
                 if (len(prior) != 2 or not predecessor
                         or not all(universe._delisted_observation(row) is False
                                    for row in predecessor)
-                        or last not in {prior[0], predecessor_edge.date, self.through}):
+                        or last not in {prior[0], latest.date, self.through}):
+                    refuse("RENAME_ACTIVE_PREDECESSOR_UNPROVEN")
                     continue
                 last = max(last, self.through)
             identity = next(iter(identities))
@@ -174,17 +181,37 @@ class SymbolProjection:
             if identity in self.chains:
                 self.alias_rows = [r for r in self.alias_rows if str(r["permaticker"]) != identity]
                 self.chains[identity] = ()
+                refuse("RENAME_IDENTITY_HAS_DISJOINT_PATHS")
                 continue
             self.chains[identity] = tuple(chain)
             anchor = min(source, key=lambda row: str(row.get("ticker")))
             for symbol in sorted(component):
-                self.alias_rows.append(dict(anchor, ticker=symbol,
-                                            firstpricedate=first, lastpricedate=last))
+                start, end = occurrences.alias_interval(
+                    symbol, windows[symbol], first, last,
+                    rows=anchors.get(symbol, ()), identity=identity)
+                if start <= end:
+                    self.alias_rows.append(dict(anchor, ticker=symbol,
+                                                firstpricedate=start, lastpricedate=end))
         self.chains = {key: value for key, value in self.chains.items() if value}
+
+    def explain(self, *, symbols=(), identities=()):
+        wanted, keys = set(symbols), set(identities)
+        selected = [item for item in self.rejections
+                    if wanted.intersection(item["symbols"]) or any(
+                        str(row.get("permaticker")) in keys for row in item["anchors"])]
+        return {"schema": SCHEMA, "rejections_total": len(selected),
+                "rejections": [dict(item, symbols=item["symbols"][:16],
+                                    anchors=item["anchors"][:8], source_ids=item["source_ids"][:16])
+                               for item in selected[:8]],
+                "sha256": hashlib.sha256(json.dumps(selected, sort_keys=True,
+                                                     default=str).encode()).hexdigest()}
 
     @property
     def evidence(self) -> dict:
         return {"schema": SCHEMA, "through": self.through,
+                "aliases": [{key: row[key] for key in (
+                    "permaticker", "ticker", "firstpricedate", "lastpricedate")}
+                    for row in sorted(self.alias_rows, key=lambda r: (str(r["permaticker"]), r["ticker"]))],
                 "renames": [{"permaticker": sid, "date": edge.date,
                              "old": edge.old, "new": edge.new,
                              "source_ids": list(edge.source_ids)}

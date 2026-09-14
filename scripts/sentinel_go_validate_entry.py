@@ -50,6 +50,10 @@ def failure_detail(exc):
     value = {'detail_sha256': digest}
     if any(item in lowered for item in prohibited) or '\n' in raw or '\r' in raw:
         return value
+    from sentinel.source_diagnostic import coverage_diagnostic
+    source = coverage_diagnostic(raw)
+    if source is not None:
+        value['source_coverage'] = source
     if len(raw) > 420:
         raw = raw[:365] + ' ... [sha256:%s]' % digest[:16]
     value['detail'] = raw

@@ -121,6 +121,40 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                 source_digest=self.identity_projection.digest(self._seed_projection.source_digest))
         return rows
 
+    def preflight_seed_membership(self, *, date_from, date_to):
+        """Small diagnostic samples; never add them to publication evidence."""
+        if not self._seed_mode:
+            return
+        from sentinel.feed import authority, calendar, progress
+        sessions = calendar.sessions_in_range(date_from, date_to)
+        if not sessions:
+            raise coherence.SeedHistoryIncomplete("seed interval has no market sessions")
+        from .seed_model import SEED_COVERAGE_EXCEPTIONS, SeedCoverageException
+        # Existing onset exceptions depend on first-observed rows from another
+        # session. Leave those dates to the full proof, without inventing that
+        # evidence or treating a valid historical source as a new outage.
+        contextual = {item.session for item in SEED_COVERAGE_EXCEPTIONS.values()
+                      if isinstance(item, SeedCoverageException)}
+        sessions = [session for session in sessions if session not in contextual]
+        if not sessions:
+            return
+        for session in sorted({sessions[0], sessions[-1]}):
+            coverage = SeedCoverageAccumulator(self._seed_projection, self._seed_resolver.resolve)
+            try:
+                # Both traversals use the canonical source, including duplicate
+                # and price/date guards. Full capture still brackets all inputs.
+                sample = authority.StableSharadarFetch(self._canonical_fetch)
+                with progress.phase("seed_membership_preflight") as count:
+                    for row in sample(sharadar.SEP, sharadar.date_params(session, session)):
+                        coverage.add(row)
+                        count[0] += 1
+                    try:
+                        coverage.require_complete(date_from=session, date_to=session)
+                    except SourceAuthorityRefused as exc:
+                        raise coherence.SeedHistoryIncomplete(str(exc)) from exc
+            finally:
+                coverage.close()
+
     def _validated_seed_replay(self, rows, params):
         date_from = str(params.get("date.gte") or "")
         date_to = str(params.get("date.lte") or "")

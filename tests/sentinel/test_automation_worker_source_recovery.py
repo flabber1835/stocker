@@ -159,6 +159,13 @@ def test_worker_wait_restart_source_healing_and_transport(assembly, monkeypatch,
     rename += [dict(date=days[0], action=kind, ticker="NEW", name="Example",
                     value=None, contraticker=contra, contraname="N/A")
                for kind, contra in (("tickerchangeto", "OLD"), ("tickerchangefrom", "EARLIER"))]
+    # A separate business reuses the old spelling. Neither a reduced retry
+    # metadata set nor an undated ACTIONS component may splice these identities.
+    reused = dict(listings[-1], ticker="EARLIER", permaticker="2222026",
+                  category="Domestic Common Stock Secondary Class", firstpricedate=days[-1])
+    rename += [dict(date=days[-1], action=kind, ticker="ELSE", name="Different company",
+                    value=None, contraticker=contra, contraname="N/A")
+               for kind, contra in (("tickerchangeto", "ELSE"), ("tickerchangefrom", "EARLIER"))]
 
     class Source(BaseHTTPRequestHandler):
         def log_message(self, *_):
@@ -169,11 +176,12 @@ def test_worker_wait_restart_source_healing_and_transport(assembly, monkeypatch,
             table = url.path.rsplit("/", 1)[-1].split(".")[0]
             params = {key: value[0] for key, value in parse_qs(url.query).items()}
             calls.append((table, {k: v for k, v in params.items() if k != "api_key"}))
-            rows = {sharadar.TICKERS: listings, sharadar.ACTIONS: rename if healed.is_set() else [],
+            rows = {sharadar.TICKERS: listings + [reused], sharadar.ACTIONS: rename if healed.is_set() else [],
                     sharadar.SFP: [dict(ticker=t, date=day, open=100, close=100,
                                        closeadj=100, closeunadj=100)
                                    for day in days for t in ("SPY", "BIL")],
-                    sharadar.SEP: bars + [dict(bars[0], ticker="NEW", date=day) for day in days]}[table]
+                    sharadar.SEP: bars + [dict(bars[0], ticker="NEW", date=day) for day in days]
+                                  + [dict(bars[0], ticker="EARLIER", date=days[-1])]}[table]
             for key in ("ticker", "contraticker", "permaticker", "action"):
                 if key in params:
                     rows = [r for r in rows if str(r.get(key)) in params[key].split(",")]
@@ -314,6 +322,10 @@ def test_worker_wait_restart_source_healing_and_transport(assembly, monkeypatch,
             assert remote.mutations() == []
             return
         with feed_store.connect(assembly.pg.sync_dsn) as conn:
+            resolver = universe.load_resolver(conn)
+            assert resolver.resolve("NEW", days[0]) == "111101"
+            assert resolver.resolve("EARLIER", days[0]) == "111101"
+            assert resolver.resolve("EARLIER", days[-1]) == "2222026"
             plan = journal.latest_plan(conn)
             cutoff = fixture.paper_targets._official_preopen_cutoff(plan)
             preopen_authority.record_authority(conn, preopen_authority.PreOpenShareUnitAuthority(
