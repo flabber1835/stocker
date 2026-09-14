@@ -6,7 +6,11 @@ import pytest
 from sentinel.feed import actions_reconcile_v7, calendar, maintenance, sharadar
 from sentinel.feed import publication as P
 from sentinel.feed import store as S
-from test_action_lifecycle import CONTROL_ACTION, _domain_bar, conn, pg  # noqa: F401
+import test_action_lifecycle as fixtures
+from test_action_lifecycle import CONTROL_ACTION, _domain_bar
+
+pg = fixtures.pg
+conn = fixtures.conn
 
 
 @pytest.mark.parametrize("repair", ["action_economics", "sep_mutation"])
