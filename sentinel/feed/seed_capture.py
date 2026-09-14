@@ -137,6 +137,7 @@ def run_generation(conn, *, recovery_plan, fetch, final_hi, boundary,
         captured.capture(guarded, sharadar.SFP,
                          {"ticker": ingest.SFP_REFERENCE_TICKERS,
                           **sharadar.date_params(lo, hi)})
+        guarded.preflight_seed_membership(date_from=lo, date_to=hi)
         for start, end in sharadar.year_chunks(lo, hi):
             captured.capture(guarded, sharadar.SEP, sharadar.date_params(start, end))
         source.rows = None  # Database replay reads the private disk capture.

@@ -20,6 +20,7 @@ from dataclasses import dataclass
 from datetime import datetime, timezone
 import hashlib
 import json
+import runpy
 import os
 from pathlib import Path
 import subprocess
@@ -128,6 +129,7 @@ class PreparationView:
     failure_reason_code: Optional[str] = None
     failure_detail: Optional[str] = None
     progress_events: tuple = ()
+    source_coverage: Optional[dict] = None
 
     def __getattr__(self, name: str):
         return getattr(self.base, name)
@@ -144,6 +146,8 @@ class PreparationView:
             value["failure_detail"] = self.failure_detail
         if self.progress_events:
             value["progress_events"] = list(self.progress_events)
+        if self.source_coverage is not None:
+            value["source_coverage"] = self.source_coverage
         return value
 
 
@@ -403,7 +407,9 @@ def run_phased_probes(*, runner=None, env=None, now=None, urlopen=None,
     import sentinel_go_feed_progress
     preparation = PreparationView(
         preparation_base, reason_code, detail,
-        tuple(sentinel_go_feed_progress.collect(runner.last_preparation_output)))
+        tuple(sentinel_go_feed_progress.collect(runner.last_preparation_output)),
+        runpy.run_path(str(SCRIPT_DIR.parent / "sentinel" / "source_diagnostic.py"))[
+            "collect_source_coverage"](runner.last_preparation_output))
 
     # D: read-only financial readiness using the exact certified deployable runtime.
     subjects = dict(account_subjects)

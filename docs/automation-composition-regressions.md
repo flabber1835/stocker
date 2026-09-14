@@ -25,6 +25,10 @@ callback child processes, leases, notifications and durable wake times. A
 local HTTP provider withholds a rename history while returning restated prices.
 The healed history includes an earlier pair whose primary ticker is already
 restated with the final label, exercising multiple successive renames.
+It also contains a different permanent ID that subsequently reuses the oldest
+spelling and has its own rename pair. Both the cheap retry and the callback's
+complete capture must separate these dated histories. The published resolver
+must assign the reused spelling to the new ID on its new listing date.
 The worker retains its last publication, persists the failed identity, performs
 small probes beyond its configured attempt count, is killed and restarted,
 and then recaptures and publishes through canonical ingest when the provider

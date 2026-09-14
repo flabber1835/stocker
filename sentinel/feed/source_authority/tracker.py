@@ -25,6 +25,9 @@ class LastUpdatedTrackingFetch:
     def seed_coverage_evidence(self):
         return getattr(self._fetch, "seed_coverage_evidence", None)
 
+    def preflight_seed_membership(self, *, date_from, date_to):
+        return self._fetch.preflight_seed_membership(date_from=date_from, date_to=date_to)
+
     def __call__(self, table, params=None, **kwargs):
         rows = self._fetch(table, params, **kwargs)
         if table != sharadar.SEP:

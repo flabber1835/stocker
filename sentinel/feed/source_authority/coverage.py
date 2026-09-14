@@ -124,6 +124,10 @@ class SeedCoverageAccumulator:
                 missing=missing, extra=extra, unresolved=unresolved,
                 accepted=accepted)
             if missing or extra or unresolved:
+                identity = getattr(getattr(self.resolve, "__self__", None), "projection", None)
+                if identity is not None:
+                    evidence["identity_diagnostics"] = identity.explain(
+                        symbols=evidence["unresolved_source_tickers"], identities=missing)
                 raise SourceAuthorityRefused(
                     "Sharadar SEP seed eligible-set coverage refused: "
                     # Stable insertion order puts the failed session and keys

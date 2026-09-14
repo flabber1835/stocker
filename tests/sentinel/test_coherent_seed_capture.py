@@ -120,6 +120,7 @@ def test_postgres_identity_capture_failure_preserves_published_corpus(conn, monk
     # the existing exact-population tests cover the 4,000-security seed floor.
     def guarded_source(fetch, **kwargs):
         guarded = coherence.StableSharadarFetch(kwargs["acquisition_fetch"])
+        guarded.preflight_seed_membership = lambda **kwargs: None  # Non-production small source.
         return object(), guarded
     monkeypatch.setattr(ingest, "_seed_source", guarded_source)
     recovery = SimpleNamespace(date_from="2026-08-20", date_to="2026-08-21",
@@ -148,6 +149,7 @@ def test_acquisition_precedes_candidate_and_identity_reuses_source(
         if table == sharadar.SEP and capture_fails:
             raise VendorPublicationUnstable("refresh changed")
         return [{"table": table, "date": "2026-08-18"}]
+    guarded.preflight_seed_membership = lambda **kwargs: events.append("membership_sample")
     monkeypatch.setattr(ingest, "_seed_source", lambda *a, **k: (tracked, guarded))
     def preflight(*args):
         events.append("preflight")
@@ -179,3 +181,4 @@ def test_acquisition_precedes_candidate_and_identity_reuses_source(
         assert run() == ("done", tracked)
         assert events[-1] == "candidate"
     assert events.count("capture_TICKERS") == 1
+    assert events.index("membership_sample") < events.index("capture_SEP")

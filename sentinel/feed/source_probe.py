@@ -76,28 +76,53 @@ def require_recovery_probe(hint, *, through: str, fetch=None) -> None:
         raise SourceDataPending("source identity probe has invalid labels")
     # Follow only explicit rename rows connected to the small failed key set.
     actions, pending, queried = [], set(symbols), set()
+    context = {(str(row.get("permaticker")), str(row.get("ticker"))): row for row in rows}
     while pending:
         if len(queried | pending) > 64:
             raise SourceDataPending("source rename probe exceeds its identity bound")
         batch = sorted(pending)
         queried.update(pending)
         pending = set()
+        # Permanent-ID-only queries hide competing listings for reused labels.
+        # Include every discovered spelling's metadata in the same projection
+        # the complete seed uses, while retaining the fixed request/row bounds.
+        ticker_params = {"table": "SEP", "ticker": ",".join(batch)}
+        metadata = _bounded(fetch(sharadar.TICKERS, ticker_params), 256)
+        metadata_second = _bounded(fetch(sharadar.TICKERS, ticker_params), 256)
+        authority.require_stable(sharadar.TICKERS, coherence.observe_tickers(metadata),
+                                 coherence.observe_tickers(metadata_second))
+        for row in metadata:
+            key = (str(row.get("permaticker")), str(row.get("ticker")))
+            if key in context:
+                authority.require_stable(sharadar.TICKERS,
+                    coherence.observe_tickers([context[key]]), coherence.observe_tickers([row]))
+            context[key] = row
+        if len(context) > 256:
+            raise SourceDataPending("source metadata probe exceeds its row bound")
         for field in ("ticker", "contraticker"):
             action_params = {field: ",".join(batch), "date.gte": "1900-01-01",
                              "date.lte": through, "action": ",".join(symbol_identity.RENAME_TYPES)}
             received = _bounded(fetch(sharadar.ACTIONS, action_params), 256)
+            repeated = _bounded(fetch(sharadar.ACTIONS, action_params), 256)
+            authority.require_stable(sharadar.ACTIONS, authority.observe_actions(received),
+                                     authority.observe_actions(repeated))
             actions.extend(received)
             for row in received:
                 for name in ("ticker", "contraticker"):
                     token = str(row.get(name) or "")
                     if token not in queried and re.fullmatch(r"[A-Z][A-Z0-9.\-]{0,19}", token):
                         pending.add(token)
-    projection = symbol_identity.SymbolProjection(rows, actions, through=through)
-    symbols = sorted({*symbols, *(r["ticker"] for r in projection.alias_rows)})
+    projection = symbol_identity.SymbolProjection(context.values(), actions, through=through)
+    resolver = projection.resolver()
+    symbols = sorted({str(r["ticker"]) for r in (*projection.rows, *projection.alias_rows)
+                      if str(r.get("permaticker")) in request["identities"]
+                      and resolver.resolve(str(r["ticker"]), request["session"])
+                      == str(r["permaticker"])})
+    if not symbols:
+        raise SourceDataPending("source identity probe has no unambiguous labels")
     bars = _bounded(fetch(sharadar.SEP, {"ticker": ",".join(symbols),
                                    "date.gte": request["session"],
                                    "date.lte": request["session"]}), 64)
-    resolver = projection.resolver()
     found = [resolver.resolve(str(row.get("ticker") or ""), request["session"])
              for row in bars if str(row.get("date")) == request["session"]
              and float(row.get("closeunadj") or 0) > 0]
