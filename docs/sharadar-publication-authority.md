@@ -303,3 +303,25 @@ Preparation attempt fields record entry into migration and daily catch-up even
 when either raises. A typed child failure marker carries these booleans; the
 host binds them into failure evidence without treating attempted work as
 success. Missing or ambiguous markers do not invent attempts.
+
+The NAS observation at `2026-09-14T00:46:47Z` demonstrates a cross-table
+disagreement: SEP returns September 1-11 history under KRSA and HLSQ, while
+TICKERS returns only CYCN (`111101`, last price September 8) and PHGE (`113467`,
+last price September 11). Neither new symbol has a TICKERS permanent-identity
+record in that observation. The primary TICKERS listing, not `relatedtickers`
+(issuer grouping), authorizes bar identity. News about a rename cannot replace
+that source record or authorize rewriting captured vendor rows.
+
+On coverage refusal, preserve a bounded, sorted sample of all unresolvable SEP
+symbols alongside the missing expected identities. This is diagnostic only:
+unknown symbols do not acquire eligibility, and known ineligible securities do
+not become a new refusal condition. Store the sample source on disk with the
+existing bounded coverage accumulator, not as an unbounded in-memory history.
+
+The regression must pass through repeated SEP observations, bracketed reference
+checks and private capture. Stale metadata must refuse before SEP replay; a
+consistent hypothetical TICKERS publication under the new symbols, with the
+same permanent identities and intervals covering the restated SEP history,
+must accept the unchanged source bars. Removing one of those bars must still
+refuse. This proves the input condition for recovery without claiming that
+Nasdaq has already published the corrected reference data.

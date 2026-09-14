@@ -36,6 +36,9 @@ class SeedCoverageAccumulator:
             CREATE TABLE unresolved_risk (
                 session TEXT NOT NULL, ticker TEXT NOT NULL,
                 PRIMARY KEY(session,ticker)) WITHOUT ROWID;
+            CREATE TABLE unresolved_source (
+                session TEXT NOT NULL, ticker TEXT NOT NULL,
+                PRIMARY KEY(session,ticker)) WITHOUT ROWID;
             CREATE INDEX observed_identity_session
                 ON observed(permaticker,session);
         """)
@@ -44,6 +47,9 @@ class SeedCoverageAccumulator:
         ticker, session = _canonical_key(sharadar.SEP, row)
         permaticker = self.resolve(ticker, session)
         if permaticker is None:
+            self._db.execute(
+                "INSERT OR IGNORE INTO unresolved_source(session,ticker)"
+                " VALUES (?,?)", (session, ticker))
             if self.projection.unresolved_could_be_common(ticker, session):
                 self._db.execute(
                     "INSERT OR IGNORE INTO unresolved_risk(session,ticker)"
@@ -195,6 +201,9 @@ class SeedCoverageAccumulator:
             "received_eligible": observed_eligible,
             "missing_eligible_total": len(missing),
             "missing_eligible": keys(list(missing)),
+            "unresolved_source_tickers": [str(row[0]) for row in self._db.execute(
+                "SELECT ticker FROM unresolved_source WHERE session=?"
+                " ORDER BY ticker LIMIT 16", (session,)).fetchall()],
             "unexpected_eligible_total": len(extra),
             "unexpected_eligible": keys(list(extra)),
             "unresolved_eligible_risk_total": len(unresolved),
