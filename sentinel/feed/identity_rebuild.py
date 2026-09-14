@@ -411,7 +411,12 @@ def _validate_bar_replacement(
     affected = _affected_security_ids(changes)
     if not affected:
         return count, affected
-    intervals = _candidate_intervals(rows, plan=plan)
+    from sentinel.feed import actions
+    from sentinel.feed.symbol_identity import RENAME_TYPES, SymbolProjection
+    projected = SymbolProjection(rows, actions.active_rows(
+        conn, start="1900-01-01", end=plan.market_end,
+        include_run_id=run_id, action_types=RENAME_TYPES), through=plan.market_end)
+    intervals = _candidate_intervals((*projected.rows, *projected.alias_rows), plan=plan)
     sql = (
         "SELECT security_id,session,ticker FROM sentinel_bars"
         " WHERE security_id=ANY(%s::text[])"

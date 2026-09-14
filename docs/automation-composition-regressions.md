@@ -18,3 +18,27 @@ run end to end. The full GO/deployment campaign remains necessary for that claim
 
 Missing PostgreSQL must fail this regression, never silently skip it. The
 scenarios run automatically in the existing Sentinel test owner on every PR.
+
+The worker source-recovery regression additionally launches the actual
+`automation_worker.main` process and `RecoveryAutomationService`, with real
+callback child processes, leases, notifications and durable wake times. A
+local HTTP provider withholds a rename pair while returning restated prices.
+The worker retains its last publication, persists the failed identity, performs
+small probes beyond its configured attempt count, is killed and restarted,
+and then recaptures and publishes through canonical ingest when the provider
+heals. A separate simulator process retains broker orders across callback and
+worker deaths, including an accepted order whose response is lost.
+
+PostgreSQL has a real private WAL archive and is restarted during setup. This
+test still uses the explicit synthetic strategy, certificate verdict, readiness,
+market clock and pre-open authority fixtures. Its bounded capture invokes canonical seed
+replay; it does not contact the Tables Exporter or run historical certification.
+Those exclusions must accompany any end-to-end claim. Recovery, missed-open and
+kill-during-source-wait scenarios run on every PR; missing PostgreSQL is a
+failure. Actual deployment against NAS media, Sharadar and Alpaca remains a
+separate validation.
+
+This worker run exposed a pre-existing notifier mismatch: durable transitions
+nest retry metadata under `diagnostic`, while live enqueue and crash
+reconstruction previously read only top-level fields. Both readers now accept
+the canonical nested event and retain compatibility with older flat events.

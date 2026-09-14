@@ -70,6 +70,36 @@ def test_alert_adapters_come_from_an_explicit_registry() -> None:
         registry.get("environment.import.path")
 
 
+@pytest.mark.parametrize("reconstruct", [False, True])
+def test_real_retry_transition_survives_live_notification_and_reconstruction(conn, reconstruct):
+    import asyncio
+    from sentinel.automation.model import SourceDataPending, TickAction
+    from sentinel.automation_resilience import RecoveryAutomationService
+    from test_automation_service import (AFTER_WEDNESDAY_CLOSE, config, enable,
+                                         prepare_result, recovery_success, execution_success)
+
+    async def pending(_context):
+        raise SourceDataPending("provider has not completed the source join")
+
+    cfg = config()
+    enable(conn, cfg)
+    service = RecoveryAutomationService(
+        config=cfg, holder_id="notification-writer", refresh=pending,
+        prepare=prepare_result, recover=recovery_success, execute=execution_success)
+    asyncio.run(service.tick(conn, now=AFTER_WEDNESDAY_CLOSE))
+    result = asyncio.run(service.tick(conn, now=AFTER_WEDNESDAY_CLOSE))
+    assert result.action is TickAction.RETRY_SCHEDULED
+    for _ in range(2):
+        if reconstruct:
+            outbox._reconstruct_missing_transition_alerts(conn)
+        else:
+            outbox.enqueue_cycle_transition_alert(conn, cycle_id=result.cycle.cycle_id,
+                                                 state="RETRY_WAIT")
+    row = conn.execute("SELECT payload FROM sentinel_alert_outbox WHERE event_type='AUTOMATION_RETRY_SCHEDULED'").fetchall()
+    assert len(row) == 1
+    assert row[0][0]["detail"]["retry_phase"] == "REFRESH"
+
+
 def test_retry_backoff_dead_letter_and_ack_are_durable(conn) -> None:
     alert = outbox.enqueue(
         conn, idempotency_key="retry-me", event_type="BROKER_UNKNOWN",

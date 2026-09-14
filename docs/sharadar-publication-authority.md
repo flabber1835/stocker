@@ -308,9 +308,14 @@ The NAS observation at `2026-09-14T00:46:47Z` demonstrates a cross-table
 disagreement: SEP returns September 1-11 history under KRSA and HLSQ, while
 TICKERS returns only CYCN (`111101`, last price September 8) and PHGE (`113467`,
 last price September 11). Neither new symbol has a TICKERS permanent-identity
-record in that observation. The primary TICKERS listing, not `relatedtickers`
-(issuer grouping), authorizes bar identity. News about a rename cannot replace
-that source record or authorize rewriting captured vendor rows.
+record in that observation. Permanent identity still comes from the primary
+TICKERS listing. `relatedtickers` and news do not authorize a join or source
+rewriting. The subsequently supplied ACTIONS records provide explicit paired
+rename evidence: `tickerchangefrom` carries the old label in `contraticker`,
+while both records' primary ticker and `tickerchangeto.contraticker` carry the
+new label. This is sufficient to join the labels to the existing permanent ID
+under the bounded rules in
+[source identity reconciliation](decisions/sentinel-source-recovery.md).
 
 On coverage refusal, preserve a bounded, sorted sample of all unresolvable SEP
 symbols alongside the missing expected identities. This is diagnostic only:
@@ -318,10 +323,11 @@ unknown symbols do not acquire eligibility, and known ineligible securities do
 not become a new refusal condition. Store the sample source on disk with the
 existing bounded coverage accumulator, not as an unbounded in-memory history.
 
-The regression must pass through repeated SEP observations, bracketed reference
-checks and private capture. Stale metadata must refuse before SEP replay; a
-consistent hypothetical TICKERS publication under the new symbols, with the
-same permanent identities and intervals covering the restated SEP history,
-must accept the unchanged source bars. Removing one of those bars must still
-refuse. This proves the input condition for recovery without claiming that
-Nasdaq has already published the corrected reference data.
+The regressions pass through repeated SEP observations, bracketed reference
+checks and private capture. Without a complete, unambiguous rename pair, stale
+metadata still refuses before SEP replay. With the actual paired ACTIONS shape,
+the unchanged source bars resolve to the existing permanent identities, even
+while TICKERS retains the old symbols. Removing a required price, changing a
+source observation or introducing conflicting identity evidence must refuse.
+Published broker labels change on the ACTIONS effective date; unpublished
+candidate evidence cannot affect the published resolver.

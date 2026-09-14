@@ -193,6 +193,7 @@ jobs:
           mkdir -p /tmp/sentinel-system-evidence
           automation_files=(
             tests/sentinel/test_automation_composition.py
+            tests/sentinel/test_automation_worker_source_recovery.py
             tests/sentinel/test_automation_service.py
             tests/sentinel/test_issue_201_automation_financial_grade.py
             tests/sentinel/test_automation_p1_continuity.py
@@ -227,6 +228,7 @@ jobs:
                 -m pytest \
                 tests/sentinel/test_automation_service.py \
                 tests/sentinel/test_automation_composition.py \
+                tests/sentinel/test_automation_worker_source_recovery.py \
                 tests/sentinel/test_issue_201_automation_financial_grade.py \
                 tests/sentinel/test_automation_p1_continuity.py \
                 tests/sentinel/test_automation_safety_seams.py \

@@ -17,6 +17,7 @@ FIELDS = {
     "TICKERS": ("table", "permaticker", "ticker", "category", "isdelisted",
                 "firstpricedate", "lastpricedate", "relatedtickers", "lastupdated"),
     "SEP": ("ticker", "date", "open", "close", "closeunadj", "volume", "lastupdated"),
+    "ACTIONS": ("date", "action", "ticker", "name", "value", "contraticker", "contraname"),
 }
 MAX_BYTES = 4 * 1024 * 1024
 MAX_PAGES = 4
@@ -112,6 +113,10 @@ def main(argv=None):
                                       "date.gte": args.start.isoformat(),
                                       "date.lte": args.end.isoformat()}, key),
         }
+        for field in ("ticker", "contraticker"):
+            result["actions_by_" + field] = fetch_rows(
+                "ACTIONS", {field: args.tickers, "date.gte": args.start.isoformat(),
+                            "date.lte": args.end.isoformat()}, key)
         print(json.dumps(result, indent=2, sort_keys=True))
         return 0
     except ProbeRefused as exc:

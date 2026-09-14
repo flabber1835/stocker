@@ -83,6 +83,7 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                  corroborate_reference=None,
                  after_session: str | None = None,
                  seed_mode: bool = False, validate_tickers: bool = False,
+                 identity_actions=(), identity_through=None, identity_fetch=None,
                  reference_recovery: frozenset[tuple[str, str]] = frozenset(),
                  sep_update_envelope: SepUpdateEnvelope | None = None):
         self._canonical_fetch = CanonicalSourceFetch(
@@ -95,7 +96,9 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
         super().__init__(
             self._canonical_fetch, protect_sep=protect_sep,
             corroborate_reference=corroborate_reference,
-            after_session=after_session, seed_mode=seed_mode)
+            after_session=after_session, seed_mode=seed_mode,
+            identity_actions=identity_actions, identity_through=identity_through,
+            identity_fetch=identity_fetch)
 
     def __call__(self, table, params=None, **kwargs):
         rows = super().__call__(table, params, **kwargs)
@@ -111,6 +114,11 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
             material = list(rows)
             return _require_complete_recovery_reference_tail(
                 material, params, self._reference_recovery)
+        if (table == sharadar.ACTIONS and self._seed_mode
+                and self.identity_projection is not None and self._seed_projection is not None):
+            self._seed_projection = SeedListingProjection(
+                (*self.identity_projection.rows, *self.identity_projection.alias_rows),
+                source_digest=self.identity_projection.digest(self._seed_projection.source_digest))
         return rows
 
     def _validated_seed_replay(self, rows, params):

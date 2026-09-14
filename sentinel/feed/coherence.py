@@ -355,7 +355,8 @@ class StableSharadarFetch(authority.StableSharadarFetch):
     def __init__(self, fetch, *, protect_sep=None,
                  corroborate_reference=None,
                  after_session: str | None = None,
-                 seed_mode: bool = False):
+                 seed_mode: bool = False, identity_actions=(),
+                 identity_through=None, identity_fetch=None):
         # Daily has one protected window, so all source corroboration happens
         # there. A seed passes an explicit final-chunk predicate: every SEP year
         # is stable on its own while TICKERS/ACTIONS/SFP remain bracketed across
@@ -370,6 +371,11 @@ class StableSharadarFetch(authority.StableSharadarFetch):
         self._corroborate_reference = reference
         self._seed_mode = bool(seed_mode)
         self._seed_resolver = None
+        self._tickers_rows = None
+        self.identity_projection = None
+        self._identity_actions = tuple(dict(row) for row in identity_actions)
+        self._identity_through = identity_through
+        self._identity_fetch = identity_fetch
         self._tickers_listings: tuple[universe.Listing, ...] | None = None
         self._tickers_first = None
         self._tickers_params = None
@@ -392,6 +398,7 @@ class StableSharadarFetch(authority.StableSharadarFetch):
             # strategy metadata; letting them reach write_universe would make
             # vendor row order decide eligibility.
             self._tickers_first = observe_tickers(relevant)
+            self._tickers_rows = tuple(relevant)
             self._tickers_params = dict(params or {})
             self._tickers_kwargs = dict(kwargs)
             listings = tuple(universe.listings_from_rows(relevant))
@@ -410,6 +417,20 @@ class StableSharadarFetch(authority.StableSharadarFetch):
 
         params = params or {}
         rows = super().__call__(table, params, **kwargs)
+        if table == sharadar.ACTIONS and self._tickers_rows is not None:
+            from sentinel.feed.symbol_identity import RENAME_TYPES, SymbolProjection
+            if self._identity_fetch is not None:
+                expected = [row for row in self._identity_actions
+                            if params["date.gte"] <= str(row["date"]) <= params["date.lte"]]
+                actual = [row for row in rows if row.get("action") in RENAME_TYPES]
+                authority.require_stable(sharadar.ACTIONS, authority.observe_actions(expected),
+                                         authority.observe_actions(actual))
+            self.identity_projection = SymbolProjection(
+                self._tickers_rows, (*self._identity_actions, *rows),
+                through=str(self._identity_through or params["date.lte"]))
+            self._seed_resolver = self.identity_projection.resolver()
+            self._tickers_listings = tuple(universe.listings_from_rows(
+                (*self._tickers_rows, *self.identity_projection.alias_rows)))
         if table != sharadar.SEP:
             return rows
 
@@ -426,6 +447,12 @@ class StableSharadarFetch(authority.StableSharadarFetch):
 
     def _require_reference_sources_stable(self) -> None:
         from sentinel.feed import sharadar
+        if self._identity_fetch is not None:
+            from sentinel.feed.symbol_identity import stable_rename_rows
+            current = stable_rename_rows(self._identity_fetch, through=self._identity_through)
+            authority.require_stable(sharadar.ACTIONS,
+                                     authority.observe_actions(self._identity_actions),
+                                     authority.observe_actions(current))
 
         if self._tickers_first is not None:
             rows = list(self._fetch(
@@ -462,16 +489,36 @@ class StableSharadarFetch(authority.StableSharadarFetch):
 
         spool = tempfile.TemporaryFile(mode="w+b")
         observed: dict[str, set[str]] = {}
+        aliases = {}
+        if self.identity_projection is not None:
+            for chain in self.identity_projection.chains.values():
+                for edge in chain:
+                    aliases[edge.old] = aliases[edge.new] = chain[-1].new
         try:
             for row in rows:
                 row = dict(row)
                 session = str(row.get("date") or "")
                 ticker = str(row.get("ticker") or "").strip().upper()
                 if session and session > self._after_session and ticker:
-                    observed.setdefault(session, set()).add(ticker)
+                    key = aliases.get(ticker, ticker)
+                    seen = observed.setdefault(session, set())
+                    if ticker in aliases and key in seen:
+                        raise SepListingPopulationIncomplete(
+                            f"SEP supplied duplicate renamed identity {key}/{session}")
+                    seen.add(key)
                 pickle.dump(row, spool, protocol=pickle.HIGHEST_PROTOCOL)
             assert_daily_sep_listing_population(
-                observed, self._tickers_listings)
+                observed, tuple(universe.Listing(
+                    item.permaticker, aliases.get(item.ticker, item.ticker),
+                    item.first_session, item.last_session)
+                    for item in self._tickers_listings))
+            # Population tolerance cannot excuse a missing renamed security.
+            for session, seen in observed.items():
+                required = {aliases[item.ticker] for item in self._tickers_listings
+                            if item.ticker in aliases and item.covers(session)}
+                if required - seen:
+                    raise SepListingPopulationIncomplete(
+                        f"SEP omitted renamed identities on {session}: {sorted(required - seen)}")
             spool.seek(0)
         except Exception:
             spool.close()

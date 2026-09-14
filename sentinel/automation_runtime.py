@@ -33,6 +33,7 @@ from sentinel.automation.model import (
     PrepareResult,
     RefreshResult,
     SoftwareDefect,
+    SourceDataPending,
     TickResult,
     NonRetryableCallbackRefused,
     PermanentOperationalRefusal,
@@ -59,7 +60,7 @@ from sentinel.execution import target_reprojection
 from sentinel.execution.states import CommandState, RuntimeState
 from sentinel.feed import authority as feed_authority
 from sentinel.feed import (
-    calendar, coherence, ingest, publication, readiness, sharadar)
+    calendar, coherence, identity_refresh, ingest, publication, readiness, sharadar)
 from sentinel.feed import store as feed_store
 
 
@@ -68,6 +69,8 @@ PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE = \
 TARGET_PROJECTION_REFUSED = "TARGET_PROJECTION_REFUSED"
 REFRESH_TRANSIENT_FAILURES = (
     coherence.TickerMetadataIncomplete,
+    coherence.SepListingPopulationIncomplete,
+    identity_refresh.SepMutationIdentityRefused,
     coherence.SeedHistoryIncomplete,
     feed_authority.VendorPublicationUnstable,
     feed_authority.FrontierDomainIncomplete,
@@ -171,7 +174,7 @@ def transient_refresh_failure(exc: BaseException
     if not isinstance(exc, REFRESH_TRANSIENT_FAILURES):
         raise TypeError(
             "unreviewed refresh exceptions cannot be classified transient")
-    return TransientInfrastructureFailure(
+    return SourceDataPending(
         f"{type(exc).__name__}: {exc}")
 
 
@@ -744,8 +747,12 @@ class ProductionAutomation:
                     "publisher to publish the exact decision close")
             context.require_active()
             try:
-                progress = ingest.daily(
-                    conn, today=cycle.decision_session.isoformat())
+                from sentinel.feed import outage_recovery, source_probe
+                source_probe.require_recovery_probe(
+                    cycle.diagnostic.get("source_probe"),
+                    through=cycle.decision_session.isoformat())
+                progress = outage_recovery.catch_up(
+                    conn, target_session=cycle.decision_session.isoformat())
             except REFRESH_TRANSIENT_FAILURES as exc:
                 raise transient_refresh_failure(exc) from exc
             context.require_active()

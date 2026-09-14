@@ -172,6 +172,15 @@ def _cycle_event_alert(row) -> dict[str, Any]:
         raise AutomationRefused(
             f"cycle state {state!r} is not notifier eligible") from exc
     detail = _event_detail(raw_detail)
+    if state == "RETRY_WAIT":
+        # transition_cycle/adopt_cycle persist diagnostic as a nested object.
+        # Preserve older flat events while reading the actual durable writer.
+        diagnostic = detail.get("diagnostic", {})
+        if not isinstance(diagnostic, Mapping):
+            raise AutomationRefused("retry event diagnostic is not an object")
+        detail = {**detail, **{key: diagnostic[key] for key in (
+            "notifier_action", "retry_phase", "exception_fingerprint",
+            "phase_max_attempts", "first_failure_at") if key in diagnostic}}
     if (state == "RETRY_WAIT"
             and detail.get("notifier_action") != "RETRY_SCHEDULED"):
         raise AutomationRefused(
@@ -347,7 +356,8 @@ def _reconstruct_missing_transition_alerts(conn) -> None:
             " WHERE p.id=1 AND e.at>=p.web_push_activated_at"
             " AND e.to_state = ANY(%s)"
             " AND (e.to_state <> 'RETRY_WAIT' OR"
-            "      e.detail->>'notifier_action' = 'RETRY_SCHEDULED')"
+            "      COALESCE(e.detail->'diagnostic'->>'notifier_action',"
+            "               e.detail->>'notifier_action') = 'RETRY_SCHEDULED')"
             " ORDER BY e.seq",
             (list(sorted(_RECOVERABLE_CYCLE_STATES)),))
         events = list(cur.fetchall())

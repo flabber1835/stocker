@@ -9,7 +9,7 @@ import pytest
 
 from sentinel.feed import (
     coherence, identity_refresh, ingest, maintenance, recovery,
-    sep_reconciliation, sharadar, snapshot_source, source_authority, universe)
+    sep_reconciliation, sharadar, snapshot_source, source_authority, symbol_identity, universe)
 
 
 def test_pinned_initial_tickers_fetch_serves_proven_candidate_once():
@@ -127,18 +127,17 @@ def test_production_daily_prevalidates_exact_candidate_before_publication(
     monkeypatch.setattr(
         identity_refresh, "assert_candidate_history_safe",
         lambda conn, rows: events.append("history-safe"))
-    candidate_resolver = universe.IdentityResolver([
-        universe.Listing("642732", "YHNAU", "2024-11-08", "2026-08-25")])
-    monkeypatch.setattr(
-        identity_refresh, "resolver_with_candidate",
-        lambda conn, rows: events.append("candidate-resolver") or candidate_resolver)
+    monkeypatch.setattr(ingest.feed_store, "latest_session", lambda conn: "2026-08-21")
+    monkeypatch.setattr(symbol_identity, "require_published_history",
+                        lambda *a, **k: events.append("rename-history-safe"))
     monkeypatch.setattr(
         identity_refresh, "prevalidate_pending_sep_mutations",
         lambda conn, **kwargs: events.append("cdc-prevalidated") or [])
     monkeypatch.setattr(
         source_authority, "StableSharadarFetch",
         lambda fetch, after_session=None, sep_update_envelope=None,
-        reference_recovery=False: fetch)
+        reference_recovery=False, identity_actions=(), identity_through=None,
+        identity_fetch=None: fetch)
 
     def daily_locked(conn, **kwargs):
         events.append("daily-open")
@@ -170,6 +169,7 @@ def test_production_daily_prevalidates_exact_candidate_before_publication(
     ingest.daily(object(), fetch=source, today="2026-08-25")
 
     assert events.index("candidate-proved") < events.index("cdc-prevalidated")
+    assert events.index("rename-history-safe") < events.index("cdc-prevalidated")
     assert events.index("cdc-prevalidated") < events.index("daily-open")
     assert events.index("daily-first-tickers") < events.index("daily-published")
     assert events.index("daily-published") < events.index("sep-keyset")

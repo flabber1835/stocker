@@ -24,6 +24,7 @@ from sentinel.automation.model import (
     CycleState,
     TickAction,
     TickResult,
+    SourceDataPending,
     TransientInfrastructureFailure,
 )
 from sentinel.automation.service import AutomationService
@@ -67,6 +68,13 @@ class RecoveryAutomationService(AutomationService):
         else:
             value["callback_failure"] = "TRANSIENT_INFRASTRUCTURE"
             value["availability_retry_unbounded"] = True
+        if phase == "REFRESH" and transient:
+            from sentinel.feed.source_probe import coverage_hint
+            hint = coverage_hint(str(exc)) or cycle.diagnostic.get("source_probe")
+            if hint is not None:
+                value["source_probe"] = hint
+        if isinstance(exc, SourceDataPending):
+            value["callback_failure"] = "SOURCE_DATA_PENDING"
         value["terminal_reason"] = None
         return False, value
 
