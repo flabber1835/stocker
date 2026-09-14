@@ -4,6 +4,7 @@ from __future__ import annotations
 from contextlib import redirect_stdout
 import io
 import json
+import os
 from pathlib import Path
 import subprocess
 import sys
@@ -11,7 +12,8 @@ from types import SimpleNamespace
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
+sys.path.insert(0, str(ROOT / "scripts"))
 import sentinel_go_24x7_entry as source_final
 import sentinel_go_validate_entry as entry
 from sentinel import backup_guard, schema

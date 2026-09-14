@@ -2,13 +2,15 @@ from __future__ import annotations
 
 import io
 import json
+import os
 from pathlib import Path
 import sys
 from urllib.parse import parse_qs, urlsplit
 
 import pytest
 
-sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
+sys.path.insert(0, str(ROOT / "scripts"))
 import sentinel_source_membership_probe as probe
 
 
