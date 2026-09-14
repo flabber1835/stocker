@@ -5,7 +5,7 @@ docs/decisions/sentinel-source-recovery.md for the intentionally narrow join.
 """
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 import datetime as dt
 import hashlib
 import json
@@ -15,6 +15,7 @@ from sentinel.feed import action_source, calendar, universe
 
 RENAME_TYPES = ("tickerchangeto", "tickerchangefrom")
 SCHEMA = "sentinel.symbol-identity/1"
+Claim = tuple[str, str, str]  # source date, primary ticker, contraticker
 
 
 @dataclass(frozen=True)
@@ -25,12 +26,49 @@ class Rename:
     source_ids: tuple[str, ...]
 
 
+@dataclass
+class _Pair:
+    source_ids: set[str] = field(default_factory=set)
+    from_claims: set[Claim] = field(default_factory=set)
+    to_claims: set[Claim] = field(default_factory=set)
+
+
+def _pair_claims(changes_from: dict[Claim, set[str]], changes_to: dict[Claim, set[str]]):
+    """Pair source claims before interpreting their restated primary labels."""
+    to_groups: dict[tuple[str, str], list[Claim]] = {}
+    for claim in changes_to:
+        to_groups.setdefault(claim[:2], []).append(claim)
+    pairs: dict[tuple[str, str, str], _Pair] = {}
+
+    def add(from_claim, to_claim):
+        day, _, old = from_claim
+        new = to_claim[2]
+        if old == new:
+            return
+        pair = pairs.setdefault((day, old, new), _Pair())
+        pair.from_claims.add(from_claim)
+        pair.to_claims.add(to_claim)
+        pair.source_ids.update(changes_from[from_claim] | changes_to[to_claim])
+
+    for from_claim in changes_from:
+        day, primary, old = from_claim
+        # Sharadar can restate BOTH primary labels, including older events.
+        # The contra fields carry the event's old/new symbols in this form.
+        for to_claim in to_groups.get((day, primary), ()):
+            add(from_claim, to_claim)
+        # Also retain the reciprocal form: NEW/from/OLD + OLD/to/NEW.
+        reciprocal = (day, old, primary)
+        if reciprocal in changes_to:
+            add(from_claim, reciprocal)
+    return pairs
+
+
 class SymbolProjection:
     def __init__(self, rows: Iterable[Mapping], actions: Iterable[Mapping], *, through: str):
         self.rows = tuple(dict(row) for row in rows)
         self.through = dt.date.fromisoformat(str(through)).isoformat()
-        changes_from: dict[tuple[str, str, str], set[str]] = {}
-        changes_to: dict[tuple[str, str, str], set[str]] = {}
+        changes_from: dict[Claim, set[str]] = {}
+        changes_to: dict[Claim, set[str]] = {}
         for row in actions:
             kind = str(row.get("action") or "").lower()
             if kind not in RENAME_TYPES:
@@ -42,15 +80,12 @@ class SymbolProjection:
             contra = str(row.get("contraticker") or "").strip().upper()
             if not ticker or not contra or "N/A" in {ticker, contra}:
                 continue
-            old, new = (ticker, contra) if kind == "tickerchangeto" else (contra, ticker)
             selected = changes_to if kind == "tickerchangeto" else changes_from
-            selected.setdefault((day, old, new), set()).add(
+            selected.setdefault((day, ticker, contra), set()).add(
                 action_source.source_row_id(row))
-        edges = []
-        for (day, old, new), source_ids in changes_from.items():
-            other = changes_to.get((day, old, new), set()) | changes_to.get((day, new, new), set())
-            if old != new and other:
-                edges.append(Rename(day, old, new, tuple(sorted(source_ids | other))))
+        pairs = _pair_claims(changes_from, changes_to)
+        edges = [Rename(day, old, new, tuple(sorted(pair.source_ids)))
+                 for (day, old, new), pair in pairs.items()]
         adjacency: dict[str, set[str]] = {}
         by_old: dict[str, list[Rename]] = {}
         for edge in edges:
@@ -82,19 +117,27 @@ class SymbolProjection:
             remaining -= component
             chain = sorted((edge for symbol in component for edge in by_old.get(symbol, ())),
                            key=lambda edge: (edge.date, edge.old, edge.new))
-            claims = set().union(*(claim_index.get(symbol, set()) for symbol in component))
-            to_claims = set().union(*(to_claim_index.get(symbol, set()) for symbol in component))
-            permitted_to = {(edge.date, edge.old, edge.new) for edge in chain}
-            permitted_to.update((edge.date, edge.new, edge.new) for edge in chain)
             # Every node has at most one predecessor/successor, and dates are
             # strictly increasing. Reuse, branches and cycles grant no alias.
-            if (claims != {(edge.date, edge.old, edge.new) for edge in chain}
-                    or not to_claims <= permitted_to
-                    or len(chain) != len(component) - 1
+            if (len(chain) != len(component) - 1
                     or len({edge.old for edge in chain}) != len(chain)
                     or len({edge.new for edge in chain}) != len(chain)
                     or any(a.new != b.old or a.date >= b.date
                            for a, b in zip(chain, chain[1:]))):
+                continue
+            claims = set().union(*(claim_index.get(symbol, set()) for symbol in component))
+            to_claims = set().union(*(to_claim_index.get(symbol, set()) for symbol in component))
+            chain_pairs = [pairs[(edge.date, edge.old, edge.new)] for edge in chain]
+            # Do not discard an unpaired or conflicting older source claim to
+            # salvage a more recent pair from the same identity component.
+            if (claims != set().union(*(pair.from_claims for pair in chain_pairs))
+                    or to_claims != set().union(*(pair.to_claims for pair in chain_pairs))):
+                continue
+            successors = {edge.new: index for index, edge in enumerate(chain)}
+            # A restated primary must be this event's successor or a later one
+            # in the same proven chain, never an unrelated or earlier label.
+            if any(successors.get(claim[1], -1) < index
+                   for index, pair in enumerate(chain_pairs) for claim in pair.from_claims):
                 continue
             source = [row for symbol in component for row in anchors.get(symbol, ())]
             identities = {str(row.get("permaticker") or "").strip() for row in source}

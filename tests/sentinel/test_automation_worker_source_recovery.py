@@ -154,6 +154,11 @@ def test_worker_wait_restart_source_healing_and_transport(assembly, monkeypatch,
     rename = [dict(date=days[-1], action=kind, ticker="NEW", name="Example",
                    value=None, contraticker=contra, contraname="N/A")
               for kind, contra in (("tickerchangeto", "NEW"), ("tickerchangefrom", "OLD"))]
+    # The earlier pair is restated with the latest primary label too. Healing
+    # must survive a complete multi-hop history in the real callback process.
+    rename += [dict(date=days[0], action=kind, ticker="NEW", name="Example",
+                    value=None, contraticker=contra, contraname="N/A")
+               for kind, contra in (("tickerchangeto", "OLD"), ("tickerchangefrom", "EARLIER"))]
 
     class Source(BaseHTTPRequestHandler):
         def log_message(self, *_):

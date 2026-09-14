@@ -11,15 +11,51 @@ not the production availability policy.
 
 Permanent identity continues to come from TICKERS. A separate pure projection
 may join labels using paired, same-date ACTIONS `tickerchangeto` and
-`tickerchangefrom` records. The NAS response proves that the primary ticker is
-restated: `tickerchangefrom.ticker` names the successor, its `contraticker` names
-the predecessor, and the matching `tickerchangeto` can have the successor in
-both fields. Accept that exact shape or the un-restated reciprocal shape; do
-not discard a self-labelled `tickerchangeto` as a meaningless event. Both source rows
+`tickerchangefrom` records. The NAS response proves that the primary ticker can
+be restated with a later label. In the same-primary representation the two
+`contraticker` fields name the event's predecessor and successor. Accept that
+paired shape or the un-restated reciprocal shape; do not discard a self-labelled
+`tickerchangeto` as a meaningless event. Both source rows
 are retained; a relationship, merger, company name, relatedtickers token or
 price resemblance never grants this authority. A component must have exactly
 one TICKERS permanent identity and an ordered, nonbranching, acyclic rename
 chain. Conflicting identities or incomplete pairs cannot supply aliases.
+
+The follow-up NAS run at `0620545` exposed restatement of *older ACTIONS*
+primary labels as well. On 2019-04-02 both CYCNV-to-CYCN rows carry primary
+`ticker=KRSA`; on 2019-03-15 and 2019-10-29 both CHACU-to-CHAC and CHAC-to-PHGE
+pairs carry `ticker=HLSQ`. In this representation the same-date, same-primary
+`tickerchangefrom.contraticker` is the old symbol and
+`tickerchangeto.contraticker` is the new symbol. The primary ticker is a source
+label, not necessarily the symbol introduced on the event date. Retain support
+for the reciprocal representation where the two primary tickers are the event's
+old and new symbols.
+
+Build every explicit pair before validating the complete chronological chain.
+A restated primary label must be the event's successor or a later successor in
+that same proven chain; an unrelated primary label grants no alias. Every rename
+claim touching the component must be accounted for by its pairs. Unpaired or
+competing claims, branches, cycles, reused symbols, conflicting permanent IDs,
+and unsupported listing intervals continue to refuse. The observed full chains
+are `CYCNV -> CYCN -> KRSA` and `CHACU -> CHAC -> PHGE -> HLSQ`; they are regression
+inputs, never production exceptions. Pair source-row identities remain in the
+publication commitment, and the effective broker ticker follows the event dates.
+
+Regression coverage must include the complete older and newer rename history,
+its actual exporter CSV representation through the production capture wrapper,
+historical SEP membership on 2025-07-01, and published/candidate resolver scope.
+Testing only the latest September pair does not exercise this source contract.
+The bounded production rebuild regression runs four market sessions and 5,606
+identities with the complete ten-row historical ACTIONS export. Its only replaced
+external inputs are HTTP transport, clock and test producer identity. Production
+capture, exact coverage, PostgreSQL identity rebuild, normalization, post-seed
+source/local proof and atomic publication execute together. A missing older pair
+must preserve the prior publication without starting a database replay. This
+fixture proves feed assembly for the observed source shape; it does not certify
+the NAS's full history, runtime image, backup horizon or strategy warmup.
+The test image carries the existing Sharadar replay simulator package alongside
+its tests so this integration executes against the packaged runtime without a
+checkout on the import path. The deployable image does not acquire this fixture.
 
 Source aliases cover the anchored listing history because Sharadar restates
 historical SEP under the new label. Broker labels remain effective-dated. An
