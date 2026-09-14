@@ -22,7 +22,9 @@ scenarios run automatically in the existing Sentinel test owner on every PR.
 The worker source-recovery regression additionally launches the actual
 `automation_worker.main` process and `RecoveryAutomationService`, with real
 callback child processes, leases, notifications and durable wake times. A
-local HTTP provider withholds a rename pair while returning restated prices.
+local HTTP provider withholds a rename history while returning restated prices.
+The healed history includes an earlier pair whose primary ticker is already
+restated with the final label, exercising multiple successive renames.
 The worker retains its last publication, persists the failed identity, performs
 small probes beyond its configured attempt count, is killed and restarted,
 and then recaptures and publishes through canonical ingest when the provider
