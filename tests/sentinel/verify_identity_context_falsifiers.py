@@ -3,6 +3,22 @@ import subprocess
 import sys
 
 cases = [
+    ("action_repair_regresses_publication_frontier", """
+import inspect
+from sentinel.feed import actions_reconcile_v7
+source = inspect.getsource(actions_reconcile_v7._cash_semantic_migration)
+line = 'window_start=market_start, window_end=market_end,'
+assert source.count(line) == 1
+exec(source.replace(line, 'window_start=windows[0][0], window_end=windows[-1][1],'), actions_reconcile_v7.__dict__)
+""", "test_maintenance_publication_frontier.py::test_historical_repair_preserves_the_published_frontier[action_economics]"),
+    ("sep_repair_regresses_publication_frontier", """
+import inspect
+from sentinel.feed import maintenance
+source = inspect.getsource(maintenance._reconcile_sep_mutations_core)
+line = 'window_start=market_start, window_end=market_end,'
+assert source.count(line) == 1
+exec(source.replace(line, 'window_start=windows[0][0], window_end=windows[-1][1],'), maintenance.__dict__)
+""", "test_maintenance_publication_frontier.py::test_historical_repair_preserves_the_published_frontier[sep_mutation]"),
     ("unproven_alias_publication_allowed", """
 import inspect
 from sentinel.feed import publication

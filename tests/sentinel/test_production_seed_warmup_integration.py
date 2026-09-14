@@ -47,10 +47,11 @@ def seeded_market():
         for i in range(4001):
             px = (50. + i % 30) * (1.0004 + (i % 30) * .00002) ** index
             bars.append(dict(ticker=f"T{i}", date=day, open=px, close=px, closeunadj=px,
-                             volume=2000000 if i < 30 else 1000, lastupdated="2026-09-13"))
+                             volume=2000000 if i < 30 else 1000, lastupdated=day))
         for row in data["tickers"]:
             if day >= row["firstpricedate"]:
-                bars.append(dict(next(b for b in data["sep"] if b["ticker"] == row["ticker"]), date=day))
+                bars.append(dict(next(b for b in data["sep"] if b["ticker"] == row["ticker"]),
+                                 date=day, lastupdated=day))
         for ticker, first in (("OCLT", DAY), ("BRTM", "2026-09-10")):
             if day >= first:
                 bars.append(dict(next(b for b in data["sep"] if b["ticker"] == ticker), date=day))
@@ -77,6 +78,7 @@ def seeded_market():
                 aliases = source_aliases.load(conn)
                 assert {r["permaticker"] for r in aliases["records"]} == {"6401005", "6399775"}
                 assert conn.execute("SELECT COUNT(DISTINCT session) FROM sentinel_bars").fetchone()[0] == 253
+                assert publication.require_current(conn).window_end == DAY
             controller, strategy = production_strategy()
             yield SimpleNamespace(server=server, provider=provider, sessions=sessions,
                                   controller=controller, strategy=strategy)
@@ -115,13 +117,16 @@ def test_full_seed_current_champion_warmup_and_restart(seeded_market):
         assert state.last_processed_session is None
         assert state.pending == []
         assert not state.wealth_core["episodes"]
+        assert state.wealth_core["cash"] == 1000000
         assert not state.ledger["events"]
+        assert not state.ledger["receivables"]
         assert state.controller_session_history == []
         assert state.concordance_witness_origin == production.CONCORDANCE_WITNESS_PROSPECTIVE
         restored = SessionState.from_dict(json.loads(json.dumps(state.to_dict())))
         assert restored.to_dict() == state.to_dict()
         with publication.pinned(conn, commit=False) as held:
-            published = production.load_published_session(conn, DAY)
+            published = production.load_published_session(
+                conn, DAY, known_feed_security_ids=tuple(state.feed["series"]))
             result = prove_transition(state, published, held=held,
                                       controller=market.controller, strategy=market.strategy)
             assert all(result["checks"].values())
@@ -180,7 +185,8 @@ def test_published_daily_update_preserves_alias_evidence_and_restart_transition(
     with store.connect(market.server.sync_dsn) as conn:
         state, identity = fresh(conn, market)
         with publication.pinned(conn, commit=False):
-            first = production.load_published_session(conn, DAY)
+            first = production.load_published_session(
+                conn, DAY, known_feed_security_ids=tuple(state.feed["series"]))
             from sentinel.core.kernel import advance_session
             advanced = advance_session(state, first, controller_config=market.controller,
                                        strategy_identity=market.strategy)
@@ -191,7 +197,8 @@ def test_published_daily_update_preserves_alias_evidence_and_restart_transition(
         ingest.daily(conn, today=tomorrow, fetch=snapshot_source.fetch_table)
         assert len(source_aliases.load(conn)["records"]) == 2
         with publication.pinned(conn, commit=False) as held:
-            daily = production.load_published_session(conn, tomorrow)
+            daily = production.load_published_session(
+                conn, tomorrow, known_feed_security_ids=tuple(advanced.feed["series"]))
             proof = prove_transition(advanced, daily, held=held,
                                     controller=market.controller, strategy=market.strategy)
             assert all(proof["checks"].values())

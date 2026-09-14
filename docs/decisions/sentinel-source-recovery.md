@@ -243,6 +243,18 @@ The warmup identity builder must reject an incomplete or invalid SPY axis
 before normalizing its prices. A missing first benchmark date must be an
 explicit warmup refusal, never an incidental missing-key error.
 
+Historical maintenance must publish the complete retained market bounds after
+its replay succeeds. The correction windows describe which rows were replayed;
+they are retained as evidence and as the ingest run's work range. They must not
+replace the corpus publication's coverage window. Otherwise replaying a May
+corporate action after a September seed falsely moves the latest publication
+behind the first decision session, blocking an otherwise complete warmup.
+This applies to both the ACTIONS economic migration and SEP mutation replay.
+Use the existing retained market bounds captured under the writer lock; do not
+derive a future frontier from the vendor observation date or bypass publication
+receipts. Tests must keep later visible prices unchanged and prove that the
+repair's latest publication still covers them.
+
 Tests must cover an empty database, a contradiction first seen away from the
 endpoint samples, failure before publication, restart, post-seed coherence,
 initial warmup, and transition to daily operation. Demonstrate that rejecting
