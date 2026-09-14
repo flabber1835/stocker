@@ -93,7 +93,7 @@ def fresh(conn, market):
     return state, identity
 
 
-def stage_unpublished_session(conn, table, day):
+def stage_unpublished_session(conn, table, day, *, security_id=None):
     """Model interrupted restatement without disabling append-only triggers.
 
     All writes, including the candidate run, are rolled back by each test.
@@ -101,7 +101,9 @@ def stage_unpublished_session(conn, table, day):
     assert table in {"sentinel_bars", "sentinel_spy_total_return"}
     run_id = str(uuid.uuid4())
     conn.execute("INSERT INTO feed_ingest_runs(run_id,kind,status) VALUES (%s,'seed','running')", (run_id,))
-    conn.execute(f"UPDATE {table} SET last_written_run_id=%s WHERE session=%s", (run_id, day))
+    condition = " AND security_id=%s" if security_id is not None else ""
+    params = (run_id, day, security_id) if security_id is not None else (run_id, day)
+    conn.execute(f"UPDATE {table} SET last_written_run_id=%s WHERE session=%s" + condition, params)
 
 
 def test_full_seed_current_champion_warmup_and_restart(seeded_market):
@@ -155,7 +157,9 @@ def test_initial_warmup_does_not_include_the_first_decision_session(seeded_marke
     market = seeded_market
     with store.connect(market.server.sync_dsn) as conn:
         before, witness_before = fresh(conn, market)
-        stage_unpublished_session(conn, "sentinel_bars", DAY)
+        # Keep the published frontier and its source-identity horizon intact.
+        # Only the first decision day's price availability changes.
+        stage_unpublished_session(conn, "sentinel_bars", DAY, security_id="1")
         window, prospective, witness_after = shadow_runtime._load_warmup_material(
             conn, first_session=DAY, strategy_identity=market.strategy)
         assert witness_before == witness_after
