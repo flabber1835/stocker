@@ -70,6 +70,11 @@ def _runtime_schema_test_double_compat(request, monkeypatch):
     from sentinel.feed import store as feed_store
 
     module_name = request.module.__name__.rsplit(".", 1)[-1]
+    if module_name == "test_production_seed_warmup_integration":
+        # This module owns one source runtime across its shared real database.
+        # Replacing its signing key after seed invalidates authentic receipts;
+        # replacing validators would weaken its production-path acceptance.
+        return
     monkeypatch.setenv(
         "SENTINEL_PUBLICATION_RECEIPT_KEY", "test-only-receipt-key-" * 4)
 
