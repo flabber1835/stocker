@@ -54,7 +54,7 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/test-backup-timeline-promotion.sh 2>&1 | tee evidence/timeline-promotion.txt
-      - name: Prove runtime readiness against production private base backups
+      - name: Prove pre-schema backup, live mount upgrade, and private runtime media
         run: |
           set -euo pipefail
           bash scripts/test-backup-runtime-media.sh 2>&1 | tee evidence/runtime-media.txt

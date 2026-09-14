@@ -283,3 +283,23 @@ corporate-action sibling source rows are not collapsed at acquisition
 historical source corrections happen through a new generation, never in-place
 execution still requires full readiness + signed execution authority
 ```
+## Coverage refusal diagnostics
+
+Exact seed membership failures retain their session and expected/received counts
+before diagnostic truncation, followed by missing permanent identities and
+tickers. Category accounting and source hashes follow those actionable fields.
+The stable machine reason is `SOURCE_SEED_COVERAGE_INCOMPLETE`; capture progress
+counts validated rows released to replay, so zero captured rows does not imply
+zero downloaded rows. An incomplete capture must still close its spools and
+must never begin candidate database replay.
+
+Symbol changes are not missing-price exceptions. The September 2026 CYCN/KRSA
+and PHGE/HLSQ incident requires the actual stable TICKERS listing intervals,
+permanent identities, and SEP observations before changing coverage semantics.
+The bounded operator membership probe is read-only and cannot authorize a
+publication, alias, fabricated bar, or retrospective exception.
+
+Preparation attempt fields record entry into migration and daily catch-up even
+when either raises. A typed child failure marker carries these booleans; the
+host binds them into failure evidence without treating attempted work as
+success. Missing or ambiguous markers do not invent attempts.

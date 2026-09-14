@@ -41,6 +41,9 @@ fi
 
 COMPOSE=(docker compose -f docker-compose.sentinel.yml \
   -f docker-compose.sentinel-backup.yml)
+. scripts/sentinel-backup-archive-identity.sh
+sentinel_backup_archive_identity || refuse "WAL_ARCHIVE_SCRIPT_DRIFT" 4 \
+  "running WAL archive script differs from checkout or is unreadable; recreate sentinel-postgres using sentinel-compose.sh, then create and verify a fresh base"
 if ! ARCHIVER="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel -Atc \
   "SELECT current_setting('archive_mode'), coalesce(last_archived_wal,''),
           coalesce(floor(extract(epoch from last_archived_time))::bigint,0),

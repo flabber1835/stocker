@@ -65,6 +65,9 @@ def reason_code(phase, exc):
         return 'LOCAL_CURSOR_MISSING'
     if name == 'HistoricalIdentityMutation':
         return 'SOURCE_IDENTITY_HISTORY_MUTATION'
+    if name == 'SeedHistoryIncomplete' and lowered.startswith(
+            'sharadar sep seed eligible-set coverage refused:'):
+        return 'SOURCE_SEED_COVERAGE_INCOMPLETE'
     if name == 'SepMutationIdentityRefused':
         identity_reason = str(getattr(exc, 'reason_code', '') or '')
         return IDENTITY_REASON_CODES.get(
@@ -92,6 +95,8 @@ def emit_failure(phase, exc):
         'phase': str(phase),
         'error_type': type(exc).__name__,
         'reason_code': reason_code(phase, exc),
+        'schema_migration_attempted': schema_attempted,
+        'bounded_sharadar_daily_attempted': daily_attempted,
     }
     if type(exc).__name__ == 'SepMutationIdentityRefused':
         identity_reason = str(getattr(exc, 'reason_code', '') or '')
@@ -102,6 +107,8 @@ def emit_failure(phase, exc):
 
 
 c = None
+schema_attempted = False
+daily_attempted = False
 phase = 'RUNTIME_IMPORT'
 try:
     from datetime import datetime, timezone
@@ -118,6 +125,7 @@ try:
     backup_guard.require_writes_permitted(
         c, operation='NAS validation schema migration')
     phase = 'SCHEMA_MIGRATION'
+    schema_attempted = True
     schema.ensure_schema(c)
     store.migrate_schema(c)
     target = calendar.latest_closed_session()
@@ -130,9 +138,9 @@ try:
     daily_attempted = False
     if eligible:
         phase = 'DAILY_CATCHUP'
+        daily_attempted = True
         recovered = outage_recovery.catch_up(
             c, target_session=target, reobserve_current=True)
-        daily_attempted = True
         if recovered.mode == 'ALREADY_CURRENT':
             # The requested current-vendor re-observation completed inside
             # catch_up. No second mutable-source observation is needed here.

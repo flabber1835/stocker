@@ -71,6 +71,9 @@ def reason_code(phase, exc):
         return 'LOCAL_CURSOR_MISSING'
     if name == 'HistoricalIdentityMutation':
         return 'SOURCE_IDENTITY_HISTORY_MUTATION'
+    if name == 'SeedHistoryIncomplete' and lowered.startswith(
+            'sharadar sep seed eligible-set coverage refused:'):
+        return 'SOURCE_SEED_COVERAGE_INCOMPLETE'
     if name == 'SepMutationIdentityRefused':
         identity_reason = str(getattr(exc, 'reason_code', '') or '')
         return IDENTITY_REASON_CODES.get(
@@ -99,6 +102,8 @@ def emit_failure(phase, exc):
         'phase': str(phase),
         'error_type': type(exc).__name__,
         'reason_code': reason_code(phase, exc),
+        'schema_migration_attempted': schema_attempted,
+        'bounded_sharadar_daily_attempted': daily_attempted,
     }
     if type(exc).__name__ == 'SepMutationIdentityRefused':
         identity_reason = str(getattr(exc, 'reason_code', '') or '')
@@ -109,6 +114,8 @@ def emit_failure(phase, exc):
 
 
 c = None
+schema_attempted = False
+daily_attempted = False
 phase = 'RUNTIME_IMPORT'
 try:
     from datetime import datetime, timezone
@@ -131,6 +138,7 @@ try:
     backup_guard.require_writes_permitted(
         c, operation='NAS validation schema migration')
     phase = 'SCHEMA_MIGRATION'
+    schema_attempted = True
     schema.ensure_schema(c)
     store.migrate_schema(c)
 
@@ -143,8 +151,8 @@ try:
     following_open_future = now < execution_open.astimezone(timezone.utc)
 
     phase = 'DAILY_CATCHUP'
-    recovered = outage_recovery.catch_up(c, target_session=target)
     daily_attempted = True
+    recovered = outage_recovery.catch_up(c, target_session=target)
     if recovered.mode == 'ALREADY_CURRENT':
         pass
     elif recovered.mode == 'RETAINED_FULL_RESEED':
@@ -257,13 +265,16 @@ def _deployment_preparation_probe(
         'broker_authority_removed': not bool(
             go._BROKER_AUTH_ENV.intersection(run_env)),
     }
+    schema_attempted, daily_attempted = go.preparation_attempts(
+        completed, schema_migrated=evidence['schema_migrated'],
+        daily_completed=evidence['bounded_sharadar_daily'])
+    evidence.update(schema_migration_attempted=schema_attempted,
+                    bounded_sharadar_daily_attempted=daily_attempted)
     return go.PreparationSummary(
         status=go.PASS if passed else go.FAIL,
         runtime_image_digest=runtime_ref,
-        schema_migration_attempted=bool(
-            valid_shape and payload.get('schema_migrated') is True),
-        bounded_sharadar_daily_attempted=bool(
-            valid_shape and payload.get('bounded_sharadar_daily') is True),
+        schema_migration_attempted=schema_attempted,
+        bounded_sharadar_daily_attempted=daily_attempted,
         broker_mutation_attempts=0,
         evidence_sha256=go._evidence_digest(evidence),
         elapsed_milliseconds=elapsed)

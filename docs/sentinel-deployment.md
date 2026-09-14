@@ -2112,3 +2112,23 @@ and certified against the frozen oracle.
 **Do not redesign the strategy while doing this work.** The research stage is
 over for this deployment path. What remains is faithful implementation,
 operational separation, and falsifiable certification.
+## Backup upgrade checkpoint (September 2026)
+
+GO establishes physical backup durability **before** application schema migration.
+A pre-migration database may legitimately lack `sentinel_backup_evidence`. That
+table is an operator display projection, not the restore-horizon authority. The
+base producer must retain its verified physical backup and recovery metadata,
+report `SENTINEL_BASE_BACKUP_EVIDENCE=DEFERRED_SCHEMA_NOT_INSTALLED`, and succeed
+in that one case. Once the table exists, an evidence write failure remains a
+failure. Backup creation must not install or repair the application schema.
+
+The PostgreSQL archive command must match the checked-out archive script before
+status or base creation can pass. Script identity failure is a structural refusal,
+reported before copying a base, with a stable machine reason. The backup overlay
+mounts the scripts directory read-only so Git's atomic file replacement remains
+visible. An existing container with the former single-file mount needs one
+supported recreation: `bash scripts/sentinel-compose.sh --run up -d --no-deps
+--force-recreate --wait --wait-timeout 120 sentinel-postgres`. Then create a fresh
+base with `bash scripts/sentinel-base-backup.sh` and check it with
+`bash scripts/sentinel-backup-status.sh`. Retain older backup generations; never
+create retrospective checksum sidecars for archived WAL without its live source.

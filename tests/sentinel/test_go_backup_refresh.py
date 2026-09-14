@@ -203,7 +203,7 @@ def test_structural_backup_failure_remains_operator_refusal():
         backup.ensure_recent_verified_base_backup(
             runner, env=_env(), commit=COMMIT)
 
-    assert exc.value.reason_code == "BACKUP_HEALTH_STRUCTURAL_REFUSAL"
+    assert exc.value.reason_code == "ARCHIVE_MODE_DISABLED"
     assert not any(call[0] == ("bash", "scripts/sentinel-base-backup.sh")
                    for call in runner.calls)
 
@@ -255,6 +255,36 @@ def test_refresh_failure_is_fail_closed():
             runner, env=_env(), commit=COMMIT)
 
     assert exc.value.reason_code == "BASE_BACKUP_REFRESH_FAILED"
+
+
+def test_stale_archiver_reason_survives_go_without_starting_a_base_copy():
+    runner = FakeRunner(_status("WAL_ARCHIVE_SCRIPT_DRIFT", "stale container"))
+    with pytest.raises(backup.BackupRefreshRefused, match="WAL_ARCHIVE_SCRIPT_DRIFT"):
+        backup.ensure_recent_verified_base_backup(runner, env=_env(), commit=COMMIT)
+    assert not any("scripts/sentinel-base-backup.sh" in cmd for cmd, _env in runner.calls)
+
+
+@pytest.mark.parametrize("reason", [
+    "WAL_ARCHIVE_SCRIPT_DRIFT", "BASE_BACKUP_EVIDENCE_WRITE_FAILED",
+    "BASE_BACKUP_EVIDENCE_SCHEMA_UNAVAILABLE",
+])
+def test_refresh_preserves_reviewed_causal_reason_without_raw_diagnostics(reason):
+    runner = FakeRunner(
+        _status("BASE_BACKUP_STALE", "stale"),
+        refresh=_cp(4, err="secret diagnostic\nSENTINEL_BASE_BACKUP_REASON=" + reason + "\n"))
+    with pytest.raises(backup.BackupRefreshRefused) as caught:
+        backup.ensure_recent_verified_base_backup(runner, env=_env(), commit=COMMIT)
+    assert str(caught.value) == reason
+
+
+@pytest.mark.parametrize("output", [
+    "SENTINEL_BASE_BACKUP_REASON=SECRET_VALUE\n",
+    "SENTINEL_BASE_BACKUP_REASON=WAL_ARCHIVE_SCRIPT_DRIFT\n" * 2,
+])
+def test_refresh_rejects_unknown_or_ambiguous_machine_diagnostics(output):
+    runner = FakeRunner(_status("BASE_BACKUP_STALE", "stale"), refresh=_cp(4, err=output))
+    with pytest.raises(backup.BackupRefreshRefused, match="BASE_BACKUP_REFRESH_FAILED"):
+        backup.ensure_recent_verified_base_backup(runner, env=_env(), commit=COMMIT)
 
 
 def test_backup_subprocesses_never_receive_broker_authority():

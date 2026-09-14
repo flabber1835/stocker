@@ -234,3 +234,13 @@ recovery, authority, operator-script, Python-3.8 host and mutation-test coverage
   competing final is proven byte-identical and durable.
 - Filesystem disappearance during runtime reads: media errors retain retryable,
   write-fencing identity.
+## Upgrade regression coverage
+
+The real PostgreSQL media gate starts with no application schema and invokes the
+production base producer before migration, then migrates and proves append-only
+SQL evidence on a subsequent base. It must also reproduce an inode replacement
+under a running archive-script mount, prove early drift refusal for the legacy
+single-file mount, and prove the directory mount observes the replacement.
+Command doubles must model absent evidence tables instead of accepting every
+evidence INSERT. Real media tests remain the authority for PostgreSQL and mount
+behavior. A passing mocked lifecycle is not an end-to-end GO certification.

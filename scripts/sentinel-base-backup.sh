@@ -28,6 +28,12 @@ MARKER="sentinel-backup-$STAMP-$$"
 
 COMPOSE=(docker compose -f docker-compose.sentinel.yml \
   -f docker-compose.sentinel-backup.yml)
+. scripts/sentinel-backup-archive-identity.sh
+if ! sentinel_backup_archive_identity; then
+  echo "SENTINEL_BASE_BACKUP_REASON=WAL_ARCHIVE_SCRIPT_DRIFT" >&2
+  echo "REFUSED: running WAL archive script differs from checkout or is unreadable; recreate sentinel-postgres using sentinel-compose.sh before creating a fresh base" >&2
+  exit 4
+fi
 STAGING_CREATED=0
 cleanup_staging() {
   local rc=$?
@@ -196,8 +202,20 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
 # Publish a compact, append-only operator proof only after promotion and WAL
 # coverage have both succeeded. Values interpolated here are regex-validated
 # machine identities, never operator text.
-${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
-  -v ON_ERROR_STOP=1 -Atc "
+if ! EVIDENCE_TABLE="$(${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
+  -v ON_ERROR_STOP=1 -Atc "SELECT to_regclass('public.sentinel_backup_evidence') IS NOT NULL")"; then
+  echo "SENTINEL_BASE_BACKUP_REASON=BASE_BACKUP_EVIDENCE_SCHEMA_UNAVAILABLE" >&2
+  exit 4
+fi
+case "$EVIDENCE_TABLE" in
+f)
+  # GO requires this physical checkpoint before application schema migration.
+  # The restore proof is the retained base/WAL metadata, not this display row.
+  echo "SENTINEL_BASE_BACKUP_EVIDENCE=DEFERRED_SCHEMA_NOT_INSTALLED"
+  ;;
+t)
+  if ! ${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
+    -v ON_ERROR_STOP=1 -Atc "
     WITH evidence AS (
       SELECT jsonb_build_object(
         'base_backup','$NAME','marker','$MARKER','marker_lsn','$MARKER_LSN',
@@ -207,7 +225,17 @@ ${COMPOSE[@]} exec -T sentinel-postgres psql -U sentinel -d sentinel \
     INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof)
     SELECT 'BASE_BACKUP',
            encode(sha256(convert_to(proof::text,'UTF8')),'hex'),proof
-      FROM evidence;" >/dev/null
+      FROM evidence;" >/dev/null; then
+    echo "SENTINEL_BASE_BACKUP_REASON=BASE_BACKUP_EVIDENCE_WRITE_FAILED" >&2
+    exit 4
+  fi
+  echo "SENTINEL_BASE_BACKUP_EVIDENCE=RECORDED"
+  ;;
+*)
+  echo "SENTINEL_BASE_BACKUP_REASON=BASE_BACKUP_EVIDENCE_SCHEMA_UNAVAILABLE" >&2
+  exit 4
+  ;;
+esac
 
 echo "SENTINEL_BASE_BACKUP_DB_MUTATION=RECOVERY_MARKER_SCHEMA_AND_ROW"
 echo "verified_base_backup:$BACKUP_ROOT/base/$NAME"

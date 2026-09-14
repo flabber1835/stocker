@@ -4,6 +4,8 @@ import os
 from pathlib import Path
 import sys
 
+import pytest
+
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 SCRIPT_DIR = ROOT / "scripts"
@@ -53,3 +55,34 @@ def test_preparation_failure_markers_retain_raw_identity_reason_field():
             source_final._PREPARATION_CODE):
         assert "value['identity_reason'] = identity_reason" in code
         assert "getattr(exc, 'reason_code', '')" in code
+
+
+def test_exact_nas_missing_pair_keeps_session_and_counts_in_bounded_diagnostic():
+    from sentinel.feed import coherence, source_authority
+
+    day = "2026-09-08"  # Synthetic date; the old NAS envelope lost its date.
+    listings = [{"table": "SEP", "permaticker": str(i), "ticker": "T%s" % i,
+                 "category": "Domestic Common Stock", "firstpricedate": day,
+                 "lastpricedate": day} for i in range(5604)]
+    listings += [dict(listings[0], permaticker=identity, ticker=ticker)
+                 for identity, ticker in (("111101", "CYCN"), ("113467", "PHGE"))]
+    projection = source_authority.SeedListingProjection(listings, source_digest="a" * 64)
+    coverage = source_authority.SeedCoverageAccumulator(
+        projection, lambda ticker, session: ticker[1:], exceptions={})
+    try:
+        for listing in listings[:-2]:
+            coverage.add({"ticker": listing["ticker"], "date": day})
+        with pytest.raises(source_authority.SourceAuthorityRefused) as caught:
+            coverage.require_complete(date_from=day, date_to=day)
+        failure = coherence.SeedHistoryIncomplete(str(caught.value))
+        for code in (source_final._PREPARATION_CODE, validate_entry._RECOVERY_PREPARATION_CODE):
+            namespace = {}
+            exec(code.split("\ndef emit_failure", 1)[0], namespace)
+            assert namespace["reason_code"]("DAILY_CATCHUP", failure) == "SOURCE_SEED_COVERAGE_INCOMPLETE"
+            diagnostic = namespace["failure_detail"](failure)
+            assert len(diagnostic["detail"]) <= 420
+            for expected in (day, '"expected_eligible":5606', '"received_eligible":5604',
+                             '"missing_eligible_total":2', "111101", "CYCN", "113467", "PHGE"):
+                assert expected in diagnostic["detail"]
+    finally:
+        coverage.close()

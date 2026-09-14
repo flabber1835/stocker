@@ -4,7 +4,7 @@ set -euo pipefail
 cd "$(dirname "$0")/.."
 source_root="$PWD"
 image="postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b"
-work="$(mktemp -d /tmp/sentinel-runtime-media.XXXXXXXX)"
+work="$(mktemp -d "${SENTINEL_TEST_WORK_ROOT:-/tmp}/sentinel-runtime-media.XXXXXXXX")"
 repo="$work/backup-runtime-${work##*.}"
 export SENTINEL_BACKUP_DIR="$work/media"
 export SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1
@@ -27,6 +27,7 @@ trap cleanup EXIT
 mkdir -p "$repo/scripts" "$work/socket" "$SENTINEL_BACKUP_DIR"/{base,wal}
 for name in sentinel-base-backup.sh sentinel-backup-status.sh sentinel-backup-lib.sh \
             sentinel-backup-metadata-access.sh sentinel-backup-verify-chain.sh \
+            sentinel-backup-archive-identity.sh \
             sentinel-archive-wal.sh sentinel_host_python.py sentinel_backup_lock.py \
             sentinel-env.sh sentinel_env.py; do
   cp "scripts/$name" "$repo/scripts/$name"
@@ -64,17 +65,49 @@ docker run --rm --network none -v "$work/socket:/socket" --entrypoint sh "$image
   -ceu 'chown postgres:postgres /socket; chmod 0755 /socket'
 initialize() { (cd "$repo"; . scripts/sentinel-backup-lib.sh; sentinel_backup_root --initialize-markers); }
 initialize
+# Reproduce the old mount lifecycle: Git replaces the host inode after startup.
+cp "$repo/scripts/sentinel-archive-wal.sh" "$work/archive-current"
+cp "$repo/docker-compose.sentinel-backup.yml" "$work/overlay-current.yml"
+sed -i 's|source: ./scripts$|source: ./scripts/sentinel-archive-wal.sh|; s|target: /usr/local/libexec$|target: /usr/local/libexec/sentinel-archive-wal.sh|' "$repo/docker-compose.sentinel-backup.yml"
+printf '\n# legacy inode fixture\n' >> "$repo/scripts/sentinel-archive-wal.sh"
 "${compose[@]}" up -d --wait --wait-timeout 90 sentinel-postgres
 sql() { "${compose[@]}" exec -T sentinel-postgres psql -U sentinel -d sentinel -Atq -v ON_ERROR_STOP=1 -c "$1"; }
 url="host=$work/socket user=sentinel dbname=sentinel"
-# Production migrates the additive schema before any backup process starts.
-# This fresh-database media fixture must exercise that same ordering before the
-# backup publishes its append-only operator evidence.
+before_id="$(sql 'SELECT system_identifier::text FROM pg_control_system()')"
+sql 'CREATE TABLE private_payload (id integer PRIMARY KEY); INSERT INTO private_payload VALUES (42);'
+cp "$work/archive-current" "$repo/scripts/archive-next"
+mv "$repo/scripts/archive-next" "$repo/scripts/sentinel-archive-wal.sh"
+for checkpoint in sentinel-base-backup.sh sentinel-backup-status.sh; do
+  if result="$(cd "$repo"; bash "scripts/$checkpoint" 2>&1)"; then
+    fail "legacy stale file mount passed $checkpoint"
+  fi
+  [[ "$result" == *WAL_ARCHIVE_SCRIPT_DRIFT* ]] || fail "missing drift reason: $result"
+done
+copied="$("${compose[@]}" exec -T sentinel-postgres find /sentinel-backup/base -maxdepth 1 -name 'base-*' -print -quit)"
+[[ -z "$copied" ]] || fail "drift copied a base"
+# Recreate with the production directory mount, retaining the real PG volume.
+cp "$work/overlay-current.yml" "$repo/docker-compose.sentinel-backup.yml"
+"${compose[@]}" up -d --no-deps --force-recreate --wait --wait-timeout 90 sentinel-postgres
+[[ "$(sql 'SELECT system_identifier::text FROM pg_control_system()')" == "$before_id" ]] || fail "recreation changed cluster"
+[[ "$(sql 'SELECT id FROM private_payload')" == 42 ]] || fail "recreation lost data"
+cp "$work/archive-current" "$repo/scripts/archive-next"
+printf '\n# atomic replacement observed through directory mount\n' >> "$repo/scripts/archive-next"
+mv "$repo/scripts/archive-next" "$repo/scripts/sentinel-archive-wal.sh"
+[[ "$(sql "SELECT to_regclass('public.sentinel_backup_evidence') IS NULL")" == t ]] || fail "fixture migrated too early"
+created="$(cd "$repo"; bash scripts/sentinel-base-backup.sh)"
+[[ "$created" == *SENTINEL_BASE_BACKUP_EVIDENCE=DEFERRED_SCHEMA_NOT_INSTALLED* ]] || fail "missing pre-schema deferral"
+[[ "$(sql "SELECT to_regclass('public.sentinel_backup_evidence') IS NULL")" == t ]] || fail "backup installed application schema"
 "$SENTINEL_HOST_PYTHON" -c \
   'import sys; from sentinel import schema; from sentinel.feed import store; c = store.connect(sys.argv[1]); schema.ensure_schema(c); c.close()' \
   "$url"
-sql 'CREATE TABLE private_payload (id integer PRIMARY KEY); INSERT INTO private_payload VALUES (42);'
+echo 'BACKUP_RUNTIME_PASS pre_schema_backup_and_live_mount_upgrade'
+first_backup="$(printf '%s\n' "$created" | sed -n 's/^verified_base_backup://p')"
+sleep 1 # Backup names have one-second granularity.
 created="$(cd "$repo"; bash scripts/sentinel-base-backup.sh)"
+[[ "$created" == *SENTINEL_BASE_BACKUP_EVIDENCE=RECORDED* ]] || fail "post-migration evidence missing"
+[[ "$(sql "SELECT count(*) FROM sentinel_backup_evidence WHERE kind='BASE_BACKUP'")" == 1 ]] || fail "evidence row not persisted exactly once"
+"${compose[@]}" exec -T sentinel-postgres test -f "/sentinel-backup/base/${first_backup##*/}/backup_manifest" || fail "upgrade removed earlier base"
+echo 'BACKUP_RUNTIME_PASS post_schema_append_only_evidence'
 printf '%s\n' "$created"
 backup="$(printf '%s\n' "$created" | sed -n 's/^verified_base_backup://p')"
 name="${backup##*/}"

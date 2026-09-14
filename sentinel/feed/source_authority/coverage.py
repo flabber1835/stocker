@@ -120,7 +120,9 @@ class SeedCoverageAccumulator:
             if missing or extra or unresolved:
                 raise SourceAuthorityRefused(
                     "Sharadar SEP seed eligible-set coverage refused: "
-                    + json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+                    # Stable insertion order puts the failed session and keys
+                    # before the GO boundary's bounded diagnostic truncation.
+                    + json.dumps(evidence, separators=(",", ":")))
 
             aggregate_expected_eligible += int(evidence["expected_eligible"])
             aggregate_received_eligible += int(evidence["received_eligible"])
@@ -189,7 +191,6 @@ class SeedCoverageAccumulator:
 
         return {
             "session": session,
-            "source_projection_digest": self.projection.source_digest,
             "expected_eligible": len(expected),
             "received_eligible": observed_eligible,
             "missing_eligible_total": len(missing),
@@ -203,6 +204,7 @@ class SeedCoverageAccumulator:
                 expected_ineligible.items())),
             "received_ineligible_by_category": observed_ineligible,
             "missing_ineligible_by_category": missing_ineligible,
+            "source_projection_digest": self.projection.source_digest,
         }
 
     def close(self) -> None:
