@@ -11,6 +11,15 @@ class Contract(BaseModel):
     model_config = ConfigDict(extra="forbid", frozen=True)
 
 
+def _validate_source_query(table: str, query: dict[str, str | None]) -> None:
+    permitted = {"ticker", "table", "date.gte", "date.lte",
+                 "lastupdated.gte", "lastupdated.lte"}
+    permitted |= {"ACTIONS": {"action", "contraticker"},
+                  "TICKERS": {"permaticker"}}.get(table, set())
+    if set(query) - permitted:
+        raise ValueError("query must use modeled source filters")
+
+
 class Corpus(Contract):
     bars: tuple[tuple, ...]
     actions: tuple[tuple, ...]
@@ -28,11 +37,13 @@ class Fault(Contract):
     channel: Literal["pages", "export"] = "pages"
     ticker: str | None = None
     after_rows: int = Field(default=0, ge=0)
+    query: dict[str, str | None] = Field(default_factory=dict)
     field: str | None = None
     value: str | int | float | None = None
 
     @model_validator(mode="after")
     def executable_fault(self):
+        _validate_source_query(self.table, self.query)
         if self.kind in {"row_width", "missing_cursor", "repeat_cursor"} and self.channel != "pages":
             raise ValueError("pagination faults require the pages channel")
         if self.kind in {"invalid_zip", "stale_export"} and self.channel != "export":
@@ -54,16 +65,14 @@ class Revision(Contract):
     channel: Literal["pages", "export"] = "pages"
     observation: int = Field(default=2, ge=1)
     after_rows: int = Field(default=0, ge=0)
-    query: dict[str, str] = Field(default_factory=dict)
+    query: dict[str, str | None] = Field(default_factory=dict)
     rows: tuple[dict, ...]
 
     @model_validator(mode="after")
     def executable_revision(self):
         if self.after_rows and self.channel != "pages":
             raise ValueError("page offset requires the pages channel")
-        if set(self.query) - {"ticker", "table", "date.gte", "date.lte",
-                              "lastupdated.gte", "lastupdated.lte"}:
-            raise ValueError("revision query must use source filters")
+        _validate_source_query(self.table, self.query)
         return self
 
 

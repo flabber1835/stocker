@@ -141,22 +141,32 @@ def test_signal_anchor_survives_protected_history_eviction():
 
 
 class MetadataConnection:
-    """Execute the actual loader's SQL in an in-memory relational engine."""
+    """Execute listing SQL in SQLite, with an explicitly empty price corpus.
+
+    Published price/action visibility is covered by the PostgreSQL feed tests.
+    This fixture models only the metadata-only resolver and next-open extension.
+    """
     def __init__(self, rows):
         import sqlite3
         self.db = sqlite3.connect(':memory:')
         self.db.execute('CREATE TABLE feed_universe_current (permaticker TEXT, ticker TEXT, '
             'first_price_date TEXT, last_price_date TEXT, is_delisted BOOLEAN, '
-            'is_delisted_snapshot_date TEXT, snapshot_date TEXT)')
-        self.db.executemany('INSERT INTO feed_universe_current VALUES (?,?,?,?,?,?,?)', rows)
+            'is_delisted_snapshot_date TEXT, snapshot_date TEXT, category TEXT)')
+        self.db.executemany('INSERT INTO feed_universe_current VALUES (?,?,?,?,?,?,?,?)',
+                            [(*row, None) for row in rows])
     def cursor(self):
         conn = self
         class Cursor:
             def __enter__(self): return self
             def __exit__(self, *_): pass
             def execute(self, sql, params=()):
+                if sql.startswith('SELECT MAX(session) FROM sentinel_bars b WHERE '):
+                    assert not params
+                    self.result = conn.db.execute('SELECT NULL')
+                    return
                 self.result = conn.db.execute(sql.replace('%s::date', '?').replace('%s', '?'), params)
             def fetchall(self): return self.result.fetchall()
+            def fetchone(self): return self.result.fetchone()
         return Cursor()
 
 

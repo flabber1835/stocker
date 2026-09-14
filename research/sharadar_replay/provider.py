@@ -126,7 +126,8 @@ class Provider:
         observation, offset, activated = self._observation(table, channel, query)
         rows = self.rows(table, query)
         faults = [f for f in self.step.faults if f.table == table and f.channel == channel
-                  and int(query.get("qopts.cursor_id", "0")) >= f.after_rows]
+                  and int(query.get("qopts.cursor_id", "0")) >= f.after_rows
+                  and all(query.get(k) == v for k, v in f.query.items())]
         for fault in faults:
             if fault.kind == "set_value":
                 if fault.field not in COLUMNS[table]:

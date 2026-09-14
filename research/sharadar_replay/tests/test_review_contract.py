@@ -7,11 +7,11 @@ from pathlib import Path
 import httpx
 import pytest
 
-from research.sharadar_replay.model import Revision
+from research.sharadar_replay.model import Fault, Revision
 from research.sharadar_replay.oracle import StateMismatch, compare
 from research.sharadar_replay.provider import Provider
 from research.sharadar_replay.runtime import simulated_runtime
-from research.sharadar_replay.scenarios import FIRST, DIVIDEND, OLD_CORRECTION, SID, build_scenarios, step, world
+from research.sharadar_replay.scenarios import FIRST, DIVIDEND, OLD_CORRECTION, SID, SPLIT, build_scenarios, step, world
 from research.sharadar_replay.verify_evidence import CATALOGUE
 
 
@@ -97,6 +97,55 @@ def test_unreached_revision_is_a_failing_scenario():
     provider.advance(current.model_copy(update={'revisions': (revision,)}))
     with pytest.raises(AssertionError, match='never activated'):
         provider.assert_revisions_applied()
+
+
+def test_actions_revision_waits_for_complete_observations_after_identity_preflight():
+    from sentinel.feed import authority, sharadar, symbol_identity
+
+    scenario = build_scenarios()['actions_during_corroboration']
+    provider = Provider(page_size=scenario.page_size)
+    provider.advance(scenario.steps[0])
+    with simulated_runtime(provider, commit='a' * 40):
+        assert symbol_identity.stable_rename_rows(sharadar.fetch_table, through=FIRST) == []
+        assert not any(row['activated_revisions'] for row in provider.transcript)
+        params = {'date.gte': SPLIT, 'date.lte': FIRST}
+        first = list(sharadar.fetch_table('ACTIONS', params))
+        second = list(sharadar.fetch_table('ACTIONS', params))
+    with pytest.raises(authority.VendorPublicationUnstable):
+        authority.require_stable('ACTIONS', authority.observe_actions(first),
+                                authority.observe_actions(second))
+    activated = [row for row in provider.transcript if row['activated_revisions']]
+    assert len(activated) == 1
+    assert activated[0]['observation'] == 2
+    assert 'action' not in activated[0]['query']
+    provider.assert_revisions_applied()
+
+
+@pytest.mark.parametrize('name', ['interrupted_after_identity', 'actions_repeated_outage'])
+def test_actions_outage_targets_daily_capture_after_identity_preflight(name):
+    from sentinel.feed import sharadar, symbol_identity
+
+    provider = Provider()
+    provider.advance(build_scenarios()[name].steps[0])
+    with simulated_runtime(provider, commit='a' * 40):
+        assert symbol_identity.stable_rename_rows(sharadar.fetch_table, through=FIRST) == []
+        assert all(row['faults'] == [] for row in provider.transcript)
+        with pytest.raises(sharadar.SharadarRequestError):
+            list(sharadar.fetch_table('ACTIONS', {'date.gte': SPLIT, 'date.lte': FIRST}))
+    assert provider.transcript[-1]['faults'] == ['http_400']
+    assert 'action' not in provider.transcript[-1]['query']
+
+
+@pytest.mark.parametrize('kind', ['fault', 'revision'])
+@pytest.mark.parametrize('query', [{'api_key': None}, {'action': None}])
+def test_fault_and_revision_queries_reject_unmodeled_filters(kind, query):
+    from pydantic import ValidationError
+
+    with pytest.raises(ValidationError, match='modeled source filters'):
+        if kind == 'fault':
+            Fault(table='SEP', kind='http_400', query=query)
+        else:
+            Revision(name='bad_query', table='SEP', rows=(), query=query)
 
 
 def test_export_download_retains_issued_vintage_after_revision():

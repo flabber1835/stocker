@@ -73,7 +73,8 @@ def build_adversarial_scenarios(seed):
              step('recover', SECOND)], recovery_from='recover')
 
     for table in ('TICKERS', 'ACTIONS', 'SFP', 'SEP'):
-        fault = Fault(table=table, kind='http_400')
+        fault = Fault(table=table, kind='http_400',
+                      query={'action': None} if table == 'ACTIONS' else {})
         add(f'{table.lower()}_repeated_outage',
             [interrupted('outage_one', FIRST, fault, 'SharadarRequestError'),
              interrupted('outage_two', SECOND, fault, 'SharadarRequestError'),
