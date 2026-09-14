@@ -3,6 +3,14 @@ import subprocess
 import sys
 
 cases = [
+    ("unproven_alias_publication_allowed", """
+import inspect
+from sentinel.feed import publication
+source = inspect.getsource(publication.publish)
+line = 'if source_aliases.KEY in merged and ('
+assert source.count(line) == 1
+exec(source.replace(line, 'if False and ('), publication.__dict__)
+""", "test_alias_rejection_authority.py::test_publication_binds_the_exact_alias_evidence_proven_by_seed[missing_seed_proof]"),
     ("warmup_benchmark_axis_guard_disabled", """
 import inspect
 from sentinel import shadow_runtime

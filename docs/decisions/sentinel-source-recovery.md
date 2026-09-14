@@ -214,6 +214,8 @@ Only published evidence or the explicitly included candidate may influence a
 resolver. Empty seed evidence is explicit, so a complete corrected reseed can
 replace earlier rejections. Initial replay, post-seed proof, fresh connections,
 warmup, and daily mutation/normalization must reconstruct the same projection.
+Caller-supplied alias evidence without the matching durable seed proof must
+never acquire publication authority, including through a non-seed publication.
 A new daily contradiction requires the existing bounded retained-history
 recovery path before publication; it cannot silently change a live book's
 identity interpretation.

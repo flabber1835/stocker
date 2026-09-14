@@ -152,13 +152,17 @@ def test_daily_tolerance_cannot_replace_a_native_unit_with_its_unanchored_share(
         assert list(guard._validated_daily_listing_replay(iter(rows))) == rows
 
 
-@pytest.mark.parametrize("fault", [None, "proof_hash", "caller_evidence"])
+@pytest.mark.parametrize("fault", [None, "proof_hash", "caller_evidence", "missing_seed_proof", "missing_alias_hash"])
 def test_publication_binds_the_exact_alias_evidence_proven_by_seed(monkeypatch, fault):
     from sentinel.feed import publication, seed_coherence
     from test_issue_259_seed_coherence import _proof
     _, _, payload = projected()
     proof = _proof()
     proof["source_alias_rejections_sha256"] = "0" * 64 if fault == "proof_hash" else payload["sha256"]
+    if fault == "missing_seed_proof":
+        proof = None
+    elif fault == "missing_alias_hash":
+        del proof["source_alias_rejections_sha256"]
     monkeypatch.setattr(seed_coherence, "require_for_publication", lambda *_a, **_k: proof)
     monkeypatch.setattr(source_aliases, "load", lambda *_a, **_k: payload)
     observed = {}
@@ -167,6 +171,8 @@ def test_publication_binds_the_exact_alias_evidence_proven_by_seed(monkeypatch, 
         return "published"
     monkeypatch.setattr(publication, "_publish_atomic", atomic)
     supplied = {source_aliases.KEY: source_aliases.evidence()} if fault == "caller_evidence" else {}
+    if fault in {"missing_seed_proof", "missing_alias_hash"}:
+        supplied = {source_aliases.KEY: payload}
     if fault is not None:
         with pytest.raises(publication.CorpusIncoherent, match="alias evidence"):
             publication.publish("conn", run_id="seed-1", evidence=supplied)
