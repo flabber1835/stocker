@@ -59,8 +59,15 @@ def sql():
         print("1000|00000001")
     elif "CREATE TABLE IF NOT EXISTS sentinel_backup_recovery_markers" in query:
         return event("marker-row", lambda: 0)
+    elif "to_regclass('public.sentinel_backup_evidence')" in query:
+        if os.environ.get("BACKUP_LAB_EVIDENCE_QUERY_FAIL"):
+            return 1
+        print("t" if os.environ.get("BACKUP_LAB_EVIDENCE_TABLE") == "present" else "f")
     elif "INSERT INTO sentinel_backup_evidence" in query:
-        return 0
+        if os.environ.get("BACKUP_LAB_EVIDENCE_TABLE") != "present":
+            print('ERROR: relation "sentinel_backup_evidence" does not exist', file=sys.stderr)
+            return 1
+        return event("evidence-insert", lambda: 0)
     elif "pg_current_wal_lsn()::text" in query:
         marker = re.search(r"SELECT '([^|]+)\|'", query).group(1)
         print(f"{marker}|0/03000040|{WAL}")
@@ -149,6 +156,13 @@ def docker():
             return event("runtime-backup-probe", runtime_backup_probe)
         index = args.index("sentinel-postgres")
         command = args[index + 1:]
+        if command == ["sha256sum", "/usr/local/libexec/sentinel-archive-wal.sh"]:
+            source = ROOT / "repo/scripts/sentinel-archive-wal.sh"
+            digest = hashlib.sha256(source.read_bytes()).hexdigest()
+            if os.environ.get("BACKUP_LAB_ARCHIVER_DRIFT"):
+                digest = "0" * 64
+            print(digest + "  /usr/local/libexec/sentinel-archive-wal.sh")
+            return event("archive-identity", lambda: 0)
         source = " ".join(command)
         stage = "compose-read"
         if 'metadata="/sentinel-backup/base/$staging/sentinel-pitr-base-identity"' in source:

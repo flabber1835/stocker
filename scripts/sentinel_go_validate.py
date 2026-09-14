@@ -1060,6 +1060,30 @@ finally:
 '''.strip()
 
 
+def preparation_attempts(completed, *, schema_migrated, daily_completed):
+    """Retain typed failed-child attempts without promoting a failure to PASS."""
+    fallback = (schema_migrated is True, daily_completed is True)
+    if completed.returncode == 0:
+        return fallback
+    marker = "SENTINEL_GO_PREPARATION_FAILURE="
+    lines = [line[len(marker):] for stream in
+             (completed.stdout or "", completed.stderr or "")
+             for line in stream.splitlines() if line.startswith(marker)]
+    if len(lines) != 1:
+        return fallback
+    try:
+        payload = json.loads(lines[0])
+    except (ValueError, TypeError):
+        return fallback
+    if not isinstance(payload, dict):
+        return fallback
+    flags = tuple(payload.get(key) for key in (
+        "schema_migration_attempted", "bounded_sharadar_daily_attempted"))
+    if not all(type(value) is bool for value in flags):
+        return fallback
+    return flags
+
+
 def probe_prevalidation_preparation(
         runner: CommandRunner, *, env: Mapping[str, str],
         runtime_ref: Optional[str], commit: Optional[str],
@@ -1145,15 +1169,16 @@ def probe_prevalidation_preparation(
         "broker_authority_removed": not bool(
             _BROKER_AUTH_ENV.intersection(run_env)),
     }
+    schema_attempted, daily_attempted = preparation_attempts(
+        completed, schema_migrated=evidence["schema_migrated"],
+        daily_completed=evidence["bounded_sharadar_daily"])
+    evidence.update(schema_migration_attempted=schema_attempted,
+                    bounded_sharadar_daily_attempted=daily_attempted)
     return PreparationSummary(
         status=PASS if valid else FAIL,
         runtime_image_digest=runtime_ref,
-        schema_migration_attempted=bool(
-            isinstance(payload, dict)
-            and payload.get("schema_migrated") is True),
-        bounded_sharadar_daily_attempted=bool(
-            isinstance(payload, dict)
-            and payload.get("bounded_sharadar_daily") is True),
+        schema_migration_attempted=schema_attempted,
+        bounded_sharadar_daily_attempted=daily_attempted,
         broker_mutation_attempts=0,
         evidence_sha256=_evidence_digest(evidence),
         elapsed_milliseconds=elapsed_milliseconds)

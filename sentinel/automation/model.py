@@ -31,6 +31,10 @@ class TransientInfrastructureFailure(AutomationRefused):
     """An explicitly classified temporary dependency failure."""
 
 
+class SourceDataPending(TransientInfrastructureFailure):
+    """A source join or coverage proof is waiting for a coherent observation."""
+
+
 class PermanentOperationalRefusal(AutomationRefused):
     """An expected operational refusal that requires durable blocking."""
 

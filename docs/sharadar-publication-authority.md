@@ -283,3 +283,51 @@ corporate-action sibling source rows are not collapsed at acquisition
 historical source corrections happen through a new generation, never in-place
 execution still requires full readiness + signed execution authority
 ```
+## Coverage refusal diagnostics
+
+Exact seed membership failures retain their session and expected/received counts
+before diagnostic truncation, followed by missing permanent identities and
+tickers. Category accounting and source hashes follow those actionable fields.
+The stable machine reason is `SOURCE_SEED_COVERAGE_INCOMPLETE`; capture progress
+counts validated rows released to replay, so zero captured rows does not imply
+zero downloaded rows. An incomplete capture must still close its spools and
+must never begin candidate database replay.
+
+Symbol changes are not missing-price exceptions. The September 2026 CYCN/KRSA
+and PHGE/HLSQ incident requires the actual stable TICKERS listing intervals,
+permanent identities, and SEP observations before changing coverage semantics.
+The bounded operator membership probe is read-only and cannot authorize a
+publication, alias, fabricated bar, or retrospective exception.
+
+Preparation attempt fields record entry into migration and daily catch-up even
+when either raises. A typed child failure marker carries these booleans; the
+host binds them into failure evidence without treating attempted work as
+success. Missing or ambiguous markers do not invent attempts.
+
+The NAS observation at `2026-09-14T00:46:47Z` demonstrates a cross-table
+disagreement: SEP returns September 1-11 history under KRSA and HLSQ, while
+TICKERS returns only CYCN (`111101`, last price September 8) and PHGE (`113467`,
+last price September 11). Neither new symbol has a TICKERS permanent-identity
+record in that observation. Permanent identity still comes from the primary
+TICKERS listing. `relatedtickers` and news do not authorize a join or source
+rewriting. The subsequently supplied ACTIONS records provide explicit paired
+rename evidence: `tickerchangefrom` carries the old label in `contraticker`,
+while both records' primary ticker and `tickerchangeto.contraticker` carry the
+new label. This is sufficient to join the labels to the existing permanent ID
+under the bounded rules in
+[source identity reconciliation](decisions/sentinel-source-recovery.md).
+
+On coverage refusal, preserve a bounded, sorted sample of all unresolvable SEP
+symbols alongside the missing expected identities. This is diagnostic only:
+unknown symbols do not acquire eligibility, and known ineligible securities do
+not become a new refusal condition. Store the sample source on disk with the
+existing bounded coverage accumulator, not as an unbounded in-memory history.
+
+The regressions pass through repeated SEP observations, bracketed reference
+checks and private capture. Without a complete, unambiguous rename pair, stale
+metadata still refuses before SEP replay. With the actual paired ACTIONS shape,
+the unchanged source bars resolve to the existing permanent identities, even
+while TICKERS retains the old symbols. Removing a required price, changing a
+source observation or introducing conflicting identity evidence must refuse.
+Published broker labels change on the ACTIONS effective date; unpublished
+candidate evidence cannot affect the published resolver.

@@ -36,6 +36,9 @@ class SeedCoverageAccumulator:
             CREATE TABLE unresolved_risk (
                 session TEXT NOT NULL, ticker TEXT NOT NULL,
                 PRIMARY KEY(session,ticker)) WITHOUT ROWID;
+            CREATE TABLE unresolved_source (
+                session TEXT NOT NULL, ticker TEXT NOT NULL,
+                PRIMARY KEY(session,ticker)) WITHOUT ROWID;
             CREATE INDEX observed_identity_session
                 ON observed(permaticker,session);
         """)
@@ -44,6 +47,9 @@ class SeedCoverageAccumulator:
         ticker, session = _canonical_key(sharadar.SEP, row)
         permaticker = self.resolve(ticker, session)
         if permaticker is None:
+            self._db.execute(
+                "INSERT OR IGNORE INTO unresolved_source(session,ticker)"
+                " VALUES (?,?)", (session, ticker))
             if self.projection.unresolved_could_be_common(ticker, session):
                 self._db.execute(
                     "INSERT OR IGNORE INTO unresolved_risk(session,ticker)"
@@ -120,7 +126,9 @@ class SeedCoverageAccumulator:
             if missing or extra or unresolved:
                 raise SourceAuthorityRefused(
                     "Sharadar SEP seed eligible-set coverage refused: "
-                    + json.dumps(evidence, sort_keys=True, separators=(",", ":")))
+                    # Stable insertion order puts the failed session and keys
+                    # before the GO boundary's bounded diagnostic truncation.
+                    + json.dumps(evidence, separators=(",", ":")))
 
             aggregate_expected_eligible += int(evidence["expected_eligible"])
             aggregate_received_eligible += int(evidence["received_eligible"])
@@ -189,11 +197,13 @@ class SeedCoverageAccumulator:
 
         return {
             "session": session,
-            "source_projection_digest": self.projection.source_digest,
             "expected_eligible": len(expected),
             "received_eligible": observed_eligible,
             "missing_eligible_total": len(missing),
             "missing_eligible": keys(list(missing)),
+            "unresolved_source_tickers": [str(row[0]) for row in self._db.execute(
+                "SELECT ticker FROM unresolved_source WHERE session=?"
+                " ORDER BY ticker LIMIT 16", (session,)).fetchall()],
             "unexpected_eligible_total": len(extra),
             "unexpected_eligible": keys(list(extra)),
             "unresolved_eligible_risk_total": len(unresolved),
@@ -203,6 +213,7 @@ class SeedCoverageAccumulator:
                 expected_ineligible.items())),
             "received_ineligible_by_category": observed_ineligible,
             "missing_ineligible_by_category": missing_ineligible,
+            "source_projection_digest": self.projection.source_digest,
         }
 
     def close(self) -> None:

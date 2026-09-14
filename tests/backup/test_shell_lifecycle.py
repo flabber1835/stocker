@@ -37,6 +37,7 @@ class ShellLab:
                      "sentinel-backup-verify-chain.py", "sentinel-backup-verify-chain.sh",
                      "sentinel-restore-drill.sh", "sentinel_host_python.py",
                      "sentinel_backup_lock.py", "sentinel-backup-metadata-access.sh",
+                     "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh",
                      "sentinel-env.sh", "sentinel_env.py"):
             shutil.copy2(ROOT / "scripts" / name, self.scripts / name)
         # Separate mount-validation tests execute the real backup library.
@@ -69,6 +70,49 @@ class ShellLab:
     def events(self):
         return [json.loads(line)["stage"] for line in
                 (self.root / "events.jsonl").read_text().splitlines()]
+
+
+def test_base_before_application_schema_defers_only_display_evidence(tmp_path):
+    lab = ShellLab(tmp_path)
+    result = lab.run()
+    assert result.returncode == 0, result.stderr
+    assert "SENTINEL_BASE_BACKUP_EVIDENCE=DEFERRED_SCHEMA_NOT_INSTALLED" in result.stdout
+    assert "verified_base_backup:" in result.stdout
+    assert "evidence-insert" not in lab.events()
+
+
+def test_unknown_evidence_schema_is_not_treated_as_absent(tmp_path):
+    lab = ShellLab(tmp_path)
+    lab.env["BACKUP_LAB_EVIDENCE_QUERY_FAIL"] = "1"
+    result = lab.run()
+    assert result.returncode == 4
+    assert "BASE_BACKUP_EVIDENCE_SCHEMA_UNAVAILABLE" in result.stderr
+    assert "verified_base_backup:" not in result.stdout
+
+
+@pytest.mark.parametrize("write_fails", [False, True])
+def test_existing_evidence_table_requires_successful_insert(tmp_path, write_fails):
+    lab = ShellLab(tmp_path)
+    lab.env["BACKUP_LAB_EVIDENCE_TABLE"] = "present"
+    if write_fails:
+        lab.env["BACKUP_LAB_FAULT"] = "evidence-insert:before"
+    result = lab.run()
+    assert "evidence-insert" in lab.events()
+    assert (result.returncode == 0) is not write_fails
+    assert ("verified_base_backup:" in result.stdout) is not write_fails
+    if write_fails:
+        assert "SENTINEL_BASE_BACKUP_REASON=BASE_BACKUP_EVIDENCE_WRITE_FAILED" in result.stderr
+
+
+@pytest.mark.parametrize("script", ["sentinel-base-backup.sh", "sentinel-backup-status.sh"])
+def test_stale_running_archiver_refuses_before_copy_or_writes(tmp_path, script):
+    lab = ShellLab(tmp_path)
+    lab.env["BACKUP_LAB_ARCHIVER_DRIFT"] = "1"
+    result = lab.run(script)
+    assert result.returncode == 4, result.stderr
+    assert "WAL_ARCHIVE_SCRIPT_DRIFT" in result.stderr
+    assert "base-copy" not in lab.events()
+    assert "marker-row" not in lab.events()
 
 
 @pytest.mark.parametrize("stage", [

@@ -102,6 +102,12 @@ order-dependent last-write-wins behavior.
 The denominator for a historical seed comes from the same stable complete
 `table=SEP` TICKERS generation that supplies permanent identity and listing
 intervals. It is independent of the SEP rows received for the session.
+Paired ACTIONS rename records may supplement these intervals through the
+explicit observation horizon using the continuity rules in
+[source identity reconciliation](decisions/sentinel-source-recovery.md).
+This retains the same permanent ID and category, adds required coverage for an
+active renamed security, and never reduces the denominator because a price is
+absent. Raw TICKERS and ACTIONS remain unchanged.
 
 For every expected XNYS session:
 
@@ -113,7 +119,8 @@ For every expected XNYS session:
    `stock_strategy_shared.wealth_core.eligibility.is_common_equity` to the raw
    TICKERS category. No seed-only category approximation is permitted.
 4. Resolve every received SEP `(ticker, session)` through the same
-   `IdentityResolver` built from that stable TICKERS generation.
+   identity resolver built from that stable TICKERS generation and its stable,
+   explicitly paired rename evidence.
 5. Require exact equality between the expected and received canonical
    common-equity sets, after applying only reviewed exact exceptions.
 6. Retain explicit counts for expected, received, and absent non-common-equity
@@ -159,8 +166,9 @@ The validators must remain suitable for universe-scale annual chunks:
 - exact source-key and coverage membership is stored in temporary local scratch
   with uniqueness constraints;
 - failure evidence is sorted and bounded while retaining exact total counts;
-- evidence includes the stable TICKERS projection digest so the expected set is
-  tied to the source generation that produced it;
+- evidence includes the stable TICKERS projection digest and, when applied,
+  the rename source-row identities and observation horizon, so the expected set
+  is tied to the source generations that produced it;
 - source row order and pagination cannot change either the verdict or its
   evidence.
 

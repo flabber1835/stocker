@@ -180,7 +180,8 @@ def ensure_recent_verified_base_backup(
 
     reason = _repairable_reason(status)
     if reason is None:
-        raise BackupRefreshRefused("BACKUP_HEALTH_STRUCTURAL_REFUSAL")
+        raise BackupRefreshRefused(
+            _status_reason(status) or "BACKUP_HEALTH_STRUCTURAL_REFUSAL")
 
     print(
         "[GO] backup durability requires refresh (%s); creating verified base backup"
@@ -190,6 +191,14 @@ def ensure_recent_verified_base_backup(
     refreshed = runner.run(
         ["bash", "scripts/sentinel-base-backup.sh"], env=run_env)
     if refreshed.returncode != 0:
+        # Carry only reviewed machine codes across the public evidence boundary;
+        # arbitrary subprocess output may contain private paths or credentials.
+        reasons = [line.split("=", 1)[1] for line in _output_lines(refreshed)
+                   if line.startswith("SENTINEL_BASE_BACKUP_REASON=")]
+        if len(reasons) == 1 and reasons[0] in {
+                "WAL_ARCHIVE_SCRIPT_DRIFT", "BASE_BACKUP_EVIDENCE_WRITE_FAILED",
+                "BASE_BACKUP_EVIDENCE_SCHEMA_UNAVAILABLE"}:
+            raise BackupRefreshRefused(reasons[0])
         raise BackupRefreshRefused("BASE_BACKUP_REFRESH_FAILED")
     path = _created_backup_path(refreshed)
     if path is None:
@@ -201,7 +210,8 @@ def ensure_recent_verified_base_backup(
         ["bash", "scripts/sentinel-backup-status.sh", "--backup", path],
         env=run_env)
     if verified.returncode != 0:
-        raise BackupRefreshRefused("BASE_BACKUP_POST_REFRESH_NOT_READY")
+        raise BackupRefreshRefused(
+            _status_reason(verified) or "BASE_BACKUP_POST_REFRESH_NOT_READY")
 
     _require_checkout_exact(runner, commit=str(commit), env=run_env)
     print("[GO] refreshed base backup verified", flush=True)

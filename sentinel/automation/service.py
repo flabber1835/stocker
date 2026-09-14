@@ -41,6 +41,7 @@ from sentinel.automation.model import (
     PrepareResult,
     RefreshResult,
     SoftwareDefect,
+    SourceDataPending,
     SupervisorIntegrityFailure,
     TickAction,
     TickResult,
@@ -106,6 +107,7 @@ _CHILD_EXCEPTION_TYPES = {
         NonRetryableCallbackRefused,
         PermanentOperationalRefusal,
         SoftwareDefect,
+        SourceDataPending,
         StaleLeaderRefused,
         TransientInfrastructureFailure,
     )

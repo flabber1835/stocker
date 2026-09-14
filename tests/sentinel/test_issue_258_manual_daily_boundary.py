@@ -90,10 +90,18 @@ def test_ingest_daily_passes_explicit_session_verbatim(monkeypatch):
         ingest.feed_store, "latest_visible_session", lambda conn: "2026-08-21")
     monkeypatch.setattr(
         ingest.recovery, "extended_overlap_days", lambda conn, requested: requested)
+
+    def stable_fetch(fetch, *, after_session=None, sep_update_envelope=None,
+                     reference_recovery=False, identity_actions=(),
+                     identity_through=None, identity_fetch=None):
+        assert identity_actions == ()
+        assert identity_fetch is None
+        observed["identity_through"] = identity_through
+        return fetch
+
     monkeypatch.setattr(
         ingest.source_authority, "StableSharadarFetch",
-        lambda fetch, after_session=None, sep_update_envelope=None,
-        reference_recovery=False: fetch)
+        stable_fetch)
 
     def daily_locked(conn, **kwargs):
         observed.update(kwargs)
@@ -113,6 +121,7 @@ def test_ingest_daily_passes_explicit_session_verbatim(monkeypatch):
     result = ingest.daily("conn", fetch=source, today="2026-08-24")
     assert result.run_id == "daily-test"
     assert observed["today"] == "2026-08-24"
+    assert observed["identity_through"] == "2026-08-24"
 
 
 def test_cli_missing_boundary_refuses_before_configuration(monkeypatch, capsys):

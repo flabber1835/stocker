@@ -472,11 +472,26 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
 
         published_frontier = feed_store.latest_visible_session(conn)
         daily_fetch = fetch
+        effective_overlap = recovery.extended_overlap_days(conn, overlap_days)
+        identity_actions = ()
+        identity_fetch = None
         if fetch is snapshot_source.fetch_table and resolve_identity is None:
             tickers_candidate = identity_refresh.stable_current_tickers(fetch)
             identity_refresh.assert_candidate_history_safe(conn, tickers_candidate)
-            candidate_resolver = identity_refresh.resolver_with_candidate(
-                conn, tickers_candidate)
+            from sentinel.feed.symbol_identity import (
+                SymbolProjection, require_published_history, stable_rename_rows)
+            identity_actions = stable_rename_rows(fetch, through=resolved_today)
+            identity_fetch = fetch
+            resume_frontier = feed_store.latest_session(conn)
+            if resume_frontier is not None:
+                from sentinel.feed import calendar
+                start = (_dt.date.fromisoformat(resume_frontier)
+                         - _dt.timedelta(days=effective_overlap)).isoformat()
+                action_start, _ = calendar.action_date_window(start, resolved_today)
+                require_published_history(conn, identity_actions, before=action_start)
+            candidate_resolver = SymbolProjection(
+                tickers_candidate, identity_actions,
+                through=resolved_today).resolver()
             identity_refresh.prevalidate_pending_sep_mutations(
                 conn, fetch=fetch, through=yesterday,
                 resolver=candidate_resolver)
@@ -487,13 +502,14 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             published_frontier if fetch is snapshot_source.fetch_table else None)
         guarded = source_authority.StableSharadarFetch(
             daily_fetch, after_session=listing_frontier,
+            identity_actions=identity_actions, identity_through=resolved_today,
+            identity_fetch=identity_fetch,
             reference_recovery=(recovery.failed_reference_keys(conn)
                                 if failed is not None and failed.kind == "daily"
                                 else frozenset()),
             sep_update_envelope=(source_authority.SepUpdateEnvelope.through(
                 source_observation_day, context="production daily SEP observation")
                 if production_snapshot else None))
-        effective_overlap = recovery.extended_overlap_days(conn, overlap_days)
         progress = _impl._daily_locked(
             conn, fetch=guarded, resolve_identity=resolve_identity,
             overlap_days=effective_overlap, today=resolved_today)

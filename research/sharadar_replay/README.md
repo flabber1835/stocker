@@ -150,6 +150,16 @@ each case names its expected diagnostic. An unexpected exception or changed
 corpus is a failing case requiring investigation. Frozen expected snapshots
 remain independent of production output.
 
+Faults and revisions may additionally select source query fields. A string
+requires an exact value; `null` requires that the field be absent. Only modeled
+source filters are accepted. ACTIONS faults intended to interrupt daily writes
+after metadata acquisition require the `action` filter to be absent. The same
+restriction binds ACTIONS corroboration revisions to complete observations.
+Filtered identity preflights must neither trigger those outages nor consume a
+scheduled revision before its intended observation. HTTP regressions run the
+actual identity reader before the targeted requests, and PostgreSQL falsifiers
+still require the original repeated-metadata recovery defect to be detected.
+
 CI distributes the collected test IDs deterministically over four independent
 PostgreSQL jobs. Each shard records its collected IDs and selection. Their union
 must cover the full suite exactly once. The case catalogue and seeded schedules
@@ -256,8 +266,9 @@ manifests and requires exact coverage and step ordering. Empty replay evidence,
 coordinated omissions across all shards and missing recovery steps are failures.
 Catalogue updates accompany intentional scenario additions.
 
-The suite contains 139 independently checked PostgreSQL scenarios and 271 tests
-in total, including eight end-to-end recovery and field/stability falsifiers.
+The committed catalogue defines the independently checked PostgreSQL scenarios
+and required recovery and field/stability falsifiers. Evidence records the exact
+collected test count for each run.
 
 | Area | Variations |
 |---|---|

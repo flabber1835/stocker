@@ -599,7 +599,8 @@ class EnvHarness(unittest.TestCase):
 
     def maintenance_repo(self):
         process = self.shell_repo()
-        for name in MAINTENANCE_LAUNCHERS:
+        for name in MAINTENANCE_LAUNCHERS + (
+                "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh"):
             shutil.copyfile(ROOT / "scripts" / name, self.root / "scripts" / name)
         (self.root / "scripts/sentinel-backup-lib.sh").write_text(
             'sentinel_backup_root() { echo backup >> effects; printf "%s\\n" "$SENTINEL_BACKUP_DIR"; }\n')

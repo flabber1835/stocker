@@ -56,15 +56,16 @@ def _economic_value(source_payload, fallback):
 
 
 def active_rows(conn, *, start: str, end: str,
-                include_run_id=None) -> list[dict]:
+                include_run_id=None, action_types=None) -> list[dict]:
     """Active raw-date rows, optionally overlaid by one candidate generation."""
     with conn.cursor() as cur:
         cur.execute(
             "SELECT source_row_id,source_payload,ticker,session,action,name,"
             " value,contraticker,contraname"
             " FROM sentinel_active_actions"
-            " WHERE session BETWEEN %s AND %s",
-            (start, end))
+            " WHERE session BETWEEN %s AND %s"
+            + (" AND action=ANY(%s)" if action_types is not None else ""),
+            (start, end, list(action_types)) if action_types is not None else (start, end))
         published = cur.fetchall()
 
     keyed = {
@@ -83,8 +84,10 @@ def active_rows(conn, *, start: str, end: str,
                 "SELECT source_row_id,source_payload,ticker,session,action,name,"
                 " value,contraticker,contraname,disposition"
                 " FROM sentinel_action_observations"
-                " WHERE last_written_run_id=%s AND session BETWEEN %s AND %s",
-                (str(include_run_id), start, end))
+                " WHERE last_written_run_id=%s AND session BETWEEN %s AND %s"
+                + (" AND action=ANY(%s)" if action_types is not None else ""),
+                (str(include_run_id), start, end, list(action_types))
+                if action_types is not None else (str(include_run_id), start, end))
             for (source_row_id, source_payload, ticker, session, action, name,
                  value, contraticker, contraname, disposition) in cur:
                 key = str(source_row_id)

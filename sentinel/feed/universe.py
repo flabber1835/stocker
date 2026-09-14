@@ -625,8 +625,30 @@ def load_resolver(conn, *, include_run_id=None, execution_session=None) -> Ident
                 " FROM collapsed ORDER BY permaticker,ticker",
                 (str(include_run_id),))
         rows = cur.fetchall()
-    return IdentityResolver(
-        Listing(permaticker=str(p), ticker=str(t),
-                first_session=None if f is None else str(f),
-                last_session=None if l is None else str(l))
-        for p, t, f, l in rows)
+    from sentinel.feed import actions, publication
+    from sentinel.feed.symbol_identity import RENAME_TYPES, SymbolProjection
+    with conn.cursor() as cur:
+        cur.execute("SELECT MAX(session) FROM sentinel_bars b WHERE "
+                    + publication.visible_predicate("b"))
+        horizon = cur.fetchone()[0]
+        if include_run_id is not None:
+            cur.execute("SELECT date_to FROM feed_ingest_runs WHERE run_id=%s", (str(include_run_id),))
+            candidate = cur.fetchone()
+            if candidate and candidate[0] is not None:
+                horizon = max(str(horizon or ""), str(candidate[0]))
+        cur.execute("SELECT permaticker,ticker,is_delisted,category FROM feed_universe_current")
+        active = {(str(p), str(t)): (d, category) for p, t, d, category in cur.fetchall()}
+        if include_run_id is not None:
+            cur.execute("SELECT permaticker,ticker,is_delisted,category FROM sentinel_universe WHERE last_written_run_id=%s",
+                        (str(include_run_id),))
+            active.update({(str(p), str(t)): (d, category) for p, t, d, category in cur.fetchall()})
+    if horizon is None:
+        return IdentityResolver(Listing(str(p), str(t), _d(f), _d(l)) for p, t, f, l in rows)
+    through = str(execution_session or horizon)
+    source = [dict(table="SEP", permaticker=str(p), ticker=str(t),
+                   firstpricedate=_d(f), lastpricedate=_d(l),
+                   isdelisted=active.get((str(p), str(t)), (None, None))[0],
+                   category=active.get((str(p), str(t)), (None, None))[1]) for p, t, f, l in rows]
+    return SymbolProjection(source, actions.active_rows(
+        conn, start="1900-01-01", end=str(horizon), include_run_id=include_run_id,
+        action_types=RENAME_TYPES), through=through).resolver()

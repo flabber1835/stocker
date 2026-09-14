@@ -54,6 +54,8 @@ def build_review_scenarios(seed):
                 continue
             row[field] = change if isinstance(change, str) else row[field] + change
         query = {} if table == "TICKERS" else {"date.lte": FIRST}
+        if table == "ACTIONS":
+            query["action"] = None
         if table == "SEP":
             query["date.gte"] = SPLIT
         revision = Revision(name="new_vendor_vintage", table=table, observation=observation,

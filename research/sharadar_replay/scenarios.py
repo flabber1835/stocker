@@ -168,7 +168,8 @@ def build_scenarios() -> dict[str, Scenario]:
         ("malformed_tickers", Fault(table="TICKERS", kind="missing_column"), "SharadarProtocolError"),
         ("incomplete_tickers", Fault(table="TICKERS", kind="omit_ticker", ticker="BBB"), "SharadarSnapshotExportError"),
         ("stale_tickers_export", Fault(table="TICKERS", channel="export", kind="stale_export"), "SharadarSnapshotExportError"),
-        ("interrupted_after_identity", Fault(table="ACTIONS", kind="http_400"), "SharadarRequestError"),
+        ("interrupted_after_identity", Fault(table="ACTIONS", kind="http_400",
+                                           query={"action": None}), "SharadarRequestError"),
     ):
         add(name, [step("interrupted", FIRST, faults=(fault,), expected=initial,
                         ready=False, error=error, required_blockers=("freshness",)),
