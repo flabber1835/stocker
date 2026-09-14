@@ -53,6 +53,9 @@ source/local proof and atomic publication execute together. A missing older pair
 must preserve the prior publication without starting a database replay. This
 fixture proves feed assembly for the observed source shape; it does not certify
 the NAS's full history, runtime image, backup horizon or strategy warmup.
+The test image carries the existing Sharadar replay simulator package alongside
+its tests so this integration executes against the packaged runtime without a
+checkout on the import path. The deployable image does not acquire this fixture.
 
 Source aliases cover the anchored listing history because Sharadar restates
 historical SEP under the new label. Broker labels remain effective-dated. An
