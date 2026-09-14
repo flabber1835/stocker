@@ -4,7 +4,7 @@ from contextlib import nullcontext
 import datetime as dt
 from types import SimpleNamespace
 
-from sentinel.feed import ingest, outage_recovery
+from sentinel.feed import actions, ingest, outage_recovery
 
 
 def test_go_opt_in_reobserves_already_current_market_frontier(monkeypatch):
@@ -40,7 +40,12 @@ def test_failed_sep_candidate_retries_on_vendor_clock_when_cursor_leads_market(
         monkeypatch):
     source_day = dt.datetime.now(dt.timezone.utc).date()
     market_day = source_day - dt.timedelta(days=1)
-    production_fetch = object()
+    identity_reads = []
+
+    def production_fetch(table, params):
+        identity_reads.append((table, dict(params)))
+        return []
+
     failed = SimpleNamespace(kind="sep_mutations", run_id="failed-sep")
     candidate_reads = iter((failed, None))
     reconcile_calls = []
@@ -73,13 +78,16 @@ def test_failed_sep_candidate_retries_on_vendor_clock_when_cursor_leads_market(
         ingest.feed_store, "latest_visible_session",
         lambda _conn: market_day.isoformat())
     monkeypatch.setattr(
+        ingest.feed_store, "latest_session",
+        lambda _conn: market_day.isoformat())
+    monkeypatch.setattr(
+        actions, "active_rows",
+        lambda _conn, *, start, end, action_types: [])
+    monkeypatch.setattr(
         ingest.identity_refresh, "stable_current_tickers", lambda _fetch: [])
     monkeypatch.setattr(
         ingest.identity_refresh, "assert_candidate_history_safe",
         lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        ingest.identity_refresh, "resolver_with_candidate",
-        lambda *_args, **_kwargs: object())
     monkeypatch.setattr(
         ingest.identity_refresh, "prevalidate_pending_sep_mutations",
         lambda *_args, **_kwargs: [])
@@ -116,3 +124,8 @@ def test_failed_sep_candidate_retries_on_vendor_clock_when_cursor_leads_market(
     assert got is progress
     assert reconcile_calls == [(
         production_fetch, source_day.isoformat(), True)]
+    assert identity_reads == [(ingest.sharadar.ACTIONS, {
+        "action": "tickerchangeto,tickerchangefrom",
+        "date.gte": "1900-01-01",
+        "date.lte": market_day.isoformat(),
+    })] * 2
