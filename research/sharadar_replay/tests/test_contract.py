@@ -133,6 +133,38 @@ def test_strict_production_http_pages_exports_and_query_filters():
     assert "synthetic-provider-only" not in str(provider.transcript)
 
 
+@pytest.mark.parametrize("renamed", [False, True])
+def test_production_identity_queries_and_recovery_probe_use_filtered_http(renamed):
+    from sentinel.feed import sharadar, source_probe, symbol_identity
+
+    current = step("identity_queries", FIRST)
+    tables = copy.deepcopy(current.tables)
+    identities = {"AAA": 111101, "BBB": 113467}
+    tables["TICKERS"] = tuple(dict(row, permaticker=identities.get(row["ticker"], row["permaticker"]))
+                               for row in tables["TICKERS"])
+    pairs = [dict(date=FIRST, action=kind, ticker="NEW" + old, name=old,
+                  value=None, contraticker=contra, contraname="N/A")
+             for old in identities
+             for kind, contra in (("tickerchangeto", "NEW" + old), ("tickerchangefrom", old))]
+    if renamed:
+        tables["ACTIONS"] = (*tables["ACTIONS"], *pairs)
+        tables["SEP"] = tuple(dict(row, ticker="NEW" + row["ticker"])
+                              if row["ticker"] in identities else row for row in tables["SEP"])
+    provider = Provider(page_size=1)
+    provider.advance(current.model_copy(update={"tables": tables}))
+    with simulated_runtime(provider, commit="a" * 40):
+        observed = symbol_identity.stable_rename_rows(sharadar.fetch_table, through=FIRST)
+        assert sorted(observed, key=lambda r: (r["ticker"], r["action"])) == (
+            sorted(pairs, key=lambda r: (r["ticker"], r["action"])) if renamed else [])
+        keyed = list(sharadar.fetch_table("TICKERS", {"table": "SEP", "permaticker": "111101,113467"}))
+        assert {row["permaticker"] for row in keyed} == {111101, 113467}
+        source_probe.require_recovery_probe(
+            {"session": FIRST, "identities": ["111101"]}, through=FIRST)
+    assert any("action" in entry.get("query", {}) for entry in provider.transcript)
+    assert any("contraticker" in entry.get("query", {}) for entry in provider.transcript)
+    assert "synthetic-provider-only" not in str(provider.transcript)
+
+
 @pytest.mark.parametrize("fault,error", [
     (Fault(table="SEP", kind="missing_column"), "SharadarProtocolError"),
     (Fault(table="SEP", kind="repeat_cursor"), "PaginationError"),
@@ -156,6 +188,10 @@ def test_unmodeled_network_and_query_are_refused():
         provider(httpx.Request("GET", "https://example.com/"))
     with pytest.raises(ValueError, match="unmodeled query"):
         provider.rows("SEP", {"surprise": "value"})
+    for table, field in (("SEP", "action"), ("TICKERS", "contraticker"),
+                         ("ACTIONS", "permaticker")):
+        with pytest.raises(ValueError, match="unmodeled query"):
+            provider.rows(table, {field: "value"})
 
 
 def test_database_routing_is_local_and_explicit():

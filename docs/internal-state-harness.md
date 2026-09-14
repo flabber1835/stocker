@@ -44,6 +44,14 @@ warm-up; historical witness observations are never manufactured. Decisions
 consume the dated publication actually available at that step. Captured inputs
 remain immutable across subsequent corrections.
 
+The shared provider models production identity queries: ACTIONS filters by
+`action` and `contraticker`, and TICKERS filters by permanent ID. These filters
+apply before pagination and compose with ticker/date bounds; unknown or
+wrong-table fields still refuse. The HTTP contract tests exercise the actual
+rename-history reader and bounded recovery probe against this shared provider,
+including an empty rename set, so new acquisition calls cannot remain hidden
+behind a separate worker-only fixture.
+
 The application assembly uses canonical state, decision and execution APIs.
 Deployment-level paper/GO entry points retain their certification/authority
 refusals and their existing dedicated suites. A synthetic fixture confers no NAS,

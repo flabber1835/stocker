@@ -74,13 +74,20 @@ class Provider:
     def rows(self, table: str, query: dict[str, str]) -> list[dict]:
         if table not in COLUMNS:
             raise ValueError(f"unmodeled provider table: {table}")
+        identity_filters = {"ACTIONS": {"action", "contraticker"},
+                            "TICKERS": {"permaticker"}}.get(table, set())
         permitted = {"api_key", "ticker", "date.gte", "date.lte", "lastupdated.gte",
                      "lastupdated.lte", "qopts.cursor_id", "qopts.export", "table"}
+        permitted |= identity_filters
         if set(query) - permitted:
             raise ValueError(f"unmodeled query fields: {sorted(set(query) - permitted)}")
         rows = []
         for row in self._views[table]:
             if "ticker" in query and row.get("ticker") not in query["ticker"].split(","):
+                continue
+            if any(field in query and (row.get(field) is None or
+                   str(row[field]) not in query[field].split(","))
+                   for field in identity_filters):
                 continue
             if "table" in query and row.get("table") != query["table"]:
                 continue
