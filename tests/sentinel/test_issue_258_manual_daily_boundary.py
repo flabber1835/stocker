@@ -10,7 +10,7 @@ import pytest
 from sentinel import identity
 from sentinel.cli import feed as feed_cli
 from sentinel.cli import main as cli
-from sentinel.feed import ingest, manual_daily, store as feed_store
+from sentinel.feed import ingest, manual_daily, source_aliases, store as feed_store
 
 ET = ZoneInfo("America/New_York")
 
@@ -83,6 +83,7 @@ def test_ingest_daily_passes_explicit_session_verbatim(monkeypatch):
     monkeypatch.setattr(ingest, "_validate_source_before_run", lambda fetch: None)
     monkeypatch.setattr(ingest.feed_store, "corpus_write_lock", lock)
     monkeypatch.setattr(ingest, "_recover_before_run", lambda conn: None)
+    monkeypatch.setattr(source_aliases, "load", lambda _conn: source_aliases.evidence())
     monkeypatch.setattr(
         ingest.maintenance, "load_sep_cursor", lambda conn: object())
     monkeypatch.setattr(ingest, "_single_failed_live_candidate", lambda conn: None)
@@ -93,9 +94,10 @@ def test_ingest_daily_passes_explicit_session_verbatim(monkeypatch):
 
     def stable_fetch(fetch, *, after_session=None, sep_update_envelope=None,
                      reference_recovery=False, identity_actions=(),
-                     identity_through=None, identity_fetch=None):
+                     identity_through=None, identity_fetch=None, alias_rejections=None):
         assert identity_actions == ()
         assert identity_fetch is None
+        assert alias_rejections == source_aliases.evidence()
         observed["identity_through"] = identity_through
         return fetch
 

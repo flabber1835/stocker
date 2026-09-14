@@ -4,7 +4,7 @@ from contextlib import nullcontext
 import datetime as dt
 from types import SimpleNamespace
 
-from sentinel.feed import actions, ingest, outage_recovery
+from sentinel.feed import actions, ingest, outage_recovery, source_aliases
 
 
 def test_go_opt_in_reobserves_already_current_market_frontier(monkeypatch):
@@ -59,6 +59,7 @@ def test_failed_sep_candidate_retries_on_vendor_clock_when_cursor_leads_market(
     monkeypatch.setattr(
         ingest.feed_store, "corpus_write_lock", lambda _conn: nullcontext())
     monkeypatch.setattr(ingest, "_recover_before_run", lambda _conn: None)
+    monkeypatch.setattr(source_aliases, "load", lambda _conn: source_aliases.evidence())
     monkeypatch.setattr(
         ingest.maintenance, "load_sep_cursor",
         lambda _conn: SimpleNamespace(processed_through=source_day))

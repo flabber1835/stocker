@@ -10,7 +10,7 @@ import pytest
 
 from sentinel.feed import (
     authority, coherence, identity_refresh, ingest, maintenance,
-    publication as P, recovery, sep_reconciliation,
+    publication as P, recovery, sep_reconciliation, source_aliases,
     store as S, tickers_authority, universe as U)
 from tests.support.postgres import _EphemeralPostgres
 
@@ -204,6 +204,7 @@ def test_case_8_failed_daily_publication_cannot_reach_cdc(monkeypatch):
     monkeypatch.setattr(
         ingest._impl.feed_store, "corpus_write_lock", lambda conn: lock(conn))
     monkeypatch.setattr(ingest, "_recover_before_run", lambda conn: None)
+    monkeypatch.setattr(source_aliases, "load", lambda _conn: source_aliases.evidence())
     monkeypatch.setattr(maintenance, "load_sep_cursor", lambda conn: object())
     monkeypatch.setattr(recovery, "failed_live_candidates", lambda conn: [])
     monkeypatch.setattr(

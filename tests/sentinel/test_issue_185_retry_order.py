@@ -6,7 +6,7 @@ from types import SimpleNamespace
 
 import pytest
 
-from sentinel.feed import coherence, ingest, maintenance, recovery, sep_reconciliation
+from sentinel.feed import coherence, ingest, maintenance, recovery, sep_reconciliation, source_aliases
 
 
 @contextmanager
@@ -19,6 +19,7 @@ def _base(monkeypatch, events, failed_provider, *, on_publish=None):
     monkeypatch.setattr(
         ingest._impl.feed_store, "corpus_write_lock", lambda conn: _lock(conn))
     monkeypatch.setattr(ingest, "_recover_before_run", lambda conn: None)
+    monkeypatch.setattr(source_aliases, "load", lambda _conn: source_aliases.evidence())
     monkeypatch.setattr(
         maintenance, "load_sep_cursor", lambda conn: object())
     monkeypatch.setattr(recovery, "failed_live_candidates", failed_provider)
