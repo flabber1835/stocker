@@ -8,7 +8,7 @@ import pytest
 
 from sentinel.feed import ingest, maintenance, sep_negative_space_guarded as guarded
 from sentinel.feed import sep_reconciliation as recon
-from sentinel.feed import source_authority
+from sentinel.feed import source_aliases, source_authority
 
 
 def _proof(rows, key="a", value="b"):
@@ -49,6 +49,7 @@ def test_daily_reuses_one_frozen_source_ceiling_for_rotation_and_sep(monkeypatch
     monkeypatch.setattr(ingest, "_recover_before_run", lambda _conn: None)
     monkeypatch.setattr(ingest.maintenance, "load_sep_cursor", lambda _conn: cursor)
     monkeypatch.setattr(ingest, "_single_failed_live_candidate", lambda _conn: None)
+    monkeypatch.setattr(source_aliases, "load", lambda _conn: source_aliases.evidence())
     monkeypatch.setattr(
         ingest.feed_store, "latest_visible_session", lambda _conn: "2026-09-04")
     monkeypatch.setattr(

@@ -107,7 +107,7 @@ def test_initial_warmup_and_restart_keep_native_series_and_unaffected_opening_bo
             run.finish("success")
             # Construct the loader's published fixture directly. The public
             # membrane correctly refuses alias evidence without a seed proof;
-            # test_production_seed_warmup_integration covers that full route.
+            # test_source_seed_warmup covers that full route.
             publication._publish_atomic(conn, run_id=run.progress.run_id,
                 window_start=sessions[0], window_end=DAY, evidence={source_aliases.KEY: rejected})
         with store.connect(server.sync_dsn) as conn:
