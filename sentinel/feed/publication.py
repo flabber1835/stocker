@@ -470,6 +470,14 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
                     "caller-supplied seed coherence evidence conflicts with the "
                     "durable ingest run")
             merged["seed_coherence"] = proof
+            if proof.get("source_alias_rejections_sha256") is not None:
+                from sentinel.feed import source_aliases
+                aliases = source_aliases.load(conn, include_run_id=run_id)
+                if proof["source_alias_rejections_sha256"] != aliases["sha256"]:
+                    raise _core.CorpusIncoherent("seed alias evidence differs from source proof")
+                if source_aliases.KEY in merged and merged[source_aliases.KEY] != aliases:
+                    raise _core.CorpusIncoherent("caller alias evidence differs from source proof")
+                merged[source_aliases.KEY] = aliases
     kwargs = {}
     if retirement_authority is not None:
         kwargs["retirement_authority"] = retirement_authority

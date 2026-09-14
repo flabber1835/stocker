@@ -356,7 +356,7 @@ class StableSharadarFetch(authority.StableSharadarFetch):
                  corroborate_reference=None,
                  after_session: str | None = None,
                  seed_mode: bool = False, identity_actions=(),
-                 identity_through=None, identity_fetch=None):
+                 identity_through=None, identity_fetch=None, alias_rejections=None):
         # Daily has one protected window, so all source corroboration happens
         # there. A seed passes an explicit final-chunk predicate: every SEP year
         # is stable on its own while TICKERS/ACTIONS/SFP remain bracketed across
@@ -376,6 +376,7 @@ class StableSharadarFetch(authority.StableSharadarFetch):
         self._identity_actions = tuple(dict(row) for row in identity_actions)
         self._identity_through = identity_through
         self._identity_fetch = identity_fetch
+        self._alias_rejections = alias_rejections
         self._tickers_listings: tuple[universe.Listing, ...] | None = None
         self._tickers_first = None
         self._tickers_params = None
@@ -427,7 +428,8 @@ class StableSharadarFetch(authority.StableSharadarFetch):
                                          authority.observe_actions(actual))
             self.identity_projection = SymbolProjection(
                 self._tickers_rows, (*self._identity_actions, *rows),
-                through=str(self._identity_through or params["date.lte"]))
+                through=str(self._identity_through or params["date.lte"]),
+                alias_rejections=self._alias_rejections)
             self._seed_resolver = self.identity_projection.resolver()
             self._tickers_listings = tuple(universe.listings_from_rows(
                 (*self._tickers_rows, *self.identity_projection.alias_rows)))
@@ -490,39 +492,57 @@ class StableSharadarFetch(authority.StableSharadarFetch):
         spool = tempfile.TemporaryFile(mode="w+b")
         observed: dict[str, set[str]] = {}
         aliases = {}
+        coverage = None
         if self.identity_projection is not None:
+            from sentinel.feed.source_authority import SeedCoverageAccumulator, SeedListingProjection
+            coverage = SeedCoverageAccumulator(SeedListingProjection(
+                (*self.identity_projection.rows, *self.identity_projection.alias_rows),
+                source_digest="daily-identity-discovery"), self.identity_projection.resolver().resolve)
             for chain in self.identity_projection.chains.values():
                 for edge in chain:
                     aliases[edge.old] = aliases[edge.new] = chain[-1].new
         try:
             for row in rows:
                 row = dict(row)
+                if coverage is not None:
+                    coverage.add(row)
                 session = str(row.get("date") or "")
                 ticker = str(row.get("ticker") or "").strip().upper()
                 if session and session > self._after_session and ticker:
                     key = aliases.get(ticker, ticker)
                     seen = observed.setdefault(session, set())
-                    if ticker in aliases and key in seen:
-                        raise SepListingPopulationIncomplete(
-                            f"SEP supplied duplicate renamed identity {key}/{session}")
                     seen.add(key)
                 pickle.dump(row, spool, protocol=pickle.HIGHEST_PROTOCOL)
+            if coverage is not None:
+                from sentinel.feed import source_aliases
+                found = source_aliases.discover(coverage, self.identity_projection)
+                if found["records"]:
+                    raise universe.HistoricalIdentityMutation(
+                        "stable SEP contradicts inferred rename authority; retained history replay required")
+                coverage.require_no_collisions(date_from="1900-01-01", date_to="9999-12-31")
             assert_daily_sep_listing_population(
                 observed, tuple(universe.Listing(
                     item.permaticker, aliases.get(item.ticker, item.ticker),
                     item.first_session, item.last_session)
                     for item in self._tickers_listings))
-            # Population tolerance cannot excuse a missing renamed security.
+            # Population tolerance cannot excuse a missing renamed security or
+            # the native side of a durably rejected inferred alias.
+            native_required = {item["permaticker"] for item in
+                               getattr(self.identity_projection, "applied_alias_rejections", ())}
             for session, seen in observed.items():
-                required = {aliases[item.ticker] for item in self._tickers_listings
-                            if item.ticker in aliases and item.covers(session)}
+                required = {aliases.get(item.ticker, item.ticker) for item in self._tickers_listings
+                            if (item.ticker in aliases or item.permaticker in native_required)
+                            and item.covers(session)}
                 if required - seen:
                     raise SepListingPopulationIncomplete(
-                        f"SEP omitted renamed identities on {session}: {sorted(required - seen)}")
+                        f"SEP omitted renamed identities or required native identities on {session}: {sorted(required - seen)}")
             spool.seek(0)
         except Exception:
             spool.close()
             raise
+        finally:
+            if coverage is not None:
+                coverage.close()
 
         def replay():
             try:

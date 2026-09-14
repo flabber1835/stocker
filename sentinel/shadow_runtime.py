@@ -202,6 +202,12 @@ def _warmup_input_identity(
 
     signal_anchors = {}
     if hasattr(window, "median5_spy_closes"):
+        spy = window.median5_spy_closes
+        if not isinstance(spy, Mapping) or set(spy) != set(ordered):
+            raise ShadowRuntimeRefused("shadow warm-up requires the exact dated SPY history")
+        if any(_decimal_text(spy[session], where=f"warm-up SPY close {session}",
+                             positive=True) is None for session in ordered):
+            raise ShadowRuntimeRefused("shadow warm-up requires positive SPY closes")
         for session in ordered:
             for bar in window.bars_by_session.get(session, ()):
                 if bar.signal_close is not None:

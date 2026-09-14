@@ -84,12 +84,15 @@ def validate_sep_mutation_rows(
             continue
         security_id, reason = _resolve_with_reason(identity, ticker, session)
         if security_id is None:
-            raise SepMutationIdentityRefused(ticker, session, reason)
+            from sentinel.feed import source_aliases
+            if not source_aliases.excludes(identity, ticker):
+                raise SepMutationIdentityRefused(ticker, session, reason)
         if not maintenance_impl._positive(row.get("closeunadj")):
             raise maintenance_impl.SharadarMutationRefused(
                 f"SEP mutation {ticker}/{session} has no positive raw close; "
                 "refusing to preserve stale local economics while advancing CDC")
-        dates.append(session_date.isoformat())
+        if security_id is not None:
+            dates.append(session_date.isoformat())
     return dates
 
 

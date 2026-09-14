@@ -3,6 +3,86 @@ import subprocess
 import sys
 
 cases = [
+    ("warmup_benchmark_axis_guard_disabled", """
+import inspect
+from sentinel import shadow_runtime
+source = inspect.getsource(shadow_runtime._warmup_input_identity)
+start = source.index('        spy = window.median5_spy_closes')
+end = source.index('        for session in ordered:', start)
+exec(source[:start] + source[end:], shadow_runtime.__dict__)
+""", "test_warmup_economic_contract.py::test_warmup_identity_refuses_invalid_benchmark_before_hashing[middle]"),
+    ("publication_alias_proof_guard_disabled", """
+import inspect
+from sentinel.feed import publication
+source = inspect.getsource(publication.publish)
+line = 'if proof["source_alias_rejections_sha256"] != aliases["sha256"]:'
+assert source.count(line) == 1
+exec(source.replace(line, 'if False:'), publication.__dict__)
+""", "test_alias_rejection_authority.py::test_publication_binds_the_exact_alias_evidence_proven_by_seed[proof_hash]"),
+    ("daily_native_presence_guard_disabled", """
+import inspect, textwrap
+from sentinel.feed import coherence
+source = textwrap.dedent(inspect.getsource(coherence.StableSharadarFetch._validated_daily_listing_replay))
+line = 'or item.permaticker in native_required'
+assert source.count(line) == 1
+exec(source.replace(line, ''), coherence.__dict__)
+coherence.StableSharadarFetch._validated_daily_listing_replay = coherence._validated_daily_listing_replay
+""", "test_alias_rejection_authority.py::test_daily_tolerance_cannot_replace_a_native_unit_with_its_unanchored_share[True]"),
+    ("warmup_invents_cash", """
+from sentinel.core import production
+real = production.warm_session_state
+def broken(*a, **k):
+    state = real(*a, **k)
+    state.wealth_core["cash"] += 1
+    return state
+production.warm_session_state = broken
+""", "test_warmup_economic_contract.py::test_warmup_keeps_all_cash_and_creates_no_economic_history"),
+    ("warmup_restart_loses_session", """
+from sentinel.core.session import SessionState
+real = SessionState.from_dict
+def broken(cls, payload):
+    state = real(payload)
+    if state.feed.get("session_index") == 251:
+        state.feed["session_index"] -= 1
+    return state
+SessionState.from_dict = classmethod(broken)
+""", "test_warmup_economic_contract.py::test_first_and_second_closes_are_economically_identical_after_warmup_restart"),
+    ("alias_rejection_disabled", """
+from sentinel.feed import source_aliases
+real = source_aliases.apply
+source_aliases.apply = lambda identity, payload: real(identity, source_aliases.evidence())
+""", "test_concurrent_source_symbols.py::test_early_discovery_preserves_native_authority_without_publication_permission"),
+    ("native_price_guard_disabled", """
+from sentinel.feed import source_aliases
+source_aliases._valid_prices = lambda bars: True
+""", "test_alias_rejection_authority.py::test_native_economics_cannot_hide_behind_population_tolerance[None-closeunadj]"),
+    ("final_capture_validation_disabled", """
+from sentinel.feed.source_authority import StableSharadarFetch
+StableSharadarFetch.finalize_seed_capture = lambda *a, **k: None
+""", "test_alias_capture_warmup.py::test_middle_collision_freezes_and_revalidates_every_capture_chunk[True]"),
+    ("changed_source_rebuild_disabled", """
+from sentinel.feed import source_aliases
+source_aliases.require_current = lambda *a, **k: None
+""", "test_alias_rejection_authority.py::test_corrected_source_requires_replay_and_empty_evidence_restores_native_identities"),
+    ("cdc_excludes_unknown_symbols", """
+from sentinel.feed import source_aliases
+source_aliases.excludes = lambda *a, **k: True
+""", "test_alias_rejection_authority.py::test_mutation_paths_share_the_same_explicit_exclusion_and_keep_unknowns_refused"),
+    ("cdc_rejected_alias_not_recognized", """
+from sentinel.feed import source_aliases
+source_aliases.excludes = lambda *a, **k: False
+""", "test_alias_rejection_authority.py::test_mutation_paths_share_the_same_explicit_exclusion_and_keep_unknowns_refused"),
+    ("candidate_alias_evidence_leaks", """
+from sentinel.feed import source_aliases
+real = source_aliases.load
+def broken(conn, *, include_run_id=None):
+    if include_run_id is None:
+        row = conn.execute("SELECT run_id FROM feed_ingest_runs WHERE publication_recovery ? %s ORDER BY started_at DESC LIMIT 1", (source_aliases.KEY,)).fetchone()
+        if row:
+            include_run_id = row[0]
+    return real(conn, include_run_id=include_run_id)
+source_aliases.load = broken
+""", "test_concurrent_symbol_publication.py::test_empty_database_seed_restart_failed_correction_and_automatic_healing"),
     ("collision_guard_disabled", """
 from sentinel.feed.source_authority import coverage
 coverage.require_no_collisions = lambda *a, **k: None
@@ -10,7 +90,7 @@ coverage.require_no_collisions = lambda *a, **k: None
     ("early_identity_check_disabled", """
 from sentinel.feed.source_authority import StableSharadarFetch
 StableSharadarFetch.preflight_seed_identity = lambda *a, **k: None
-""", "test_concurrent_source_symbols.py::test_early_refusal_does_not_request_actions_export_or_mutate"),
+""", "test_concurrent_source_symbols.py::test_early_discovery_preserves_native_authority_without_publication_permission"),
     ("collision_probe_drops_symbols", """
 import inspect
 from sentinel.feed import source_probe

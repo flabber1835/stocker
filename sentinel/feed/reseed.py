@@ -136,12 +136,13 @@ def full_reseed_locked(
         if candidate_tickers is None or claim_security_ids is None:
             raise recovery.PublicationRecoveryRefused(
                 "identity rebuild lost its candidate TICKERS evidence")
-        from sentinel.feed import actions
+        from sentinel.feed import actions, source_aliases
         from sentinel.feed.symbol_identity import RENAME_TYPES, SymbolProjection
         resolver = SymbolProjection(candidate_tickers, actions.active_rows(
             conn, start="1900-01-01", end=date_to,
             include_run_id=run.progress.run_id, action_types=RENAME_TYPES),
-            through=date_to).resolver().resolve
+            through=date_to, alias_rejections=source_aliases.load(
+                conn, include_run_id=run.progress.run_id)).resolver().resolve
 
     for index, (lo, hi) in enumerate(chunks):
         final_chunk = index == len(chunks) - 1

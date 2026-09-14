@@ -164,6 +164,28 @@ def require_recovery_probe(hint, *, through: str, fetch=None) -> None:
                 or row.get("ticker") not in symbols or not valid_price):
             raise SourceDataPending("source membership probe has an invalid price row")
         found.append(resolver.resolve(str(row["ticker"]), request["session"]))
+    if "symbols" in request and (None in found or len(found) != len(set(found))):
+        from sentinel.feed import source_aliases
+        from sentinel.feed.source_authority import SeedCoverageAccumulator, SeedListingProjection
+        coverage = SeedCoverageAccumulator(SeedListingProjection(
+            (*projection.rows, *projection.alias_rows), source_digest="probe-only"), resolver.resolve)
+        try:
+            for row in bars:
+                coverage.add(row)
+            rejected = source_aliases.discover(coverage, projection)
+            corrected = symbol_identity.SymbolProjection(context.values(), actions, through=through,
+                                                         alias_rejections=rejected)
+            if rejected["records"]:
+                coverage.close()
+                coverage = SeedCoverageAccumulator(SeedListingProjection(
+                    (*corrected.rows, *corrected.alias_rows), source_digest="probe-only"),
+                    corrected.resolver().resolve)
+                for row in bars:
+                    coverage.add(row)
+                coverage.require_complete(date_from=request["session"], date_to=request["session"])
+                return  # Permission to run the complete seed proof only.
+        finally:
+            coverage.close()
     expected = set(request["identities"])
     covered = expected.issubset(found) if "symbols" in request else set(found) == expected
     if (not covered or None in found or len(found) != len(set(found))):

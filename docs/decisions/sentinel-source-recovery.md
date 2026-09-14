@@ -171,8 +171,82 @@ only aliases that still resolve can hide a conflicting successor after a
 metadata update. Bounded rechecks must retain that context and refuse unknown
 or duplicate resolved identities. Corrected TICKERS may establish distinct
 identities; a successful recheck then permits the full proof, never publication
-or broker execution by itself. Unchanged captured data must continue to refuse.
-The code repair cannot manufacture the provider metadata needed for GO.
+or broker execution by itself. The first diagnostic implementation continued
+to refuse unchanged captured data. That is insufficient for
+autonomous operation and is superseded by the source-alias policy below.
+
+## Reject contradicted inferred aliases, preserve native authority
+
+The full capture establishes a narrower repair than discarding an identity.
+OCLTU and BRTMU each have an explicit TICKERS permanent identity and their own
+SEP row. OCLT and BRTM have no TICKERS row. Their purported permanent identities
+were inferred by our rename projection. A repeated source observation that
+prices a native symbol alongside an otherwise unidentified alias contradicts
+that inferred equivalence. It does not invalidate the native identity.
+
+Automatically reject such a derived alias component when exactly one observed
+symbol resolves under native TICKERS authority, every competing symbol lacks
+native TICKERS authority, and complete paired rename evidence identifies the
+inference being rejected. Keep native rows and identities unchanged. Retain a
+durable source witness for the rejected aliases and leave their prices
+unresolved. Never select by price, volume, arrival order, suffix, or a made-up
+permanent ID. Multiple native identities, missing native prices, or incomplete
+claims retain their refusals.
+
+Exact source membership still uses the original native eligible denominator.
+Every expected native identity must have a valid price; rejecting an alias
+cannot excuse a missing native identity. In the uploaded complete samples,
+this preserves 5,606/5,606 identities on July 1 and 5,772/5,772 on September 11.
+The two native listings have only 24 and 37 prior sessions on September 11,
+below Wealth Core's unchanged 126-session entry requirement. This observation
+helps assess economic impact; it is not a ticker-specific exception or a new
+eligibility rule. Sentinel breadth remains based on shadow holdings.
+
+Initial seed must discover contradictions across every captured SEP chunk,
+freeze one projection, and then revalidate every chunk under that projection
+before database replay. Endpoint sampling is an optimization, not the scope of
+the repair. A contradiction first found in a middle historical chunk must not
+leave earlier chunks certified against a different alias map.
+
+Persist the rejected component's native identity, paired-claim fingerprints,
+and source witness in the ingest run before any candidate resolver is built.
+Only published evidence or the explicitly included candidate may influence a
+resolver. Empty seed evidence is explicit, so a complete corrected reseed can
+replace earlier rejections. Initial replay, post-seed proof, fresh connections,
+warmup, and daily mutation/normalization must reconstruct the same projection.
+A new daily contradiction requires the existing bounded retained-history
+recovery path before publication; it cannot silently change a live book's
+identity interpretation.
+
+CDC and post-seed mutation proof use the same published/candidate rejection
+evidence. An unresolved label explicitly present in an applied contradiction
+witness may remain outside the canonical corpus; it cannot acquire the native
+identity through the mutation path. Its source date and positive price still
+require validation. Other unresolved labels retain their existing refusal.
+Later authoritative metadata stops this exclusion and requires a complete
+retained-history replay before the correction becomes visible. Native rows
+belonging to rejected alias components must pass individual price/volume
+validation on every replayed session; a population tolerance cannot hide a
+missing native economic input. Daily frontier validation must require each
+such native symbol individually, even if overall listing coverage would pass.
+
+The production warmup acceptance run uses 253 exchange sessions and more than
+one million synthetic source rows through the real source adapters and an empty
+PostgreSQL database. It covers the compact champion's 252-session feature
+formation, no fabricated holdings/cash flows/controller sessions, first-close
+and daily continuation, reconnect/serialization parity, and missing price-axis
+or SPY inputs. Synthetic transport, clock and producer credentials must be
+reported as fixture boundaries; this does not certify the NAS corpus.
+The warmup identity builder must reject an incomplete or invalid SPY axis
+before normalizing its prices. A missing first benchmark date must be an
+explicit warmup refusal, never an incidental missing-key error.
+
+Tests must cover an empty database, a contradiction first seen away from the
+endpoint samples, failure before publication, restart, post-seed coherence,
+initial warmup, and transition to daily operation. Demonstrate that rejecting
+an unsupported alias preserves the native denominator and prices, while a
+missing native price and conflicting native identities still refuse. A vendor
+support ticket is not a prerequisite for this evidenced automatic repair.
 
 ## Recovery
 

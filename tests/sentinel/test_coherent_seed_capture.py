@@ -122,6 +122,7 @@ def test_postgres_identity_capture_failure_preserves_published_corpus(conn, monk
         guarded = coherence.StableSharadarFetch(kwargs["acquisition_fetch"])
         guarded.preflight_seed_membership = lambda **kwargs: None  # Non-production small source.
         guarded.preflight_seed_identity = lambda **kwargs: None
+        guarded.begin_seed_capture = lambda: None
         return object(), guarded
     monkeypatch.setattr(ingest, "_seed_source", guarded_source)
     recovery = SimpleNamespace(date_from="2026-08-20", date_to="2026-08-21",
@@ -152,6 +153,11 @@ def test_acquisition_precedes_candidate_and_identity_reuses_source(
         return [{"table": table, "date": "2026-08-18"}]
     guarded.preflight_seed_membership = lambda **kwargs: events.append("membership_sample")
     guarded.preflight_seed_identity = lambda **kwargs: events.append("early_identity_sample")
+    guarded.begin_seed_capture = lambda: events.append("begin_capture")
+    guarded.finalize_seed_capture = lambda *args, **kwargs: events.append("finalize_capture")
+    from sentinel.feed import source_aliases
+    tracked.alias_rejections = source_aliases.evidence()
+    monkeypatch.setattr(source_aliases, "load", lambda *a, **kw: source_aliases.evidence())
     monkeypatch.setattr(ingest, "_seed_source", lambda *a, **k: (tracked, guarded))
     def preflight(*args):
         events.append("preflight")
@@ -185,3 +191,5 @@ def test_acquisition_precedes_candidate_and_identity_reuses_source(
     assert events.count("capture_TICKERS") == 1
     assert events.index("membership_sample") < events.index("capture_SEP")
     assert events.index("early_identity_sample") < events.index("capture_ACTIONS")
+    if not capture_fails:
+        assert events.index("capture_SEP") < events.index("finalize_capture") < events.index("candidate")

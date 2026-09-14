@@ -69,6 +69,7 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.feed.actions",
     "sentinel.feed.actions_map",
     "sentinel.feed.symbol_identity",
+    "sentinel.feed.source_aliases",
     "sentinel.feed.actions_reconcile_v7",
     "sentinel.feed.anomalies",
     "sentinel.feed.calendar",

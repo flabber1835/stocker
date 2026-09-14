@@ -171,6 +171,9 @@ class _SeedAuthority:
             seed_coherence.record_start_boundary(
                 run.conn, run_id=run.progress.run_id,
                 boundary=self.boundary)
+            from sentinel.feed import source_aliases
+            source_aliases.record(run.conn, run_id=self.run_id,
+                                  payload=self.tracked.alias_rejections)
         except BaseException as exc:                         # noqa: BLE001
             run.finish("failed", f"seed start-boundary binding failed: {exc}")
             raise
@@ -181,6 +184,8 @@ class _SeedAuthority:
         identity_rebuild.record_plan(conn, run_id=run_id, plan=plan)
         seed_coherence.record_start_boundary(
             conn, run_id=run_id, boundary=self.boundary)
+        from sentinel.feed import source_aliases
+        source_aliases.record(conn, run_id=run_id, payload=self.tracked.alias_rejections)
 
     def before_success(self, run, resolver) -> None:
         from sentinel.feed import seed_coherence
@@ -230,6 +235,9 @@ def _ordinary_seed_generation(conn, *, date_from: str, date_to: str,
     with run.chunk("actions"):
         from sentinel.feed import calendar
         action_start, _ = calendar.action_date_window(date_from, date_to)
+        if isinstance(seed_authority, _SeedAuthority):
+            # Initial warmup also needs rename claims preceding its price window.
+            action_start = maintenance.ACTIONS_FULL_WINDOW_START
         action_source_rows = list(fetch(
             sharadar.ACTIONS, sharadar.date_params(action_start, date_to)))
         run.progress.rows_written += feed_store.write_actions(
@@ -475,6 +483,8 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
         effective_overlap = recovery.extended_overlap_days(conn, overlap_days)
         identity_actions = ()
         identity_fetch = None
+        from sentinel.feed import source_aliases
+        alias_rejections = source_aliases.load(conn)
         if fetch is snapshot_source.fetch_table and resolve_identity is None:
             tickers_candidate = identity_refresh.stable_current_tickers(fetch)
             identity_refresh.assert_candidate_history_safe(conn, tickers_candidate)
@@ -489,9 +499,11 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
                          - _dt.timedelta(days=effective_overlap)).isoformat()
                 action_start, _ = calendar.action_date_window(start, resolved_today)
                 require_published_history(conn, identity_actions, before=action_start)
-            candidate_resolver = SymbolProjection(
+            candidate_identity = SymbolProjection(
                 tickers_candidate, identity_actions,
-                through=resolved_today).resolver()
+                through=resolved_today, alias_rejections=alias_rejections)
+            source_aliases.require_current(candidate_identity, alias_rejections)
+            candidate_resolver = candidate_identity.resolver()
             identity_refresh.prevalidate_pending_sep_mutations(
                 conn, fetch=fetch, through=yesterday,
                 resolver=candidate_resolver)
@@ -504,6 +516,7 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             daily_fetch, after_session=listing_frontier,
             identity_actions=identity_actions, identity_through=resolved_today,
             identity_fetch=identity_fetch,
+            alias_rejections=alias_rejections,
             reference_recovery=(recovery.failed_reference_keys(conn)
                                 if failed is not None and failed.kind == "daily"
                                 else frozenset()),

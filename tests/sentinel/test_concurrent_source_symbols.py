@@ -4,12 +4,11 @@ from __future__ import annotations
 import copy
 import json
 from pathlib import Path
-from types import SimpleNamespace
 
 import pytest
 
 from sentinel import source_diagnostic
-from sentinel.feed import seed_capture, sharadar, source_authority, source_probe, symbol_identity
+from sentinel.feed import sharadar, source_authority, source_probe, symbol_identity
 from test_go_preparation_identity_reason_codes import source_final, validate_entry
 
 DAY = "2026-09-11"
@@ -79,24 +78,13 @@ def test_all_observed_collisions_and_prices_survive_go_and_are_order_independent
             source_diagnostic.FAILURE_MARKER + json.dumps(diagnostic)) == value
 
 
-def test_early_refusal_does_not_request_actions_export_or_mutate(monkeypatch):
+def test_early_discovery_preserves_native_authority_without_publication_permission():
     data, fetch, calls = source()
     guarded = source_authority.StableSharadarFetch(fetch, seed_mode=True)
-    # TICKERS are the already captured exact source rows; isolate from unrelated
-    # universe population floors. The real wrappers execute all sample requests.
-    class CapturedGuard:
-        def __call__(self, table, params=None):
-            assert table == sharadar.TICKERS
-            return data["tickers"]
-        preflight_seed_identity = guarded.preflight_seed_identity
-    from sentinel.feed import ingest
-    monkeypatch.setattr(ingest, "_seed_source", lambda *a, **kw: (None, CapturedGuard()))
-    monkeypatch.setattr(ingest.identity_refresh, "assert_candidate_history_safe",
-                        lambda *a, **kw: pytest.fail("must refuse before database preflight"))
-    with pytest.raises(source_authority.SeedIdentityCollision) as caught:
-        seed_capture.run_generation(None, recovery_plan=SimpleNamespace(date_from=DAY, date_to=DAY),
-                                    fetch=fetch, final_hi=DAY, boundary="2026-09-14")
-    assert source_diagnostic.coverage_diagnostic(str(caught.value))["identity_collision_total"] == 2
+    guarded.preflight_seed_identity(tickers=data["tickers"], fetch=fetch, date_from=DAY, date_to=DAY)
+    records = guarded.alias_rejections["records"]
+    assert {r["permaticker"] for r in records} == {"6401005", "6399775"}
+    assert {r["native_ticker"] for r in records} == {"OCLTU", "BRTMU"}
     assert calls == [(sharadar.ACTIONS, {"action": "tickerchangeto,tickerchangefrom",
                      "date.gte": "1900-01-01", "date.lte": DAY})] * 2 + [
                      (sharadar.SEP, sharadar.date_params(DAY, DAY))] * 2
@@ -114,11 +102,7 @@ def test_worker_wait_keeps_all_symbols_and_corrected_metadata_permits_full_retry
                     "symbols": ["BRTM", "BRTMU", "OCLT", "OCLTU"]}
     for healed in (False, True):
         data, fetch, calls = source(healed=healed)
-        if healed:
-            source_probe.require_recovery_probe(hint, through=DAY, fetch=fetch)
-        else:
-            with pytest.raises(SourceDataPending, match="incomplete or ambiguous"):
-                source_probe.require_recovery_probe(hint, through=DAY, fetch=fetch)
+        source_probe.require_recovery_probe(hint, through=DAY, fetch=fetch)
         sep = [params for table, params in calls if table == sharadar.SEP]
         assert len(sep) == 2
         assert all(set(p["ticker"].split(",")) == set(hint["symbols"]) for p in sep)

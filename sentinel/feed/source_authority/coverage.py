@@ -23,6 +23,9 @@ class SeedCoverageAccumulator:
                  *, exceptions: Mapping = SEED_COVERAGE_EXCEPTIONS):
         self.projection = projection
         self.resolve = resolver
+        identity = getattr(getattr(resolver, "__self__", None), "projection", None)
+        self.required_native = ({item["permaticker"] for item in identity.applied_alias_rejections}
+                                if identity is not None else set())
         self.exceptions = dict(exceptions)
         self._dir = tempfile.TemporaryDirectory(prefix="sentinel-seed-coverage-")
         self._db = sqlite3.connect(Path(self._dir.name) / "coverage.sqlite3")
@@ -61,6 +64,11 @@ class SeedCoverageAccumulator:
                     " VALUES (?,?)", (session, ticker))
             return False
         identity = str(permaticker)
+        if identity in self.required_native:
+            from sentinel.feed.source_aliases import _valid_prices
+            if not _valid_prices([row]):
+                raise SourceAuthorityRefused(
+                    f"rejected-alias native price/volume is invalid: {identity}/{ticker}/{session}")
         listing = self.projection.listing_for(identity, ticker, session)
         if listing is None:
             self._db.execute(
