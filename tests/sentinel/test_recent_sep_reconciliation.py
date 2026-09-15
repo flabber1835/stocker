@@ -167,8 +167,11 @@ def test_daily_proves_recent_complete_source_after_all_mutation_publications():
     import inspect
     from sentinel.feed import ingest
 
-    src = inspect.getsource(ingest.daily)
-    last_sep = src.rindex("maintenance.reconcile_sep_mutations")
+    assert "return _daily(" in inspect.getsource(ingest.daily)
+    assert "maintenance.reconcile_sep_mutations" in inspect.getsource(
+        ingest._reconcile_sep_for_market_target)
+    src = inspect.getsource(ingest._daily)
+    last_sep = src.rindex("_reconcile_sep_for_market_target(")
     last_actions = src.rindex("maintenance.reconcile_actions_if_due")
     recent = src.rindex("_prove_recent_frontier")
     assert last_sep < last_actions < recent
