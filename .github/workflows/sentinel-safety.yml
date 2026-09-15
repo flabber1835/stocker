@@ -73,7 +73,7 @@ jobs:
   certification-and-durability:
     name: sentinel-${{ matrix.scope }}
     runs-on: ubuntu-latest
-    timeout-minutes: 55
+    timeout-minutes: 75
     strategy:
       fail-fast: false
       matrix:

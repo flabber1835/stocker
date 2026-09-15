@@ -247,6 +247,11 @@ original marker path when the shared fixture closes.
 The simulator must bind the seed start boundary, observation instant and final
 update ceiling to the same advancing source clock. A host UTC date change must
 not leak into one boundary of a historical replay or reverse its update window.
+The complete Sentinel CI job retains every existing test, source replay,
+mutation check and artifact gate. Budget 75 minutes for this job: the baseline
+successful certification took about 34 minutes and the full million-row warmup
+acceptance adds approximately 27 minutes. Its former 55-minute limit does not
+provide enough room for the expanded workload and normal runner variation.
 The warmup identity builder must reject an incomplete or invalid SPY axis
 before normalizing its prices. A missing first benchmark date must be an
 explicit warmup refusal, never an incidental missing-key error.
