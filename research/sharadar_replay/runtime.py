@@ -37,10 +37,13 @@ def simulated_runtime(provider: Provider, *, commit: str):
     clock_module = SimpleNamespace(datetime=ClockDateTime, date=dt.date,
                                    timedelta=dt.timedelta, timezone=dt.timezone)
     ceiling = seed_coherence.capture_update_ceiling
+    boundary = seed_coherence.capture_update_boundary
     instant = seed_coherence.capture_observation_instant
     with ExitStack() as stack:
         stack.enter_context(patch.object(httpx, "Client", client))
         stack.enter_context(patch.object(ingest, "_dt", clock_module))
+        stack.enter_context(patch.object(seed_coherence, "capture_update_boundary",
+                                        lambda: boundary(provider.step.at)))
         stack.enter_context(patch.object(seed_coherence, "capture_update_ceiling",
                                         lambda: ceiling(provider.step.at)))
         stack.enter_context(patch.object(seed_coherence, "capture_observation_instant",

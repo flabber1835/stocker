@@ -244,6 +244,9 @@ database fixture must establish that test filesystem identity at module scope,
 before seed setup, matching the existing function-scoped test isolation. An
 explicit REQUIRED_V1 policy still enforces real backup checks. Restore the
 original marker path when the shared fixture closes.
+The simulator must bind the seed start boundary, observation instant and final
+update ceiling to the same advancing source clock. A host UTC date change must
+not leak into one boundary of a historical replay or reverse its update window.
 The warmup identity builder must reject an incomplete or invalid SPY axis
 before normalizing its prices. A missing first benchmark date must be an
 explicit warmup refusal, never an incidental missing-key error.

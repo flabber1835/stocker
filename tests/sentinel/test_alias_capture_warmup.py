@@ -1,5 +1,6 @@
 """Whole-capture projection freeze and feature-only initial warmup."""
 import datetime as dt
+from types import SimpleNamespace
 
 import pytest
 
@@ -9,6 +10,38 @@ from sentinel.feed import (calendar, coherence, domains, ingest, publication, se
 from test_concurrent_source_symbols import DAY, source
 from test_exported_symbol_identity import nas_provider
 from tests.support.postgres import _EphemeralPostgres
+
+
+@pytest.mark.parametrize("instant", [
+    "2026-09-14T23:59:59+00:00",
+    "2026-12-31T23:59:59+00:00",
+    "2026-09-14T20:00:00-07:00",
+])
+def test_source_clock_owns_both_seed_boundaries_across_utc_midnight(monkeypatch, instant):
+    from sentinel.feed import _seed_coherence_impl, seed_coherence, source_authority
+
+    class HostClock(dt.datetime):
+        @classmethod
+        def now(cls, tz=None):
+            return dt.datetime(2031, 1, 2, tzinfo=dt.timezone.utc).astimezone(tz)
+
+    monkeypatch.setattr(_seed_coherence_impl, "dt", SimpleNamespace(
+        datetime=HostClock, date=dt.date, timezone=dt.timezone, timedelta=dt.timedelta))
+    names = ("capture_update_boundary", "capture_observation_instant", "capture_update_ceiling")
+    original = tuple(getattr(seed_coherence, name) for name in names)
+    at = dt.datetime.fromisoformat(instant)
+    provider = SimpleNamespace(step=SimpleNamespace(at=at))
+    with simulated_runtime(provider, commit="a" * 40):
+        start = seed_coherence.capture_update_boundary()
+        assert start == at.astimezone(dt.timezone.utc).date().isoformat()
+        assert seed_coherence.capture_observation_instant() == at.astimezone(dt.timezone.utc)
+        provider.step.at = at + dt.timedelta(seconds=2)
+        end = seed_coherence.capture_update_ceiling()
+        assert end == provider.step.at.astimezone(dt.timezone.utc).date().isoformat()
+        source_authority.SepUpdateEnvelope.interval(start, end)
+        assert ingest._dt.datetime.now(dt.timezone.utc) == provider.step.at.astimezone(dt.timezone.utc)
+    assert tuple(getattr(seed_coherence, name) for name in names) == original
+    assert seed_coherence.capture_update_boundary() == "2031-01-02"
 
 
 @pytest.mark.parametrize("missing_native", [False, True])
