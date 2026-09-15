@@ -1,7 +1,8 @@
 """Full production source seed -> 252-session warmup -> daily -> restart.
 
-Only HTTP delivery, wall clock, receipt secret and producer provenance are
-synthetic. Source guards, PostgreSQL, loaders, strategy and transitions are real.
+HTTP delivery, wall clock, receipt secret, producer provenance and the absent
+deployment backup marker are synthetic. Source guards, PostgreSQL, loaders,
+strategy and transitions are real.
 """
 import datetime as dt
 import json
@@ -25,7 +26,20 @@ from tools.sentinel_operational_parity import prove_transition
 
 
 @pytest.fixture(scope="module")
-def seeded_market():
+def seed_backup_policy(tmp_path_factory):
+    # The root backup-policy fixture is function-scoped and therefore runs
+    # after this module's database seed. Establish the same test filesystem
+    # identity before seeding; explicit REQUIRED_V1 remains fully enforced.
+    from sentinel import backup_runtime_authority
+
+    with pytest.MonkeyPatch.context() as patch:
+        patch.setattr(backup_runtime_authority, "POLICY_MARKER",
+                      tmp_path_factory.mktemp("seed-policy") / "absent-production-backup-policy")
+        yield
+
+
+@pytest.fixture(scope="module")
+def seeded_market(seed_backup_policy):
     server = _EphemeralPostgres()
     server.start()
     data, _, _ = source()

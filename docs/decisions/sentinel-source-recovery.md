@@ -237,8 +237,13 @@ one million synthetic source rows through the real source adapters and an empty
 PostgreSQL database. It covers the compact champion's 252-session feature
 formation, no fabricated holdings/cash flows/controller sessions, first-close
 and daily continuation, reconnect/serialization parity, and missing price-axis
-or SPY inputs. Synthetic transport, clock and producer credentials must be
-reported as fixture boundaries; this does not certify the NAS corpus.
+or SPY inputs. Synthetic transport, clock, producer credentials and the absent
+deployment backup-policy marker must be reported as fixture boundaries; this
+does not certify the NAS corpus or its external backup media. The shared
+database fixture must establish that test filesystem identity at module scope,
+before seed setup, matching the existing function-scoped test isolation. An
+explicit REQUIRED_V1 policy still enforces real backup checks. Restore the
+original marker path when the shared fixture closes.
 The warmup identity builder must reject an incomplete or invalid SPY axis
 before normalizing its prices. A missing first benchmark date must be an
 explicit warmup refusal, never an incidental missing-key error.
