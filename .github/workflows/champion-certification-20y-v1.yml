@@ -1,0 +1,152 @@
+name: Research - Champion 20-year certification and PIT weights
+run-name: Champion 56.27x certification - ${{ github.sha }}
+'on':
+  push:
+    branches: [research/champion-certification-20y-v1]
+    paths: [research/champion-certification-20y-v1/LAUNCH.json]
+permissions:
+  contents: read
+  actions: read
+  packages: read
+concurrency:
+  group: champion-certification-20y-v1
+  cancel-in-progress: false
+env:
+  PYTHONUNBUFFERED: '1'
+  PIT_OFFICIAL_BACKTEST: '0'
+  CERTIFICATION_WARMUP_START: '2006-01-03'
+  CERTIFICATION_MEASUREMENT_START: '2006-07-31'
+  CERTIFICATION_END_SESSION: '2026-07-31'
+jobs:
+  preflight:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 15
+    steps:
+      - name: Exact certification harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          persist-credentials: false
+          sparse-checkout: research/champion-certification-20y-v1
+      - name: Frozen champion and prior evidence
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 05727f2c65a235306fa55d61f254e06bed351776
+          path: champion-src
+          persist-credentials: false
+          sparse-checkout: |
+            research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1
+            research/wealth-core-v5-ex3-v6-simplification-v1
+            research/wealth-core-v5-ex3-v6-simplification-v2
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: 3.12.14
+          check-latest: false
+      - name: Exact analysis dependencies
+        run: python -m pip install --disable-pip-version-check numpy==2.4.6 pandas==3.0.5
+      - name: Portfolio accounting, PIT labels, source preservation and restart checks
+        env:
+          CHAMPION_SOURCE: ${{ github.workspace }}/champion-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/sources/compact_simplified_no_ramp.py
+        run: |
+          python experiment-src/research/champion-certification-20y-v1/test_composition.py -v
+          python -m py_compile experiment-src/research/champion-certification-20y-v1/*.py
+          python champion-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/preflight.py
+          python champion-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/test_replay_contract.py
+      - name: Preserve preflight evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-certification-preflight
+          path: |
+            champion-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/PREFLIGHT.json
+            champion-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/REPLAY_CONTRACT_CHECKS.json
+          retention-days: 90
+  certification:
+    needs: preflight
+    runs-on: ubuntu-24.04
+    timeout-minutes: 360
+    permissions:
+      contents: write
+      actions: read
+      packages: read
+      issues: write
+    steps:
+      - name: Exact certification harness
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: ${{ github.sha }}
+          path: experiment-src
+          persist-credentials: false
+          sparse-checkout: research/champion-certification-20y-v1
+      - name: Frozen champion and prior evidence
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: 05727f2c65a235306fa55d61f254e06bed351776
+          path: champion-src
+          persist-credentials: false
+          sparse-checkout: |
+            research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1
+            research/wealth-core-v5-ex3-v6-simplification-v1
+            research/wealth-core-v5-ex3-v6-simplification-v2
+      - name: Pinned replay setup
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: eaddca3f04f279e99663f832bf7293e92ee15662
+          path: harness-src
+          persist-credentials: false
+          sparse-checkout: |
+            .github/actions/v5-ex3-v5-adversarial-setup
+            research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1
+            research/wealth-core-v5-sentinel-ex3-impedance-v1
+            research/wealth-core-v5-affordability-fix-v1
+            research/median5-open-sizing-10bp-ex3-v1
+      - name: Verify and stage frozen runtime and full-PIT corpus
+        uses: ./harness-src/.github/actions/v5-ex3-v5-adversarial-setup
+      - name: Generate pinned V6 driver
+        run: |
+          python harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/make_v6_runner.py --source harness-src/research/wealth-core-v5-sentinel-ex3-v5-adversarial-v1/run_adversarial.py --output harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py
+      - name: Claim one slot and certify the twenty-year champion with PIT weights
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          cd certified-src
+          python "${GITHUB_WORKSPACE}/experiment-src/research/champion-certification-20y-v1/run.py" --champion-root "${GITHUB_WORKSPACE}/champion-src/research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1" --runner "${GITHUB_WORKSPACE}/harness-src/research/wealth-core-v5-sentinel-ex3-v6-adversarial-v1/run_adversarial_v6.generated.py" --output "${GITHUB_WORKSPACE}/result" 2>&1 | tee "${GITHUB_WORKSPACE}/certification.log"
+      - name: Preserve completed and partial evidence
+        if: ${{ always() }}
+        shell: bash
+        env:
+          CERT_JOB_STATUS: ${{ job.status }}
+        run: |
+          mkdir -p result
+          for file in certification.log package-integrity.json final-corpus-validation.json; do
+            if [ -f "$file" ]; then cp "$file" result/; fi
+          done
+          python - <<'PY'
+          import json, os
+          from pathlib import Path
+          out = Path('result')
+          if not (out/'RESULT.json').exists() and not (out/'FAILURE.json').exists():
+              (out/'FAILURE.json').write_text(json.dumps({'status':'FAIL','error_type':'workflow_setup','error':'Replay did not produce a result; inspect completed setup logs.','job_status':os.environ['CERT_JOB_STATUS']}, indent=2)+'\n')
+          PY
+          python experiment-src/research/champion-certification-20y-v1/publication.py --root result
+          cat result/SUMMARY.md >> "$GITHUB_STEP_SUMMARY"
+      - name: Upload complete certification evidence
+        if: ${{ always() }}
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: champion-certification-20y-and-pit-weights
+          path: result/
+          if-no-files-found: error
+          retention-days: 90
+      - name: Publish results and compressed PIT portfolio history to GitHub
+        if: ${{ always() }}
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        shell: bash
+        run: |
+          CERT_PR_NUMBER=$(python -c "import json; print(json.load(open('experiment-src/research/champion-certification-20y-v1/LAUNCH.json'))['pr_number'])")
+          python experiment-src/research/champion-certification-20y-v1/publication.py --root result --publish --pr-number "$CERT_PR_NUMBER"

@@ -1,0 +1,30 @@
+{
+  "schema": "research.champion-certification-local-validation/1",
+  "date": "2026-09-10",
+  "python": "3.12.14",
+  "numpy": "2.4.6",
+  "pandas": "3.0.5",
+  "composition_tests": {"status": "PASS", "tests": 12},
+  "python_compile": "PASS",
+  "workflow_yaml_and_launch_filter": "PASS",
+  "frozen_controller_preflight": {
+    "status": "PASS",
+    "paired_controller_steps": 120000,
+    "synthetic_observations": 30000,
+    "snapshot_restarts": 620,
+    "invalid_snapshot_rejections": 142,
+    "independent_peer_cases": 2000
+  },
+  "frozen_replay_contract": {
+    "status": "PASS",
+    "synthetic_sessions": 260,
+    "tracks": 6,
+    "accounting_restarts": 20,
+    "reference_clock": "EXACT",
+    "future_suffix_prefix_invariance": "PASS",
+    "same_session_allocation_mutant": "REJECTED",
+    "incomplete_and_lossless_reporting": "PASS"
+  },
+  "full_pit_starts_during_local_validation": 0,
+  "validation_data": "Hand-calculated fixtures and isolated copies of frozen synthetic campaign checks. The authorized fresh full-PIT replay is performed by GitHub Actions."
+}
