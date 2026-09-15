@@ -1,6 +1,7 @@
 """Operational replacement is scoped, atomic, and preserves older authority."""
 from datetime import date
 import json
+import subprocess
 
 import pytest
 
@@ -144,21 +145,33 @@ def test_malformed_operational_scope_refuses(scope):
         MI._cursor_price_window({"price_window": scope}, name=MI.SEP_CURSOR_NAME)
 
 
-@pytest.mark.parametrize("status,expected,reason", [
-    ("fresh", "RECOVERY_REQUIRED", "CORPUS_SCHEMA_NOT_INSTALLED"),
-    ("creating", "REFUSED", "SOURCE_EXPORT_UNAVAILABLE"),
-])
-def test_container_probe_export_fixture_preserves_cold_preflight(
-        conn, monkeypatch, capsys, status, expected, reason):
-    import httpx
+@pytest.fixture
+def probe_driver(monkeypatch):
     from tests.sentinel.test_go_readonly_data_preflight import ROOT
-    # Host scripts are mirrored under the inspection root, not /work/scripts.
     monkeypatch.syspath_prepend(str(ROOT / "scripts"))
     import test_go_probe_runtime_integration as driver
+    return driver
+
+
+@pytest.mark.parametrize("status", ["fresh", "creating"])
+@pytest.mark.parametrize("observed_at,target,final", [
+    ("2026-08-22T03:44:59+00:00", "2026-08-21", False),
+    ("2026-08-22T03:45:00+00:00", "2026-08-21", True),
+    ("2026-08-22T03:45:01+00:00", "2026-08-21", True),
+    ("2026-12-05T04:44:59+00:00", "2026-12-04", False),
+    ("2026-12-05T04:45:00+00:00", "2026-12-04", True),
+    ("2026-11-27T18:00:01+00:00", "2026-11-27", False),
+    ("2026-11-28T04:44:59+00:00", "2026-11-27", False),
+    ("2026-11-28T04:45:00+00:00", "2026-11-27", True),
+])
+def test_container_probe_export_fixture_preserves_cold_preflight(
+        conn, monkeypatch, capsys, probe_driver, status, observed_at, target, final):
+    import httpx
     from sentinel.feed import calendar, snapshot_export
 
     monkeypatch.setenv("SENTINEL_DATABASE_URL", "postgresql://isolated-test")
-    monkeypatch.setattr(calendar, "latest_closed_session", lambda: "2026-08-21")
+    # Restore the CI fixture's module seams when the in-process test finishes.
+    monkeypatch.setattr(calendar, "_dt", calendar._dt)
     monkeypatch.setattr(httpx, "Client", lambda *a, **kw: pytest.fail("CI probe contacted a vendor"))
     monkeypatch.setattr(snapshot_export, "probe_snapshot", snapshot_export.probe_snapshot)
     monkeypatch.setattr(snapshot_export, "download_snapshot", lambda *a, **kw: pytest.fail("CI probe downloaded a file"))
@@ -169,13 +182,83 @@ def test_container_probe_export_fixture_preserves_cold_preflight(
             pass
     monkeypatch.setattr(S, "connect", lambda *a: BorrowedConnection())
     conn.rollback()
-    exec(driver._source_export_fixture(driver.preflight._READ_ONLY_CODE, status), {})
+    namespace = {}
+    exec(probe_driver._source_export_fixture(
+        probe_driver.preflight._READ_ONLY_CODE, status, observed_at=observed_at),
+        namespace)
     output = capsys.readouterr().out
-    report = json.loads(next(line[len(driver.preflight.MARKER):]
-                             for line in output.splitlines() if line.startswith(driver.preflight.MARKER)))
-    assert report["status"] == expected
-    assert report["reason_code"] == reason
+    completed = subprocess.CompletedProcess([], 0, stdout=output, stderr="")
+    report = probe_driver.preflight._payload(completed)
+    assert report is not None
+    refused = final and status == "creating"
+    assert report["status"] == ("REFUSED" if refused else "RECOVERY_REQUIRED")
+    assert report["reason_code"] == (
+        "SOURCE_EXPORT_UNAVAILABLE" if refused else "CORPUS_SCHEMA_NOT_INSTALLED")
+    assert calendar.latest_closed_session() == target
+    assert bool(namespace["_ci_export_calls"]) == final
+    if refused:
+        assert namespace["_ci_export_calls"] == [
+            ("ACTIONS", {"date.gte": "1900-01-01", "date.lte": target})]
     assert P.current(conn) is None
+
+
+@pytest.mark.parametrize("observed_at", ["2026-08-22T03:45:00", "not-a-clock"])
+def test_container_probe_rejects_invalid_clock(probe_driver, observed_at):
+    with pytest.raises(ValueError):
+        probe_driver._source_export_fixture(
+            probe_driver.preflight._READ_ONLY_CODE, "fresh", observed_at=observed_at)
+
+
+@pytest.mark.parametrize("import_count", [0, 2])
+def test_container_probe_requires_exact_clock_import_seam(probe_driver, import_count):
+    code = probe_driver.preflight._READ_ONLY_CODE.replace(
+        "import datetime as dt", "\n".join(["import datetime as dt"] * import_count), 1)
+    with pytest.raises(ValueError, match="CI clock import seam changed"):
+        probe_driver._source_export_fixture(code, "fresh")
+
+
+@pytest.mark.parametrize("child_exit,status,reason,valid_marker", [
+    (0, "REFUSED", "SOURCE_EXPORT_UNAVAILABLE", True),
+    (1, "REFUSED", "SOURCE_EXPORT_UNAVAILABLE", True),
+    (0, "RECOVERY_REQUIRED", "CORPUS_SCHEMA_NOT_INSTALLED", True),
+    (0, "REFUSED", "READONLY_PREFLIGHT_UNAVAILABLE", True),
+    (0, "REFUSED", "SOURCE_EXPORT_UNAVAILABLE", False),
+])
+def test_container_probe_diagnostics_retain_cause_without_child_output(
+        probe_driver, capsys, child_exit, status, reason, valid_marker):
+    report = {"status": status, "reason_code": reason,
+              "failure_phase": "SOURCE_EXPORT_PREFLIGHT",
+              "error_type": "SharadarSnapshotExportError", "detail_sha256": "a" * 64,
+              "detail": "https://vendor.invalid?api_key=synthetic-secret"}
+    stdout = (probe_driver.preflight.MARKER + json.dumps(report)
+              if valid_marker else "malformed synthetic-secret")
+    completed = subprocess.CompletedProcess(
+        [], child_exit, stdout=stdout, stderr="postgresql://synthetic-secret")
+    passed = (child_exit == 0 and status == "REFUSED"
+              and reason == "SOURCE_EXPORT_UNAVAILABLE" and valid_marker)
+    if passed:
+        assert probe_driver._require_readonly_report(
+            completed, check="cold_export_creating", status="REFUSED",
+            reason="SOURCE_EXPORT_UNAVAILABLE") == report
+    else:
+        with pytest.raises(
+                RuntimeError, match="GO runtime check cold_export_creating failed") as exc:
+            probe_driver._require_readonly_report(
+                completed, check="cold_export_creating", status="REFUSED",
+                reason="SOURCE_EXPORT_UNAVAILABLE")
+        assert "synthetic-secret" not in str(exc.value)
+    output = capsys.readouterr().out
+    assert "synthetic-secret" not in output
+    evidence = json.loads(output.removeprefix("GO_PROBE_RUNTIME_CHECK="))
+    assert evidence["check"] == "cold_export_creating"
+    assert evidence["result"] == ("PASS" if passed else "FAIL")
+    assert evidence["child_exit"] == child_exit
+    assert evidence["expected_reason"] == "SOURCE_EXPORT_UNAVAILABLE"
+    assert evidence["reason_code"] == (
+        reason if valid_marker else "READONLY_MARKER_MISSING_OR_MALFORMED")
+    if valid_marker:
+        assert evidence["status"] == status
+        assert evidence["failure_phase"] == "SOURCE_EXPORT_PREFLIGHT"
 
 
 def test_canonical_cold_seed_publishes_300_sessions_with_one_sep_acquisition(conn, monkeypatch):

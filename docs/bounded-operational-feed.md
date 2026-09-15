@@ -44,6 +44,17 @@ interval to bound peak memory. Every SEP partition must name the same table
 refresh. Each file is downloaded once and its SHA256, interval, row count and
 vendor timestamps are bound into publication evidence.
 
+The preliminary probe observes exports only after the target session's reviewed
+23:45 America/New_York source-final boundary. A cold database before that
+boundary still reports its local recovery requirement; a generating export is
+not negative source authority yet. CI's real-container cold-start fixture fixes
+the observation clock, not the finality verdict. Its clock-only import seam and
+calendar clock use the same explicit instant; the pinned XNYS calendar and
+production `publication_not_before` comparison remain unchanged. Tests cover
+before, exactly at, and after finality, including standard time and a half-day.
+Runtime-check diagnostics report the check, child exit, status, reason and
+failure phase without printing commands, credentials or raw child output.
+
 A private indexed disk capture serves subsequent normalization, membership,
 CDC, overlap and reconciliation reads from those verified files. These are
 local replays, not independent vendor observations. Independent exporter status
