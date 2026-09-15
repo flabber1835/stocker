@@ -174,8 +174,8 @@ class Provider:
                 archive.writestr(info, csv_text.getvalue())
             link = f"https://exports.sharadar-replay.invalid/{digest([self.step.name, table, query, rows])}.zip"
             self._downloads[link] = buffer.getvalue()
-            self._download_sources[link] = {"table": table,
-                "query": {k: v for k, v in query.items() if k != "api_key"},
+            self._download_sources[link] = {"download_table": table,
+                "download_query": {k: v for k, v in query.items() if k != "api_key"},
                 "generation": digest([table, rows])}
             if any(f.kind == "invalid_zip" for f in faults):
                 self._downloads[link] = b"truncated ZIP archive"

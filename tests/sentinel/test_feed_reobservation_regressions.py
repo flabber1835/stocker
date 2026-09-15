@@ -10,6 +10,15 @@ from sentinel.feed import actions, ingest, outage_recovery, source_aliases
 def test_go_opt_in_reobserves_already_current_market_frontier(monkeypatch):
     target = "2026-09-02"
     calls = []
+    start, end = outage_recovery.operational_source.price_window(target)
+    monkeypatch.setattr(outage_recovery.publication, "operational_boundary",
+                        lambda *_args, **_kwargs: SimpleNamespace(start=start))
+
+    def acquisition(lo, hi):
+        calls.append(("acquisition", lo, hi))
+        return nullcontext()
+
+    monkeypatch.setattr(outage_recovery.operational_source, "acquisition", acquisition)
 
     monkeypatch.setattr(
         outage_recovery.store, "latest_visible_session", lambda _conn: target)
@@ -33,7 +42,8 @@ def test_go_opt_in_reobserves_already_current_market_frontier(monkeypatch):
 
     assert result.mode == "ALREADY_CURRENT"
     assert result.recovered_from is None
-    assert calls == ["backup", ("daily", target), "coherence"]
+    assert calls == ["backup", ("acquisition", start, end), "backup",
+                     ("daily", target), "coherence"]
 
 
 def test_failed_sep_candidate_retries_on_vendor_clock_when_cursor_leads_market(

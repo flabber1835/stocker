@@ -43,7 +43,7 @@ def seeded_market(seed_backup_policy):
     server = _EphemeralPostgres()
     server.start()
     data, _, _ = source()
-    sessions = calendar.previous_sessions(DAY, 253)
+    sessions = calendar.previous_sessions(DAY, 300)
     ordinary = [dict(data["tickers"][0], ticker=f"T{i}", permaticker=i + 1,
                      firstpricedate=sessions[0], lastpricedate=DAY, relatedtickers="") for i in range(4001)]
     bars = []
@@ -91,7 +91,7 @@ def seeded_market(seed_backup_policy):
                                     (result.run_id,)).fetchone() == ("success",)
                 aliases = source_aliases.load(conn)
                 assert {r["permaticker"] for r in aliases["records"]} == {"6401005", "6399775"}
-                assert conn.execute("SELECT COUNT(DISTINCT session) FROM sentinel_bars").fetchone()[0] == 253
+                assert conn.execute("SELECT COUNT(DISTINCT session) FROM sentinel_bars").fetchone()[0] == 300
                 assert publication.require_current(conn).window_end == DAY
             controller, strategy = production_strategy()
             yield SimpleNamespace(server=server, provider=provider, sessions=sessions,
@@ -154,8 +154,9 @@ def test_full_seed_current_champion_warmup_and_restart(seeded_market):
 @pytest.mark.parametrize("index", [0, 120, 251])
 def test_missing_warmup_session_refuses_at_the_real_database_loader(seeded_market, index):
     market = seeded_market
+    warmup_sessions = market.sessions[-253:-1]
     with store.connect(market.server.sync_dsn) as conn:
-        stage_unpublished_session(conn, "sentinel_bars", market.sessions[index])
+        stage_unpublished_session(conn, "sentinel_bars", warmup_sessions[index])
         with pytest.raises(shadow_runtime.ShadowRuntimeRefused, match="warm-up is incomplete"):
             shadow_runtime._load_warmup_material(conn, first_session=DAY, strategy_identity=market.strategy)
         conn.rollback()
@@ -164,8 +165,9 @@ def test_missing_warmup_session_refuses_at_the_real_database_loader(seeded_marke
 @pytest.mark.parametrize("index", [0, 120, 251])
 def test_missing_spy_history_refuses_current_champion_warmup(seeded_market, index):
     market = seeded_market
+    warmup_sessions = market.sessions[-253:-1]
     with store.connect(market.server.sync_dsn) as conn:
-        stage_unpublished_session(conn, "sentinel_spy_total_return", market.sessions[index])
+        stage_unpublished_session(conn, "sentinel_spy_total_return", warmup_sessions[index])
         with pytest.raises(shadow_runtime.ShadowRuntimeRefused, match="exact dated SPY history"):
             shadow_runtime._load_warmup_material(
                 conn, first_session=DAY, strategy_identity=market.strategy)

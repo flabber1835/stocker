@@ -151,7 +151,10 @@ def test_malformed_operational_scope_refuses(scope):
 def test_container_probe_export_fixture_preserves_cold_preflight(
         conn, monkeypatch, capsys, status, expected, reason):
     import httpx
-    from scripts import test_go_probe_runtime_integration as driver
+    from tests.sentinel.test_go_readonly_data_preflight import ROOT
+    # Host scripts are mirrored under the inspection root, not /work/scripts.
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
+    import test_go_probe_runtime_integration as driver
     from sentinel.feed import calendar, snapshot_export
 
     monkeypatch.setenv("SENTINEL_DATABASE_URL", "postgresql://isolated-test")

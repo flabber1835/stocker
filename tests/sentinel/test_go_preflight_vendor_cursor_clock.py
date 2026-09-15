@@ -20,8 +20,9 @@ def test_readonly_preflight_keeps_sep_vendor_clock_separate_from_market_clock():
     assert "target=source_day" in code
     assert "boundary_label='current source observation date'" in code
     assert "if through >= target:" not in code
-    assert "elif through == source_day:" in code
-    assert "SEP_CDC_CURRENT_VENDOR_DAY_REOBSERVED" in code
+    assert "BOUNDED_SOURCE_EXPORTS_AVAILABLE" in code
+    assert "'source_rows': 0" in code
+    assert "maintenance._stable_rows" not in code
 
 
 def test_readonly_preflight_keeps_market_cursors_on_market_target():
@@ -32,5 +33,6 @@ def test_readonly_preflight_keeps_market_cursors_on_market_target():
     assert (
         "recent_cursor, name=recent_reconciliation.CURSOR_NAME, target=target"
         in code)
-    assert "'lastupdated.lte': source_day.isoformat()" in code
-    assert "hi=source_day" in code
+    assert "operational_source.acquisition(start, end)" in code
+    assert "operational_source.price_window(target_raw)" in code
+    assert "sharadar.fetch_table" not in code

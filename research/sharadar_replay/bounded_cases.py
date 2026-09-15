@@ -32,8 +32,9 @@ def require_bounded_acquisition(transcript, *, step, successful):
                        or max(r["query"]["date.lte"] for r in exports) != end):
         raise StateMismatch("bounded acquisition did not cover the independent 300-session interval")
     downloads = [r for r in rows if r["channel"] == "download"
-                 and r.get("table") in {"SEP", "ACTIONS", "TICKERS"}]
-    counts = Counter((r["table"], r["query"].get("date.gte"), r["query"].get("date.lte"))
+                 and r.get("download_table") in {"SEP", "ACTIONS", "TICKERS"}]
+    counts = Counter((r["download_table"], r["download_query"].get("date.gte"),
+                      r["download_query"].get("date.lte"))
                      for r in downloads)
     if any(count != 1 for count in counts.values()):
         raise StateMismatch("bounded acquisition downloaded a table/partition more than once")
