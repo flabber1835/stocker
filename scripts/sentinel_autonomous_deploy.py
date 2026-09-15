@@ -1123,7 +1123,7 @@ class Runner:
 
     def run(self, argv: Sequence[str], *, check: bool = True,
             capture: bool = False, stream: bool = False,
-            cwd: Path = ROOT) -> subprocess.CompletedProcess:
+            cwd: Path = ROOT, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
         argv = [str(item) for item in argv]
         stamp = _utc_text(_utcnow())
         with self.log_path.open("a", encoding="utf-8") as log:
@@ -1148,7 +1148,11 @@ class Runner:
                     argv, cwd=str(cwd), env=self.env,
                     stdout=subprocess.PIPE if capture else None,
                     stderr=subprocess.PIPE if capture else None,
-                    text=True, check=False)
+                    text=True, check=False, timeout=timeout)
+        except subprocess.TimeoutExpired:
+            if check:
+                raise DeployRefused("deployment command exceeded its deadline") from None
+            return subprocess.CompletedProcess(argv, 124, stdout="", stderr="")
         except OSError as exc:
             raise DeployRefused("could not execute %s: %s" % (argv[0], exc)) from exc
         if capture or stream:
@@ -1979,13 +1983,16 @@ class AutonomousDeploy:
         """Wait only for the already-started broker-free service to attest."""
         self.phase(
             "shadow: wait for current decision-close runtime attestation")
-        deadline = time.monotonic() + self.cfg.health_timeout
+        started = time.monotonic()
+        deadline = started + max(self.cfg.health_timeout, min(
+            getattr(self.cfg, "data_wait_timeout_seconds", self.cfg.health_timeout), 7200))
+        last_report = started
         last = None
         while time.monotonic() < deadline:
             completed = self.runner.run(self._authorized_compose() + [
                 "--profile", "shadow", "exec", "-T", "sentinel-shadow",
                 "python", "-m", "sentinel", "shadow-status"],
-                capture=True, check=False)
+                capture=True, check=False, timeout=min(30, max(1, deadline - time.monotonic())))
             if completed.returncode == 0:
                 try:
                     last = json.loads(completed.stdout or "")
@@ -1996,6 +2003,11 @@ class AutonomousDeploy:
                         and last.get("shadow_verdict") == "SHADOW_GO"
                         and last.get("verification") == "VERIFIED"):
                     return last
+            now = time.monotonic()
+            if now - last_report >= 10:
+                print("[WAIT] shadow attestation for %s; elapsed %ds; data-work budget remaining %ds" %
+                      (decision_session, now - started, max(0, deadline - now)), flush=True)
+                last_report = now
             time.sleep(3)
         raise DeployRefused(
             "certified shadow did not attest the PAPER decision close before "

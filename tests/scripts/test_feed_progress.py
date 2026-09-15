@@ -62,3 +62,16 @@ def test_cdc_status_reports_both_market_and_vendor_update_windows():
     for bad in (dict(event, reason="password=secret"), dict(event, updated_to=[]),
                 dict(event, updated_from="2026-02-30")):
         assert progress.parse(progress.PREFIX + json.dumps(bad)) is None
+
+
+def test_export_wait_is_actionable_and_non_row_work_does_not_claim_rows():
+    event = dict(stage="source_preflight", status="working", rows=0, elapsed_ms=0,
+                 ready=4, parts=17, retry_seconds=30, remaining_seconds=570,
+                 reason="EXPORT_GENERATION_PENDING")
+    assert progress.parse(progress.PREFIX + json.dumps(event)) == event
+    text = progress.describe(event)
+    assert "4/17 exports ready" in text and "next poll in 30s" in text
+    assert "remaining 570s" in text and "rows" not in text
+    schema = dict(stage="schema_migration", status="started", rows=0, elapsed_ms=0)
+    assert "rows" not in progress.describe(schema)
+    assert progress.parse(progress.PREFIX + json.dumps(dict(event, retry_seconds="secret"))) is None

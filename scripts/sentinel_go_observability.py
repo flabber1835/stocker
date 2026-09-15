@@ -130,6 +130,11 @@ def _fail(text: str) -> None:
 
 
 def _working(text: str, elapsed: int, event=None, idle=None) -> None:
+    if event is not None and idle is not None:
+        event = dict(event)
+        for key in ("retry_seconds", "remaining_seconds"):
+            if key in event:
+                event[key] = max(0, event[key] - idle)
     detail = feed_progress.describe(event) if event else "subprocess supplied no internal progress"
     suffix = "; %ss since last progress" % idle if idle is not None else ""
     print(_paint(YELLOW, "[WORK] %s -- %s; elapsed %ss%s" % (text, detail, elapsed, suffix)),
@@ -187,6 +192,13 @@ def _command_label(command: Sequence[str]) -> str:
         return "read-only financial probe"
     if values[:2] == ["bash", "scripts/sentinel-compose.sh"]:
         return "resolve Sentinel Compose runtime"
+    if values[0] == "bash" and len(values) > 1:
+        known = {
+            "scripts/sentinel-backup-status.sh": "verify database backup health",
+            "scripts/sentinel-base-backup.sh": "create and archive database base backup",
+        }
+        if values[1] in known:
+            return known[values[1]]
     return "%s subprocess" % os.path.basename(values[0])
 
 
@@ -215,10 +227,18 @@ def _timeout_seconds(controller: Any, go: Any, command: Sequence[str]) -> int:
 def _streaming_run(controller: Any, go: Any, command: Sequence[str], *,
                    env: Optional[Mapping[str, str]], cwd: Any,
                    raw_stream: bool) -> subprocess.CompletedProcess:
+    from sentinel_go_process import owned_command
+    with owned_command(command) as owner:
+        return _streaming_run_owned(controller, go, owner["command"], env=env,
+                                    cwd=cwd, raw_stream=raw_stream, owner=owner)
+
+
+def _streaming_run_owned(controller, go, command, *, env, cwd, raw_stream, owner):
     """Run with live safe output or heartbeat-only sensitive output."""
     values = [str(item) for item in command]
     label = _command_label(values)
     timeout = _timeout_seconds(controller, go, values)
+    label += " (deadline %ss)" % timeout
     _start(label)
     try:
         proc = subprocess.Popen(
@@ -230,6 +250,7 @@ def _streaming_run(controller: Any, go: Any, command: Sequence[str], *,
             text=True,
             bufsize=1,
         )
+        owner["process"] = proc
     except OSError:
         _fail("%s (could not start)" % label)
         return subprocess.CompletedProcess(values, 127, stdout="", stderr="")

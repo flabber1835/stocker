@@ -28,6 +28,25 @@ def _cfg(*, allow_empty=False):
     )
 
 
+def test_shadow_attestation_uses_data_budget_not_process_health_budget(monkeypatch):
+    import json
+    clock = [0.0]
+    obj = object.__new__(deploy.AutonomousDeploy)
+    obj.cfg = SimpleNamespace(health_timeout=30, data_wait_timeout_seconds=120)
+    obj.phase = lambda message: None
+    obj._authorized_compose = lambda: ["docker", "compose"]
+    def status(*args, **kwargs):
+        assert 0 < kwargs["timeout"] <= 30
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            "session": "2026-08-28", "verification": "VERIFIED",
+            "shadow_verdict": "SHADOW_GO" if clock[0] >= 60 else "SHADOW_NO_GO"}))
+    obj.runner = SimpleNamespace(run=status)
+    monkeypatch.setattr(deploy.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(deploy.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    assert obj._wait_for_dual_shadow_session("2026-08-28")["shadow_verdict"] == "SHADOW_GO"
+    assert clock[0] == 60
+
+
 def test_dotenv_is_literal_and_does_not_truncate_hash_password(tmp_path):
     path = tmp_path / ".env"
     path.write_text(

@@ -8,6 +8,7 @@ import io
 import itertools
 import json
 import random
+import time
 import zipfile
 
 import httpx
@@ -26,11 +27,16 @@ COLUMNS = {
 
 
 class Provider:
-    def __init__(self, *, page_size: int = 53, variation_seed: int = 0):
+    def __init__(self, *, page_size: int = 53, variation_seed: int = 0,
+                 pending_polls: int = 0, clock=None, link_lifetime=1800):
         if page_size < 1:
             raise ValueError("page size must be positive")
         self.page_size = page_size
         self.variation_seed = variation_seed
+        self.pending_polls = pending_polls
+        self.clock = clock or time.monotonic
+        self.link_lifetime = link_lifetime
+        self._expires = {}
         self.transcript: list[dict] = []
         self.step: Step | None = None
         self._views: dict = {}
@@ -174,6 +180,8 @@ class Provider:
         if request.method != "GET":
             raise RuntimeError("simulator permits GET only")
         if request.url.host == "exports.sharadar-replay.invalid":
+            if self.clock() >= self._expires.get(str(request.url), float("inf")):
+                return httpx.Response(403, request=request)
             body = self._downloads.get(str(request.url))
             if body is None:
                 raise RuntimeError("unknown or expired export generation")
@@ -229,6 +237,7 @@ class Provider:
                 generation = self._generation_digest([self.step.name, table, query], encoded_rows)
                 link = f"https://exports.sharadar-replay.invalid/{generation}.zip"
                 self._downloads[link] = buffer.getvalue()
+                self._expires[link] = self.clock() + self.link_lifetime
                 self._download_sources[link] = {"download_table": table,
                     "download_query": {k: v for k, v in query.items() if k != "api_key"},
                     "generation": self._generation_digest([table], encoded_rows)}
@@ -237,6 +246,13 @@ class Provider:
                 self._exports.setdefault(table, {})[export_key] = row_count, row_digest, link
             else:
                 _, _, link = exported
+                if self.clock() >= self._expires[link]:
+                    old = link
+                    link = old.split("?")[0] + f"?renew={observation}"
+                    self._downloads[link] = self._downloads[old]
+                    self._download_sources[link] = self._download_sources[old]
+                    self._expires[link] = self.clock() + self.link_lifetime
+                    self._exports[table][export_key] = row_count, row_digest, link
             refreshed = self.step.at - dt.timedelta(minutes=1)
             if any(r.table == table for r in self.step.revisions if r.name in self._applied):
                 refreshed += dt.timedelta(seconds=1)
@@ -247,7 +263,7 @@ class Provider:
                 "file": {"status": "fresh", "link": link,
                          "data_snapshot_time": snapshot.isoformat()},
                 "datatable": {"last_refreshed_time": refreshed.isoformat()}}}
-            if any(f.kind == "creating_export" for f in faults):
+            if observation <= self.pending_polls or any(f.kind == "creating_export" for f in faults):
                 payload["datatable_bulk_download"]["file"] = {"status": "creating", "link": None}
         else:
             cursor = int(query.get("qopts.cursor_id", "0"))

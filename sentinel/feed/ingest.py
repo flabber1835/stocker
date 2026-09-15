@@ -559,7 +559,7 @@ def daily(conn, *, fetch=sharadar.fetch_table, resolve_identity=None,
             raise operational_source.OperationalAcquisitionRefused(
                 f"persisted catch-up requires {boundary.start}..{end}; "
                 f"automatic acquisition allows {start}..{end}")
-        with operational_source.acquisition(start, end):
+        with operational_source.acquisition(start, end, download=True):
             return _daily(conn, fetch=fetch, resolve_identity=resolve_identity,
                           overlap_days=overlap_days, today=today)
     return _daily(conn, fetch=fetch, resolve_identity=resolve_identity,

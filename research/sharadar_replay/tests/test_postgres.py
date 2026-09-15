@@ -146,10 +146,12 @@ def test_disabled_source_stability_guard_is_killed(monkeypatch, tmp_path):
 
 
 def test_bounded_download_repetition_is_killed(monkeypatch, tmp_path):
-    from sentinel.feed import snapshot_export
+    from sentinel.feed import acquisition_work, snapshot_export
     dsn = os.environ.get("SHARADAR_REPLAY_TEST_DSN")
     assert dsn, "SHARADAR_REPLAY_TEST_DSN is required"
     original = snapshot_export.download_snapshot
+    # Force an actual repeated transfer; a second cache replay is now harmless.
+    monkeypatch.setattr(acquisition_work, "read_cached", lambda path: None)
 
     def repeated(snapshot, **kwargs):
         if snapshot.table == "SEP":

@@ -208,7 +208,7 @@ def classify_dependency_failure(
         return DataIntegrityFailure(
             f"Sharadar data integrity failure: {type(exc).__name__}: {exc}")
     if isinstance(exc, sharadar.SharadarRetryDeferred):
-        return TransientInfrastructureFailure(str(exc))
+        return TransientInfrastructureFailure(str(exc), retry_after_seconds=exc.delay)
     if isinstance(exc, sharadar.SharadarRequestError):
         detail = str(exc)
         lowered = detail.lower()

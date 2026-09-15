@@ -246,7 +246,7 @@ def _add_version_checks(conn, r: "Readiness") -> None:
     """
     publication = _publication
     try:
-        report = publication.operational_coherence(conn, persist=True)
+        report = publication.operational_coherence(conn)
     except Exception as exc:                              # noqa: BLE001
         # FAIL, never skip. A visibility rule that cannot be evaluated has not
         # been satisfied, and every count in this report is scoped by it.

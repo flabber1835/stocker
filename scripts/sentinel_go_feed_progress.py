@@ -26,7 +26,8 @@ def parse(line):
         return None
     required = {"stage", "status", "rows", "elapsed_ms"}
     optional = {"refreshed_at", "snapshot_at", "table", "date_from", "date_to",
-                "updated_from", "updated_to", "part", "parts", "reason"}
+                "updated_from", "updated_to", "part", "parts", "reason",
+                "ready", "retry_seconds", "remaining_seconds", "bytes"}
     if not isinstance(value, dict) or not required.issubset(value) or set(value) - required - optional:
         return None
     if "reason" in value and (not isinstance(value["reason"], str)
@@ -47,6 +48,9 @@ def parse(line):
                 return None
     for field in ("part", "parts"):
         if field in value and (type(value[field]) is not int or not 1 <= value[field] <= 1000):
+            return None
+    for field in ("ready", "retry_seconds", "remaining_seconds", "bytes"):
+        if field in value and (type(value[field]) is not int or not 0 <= value[field] <= 10**12):
             return None
     for field in ("refreshed_at", "snapshot_at"):
         if field in value:
@@ -80,7 +84,17 @@ def describe(value):
         text += " partition %s/%s" % (value["part"], value["parts"])
     if value.get("updated_from") or value.get("updated_to"):
         text += "; updated " + (value.get("updated_from") or "all") + ".." + (value.get("updated_to") or "all")
-    text += ": %s; %s rows" % (value["status"], format(value["rows"], ","))
+    text += ": %s" % value["status"]
+    if value["stage"] not in {"schema_migration", "database_connect", "source_preflight", "export_preflight"}:
+        text += "; %s rows" % format(value["rows"], ",")
+    if "ready" in value:
+        text += "; %s/%s exports ready" % (value["ready"], value.get("parts", "?"))
+    if "retry_seconds" in value:
+        text += "; next poll in %ss" % value["retry_seconds"]
+    if "remaining_seconds" in value:
+        text += "; acquisition budget remaining %ss" % value["remaining_seconds"]
+    if "bytes" in value:
+        text += "; %s bytes received" % format(value["bytes"], ",")
     if value.get("reason"):
         text += "; reason " + value["reason"]
     if value.get("refreshed_at"):

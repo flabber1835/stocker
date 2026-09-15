@@ -35,14 +35,74 @@ Nasdaq's filtered Table Exporter is the single-file acquisition authority:
 [Table Exporter filters](https://docs.data.nasdaq.com/v1.0/docs/in-depth-usage-1).
 Before downloading source data, probe ACTIONS, TICKERS and every bounded SEP
 partition. All must be fresh with snapshot time at or after table refresh.
-Creating/regenerating exports refuse immediately and identify the table and
-interval. GO's preliminary read-only probe checks export availability and local
+Creating/regenerating exports are asynchronous work, not proof of bad data or
+an underlying table update. Operational acquisition requests every partition,
+then polls pending jobs with a shared 600-second network-work budget. A pending
+job at the budget boundary yields retryable availability, never semantic failure.
+GO and the manual/deployment `feed-daily` command retry that availability with
+the same fixed target for up to one hour,
+reporting each wait; daily/shadow callers use their existing durable scheduling.
+This budget is below the 900-second automation callback deadline; it is not an
+estimate of total cold-start time. Completed files survive later invocations.
+The preliminary read-only probe is deliberately single-observation and reports
+pending availability without waiting or downloading. It checks local
 watermarks only; it does not perform a separate SEP CDC data download. Identity
 and CDC validation belong to the canonical certified preparation over the one
 captured snapshot. Price partitions are calendar-month slices of the same 300-session
 interval to bound peak memory. Every SEP partition must name the same table
 refresh. Each file is downloaded once and its SHA256, interval, row count and
 vendor timestamps are bound into publication evidence.
+
+### Recoverable acquisition lifecycle
+
+Exporter links expire independently of source data. Renew a link immediately
+before an uncached download and once after HTTP 403/404; require the same table
+refresh before accepting it. Never accept a regenerating file's old link.
+Revalidate all generations before replay and publication. A changed generation
+requires a new acquisition, not mixed-generation reuse.
+
+Keep completed ZIP files in the existing durable `SENTINEL_STATE_DIR` volume
+(the OS temporary directory outside deployment). Cache identity includes the
+provider endpoint, table, exact filters, snapshot time and table refresh. Verify
+SHA256 and parse/validate the CSV again on reuse. Cache content is an optimization,
+never publication authority. Atomic replacement and a per-file interprocess lock
+prevent partial files from becoming reusable. Partial downloads are retried;
+no promise is made that interrupted bytes are transferred only once. Bound cache
+retention; no API keys, signed download URLs or broker state are persisted there.
+
+Acquire bulk files before taking the corpus writer lock. Canonical mutation and
+recovery still re-evaluate local state under their existing lock; no pre-download
+database observation authorizes a later write. TICKERS JSON and SFP retain their
+independent authority checks. Publication never trusts a cache without fresh
+vendor corroboration. No full-history fallback is introduced.
+Metadata-only probes and publication corroboration have a separate 60-second
+budget, so provider backoff cannot hold a database writer through a long export
+generation wait. Socket timeouts are bounded by the remaining request budget;
+outer process deadlines remain the hard cancellation boundary.
+Deployment shadow attestation uses the bounded data-work budget (at most the
+shadow worker's two-hour ceiling), not the five-minute process-health budget.
+Waiting still requires the exact verified decision session and never grants
+execution authority. Process health checks retain their short deadlines.
+
+Provider Retry-After is a lower bound, including across process restarts. Retain
+the provider cooldown in the same durable cache and preserve it in automation's
+scheduled retry. Pending exports and exhausted transient download attempts are
+availability failures; malformed exports, authentication errors and mismatched
+generations keep their distinct failure contracts.
+The reviewed child-process error envelope carries the numeric retry delay as
+well as the error class; crossing the callback process boundary must not erase
+the provider cooldown.
+
+Readiness evaluates coherence without persisting quarantine classifications.
+Mutation/preparation owns durable classifications. GO does not run a temporal
+readiness diagnostic when financial preparation failed; downstream checks are
+not proven, not a second recovery attempt.
+
+GO assigns an opaque unique name to each Docker run it owns. Completion, timeout
+and handled interruption remove that exact container and reap the launcher;
+cleanup failure is a failure, not successful cancellation. No project-wide
+container removal is permitted. Host SIGKILL/power loss cannot execute cleanup;
+the existing writer lock and publication transaction remain the recovery fence.
 
 The preliminary probe observes exports only after the target session's reviewed
 23:45 America/New_York source-final boundary. A cold database before that
@@ -96,7 +156,9 @@ requested interval, partition index/count, snapshot/refresh timestamps, received
 rows, database chunk/replay, proof and publication. GO heartbeats repeat the
 latest actual phase and report elapsed time and time since its last progress
 event. An uninstrumented subprocess explicitly reports that it has supplied no
-internal progress. No guessed percent or ETA is displayed. Status messages never
+internal progress, names its operation and states the enforced deadline. Export
+waits report ready/total files, next poll and remaining acquisition budget; schema
+work does not pretend to count rows. No guessed percent or ETA is displayed. Status messages never
 include download URLs, database URLs, API keys or raw exception payloads.
 
 ## Replay evidence boundaries
