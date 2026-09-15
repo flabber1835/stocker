@@ -6,8 +6,24 @@ from pathlib import Path
 import shutil
 
 import pytest
+import yaml
 
 from tools import sentinel_ci_parallel_evidence as evidence
+
+
+def test_warmup_lane_streams_progress_without_raising_its_deadline():
+    workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
+                              ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))
+    job = workflow["jobs"]["parallel-certification"]
+    assert job["timeout-minutes"] == 45
+    step = next(step for step in job["steps"]
+                if step.get("if") == "${{ matrix.lane == 'sentinel-warmup' }}")
+    command = step["run"]
+    assert "tests/sentinel/test_source_seed_warmup.py -vv -ra" in command
+    assert "--capture=tee-sys --durations=10" in command
+    assert "--junitxml=/evidence/sentinel-warmup.xml" in command
+    assert "set -euo pipefail" in command
+    assert "2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt" in command
 
 
 @pytest.fixture

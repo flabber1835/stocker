@@ -238,7 +238,8 @@ jobs:
           set -euo pipefail
           docker run --rm --network none \
             -v /tmp/sentinel-lane-evidence:/evidence \
-            sentinel-test:ci tests/sentinel/test_source_seed_warmup.py -q -ra \
+            sentinel-test:ci tests/sentinel/test_source_seed_warmup.py -vv -ra \
+            --capture=tee-sys --durations=10 \
             --junitxml=/evidence/sentinel-warmup.xml \
             2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
 

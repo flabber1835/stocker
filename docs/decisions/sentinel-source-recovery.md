@@ -245,6 +245,21 @@ database fixture must establish that test filesystem identity at module scope,
 before seed setup, matching the existing function-scoped test isolation. An
 explicit REQUIRED_V1 policy still enforces real backup checks. Restore the
 original marker path when the shared fixture closes.
+This scale acceptance invokes the same bounded cold-start recovery as GO,
+rather than the explicit historical-maintenance seed surface. It must prove
+the 300-session source window, more than one million acquired SEP rows, the
+unchanged production universe floor, durable seed coverage/publication/cursor
+authority, and exactly one SEP file download per bounded month. The manual
+two-observation source paths remain covered by their existing component and
+adversarial replay tests; duplicating their HTTP acquisition in this operational
+scale fixture is not operational startup evidence. Daily continuation must
+also retain the one-download-per-partition assertion.
+The scale fixture enables the existing private PostgreSQL test archiver before
+calling cold-start recovery. Ordinary and bulk-write backup-health guards
+remain real; its local test-directory WAL target is not external NAS backup
+media and does not certify production restore authority. Share that owned
+cluster setup with worker recovery tests rather than replacing backup verdicts
+or duplicating the setup sequence.
 The simulator must bind the seed start boundary, observation instant and final
 update ceiling to the same advancing source clock. A host UTC date change must
 not leak into one boundary of a historical replay or reverse its update window.

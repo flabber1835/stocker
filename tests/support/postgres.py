@@ -145,6 +145,37 @@ class _EphemeralPostgres:
                 _run(_as_pg_user([pg_ctl, "-D", self.datadir, "-m", "immediate", "stop"]))
         shutil.rmtree(self.datadir, ignore_errors=True)
 
+    def enable_archive(self) -> None:
+        """Exercise the real WAL-health fence using this cluster's private target."""
+        from pathlib import Path
+
+        import psycopg
+        from sentinel import backup_guard
+
+        destination = Path(self.datadir) / "worker-archive"
+        destination.mkdir(exist_ok=True)
+        if os.geteuid() == 0:
+            shutil.chown(destination, user="postgres", group="postgres")
+        with psycopg.connect(self.sync_dsn, autocommit=True) as conn:
+            conn.execute("ALTER SYSTEM SET archive_mode='on'")
+            command = f"test ! -f {destination}/%f && cp %p {destination}/%f"
+            conn.execute("ALTER SYSTEM SET archive_command='" + command + "'")
+        result = _run(_as_pg_user([_find_pg_bin("pg_ctl"), "-D", self.datadir,
+                                   "-l", str(Path(self.datadir) / "server.log"),
+                                   "-m", "fast", "-w", "restart"]))
+        assert result.returncode == 0, result.stderr
+        with psycopg.connect(self.sync_dsn) as conn:
+            conn.execute("SELECT pg_create_restore_point('worker-fixture')")
+            conn.execute("SELECT pg_switch_wal()")
+            conn.commit()
+        deadline = time.monotonic() + 10
+        while time.monotonic() < deadline:
+            with psycopg.connect(self.sync_dsn) as conn:
+                if backup_guard.status(conn).bulk_writes_permitted:
+                    return
+            time.sleep(0.1)
+        pytest.fail("fixture WAL did not archive")
+
 
 def _alembic_upgrade(sync_dsn: str) -> None:
     """Apply all migrations to head against the test DB, mirroring db-migrator."""
