@@ -61,7 +61,7 @@ def _compose_text(*, health: str = "pg", service_name: str = "sentinel-postgres"
     if health == "pg":
         healthcheck = """
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      test: ["CMD-SHELL", "pg_isready -h 127.0.0.1 -U postgres -d postgres"]
       interval: 1s
       timeout: 1s
       retries: 30
@@ -111,8 +111,9 @@ def _verify_sql(path: Path, project: str, *, label: str,
     while True:
         completed = _run([
             "docker", "compose", *_compose_args(path, project),
-            "exec", "-T", "sentinel-postgres",
-            "psql", "-U", "postgres", "-d", "postgres", "-Atqc",
+            "exec", "-T", "-e", "PGPASSWORD=composition-only-password",
+            "sentinel-postgres",
+            "psql", "-h", "127.0.0.1", "-U", "postgres", "-d", "postgres", "-Atqc",
             "SELECT 1",
         ])
         if completed.returncode == 0 and completed.stdout.strip() == "1":
@@ -223,6 +224,57 @@ def _recovery_case(tmp: Path, *, name: str, action: str):
         _cleanup(path, project)
 
 
+def _initialization_case(tmp: Path):
+    name = "postgres-initialization-is-not-ready"
+    script = tmp / "hold-init.sh"
+    script.write_bytes(
+        b"#!/bin/sh\ntouch /tmp/composition-initializing\n"
+        b"while [ ! -f /tmp/composition-release ]; do sleep 0.1; done\n")
+    path = tmp / f"{name}.yml"
+    mount = json.dumps(script.as_posix() + ":/docker-entrypoint-initdb.d/hold-init.sh:ro")
+    path.write_text(_compose_text() + f"\n    volumes:\n      - {mount}\n",
+                    encoding="utf-8")
+    project = "sentinel-composition-" + uuid.uuid4().hex[:12]
+    prefix = ["docker", "compose", *_compose_args(path, project)]
+    try:
+        _require(prefix + ["up", "-d", "sentinel-postgres"], label=name)
+        deadline = time.monotonic() + 45
+        while True:
+            initialized = _run(prefix + [
+                "exec", "-T", "sentinel-postgres", "test", "-f",
+                "/tmp/composition-initializing"], timeout=5)
+            if initialized.returncode == 0:
+                break
+            if time.monotonic() >= deadline:
+                raise HarnessFailure(f"{name}: initialization fixture never started")
+            time.sleep(0.25)
+        # The temporary socket server really is accepting SQL during this hold.
+        temporary = _require(prefix + [
+            "exec", "-T", "sentinel-postgres", "psql", "-U", "postgres",
+            "-d", "postgres", "-Atqc", "SELECT 1"], label=name)
+        if temporary.stdout.strip() != "1":
+            raise HarnessFailure(f"{name}: temporary SQL fixture unavailable")
+        failure = probe_contract.ensure_postgres_ready(
+            probe_contract.DeadlineCommandRunner(cwd=ROOT),
+            env=_environment(3), compose_args=_compose_args(path, project))
+        if failure is None or failure.get("reason") != "POSTGRES_HEALTH_TIMEOUT":
+            raise HarnessFailure(f"{name}: temporary server admitted: {failure}")
+        try:
+            _verify_sql(path, project, label=name, timeout_seconds=1)
+        except HarnessFailure:
+            pass
+        else:
+            raise HarnessFailure(f"{name}: temporary server passed permanent SQL probe")
+        _require(prefix + ["exec", "-T", "sentinel-postgres", "touch",
+                           "/tmp/composition-release"], label=name)
+        _ensure_ready(path, project, timeout_seconds=45, label=name)
+        _require(prefix + ["stop", "sentinel-postgres"], label=name)
+        _ensure_ready(path, project, timeout_seconds=45, label=f"{name} recovered")
+        return {"name": name, "status": "PASS", "reason": None}
+    finally:
+        _cleanup(path, project)
+
+
 def _scenario_count():
     return len(scenarios()) + len(EXTENDED_CASES)
 
@@ -233,6 +285,7 @@ def run_live() -> dict:
     results = []
     with tempfile.TemporaryDirectory(prefix="sentinel-composition-") as directory:
         tmp = Path(directory)
+        results.append(_initialization_case(tmp))
         results.append(_docker_case(
             tmp,
             name="postgres-healthy-and-restart",
