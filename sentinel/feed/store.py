@@ -931,6 +931,12 @@ def previous_observations(conn, before_session: str) -> dict:
     can still walk every qualifying historical index entry before `Unique`
     collapses them — cheaper than the defect in #162, but still lifetime-sized.
     """
+    from sentinel.feed import operational_source, universe
+    capture = operational_source.current()
+    if capture is not None:
+        # Split inference must not straddle two vendor adjustment vintages.
+        return capture.previous_observations(
+            before_session, resolve_identity=universe.load_resolver(conn).resolve)
     with conn.cursor() as cur:
         cur.execute(_PREVIOUS_OBSERVATIONS_SQL, (before_session,))
         return {

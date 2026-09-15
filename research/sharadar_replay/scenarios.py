@@ -21,28 +21,28 @@ BASE_DIVIDEND = "2026-07-01"
 AUTHORITY_SESSION = "2026-05-04"
 
 
-def sessions(through):
+def sessions(through, *, date_from=START):
     calendar = xcals.get_calendar("XNYS", start="2025-01-01", end="2027-01-01")
-    return tuple(s.date().isoformat() for s in calendar.sessions_in_range(START, through))
+    return tuple(s.date().isoformat() for s in calendar.sessions_in_range(date_from, through))
 
 
 def world(through: str, *, correction: int | None = None,
           dividend: int | None = None, split: bool = False,
           correction_date: str = OLD_CORRECTION,
-          split_factor: float = 2, split_date: str = SPLIT):
-    axis = sessions(through)
+          split_factor: float = 2, split_date: str = SPLIT, date_from: str = START):
+    axis = sessions(through, date_from=date_from)
     sep, sfp, tickers, actions = [], [], [], []
     expected_bars, expected_sfp, expected_defensive = [], [], []
     expected_identities, expected_actions = [], []
     for ticker, sid in SID.items():
         tickers.append({"table": "SEP", "ticker": ticker, "permaticker": sid,
             "category": "Domestic Common Stock", "sector": "Industrials", "exchange": "NYSE",
-            "relatedtickers": "", "firstpricedate": START, "lastpricedate": through, "isdelisted": "N"})
+            "relatedtickers": "", "firstpricedate": date_from, "lastpricedate": through, "isdelisted": "N"})
         expected_identities.append((sid, ticker, "Domestic Common Stock", "Industrials", "",
-                                    START, through, False))
-        actions.append({"ticker": ticker, "date": START, "action": "listed", "name": ticker,
+                                    date_from, through, False))
+        actions.append({"ticker": ticker, "date": date_from, "action": "listed", "name": ticker,
                         "value": None, "contraticker": None, "contraname": None})
-        expected_actions.append((ticker, START, "listed", ticker, None, None, None))
+        expected_actions.append((ticker, date_from, "listed", ticker, None, None, None))
         for index, day in enumerate(axis):
             # Provider encoding from the fictional economic schedule.
             price = 100
@@ -143,7 +143,8 @@ def build_scenarios() -> dict[str, Scenario]:
     seed = step("bootstrap", SEED, ready=False,
                 required_blockers=("SEP recent complete reconciliation",))
     initial = seed.expected
-    base = {"seed_start": dt.date.fromisoformat(START), "seed": seed}
+    base = {"seed_start": dt.date.fromisoformat(START), "seed": seed,
+            "acquisition_mode": "retained_component"}
     cases = {}
 
     def add(name, steps, **kw):
@@ -195,4 +196,6 @@ def build_scenarios() -> dict[str, Scenario]:
     cases.update(build_adversarial_scenarios(seed))
     from .review_cases import build_review_scenarios
     cases.update(build_review_scenarios(seed))
+    from .bounded_cases import build_bounded_scenarios
+    cases.update(build_bounded_scenarios())
     return cases

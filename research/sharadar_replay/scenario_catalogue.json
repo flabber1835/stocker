@@ -7,9 +7,22 @@
     "research/sharadar_replay/tests/test_postgres.py::test_production_price_field_substitution_is_killed[raw_open]",
     "research/sharadar_replay/tests/test_postgres.py::test_production_price_field_substitution_is_killed[spy_adjusted]",
     "research/sharadar_replay/tests/test_postgres.py::test_production_price_field_substitution_is_killed[bil_open]",
-    "research/sharadar_replay/tests/test_postgres.py::test_disabled_source_stability_guard_is_killed"
+    "research/sharadar_replay/tests/test_postgres.py::test_disabled_source_stability_guard_is_killed",
+    "research/sharadar_replay/tests/test_postgres.py::test_bounded_download_repetition_is_killed",
+    "research/sharadar_replay/tests/test_postgres.py::test_bounded_window_shortening_is_killed",
+    "research/sharadar_replay/tests/test_postgres.py::test_old_vintage_predecessor_seam_is_killed"
   ],
   "scenarios": {
+    "bounded_happy_daily": ["bootstrap", "day_one", "day_two", "day_three"],
+    "bounded_correction_and_cash": ["bootstrap", "correct", "revise", "stable"],
+    "bounded_same_day": ["bootstrap", "first", "later", "next"],
+    "bounded_split_preserves_older_prices": ["bootstrap", "split", "repeat"],
+    "bounded_actions_creating": ["bootstrap", "unavailable", "recover"],
+    "bounded_tickers_creating": ["bootstrap", "unavailable", "recover"],
+    "bounded_sep_creating": ["bootstrap", "unavailable", "recover"],
+    "bounded_sep_stale_export": ["bootstrap", "damaged", "recover"],
+    "bounded_sep_invalid_zip": ["bootstrap", "damaged", "recover"],
+    "bounded_sep_refresh_changes": ["bootstrap", "source_changes", "recover"],
     "action_value_infinite": [
       "bootstrap",
       "corrupted_cash_action",

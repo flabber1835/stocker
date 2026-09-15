@@ -33,6 +33,7 @@ class Provider:
         self.step: Step | None = None
         self._views: dict = {}
         self._downloads: dict[str, bytes] = {}
+        self._download_sources: dict[str, dict] = {}
         self._traversals: dict[str, int] = {}
         self._applied: set[str] = set()
 
@@ -43,6 +44,7 @@ class Provider:
         self.step = Step.model_validate_json(step.model_dump_json())
         self._views = json.loads(json.dumps(self.step.tables))
         self._downloads = {}
+        self._download_sources = {}
         self._traversals = {}
         self._applied = set()
 
@@ -115,7 +117,8 @@ class Provider:
             if body is None:
                 raise RuntimeError("unknown or expired export generation")
             self.transcript.append({"step": self.step.name, "at": self.step.at.isoformat(),
-                                    "channel": "download", "sha256": digest(list(body))})
+                                    "channel": "download", "sha256": digest(list(body)),
+                                    **self._download_sources[str(request.url)]})
             return httpx.Response(200, content=body, request=request)
         if (request.url.host != "data.nasdaq.com" or
                 not request.url.path.startswith("/api/v3/datatables/SHARADAR/")):
@@ -171,9 +174,14 @@ class Provider:
                 archive.writestr(info, csv_text.getvalue())
             link = f"https://exports.sharadar-replay.invalid/{digest([self.step.name, table, query, rows])}.zip"
             self._downloads[link] = buffer.getvalue()
+            self._download_sources[link] = {"table": table,
+                "query": {k: v for k, v in query.items() if k != "api_key"},
+                "generation": digest([table, rows])}
             if any(f.kind == "invalid_zip" for f in faults):
                 self._downloads[link] = b"truncated ZIP archive"
             refreshed = self.step.at - dt.timedelta(minutes=1)
+            if any(r.table == table for r in self.step.revisions if r.name in self._applied):
+                refreshed += dt.timedelta(seconds=1)
             snapshot = self.step.at
             if any(f.kind == "stale_export" for f in faults):
                 snapshot = refreshed - dt.timedelta(minutes=1)
@@ -181,6 +189,8 @@ class Provider:
                 "file": {"status": "fresh", "link": link,
                          "data_snapshot_time": snapshot.isoformat()},
                 "datatable": {"last_refreshed_time": refreshed.isoformat()}}}
+            if any(f.kind == "creating_export" for f in faults):
+                payload["datatable_bulk_download"]["file"] = {"status": "creating", "link": None}
         else:
             cursor = int(query.get("qopts.cursor_id", "0"))
             page = rows[cursor:cursor + self.page_size]

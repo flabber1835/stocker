@@ -24,6 +24,13 @@ def test_scenarios_roundtrip_and_have_independent_provider_expectations():
     assert digest(expected.model_dump()) == before
 
 
+def test_replay_cannot_silently_default_to_retained_or_operational_mode():
+    value = build_scenarios()["happy_daily"].model_dump()
+    value.pop("acquisition_mode")
+    with pytest.raises(ValidationError, match="acquisition_mode"):
+        Scenario.model_validate(value)
+
+
 @pytest.mark.parametrize("through", ["2026-05-01", "2026-05-04", SEED])
 def test_replay_world_carries_reviewed_cash_authority(through):
     from sentinel.feed.corporate_action_authority import resolve_dividends

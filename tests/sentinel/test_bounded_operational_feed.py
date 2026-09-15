@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from datetime import datetime, timezone, timedelta
+import json
 from types import SimpleNamespace
 
 import pytest
@@ -43,6 +44,47 @@ def test_window_is_exactly_300_sessions_and_requirement_is_independent():
     sessions = source.calendar.sessions_in_range(start, end)
     assert len(sessions) == 300
     assert sessions[-1] == "2026-09-14"
+
+
+def test_capture_predecessors_resolve_renames_and_reused_tickers_at_source_date():
+    capture = source.OperationalCapture("2026-08-18", "2026-08-20")
+    try:
+        capture.loaded = True
+        rows = [dict(ticker="REUSE", date="2026-08-18", close="5", closeunadj="10"),
+                dict(ticker="REUSE", date="2026-08-19", close="20", closeunadj="20"),
+                dict(ticker="RENAMED", date="2026-08-20", close="6", closeunadj="12")]
+        capture.db.executemany("INSERT INTO source VALUES (?,?,?,?,?,?)", [
+            (sharadar.SEP, r["date"], "", r["ticker"], "", json.dumps(r)) for r in reversed(rows)])
+
+        def resolve(ticker, day):
+            return "OLD-ID" if ticker == "RENAMED" or day == "2026-08-18" else "NEW-ID"
+
+        assert capture.previous_observations("2026-08-20", resolve_identity=resolve) == {
+            "OLD-ID": (5.0, 10.0), "NEW-ID": (20.0, 20.0)}
+        assert capture.previous_observations(capture.start, resolve_identity=resolve) == {}
+    finally:
+        capture.close()
+
+
+def test_same_capture_predecessor_does_not_hide_real_split_disagreement():
+    from sentinel.feed import actions_map, domains
+    capture = source.OperationalCapture("2026-08-18", "2026-08-19")
+    try:
+        capture.loaded = True
+        prior = dict(ticker="AAA", date=capture.start, close="50", closeunadj="100")
+        capture.db.execute("INSERT INTO source VALUES (?,?,?,?,?,?)",
+                           (sharadar.SEP, capture.start, "", "AAA", "", json.dumps(prior)))
+        report = domains.NormalisationReport()
+        row = dict(ticker="AAA", date=capture.end, close="50", closeunadj="50", open="50", volume="100")
+        bars = list(domains.normalise_sep_rows([row], report=report,
+            resolve_identity=lambda *args: "SID",
+            prior_observations=capture.previous_observations(capture.end, resolve_identity=lambda *args: "SID"),
+            authoritative_splits={("AAA", capture.end): 3}))
+        assert bars[0].vendor.split_ratio == 1
+        assert report.split_dispositions[("AAA", capture.end)]["disposition"] == actions_map.SPLIT_UNRESOLVED
+        assert report.derived_splits_unsnapped[("AAA", capture.end)] == 2
+    finally:
+        capture.close()
 
 
 def test_larger_startup_requirement_refuses(monkeypatch):

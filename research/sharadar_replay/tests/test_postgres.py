@@ -93,7 +93,7 @@ def test_production_price_field_substitution_is_killed(monkeypatch, tmp_path, fi
     from sentinel.feed import domains, ingest, store
     dsn = os.environ.get('SHARADAR_REPLAY_TEST_DSN')
     assert dsn, 'SHARADAR_REPLAY_TEST_DSN is required'
-    daily = ingest.daily
+    daily = ingest._daily
     if field == 'raw_open':
         owner, name = domains, 'normalise_sep_rows'
         original = getattr(owner, name)
@@ -114,7 +114,7 @@ def test_production_price_field_substitution_is_killed(monkeypatch, tmp_path, fi
         with patch.object(owner, name, mutant):
             return daily(*args, **kwargs)
 
-    monkeypatch.setattr(ingest, 'daily', broken_daily)
+    monkeypatch.setattr(ingest, '_daily', broken_daily)
     output = Path(os.environ.get('SHARADAR_REPLAY_EVIDENCE', str(tmp_path))) / 'falsifiers' / field
     # SEP reconciliation detects the mutated normalizer against the correctly
     # seeded history before the final corpus comparison. SFP substitutions
@@ -130,16 +130,60 @@ def test_disabled_source_stability_guard_is_killed(monkeypatch, tmp_path):
     from sentinel.feed import authority, ingest
     dsn = os.environ.get('SHARADAR_REPLAY_TEST_DSN')
     assert dsn, 'SHARADAR_REPLAY_TEST_DSN is required'
-    daily = ingest.daily
+    daily = ingest._daily
 
     def broken_daily(*args, **kwargs):
         with patch.object(authority, 'require_stable', lambda *a, **kw: None):
             return daily(*args, **kwargs)
 
-    monkeypatch.setattr(ingest, 'daily', broken_daily)
+    monkeypatch.setattr(ingest, '_daily', broken_daily)
     output = Path(os.environ.get('SHARADAR_REPLAY_EVIDENCE', str(tmp_path))) / 'falsifiers' / 'source_stability'
     # Removing source stability lets the changed vintage reach reconciliation;
     # its independent value guard catches the drift at the wrong authority
     # boundary. The replay must reject this changed error contract.
     with pytest.raises(StateMismatch, match=r'source_changes: unexpected error .*SepValueDrift'):
         run_scenario(SCENARIOS['sep_between_observations'], server_dsn=dsn, output=output)
+
+
+def test_bounded_download_repetition_is_killed(monkeypatch, tmp_path):
+    from sentinel.feed import snapshot_export
+    dsn = os.environ.get("SHARADAR_REPLAY_TEST_DSN")
+    assert dsn, "SHARADAR_REPLAY_TEST_DSN is required"
+    original = snapshot_export.download_snapshot
+
+    def repeated(snapshot, **kwargs):
+        if snapshot.table == "SEP":
+            original(snapshot, **kwargs)
+        return original(snapshot, **kwargs)
+
+    monkeypatch.setattr(snapshot_export, "download_snapshot", repeated)
+    with pytest.raises(StateMismatch, match="downloaded a table/partition more than once"):
+        run_scenario(SCENARIOS["bounded_happy_daily"], server_dsn=dsn,
+                     output=tmp_path / "falsifier" / "bounded_repeated_download")
+
+
+def test_bounded_window_shortening_is_killed(monkeypatch, tmp_path):
+    from sentinel.feed import calendar, operational_source
+    dsn = os.environ.get("SHARADAR_REPLAY_TEST_DSN")
+    assert dsn, "SHARADAR_REPLAY_TEST_DSN is required"
+    monkeypatch.setattr(operational_source, "price_window",
+                        lambda target: (calendar.previous_sessions(target, 299)[0], target))
+    with pytest.raises(StateMismatch, match="independent 300-session interval"):
+        run_scenario(SCENARIOS["bounded_happy_daily"], server_dsn=dsn,
+                     output=tmp_path / "falsifier" / "bounded_shortened_window")
+
+
+def test_old_vintage_predecessor_seam_is_killed(monkeypatch, tmp_path):
+    from sentinel.feed import store
+    dsn = os.environ.get("SHARADAR_REPLAY_TEST_DSN")
+    assert dsn, "SHARADAR_REPLAY_TEST_DSN is required"
+
+    def retained_predecessors(conn, before_session):
+        with conn.cursor() as cur:
+            cur.execute(store._PREVIOUS_OBSERVATIONS_SQL, (before_session,))
+            return {str(sid): (float(close), float(raw)) for sid, close, raw in cur.fetchall()}
+
+    monkeypatch.setattr(store, "previous_observations", retained_predecessors)
+    with pytest.raises(StateMismatch, match="split source agreement"):
+        run_scenario(SCENARIOS["bounded_split_preserves_older_prices"], server_dsn=dsn,
+                     output=tmp_path / "falsifier" / "bounded_old_vintage_predecessor")

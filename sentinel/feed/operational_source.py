@@ -160,6 +160,27 @@ class OperationalCapture:
         self.corroborate()
         self.loaded = True
 
+    def previous_observations(self, before_session, *, resolve_identity):
+        self.require_window(self.start, before_session)
+        self.acquire()
+        rows = self.db.execute(
+            "SELECT day, payload FROM source WHERE table_code=? AND day<?",
+            (sharadar.SEP, str(before_session)))
+        latest = {}
+        details = {"table": sharadar.SEP, "date_from": self.start, "date_to": str(before_session)}
+        with progress.phase("source_replay", **details) as count:
+            for day, payload in rows:
+                row = json.loads(payload)
+                sid = resolve_identity(row["ticker"], day)
+                if sid is not None and (sid not in latest or day > latest[sid][0]):
+                    latest[sid] = (day, row.get("close"), row.get("closeunadj"))
+                count[0] += 1
+                if count[0] % 100000 == 0:
+                    progress.emit("source_replay", "working", rows=count[0], **details)
+        return {str(sid): (float(close) if close is not None else None,
+                          float(raw) if raw is not None else None)
+                for sid, (_, close, raw) in latest.items()}
+
     def fetch_rows(self, table, params=None):
         if table not in (sharadar.SEP, sharadar.ACTIONS, sharadar.TICKERS):
             raise OperationalAcquisitionRefused("unsupported operational snapshot table")

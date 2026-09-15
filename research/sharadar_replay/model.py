@@ -33,7 +33,7 @@ class Fault(Contract):
     kind: Literal["missing_column", "omit_ticker", "repeat_cursor", "http_400",
                   "duplicate_row", "stale_export", "invalid_json", "row_width",
                   "missing_cursor", "invalid_zip", "conflicting_row", "set_value",
-                  "rate_limit", "service_unavailable"]
+                  "rate_limit", "service_unavailable", "creating_export"]
     channel: Literal["pages", "export"] = "pages"
     ticker: str | None = None
     after_rows: int = Field(default=0, ge=0)
@@ -46,7 +46,7 @@ class Fault(Contract):
         _validate_source_query(self.table, self.query)
         if self.kind in {"row_width", "missing_cursor", "repeat_cursor"} and self.channel != "pages":
             raise ValueError("pagination faults require the pages channel")
-        if self.kind in {"invalid_zip", "stale_export"} and self.channel != "export":
+        if self.kind in {"invalid_zip", "stale_export", "creating_export"} and self.channel != "export":
             raise ValueError("archive faults require the export channel")
         if self.after_rows and self.channel != "pages":
             raise ValueError("page offset requires the pages channel")
@@ -114,6 +114,7 @@ class Step(Contract):
 class Scenario(Contract):
     schema_version: Literal["sharadar-replay/1"] = "sharadar-replay/1"
     name: str = Field(pattern=r"^[a-z][a-z0-9_]*$")
+    acquisition_mode: Literal["retained_component", "bounded_operational"]
     variation_seed: int = 0
     page_size: int = Field(default=53, ge=1)
     seed_start: dt.date
