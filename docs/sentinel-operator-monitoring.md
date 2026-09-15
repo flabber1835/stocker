@@ -268,7 +268,19 @@ Playwright WebKit validates iPhone-sized layout and page lifecycle behavior;
 Chromium injects a synthetic push into the actual registered service worker,
 asserts the browser-retained notification, and validates offline response,
 explicit enrollment gesture, and click routing against the exact served worker
-code. Playwright service-worker inspection is Chromium-only, and desktop
+code. PWA actions wait for an activated worker that actually controls the page;
+`serviceWorker.ready` alone can resolve during activation. A test-only HTTP
+gate holds activation and observes completed readiness snapshots to falsify this
+barrier without sleeps or racing unrelated worker-metadata reads. Offline
+acceptance captures the main-frame service-worker response event before reload,
+then requires HTTP 503, `Cache-Control: no-store`, and the explicit red document;
+the reload API's nullable return is not response authority. Push acceptance
+records browser-retained notification metadata in the real registered worker
+immediately after its original native `showNotification` promise succeeds. It
+does not manufacture a notification or substitute the handler's arguments for
+browser evidence, and does not require the OS to retain a toast until a later
+page poll. Delivery-stage and worker-error diagnostics accompany a refusal.
+Playwright service-worker inspection is Chromium-only, and desktop
 WebKit automation does not implement the iOS Home Screen delivery channel, so
 a physical iPhone acceptance run remains a deployment check: install from the
 Tailscale HTTPS origin, subscribe by button gesture, close the app, deliver a

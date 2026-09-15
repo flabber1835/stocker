@@ -282,7 +282,9 @@ def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
             r"\| tee /tmp/sentinel-lane-evidence/summary.txt", commands)
         assert pipeline, junit
         arguments = shlex.split(pipeline.group())
-        for argument in ("-q", "-ra", f"--junitxml=/evidence/{junit}", "2>&1"):
+        verbosity = (("-vv", "--capture=tee-sys")
+                     if junit == "sentinel-warmup.xml" else ("-q",))
+        for argument in (*verbosity, "-ra", f"--junitxml=/evidence/{junit}", "2>&1"):
             assert argument in arguments, (junit, argument)
     from tools.validate_test_responsibility import _job_body, _step_run, _step_slices
     for step in _step_slices(_job_body(workflow, "parallel-certification")):
@@ -299,7 +301,8 @@ def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
 
 
 @pytest.mark.parametrize("removed", [
-    "set -euo pipefail", "-ra", "--junitxml=/evidence/scripts.xml",
+    "set -euo pipefail", "-ra", "-vv", "--capture=tee-sys",
+    "--junitxml=/evidence/scripts.xml",
     "--junitxml=/evidence/wealth-core.xml", "2>&1",
     "| tee /tmp/sentinel-lane-evidence/summary.txt",
     "| tee -a /tmp/sentinel-lane-evidence/summary.txt",
