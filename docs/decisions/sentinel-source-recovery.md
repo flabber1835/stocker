@@ -232,8 +232,9 @@ validation on every replayed session; a population tolerance cannot hide a
 missing native economic input. Daily frontier validation must require each
 such native symbol individually, even if overall listing coverage would pass.
 
-The production warmup acceptance run uses 253 exchange sessions and more than
-one million synthetic source rows through the real source adapters and an empty
+The production warmup acceptance run uses a 300-session source window, including
+the 253-session strategy warmup, and more than one million synthetic source
+rows through the real source adapters and an empty
 PostgreSQL database. It covers the compact champion's 252-session feature
 formation, no fabricated holdings/cash flows/controller sessions, first-close
 and daily continuation, reconnect/serialization parity, and missing price-axis
@@ -247,11 +248,14 @@ original marker path when the shared fixture closes.
 The simulator must bind the seed start boundary, observation instant and final
 update ceiling to the same advancing source clock. A host UTC date change must
 not leak into one boundary of a historical replay or reverse its update window.
-The complete Sentinel CI job retains every existing test, source replay,
-mutation check and artifact gate. Budget 75 minutes for this job: the baseline
-successful certification took about 34 minutes and the full million-row warmup
-acceptance adds approximately 27 minutes. Its former 55-minute limit does not
-provide enough room for the expanded workload and normal runner variation.
+The complete Sentinel certification retains every existing test, source replay,
+mutation check and artifact gate. Independent suites and four replay shards
+run in parallel using one exact built runtime and test lens; the million-row
+warmup module keeps its shared fixture within one lane. The protected final
+gate requires all same-workflow dependencies and exact commit/tree/image/run/
+attempt-bound evidence, as specified in `docs/ci-campaign-optimization.md`.
+This replaces the expanded serial job's 75-minute scheduling bottleneck
+without increasing its deadline or reducing the acceptance inventory.
 The warmup identity builder must reject an incomplete or invalid SPY axis
 before normalizing its prices. A missing first benchmark date must be an
 explicit warmup refusal, never an incidental missing-key error.

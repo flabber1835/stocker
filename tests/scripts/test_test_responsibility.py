@@ -246,12 +246,13 @@ def test_host_python_owner_is_statically_bound_to_exact_3815():
         )
 
 
-def test_sharadar_pr_authority_is_in_process_in_required_sentinel_carrier():
+def test_sharadar_pr_authority_is_bound_to_required_same_workflow_dependencies():
     result = _require_merge_authority()
     assert result["carrier_job"] == "certification-and-durability"
-    assert result["replay_authority"] == "in-process-required-carrier"
+    assert result["replay_authority"] == "same-workflow-required-dependencies"
     assert result["replay_owner"] == "sharadar.daily-replay"
-    assert result["temporal_binding"] == "replay executes in the same required check run"
+    assert result["temporal_binding"] == "replay bound to the same workflow run, attempt, source and images"
+    assert result["parallel_certification"]["replay_shards"] == 4
     diagnostic = (ROOT / ".github/workflows/sharadar-daily-replay.yml").read_text()
     assert _workflow_triggers(diagnostic) == {"workflow_dispatch"}
 
@@ -263,34 +264,34 @@ def test_merge_authority_rejects_commented_disabled_and_masked_replay_evidence()
     assert marker in sentinel
 
     commented = sentinel.replace(marker, "# " + marker, 1)
-    with pytest.raises(AssertionError, match="in-process Sharadar authority"):
+    with pytest.raises(AssertionError, match="complete Sharadar authority"):
         _require_merge_authority(sentinel_text=commented, sharadar_text=sharadar)
 
     header = (
-        "      - name: Require full Sharadar replay authority\n"
+        "      - name: Re-collect and verify every protected test owner and full replay union\n"
         "        if: ${{ matrix.scope == 'exact-head' }}\n"
-        "        shell: bash\n"
+        "        run: |\n"
     )
     assert header in sentinel
     disabled = sentinel.replace(
         header,
-        "      - name: Require full Sharadar replay authority\n"
+        "      - name: Re-collect and verify every protected test owner and full replay union\n"
         "        if: false\n"
-        "        shell: bash\n",
+        "        run: |\n",
         1,
     )
-    with pytest.raises(AssertionError, match="in-process Sharadar authority"):
+    with pytest.raises(AssertionError, match="complete Sharadar authority"):
         _require_merge_authority(sentinel_text=disabled, sharadar_text=sharadar)
 
     masked = sentinel.replace(marker, marker + " || true", 1)
-    with pytest.raises(AssertionError, match="in-process Sharadar authority"):
+    with pytest.raises(AssertionError, match="complete Sharadar authority"):
         _require_merge_authority(sentinel_text=masked, sharadar_text=sharadar)
 
 
 def test_protected_contexts_require_unconditional_tree_equivalence_proof():
     sentinel = (ROOT / ".github/workflows/sentinel-safety.yml").read_text()
     marker = "python tools/verify_ci_scope.py"
-    assert sentinel.count(marker) == 2
+    assert sentinel.count(marker) == 3
     missing = sentinel.replace(marker, "python tools/missing_scope_proof.py", 1)
     with pytest.raises(AssertionError, match="unconditional CI scope proof"):
         _require_merge_authority(sentinel_text=missing)
@@ -303,6 +304,44 @@ def test_protected_contexts_require_unconditional_tree_equivalence_proof():
     )
     with pytest.raises(AssertionError, match="unconditional CI scope proof"):
         _require_merge_authority(sentinel_text=disabled)
+
+
+@pytest.mark.parametrize("before,after", [
+    ("needs: [runtime-build, parallel-certification, sharadar-replay]",
+     "needs: [runtime-build, parallel-certification]"),
+    ("    if: always()\n", "    if: success()\n"),
+    ("shard: [0, 1, 2, 3]", "shard: [0, 1, 2]"),
+    ("lane: [sentinel-main, sentinel-warmup, sentinel-automation, champion, operator, wealth-core, mutations]",
+     "lane: [sentinel-main, sentinel-automation, champion, operator, wealth-core, mutations]"),
+    ("        shard: [0, 1, 2, 3]\n", "        shard: [0, 1, 2, 3]\n        exclude: []\n"),
+    ("    name: sentinel-suite-${{ matrix.lane }}\n",
+     "    name: sentinel-suite-${{ matrix.lane }}\n    if: false\n"),
+    ("    name: sentinel-suite-${{ matrix.lane }}\n",
+     "    name: sentinel-suite-${{ matrix.lane }}\n    continue-on-error: true\n"),
+    ("      - name: Seal the successful lane evidence against the exact loaded images\n",
+     "      - name: Seal the successful lane evidence against the exact loaded images\n        if: always()\n"),
+    ("python tools/sentinel_ci_parallel_evidence.py assemble",
+     "python tools/sentinel_ci_parallel_evidence.py assemble || true"),
+    ("python tools/sentinel_ci_parallel_evidence.py verify-needs",
+     "# python tools/sentinel_ci_parallel_evidence.py verify-needs"),
+    ("CI_NEEDS: ${{ toJSON(needs) }}", "CI_NEEDS: '{}'"),
+    ("SHARADAR_REPLAY_SHARDS=4", "SHARADAR_REPLAY_SHARDS=1"),
+    ("SHARADAR_REPLAY_SHARD=${{ matrix.shard }}", "SHARADAR_REPLAY_SHARD=0"),
+    ("        if: ${{ matrix.lane == 'sentinel-warmup' }}", "        if: false"),
+    ("--fail-under=80.00", "--fail-under=0.00"),
+    ("set -euo pipefail", "set -eu"),
+    ("sentinel-runtime-build\n", "sentinel-runtime-build\n    if: false\n"),
+    ("          name: sentinel-ci-bundle-${{ github.event.pull_request.head.sha || github.sha }}-${{ github.run_attempt }}",
+     "          name: sentinel-ci-bundle-${{ github.event.pull_request.head.sha || github.sha }}-1"),
+    ("          path: /tmp/sentinel-ci-bundle\n",
+     "          path: /tmp/sentinel-ci-bundle\n          run-id: 12345\n"),
+    ("ref: ${{ github.event.pull_request.head.sha || github.sha }}", "ref: main"),
+])
+def test_parallel_authority_rejects_weakened_dependencies_workers_or_evidence(before, after):
+    sentinel = (ROOT / ".github/workflows/sentinel-safety.yml").read_text()
+    assert before in sentinel
+    with pytest.raises(AssertionError, match="parallel certification"):
+        _require_merge_authority(sentinel_text=sentinel.replace(before, after))
 
 
 def test_protected_context_names_are_unique_in_template_and_concrete_forms():
@@ -388,7 +427,7 @@ def test_live_test_responsibility_authority_is_valid():
     assert result["alpaca_contract_instances"] > result["alpaca_contracts"]
     merge = result["merge_authority"]
     assert merge["carrier_job"] == "certification-and-durability"
-    assert merge["replay_authority"] == "in-process-required-carrier"
+    assert merge["replay_authority"] == "same-workflow-required-dependencies"
     assert merge["diagnostic_triggers"] == ["workflow_dispatch"]
     assert merge["alpaca_trigger"]["complete"] is True
     assert merge["protected_context_owners"]["sentinel-exact-head"] == {

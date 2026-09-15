@@ -65,6 +65,14 @@ normalizer, publication verdict or readiness result is replaced.
 
 ## Independent oracle and evidence
 
+Download transcript `sha256` values hash the exact delivered ZIP bytes directly
+with SHA-256. Economic row and corpus digests keep their independent numeric
+canonicalization; binary downloads must not pass through that decimal/JSON
+normalizer. This avoids per-byte numeric conversion for full-population fixtures
+and makes file evidence match the actual artifact. The archive contents,
+generation binding, request counts, faults and source/publication checks remain
+unchanged; no fixture population, scenario or CI timeout is reduced or relaxed.
+
 Scenario expectations describe security IDs, dates, signal/raw/open values,
 volume, split ratios and dividends independently of production helpers. Provider
 observations and expected states are separate scenario inputs. The checker

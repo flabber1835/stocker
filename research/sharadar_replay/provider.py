@@ -3,6 +3,7 @@ from __future__ import annotations
 
 import csv
 import datetime as dt
+import hashlib
 import io
 import json
 import random
@@ -117,7 +118,7 @@ class Provider:
             if body is None:
                 raise RuntimeError("unknown or expired export generation")
             self.transcript.append({"step": self.step.name, "at": self.step.at.isoformat(),
-                                    "channel": "download", "sha256": digest(list(body)),
+                                    "channel": "download", "sha256": hashlib.sha256(body).hexdigest(),
                                     **self._download_sources[str(request.url)]})
             return httpx.Response(200, content=body, request=request)
         if (request.url.host != "data.nasdaq.com" or

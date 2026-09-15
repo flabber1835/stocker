@@ -403,7 +403,7 @@ def _safe_shell_tokens(command: str) -> list[str] | None:
 
 
 def _safe_command_present(job_text: str, marker: str, *, command_start: str | None = None,
-                          required_if: str | None = None) -> bool:
+                          required_if: str | None = None, allow_tee: bool = False) -> bool:
     try:
         wanted = shlex.split(marker)
     except ValueError:
@@ -417,6 +417,10 @@ def _safe_command_present(job_text: str, marker: str, *, command_start: str | No
         if run is None:
             continue
         for command in _logical_shell_commands(run):
+            if allow_tee and run.splitlines()[0] == "set -euo pipefail" \
+                    and "set +e" not in run:
+                command = re.sub(
+                    r" 2>&1 \| tee(?: -a)? /tmp/sentinel-lane-evidence/summary\.txt$", "", command)
             tokens = _safe_shell_tokens(command)
             if tokens is None:
                 continue
@@ -601,6 +605,123 @@ def _require_alpaca_trigger_authority(workflow_text: str) -> dict:
     return {"paths_filter": sorted(paths), "complete": True}
 
 
+def _require_parallel_certification(sentinel: str) -> dict:
+    from sentinel_ci_parallel_evidence import SUITE_LANES, REPLAY_SHARDS
+
+    carrier = _job_body(sentinel, "certification-and-durability")
+    require(_job_scalar(carrier, ("needs",)) ==
+            "[runtime-build, parallel-certification, sharadar-replay]",
+            "parallel certification: mandatory carrier dependencies differ")
+    require(_job_scalar(carrier, ("if",)) == "always()",
+            "parallel certification: carrier must fail closed after dependency failure")
+    head = "${{ github.event.pull_request.head.sha || github.sha }}"
+    bundle = "sentinel-ci-bundle-" + head + "-${{ github.run_attempt }}"
+    for job_id, dimension, matrix in (
+        ("runtime-build", None, None),
+        ("parallel-certification", "lane", "[" + ", ".join(SUITE_LANES) + "]"),
+        ("sharadar-replay", "shard", "[" + ", ".join(map(str, range(REPLAY_SHARDS))) + "]"),
+    ):
+        body = _job_body(sentinel, job_id)
+        require(_job_scalar(body, ("if",)) is None,
+                f"parallel certification: {job_id} is conditionally suppressed")
+        if dimension:
+            require(_job_scalar(body, ("needs",)) == "[runtime-build]",
+                    f"parallel certification: {job_id} does not depend on the single build")
+            require(_job_scalar(body, ("strategy", "fail-fast")) == "false"
+                    and _job_scalar(body, ("strategy", "matrix", dimension)) == matrix,
+                    f"parallel certification: {job_id} lane/shard inventory differs")
+            active = _active_yaml_text(body)
+            require(not re.search(r"^\s*(include|exclude):", active, re.MULTILINE),
+                    f"parallel certification: {job_id} matrix can suppress or duplicate workers")
+        checkout = [s for s in _step_slices(body)
+                    if (_field_from_step(s, "uses") or "").startswith("actions/checkout@")]
+        require(len(checkout) == 1 and _step_is_unconditional(checkout[0])
+                and _step_scalar(checkout[0], ("with", "ref")) == head,
+                f"parallel certification: {job_id} source is not the exact advertised head")
+        if dimension:
+            downloads = [s for s in _step_slices(body)
+                         if (_field_from_step(s, "uses") or "").startswith("actions/download-artifact@")]
+            require(len(downloads) == 1 and _step_is_unconditional(downloads[0])
+                    and _step_scalar(downloads[0], ("with", "name")) == bundle,
+                    f"parallel certification: {job_id} lacks the current-attempt built bundle")
+            for marker in ("load-bundle", "complete-lane"):
+                require(_safe_command_present(
+                    body, "python tools/sentinel_ci_parallel_evidence.py " + marker,
+                    command_start="python"),
+                    f"parallel certification: {job_id} lacks executable image/receipt binding")
+            require(not _safe_command_present(body, "docker build", command_start="docker"),
+                    f"parallel certification: {job_id} rebuilds rather than loads tested images")
+
+    for job_id in ("runtime-build", "parallel-certification", "sharadar-replay",
+                   "certification-and-durability"):
+        body = _job_body(sentinel, job_id)
+        require(_job_scalar(body, ("continue-on-error",)) is None,
+                f"parallel certification: {job_id} masks job failure")
+        for step in _step_slices(body):
+            require(_field_from_step(step, "continue-on-error") is None,
+                    f"parallel certification: {job_id} masks step failure")
+            if (_field_from_step(step, "uses") or "").startswith("actions/download-artifact@"):
+                require(all(_step_scalar(step, ("with", field)) is None
+                            for field in ("run-id", "repository", "github-token")),
+                        "parallel certification: cross-workflow artifact bridge is forbidden")
+
+    build = _job_body(sentinel, "runtime-build")
+    _require_protected_scope_proof("runtime-build", build)
+    for marker, start in (
+        ("-f Dockerfile.sentinel", "docker"),
+        ("-f Dockerfile.sentinel-test", "docker"),
+        ("bash scripts/test-pr301-runtime-boundaries.sh", "bash"),
+        ("bash scripts/test-pr301-pitr-recovery.sh", "bash"),
+        ("bash scripts/test-pr330-postgres-retirement.sh", "bash"),
+        ("sentinel-test:ci -m compileall -q -f", "docker"),
+        ("python tools/sentinel_ci_parallel_evidence.py build-bundle", "python"),
+    ):
+        require(_safe_command_present(build, marker, command_start=start),
+                f"parallel certification: single build lacks executable probe/export: {marker}")
+
+    suites = _job_body(sentinel, "parallel-certification")
+    suite_commands = {
+        "sentinel-main": [("sentinel-test:ci tests/sentinel", "docker")],
+        "sentinel-warmup": [("sentinel-test:ci tests/sentinel/test_source_seed_warmup.py", "docker")],
+        "sentinel-automation": [("-m coverage run --branch", "docker"),
+                                ("--fail-under=80.00", "docker")],
+        "champion": [("tests/champion tests/median5 tests/v5", "docker"),
+                     ("/work/tools/champion_mutation_check.py", "docker"),
+                     ("/work/tools/v5_mutation_check.py", "docker")],
+        "operator": [("sentinel-test:ci tests/scripts", "docker"), ("bash -n", "bash"),
+                     ("--profile authorized-cli config --quiet", "docker")],
+        "wealth-core": [("tests/wealth_core", "docker")],
+        "mutations": [("/work/tools/sentinel_mutation_certify.py", "docker")],
+    }
+    for lane, commands in suite_commands.items():
+        for marker, start in commands:
+            require(_safe_command_present(
+                suites, marker, command_start=start,
+                required_if="${{ matrix.lane == '" + lane + "' }}", allow_tee=True),
+                f"parallel certification: {lane} lacks executable suite/probe: {marker}")
+
+    replay = _job_body(sentinel, "sharadar-replay")
+    for marker in ("-m pytest research/sharadar_replay/tests -q -ra -s",
+                   "SHARADAR_REPLAY_SHARDS=4", "SHARADAR_REPLAY_SHARD=${{ matrix.shard }}"):
+        require(_safe_command_present(replay, marker, command_start="docker"),
+                f"parallel certification: replay lacks executable complete shard selection: {marker}")
+    for command, condition in (("verify-needs", None), ("load-bundle", _EXACT_SCOPE_IF),
+                               ("assemble", _EXACT_SCOPE_IF)):
+        require(_safe_command_present(
+            carrier, "python tools/sentinel_ci_parallel_evidence.py " + command,
+            command_start="python", required_if=condition),
+            f"parallel certification: carrier lacks executable fail-closed evidence gate: {command}")
+    for command in ("verify-needs", "assemble"):
+        steps = [s for s in _step_slices(carrier)
+                 if command in (_field_from_step(s, "run") or "") or
+                 command in "\n".join(s)]
+        require(len(steps) == 1 and _step_scalar(steps[0], ("env", "CI_NEEDS")) ==
+                "${{ toJSON(needs) }}", "parallel certification: dependency results are not observed")
+    return {"suite_lanes": list(SUITE_LANES), "replay_shards": REPLAY_SHARDS,
+            "image_binding": "single-build-checksummed-bundle",
+            "dependency_binding": "same-workflow-run-and-attempt"}
+
+
 def _require_merge_authority(*, sentinel_text: str | None = None,
                              sharadar_text: str | None = None,
                              workflow_texts: dict[str, str] | None = None) -> dict:
@@ -632,17 +753,17 @@ def _require_merge_authority(*, sentinel_text: str | None = None,
         ),
     }
 
+    parallel = _require_parallel_certification(sentinel)
     command_specs = [
-        ("-m pytest research/sharadar_replay/tests -q -ra -s", "docker"),
-        ("SHARADAR_REPLAY_SHARDS=1", "docker"),
         ("research/sharadar_replay/verify_evidence.py", "docker"),
+        ("--shards 4", "docker"),
         ("python tools/verify_test_owner_execution.py --owner sharadar.daily-replay", "python"),
     ]
     missing = [marker for marker, start in command_specs
                if not _safe_command_present(
                    carrier, marker, command_start=start, required_if=_EXACT_SCOPE_IF)]
     require(not missing,
-            "Sentinel protected carrier lacks executable exact-head in-process Sharadar authority: "
+            "Sentinel protected carrier lacks executable exact-head complete Sharadar authority: "
             f"{missing}")
     require(not _safe_command_present(carrier, "tools/require_check_run.py"),
             "Sentinel protected carrier regressed to a point-in-time cross-workflow replay bridge")
@@ -657,12 +778,13 @@ def _require_merge_authority(*, sentinel_text: str | None = None,
     return {
         "carrier_contexts": ["sentinel-exact-head", "sentinel-synthetic-merge"],
         "carrier_job": carrier_job_id,
-        "replay_authority": "in-process-required-carrier",
+        "replay_authority": "same-workflow-required-dependencies",
         "replay_owner": "sharadar.daily-replay",
         "diagnostic_workflow": sharadar_path,
         "diagnostic_triggers": sorted(diagnostic_triggers),
         "protected_context_owners": protected,
-        "temporal_binding": "replay executes in the same required check run",
+        "temporal_binding": "replay bound to the same workflow run, attempt, source and images",
+        "parallel_certification": parallel,
         "alpaca_trigger": alpaca_trigger,
         "scope_proofs": scope_proofs,
     }
