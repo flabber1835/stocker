@@ -381,6 +381,15 @@ def prepare_full_reseed(conn, *, date_from: str, date_to: str) -> FullReseedPlan
              _dt.date.fromisoformat(physical_lo) if physical_lo else requested_lo)
     hi = max(requested_hi,
              _dt.date.fromisoformat(physical_hi) if physical_hi else requested_hi)
+    from sentinel.feed import operational_source
+    capture = operational_source.current()
+    if capture is not None:
+        capture.require_window(requested_lo, requested_hi)
+        lo, hi = requested_lo, requested_hi
+        if physical_hi is not None and _dt.date.fromisoformat(physical_hi) > hi:
+            raise operational_source.OperationalAcquisitionRefused(
+                f"unpublished candidate reaches {physical_hi}, beyond "
+                f"operational target {hi}; explicit recovery is required")
     today = _dt.date.today()
     if hi > today:
         raise PublicationRecoveryRefused(
@@ -528,6 +537,14 @@ def assert_full_reseed_covered_live_rows(
         conn, *, run_id: str, market_start: str, actions_start: str,
         end: str) -> None:
     """Refuse if an older live destructive row lies outside replacement scope."""
+    from sentinel.feed import operational_source
+    capture = operational_source.current()
+    if capture is not None:
+        capture.require_window(market_start, end)
+        # Publication classifies remaining old owners after complete TICKERS
+        # retirement. It permits only historical-only quarantine, never an
+        # unresolved input in the operational dependency closure.
+        return
     writer = str(run_id)
     for table, start in (
         ("sentinel_bars", market_start),

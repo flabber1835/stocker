@@ -129,8 +129,10 @@ def _fail(text: str) -> None:
     print(_paint(RED + BOLD, "[FAIL] %s" % text), file=sys.stderr, flush=True)
 
 
-def _working(text: str, elapsed: int) -> None:
-    print(_paint(YELLOW, "[WORK] %s -- still running (%ss)" % (text, elapsed)),
+def _working(text: str, elapsed: int, event=None, idle=None) -> None:
+    detail = feed_progress.describe(event) if event else "subprocess supplied no internal progress"
+    suffix = "; %ss since last progress" % idle if idle is not None else ""
+    print(_paint(YELLOW, "[WORK] %s -- %s; elapsed %ss%s" % (text, detail, elapsed, suffix)),
           flush=True)
 
 
@@ -180,6 +182,8 @@ def _command_label(command: Sequence[str]) -> str:
     if values[:2] == ["docker", "compose"]:
         if any("SENTINEL_GO_PREPARATION=" in item for item in values):
             return "certified financial preparation"
+        if any("SENTINEL_GO_WAIT_READINESS=" in item for item in values):
+            return "read-only readiness and session freshness"
         return "read-only financial probe"
     if values[:2] == ["bash", "scripts/sentinel-compose.sh"]:
         return "resolve Sentinel Compose runtime"
@@ -250,6 +254,8 @@ def _streaming_run(controller: Any, go: Any, command: Sequence[str], *,
     last_heartbeat = start
     closed = set()
     timed_out = False
+    latest_event = None
+    last_progress = start
     while len(closed) < 2:
         now = time.monotonic()
         if now - start >= timeout:
@@ -259,7 +265,7 @@ def _streaming_run(controller: Any, go: Any, command: Sequence[str], *,
             name, line = events.get(timeout=0.25)
         except queue.Empty:
             if not raw_stream and now - last_heartbeat >= _HEARTBEAT_SECONDS:
-                _working(label, int(now - start))
+                _working(label, int(now - start), latest_event, int(now - last_progress))
                 last_heartbeat = now
             continue
         if line is None:
@@ -268,12 +274,18 @@ def _streaming_run(controller: Any, go: Any, command: Sequence[str], *,
         captured[name].append(line)
         safe_event = feed_progress.parse(line)
         if safe_event is not None and not raw_stream:
-            print("[FEED] {stage} {status}: {rows:,} rows, {elapsed_ms} ms".format(
-                **safe_event), flush=True)
+            latest_event = safe_event
+            last_progress = time.monotonic()
+            print("[FEED] %s; %s ms" % (
+                feed_progress.describe(safe_event), safe_event["elapsed_ms"]), flush=True)
         if raw_stream:
             target = sys.stdout if name == "stdout" else sys.stderr
             target.write(line)
             target.flush()
+        now = time.monotonic()
+        if not raw_stream and now - last_heartbeat >= _HEARTBEAT_SECONDS:
+            _working(label, int(now - start), latest_event, int(now - last_progress))
+            last_heartbeat = now
 
     if timed_out:
         try:

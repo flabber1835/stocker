@@ -41,6 +41,16 @@ _semantic_upgrade_replay_dates = _core._semantic_upgrade_replay_dates
 _validate_sep_mutation_rows = validate_sep_mutation_rows
 
 
+def _require_cursor_scope(cursor):
+    from sentinel.feed import operational_source
+    window = getattr(cursor, "price_window", None)
+    if window is not None and operational_source.current() is None:
+        raise _core.SharadarMutationRefused(
+            f"SEP cursor covers operational prices {window[0]}..{window[1]}, "
+            "not full retained history; an explicit complete seed/reconciliation "
+            "must earn full-history CDC authority")
+
+
 def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
                                   through: str,
                                   reobserve_equal: bool = False
@@ -59,6 +69,7 @@ def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
             "SEP lastupdated cursor is absent. A complete source-stable seed or "
             "complete value/key reconciliation must establish the initial "
             "watermark; a moving price-date window cannot prove old rows current.")
+    _require_cursor_scope(cursor)
     hi = dt.date.fromisoformat(str(through))
     if cursor.processed_through > hi:
         if reobserve_equal:

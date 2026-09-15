@@ -72,7 +72,13 @@ def parse_cursor(row, *, name, current_version):
         except (TypeError, ValueError):
             return name + '_MALFORMED'
     required = {'kind', 'processed_through', 'publication_version'}
-    if not isinstance(state_value, dict) or set(state_value) != required:
+    if (not isinstance(state_value, dict) or not required.issubset(state_value)
+            or set(state_value) - required - {'price_window'}):
+        return name + '_MALFORMED'
+    from sentinel.feed import maintenance_impl
+    try:
+        maintenance_impl._cursor_price_window(state_value, name=name)
+    except maintenance_impl.SharadarMutationRefused:
         return name + '_MALFORMED'
     try:
         through = dt.date.fromisoformat(str(state_value['processed_through']))

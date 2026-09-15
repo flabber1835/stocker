@@ -78,6 +78,10 @@ def write_bars_claiming(
                 cur.executemany(_BAR_REBUILD_UPSERT, forced)
         conn.commit()
         written += len(rows)
+        from sentinel.feed import progress
+        progress.emit("database_prices", "working", table="SEP", rows=written,
+                      date_from=str(min(r[1] for r in rows)),
+                      date_to=str(max(r[1] for r in rows)))
         rows.clear()
 
     for item in bars:

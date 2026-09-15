@@ -88,6 +88,9 @@ def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
                   ("psycopg", "httpx", "exchange_calendars", "pandas", "numpy", "pydantic")},
               "producer_identity": "synthetic-test-only", "seed_authority": "injected-non-certifying",
               "daily_source": "production-default-tables-and-exporter", "steps": [], "verdict": "FAIL"}
+    report["acquisition_mode"] = scenario.acquisition_mode
+    report["daily_entry_point"] = ("ingest.daily" if scenario.acquisition_mode == "bounded_operational"
+                                   else "ingest._daily")
     _write_new(output / "scenario.json", json.loads(scenario.model_dump_json()))
     provider = Provider(page_size=scenario.page_size, variation_seed=scenario.variation_seed)
     frozen_evidence: list[tuple[Path, str]] = []
@@ -120,7 +123,9 @@ def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
                                     date_to=str(step.through),
                                     fetch=lambda *a, **kw: sharadar.fetch_table(*a, **kw))
                             else:
-                                ingest.daily(conn, today=str(step.through))
+                                daily = (ingest.daily if scenario.acquisition_mode == "bounded_operational"
+                                         else ingest._daily)
+                                daily(conn, today=str(step.through))
                         except Exception as exc:
                             conn.rollback()
                             error = {"type": type(exc).__name__, "detail": str(exc)}
@@ -140,6 +145,10 @@ def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
                     record = {k: evidence[k] for k in ("step", "at", "publication_version", "error",
                                                       "ready", "corpus_digest", "expected_digest")}
                     report["steps"].append(record)
+                    if index and scenario.acquisition_mode == "bounded_operational":
+                        from .bounded_cases import require_bounded_acquisition
+                        require_bounded_acquisition(provider.transcript, step=step, successful=error is None)
+                        record["acquisition_checked"] = True
                     if (step.error is None) != (error is None):
                         raise StateMismatch(f"{step.name}: expected error {step.error}, actual {error}")
                     if step.error and step.error not in (error["type"] + ": " + error["detail"]):

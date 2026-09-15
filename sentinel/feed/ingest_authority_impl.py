@@ -80,8 +80,13 @@ def _finish_publication_or_refuse(conn, progress):
 
 def _single_failed_live_candidate(conn):
     candidates = recovery.failed_live_candidates(conn)
+    from sentinel.feed import operational_source, publication
+    capture = operational_source.current()
+    if capture is not None:
+        report = publication.operational_coherence(conn, frontier=capture.end)
+        blocking = {item.run_id for item in report.blocking}
+        candidates = [item for item in candidates if item.run_id in blocking]
     if len(candidates) > 1:
-        from sentinel.feed import publication
         report = publication.coherence(conn)
         daily_recoverable_rows = (
             report.unpublished_universe

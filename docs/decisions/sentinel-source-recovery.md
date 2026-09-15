@@ -232,8 +232,9 @@ validation on every replayed session; a population tolerance cannot hide a
 missing native economic input. Daily frontier validation must require each
 such native symbol individually, even if overall listing coverage would pass.
 
-The production warmup acceptance run uses 253 exchange sessions and more than
-one million synthetic source rows through the real source adapters and an empty
+The production warmup acceptance run uses a 300-session source window, including
+the 253-session strategy warmup, and more than one million synthetic source
+rows through the real source adapters and an empty
 PostgreSQL database. It covers the compact champion's 252-session feature
 formation, no fabricated holdings/cash flows/controller sessions, first-close
 and daily continuation, reconnect/serialization parity, and missing price-axis
@@ -244,14 +245,32 @@ database fixture must establish that test filesystem identity at module scope,
 before seed setup, matching the existing function-scoped test isolation. An
 explicit REQUIRED_V1 policy still enforces real backup checks. Restore the
 original marker path when the shared fixture closes.
+This scale acceptance invokes the same bounded cold-start recovery as GO,
+rather than the explicit historical-maintenance seed surface. It must prove
+the 300-session source window, more than one million acquired SEP rows, the
+unchanged production universe floor, durable seed coverage/publication/cursor
+authority, and exactly one SEP file download per bounded month. The manual
+two-observation source paths remain covered by their existing component and
+adversarial replay tests; duplicating their HTTP acquisition in this operational
+scale fixture is not operational startup evidence. Daily continuation must
+also retain the one-download-per-partition assertion.
+The scale fixture enables the existing private PostgreSQL test archiver before
+calling cold-start recovery. Ordinary and bulk-write backup-health guards
+remain real; its local test-directory WAL target is not external NAS backup
+media and does not certify production restore authority. Share that owned
+cluster setup with worker recovery tests rather than replacing backup verdicts
+or duplicating the setup sequence.
 The simulator must bind the seed start boundary, observation instant and final
 update ceiling to the same advancing source clock. A host UTC date change must
 not leak into one boundary of a historical replay or reverse its update window.
-The complete Sentinel CI job retains every existing test, source replay,
-mutation check and artifact gate. Budget 75 minutes for this job: the baseline
-successful certification took about 34 minutes and the full million-row warmup
-acceptance adds approximately 27 minutes. Its former 55-minute limit does not
-provide enough room for the expanded workload and normal runner variation.
+The complete Sentinel certification retains every existing test, source replay,
+mutation check and artifact gate. Independent suites and four replay shards
+run in parallel using one exact built runtime and test lens; the million-row
+warmup module keeps its shared fixture within one lane. The protected final
+gate requires all same-workflow dependencies and exact commit/tree/image/run/
+attempt-bound evidence, as specified in `docs/ci-campaign-optimization.md`.
+This replaces the expanded serial job's 75-minute scheduling bottleneck
+without increasing its deadline or reducing the acceptance inventory.
 The warmup identity builder must reject an incomplete or invalid SPY axis
 before normalizing its prices. A missing first benchmark date must be an
 explicit warmup refusal, never an incidental missing-key error.

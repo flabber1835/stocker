@@ -111,6 +111,21 @@ PostgreSQL startup/health wrapper, SQL reachability, restart/retry, an
 unhealthy service and a missing service. Missing Docker/PostgreSQL prerequisites
 are failures, not skips.
 
+### Permanent PostgreSQL readiness
+
+The disposable composition fixture's health and SQL probes use loopback TCP.
+The official image's temporary initialization server accepts Unix-socket
+connections before initialization finishes; that server cannot authorize a
+restart or stop/recovery test. The SQL probe authenticates using the fixture's
+fixed, non-production password. Startup deadlines remain unchanged.
+
+A live regression holds the initialization script open after its socket server
+starts. The production readiness wrapper must time out while that initialization
+is held, then pass after the harness explicitly releases it and the permanent
+TCP server starts. The initialized service must also survive stop/recovery.
+This fixture tests the startup boundary without changing production readiness
+policy or treating an unhealthy service as ready.
+
 Existing backup and internal-state physical PostgreSQL campaigns remain required;
 this harness does not duplicate their economic, WAL or broker oracles.
 

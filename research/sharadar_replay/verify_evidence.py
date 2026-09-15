@@ -82,6 +82,15 @@ def verify(root: Path, *, commit: str, shards: int = 4,
                     'scenario failed or has no steps')
             scenario = report.get('scenario')
             require(scenario in catalogue['scenarios'], 'scenario absent from catalogue')
+            bounded = scenario.startswith('bounded_')
+            require(report.get('acquisition_mode') == (
+                'bounded_operational' if bounded else 'retained_component'),
+                'report acquisition mode differs')
+            require(report.get('daily_entry_point') == ('ingest.daily' if bounded else 'ingest._daily'),
+                    'report daily entry point differs')
+            if bounded:
+                require(all(s.get('acquisition_checked') is True for s in report['steps'][1:]),
+                        'bounded acquisition evidence missing')
             require([s.get('step') for s in report['steps']] == catalogue['scenarios'][scenario],
                     'declared step coverage differs')
             require(all(s.get('corpus_digest') == s.get('expected_digest') for s in report['steps']),

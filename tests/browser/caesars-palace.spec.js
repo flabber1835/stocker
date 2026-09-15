@@ -1,5 +1,20 @@
 const { test, expect } = require("@playwright/test");
 
+async function waitForActiveWorker(page, observe) {
+  await expect.poll(async () => {
+    const snapshot = await page.evaluate(async () => {
+      const registration = await navigator.serviceWorker.getRegistration();
+      return {
+        activated: registration?.active?.state === "activated",
+        controlsPage: Boolean(registration?.active &&
+          navigator.serviceWorker.controller === registration.active)
+      };
+    });
+    observe?.(snapshot);
+    return snapshot;
+  }).toEqual({ activated: true, controlsPage: true });
+}
+
 const REQUIRED_AUTOMATION_STEPS = [
   "automation_step_discovery",
   "automation_step_data",
@@ -91,16 +106,65 @@ test.describe("Caesar's Palace on iPhone WebKit", () => {
 test.describe("Caesar's Palace PWA and push path", () => {
   test.skip(({ browserName }) => browserName !== "chromium");
 
+  test("PWA readiness waits for activation and page control", async ({ context, page }) => {
+    let releaseActivation;
+    let gateArrived;
+    let preparation;
+    const gate = new Promise((resolve) => { releaseActivation = resolve; });
+    const gateReached = new Promise((resolve) => { gateArrived = resolve; });
+    await context.route("**/service-worker.js", async (route) => {
+      const response = await route.fetch();
+      const source = await response.text();
+      expect(source).toContain("var names = await caches.keys();");
+      await route.fulfill({
+        response,
+        body: source.replace("var names = await caches.keys();",
+          'await fetch("/__activation_gate__"); var names = await caches.keys();')
+      });
+    });
+    await context.route("**/__activation_gate__", async (route) => {
+      gateArrived();
+      await gate;
+      await route.fulfill({ status: 204 });
+    });
+    try {
+      await page.goto("/", { waitUntil: "domcontentloaded" });
+      await gateReached;
+      expect(await page.evaluate(async () => {
+        const registration = await navigator.serviceWorker.ready;
+        return { state: registration.active.state, controller: navigator.serviceWorker.controller };
+      })).toEqual({ state: "activating", controller: null });
+      const snapshots = [];
+      let finished = false;
+      preparation = waitForActiveWorker(page, (snapshot) => snapshots.push(snapshot))
+        .then(() => { finished = true; });
+      await expect.poll(() => snapshots.length).toBeGreaterThan(0);
+      expect(snapshots[0]).toEqual({ activated: false, controlsPage: false });
+      expect(finished).toBe(false);
+      releaseActivation();
+      await preparation;
+      expect(finished).toBe(true);
+    } finally {
+      releaseActivation();
+      await preparation?.catch(() => undefined);
+    }
+  });
+
   test("offline navigation is explicit red and never cached green", async ({
     context,
     page
   }) => {
     await page.goto("/", { waitUntil: "networkidle" });
-    await page.evaluate(() => navigator.serviceWorker.ready);
+    await waitForActiveWorker(page);
     await context.setOffline(true);
 
-    const response = await page.reload({ waitUntil: "domcontentloaded" });
-    expect(response && response.status()).toBe(503);
+    const [response] = await Promise.all([
+      page.waitForResponse((candidate) => candidate.request().isNavigationRequest() &&
+        candidate.request().frame() === page.mainFrame() && candidate.fromServiceWorker()),
+      page.reload({ waitUntil: "domcontentloaded" })
+    ]);
+    expect(response.status()).toBe(503);
+    expect(response.headers()["cache-control"]).toBe("no-store");
     await expect(page.locator("body")).toContainText("OPERATIONAL RED — OFFLINE");
     await context.setOffline(false);
   });
@@ -160,7 +224,7 @@ test.describe("Caesar's Palace PWA and push path", () => {
     });
 
     await page.goto("/", { waitUntil: "networkidle" });
-    await page.evaluate(() => navigator.serviceWorker.ready);
+    await waitForActiveWorker(page);
     await expect(page.locator("#push-card")).toBeVisible();
     await expect(page.locator("#push-status")).toContainText("off");
     expect(await page.evaluate(() => window.__permissionRequests)).toBe(0);
@@ -181,6 +245,9 @@ test.describe("Caesar's Palace PWA and push path", () => {
   }) => {
     const registrations = new Map();
     const cdp = await context.newCDPSession(page);
+    cdp.on("ServiceWorker.workerErrorReported", (error) => {
+      console.error("PWA_WORKER_ERROR", JSON.stringify(error));
+    });
     cdp.on("ServiceWorker.workerRegistrationUpdated", ({ registrations: updates }) => {
       for (const registration of updates) {
         if (registration.isDeleted) {
@@ -193,11 +260,36 @@ test.describe("Caesar's Palace PWA and push path", () => {
     await cdp.send("ServiceWorker.enable");
     await context.grantPermissions(["notifications"]);
     await page.goto("/", { waitUntil: "networkidle" });
+    await waitForActiveWorker(page);
     const worker = await page.evaluate(async () => {
-      const registration = await navigator.serviceWorker.ready;
+      const registration = await navigator.serviceWorker.getRegistration();
       return { scope: registration.scope, origin: location.origin };
     });
     expect(worker.scope).toBe(`${worker.origin}/`);
+    const actor = context.serviceWorkers().find(
+      (candidate) => candidate.url() === `${worker.origin}/service-worker.js`);
+    expect(actor).toBeTruthy();
+    await actor.evaluate(() => {
+      self.__pushEvidence = { stage: "awaiting_push", notifications: [], error: null };
+      const original = self.registration.showNotification.bind(self.registration);
+      self.registration.showNotification = async (title, options) => {
+        self.__pushEvidence.stage = "native_delivery";
+        try {
+          await original(title, options);
+          self.__pushEvidence.notifications =
+            (await self.registration.getNotifications({ tag: options.tag })).map(
+              (notification) => ({
+                title: notification.title, body: notification.body,
+                tag: notification.tag, data: notification.data
+              }));
+          self.__pushEvidence.stage = "retained_at_delivery";
+        } catch (error) {
+          self.__pushEvidence.stage = "native_delivery_failed";
+          self.__pushEvidence.error = { name: error.name, message: error.message };
+          throw error;
+        }
+      };
+    });
 
     await expect.poll(() => Array.from(registrations.values()).find(
       (registration) => registration.scopeURL === worker.scope
@@ -218,22 +310,18 @@ test.describe("Caesar's Palace PWA and push path", () => {
       data: JSON.stringify(pushed)
     });
 
-    await expect.poll(() => page.evaluate(async () => {
-      const active = await navigator.serviceWorker.ready;
-      return (await active.getNotifications({ tag: "alert-red-1" })).map(
-        (notification) => ({
-          title: notification.title,
-          body: notification.body,
-          tag: notification.tag,
-          data: notification.data
-        })
-      );
-    })).toEqual([{
-      title: pushed.title,
-      body: pushed.body,
-      tag: pushed.tag,
-      data: { url: "/", alert_id: pushed.alert_id }
-    }]);
+    try {
+      await expect.poll(() => actor.evaluate(() => self.__pushEvidence.notifications)).toEqual([{
+        title: pushed.title,
+        body: pushed.body,
+        tag: pushed.tag,
+        data: { url: "/", alert_id: pushed.alert_id }
+      }]);
+    } catch (error) {
+      console.error("PWA_PUSH_FAILURE", JSON.stringify(
+        await actor.evaluate(() => self.__pushEvidence)));
+      throw error;
+    }
 
     const result = await page.evaluate(async () => {
       const source = await fetch("/service-worker.js", { cache: "no-store" }).then((r) => r.text());

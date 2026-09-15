@@ -19,7 +19,8 @@ def build_adversarial_scenarios(seed):
     })
 
     def add(name, steps, **kwargs):
-        cases[name] = Scenario(name=name, seed_start=dt.date.fromisoformat(START),
+        cases[name] = Scenario(name=name, acquisition_mode="retained_component",
+                               seed_start=dt.date.fromisoformat(START),
                                seed=seed, steps=tuple(steps), **kwargs)
 
     def interrupted(name, day, fault, error):

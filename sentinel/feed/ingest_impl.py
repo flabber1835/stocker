@@ -623,6 +623,14 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
             "than as the missing seed it actually is.")
     start = (_dt.date.fromisoformat(resume_frontier)
              - _dt.timedelta(days=overlap_days)).isoformat()
+    from sentinel.feed import operational_source
+    capture = operational_source.current()
+    if capture is not None:
+        if validation_frontier is not None and validation_frontier < capture.start:
+            raise operational_source.OperationalAcquisitionRefused(
+                f"daily catch-up frontier {validation_frontier} precedes "
+                f"bounded window {capture.start}..{capture.end}")
+        start = max(start, capture.start)
     # Refuse before opening the durable run row.  A future/corrupt frontier must
     # not become a successful empty ingest whose publication advances anyway.
     sharadar.validate_date_range(start, to)
@@ -658,6 +666,8 @@ def _daily_locked(conn, *, fetch: Callable[..., Iterable[dict]],
         from sentinel.feed import recovery
         spy_start = recovery.reference_window_start(
             conn, requested_start=spy_start, through=to)
+        if capture is not None:
+            capture.require_window(spy_start, to)
         params = {"ticker": SFP_REFERENCE_TICKERS,
                   **sharadar.date_params(spy_start, to)}
         rows = fetch(sharadar.SFP, params)

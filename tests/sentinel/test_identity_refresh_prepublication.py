@@ -168,7 +168,8 @@ def test_production_daily_prevalidates_exact_candidate_before_publication(
         ingest, "_prove_recent_frontier",
         lambda conn, **kwargs: events.append("recent-proof"))
 
-    ingest.daily(object(), fetch=source, today="2026-08-25")
+    # Exercise canonical mutation sequencing; wrapper acquisition has its own tests.
+    ingest._daily(object(), fetch=source, today="2026-08-25")
 
     assert events.index("candidate-proved") < events.index("cdc-prevalidated")
     assert events.index("rename-history-safe") < events.index("cdc-prevalidated")

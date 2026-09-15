@@ -73,6 +73,7 @@ class SourceCursor:
     kind: str
     processed_through: dt.date
     publication_version: int
+    price_window: tuple[str, str] | None = None
 
 
 class LastUpdatedTrackingFetch:
@@ -123,6 +124,22 @@ def _ensure_cursor_table(conn) -> None:
             " updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW())")
 
 
+def _cursor_price_window(state, *, name):
+    price_window = state.get("price_window")
+    if "price_window" not in state:
+        return None
+    if (name != SEP_CURSOR_NAME or not isinstance(price_window, list)
+            or len(price_window) != 2 or not all(isinstance(s, str) for s in price_window)):
+        raise SharadarMutationRefused(f"source cursor {name} has invalid price scope")
+    try:
+        bounds = [dt.date.fromisoformat(s).isoformat() for s in price_window]
+    except ValueError as exc:
+        raise SharadarMutationRefused(f"source cursor {name} has invalid price scope") from exc
+    if bounds != price_window or bounds[0] > bounds[1]:
+        raise SharadarMutationRefused(f"source cursor {name} has invalid price scope")
+    return tuple(price_window)
+
+
 def _read_cursor(conn, name: str, kind: str) -> Optional[SourceCursor]:
     # Schema installation belongs to migration/writers. Readiness calls this
     # loader inside a read-only transaction, where even IF NOT EXISTS DDL fails.
@@ -146,9 +163,11 @@ def _read_cursor(conn, name: str, kind: str) -> Optional[SourceCursor]:
             raise SharadarMutationRefused(
                 f"source cursor {name} is not valid JSON") from exc
     required = {"kind", "processed_through", "publication_version"}
-    if not isinstance(state, dict) or set(state) != required or state.get("kind") != kind:
+    if (not isinstance(state, dict) or not required.issubset(state)
+            or set(state) - required - {"price_window"} or state.get("kind") != kind):
         raise SharadarMutationRefused(
             f"source cursor {name} has an unknown durable state shape")
+    price_window = _cursor_price_window(state, name=name)
     try:
         through = dt.date.fromisoformat(str(state["processed_through"]))
         version = int(state["publication_version"])
@@ -172,7 +191,8 @@ def _read_cursor(conn, name: str, kind: str) -> Optional[SourceCursor]:
         raise SharadarMutationRefused(
             f"source cursor {name} is ahead of current publication v{current.version}")
     return SourceCursor(kind=kind, processed_through=through,
-                        publication_version=version)
+                        publication_version=version,
+                        price_window=price_window)
 
 
 def load_sep_cursor(conn) -> Optional[SourceCursor]:
@@ -187,6 +207,10 @@ def _write_cursor(conn, *, name: str, kind: str, through: dt.date,
                   publication_version: int) -> SourceCursor:
     _ensure_cursor_table(conn)
     prior = _read_cursor(conn, name, kind)
+    from sentinel.feed import operational_source
+    capture = operational_source.current()
+    price_window = ((capture.start, capture.end)
+                    if capture is not None and name == SEP_CURSOR_NAME else None)
     if prior is not None and through < prior.processed_through:
         raise SharadarMutationRefused(
             f"source cursor {name} cannot move backward from "
@@ -199,11 +223,14 @@ def _write_cursor(conn, *, name: str, kind: str, through: dt.date,
             raise SharadarMutationRefused(
                 f"cannot advance {name} to nonexistent publication "
                 f"v{publication_version}")
-        payload = json.dumps({
+        state = {
             "kind": kind,
             "processed_through": through.isoformat(),
             "publication_version": int(publication_version),
-        }, sort_keys=True)
+        }
+        if price_window is not None:
+            state["price_window"] = list(price_window)
+        payload = json.dumps(state, sort_keys=True)
         cur.execute(
             "INSERT INTO sentinel_processed_sessions"
             " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
@@ -212,7 +239,7 @@ def _write_cursor(conn, *, name: str, kind: str, through: dt.date,
             (name, through.isoformat(), payload))
     conn.commit()
     return SourceCursor(kind=kind, processed_through=through,
-                        publication_version=int(publication_version))
+                        publication_version=int(publication_version), price_window=price_window)
 
 
 def establish_sep_cursor_after_seed(conn, *, through: dt.date,
@@ -388,6 +415,10 @@ def _validate_action_snapshot_window(rows: Iterable[Mapping], *, hi: dt.date) ->
 
 def _retained_market_bounds(conn) -> tuple[str, str]:
     """Return the published SEP horizon, resilient to a failed in-place write."""
+    from sentinel.feed import operational_source
+    capture = operational_source.current()
+    if capture is not None:
+        return capture.start, capture.end
     candidates: list[str] = []
     with conn.cursor() as cur:
         cur.execute(

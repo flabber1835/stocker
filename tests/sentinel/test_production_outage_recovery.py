@@ -2,6 +2,7 @@ from __future__ import annotations
 
 from datetime import datetime, timedelta, timezone
 from types import SimpleNamespace
+from contextlib import contextmanager
 
 import pytest
 
@@ -15,6 +16,16 @@ from sentinel import (
 )
 from sentinel.feed import outage_recovery, sharadar, store as feed_store
 from sentinel.panel import app as panel_app, model as panel_model
+
+
+@pytest.fixture(autouse=True)
+def offline_acquisition(monkeypatch):
+    @contextmanager
+    def acquisition(*_args):
+        yield None
+    monkeypatch.setattr(outage_recovery.operational_source, "acquisition", acquisition)
+    monkeypatch.setattr(outage_recovery.publication, "operational_boundary",
+                        lambda _c, **k: SimpleNamespace(start="2026-01-01"))
 
 
 class _OneRowCursor:
@@ -97,8 +108,10 @@ def test_backup_guard_refuses_missing_archive_authority():
     assert result.state == "FENCED"
 
 
-def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch):
-    class LocalRecoverable(RuntimeError):
+@pytest.mark.parametrize("failure_type", [RuntimeError, outage_recovery.sep_reconciliation.SepValueDrift,
+                                        outage_recovery.sep_reconciliation.SepKeysetDrift])
+def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch, failure_type):
+    class LocalRecoverable(failure_type):
         pass
 
     monkeypatch.setattr(
@@ -140,9 +153,11 @@ def test_feed_outage_recovery_escalates_only_named_local_state(monkeypatch):
     conn = SimpleNamespace(rollback=lambda: None)
     result = outage_recovery.catch_up(conn, target_session="2026-08-25")
 
-    assert result.mode == "RETAINED_FULL_RESEED"
+    assert result.mode == "BOUNDED_RESEED"
     assert result.recovered_from == "LocalRecoverable"
-    assert seeded["args"] == ("2025-08-20", "2026-08-25")
+    expected = outage_recovery.operational_source.price_window("2026-08-25")
+    assert seeded["args"] == expected
+    assert len(outage_recovery.operational_source.calendar.sessions_in_range(*expected)) == 300
     assert daily_calls["count"] == 1
 
 

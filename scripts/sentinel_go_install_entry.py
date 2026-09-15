@@ -46,16 +46,19 @@ _BASE_TARGET_OK = controller._target_ok
 _WAIT_READINESS_CODE = r'''
 import json, os
 from datetime import datetime, timezone
-from sentinel.feed import readiness, store
+from sentinel.feed import readiness, store, progress
 from sentinel.shadow_runtime import publication_not_before
 
+progress.emit('database_connect', 'started')
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
     with c.cursor() as cur:
         cur.execute('BEGIN TRANSACTION READ ONLY')
         cur.execute('SHOW transaction_read_only')
         assert str(cur.fetchone()[0]).lower() == 'on'
+    progress.emit('readiness_check', 'started')
     result = readiness.check_readiness(c)
+    progress.emit('readiness_check', 'completed')
     failures = list(result.failures)
     freshness = [item for item in failures if str(item.name) == 'freshness']
     missing = []

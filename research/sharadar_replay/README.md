@@ -5,7 +5,7 @@ The synthetic-world generator remains tracked in [PR #331](https://github.com/fl
 
 ## Contract and scope
 
-Advance an explicit provider clock, run the actual production daily ingest,
+Advance an explicit provider clock, run canonical daily ingestion,
 inspect PostgreSQL, and compare its observable corpus and readiness against an
 independent expected state. The provider implements paginated Tables JSON and
 Exporter ZIP/CSV responses through an in-process HTTP transport. Production
@@ -16,7 +16,14 @@ The fixture is a small, hand-auditable fictional market with more than 127
 sessions. Bootstrap uses the existing non-certifying injected seed entry point;
 its HTTP parsing and canonical storage still run. Production seed certification
 has a calibrated 4,000-security floor and needs a separately validated world.
-Daily replay uses the default production source and its full export checks.
+The original pagination/retained-history scenarios explicitly exercise the
+canonical `ingest._daily` orchestrator with the default source and its full
+export checks. They are retained-history component evidence, not evidence for
+the public operational acquisition wrapper. Bounded operational scenarios use
+`ingest.daily` and independently check the 300-session acquisition interval and
+single-download contract, in addition to complete corpus/readiness outcomes.
+Both modes are named in reports. See
+[`docs/bounded-operational-feed.md`](../../docs/bounded-operational-feed.md#replay-evidence-boundaries).
 An ordinary recent BBB dividend supplies the global ACTIONS activity required
 by production readiness; its cash value is independently checked in every run.
 Once its date enters the observed history, a delisted one-session TRI security
@@ -34,14 +41,15 @@ fixtures in `tests/sentinel/conftest.py`.
 
 | Operation | Current owner and relevant dependencies |
 |---|---|
-| Daily orchestration | `sentinel.feed.ingest.daily` |
+| Bounded operational acquisition | `sentinel.feed.ingest.daily`, `operational_source` |
+| Canonical daily orchestration / retained-history component replay | `sentinel.feed.ingest._daily` |
 | Orphan/retry recovery | `ingest_authority_impl._recover_before_run`, `recovery` |
 | Identity preflight | `identity_refresh.stable_current_tickers`, candidate history check and resolver |
 | Daily writes | `ingest_impl._daily_locked`: TICKERS, ACTIONS, SFP, SEP |
 | Stable observations | `source_authority.StableSharadarFetch`, canonical row/envelope validation |
 | Transport | `sharadar.fetch_table`, strict Tables decoder and pagination |
 | Whole-file authority | `snapshot_source`, `snapshot_export` |
-| Historical audit | `sep_reconciliation.reconcile_next`; production reconciles ACTIONS/CDC first |
+| Explicit retained-history audit (not operational daily) | `sep_reconciliation.reconcile_next`; orchestrator reconciles ACTIONS/CDC first |
 | Old corrections | `maintenance.reconcile_sep_mutations`, `renormalize` |
 | Action repairs | `actions_reconcile_v7.reconcile_actions_if_due`, composing retained source reconciliation in `maintenance_impl` |
 | Recent-window proof | `recent_reconciliation.reconcile_recent` |
@@ -50,12 +58,20 @@ fixtures in `tests/sentinel/conftest.py`.
 
 Injection at `ingest.daily(fetch=custom)` takes different branches: it omits
 production identity preflight, export-backed recent proof and equal-date CDC
-reobservation. Daily tests must therefore keep the default source callable.
+reobservation. Both replay modes must therefore keep the default source callable.
 Only HTTP transport, source-clock reads, synthetic producer identity and named
 fault boundaries are replaced in the isolated research process. No validator,
 normalizer, publication verdict or readiness result is replaced.
 
 ## Independent oracle and evidence
+
+Download transcript `sha256` values hash the exact delivered ZIP bytes directly
+with SHA-256. Economic row and corpus digests keep their independent numeric
+canonicalization; binary downloads must not pass through that decimal/JSON
+normalizer. This avoids per-byte numeric conversion for full-population fixtures
+and makes file evidence match the actual artifact. The archive contents,
+generation binding, request counts, faults and source/publication checks remain
+unchanged; no fixture population, scenario or CI timeout is reduced or relaxed.
 
 Scenario expectations describe security IDs, dates, signal/raw/open values,
 volume, split ratios and dividends independently of production helpers. Provider

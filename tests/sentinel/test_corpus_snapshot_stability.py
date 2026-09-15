@@ -196,7 +196,8 @@ class TestTheWriterSideIsSTRUCTURAL:
 
         from sentinel.feed import ingest
 
-        for name in ("seed", "daily"):
+        assert "return _daily(" in code_of(ingest.daily)
+        for name in ("seed", "_daily"):
             src = code_of(getattr(ingest, name))
             assert "corpus_write_lock" in src, (
                 f"{name} writes the corpus without holding it still")

@@ -8,6 +8,7 @@ from __future__ import annotations
 
 import json
 import os
+from datetime import datetime
 from pathlib import Path
 import subprocess
 import sys
@@ -30,8 +31,56 @@ def _require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def _source_export_fixture(
+        code: str, status: str, *,
+        observed_at: str = "2026-08-22T03:45:00+00:00") -> str:
+    if status not in {"fresh", "creating"}:
+        raise ValueError("unknown CI export fixture status")
+    instant = datetime.fromisoformat(observed_at)
+    if instant.tzinfo is None or instant.utcoffset() is None:
+        raise ValueError("CI source observation requires a timezone")
+    if code.count("import datetime as dt") != 1:
+        raise ValueError("CI clock import seam changed")
+    # This container test proves database/marker behavior. Source validation has
+    # its own HTTP simulator tests; a dummy API key must never contact a vendor.
+    prefix = r'''
+import datetime as _ci_real_dt
+from types import SimpleNamespace as _ci_namespace
+from sentinel.feed import calendar as _ci_calendar
+from sentinel.feed import snapshot_export as _ci_exports
+_ci_export_instant = _ci_real_dt.datetime.fromisoformat(__CI_OBSERVED_AT__)
+class _ci_datetime(_ci_real_dt.datetime):
+    @classmethod
+    def now(cls, tz=None):
+        return (_ci_export_instant.astimezone(tz) if tz is not None
+                else _ci_export_instant.replace(tzinfo=None))
+_ci_clock = _ci_namespace(
+    datetime=_ci_datetime, date=_ci_real_dt.date,
+    timezone=_ci_real_dt.timezone, timedelta=_ci_real_dt.timedelta)
+_ci_calendar._dt = _ci_clock
+_ci_export_calls = []
+def _ci_export_probe(table, *, params=None, **kwargs):
+    _ci_export_calls.append((table, dict(params or {})))
+    if __CI_EXPORT_STATUS__ != 'fresh':
+        raise _ci_exports.SharadarSnapshotExportError(
+            'Sharadar %s export status=creating; CI source fixture' % table)
+    return _ci_exports.ExportSnapshot(
+        table, dict(params or {}), 'https://exports.example.invalid/ci-probe.zip',
+        _ci_export_instant, _ci_export_instant)
+_ci_exports.probe_snapshot = _ci_export_probe
+'''.strip()
+    prefix = prefix.replace("__CI_EXPORT_STATUS__", repr(status)).replace(
+        "__CI_OBSERVED_AT__", repr(observed_at))
+    return prefix + "\n" + code.replace("import datetime as dt", "dt = _ci_clock", 1)
+
+
 def _run_probe(runner, compose_args, env: Mapping[str, str], code: str,
-               *, database_url: str | None = None):
+               *, database_url: str | None = None,
+               source_export_status: str | None = None,
+               source_observed_at: str = "2026-08-22T03:45:00+00:00"):
+    if source_export_status is not None:
+        code = _source_export_fixture(
+            code, source_export_status, observed_at=source_observed_at)
     command = [
         "docker", "compose", *compose_args, "--profile", "cli", "run",
         "--rm", "-T", "--no-deps",
@@ -40,6 +89,29 @@ def _run_probe(runner, compose_args, env: Mapping[str, str], code: str,
         command.extend(["--env", "SENTINEL_DATABASE_URL=" + database_url])
     command.extend(["--entrypoint", "python", "sentinel", "-c", code])
     return runner.run(command, env=env)
+
+
+def _require_readonly_report(completed, *, check: str, status: str, reason: str):
+    report = preflight._payload(completed)
+    evidence = {"check": check, "child_exit": completed.returncode}
+    if report is not None:
+        for name in ("status", "reason_code", "failure_phase", "error_type",
+                     "detail_sha256"):
+            if name in report:
+                evidence[name] = report[name]
+    else:
+        evidence["reason_code"] = "READONLY_MARKER_MISSING_OR_MALFORMED"
+    passed = bool(completed.returncode == 0 and report is not None
+                  and report.get("status") == status
+                  and report.get("reason_code") == reason)
+    evidence["result"] = "PASS" if passed else "FAIL"
+    evidence["expected_status"] = status
+    evidence["expected_reason"] = reason
+    print("GO_PROBE_RUNTIME_CHECK=" + json.dumps(evidence, sort_keys=True),
+          flush=True)
+    _require(passed, "GO runtime check %s failed: %s" % (
+        check, json.dumps(evidence, sort_keys=True)))
+    return report
 
 
 def _preparation_failure(completed):
@@ -96,29 +168,35 @@ def main(argv=None) -> int:
         _require(identity.returncode == 0,
                  "ordinary Sentinel probe did not run as uid/gid 10001")
 
+        nonfinal = _run_probe(
+            runner, compose_args, env, preflight._READ_ONLY_CODE,
+            source_export_status="creating",
+            source_observed_at="2026-08-22T03:44:59+00:00")
+        _require_readonly_report(
+            nonfinal, check="cold_source_not_final", status="RECOVERY_REQUIRED",
+            reason="CORPUS_SCHEMA_NOT_INSTALLED")
+
+        creating = _run_probe(
+            runner, compose_args, env, preflight._READ_ONLY_CODE,
+            source_export_status="creating")
+        _require_readonly_report(
+            creating, check="cold_export_creating", status="REFUSED",
+            reason="SOURCE_EXPORT_UNAVAILABLE")
+
         empty = _run_probe(
-            runner, compose_args, env, preflight._READ_ONLY_CODE)
-        report = preflight._payload(empty)
-        _require(empty.returncode == 0, "empty-DB read-only probe crashed")
-        _require(report is not None, "empty-DB read-only probe emitted no marker")
-        _require(report.get("status") == "RECOVERY_REQUIRED",
-                 "empty database was not typed as recovery-required")
-        _require(report.get("reason_code") == "CORPUS_SCHEMA_NOT_INSTALLED",
-                 "empty database recovery reason changed")
+            runner, compose_args, env, preflight._READ_ONLY_CODE,
+            source_export_status="fresh")
+        _require_readonly_report(
+            empty, check="cold_export_fresh", status="RECOVERY_REQUIRED",
+            reason="CORPUS_SCHEMA_NOT_INSTALLED")
 
         stopped = runner.run(prefix + ["stop", contract.POSTGRES_SERVICE], env=env)
         _require(stopped.returncode == 0, "could not stop probe PostgreSQL")
         unavailable = _run_probe(
             runner, compose_args, env, preflight._READ_ONLY_CODE)
-        unavailable_report = preflight._payload(unavailable)
-        _require(unavailable.returncode == 0,
-                 "stopped-DB child escaped the structured failure envelope")
-        _require(unavailable_report is not None,
-                 "stopped-DB child emitted no structured marker")
-        _require(unavailable_report.get("status") == "REFUSED",
-                 "stopped database did not refuse")
-        _require(unavailable_report.get("reason_code") == "DATABASE_CONNECT_UNAVAILABLE",
-                 "stopped database did not retain its causal reason")
+        _require_readonly_report(
+            unavailable, check="stopped_database", status="REFUSED",
+            reason="DATABASE_CONNECT_UNAVAILABLE")
 
         failure = contract.ensure_postgres_ready(
             runner, env=env, compose_args=compose_args)
@@ -128,26 +206,18 @@ def main(argv=None) -> int:
             "from sentinel.feed import (",
             "from sentinel_missing_for_go_probe import (", 1)
         broken = _run_probe(runner, compose_args, env, broken_code)
-        broken_report = preflight._payload(broken)
-        _require(broken.returncode == 0,
-                 "runtime import failure escaped the structured envelope")
-        _require(broken_report is not None,
-                 "runtime import failure emitted no marker")
-        _require(broken_report.get("reason_code") == "RUNTIME_IMPORT_UNAVAILABLE",
-                 "runtime import failure lost its causal reason")
+        _require_readonly_report(
+            broken, check="runtime_import", status="REFUSED",
+            reason="RUNTIME_IMPORT_UNAVAILABLE")
 
         bad = _run_probe(
             runner, compose_args, env, preflight._READ_ONLY_CODE,
             database_url=(
                 "postgresql://sentinel:ci-intentionally-wrong@"
                 "sentinel-postgres:5432/sentinel"))
-        bad_report = preflight._payload(bad)
-        _require(bad.returncode == 0,
-                 "bad-auth child escaped the structured failure envelope")
-        _require(bad_report is not None,
-                 "bad-auth child emitted no marker")
-        _require(bad_report.get("reason_code") == "DATABASE_CONNECT_UNAVAILABLE",
-                 "bad-auth failure lost its causal reason")
+        _require_readonly_report(
+            bad, check="database_authentication", status="REFUSED",
+            reason="DATABASE_CONNECT_UNAVAILABLE")
         marker_text = bad.stdout or ""
         _require("ci-intentionally-wrong" not in marker_text,
                  "bad-auth marker leaked the synthetic password")

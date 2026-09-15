@@ -16,8 +16,7 @@ def verify(root, **kwargs):
     )
 
 
-def fixture(root):
-    names = ['alpha', 'beta']
+def fixture(root, *, names=('alpha', 'beta')):
     (root / 'catalogue.json').write_text(json.dumps(dict(
         schema='sharadar-replay-catalogue/1',
         scenarios={n: ['bootstrap', 'recover'] for n in names}, required_tests=[])))
@@ -47,7 +46,9 @@ def fixture(root):
         report = shard / name
         report.mkdir()
         (report / 'report.json').write_text(json.dumps(dict(scenario=name, commit='abc', verdict='PASS',
-            steps=[dict(step=step, corpus_digest='same', expected_digest='same')
+            acquisition_mode='bounded_operational' if name.startswith('bounded_') else 'retained_component',
+            daily_entry_point='ingest.daily' if name.startswith('bounded_') else 'ingest._daily',
+            steps=[dict(step=step, corpus_digest='same', expected_digest='same', acquisition_checked=True)
                    for step in ('bootstrap', 'recover')])))
     return root
 
@@ -57,9 +58,22 @@ def test_complete_evidence_passes(tmp_path):
     assert result == dict(verdict='PASS', commit='abc', tests=3, scenarios=2, shards=2)
 
 
+@pytest.mark.parametrize('checked', [None, False])
+def test_bounded_evidence_requires_acquisition_checks(tmp_path, checked):
+    fixture(tmp_path, names=('bounded_alpha', 'beta'))
+    assert verify(tmp_path, commit='abc', shards=2)['verdict'] == 'PASS'
+    path = tmp_path / '0/bounded_alpha/report.json'
+    report = json.loads(path.read_text())
+    report['steps'][1]['acquisition_checked'] = checked
+    path.write_text(json.dumps(report))
+    with pytest.raises(AssertionError, match='bounded acquisition evidence missing'):
+        verify(tmp_path, commit='abc', shards=2)
+
+
 @pytest.mark.parametrize('mutation', ['missing_manifest', 'duplicate_index', 'omit_test',
     'different_collection', 'failed_test', 'skipped_test', 'missing_report', 'failed_report',
-    'wrong_digest', 'wrong_commit', 'missing_recovery_step'])
+    'wrong_digest', 'wrong_commit', 'missing_recovery_step', 'wrong_acquisition_mode',
+    'wrong_entry_point'])
 def test_evidence_gate_rejects_incomplete_or_forged_passes(tmp_path, mutation):
     fixture(tmp_path)
     manifest = tmp_path / '1/collection.json'
@@ -85,6 +99,8 @@ def test_evidence_gate_rejects_incomplete_or_forged_passes(tmp_path, mutation):
         if mutation == 'failed_report': data['verdict'] = 'FAIL'
         elif mutation == 'wrong_digest': data['steps'][0]['corpus_digest'] = 'wrong'
         elif mutation == 'missing_recovery_step': data['steps'].pop()
+        elif mutation == 'wrong_acquisition_mode': data['acquisition_mode'] = 'bounded_operational'
+        elif mutation == 'wrong_entry_point': data['daily_entry_point'] = 'ingest.daily'
         else: data['commit'] = 'other'
         report.write_text(json.dumps(data))
     with pytest.raises(AssertionError):

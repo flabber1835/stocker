@@ -12,7 +12,8 @@ def build_review_scenarios(seed):
     cases = {}
 
     def add(name, steps, **kwargs):
-        cases[name] = Scenario(name=name, seed_start=dt.date.fromisoformat(START),
+        cases[name] = Scenario(name=name, acquisition_mode="retained_component",
+                               seed_start=dt.date.fromisoformat(START),
                                seed=seed, steps=tuple(steps), **kwargs)
 
     for factor in (0.25, 0.5, 2, 4, 10):

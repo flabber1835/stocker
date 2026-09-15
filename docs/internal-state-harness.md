@@ -166,6 +166,32 @@ scenario coverage. Missing prerequisites, setup errors, required skips, empty
 collection, missing catalogue members, unexpected failures and expired budgets
 fail acceptance. A stale output directory cannot supply a prior PASS.
 
+### Same-run verifier source handoff
+
+The final evidence job must not perform another repository checkout. In
+[run 34996501039](https://github.com/flabber1835/stocker/actions/runs/34996501039/job/104480118667),
+the contract and core jobs fetched the same synthetic merge in about 13 seconds,
+but the final job's fetch never returned before its five-minute job deadline.
+The merge ref remained available. The runner logs do not identify the underlying
+network/server cause; they establish that evidence validation never started.
+
+The contract job captures the verifier and its two authoritative dependency
+locks with `git archive` from its checked-out commit. It retains that small
+archive with the contract evidence and exposes its SHA256, source commit/tree,
+workflow run ID, and attempt through job outputs. The final job requires all
+three prerequisite jobs to succeed and those outputs to belong to its current
+run and attempt before downloading same-workflow evidence. It checks the archive
+against the producer's output digest before extracting exactly those three
+regular files or executing the verifier. Source identity comes from the tested
+producer, never a fresh remote ref or a downloaded report's self-declared identity.
+
+The existing complete campaign, owner, runtime, source, and lock validation
+remains unchanged. Missing, altered, stale-attempt, or partial source/evidence
+fails closed; a partial rerun cannot reuse an earlier attempt's source handoff.
+The five-minute final-job deadline is unchanged. Named preparation, download,
+source verification, and evidence verification steps expose progress, and the
+source verification log identifies the commit/tree and archive checksum.
+
 PR campaigns start with 14 named scenarios in both broker profiles and 16 seeds
 (44 traces). Each seed has an
 explicit bounded action list. A manual full campaign starts at 128 seeds and is

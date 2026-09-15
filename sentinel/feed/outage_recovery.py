@@ -1,8 +1,8 @@
 """Bounded canonical feed recovery after prolonged process/source downtime.
 
 Normal daily ingest remains the first and preferred path. Only named local
-recoverable-state failures may escalate to a complete reseed of the *already
-retained* market-data interval. Vendor/network/source-authority failures are not
+recoverable-state failures may escalate to a complete operational-window reseed.
+Vendor/network/source-authority failures are not
 caught here and therefore remain fail-closed/retryable rather than being
 misclassified as local repair authority.
 """
@@ -12,7 +12,8 @@ from dataclasses import dataclass
 
 from sentinel import backup_guard
 from sentinel.feed import (
-    ingest, maintenance, publication, recovery, store, universe,
+    ingest, maintenance, publication, recovery, store, universe, operational_source, progress,
+    sep_reconciliation,
 )
 
 
@@ -40,6 +41,8 @@ _RECOVERABLE_LOCAL_STATE = (
     universe.HistoricalIdentityMutation,
     recovery.PublicationRecoveryRefused,
     maintenance.MutationCursorUnavailable,
+    sep_reconciliation.SepKeysetDrift,
+    sep_reconciliation.SepValueDrift,
 )
 
 
@@ -58,7 +61,7 @@ def retained_market_start(conn) -> str:
     return start
 
 
-def catch_up(
+def _catch_up(
         conn, *, target_session: str,
         reobserve_current: bool = False) -> OutageRecoveryResult:
     """Reach one explicit closed XNYS target without replaying strategy actions.
@@ -70,7 +73,7 @@ def catch_up(
 
     The function mutates only the canonical data corpus. It has no execution,
     broker, plan, shadow-NAV, or catch-up strategy seam. Every mutation first
-    proves ordinary external-WAL durability. A retained full reseed is stricter:
+    proves ordinary external-WAL durability. A bounded reseed is stricter:
     because it can create a large WAL burst, it requires a fully HEALTHY
     archiver before the seed begins.
     """
@@ -97,19 +100,21 @@ def catch_up(
         recovered_from = None
     except _RECOVERABLE_LOCAL_STATE as exc:
         conn.rollback()
-        retained_start = retained_market_start(conn)
+        retained_start, _ = operational_source.price_window(target)
         recovered_from = type(exc).__name__
+        progress.emit("bounded_recovery", "selected", date_from=retained_start,
+                      date_to=target, reason="LOCAL_" + recovered_from.upper())
         backup_guard.require_bulk_writes_permitted(
-            conn, operation="retained full corpus reseed")
+            conn, operation="bounded operational corpus reseed")
         ingest.seed(conn, date_from=retained_start, date_to=target)
         # A successful canonical seed is already a complete exact-target data
-        # recovery. It publishes the retained market frontier, establishes the
+        # recovery. It publishes the operational market frontier, establishes the
         # SEP mutation cursor from the independent vendor-update proof, re-earns
         # complete ACTIONS authority, and proves the recent SEP frontier. Calling
         # daily(target) again is both redundant and invalid when the seed was
         # observed on a later vendor-update date than the market target: the
         # mutation cursor would correctly be ahead of that older market date.
-        mode = "RETAINED_FULL_RESEED"
+        mode = "BOUNDED_RESEED"
     visible_after = store.latest_visible_session(conn)
     if visible_after != target:
         raise OutageRecoveryRefused(
@@ -121,6 +126,35 @@ def catch_up(
             "canonical outage recovery left a publication-chain gap")
     return OutageRecoveryResult(
         target, mode, retained_start, recovered_from)
+
+
+def catch_up(conn, *, target_session: str, reobserve_current: bool = False):
+    target = str(target_session)
+    visible = store.latest_visible_session(conn)
+    if visible == target and not reobserve_current:
+        report = publication.operational_coherence(conn, frontier=target)
+        if report.coherent and not publication.chain_gaps(conn):
+            return OutageRecoveryResult(target, "ALREADY_CURRENT", None, None)
+    backup_guard.require_writes_permitted(conn, operation="bounded operational feed acquisition")
+    start, end = operational_source.price_window(target)
+    boundary = publication.operational_boundary(conn, frontier=end)
+    if boundary.start < start:
+        raise operational_source.OperationalAcquisitionRefused(
+            f"persisted catch-up requires {boundary.start}..{end}; "
+            f"automatic acquisition allows {start}..{end}")
+    with operational_source.acquisition(start, end):
+        if visible is None or visible < start:
+            backup_guard.require_bulk_writes_permitted(conn, operation="bounded initial feed seed")
+            progress.emit("bounded_recovery", "selected", date_from=start, date_to=end,
+                          reason="EMPTY_FEED" if visible is None else "EXPIRED_PRICE_WINDOW")
+            ingest.seed(conn, date_from=start, date_to=end)
+            publication.assert_operationally_coherent(conn, frontier=target)
+            if store.latest_visible_session(conn) != target or publication.chain_gaps(conn):
+                raise OutageRecoveryRefused("bounded cold seed did not establish exact target authority")
+            return OutageRecoveryResult(
+                target, "BOUNDED_INITIAL_SEED" if visible is None else "BOUNDED_RESEED",
+                start, None if visible is None else "OperationalWindowExpired")
+        return _catch_up(conn, target_session=target, reobserve_current=reobserve_current)
 
 
 __all__ = [

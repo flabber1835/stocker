@@ -256,7 +256,7 @@ def _load_merge_policy() -> dict:
 
 def _require_global_authority(authority: dict) -> dict:
     from validate_test_responsibility import (
-        _job_body, _job_scalar, _require_protected_scope_proof,
+        _job_body, _job_scalar, _require_protected_scope_proof, _require_parallel_certification,
     )
 
     policy = _load_merge_policy()
@@ -306,6 +306,7 @@ def _require_global_authority(authority: dict) -> dict:
                 f"{owner_name}: matrix include/exclude can suppress a declared scope")
         checked_workflows[f"{workflow}#{job}"] = True
 
+    _require_parallel_certification((ROOT / ".github/workflows/sentinel-safety.yml").read_text())
     return {
         "schema": policy["schema"],
         "protected": sorted(PROTECTED_OWNER_JOBS),

@@ -23,6 +23,12 @@ jobs:
     name: contract-${{ matrix.scope }}
     runs-on: ubuntu-latest
     timeout-minutes: 20
+    outputs:
+      source_commit: ${{ steps.verifier-source.outputs.commit }}
+      source_tree: ${{ steps.verifier-source.outputs.tree }}
+      source_archive_sha256: ${{ steps.verifier-source.outputs.archive_sha256 }}
+      source_run_id: ${{ steps.verifier-source.outputs.run_id }}
+      source_run_attempt: ${{ steps.verifier-source.outputs.run_attempt }}
     strategy:
       fail-fast: false
       matrix:
@@ -35,6 +41,19 @@ jobs:
         with:
           fetch-depth: 2
           ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
+      - name: Capture the tested verifier source for the final evidence gate
+        id: verifier-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p artifacts/contract
+          commit="$(git rev-parse HEAD)"
+          tree="$(git rev-parse 'HEAD^{tree}')"
+          archive=artifacts/contract/verifier-source.tar
+          git archive --format=tar "$commit" tools/verify_internal_state_evidence.py sentinel/requirements.lock tests/requirements.lock > "$archive"
+          checksum="$(sha256sum "$archive")"
+          printf 'commit=%s\ntree=%s\narchive_sha256=%s\nrun_id=%s\nrun_attempt=%s\n' \
+            "$commit" "$tree" "${checksum%% *}" "$GITHUB_RUN_ID" "$GITHUB_RUN_ATTEMPT" | tee -a "$GITHUB_OUTPUT"
       - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
           python-version: '3.12.13'
@@ -177,22 +196,68 @@ jobs:
       fail-fast: false
       matrix:
         scope: ${{ fromJSON(github.event_name == 'pull_request' && '["synthetic-merge"]' || '["exact-head"]') }}
+    env:
+      NEEDS_JSON: ${{ toJSON(needs) }}
+      EVIDENCE_SCOPE: ${{ matrix.scope }}
+      SOURCE_COMMIT: ${{ needs.contract.outputs.source_commit }}
+      SOURCE_TREE: ${{ needs.contract.outputs.source_tree }}
+      SOURCE_ARCHIVE_SHA256: ${{ needs.contract.outputs.source_archive_sha256 }}
+      SOURCE_RUN_ID: ${{ needs.contract.outputs.source_run_id }}
+      SOURCE_RUN_ATTEMPT: ${{ needs.contract.outputs.source_run_attempt }}
     steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          fetch-depth: 2
-          ref: ${{ matrix.scope == 'exact-head' && (github.event.pull_request.head.sha || github.sha) || github.sha }}
-      - uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
-        with:
-          pattern: internal-state-*-${{ matrix.scope }}*
-          path: evidence
-      - name: Require complete evidence for exactly this source tree
+      - name: Require successful prerequisites and current-attempt source authority
+        id: validate-source-authority
         shell: bash
         run: |
           set -euo pipefail
-          commit="$(git rev-parse HEAD)"
-          tree="$(git rev-parse 'HEAD^{tree}')"
-          python tools/verify_internal_state_evidence.py evidence --commit "$commit" --tree "$tree" | tee verified-evidence.json
+          python - <<'PY'
+          import json, os, re
+          needs = json.loads(os.environ['NEEDS_JSON'])
+          expected = {'contract', 'lifecycle', 'core-infrastructure'}
+          if set(needs) != expected:
+              raise SystemExit('Missing or extra prerequisite jobs')
+          for name, dependency in needs.items():
+              if dependency.get('result') != 'success':
+                  raise SystemExit(f'Prerequisite {name} did not succeed: {dependency.get("result")}')
+          if (os.environ['SOURCE_RUN_ID'] != os.environ['GITHUB_RUN_ID']
+                  or os.environ['SOURCE_RUN_ATTEMPT'] != os.environ['GITHUB_RUN_ATTEMPT']):
+              raise SystemExit('Verifier source belongs to a different workflow run or attempt')
+          for name, length in [('SOURCE_COMMIT', 40), ('SOURCE_TREE', 40), ('SOURCE_ARCHIVE_SHA256', 64)]:
+              if not re.fullmatch(f'[0-9a-f]{{{length}}}', os.environ[name]):
+                  raise SystemExit(f'Missing or invalid verifier source authority: {name}')
+          print('All prerequisites passed; verifier source is bound to the current run and attempt')
+          PY
+      - name: Download evidence from this workflow run
+        uses: actions/download-artifact@d3f86a106a0bac45b974a628896c90dbdf5c8093
+        with:
+          pattern: internal-state-*-${{ matrix.scope }}*
+          path: evidence
+      - name: Verify and restore the tested source without a repository checkout
+        id: restore-verifier-source
+        shell: bash
+        run: |
+          set -euo pipefail
+          python - <<'PY'
+          import hashlib, os, tarfile
+          from pathlib import Path
+          archive = Path('evidence') / f'internal-state-contract-{os.environ["EVIDENCE_SCOPE"]}' / 'verifier-source.tar'
+          checksum = hashlib.sha256(archive.read_bytes()).hexdigest()
+          if checksum != os.environ['SOURCE_ARCHIVE_SHA256']:
+              raise SystemExit('Verifier source archive checksum mismatch')
+          expected = ['sentinel/requirements.lock', 'tests/requirements.lock', 'tools/verify_internal_state_evidence.py']
+          with tarfile.open(archive) as bundle:
+              members = [member for member in bundle.getmembers() if not member.isdir()]
+              if sorted(member.name for member in members) != expected or not all(member.isfile() for member in members):
+                  raise SystemExit('Verifier source archive must contain exactly the verifier and two regular lockfiles')
+              bundle.extractall('verifier-source', members=members, filter='data')
+          print(f'Verified source commit={os.environ["SOURCE_COMMIT"]} tree={os.environ["SOURCE_TREE"]} archive_sha256={checksum}')
+          PY
+      - name: Require complete evidence for exactly this source tree
+        id: verify-complete-evidence
+        shell: bash
+        run: |
+          set -euo pipefail
+          python verifier-source/tools/verify_internal_state_evidence.py evidence --commit "$SOURCE_COMMIT" --tree "$SOURCE_TREE" | tee verified-evidence.json
           cat verified-evidence.json >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:

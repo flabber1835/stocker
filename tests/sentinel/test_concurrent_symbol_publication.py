@@ -55,7 +55,8 @@ def test_empty_database_seed_restart_failed_correction_and_automatic_healing(mon
             provider.advance(provider_for(healed=True).step.model_copy(update={
                 "at": provider.step.at + dt.timedelta(seconds=1)}))
             with pytest.raises(universe.HistoricalIdentityMutation):
-                ingest.daily(conn, fetch=snapshot_source.fetch_table, today=DAY)
+                # A one-session retained-history component fixture, not GO.
+                ingest._daily(conn, fetch=snapshot_source.fetch_table, today=DAY)
             conn.rollback()
             def fail_before_publication(self, run, resolver):
                 assert source_aliases.load(run.conn, include_run_id=run.progress.run_id)["records"] == []

@@ -21,7 +21,7 @@ SECURITIES = ({symbol: f"STATE-{symbol}" for symbol in SYMBOLS}
               | {"BIL": "SENTINEL:BIL", AUTHORITY_TICKER: AUTHORITY_SECURITY})
 SEED = "2026-08-17"
 FIRST = "2026-08-18"
-START = "2025-08-01"
+START = calendar.previous_sessions(SEED, 300)[0]
 
 
 def sessions(through):
@@ -123,4 +123,5 @@ def step(day: str, seed=0, *, faulty=False, shocks=(), observed_after=None):
     return Step(name="session_" + day.replace("-", ""),
         at=observed_at, through=date.fromisoformat(day),
         tables={k: tuple(v) for k, v in tables.items()}, expected=expected,
-        faults=(Fault(table="ACTIONS", kind="http_400"),) if faulty else ())
+        faults=tuple(Fault(table="ACTIONS", kind="http_400", channel=channel)
+                     for channel in ("pages", "export")) if faulty else ())

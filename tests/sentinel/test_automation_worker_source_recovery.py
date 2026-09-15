@@ -16,7 +16,6 @@ import multiprocessing as mp
 from multiprocessing.managers import BaseManager
 import os
 from pathlib import Path
-import shutil
 import threading
 import time
 from types import SimpleNamespace
@@ -41,32 +40,7 @@ REAL_NEXT = calendar.next_session
 
 def _enable_fixture_archive(server):
     """Exercise the real runtime WAL fence with a private PostgreSQL archiver."""
-    from tests.support.postgres import _as_pg_user, _find_pg_bin, _run
-    destination = Path(server.datadir) / "worker-archive"
-    destination.mkdir(exist_ok=True)
-    if os.geteuid() == 0:
-        shutil.chown(destination, user="postgres", group="postgres")
-    with feed_store.connect(server.sync_dsn) as conn:
-        conn.autocommit = True
-        conn.execute("ALTER SYSTEM SET archive_mode='on'")
-        command = f"test ! -f {destination}/%f && cp %p {destination}/%f"
-        conn.execute("ALTER SYSTEM SET archive_command='" + command + "'")
-    result = _run(_as_pg_user([_find_pg_bin("pg_ctl"), "-D", server.datadir,
-                               "-l", str(Path(server.datadir) / "server.log"),
-                               "-m", "fast", "-w", "restart"]))
-    assert result.returncode == 0, result.stderr
-    with feed_store.connect(server.sync_dsn) as conn:
-        conn.execute("SELECT pg_create_restore_point('worker-fixture')")
-        conn.execute("SELECT pg_switch_wal()")
-        conn.commit()
-    from sentinel import backup_guard
-    deadline = time.monotonic() + 10
-    while time.monotonic() < deadline:
-        with feed_store.connect(server.sync_dsn) as conn:
-            if backup_guard.status(conn).writes_permitted:
-                return
-        time.sleep(0.1)
-    pytest.fail("fixture WAL did not archive")
+    server.enable_archive()
 
 
 class BrokerHost:

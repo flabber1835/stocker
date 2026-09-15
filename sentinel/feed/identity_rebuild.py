@@ -41,6 +41,7 @@ class IdentityRebuildPlan:
     base_visible_start: str
     base_visible_end: str
     snapshot_date: str
+    scope: str = "FULL_HISTORY"
 
 
 def _date(value: str) -> _dt.date:
@@ -115,6 +116,18 @@ def prepare(conn, *, date_from: str, date_to: str,
             "corpus has no visible bar boundary")
     required_lo = min(value for value in (visible_lo, physical_lo) if value)
     required_hi = max(value for value in (visible_hi, physical_hi) if value)
+    from sentinel.feed import operational_source
+    capture = operational_source.current()
+    scope = "FULL_HISTORY"
+    if capture is not None:
+        capture.require_window(requested_lo, requested_hi)
+        boundary = publication.operational_boundary(conn, frontier=str(requested_hi))
+        if str(requested_lo) > boundary.start:
+            raise recovery.PublicationRecoveryRefused(
+                f"bounded identity rebuild omits operational predecessor {boundary.start}")
+        required_lo = str(requested_lo)
+        required_hi = str(requested_hi)
+        scope = "OPERATIONAL"
     if requested_lo > _date(required_lo) or requested_hi < _date(required_hi):
         raise recovery.PublicationRecoveryRefused(
             f"identity rebuild {requested_lo}..{requested_hi} does not cover the "
@@ -129,10 +142,11 @@ def prepare(conn, *, date_from: str, date_to: str,
         market_start=requested_lo.isoformat(),
         market_end=requested_hi.isoformat(),
         base_version=current.version,
-        base_visible_start=visible_lo,
-        base_visible_end=visible_hi,
+        base_visible_start=required_lo if scope == "OPERATIONAL" else visible_lo,
+        base_visible_end=required_hi if scope == "OPERATIONAL" else visible_hi,
         snapshot_date=_unused_snapshot_date(
             conn, market_end=requested_hi.isoformat(), observed_on=observed_on),
+        scope=scope,
     )
 
 
@@ -145,6 +159,7 @@ def _plan_payload(plan: IdentityRebuildPlan) -> dict:
         "base_visible_start": plan.base_visible_start,
         "base_visible_end": plan.base_visible_end,
         "snapshot_date": plan.snapshot_date,
+        "scope": plan.scope,
     }
 
 
@@ -190,6 +205,9 @@ def load_plan(conn, *, run_id: str) -> IdentityRebuildPlan:
     if not required.issubset(payload):
         raise recovery.PublicationRecoveryRefused(
             f"seed {run_id} has incomplete identity rebuild evidence")
+    scope = payload.get("scope", "FULL_HISTORY")
+    if scope not in {"FULL_HISTORY", "OPERATIONAL"}:
+        raise recovery.PublicationRecoveryRefused("identity rebuild has invalid scope")
     return IdentityRebuildPlan(
         market_start=_date(payload["market_start"]).isoformat(),
         market_end=_date(payload["market_end"]).isoformat(),
@@ -197,6 +215,7 @@ def load_plan(conn, *, run_id: str) -> IdentityRebuildPlan:
         base_visible_start=_date(payload["base_visible_start"]).isoformat(),
         base_visible_end=_date(payload["base_visible_end"]).isoformat(),
         snapshot_date=_date(payload["snapshot_date"]).isoformat(),
+        scope=scope,
     )
 
 

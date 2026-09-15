@@ -69,6 +69,7 @@ def _mixed_daily_recovery_scenario() -> Scenario:
     recover = step("clean_daily_supersedes_both", THIRD)
     return Scenario(
         name="mixed_sep_sfp_daily_recovery",
+        acquisition_mode="retained_component",
         seed_start=dt.date.fromisoformat(START), seed=seed,
         steps=(first, second, recover),
         recovery_from="clean_daily_supersedes_both")
@@ -89,6 +90,7 @@ def _partial_sfp_recovery_scenario(*, same_day: bool = False) -> Scenario:
         recover = recover.model_copy(update={"at": first.at + dt.timedelta(minutes=30)})
     return Scenario(
         name="partial_sfp_recovery_converges" + ("_same_day" if same_day else ""),
+        acquisition_mode="retained_component",
         seed_start=dt.date.fromisoformat(START), seed=seed,
         steps=(first, second, recover),
         recovery_from="clean_retry_converges")
@@ -115,6 +117,7 @@ def _persistent_unresolved_step(name: str, day: str):
 def _persistent_unresolved_scenario() -> Scenario:
     return Scenario(
         name="persistent_historical_unresolved_split",
+        acquisition_mode="retained_component",
         seed_start=dt.date.fromisoformat(START), seed=_seed(),
         steps=(
             _persistent_unresolved_step("first_observation", FIRST),

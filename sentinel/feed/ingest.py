@@ -12,7 +12,7 @@ from typing import Callable, Iterable, Optional
 from sentinel.feed import ingest_authority_impl as _authority
 from sentinel.feed import ingest_impl as _impl
 from sentinel.feed import source_authority
-from sentinel.feed import store as feed_store
+from sentinel.feed import store as feed_store, publication
 
 coherence = _authority.coherence
 identity_rebuild = _authority.identity_rebuild
@@ -396,7 +396,7 @@ def seed(conn, *, date_from: str = DEFAULT_SEED_START,
         return progress
 
 
-def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
+def _daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
           resolve_identity=None, overlap_days: int = DAILY_OVERLAP_DAYS,
           today: Optional[str] = None):
     """Run one explicit-session daily ingest and publication-bound maintenance."""
@@ -532,9 +532,11 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             _require_failed_owner_cleared(conn, context="daily retry")
 
         published_frontier = feed_store.latest_visible_session(conn)
-        sep_reconciliation.reconcile_next(
-            conn, fetch=fetch, through=published_frontier,
-            observation_ceiling=source_observation_day)
+        from sentinel.feed import operational_source
+        if operational_source.current() is None:
+            sep_reconciliation.reconcile_next(
+                conn, fetch=fetch, through=published_frontier,
+                observation_ceiling=source_observation_day)
         _reconcile_sep_for_market_target(
             conn, fetch=fetch, target=today_date.isoformat(),
             source_observation_day=source_observation_day)
@@ -543,3 +545,22 @@ def daily(conn, *, fetch: Callable[..., Iterable[dict]] = sharadar.fetch_table,
             through=today_date.isoformat())
         _prove_recent_frontier(conn, fetch=fetch)
         return progress
+
+
+def daily(conn, *, fetch=sharadar.fetch_table, resolve_identity=None,
+          overlap_days=DAILY_OVERLAP_DAYS, today=None):
+    """Production daily reads one bounded snapshot; replay sources stay offline."""
+    from sentinel.feed import operational_source
+    if (today is not None and fetch in (sharadar.fetch_table, snapshot_source.fetch_table)
+            and operational_source.current() is None):
+        start, end = operational_source.price_window(today)
+        boundary = publication.operational_boundary(conn, frontier=end)
+        if boundary.start < start:
+            raise operational_source.OperationalAcquisitionRefused(
+                f"persisted catch-up requires {boundary.start}..{end}; "
+                f"automatic acquisition allows {start}..{end}")
+        with operational_source.acquisition(start, end):
+            return _daily(conn, fetch=fetch, resolve_identity=resolve_identity,
+                          overlap_days=overlap_days, today=today)
+    return _daily(conn, fetch=fetch, resolve_identity=resolve_identity,
+                  overlap_days=overlap_days, today=today)

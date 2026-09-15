@@ -5,21 +5,10 @@ This preflight is allowed to run before stable artifact certification because it
 is read-only. It builds the exact ordinary runtime for current clean main, opens
 the production PostgreSQL transaction READ ONLY, validates the durable SEP,
 ACTIONS, and recent-complete-reconciliation cursor shapes against the current
-publication and decision frontier, then—only after the reviewed source-final
-boundary—fetches the pending SEP ``lastupdated`` interval twice through the
-canonical production CDC source membrane and runs the production mutation-row
-authority validator. A cursor already on the current UTC vendor date is
-re-observed because ``lastupdated`` has date granularity and same-date rows may
-appear after an earlier observation.
-
-If a pending mutation fails only because local permanent identity is absent or a
-single known listing interval is stale, the preflight may observe current TICKERS
-GET-only. It accepts that as liveness evidence only after the production TICKERS
-source membrane proves complete keys, structural validity and a stable second
-observation. A stable candidate that proves a historical identity correction is
-reported as recovery-required so the certified preparation can invoke the
-complete identity-aware rebuild. The candidate is never written or published
-here.
+publication and decision frontier. After source finality it checks availability
+of ACTIONS, TICKERS and bounded SEP exports without downloading any source file.
+Identity, CDC and normalized value/key validation run only in the canonical
+certified preparation over its single verified acquisition.
 
 It never creates/migrates schema, advances a cursor, creates an ingest run,
 renormalizes bars, publishes a corpus generation, downloads the complete ACTIONS
@@ -97,7 +86,8 @@ def execute():
     import datetime as dt
     from sentinel.feed import (
         calendar, identity_refresh, maintenance_impl as maintenance, publication,
-        recent_reconciliation, sharadar, source_authority, store, universe)
+        recent_reconciliation, sharadar, source_authority, store, universe,
+        operational_source, progress)
     from sentinel.shadow_runtime import publication_not_before
 
     def cursor_from_row(row, *, name, kind, current_version):
@@ -113,10 +103,12 @@ def execute():
                 raise maintenance.SharadarMutationRefused(
                     'source cursor %s is not valid JSON' % name) from exc
         required = {'kind', 'processed_through', 'publication_version'}
-        if (not isinstance(cursor_state, dict) or set(cursor_state) != required
+        if (not isinstance(cursor_state, dict) or not required.issubset(cursor_state)
+                or set(cursor_state) - required - {'price_window'}
                 or cursor_state.get('kind') != kind):
             raise maintenance.SharadarMutationRefused(
                 'source cursor %s has an unknown durable state shape' % name)
+        maintenance._cursor_price_window(cursor_state, name=name)
         try:
             through = dt.date.fromisoformat(str(cursor_state['processed_through']))
             version = int(cursor_state['publication_version'])
@@ -164,6 +156,7 @@ def execute():
     c = None
     try:
         state['phase'] = 'DATABASE_CONNECT'
+        progress.emit('database_connect', 'started')
         c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
         state['phase'] = 'READ_ONLY_TRANSACTION'
         with c.cursor() as cur:
@@ -177,13 +170,24 @@ def execute():
             cursor_table = cur.fetchone()[0]
 
         state['phase'] = 'LOCAL_AUTHORITY'
-        if publication_table is None:
+        target_raw = calendar.latest_closed_session()
+        target = dt.date.fromisoformat(str(target_raw))
+        source_day = dt.datetime.now(dt.timezone.utc).date()
+        if dt.datetime.now(dt.timezone.utc) >= publication_not_before(target_raw):
+            state['phase'] = 'SOURCE_EXPORT_PREFLIGHT'
+            start, end = operational_source.price_window(target_raw)
+            boundary = publication.operational_boundary(c, frontier=end)
+            if boundary.start < start:
+                raise operational_source.OperationalAcquisitionRefused(
+                    'persisted catch-up requires %s..%s; automatic acquisition allows %s..%s'
+                    % (boundary.start, end, start, end))
+            with operational_source.acquisition(start, end):
+                pass  # Availability only, including cold/legacy startup.
+        state['phase'] = 'LOCAL_AUTHORITY'
+        if publication_table is None or publication.current(c) is None:
             emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CORPUS_SCHEMA_NOT_INSTALLED'})
         else:
             current = publication.require_current(c)
-            target_raw = calendar.latest_closed_session()
-            target = dt.date.fromisoformat(str(target_raw))
-            source_day = dt.datetime.now(dt.timezone.utc).date()
             if cursor_table is None:
                 emit({'status': 'RECOVERY_REQUIRED', 'reason_code': 'CURSOR_SCHEMA_NOT_INSTALLED'})
             else:
@@ -233,36 +237,10 @@ def execute():
                             'local_followup': local_lag,
                         })
                     else:
-                        state['phase'] = 'SOURCE_CDC'
-                        lo = through - dt.timedelta(days=1)
-                        params = {
-                            'lastupdated.gte': lo.isoformat(),
-                            'lastupdated.lte': source_day.isoformat(),
-                        }
-                        envelope = source_authority.SepUpdateEnvelope.interval(
-                            lo, source_day, context='read-only SEP CDC preflight')
-                        guarded = source_authority.CanonicalSourceFetch(
-                            sharadar.fetch_table, sep_update_envelope=envelope)
-                        rows = maintenance._stable_rows(
-                            guarded, sharadar.SEP, params)
-                        market_start, market_end = maintenance._retained_market_bounds(c)
-                        dates, refresh_required = (
-                            identity_refresh.validate_with_current_tickers_if_refreshable(
-                                c, rows, lo=lo, hi=source_day,
-                                published_from=dt.date.fromisoformat(market_start),
-                                published_through=dt.date.fromisoformat(market_end),
-                            ))
-                        if refresh_required:
-                            reason_code = 'LOCAL_IDENTITY_REFRESH_REQUIRED'
-                        elif through == source_day:
-                            reason_code = 'SEP_CDC_CURRENT_VENDOR_DAY_REOBSERVED'
-                        else:
-                            reason_code = 'SEP_CDC_SOURCE_VALID'
                         emit({
                             'status': 'PASS',
-                            'reason_code': reason_code,
-                            'source_rows': len(rows),
-                            'affected_source_dates': len(set(dates)),
+                            'reason_code': 'BOUNDED_SOURCE_EXPORTS_AVAILABLE',
+                            'source_rows': 0,
                             'local_followup': local_lag,
                         })
     except identity_refresh.SepMutationIdentityRefused as exc:
@@ -303,6 +281,10 @@ def execute():
             code = 'DATABASE_READONLY_UNAVAILABLE'
         elif name == 'VendorPublicationUnstable':
             code = 'SOURCE_PUBLICATION_UNSTABLE'
+        elif name == 'OperationalAcquisitionRefused':
+            code = 'OPERATIONAL_ACQUISITION_BOUND_EXCEEDED'
+        elif name == 'SharadarSnapshotExportError':
+            code = 'SOURCE_EXPORT_UNAVAILABLE'
         elif name in {
                 'TickersStructureInvalid', 'TickerMetadataIncomplete',
                 'SnapshotExportIncomplete'}:

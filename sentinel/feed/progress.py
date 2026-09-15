@@ -10,27 +10,28 @@ PREFIX = "SENTINEL_FEED_PROGRESS="
 
 
 def emit(stage: str, status: str, *, rows: int = 0, elapsed_ms: int = 0,
-         refreshed_at: str = "", snapshot_at: str = "") -> None:
+         refreshed_at: str = "", snapshot_at: str = "", **details) -> None:
     value = {
         "stage": stage, "status": status, "rows": int(rows),
         "elapsed_ms": int(elapsed_ms),
     }
     if refreshed_at or snapshot_at:
         value.update(refreshed_at=refreshed_at, snapshot_at=snapshot_at)
+    value.update(details)
     print(PREFIX + json.dumps(value, sort_keys=True), file=sys.stderr, flush=True)
 
 
 @contextmanager
-def phase(stage: str):
+def phase(stage: str, **details):
     start = time.monotonic()
     counter = [0]
-    emit(stage, "started")
+    emit(stage, "started", **details)
     try:
         yield counter
     except BaseException:
         emit(stage, "failed", rows=counter[0],
-             elapsed_ms=int((time.monotonic() - start) * 1000))
+             elapsed_ms=int((time.monotonic() - start) * 1000), **details)
         raise
     else:
         emit(stage, "completed", rows=counter[0],
-             elapsed_ms=int((time.monotonic() - start) * 1000))
+             elapsed_ms=int((time.monotonic() - start) * 1000), **details)
