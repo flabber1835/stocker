@@ -4,6 +4,9 @@ import importlib.util
 import os
 from pathlib import Path
 import sys
+import time
+
+import pytest
 
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT")
@@ -122,12 +125,45 @@ def test_heartbeat_reports_real_phase_rows_and_idle_time(capsys, monkeypatch):
     assert "subprocess supplied no internal progress" in capsys.readouterr().out
 
 
-def test_streaming_heartbeat_uses_progress_and_hides_sensitive_output(capsys, monkeypatch):
+@pytest.mark.parametrize("startup_delay", [0, 0.6], ids=["normal", "delayed-reader-startup"])
+def test_streaming_heartbeat_uses_progress_and_hides_sensitive_output(
+        capsys, monkeypatch, tmp_path, startup_delay):
     from types import SimpleNamespace
     monkeypatch.setenv("SENTINEL_GO_COLOR", "never")
     monkeypatch.setattr(obs, "_HEARTBEAT_SECONDS", 0.01)
+    release = tmp_path / "heartbeat-observed"
+    original_working = obs._working
+
+    def working(text, elapsed, event=None, idle=None):
+        original_working(text, elapsed, event, idle)
+        if event is not None:
+            release.touch()
+
+    monkeypatch.setattr(obs, "_working", working)
+    if startup_delay:
+        original_start = obs.threading.Thread.start
+        started = 0
+
+        def delayed_start(thread, *args, **kwargs):
+            nonlocal started
+            result = original_start(thread, *args, **kwargs)
+            started += 1
+            if started == 2:
+                time.sleep(startup_delay)
+            return result
+
+        monkeypatch.setattr(obs.threading.Thread, "start", delayed_start)
+
     event = 'SENTINEL_FEED_PROGRESS={"stage":"source_download","status":"started","rows":0,"elapsed_ms":0,"table":"SEP","date_from":"2026-08-18","date_to":"2026-08-19"}'
-    command = [sys.executable, "-c", "import sys,time; print(%r, file=sys.stderr, flush=True); print('password=hidden', flush=True); time.sleep(0.4)" % event]
+    # Child lifetime depends on an observed heartbeat, not the CI scheduler.
+    child = (
+        "import sys,time\nfrom pathlib import Path\n"
+        f"print({event!r}, file=sys.stderr, flush=True)\n"
+        "print('password=hidden', flush=True)\n"
+        f"release = Path({str(release)!r})\n"
+        "while not release.exists():\n    time.sleep(0.01)\n"
+    )
+    command = [sys.executable, "-c", child]
     controller = SimpleNamespace(_safe_int_env=lambda name, default: 5)
     result = obs._streaming_run(controller, SimpleNamespace(MAX_BOUNDED_INGEST_MS=5000),
                                 command, env=None, cwd=ROOT, raw_stream=False)
