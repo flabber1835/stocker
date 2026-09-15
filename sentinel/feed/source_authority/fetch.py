@@ -348,6 +348,7 @@ def reconcile_sep_mutations(conn, *, fetch=sharadar.fetch_table,
                 conn, fetch=fetch, through=through, reobserve_equal=True)
         return maintenance._reconcile_sep_mutations_core(
             conn, fetch=fetch, through=through)
+    maintenance._require_cursor_scope(cursor)
     hi = _strict_date(through, field="SEP reconciliation through")
     if cursor.processed_through > hi:
         raise maintenance.SharadarMutationRefused(

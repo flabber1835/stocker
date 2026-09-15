@@ -22,6 +22,7 @@ from sentinel.feed import operational_coherence as _operational
 from sentinel.feed import publication as _publication
 from sentinel.feed import readiness_impl as _impl
 from sentinel.feed import recent_reconciliation as _recent
+from sentinel.feed import progress
 from sentinel.feed.readiness_impl import (
     Check,
     FAIL,
@@ -259,7 +260,9 @@ def _add_source_maintenance_checks(conn, result, *, today,
 
 def check_readiness(conn, *, today=None, cfg=None):
     today = today or _dt.datetime.now(_dt.timezone.utc).isoformat()
-    result = _impl.check_readiness(conn, today=today, cfg=cfg)
+    with progress.phase("readiness_history"):
+        result = _impl.check_readiness(conn, today=today, cfg=cfg)
+    progress.emit("readiness_domains", "started", table="SEP")
     frontier = _impl._q1(
         conn,
         "SELECT MAX(session) FROM sentinel_bars b"
@@ -304,9 +307,11 @@ def check_readiness(conn, *, today=None, cfg=None):
                 name, _impl.PASS,
                 f"{share:.1%} coverage on frontier {frontier}", value)
 
-    _add_split_agreement_check(conn, result, frontier=frontier)
-    _add_source_maintenance_checks(
-        conn, result, today=today, required_through=frontier)
+    with progress.phase("readiness_splits", date_to=frontier):
+        _add_split_agreement_check(conn, result, frontier=frontier)
+    with progress.phase("readiness_maintenance", date_to=frontier):
+        _add_source_maintenance_checks(
+            conn, result, today=today, required_through=frontier)
     return result
 
 

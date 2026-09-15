@@ -21,12 +21,17 @@ class ActionsSnapshotSource:
     def __call__(self, table, params=None, **kwargs):
         if table != sharadar.ACTIONS:
             def download():
-                with progress.phase("download_" + table.lower()) as count:
+                details = {"table": table, "date_from": str((params or {}).get("date.gte", "")),
+                           "date_to": str((params or {}).get("date.lte", ""))}
+                from sentinel.feed import operational_source
+                stage = ("source_replay" if operational_source.current() is not None
+                         and table == sharadar.SEP else "download_" + table.lower())
+                with progress.phase(stage, **details) as count:
                     for row in self.fetch(table, params, **kwargs):
                         count[0] += 1
                         if count[0] % 100000 == 0:
-                            progress.emit("download_" + table.lower(), "working",
-                                          rows=count[0])
+                            progress.emit(stage, "working",
+                                          rows=count[0], **details)
                         yield row
             return download()
         request = dict(params or {})
@@ -90,12 +95,14 @@ class CapturedRows:
         if key in self.files:
             raise ValueError("duplicate seed capture request")
         spool = self.stack.enter_context(tempfile.TemporaryFile(mode="w+b"))
-        with progress.phase("capture_" + table.lower()) as count:
+        details = {"table": table, "date_from": str((params or {}).get("date.gte", "")),
+                   "date_to": str((params or {}).get("date.lte", ""))}
+        with progress.phase("capture_" + table.lower(), **details) as count:
             for row in fetch(table, params):
                 pickle.dump(dict(row), spool, protocol=pickle.HIGHEST_PROTOCOL)
                 count[0] += 1
                 if count[0] % 100000 == 0:
-                    progress.emit("capture_" + table.lower(), "working", rows=count[0])
+                    progress.emit("capture_" + table.lower(), "working", rows=count[0], **details)
         self.files[key] = spool
 
     def __call__(self, table, params=None, **kwargs):

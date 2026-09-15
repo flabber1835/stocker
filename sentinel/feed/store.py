@@ -457,7 +457,11 @@ class IngestRun:
             from sentinel.feed import progress
             stage = ("database_" + label if label in {"tickers", "actions", "spy"}
                      else "database_prices")
-            with progress.phase(stage) as count:
+            from sentinel.feed import operational_source
+            capture = operational_source.current()
+            details = ({"date_from": capture.start, "date_to": capture.end}
+                       if capture is not None else {})
+            with progress.phase(stage, **details) as count:
                 before = self.progress.rows_written
                 yield self.progress
                 count[0] = self.progress.rows_written - before
@@ -520,6 +524,11 @@ def write_bars(conn, bars: Iterable[Any], *, run_id=None,
         # re-run resumes rather than duplicates.
         conn.commit()
         written += len(rows)
+        if run_id is not None:
+            from sentinel.feed import progress
+            progress.emit("database_prices", "working", table="SEP", rows=written,
+                          date_from=str(min(r[1] for r in rows)),
+                          date_to=str(max(r[1] for r in rows)))
         rows.clear()
 
     for item in bars:

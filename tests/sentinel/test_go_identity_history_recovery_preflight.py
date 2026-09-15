@@ -118,4 +118,4 @@ def test_certified_recovery_owns_historical_identity_rebuild_escalation():
     source = Path(outage_recovery.__file__).read_text(encoding="utf-8")
     assert "except _RECOVERABLE_LOCAL_STATE as exc:" in source
     assert "ingest.seed(conn, date_from=retained_start, date_to=target)" in source
-    assert 'mode = "RETAINED_FULL_RESEED"' in source
+    assert 'mode = "BOUNDED_RESEED"' in source

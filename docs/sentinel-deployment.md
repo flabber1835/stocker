@@ -1,5 +1,11 @@
 # Sentinel — operational deployment ground truth
 
+GO and production daily price acquisition are bounded by the contract in
+[bounded-operational-feed.md](bounded-operational-feed.md): 300 XNYS sessions,
+single acquisition of verified SEP exports, bounded recovery and explicit phase
+progress. This supersedes automatic retained-history reseeding and rotating
+historical price audits described below; full-history maintenance stays explicit.
+
 **Production strategy selection, 2026-09-11:** the owner selected the compact
 56.265× champion for production integration. The selected source authority,
 twenty-slot V5 book, REC8 controller, restart contract and verification gates

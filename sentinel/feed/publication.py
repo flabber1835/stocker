@@ -458,6 +458,18 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
     """Publish one coherent corpus generation with all durable seed evidence."""
     from sentinel.feed import source_aliases
     merged = _candidate_evidence(evidence)
+    from sentinel.feed import operational_source, progress
+    capture = operational_source.current()
+    if capture is not None and capture.loaded:
+        capture.corroborate()
+        merged["operational_source"] = {
+            "schema": "sentinel.operational-source/1",
+            "window": [capture.start, capture.end],
+            "max_price_sessions": operational_source.MAX_PRICE_SESSIONS,
+            "files": list(capture.evidence),
+        }
+        progress.emit("corpus_publication", "started", date_from=capture.start,
+                      date_to=capture.end)
     proof = None
     if run_id is not None:
         from sentinel.feed import seed_coherence
@@ -485,9 +497,13 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
     kwargs = {}
     if retirement_authority is not None:
         kwargs["retirement_authority"] = retirement_authority
-    return _publish_atomic(
+    result = _publish_atomic(
         conn, run_id=run_id, window_start=window_start,
         window_end=window_end, evidence=merged, **kwargs)
+    if capture is not None and capture.loaded:
+        progress.emit("corpus_publication", "completed", date_from=capture.start,
+                      date_to=capture.end)
+    return result
 
 
 __all__ = [

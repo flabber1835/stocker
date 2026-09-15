@@ -100,7 +100,7 @@ def test_already_current_contract_is_source_owned_and_has_no_second_ingest():
         code = controller.go._PREPARATION_CODE
         marker = "if recovered.mode == 'ALREADY_CURRENT':"
         start = code.index(marker)
-        end = code.index("elif recovered.mode == 'RETAINED_FULL_RESEED':", start)
+        end = code.index("elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:", start)
         block = code[start:end]
         assert "ingest.daily" not in block
         assert "pass" in block

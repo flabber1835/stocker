@@ -109,18 +109,16 @@ class DiagnosticRunner(go.CommandRunner):
 
 
 def _install_single_preparation_contract() -> None:
-    """Remove the redundant ingest.daily() call after ALREADY_CURRENT.
-
-    outage_recovery.catch_up() has already established that the publication is
-    current. Recontacting mutable vendor data at that point adds source risk and
-    can turn a coherent corpus into an avoidable late refusal.
-    """
+    """Verify source-owned terminal current/bounded recovery preparation."""
     entry.install()
-    old = """        if recovered.mode == 'ALREADY_CURRENT':\n            # Validation proves the explicit-through daily path itself even when\n            # no catch-up was necessary. The common recovery helper did not\n            # mutate in ALREADY_CURRENT mode, so this separate proof must apply\n            # the same external-WAL durability fence before calling ingest.\n            backup_guard.require_writes_permitted(\n                c, operation='NAS validation explicit daily publication')\n            ingest.daily(c, today=target)\n        elif recovered.mode == 'RETAINED_FULL_RESEED':"""
-    new = """        if recovered.mode == 'ALREADY_CURRENT':\n            # Current publication is terminal success. Do not contact mutable\n            # vendor data a second time merely to prove the same state again.\n            pass\n        elif recovered.mode == 'RETAINED_FULL_RESEED':"""
-    if old not in go._PREPARATION_CODE:
+    code = go._PREPARATION_CODE
+    try:
+        start = code.index("if recovered.mode == 'ALREADY_CURRENT':")
+        end = code.index("elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:", start)
+    except ValueError as exc:
+        raise PhaseRefused("GO preparation implementation no longer matches the reviewed single-preparation contract") from exc
+    if "ingest.daily" in code[start:end] or "pass" not in code[start:end]:
         raise PhaseRefused("GO preparation implementation no longer matches the reviewed single-preparation contract")
-    go._PREPARATION_CODE = go._PREPARATION_CODE.replace(old, new, 1)
 
 
 @dataclass(frozen=True)

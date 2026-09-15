@@ -459,6 +459,10 @@ def fetch_table(table: str, params: Mapping[str, str] | None = None, *,
                 http=None, sleep=time.sleep,
                 now: Callable[[], datetime] | None = None) -> Iterator[dict]:
     """Compatibility entry point, routed through the explicit source adapter."""
+    from sentinel.feed import operational_source
+    capture = operational_source.current()
+    if capture is not None and table in {SEP, ACTIONS}:
+        return capture.fetch_rows(table, params)
     return DEFAULT_SOURCE.fetch_table(
         table, params, http=http, sleep=sleep, now=now)
 

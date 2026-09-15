@@ -75,7 +75,9 @@ def test_daily_reuses_one_frozen_source_ceiling_for_rotation_and_sep(monkeypatch
         ingest.maintenance, "reconcile_actions_if_due", lambda *a, **k: None)
     monkeypatch.setattr(ingest, "_prove_recent_frontier", lambda *a, **k: None)
 
-    ingest.daily(
+    # Offline orchestration seam still proves one shared ceiling for manual
+    # historical rotation. Production wrapper coverage asserts no old-year audit.
+    ingest._daily(
         conn, fetch=ingest.snapshot_source.fetch_table,
         resolve_identity=lambda row: row, today="2026-09-04")
 

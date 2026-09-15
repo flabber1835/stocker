@@ -332,6 +332,18 @@ def assert_retry_superseded_prior_candidates(conn, *, run_id: str) -> None:
     fails and would falsely advertise a clean retry.
     """
     writer = str(run_id)
+    from sentinel.feed import operational_source
+    capture = operational_source.current()
+    if capture is not None:
+        from sentinel.feed import operational_coherence
+        report = operational_coherence.operational_coherence(conn, frontier=capture.end)
+        blocking = [item for item in report.blocking if item.run_id != writer]
+        if blocking:
+            raise CorpusIncoherent(
+                "bounded retry cannot publish with unresolved operational inputs: "
+                + "; ".join(f"{item.run_id} {item.affected_start}..{item.affected_end}"
+                            for item in blocking))
+        return
     runs = tuple(r for r in _unpublished_runs_from_run_table(conn)
                  if str(r) != writer)
     if not runs:

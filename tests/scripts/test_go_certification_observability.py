@@ -107,3 +107,31 @@ def test_shell_launcher_defines_colored_status_classes():
     assert "GO_RED='\\033[1;31m'" in source
     assert "[WARN]" in source
     assert "[ERROR]" in source
+
+
+def test_heartbeat_reports_real_phase_rows_and_idle_time(capsys, monkeypatch):
+    monkeypatch.setenv("SENTINEL_GO_COLOR", "never")
+    event = {"stage": "source_download", "status": "working", "rows": 100000,
+             "elapsed_ms": 50, "table": "SEP", "date_from": "2026-08-01", "date_to": "2026-08-19"}
+    obs._working("certified financial preparation", 80, event, 12)
+    output = capsys.readouterr().out
+    assert "SEP 2026-08-01..2026-08-19" in output
+    assert "100,000 rows" in output and "12s since last progress" in output
+    assert "still running" not in output.lower()
+    obs._working("read-only financial probe", 10)
+    assert "subprocess supplied no internal progress" in capsys.readouterr().out
+
+
+def test_streaming_heartbeat_uses_progress_and_hides_sensitive_output(capsys, monkeypatch):
+    from types import SimpleNamespace
+    monkeypatch.setenv("SENTINEL_GO_COLOR", "never")
+    monkeypatch.setattr(obs, "_HEARTBEAT_SECONDS", 0.01)
+    event = 'SENTINEL_FEED_PROGRESS={"stage":"source_download","status":"started","rows":0,"elapsed_ms":0,"table":"SEP","date_from":"2026-08-18","date_to":"2026-08-19"}'
+    command = [sys.executable, "-c", "import sys,time; print(%r, file=sys.stderr, flush=True); print('password=hidden', flush=True); time.sleep(0.4)" % event]
+    controller = SimpleNamespace(_safe_int_env=lambda name, default: 5)
+    result = obs._streaming_run(controller, SimpleNamespace(MAX_BOUNDED_INGEST_MS=5000),
+                                command, env=None, cwd=ROOT, raw_stream=False)
+    output = capsys.readouterr().out
+    assert result.returncode == 0 and "password=hidden" in result.stdout
+    assert "password=hidden" not in output
+    assert "[WORK]" in output and "SEP 2026-08-18..2026-08-19" in output

@@ -265,7 +265,7 @@ def _install_reviewed_preparation_contract() -> None:
     marker = "if recovered.mode == 'ALREADY_CURRENT':"
     try:
         start = code.index(marker)
-        end = code.index("elif recovered.mode == 'RETAINED_FULL_RESEED':", start)
+        end = code.index("elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:", start)
     except ValueError as exc:
         raise controller.PhaseRefused(
             "GO preparation implementation no longer exposes the reviewed recovery contract") from exc

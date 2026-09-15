@@ -67,6 +67,10 @@ def reason_code(phase, exc):
         return 'SOURCE_IDENTITY_COLLISION'
     if name == 'VendorPublicationUnstable':
         return 'SOURCE_PUBLICATION_UNSTABLE'
+    if name == 'OperationalAcquisitionRefused':
+        return 'OPERATIONAL_ACQUISITION_BOUND_EXCEEDED'
+    if name == 'SharadarSnapshotExportError':
+        return 'SOURCE_EXPORT_UNAVAILABLE'
     if name == 'MutationCursorUnavailable':
         return 'LOCAL_CURSOR_MISSING'
     if name == 'HistoricalIdentityMutation':
@@ -119,18 +123,21 @@ phase = 'RUNTIME_IMPORT'
 try:
     from datetime import datetime, timezone
     from sentinel import backup_guard, schema
-    from sentinel.feed import calendar, outage_recovery, publication, store
+    from sentinel.feed import calendar, outage_recovery, publication, store, progress
     from sentinel.shadow_runtime import publication_not_before
 
     phase = 'DATABASE_CONNECT'
+    progress.emit('database_connect', 'started')
     c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
     # Schema bootstrap/migration is PostgreSQL WAL mutation just like market-data
     # publication. Prove the external archive target *before* the validator may
     # change even one financial-database row.
     phase = 'BACKUP_DURABILITY'
+    progress.emit('backup_durability', 'started')
     backup_guard.require_writes_permitted(
         c, operation='NAS validation schema migration')
     phase = 'SCHEMA_MIGRATION'
+    progress.emit('schema_migration', 'started')
     schema_attempted = True
     schema.ensure_schema(c)
     store.migrate_schema(c)
@@ -144,6 +151,7 @@ try:
     daily_attempted = False
     if eligible:
         phase = 'DAILY_CATCHUP'
+        progress.emit('daily_catchup', 'started', date_to=target)
         daily_attempted = True
         recovered = outage_recovery.catch_up(
             c, target_session=target, reobserve_current=True)
@@ -151,12 +159,13 @@ try:
             # The requested current-vendor re-observation completed inside
             # catch_up. No second mutable-source observation is needed here.
             pass
-        elif recovered.mode == 'RETAINED_FULL_RESEED':
+        elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:
             print(RECOVERY_MARKER + json.dumps({
                 'mode': recovered.mode,
                 'trigger': recovered.recovered_from,
             }, sort_keys=True), flush=True)
     phase = 'PUBLICATION_CHECK'
+    progress.emit('publication_check', 'started', date_to=target)
     after = publication.current(c)
     visible = store.latest_visible_session(c)
     current = (

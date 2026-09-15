@@ -25,6 +25,8 @@ import math
 import os
 import time
 import zipfile
+import hashlib
+from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Mapping
 from urllib.parse import urlparse
@@ -37,6 +39,65 @@ EXPORT_POLL_SECONDS = float(os.getenv("SHARADAR_EXPORT_POLL_SECONDS", "30"))
 
 class SharadarSnapshotExportError(sharadar.SharadarRequestError):
     """The provider could not prove a complete, current export snapshot."""
+
+
+@dataclass(frozen=True)
+class ExportSnapshot:
+    table: str
+    params: Mapping[str, str]
+    link: str = field(repr=False)
+    snapshot: datetime
+    refreshed: datetime
+
+
+def probe_snapshot(table, *, params=None, http=None, sleep=time.sleep, now=None):
+    """Check availability once, without waiting for or downloading a file."""
+    validate_config()
+    if http is None:
+        import httpx
+        http = httpx
+    query = {"api_key": sharadar._api_key(),
+             **sharadar._validated_params(params), "qopts.export": "true"}
+    with http.Client(timeout=sharadar.FETCH_TIMEOUT_SECS) as client:
+        response = sharadar._get_with_retry(
+            client, f"{sharadar.NDL_BASE}/{table}.json", query,
+            http=http, sleep=sleep, now=now)
+        try:
+            payload = response.json()
+        except Exception:
+            raise SharadarSnapshotExportError(
+                f"Sharadar {table} export status is not valid JSON") from None
+    status, link, snapshot, refreshed = _decode_export_status(payload)
+    from sentinel.feed import progress
+    progress.emit("export_preflight", status, table=table,
+                  date_from=str((params or {}).get("date.gte", "")),
+                  date_to=str((params or {}).get("date.lte", "")))
+    if status != "fresh":
+        raise SharadarSnapshotExportError(
+            f"Sharadar {table} export status={status}; "
+            f"window={(params or {}).get('date.gte', 'all')}.."
+            f"{(params or {}).get('date.lte', 'all')}; "
+            "source acquisition refused; retry when the export is fresh")
+    if link is None or snapshot is None or refreshed is None or snapshot < refreshed:
+        raise SharadarSnapshotExportError(
+            f"Sharadar {table} fresh export lacks current snapshot authority")
+    return ExportSnapshot(table, dict(params or {}), link, snapshot, refreshed)
+
+
+def download_snapshot(snapshot, *, required, http=None, sleep=time.sleep, now=None):
+    if http is None:
+        import httpx
+        http = httpx
+    with http.Client(timeout=sharadar.FETCH_TIMEOUT_SECS) as client:
+        blob = _safe_download(client, snapshot.link, http=http, sleep=sleep, now=now)
+    rows = _csv_rows(blob, required=required)
+    return rows, {
+        "authority": "nasdaq-data-link-table-export/v1", "table": snapshot.table,
+        "file_status": "fresh", "data_snapshot_time": snapshot.snapshot.isoformat(),
+        "last_refreshed_time": snapshot.refreshed.isoformat(),
+        "source_rows": len(rows), "file_sha256": hashlib.sha256(blob).hexdigest(),
+        "window": dict(snapshot.params),
+    }
 
 
 def validate_config() -> None:
@@ -184,6 +245,10 @@ def _fetch_complete(
         now: Callable[[], datetime] | None = None,
         poll_seconds: float | None = None,
         max_polls: int | None = None) -> tuple[list[dict], dict]:
+    from sentinel.feed import operational_source
+    capture = operational_source.current()
+    if capture is not None:
+        return capture.export_rows(table, params, required=required)
     validate_config()
     polls = EXPORT_MAX_POLLS if max_polls is None else int(max_polls)
     delay = EXPORT_POLL_SECONDS if poll_seconds is None else float(poll_seconds)

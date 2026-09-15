@@ -186,7 +186,7 @@ def test_nas_schema_and_recovery_mutations_cannot_bypass_backup_guard():
     assert "reobserve_current=True" in entry
     daily_guard = recovery.index('operation="canonical outage daily catch-up"')
     daily_mutation = recovery.index("ingest.daily(conn, today=target)", daily_guard)
-    bulk_guard = recovery.index('operation="retained full corpus reseed"')
+    bulk_guard = recovery.index('operation="bounded operational corpus reseed"')
     bulk_mutation = recovery.index(
         "ingest.seed(conn, date_from=retained_start, date_to=target)", bulk_guard)
     assert daily_guard < daily_mutation
@@ -199,7 +199,7 @@ def test_nas_schema_and_recovery_mutations_cannot_bypass_backup_guard():
     # ingest or mutation.
     marker = "if recovered.mode == 'ALREADY_CURRENT':"
     start = entry.index(marker)
-    end = entry.index("elif recovered.mode == 'RETAINED_FULL_RESEED':", start)
+    end = entry.index("elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:", start)
     already_current = entry[start:end]
     assert "ingest.daily" not in already_current
     assert "backup_guard.require_writes_permitted" not in already_current
