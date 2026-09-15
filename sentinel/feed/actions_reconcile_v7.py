@@ -135,7 +135,7 @@ def _cash_semantic_migration(conn, *, fetch, through: dt.date):
     run.finish("success")
     return _core.publication.publish(
         conn, run_id=run.progress.run_id,
-        window_start=windows[0][0], window_end=windows[-1][1],
+        window_start=market_start, window_end=market_end,
         evidence={
             "kind": "actions_economic_semantics_v10",
             "semantic_epoch": ACTIONS_CURSOR_KIND,

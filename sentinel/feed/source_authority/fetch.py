@@ -7,7 +7,7 @@ import tempfile
 from typing import Mapping, Optional
 
 from sentinel.feed import coherence, sharadar, snapshot_source
-from .dates import SepUpdateEnvelope, SourceAuthorityRefused, _strict_date
+from .dates import SeedIdentityCollision, SepUpdateEnvelope, SourceAuthorityRefused, _strict_date
 from .duplicates import CanonicalSourceFetch, _is_matching_update_request
 from .coverage import SeedCoverageAccumulator
 from .seed_model import SeedListingProjection
@@ -83,7 +83,7 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                  corroborate_reference=None,
                  after_session: str | None = None,
                  seed_mode: bool = False, validate_tickers: bool = False,
-                 identity_actions=(), identity_through=None, identity_fetch=None,
+                 identity_actions=(), identity_through=None, identity_fetch=None, alias_rejections=None,
                  reference_recovery: frozenset[tuple[str, str]] = frozenset(),
                  sep_update_envelope: SepUpdateEnvelope | None = None):
         self._canonical_fetch = CanonicalSourceFetch(
@@ -92,13 +92,17 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
         self._seed_projection: Optional[SeedListingProjection] = None
         self.seed_coverage_evidence: Optional[dict] = None
         self._seed_mode = bool(seed_mode)
+        from sentinel.feed import source_aliases
+        self.alias_rejections = source_aliases.evidence()
+        self._discovering_seed = False
+        self._seed_native_digest = None
         self._reference_recovery = frozenset(reference_recovery)
         super().__init__(
             self._canonical_fetch, protect_sep=protect_sep,
             corroborate_reference=corroborate_reference,
             after_session=after_session, seed_mode=seed_mode,
             identity_actions=identity_actions, identity_through=identity_through,
-            identity_fetch=identity_fetch)
+            identity_fetch=identity_fetch, alias_rejections=alias_rejections)
 
     def __call__(self, table, params=None, **kwargs):
         rows = super().__call__(table, params, **kwargs)
@@ -109,6 +113,7 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                     "TICKERS projection has no stable source fingerprint")
             self._seed_projection = SeedListingProjection(
                 material, source_digest=self._tickers_first.digest)
+            self._seed_native_digest = self._tickers_first.digest
             return material
         if table == sharadar.SFP and self._reference_recovery:
             material = list(rows)
@@ -116,12 +121,58 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                 material, params, self._reference_recovery)
         if (table == sharadar.ACTIONS and self._seed_mode
                 and self.identity_projection is not None and self._seed_projection is not None):
-            self._seed_projection = SeedListingProjection(
-                (*self.identity_projection.rows, *self.identity_projection.alias_rows),
-                source_digest=self.identity_projection.digest(self._seed_projection.source_digest))
+            self._freeze_identity()
         return rows
 
-    def preflight_seed_membership(self, *, date_from, date_to):
+    def begin_seed_capture(self):
+        self._discovering_seed = self._seed_mode
+
+    def _freeze_identity(self):
+        from sentinel.feed.symbol_identity import SymbolProjection
+        base = self.identity_projection
+        self.identity_projection = SymbolProjection(
+            base.rows, base.actions, through=base.through, alias_rejections=self.alias_rejections)
+        from sentinel.feed import source_aliases
+        source_aliases.require_current(self.identity_projection, self.alias_rejections)
+        self._seed_resolver = self.identity_projection.resolver()
+        self._seed_projection = SeedListingProjection(
+            (*self.identity_projection.rows, *self.identity_projection.alias_rows),
+            source_digest=self.identity_projection.digest(self._seed_native_digest))
+
+    def _discover_aliases(self, coverage, identity):
+        from sentinel.feed import source_aliases
+        found = source_aliases.discover(coverage, identity)
+        self.alias_rejections = source_aliases.evidence(
+            (*self.alias_rejections["records"], *found["records"]))
+
+    def finalize_seed_capture(self, captured, *, date_from, date_to):
+        if not self._seed_mode:
+            return
+        # Every year is rechecked against ONE projection after discovery ends.
+        # Endpoint samples never substitute for this complete historical pass.
+        self._freeze_identity()
+        self._discovering_seed = False
+        self.seed_coverage_evidence = None
+        for lo, hi in sharadar.year_chunks(date_from, date_to):
+            params = sharadar.date_params(lo, hi)
+            for _ in self._validated_seed_replay(captured(sharadar.SEP, params), params):
+                pass
+
+    def preflight_seed_identity(self, *, tickers, fetch, date_from, date_to):
+        """Detect source identity conflicts before requesting the full ACTIONS export."""
+        if not self._seed_mode:
+            return
+        from sentinel.feed import symbol_identity
+        rows = list(tickers)
+        actions = symbol_identity.stable_rename_rows(fetch, through=date_to)
+        self._identity_actions = tuple(actions)
+        self._identity_through = date_to
+        self._identity_fetch = fetch
+        identity = symbol_identity.SymbolProjection(rows, actions, through=date_to)
+        self.preflight_seed_membership(date_from=date_from, date_to=date_to,
+                                      identity_projection=identity)
+
+    def preflight_seed_membership(self, *, date_from, date_to, identity_projection=None):
         """Small diagnostic samples; never add them to publication evidence."""
         if not self._seed_mode:
             return
@@ -138,22 +189,45 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
         sessions = [session for session in sessions if session not in contextual]
         if not sessions:
             return
-        for session in sorted({sessions[0], sessions[-1]}):
-            coverage = SeedCoverageAccumulator(self._seed_projection, self._seed_resolver.resolve)
-            try:
+        projection, resolver = self._seed_projection, self._seed_resolver
+        if identity_projection is not None:
+            projection = SeedListingProjection(
+                (*identity_projection.rows, *identity_projection.alias_rows),
+                source_digest=identity_projection.digest(coherence.observe_tickers(identity_projection.rows).digest))
+            resolver = identity_projection.resolver()
+        sampled = sorted({sessions[0], sessions[-1]})
+        identity = identity_projection or self.identity_projection
+        material = []
+        coverage = SeedCoverageAccumulator(projection, resolver.resolve)
+        try:
+            for session in sampled:
                 # Both traversals use the canonical source, including duplicate
                 # and price/date guards. Full capture still brackets all inputs.
                 sample = authority.StableSharadarFetch(self._canonical_fetch)
                 with progress.phase("seed_membership_preflight") as count:
                     for row in sample(sharadar.SEP, sharadar.date_params(session, session)):
                         coverage.add(row)
+                        material.append(row)
                         count[0] += 1
-                    try:
-                        coverage.require_complete(date_from=session, date_to=session)
-                    except SourceAuthorityRefused as exc:
-                        raise coherence.SeedHistoryIncomplete(str(exc)) from exc
-            finally:
+            if identity is not None:
+                self._discover_aliases(coverage, identity)
+                from sentinel.feed.symbol_identity import SymbolProjection
+                corrected = SymbolProjection(identity.rows, identity.actions, through=identity.through,
+                                             alias_rejections=self.alias_rejections)
                 coverage.close()
+                coverage = SeedCoverageAccumulator(SeedListingProjection(
+                    (*corrected.rows, *corrected.alias_rows), source_digest=corrected.digest(
+                        coherence.observe_tickers(corrected.rows).digest)), corrected.resolver().resolve)
+                for row in material:
+                    coverage.add(row)
+            coverage.require_no_collisions(date_from=sampled[0], date_to=sampled[-1])
+            for session in sampled:
+                try:
+                    coverage.require_complete(date_from=session, date_to=session)
+                except SourceAuthorityRefused as exc:
+                    raise coherence.SeedHistoryIncomplete(str(exc)) from exc
+        finally:
+            coverage.close()
 
     def _validated_seed_replay(self, rows, params):
         date_from = str(params.get("date.gte") or "")
@@ -164,8 +238,15 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
         if self._seed_resolver is None or self._seed_projection is None:
             raise coherence.SeedHistoryIncomplete(
                 "seed SEP coverage validation has no stable TICKERS authority")
-        coverage = SeedCoverageAccumulator(
-            self._seed_projection, self._seed_resolver.resolve)
+        identity = self.identity_projection
+        projection, resolver = self._seed_projection, self._seed_resolver
+        if self._discovering_seed:
+            from sentinel.feed.symbol_identity import SymbolProjection
+            identity = SymbolProjection(identity.rows, identity.actions, through=identity.through)
+            projection = SeedListingProjection((*identity.rows, *identity.alias_rows),
+                                               source_digest=self._seed_native_digest)
+            resolver = identity.resolver()
+        coverage = SeedCoverageAccumulator(projection, resolver.resolve)
         spool = tempfile.TemporaryFile(mode="w+b")
         sessions: dict[str, coherence.SeedSessionCounts] = {}
         try:
@@ -178,15 +259,10 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
                         session, coherence.SeedSessionCounts()).add(
                             row, resolved=resolved)
                 pickle.dump(row, spool, protocol=pickle.HIGHEST_PROTOCOL)
-            try:
-                evidence = coverage.require_complete(
-                    date_from=date_from, date_to=date_to)
-            except SourceAuthorityRefused as exc:
-                raise coherence.SeedHistoryIncomplete(str(exc)) from exc
-            coherence.assert_seed_history(
-                sessions, date_from=date_from, date_to=date_to)
-            self.seed_coverage_evidence = _merge_seed_coverage(
-                self.seed_coverage_evidence, evidence)
+            if self._discovering_seed:
+                self._discover_aliases(coverage, identity)
+            else:
+                self._finish_seed_chunk(coverage, sessions, date_from, date_to)
             spool.seek(0)
         except Exception:
             spool.close()
@@ -204,6 +280,16 @@ class StableSharadarFetch(coherence.StableSharadarFetch):
             finally:
                 spool.close()
         return replay()
+
+    def _finish_seed_chunk(self, coverage, sessions, date_from, date_to):
+        try:
+            evidence = coverage.require_complete(date_from=date_from, date_to=date_to)
+        except SeedIdentityCollision:
+            raise
+        except SourceAuthorityRefused as exc:
+            raise coherence.SeedHistoryIncomplete(str(exc)) from exc
+        coherence.assert_seed_history(sessions, date_from=date_from, date_to=date_to)
+        self.seed_coverage_evidence = _merge_seed_coverage(self.seed_coverage_evidence, evidence)
 
 
 class _CdcThenReplayFetch:

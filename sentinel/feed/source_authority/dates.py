@@ -16,6 +16,10 @@ class CanonicalSourceDuplicate(SourceAuthorityRefused):
     """SEP/SFP repeated one canonical (ticker,date) source key."""
 
 
+class SeedIdentityCollision(SourceAuthorityRefused):
+    """Distinct observed SEP symbols lack separate permanent identities."""
+
+
 class SepUpdateEnvelopeViolation(SourceAuthorityRefused):
     """SEP lastupdated evidence lies outside the operation's causal envelope."""
 

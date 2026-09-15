@@ -9,7 +9,8 @@ import pytest
 
 from sentinel.feed import (
     coherence, identity_refresh, ingest, maintenance, recovery,
-    sep_reconciliation, sharadar, snapshot_source, source_authority, symbol_identity, universe)
+    sep_reconciliation, sharadar, snapshot_source, source_aliases, source_authority,
+    symbol_identity, universe)
 
 
 def test_pinned_initial_tickers_fetch_serves_proven_candidate_once():
@@ -114,6 +115,7 @@ def test_production_daily_prevalidates_exact_candidate_before_publication(
     monkeypatch.setattr(
         ingest._impl.feed_store, "corpus_write_lock", lambda conn: lock(conn))
     monkeypatch.setattr(ingest, "_recover_before_run", lambda conn: None)
+    monkeypatch.setattr(source_aliases, "load", lambda _conn: source_aliases.evidence())
     monkeypatch.setattr(maintenance, "load_sep_cursor", lambda conn: object())
     monkeypatch.setattr(recovery, "failed_live_candidates", lambda conn: [])
     monkeypatch.setattr(
@@ -137,7 +139,7 @@ def test_production_daily_prevalidates_exact_candidate_before_publication(
         source_authority, "StableSharadarFetch",
         lambda fetch, after_session=None, sep_update_envelope=None,
         reference_recovery=False, identity_actions=(), identity_through=None,
-        identity_fetch=None: fetch)
+        identity_fetch=None, alias_rejections=None: fetch)
 
     def daily_locked(conn, **kwargs):
         events.append("daily-open")

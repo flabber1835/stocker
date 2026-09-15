@@ -649,6 +649,11 @@ def load_resolver(conn, *, include_run_id=None, execution_session=None) -> Ident
                    firstpricedate=_d(f), lastpricedate=_d(l),
                    isdelisted=active.get((str(p), str(t)), (None, None))[0],
                    category=active.get((str(p), str(t)), (None, None))[1]) for p, t, f, l in rows]
-    return SymbolProjection(source, actions.active_rows(
+    from sentinel.feed import source_aliases
+    aliases = source_aliases.load(conn, include_run_id=include_run_id)
+    projected = SymbolProjection(source, actions.active_rows(
         conn, start="1900-01-01", end=str(horizon), include_run_id=include_run_id,
-        action_types=RENAME_TYPES), through=through).resolver()
+        action_types=RENAME_TYPES), through=through,
+        alias_rejections=aliases)
+    source_aliases.require_current(projected, aliases)
+    return projected.resolver()

@@ -305,7 +305,9 @@ def _validate_update_row(
         raise SeedCoherenceRefused(
             f"SEP mutation row on {session} has no ticker")
     if session in market_sessions:
-        if resolver(ticker, session) is None:
+        security_id = resolver(ticker, session)
+        from sentinel.feed import source_aliases
+        if security_id is None and not source_aliases.excludes(resolver, ticker):
             raise SeedCoherenceRefused(
                 f"SEP mutation {ticker}/{session} has no candidate permanent "
                 "identity; cursor advancement would skip unresolved economics")
@@ -317,7 +319,8 @@ def _validate_update_row(
         if not math.isfinite(raw_close) or raw_close <= 0:
             raise SeedCoherenceRefused(
                 f"SEP mutation {ticker}/{session} has no positive raw close")
-        collect_dates.add(session)
+        if security_id is not None:
+            collect_dates.add(session)
     return item
 
 
@@ -731,6 +734,9 @@ def prove(
         "normalized_local": local.to_dict(),
         "final_mutation_cursor": ceiling.isoformat(),
     }
+    from sentinel.feed import source_aliases
+    payload["source_alias_rejections_sha256"] = source_aliases.load(
+        conn, include_run_id=run_id)["sha256"]
     _persist_complete_proof(conn, run_id=run_id, payload=payload)
     return SeedCoherenceProof(payload)
 

@@ -63,6 +63,8 @@ def failure_detail(exc):
 def reason_code(phase, exc):
     name = type(exc).__name__
     lowered = str(exc).lower()
+    if name == 'SeedIdentityCollision':
+        return 'SOURCE_IDENTITY_COLLISION'
     if name == 'VendorPublicationUnstable':
         return 'SOURCE_PUBLICATION_UNSTABLE'
     if name == 'MutationCursorUnavailable':

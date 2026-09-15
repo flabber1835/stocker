@@ -107,7 +107,8 @@ def test_cheap_retry_probe_follows_all_historical_labels_over_filtered_http():
         source_probe.require_recovery_probe(
             {"session": HISTORICAL_DAY, "identities": ["111101", "113467"]}, through=THROUGH)
     requests = [r["query"] for r in provider.transcript if r.get("table") == sharadar.SEP]
-    assert len(requests) == 1
+    assert len(requests) == 2
+    assert requests[0] == requests[1]
     assert requests[0]["date.gte"] == requests[0]["date.lte"] == HISTORICAL_DAY
     assert set(requests[0]["ticker"].split(",")) == {
         "CYCNV", "CYCN", "KRSA", "PHGE", "HLSQ"}
@@ -179,7 +180,7 @@ def test_production_capture_rebuild_and_publication_with_complete_history(fault,
                                     if r.get("table") == sharadar.SEP]
                     assert sep_requests and all(r["date.gte"] == r["date.lte"]
                                                 for r in sep_requests)
-                    expected_days = {days[0], THROUGH} if fault == "missing-last-price" else {days[0]}
+                    expected_days = {days[0], THROUGH}
                     assert {r["date.gte"] for r in sep_requests} == expected_days
                     return
                 result, _ = ingest._run_seed_generation(conn, recovery_plan=plan,

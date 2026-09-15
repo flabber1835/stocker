@@ -108,7 +108,7 @@ def _reconcile_sep_mutations_core(conn, *, fetch=_core.sharadar.fetch_table,
     run.finish("success")
     published = _core.publication.publish(
         conn, run_id=run.progress.run_id,
-        window_start=windows[0][0], window_end=windows[-1][1],
+        window_start=market_start, window_end=market_end,
         evidence={
             "kind": "sep_mutations",
             "lastupdated_window": [lo.isoformat(), hi.isoformat()],

@@ -1,0 +1,115 @@
+{
+  "provenance": {
+    "capture_sha256": "89bb5da971cc2f886a1ee1e9a086c53a526224ee8997a859e87e358a24978488",
+    "observation": "2026-09-14T20:01:16Z",
+    "scope": "Exact rows from the uploaded market-wide capture. No synthetic rows in this file."
+  },
+  "tickers": [
+    {
+      "category": "Domestic Common Stock",
+      "currency": "USD",
+      "exchange": "NASDAQ",
+      "firstpricedate": "2026-08-07",
+      "isdelisted": "N",
+      "lastpricedate": "2026-09-11",
+      "lastupdated": "2026-09-11",
+      "name": "OCEANLIGHT ACQUISITION CORP",
+      "permaticker": 6401005,
+      "relatedtickers": null,
+      "sector": "Industrials",
+      "table": "SEP",
+      "ticker": "OCLTU"
+    },
+    {
+      "category": "Domestic Common Stock",
+      "currency": "USD",
+      "exchange": "NASDAQ",
+      "firstpricedate": "2026-07-21",
+      "isdelisted": "N",
+      "lastpricedate": "2026-09-11",
+      "lastupdated": "2026-09-11",
+      "name": "B&R TECHNOLOGY MERGER CORP",
+      "permaticker": 6399775,
+      "relatedtickers": null,
+      "sector": "Industrials",
+      "table": "SEP",
+      "ticker": "BRTMU"
+    }
+  ],
+  "actions": [
+    {
+      "action": "tickerchangeto",
+      "contraname": "N/A",
+      "contraticker": "OCLT",
+      "date": "2026-09-11",
+      "name": "OCEANLIGHT ACQUISITION CORP",
+      "ticker": "OCLT",
+      "value": null
+    },
+    {
+      "action": "tickerchangefrom",
+      "contraname": "N/A",
+      "contraticker": "OCLTU",
+      "date": "2026-09-11",
+      "name": "OCEANLIGHT ACQUISITION CORP",
+      "ticker": "OCLT",
+      "value": null
+    },
+    {
+      "action": "tickerchangeto",
+      "contraname": "N/A",
+      "contraticker": "BRTM",
+      "date": "2026-09-10",
+      "name": "B&R TECHNOLOGY MERGER CORP",
+      "ticker": "BRTM",
+      "value": null
+    },
+    {
+      "action": "tickerchangefrom",
+      "contraname": "N/A",
+      "contraticker": "BRTMU",
+      "date": "2026-09-10",
+      "name": "B&R TECHNOLOGY MERGER CORP",
+      "ticker": "BRTM",
+      "value": null
+    }
+  ],
+  "sep": [
+    {
+      "close": 10.02,
+      "closeunadj": 10.02,
+      "date": "2026-09-11",
+      "lastupdated": "2026-09-13",
+      "open": 10.02,
+      "ticker": "OCLTU",
+      "volume": 4800.0
+    },
+    {
+      "close": 9.9,
+      "closeunadj": 9.9,
+      "date": "2026-09-11",
+      "lastupdated": "2026-09-13",
+      "open": 9.94,
+      "ticker": "OCLT",
+      "volume": 86000.0
+    },
+    {
+      "close": 9.98,
+      "closeunadj": 9.98,
+      "date": "2026-09-11",
+      "lastupdated": "2026-09-13",
+      "open": 9.95,
+      "ticker": "BRTMU",
+      "volume": 1000.0
+    },
+    {
+      "close": 9.87,
+      "closeunadj": 9.87,
+      "date": "2026-09-11",
+      "lastupdated": "2026-09-13",
+      "open": 9.9,
+      "ticker": "BRTM",
+      "volume": 32200.0
+    }
+  ]
+}

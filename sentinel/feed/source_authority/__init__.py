@@ -1,7 +1,7 @@
 """Causal and cardinality authority for Sharadar SEP/SFP observations."""
 from .fetch import StableSharadarFetch, reconcile_sep_mutations
 from .dates import (
-    CanonicalSourceDuplicate, SepUpdateEnvelope,
+    CanonicalSourceDuplicate, SeedIdentityCollision, SepUpdateEnvelope,
     SepUpdateEnvelopeViolation, SourceAuthorityRefused,
 )
 from .duplicates import CanonicalSourceFetch, validated_source_rows
@@ -15,7 +15,7 @@ __all__ = [
     "CanonicalSourceDuplicate", "CanonicalSourceFetch",
     "LastUpdatedTrackingFetch", "SEED_COVERAGE_EXCEPTIONS",
     "SeedCoverageAccumulator", "SeedCoverageException",
-    "SeedListingProjection", "SepUpdateEnvelope",
+    "SeedListingProjection", "SeedIdentityCollision", "SepUpdateEnvelope",
     "SepUpdateEnvelopeViolation", "SourceAuthorityRefused",
     "StableSharadarFetch", "reconcile_sep_mutations",
     "validated_source_rows",

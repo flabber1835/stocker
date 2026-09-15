@@ -64,12 +64,14 @@ def _pair_claims(changes_from: dict[Claim, set[str]], changes_to: dict[Claim, se
 
 
 class SymbolProjection:
-    def __init__(self, rows: Iterable[Mapping], actions: Iterable[Mapping], *, through: str):
+    def __init__(self, rows: Iterable[Mapping], actions: Iterable[Mapping], *, through: str,
+                 alias_rejections=None):
         self.rows = tuple(dict(row) for row in rows)
+        self.actions = tuple(dict(row) for row in actions)
         self.through = dt.date.fromisoformat(str(through)).isoformat()
         changes_from: dict[Claim, set[str]] = {}
         changes_to: dict[Claim, set[str]] = {}
-        for row in actions:
+        for row in self.actions:
             kind = str(row.get("action") or "").lower()
             if kind not in RENAME_TYPES:
                 continue
@@ -193,6 +195,8 @@ class SymbolProjection:
                     self.alias_rows.append(dict(anchor, ticker=symbol,
                                                 firstpricedate=start, lastpricedate=end))
         self.chains = {key: value for key, value in self.chains.items() if value}
+        from sentinel.feed import source_aliases
+        source_aliases.apply(self, source_aliases.evidence() if alias_rejections is None else alias_rejections)
 
     def explain(self, *, symbols=(), identities=()):
         wanted, keys = set(symbols), set(identities)
@@ -209,6 +213,7 @@ class SymbolProjection:
     @property
     def evidence(self) -> dict:
         return {"schema": SCHEMA, "through": self.through,
+                "source_alias_rejections": self.applied_alias_rejections,
                 "aliases": [{key: row[key] for key in (
                     "permaticker", "ticker", "firstpricedate", "lastpricedate")}
                     for row in sorted(self.alias_rows, key=lambda r: (str(r["permaticker"]), r["ticker"]))],
@@ -218,7 +223,7 @@ class SymbolProjection:
                             for sid, chain in sorted(self.chains.items()) for edge in chain]}
 
     def digest(self, tickers_digest: str) -> str:
-        if not self.chains:
+        if not self.chains and not self.applied_alias_rejections:
             return tickers_digest
         return hashlib.sha256(json.dumps(
             {"tickers": tickers_digest, **self.evidence},

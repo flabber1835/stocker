@@ -233,7 +233,7 @@ def _universe_payload(rows: Sequence[Mapping], *, snapshot_date: str,
 
 
 def _listing_changes(conn, *, payload: Sequence[tuple],
-                     corpus_lo: str, corpus_hi: str) -> list[dict]:
+                     corpus_lo: str, corpus_hi: str, run_id=None) -> list[dict]:
     candidate = universe._candidate_listing_projection(payload)
     with conn.cursor() as cur:
         cur.execute(
@@ -261,6 +261,10 @@ def _listing_changes(conn, *, payload: Sequence[tuple],
                 "published": list(old) if old is not None else None,
                 "candidate": list(new) if new is not None else None,
             })
+    if run_id is not None:
+        from sentinel.feed import source_aliases
+        changes.extend(source_aliases.identity_changes(
+            conn, run_id=run_id, corpus_lo=corpus_lo, corpus_hi=corpus_hi))
     return changes
 
 
@@ -285,14 +289,18 @@ def verify_candidate(conn, *, run_id: str, plan: IdentityRebuildPlan,
     except universe.HistoricalIdentityMutation as exc:
         mutation_detail = str(exc)
     else:
-        raise recovery.PublicationRecoveryRefused(
-            "identity rebuild trigger disappeared on the replacement TICKERS "
-            "observation; refusing a destructive rebuild without a reproducible "
-            "historical identity mutation")
+        from sentinel.feed import source_aliases
+        if not source_aliases.identity_changes(conn, run_id=run_id,
+                corpus_lo=plan.base_visible_start, corpus_hi=plan.base_visible_end):
+            raise recovery.PublicationRecoveryRefused(
+                "identity rebuild trigger disappeared on the replacement TICKERS "
+                "observation; refusing a destructive rebuild without a reproducible "
+                "historical identity mutation")
+        mutation_detail = "stable source evidence changed an inferred alias projection"
 
     changes = _listing_changes(
         conn, payload=payload, corpus_lo=plan.base_visible_start,
-        corpus_hi=plan.base_visible_end)
+        corpus_hi=plan.base_visible_end, run_id=run_id)
     if not changes:
         raise recovery.PublicationRecoveryRefused(
             "historical identity guard fired but no structured listing change "
@@ -341,7 +349,7 @@ def _candidate_evidence(
         rows, snapshot_date=plan.snapshot_date, run_id=run_id)
     changes = _listing_changes(
         conn, payload=candidate_payload, corpus_lo=plan.base_visible_start,
-        corpus_hi=plan.base_visible_end)
+        corpus_hi=plan.base_visible_end, run_id=run_id)
     recorded = payload.get("changed_pairs")
     if (recorded != changes
             or str(payload.get("changed_pairs_digest") or "")
@@ -411,11 +419,12 @@ def _validate_bar_replacement(
     affected = _affected_security_ids(changes)
     if not affected:
         return count, affected
-    from sentinel.feed import actions
+    from sentinel.feed import actions, source_aliases
     from sentinel.feed.symbol_identity import RENAME_TYPES, SymbolProjection
     projected = SymbolProjection(rows, actions.active_rows(
         conn, start="1900-01-01", end=plan.market_end,
-        include_run_id=run_id, action_types=RENAME_TYPES), through=plan.market_end)
+        include_run_id=run_id, action_types=RENAME_TYPES), through=plan.market_end,
+        alias_rejections=source_aliases.load(conn, include_run_id=run_id))
     intervals = _candidate_intervals((*projected.rows, *projected.alias_rows), plan=plan)
     sql = (
         "SELECT security_id,session,ticker FROM sentinel_bars"

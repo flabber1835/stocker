@@ -101,7 +101,14 @@ class CapturedRows:
     def __call__(self, table, params=None, **kwargs):
         if kwargs:
             raise ValueError("captured seed replay does not accept transport options")
-        spool = self.files[self.key(table, params)]
+        key = self.key(table, params)
+        if key not in self.files and table == sharadar.ACTIONS:
+            full = sharadar.date_params("1900-01-01", params["date.lte"])
+            for row in self(table, full):
+                if params["date.gte"] <= str(row["date"]) <= params["date.lte"]:
+                    yield row
+            return
+        spool = self.files[key]
         spool.seek(0)
         while True:
             try:
@@ -112,7 +119,7 @@ class CapturedRows:
 
 def run_generation(conn, *, recovery_plan, fetch, final_hi, boundary,
                    resolve_identity=None):
-    from sentinel.feed import calendar, ingest
+    from sentinel.feed import ingest
 
     source = ActionsSnapshotSource(fetch)
     tracked, guarded = ingest._seed_source(
@@ -120,7 +127,10 @@ def run_generation(conn, *, recovery_plan, fetch, final_hi, boundary,
         acquisition_fetch=source)
     lo, hi = recovery_plan.date_from, recovery_plan.date_to
     with CapturedRows() as captured:
+        guarded.begin_seed_capture()
         captured.capture(guarded, sharadar.TICKERS)
+        guarded.preflight_seed_identity(tickers=captured(sharadar.TICKERS), fetch=fetch,
+                                        date_from=lo, date_to=hi)
         plan = None
         with progress.phase("identity_preflight"):
             try:
@@ -130,8 +140,7 @@ def run_generation(conn, *, recovery_plan, fetch, final_hi, boundary,
                 plan = ingest.identity_rebuild.prepare(conn, date_from=lo, date_to=hi)
                 progress.emit("identity_rebuild", "selected")
         full = plan is not None or bool(recovery_plan.retired_run_ids)
-        action_start = (ingest.maintenance.ACTIONS_FULL_WINDOW_START if full
-                        else calendar.action_date_window(lo, hi)[0])
+        action_start = ingest.maintenance.ACTIONS_FULL_WINDOW_START
         captured.capture(guarded, sharadar.ACTIONS,
                          sharadar.date_params(action_start, hi))
         captured.capture(guarded, sharadar.SFP,
@@ -140,6 +149,13 @@ def run_generation(conn, *, recovery_plan, fetch, final_hi, boundary,
         guarded.preflight_seed_membership(date_from=lo, date_to=hi)
         for start, end in sharadar.year_chunks(lo, hi):
             captured.capture(guarded, sharadar.SEP, sharadar.date_params(start, end))
+        guarded.finalize_seed_capture(captured, date_from=lo, date_to=hi)
+        from sentinel.feed import source_aliases
+        prior_aliases = source_aliases.load(conn)
+        if source_aliases.changed_identities(prior_aliases, tracked.alias_rejections):
+            if ingest.feed_store.latest_visible_session(conn) is not None and plan is None:
+                plan = ingest.identity_rebuild.prepare(conn, date_from=lo, date_to=hi)
+            full = plan is not None or full
         source.rows = None  # Database replay reads the private disk capture.
         authority = ingest._seed_authority(
             boundary=boundary, tracked=tracked, source_fetch=fetch,
