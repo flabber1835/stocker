@@ -50,6 +50,41 @@ def test_same_session_provider_retry_advances_observation_only():
     assert failed.faults and not corrected.faults
 
 
+def test_fictional_provider_serves_every_bounded_operational_partition():
+    from research.sharadar_replay.provider import Provider
+    from research.sharadar_replay.runtime import simulated_runtime
+    from sentinel.feed import operational_source, sharadar
+
+    provider = Provider(page_size=197, variation_seed=7)
+    provider.advance(market.step(market.FIRST))
+    start, end = operational_source.price_window(market.FIRST)
+    expected_sessions = calendar.sessions_in_range(start, end)
+    assert len(expected_sessions) == 300
+    with simulated_runtime(provider, commit="a" * 40):
+        with operational_source.acquisition(start, end) as capture:
+            rows = list(capture.fetch_rows(sharadar.SEP))
+            assert {r["date"] for r in rows} == set(expected_sessions)
+            for symbol in market.SYMBOLS:
+                assert {r["date"] for r in rows if r["ticker"] == symbol} == set(expected_sessions)
+            list(capture.fetch_rows(sharadar.SEP, sharadar.date_params(start, end)))
+            assert len([e for e in provider.transcript if e["channel"] == "download"]) == len(capture.snapshots)
+
+
+def test_fictional_outage_reaches_export_preflight_before_downloads():
+    from research.sharadar_replay.provider import Provider
+    from research.sharadar_replay.runtime import simulated_runtime
+    from sentinel.feed import operational_source, sharadar
+
+    provider = Provider()
+    provider.advance(market.step(market.FIRST, faulty=True))
+    start, end = operational_source.price_window(market.FIRST)
+    with simulated_runtime(provider, commit="a" * 40):
+        with pytest.raises(sharadar.SharadarRequestError, match="HTTP 400"):
+            with operational_source.acquisition(start, end):
+                pytest.fail("scheduled source outage was not observed")
+    assert not any(e["channel"] == "download" for e in provider.transcript)
+
+
 @pytest.mark.parametrize("fault", ["roundoff", "volume", "price", "identity", "missing"])
 def test_corpus_storage_precision_preserves_independent_falsifiers(fault):
     from research.sharadar_replay.oracle import StateMismatch
