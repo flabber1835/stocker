@@ -1,5 +1,6 @@
 """Operational replacement is scoped, atomic, and preserves older authority."""
 from datetime import date
+import json
 
 import pytest
 
@@ -141,6 +142,37 @@ def test_real_go_readonly_probe_never_downloads_sep_twice(conn, monkeypatch, cap
 def test_malformed_operational_scope_refuses(scope):
     with pytest.raises(M.SharadarMutationRefused, match="invalid price scope"):
         MI._cursor_price_window({"price_window": scope}, name=MI.SEP_CURSOR_NAME)
+
+
+@pytest.mark.parametrize("status,expected,reason", [
+    ("fresh", "RECOVERY_REQUIRED", "CORPUS_SCHEMA_NOT_INSTALLED"),
+    ("creating", "REFUSED", "SOURCE_EXPORT_UNAVAILABLE"),
+])
+def test_container_probe_export_fixture_preserves_cold_preflight(
+        conn, monkeypatch, capsys, status, expected, reason):
+    import httpx
+    from scripts import test_go_probe_runtime_integration as driver
+    from sentinel.feed import calendar, snapshot_export
+
+    monkeypatch.setenv("SENTINEL_DATABASE_URL", "postgresql://isolated-test")
+    monkeypatch.setattr(calendar, "latest_closed_session", lambda: "2026-08-21")
+    monkeypatch.setattr(httpx, "Client", lambda *a, **kw: pytest.fail("CI probe contacted a vendor"))
+    monkeypatch.setattr(snapshot_export, "probe_snapshot", snapshot_export.probe_snapshot)
+    monkeypatch.setattr(snapshot_export, "download_snapshot", lambda *a, **kw: pytest.fail("CI probe downloaded a file"))
+    class BorrowedConnection:
+        cursor = conn.cursor
+        rollback = conn.rollback
+        def close(self):
+            pass
+    monkeypatch.setattr(S, "connect", lambda *a: BorrowedConnection())
+    conn.rollback()
+    exec(driver._source_export_fixture(driver.preflight._READ_ONLY_CODE, status), {})
+    output = capsys.readouterr().out
+    report = json.loads(next(line[len(driver.preflight.MARKER):]
+                             for line in output.splitlines() if line.startswith(driver.preflight.MARKER)))
+    assert report["status"] == expected
+    assert report["reason_code"] == reason
+    assert P.current(conn) is None
 
 
 def test_canonical_cold_seed_publishes_300_sessions_with_one_sep_acquisition(conn, monkeypatch):

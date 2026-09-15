@@ -30,8 +30,32 @@ def _require(condition: bool, message: str) -> None:
         raise RuntimeError(message)
 
 
+def _source_export_fixture(code: str, status: str) -> str:
+    if status not in {"fresh", "creating"}:
+        raise ValueError("unknown CI export fixture status")
+    # This container test proves database/marker behavior. Source validation has
+    # its own HTTP simulator tests; a dummy API key must never contact a vendor.
+    prefix = r'''
+from datetime import datetime as _ci_datetime, timezone as _ci_timezone
+from sentinel.feed import snapshot_export as _ci_exports
+_ci_export_instant = _ci_datetime.now(_ci_timezone.utc)
+def _ci_export_probe(table, *, params=None, **kwargs):
+    if __CI_EXPORT_STATUS__ != 'fresh':
+        raise _ci_exports.SharadarSnapshotExportError(
+            'Sharadar %s export status=creating; CI source fixture' % table)
+    return _ci_exports.ExportSnapshot(
+        table, dict(params or {}), 'https://exports.example.invalid/ci-probe.zip',
+        _ci_export_instant, _ci_export_instant)
+_ci_exports.probe_snapshot = _ci_export_probe
+'''.strip()
+    return prefix.replace("__CI_EXPORT_STATUS__", repr(status)) + "\n" + code
+
+
 def _run_probe(runner, compose_args, env: Mapping[str, str], code: str,
-               *, database_url: str | None = None):
+               *, database_url: str | None = None,
+               source_export_status: str | None = None):
+    if source_export_status is not None:
+        code = _source_export_fixture(code, source_export_status)
     command = [
         "docker", "compose", *compose_args, "--profile", "cli", "run",
         "--rm", "-T", "--no-deps",
@@ -96,8 +120,19 @@ def main(argv=None) -> int:
         _require(identity.returncode == 0,
                  "ordinary Sentinel probe did not run as uid/gid 10001")
 
+        creating = _run_probe(
+            runner, compose_args, env, preflight._READ_ONLY_CODE,
+            source_export_status="creating")
+        creating_report = preflight._payload(creating)
+        _require(creating.returncode == 0 and creating_report is not None,
+                 "creating export escaped the structured failure envelope")
+        _require(creating_report.get("status") == "REFUSED"
+                 and creating_report.get("reason_code") == "SOURCE_EXPORT_UNAVAILABLE",
+                 "cold database bypassed export availability preflight")
+
         empty = _run_probe(
-            runner, compose_args, env, preflight._READ_ONLY_CODE)
+            runner, compose_args, env, preflight._READ_ONLY_CODE,
+            source_export_status="fresh")
         report = preflight._payload(empty)
         _require(empty.returncode == 0, "empty-DB read-only probe crashed")
         _require(report is not None, "empty-DB read-only probe emitted no marker")
