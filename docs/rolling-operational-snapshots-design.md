@@ -353,6 +353,11 @@ the architectural advantage, not a guaranteed download speedup.
 
 ## 10. Implementation sequence and Alpaca exit gate
 
+The first reader slice is the read-only
+[checkpoint price-reader rehearsal](rolling-snapshot-readers.md). It qualifies
+the immutable price seam against the canonical kernel without granting GO or
+silently sharing legacy reference authority in a production reader.
+
 Deliver separately reviewable steps: (1) storage/archive and verification-scope
 contracts; (2) Sharadar direct candidate publisher and progress/jobs; (3) loader,
 GO and automation cutover with migrations; (4) removal of obsolete operational
