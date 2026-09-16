@@ -485,8 +485,9 @@ for _table in _HISTORY_TABLES:
 
 from sentinel.feed import rolling_catalog as _rolling_catalog
 from sentinel.feed import rolling_job_catalog as _rolling_job_catalog
+from sentinel.feed import rolling_publication_catalog as _rolling_publication_catalog
 
-for _snapshot_catalog in (_rolling_catalog, _rolling_job_catalog):
+for _snapshot_catalog in (_rolling_catalog, _rolling_job_catalog, _rolling_publication_catalog):
     _RELATIONS.update({name: ("r", "p", False, False, False)
                       for name in _snapshot_catalog.COLUMNS})
     _COLUMNS.update(_snapshot_catalog.COLUMNS)

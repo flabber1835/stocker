@@ -1040,6 +1040,10 @@ from sentinel.feed.rolling_job_schema import DDL as _ROLLING_JOB_DDL
 
 DDL.extend(_ROLLING_JOB_DDL)
 
+from sentinel.feed.rolling_publication_schema import DDL as _ROLLING_PUBLICATION_DDL
+
+DDL.extend(_ROLLING_PUBLICATION_DDL)
+
 RESTART_ABORT_MARKER = "RESTART_ABORTED"
 
 RECLAIM_ORPHANS = """

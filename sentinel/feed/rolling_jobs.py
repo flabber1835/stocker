@@ -119,6 +119,8 @@ def claim(conn, job_id: str, *, lease_seconds: int = 60) -> Lease:
             "WHERE job_id=%s AND state NOT IN ('REFUSED','ABORTED','PUBLISHED') "
             "AND deadline>clock_timestamp() "
             "AND (owner IS NULL OR lease_until<=clock_timestamp()) "
+            "AND NOT EXISTS (SELECT 1 FROM sentinel_snapshot_comparisons p "
+            "WHERE p.job_id=sentinel_snapshot_jobs.job_id) "
             "AND (next_retry IS NULL OR next_retry<=clock_timestamp()) RETURNING fence",
             (owner, duration, job_id))
         row = cur.fetchone()
@@ -260,5 +262,7 @@ def expire(conn, job_id: str) -> bool:
                     "owner=NULL,lease_until=NULL,next_retry=NULL,fence=fence+1,"
                     "updated_at=clock_timestamp() WHERE job_id=%s "
                     "AND deadline<=clock_timestamp() "
+                    "AND NOT EXISTS (SELECT 1 FROM sentinel_snapshot_comparisons p "
+                    "WHERE p.job_id=sentinel_snapshot_jobs.job_id) "
                     "AND state NOT IN ('REFUSED','ABORTED','PUBLISHED') RETURNING job_id", (job_id,))
         return cur.fetchone() is not None

@@ -247,6 +247,15 @@ class SeedCoverageAccumulator:
             "source_projection_digest": self.projection.source_digest,
         }
 
+    def observed_keys(self):
+        """Independent source membership, after require_complete, for a seal.
+
+        Includes resolved ineligible observations too: normalization may not
+        silently discard a source key just because it is outside today's book.
+        """
+        yield from self._db.execute(
+            "SELECT session,permaticker FROM observed ORDER BY session,permaticker")
+
     def close(self) -> None:
         self._db.close()
         self._dir.cleanup()

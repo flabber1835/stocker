@@ -44,3 +44,9 @@ not commit the caller's transaction. The worker owns cancellation and must stop
 its children when ownership is lost. The direct publisher integration will own
 backup authority and the transaction that makes the final publication visible.
 Installing the job schema alone changes no GO, CLI or automation routing.
+
+The opt-in [direct comparison publisher](rolling-snapshot-publisher.md) now
+connects these jobs to Sharadar. A comparison catalog entry leaves the job READY
+with `COMPARISON_ONLY`, never PUBLISHED. Such completed comparison jobs cannot
+be reclaimed or expired by the generic job worker. Their idempotent receipt is
+read from the separate comparison catalog, not the operational corpus ledger.
