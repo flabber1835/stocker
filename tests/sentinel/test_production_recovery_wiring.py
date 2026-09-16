@@ -178,11 +178,11 @@ def test_nas_schema_and_recovery_mutations_cannot_bypass_backup_guard():
     schema_mutation = entry.index("schema.ensure_schema(c)")
     assert schema_guard < schema_mutation
 
-    # outage_recovery.catch_up() is the single daily/cursor reconciliation path.
+    # catch_up_waiting retries the single catch_up daily/cursor reconciliation path.
     # GO explicitly requests a current-vendor re-observation. Ordinary daily and
     # the retained full reseed each prove the appropriate WAL durability before
     # their mutation. A successful full seed is terminal data recovery.
-    assert "outage_recovery.catch_up(" in entry
+    assert "outage_recovery.catch_up_waiting(" in entry
     assert "reobserve_current=True" in entry
     daily_guard = recovery.index('operation="canonical outage daily catch-up"')
     daily_mutation = recovery.index("ingest.daily(conn, today=target)", daily_guard)

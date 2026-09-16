@@ -181,3 +181,9 @@ unchanged older published history. Fresh normal arrivals, corrections/actions,
 export preflight refusals, archive failure and table-generation changes have
 explicit expected corpus, readiness and recovery outcomes. Neither evidence
 surface substitutes a source proof, publication verdict or readiness result.
+
+Runtime-image regression tests inject a synthetic replay code identity because
+the runtime image intentionally excludes Git metadata. This substitution is
+limited to test setup; the standalone replay runner still requires the checkout
+commit from Git and refuses when it cannot resolve it. HTTP acquisition,
+PostgreSQL publication and the independent corpus oracle are not substituted.

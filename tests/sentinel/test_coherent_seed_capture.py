@@ -19,7 +19,6 @@ def evidence():
 
 @pytest.mark.parametrize("status", [
     _status(refreshed="2026-08-19T22:01:00Z", snapshot="2026-08-19T22:02:00Z"),
-    _status(state="regenerating"),
     _status(snapshot="2026-08-19T21:58:00Z"),
 ])
 def test_changed_actions_refresh_refuses(status, monkeypatch):
@@ -29,6 +28,17 @@ def test_changed_actions_refresh_refuses(status, monkeypatch):
         snapshot_export.require_actions_refresh(
             through="2026-08-19", evidence=evidence(), http=http)
     assert len(http.client.calls) == 1
+
+
+@pytest.mark.parametrize("state", ["creating", "regenerating"])
+def test_pending_actions_refresh_defers_without_using_old_file(state, monkeypatch):
+    monkeypatch.setenv("SHARADAR_API_KEY", "unit-key")
+    http = _Http([_Response(payload=_status(state=state))])
+    with pytest.raises(snapshot_export.ExportPending, match=f"status={state}"):
+        snapshot_export.require_actions_refresh(
+            through="2026-08-19", evidence=evidence(), http=http)
+    assert len(http.client.calls) == 1
+    assert http.client.calls[0][1]["qopts.export"] == "true"
 
 
 def test_refresh_corroboration_downloads_no_second_file(monkeypatch):

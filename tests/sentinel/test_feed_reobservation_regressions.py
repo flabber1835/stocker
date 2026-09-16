@@ -14,7 +14,8 @@ def test_go_opt_in_reobserves_already_current_market_frontier(monkeypatch):
     monkeypatch.setattr(outage_recovery.publication, "operational_boundary",
                         lambda *_args, **_kwargs: SimpleNamespace(start=start))
 
-    def acquisition(lo, hi):
+    def acquisition(lo, hi, *, download):
+        assert download is True
         calls.append(("acquisition", lo, hi))
         return nullcontext()
 
