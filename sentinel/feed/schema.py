@@ -1032,6 +1032,10 @@ from sentinel.feed.history_mutation_schema import DDL as _HISTORY_MUTATION_DDL
 
 DDL.extend(_HISTORY_MUTATION_DDL)
 
+from sentinel.feed.rolling_schema import DDL as _ROLLING_SNAPSHOT_DDL
+
+DDL.extend(_ROLLING_SNAPSHOT_DDL)
+
 RESTART_ABORT_MARKER = "RESTART_ABORTED"
 
 RECLAIM_ORPHANS = """

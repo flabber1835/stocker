@@ -483,6 +483,16 @@ for _table in _HISTORY_TABLES:
         "after insert or delete or update", "for each row",
         "execute function sentinel_record_history_mutation()")
 
+from sentinel.feed import rolling_catalog as _rolling_catalog
+
+_RELATIONS.update({name: ("r", "p", False, False, False)
+                   for name in _rolling_catalog.COLUMNS})
+_COLUMNS.update(_rolling_catalog.COLUMNS)
+_PRIMARY_KEYS.update(_rolling_catalog.PRIMARY_KEYS)
+_TRIGGER_WITNESSES.update(_rolling_catalog.TRIGGERS)
+_CONSTRAINT_WITNESSES.update(_rolling_catalog.CONSTRAINTS)
+_INDEXES.update({name + "_pkey": True for name in _rolling_catalog.COLUMNS})
+
 
 def _fold(value: object) -> str:
     return behavioral_schema._normal_sql(value).casefold()
