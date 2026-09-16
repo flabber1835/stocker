@@ -134,6 +134,28 @@ def test_anchor_identity_date_and_price_domains(conn, window):
     assert prices.benchmarks[-1].spy_total_return == 600.
 
 
+def test_composed_input_keeps_spy_equity_and_bil_domains_separate(conn, window):
+    selected = reader(conn, window, signal=5., bil_open=91., bil_adjusted=123.)
+    _, baseline, _ = prior_and_baseline()
+    baseline = replace(baseline, spy_closeadj=[777.] * 25)
+    prices = selected.prices(session=shadow.SECOND, spy_sessions=25,
+                             anchor_sessions={"1": shadow.FIRST})
+    comparison = prices.comparison_input(baseline)
+    assert tuple(comparison.spy_closeadj) == (600.,) * 25
+    assert comparison.spy_sessions == tuple(shadow.calendar.previous_sessions(shadow.SECOND, 25))
+    assert baseline.spy_closeadj == [777.] * 25  # No mutation or baseline fallback.
+    assert comparison.bars[0].signal_close == 5.
+    assert comparison.bars[0].raw_close == 10.
+    assert comparison.bars[0].raw_open == 10.
+    assert comparison.signal_basis_anchors["1"].signal_close == 5.
+    assert comparison.signal_basis_anchors["1"].raw_close == 10.
+    for bil in (comparison.defensive_previous_bar, comparison.defensive_bar):
+        assert bil.open_signal == 91.
+        assert bil.close_signal == 100.
+        assert bil.close_adjusted == 123.
+        assert bil.close_unadjusted == 100.
+
+
 def test_corrupt_benchmark_tail_refuses(conn, window):
     selected = reader(conn, window)
     with conn.cursor() as cur:

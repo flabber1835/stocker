@@ -4,6 +4,16 @@ from tools.sentinel_rolling_storage_falsifiers import main
 READER = "sentinel.core.rolling_reader"
 REHEARSAL = "sentinel.rolling_rehearsal"
 MUTANTS = {
+    "spy_transport_domain": (READER,
+        "tuple(row.spy_total_return for row in self.benchmarks)",
+        "tuple(row.bil_close_adjusted for row in self.benchmarks)",
+        "test_composed_input_keeps_spy_equity_and_bil_domains_separate"),
+    "equity_signal_domain": (READER,
+        "signal_close=row.close_signal)", "signal_close=row.close_unadjusted)",
+        "test_composed_input_keeps_spy_equity_and_bil_domains_separate"),
+    "equity_raw_domain": (READER,
+        "raw_close=row.close_unadjusted,", "raw_close=row.close_signal,",
+        "test_composed_input_keeps_spy_equity_and_bil_domains_separate"),
     "generation_binding": (READER,
         "if self.manifest.snapshot_id != snapshot_id:", "if False:",
         "test_snapshot_identity_cannot_be_substituted"),
