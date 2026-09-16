@@ -354,10 +354,13 @@ def test_seal_lock_blocks_a_concurrent_insert(conn, pg, window):
 
 
 def test_explicit_feed_migration_and_read_only_schema_validation(pg):
+    from sentinel import schema as behavioral_schema
     from sentinel.feed import runtime_schema
     conn = connect(pg.sync_dsn)
     try:
         runtime_schema.migrate_feed_schema(conn)
+        behavioral_schema.ensure_schema(conn)
+        behavioral_schema.require_runtime_schema(conn)
         runtime_schema.require_feed_schema(conn)
         with conn.cursor() as cur:
             cur.execute("ALTER TABLE sentinel_snapshot_bars DISABLE TRIGGER snapshot_insert")
