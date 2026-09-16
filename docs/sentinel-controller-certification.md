@@ -221,6 +221,24 @@ raw `closeadj` column. The only strategy interpretation remains
 `sentinel/regime/spy.py`; the equality-pinned transport allowlist prevents this
 commitment-only exception from widening into a second reader.
 
+**Rolling comparison transport (2026-09-16, PR #389).** Add exactly
+`sentinel/core/rolling_reader.py` to the transport allowlist. Its only
+`closeadj` code occurrence assigns the typed snapshot benchmark's
+`spy_total_return` to `PublishedSession.spy_closeadj` for the read-only
+checkpoint rehearsal. It does not read the raw vendor column, interpret SPY,
+or route it into equity signals, marks, execution or BIL. Equity inputs remain
+`CanonicalBar.close_signal` / `close_unadjusted`; BIL retains its separately
+named benchmark fields. The sole SPY strategy interpreter and sensor-import
+boundary are unchanged.
+
+This exact-file addition follows the existing transport contract, not a
+package-wide exemption or a tokenizer relaxation. Pin the reader's single
+named transport occurrence and behaviorally distinguish SPY, equity signal,
+equity raw and BIL values at the composed comparison input. Deliberately
+substituting BIL for SPY or swapping equity signal/raw fields must fail those
+tests. This records a comparison transport surface, not new production GO or
+certification authority.
+
 **2. Why total return is CORRECT here.** SPY in this rule is not a holding. It
 is a market-regime sensor, and the frozen specification defines both of its
 predicates on a total-return series (`standalone:176-178`). A dividend paid by

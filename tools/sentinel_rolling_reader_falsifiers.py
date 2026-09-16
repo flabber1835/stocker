@@ -1,0 +1,57 @@
+"""Behavioral guard-removal proofs for the comparison-only price reader."""
+from tools.sentinel_rolling_storage_falsifiers import main
+
+READER = "sentinel.core.rolling_reader"
+REHEARSAL = "sentinel.rolling_rehearsal"
+MUTANTS = {
+    "spy_transport_domain": (READER,
+        "tuple(row.spy_total_return for row in self.benchmarks)",
+        "tuple(row.bil_close_adjusted for row in self.benchmarks)",
+        "test_composed_input_keeps_spy_equity_and_bil_domains_separate"),
+    "equity_signal_domain": (READER,
+        "signal_close=row.close_signal)", "signal_close=row.close_unadjusted)",
+        "test_composed_input_keeps_spy_equity_and_bil_domains_separate"),
+    "equity_raw_domain": (READER,
+        "raw_close=row.close_unadjusted,", "raw_close=row.close_signal,",
+        "test_composed_input_keeps_spy_equity_and_bil_domains_separate"),
+    "generation_binding": (READER,
+        "if self.manifest.snapshot_id != snapshot_id:", "if False:",
+        "test_snapshot_identity_cannot_be_substituted"),
+    "range_boundary": (READER,
+        "if start not in axis or end not in axis or start > end:", "if False:",
+        "test_price_range_cannot_escape_snapshot"),
+    "checkpoint_window": (READER,
+        "if not required or not set(required).issubset(axis):", "if False:",
+        "test_restart_budget_is_measured_through_cursor_not_window_end"),
+    "benchmark_axis": (READER,
+        "if [row.session.isoformat() for row in benchmarks] != expected:", "if False:",
+        "test_corrupt_benchmark_tail_refuses"),
+    "empty_session": (READER, "if not bars:", "if False:", "test_empty_session_refuses"),
+    "anchor_bounds": (READER,
+        "if day >= session or date.fromisoformat(day) not in self.manifest.window.sessions:",
+        "if False:", "test_old_or_future_live_anchor_is_not_guessed[2026-08-21]"),
+    "missing_anchor": (READER,
+        "if set(anchors) != set(anchor_sessions):", "if False:",
+        "test_missing_live_anchor_is_not_guessed"),
+    "canonical_input": (REHEARSAL,
+        "if canonical_json(baseline_input) != canonical_json(candidate_input):",
+        "if baseline_input != candidate_input:",
+        "test_exact_input_comparison_does_not_use_python_numeric_equality"),
+    "exact_state": (REHEARSAL,
+        "if results[0].state_hash != results[1].state_hash:", "if False:",
+        "test_kernel_output_difference_refuses"),
+    "legacy_binding": (REHEARSAL,
+        "if request.expected_publication_version != legacy.version:", "if False:",
+        "test_rehearsal_refuses_changed_bindings[expected_publication_version-6-LEGACY_PUBLICATION_CHANGED]"),
+    "strategy_binding": (REHEARSAL,
+        "if request.strategy_sha256 != digest(prior.strategy_identity):", "if False:",
+        "test_rehearsal_refuses_changed_bindings[strategy_sha256-" + "b" * 64 + "-CHECKPOINT_STRATEGY_MISMATCH]"),
+    "cursor_binding": (REHEARSAL,
+        "if request.cursor is None or str(request.cursor) != prior.last_processed_session:",
+        "if False:", "test_rehearsal_refuses_changed_bindings[cursor-2026-08-19-CHECKPOINT_CURSOR_MISMATCH]"),
+}
+
+if __name__ == "__main__":
+    raise SystemExit(main(mutants=MUTANTS,
+        test_file="tests/sentinel/test_rolling_reader.py",
+        runner="tools.sentinel_rolling_reader_falsifiers"))
