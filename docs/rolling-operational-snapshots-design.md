@@ -1,7 +1,10 @@
 # Atomic rolling operational snapshots
 
-Status: **PROPOSED, NOT IMPLEMENTED**. Design review only. Merging this document
-does not change running services, verification verdicts, retention, strategy,
+Status: **IMPLEMENTATION IN PROGRESS**. The additive private generation storage
+and versioned scope descriptor are specified in
+[rolling-snapshot-storage.md](rolling-snapshot-storage.md). The direct publisher,
+reader/checkpoint cutover and retention are not yet implemented. Installing the
+storage does not switch running services, verification verdicts, strategy,
 provider selection or deployment authority. Sharadar remains the production
 source; execution remains paper-only under the existing contract.
 

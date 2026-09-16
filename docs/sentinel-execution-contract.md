@@ -1029,6 +1029,13 @@ reconstruction of an earlier decision's inputs.
 
 ### 8.1 Two tiers, and their certification state
 
+The additive [rolling snapshot storage](rolling-snapshot-storage.md) boundary
+retains immutable candidate prices and exact reference/input bundles. Storage
+sealing is not corpus publication or a verification verdict. Until the direct
+publisher and version-dispatched readers are qualified, existing production
+decisions retain the DETECTION claim below. The new bounded verification-scope
+descriptor is versioned separately and cannot upgrade legacy `VERIFIED` records.
+
 ```text
 DETECTION       "this decision read v47; the corpus is now v52, so a replay
                  may not reproduce it"                        ← IMPLEMENTED
