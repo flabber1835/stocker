@@ -1,5 +1,11 @@
 # Bounded operational feed acquisition
 
+This document describes the current implementation. A design-only proposal for
+replacing incremental preparation with complete daily snapshots is tracked in
+the [dependency audit](rolling-operational-snapshots-audit.md) and
+[rolling snapshot design](rolling-operational-snapshots-design.md). That proposal
+does not activate a new publication or retention policy.
+
 GO preparation and production daily ingestion acquire at most 300 XNYS price
 sessions ending at their explicit source-final target. This exceeds the selected
 production strategy's 252-session feature requirement and includes the split
