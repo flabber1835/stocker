@@ -218,6 +218,54 @@ def manifest(conn, candidate_id: str) -> SnapshotManifest:
     value = SnapshotManifest.model_validate(row[1])
     if value.snapshot_id != row[0]:
         raise SnapshotStorageRefused("snapshot manifest content identity differs")
+    axis, reference, source, _ = _parent(conn, candidate_id)
+    if (value.window.model_dump(mode="json")["sessions"] != axis
+            or value.reference_sha256 != reference
+            or value.source_evidence_sha256 != source):
+        raise SnapshotStorageRefused("snapshot manifest differs from its candidate")
     load_evidence(conn, value.reference_sha256)
     load_evidence(conn, value.source_evidence_sha256)
+    return value
+
+
+def read_bars(conn, candidate_id: str):
+    """Read one explicit sealed generation, independent of later candidates."""
+    manifest(conn, candidate_id)
+    for row in _rows(conn, candidate_id, table="sentinel_snapshot_bars",
+                     columns=BAR_COLUMNS, order='session,security_id COLLATE "C"'):
+        yield CanonicalBar.model_validate(row)
+
+
+def read_benchmarks(conn, candidate_id: str):
+    manifest(conn, candidate_id)
+    for row in _rows(conn, candidate_id, table="sentinel_snapshot_benchmarks",
+                     columns=BENCHMARK_COLUMNS, order="session"):
+        yield CanonicalBenchmark.model_validate(row)
+
+
+def verify_content(conn, candidate_id: str) -> SnapshotManifest:
+    """Full read-only integrity check for restore/comparison, not daily status.
+
+    Recompute persisted payload hashes rather than accepting a self-consistent
+    manifest as evidence that its rows survived restore. Source completeness
+    and backup authority remain separate publisher/runtime obligations.
+    """
+    value = manifest(conn, candidate_id)
+    bars_hash, keys_hash, benchmarks_hash = (
+        hashlib.sha256(), hashlib.sha256(), hashlib.sha256())
+    count, sessions, benchmark_sessions = 0, set(), []
+    for row in read_bars(conn, candidate_id):
+        count += 1
+        sessions.add(row.session)
+        _fold(bars_hash, row.model_dump(mode="json"))
+        _fold(keys_hash, (row.session.isoformat(), row.security_id))
+    for row in read_benchmarks(conn, candidate_id):
+        benchmark_sessions.append(row.session)
+        _fold(benchmarks_hash, row.model_dump(mode="json"))
+    if (count != value.bar_count or sessions != set(value.window.sessions)
+            or tuple(benchmark_sessions) != value.window.sessions
+            or bars_hash.hexdigest() != value.bars_sha256
+            or keys_hash.hexdigest() != value.coverage_sha256
+            or benchmarks_hash.hexdigest() != value.benchmarks_sha256):
+        raise SnapshotStorageRefused("sealed snapshot content differs from its manifest")
     return value

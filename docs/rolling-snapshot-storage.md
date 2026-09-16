@@ -9,8 +9,10 @@ Implementation of the first storage boundary in
 Use logged PostgreSQL tables for private candidates, sealed price generations,
 and content-addressed reference/input bundles. A candidate id is a UUID; its
 content identity is assigned only after independently reading its persisted
-contents in canonical key order. A content identity excludes acquisition time,
-job id and publication version. Those identify attempts, not economics.
+contents in canonical key order. Storage does not add acquisition time, job id
+or publication version to that identity. Provider adapters must supply stable
+source evidence separately from incidental observation timestamps; changing
+only an observation time must not manufacture changed economics.
 
 The storage boundary accepts normalized canonical bars, not raw vendor rows.
 Normalization, independent universe/absence evidence, source finality and
@@ -33,7 +35,8 @@ storage never fetches more history or initializes another book.
 Every row belongs to one candidate. Batches can commit while the candidate is
 private. Sealing locks its parent row; every row insert takes the same parent
 lock and refuses a sealed parent. Sealed rows and manifests cannot be updated
-or deleted by ordinary SQL. Database triggers enforce this as well as Python.
+or deleted by ordinary SQL, including TRUNCATE. Database triggers enforce this
+as well as Python. A new parent cannot be inserted already sealed.
 Thus a concurrent late batch cannot change a sealed digest.
 
 Reference bundles have a separate content identity and contain their exact
@@ -46,6 +49,12 @@ not evidence of source completeness or backup/restore coverage.
 The storage API never commits a caller's transaction. Callers explicitly commit
 private batches and atomically commit a seal with its verification evidence.
 Errors require rollback. No network calls occur in storage operations.
+
+Readers name an explicit sealed candidate and stream typed rows in canonical
+order. A newer candidate cannot change that read. `verify_content` recomputes
+every retained payload/key digest for comparison or restore verification; it
+does not treat a valid manifest hash as proof that the payload survived. This
+full scan is an explicit integrity operation, not a recurring startup gate.
 
 Retention is reference-driven, not a date cascade. This first boundary provides
 no garbage-collection or production-cutover operation. Published generations,

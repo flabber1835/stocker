@@ -49,11 +49,16 @@ for _table in ("sentinel_snapshot_bars", "sentinel_snapshot_benchmarks"):
     TRIGGERS[_table]["snapshot_insert"] = (
         "before insert", "for each row", "execute function sentinel_snapshot_insert()")
 TRIGGERS["sentinel_price_candidates"] = {
+    "snapshot_new_candidate": (
+        "before insert", "for each row", "execute function sentinel_snapshot_new_candidate()"),
     "snapshot_immutable": (
         "before delete", "for each row", "execute function sentinel_snapshot_immutable()"),
     "snapshot_seal": (
         "before update", "for each row", "execute function sentinel_snapshot_seal()"),
 }
+for _table in COLUMNS:
+    TRIGGERS[_table]["snapshot_no_truncate"] = (
+        "before truncate", "for each statement", "execute function sentinel_snapshot_immutable()")
 CONSTRAINTS = {
     "sentinel_snapshot_evidence": (
         ("c", ("evidence_sha256", "[0-9a-f]{64}")),
@@ -64,7 +69,8 @@ CONSTRAINTS = {
         ("f", ("foreign key (source_evidence_sha256)", "sentinel_snapshot_evidence")),
         ("c", ("window_end > window_start",)),
         ("c", ("jsonb_array_length(session_axis)", "300")),
-        ("c", ("snapshot_id is null", "manifest is null", "object")),
+        ("c", ("snapshot_id is null", "manifest is null", "manifest is not null", "object")),
+        ("c", ("expected_publication_version", "> 0")),
     ),
 }
 for _table in ("sentinel_snapshot_bars", "sentinel_snapshot_benchmarks"):

@@ -16,12 +16,13 @@ DDL = [
                                     AND jsonb_array_length(session_axis) = 300),
         reference_sha256 TEXT NOT NULL REFERENCES sentinel_snapshot_evidence,
         source_evidence_sha256 TEXT NOT NULL REFERENCES sentinel_snapshot_evidence,
-        expected_publication_version BIGINT,
+        expected_publication_version BIGINT CHECK (expected_publication_version > 0),
         dependencies_sha256 TEXT NOT NULL CHECK (dependencies_sha256 ~ '^[0-9a-f]{64}$'),
         snapshot_id TEXT CHECK (snapshot_id ~ '^[0-9a-f]{64}$'),
         manifest JSONB,
         CHECK ((snapshot_id IS NULL AND manifest IS NULL) OR
-               (snapshot_id IS NOT NULL AND jsonb_typeof(manifest) = 'object')))""",
+               (snapshot_id IS NOT NULL AND manifest IS NOT NULL
+                AND jsonb_typeof(manifest) = 'object')))""",
     """CREATE TABLE IF NOT EXISTS sentinel_snapshot_bars (
         candidate_id UUID NOT NULL REFERENCES sentinel_price_candidates,
         security_id TEXT NOT NULL CHECK (length(security_id) BETWEEN 1 AND 256),
@@ -84,6 +85,14 @@ DDL = [
             END IF;
             RETURN NEW;
         END $$""",
+    """CREATE OR REPLACE FUNCTION sentinel_snapshot_new_candidate()
+        RETURNS trigger LANGUAGE plpgsql AS $$
+        BEGIN
+            IF NEW.snapshot_id IS NOT NULL OR NEW.manifest IS NOT NULL THEN
+                RAISE EXCEPTION 'new snapshot candidate must be unsealed';
+            END IF;
+            RETURN NEW;
+        END $$""",
 ]
 
 for _table in ("sentinel_snapshot_evidence", "sentinel_snapshot_bars",
@@ -100,6 +109,9 @@ for _table in ("sentinel_snapshot_bars", "sentinel_snapshot_benchmarks"):
         "FOR EACH ROW EXECUTE FUNCTION sentinel_snapshot_insert()",
     ])
 DDL.extend([
+    "DROP TRIGGER IF EXISTS snapshot_new_candidate ON sentinel_price_candidates",
+    "CREATE TRIGGER snapshot_new_candidate BEFORE INSERT ON sentinel_price_candidates "
+    "FOR EACH ROW EXECUTE FUNCTION sentinel_snapshot_new_candidate()",
     "DROP TRIGGER IF EXISTS snapshot_seal ON sentinel_price_candidates",
     "CREATE TRIGGER snapshot_seal BEFORE UPDATE ON sentinel_price_candidates "
     "FOR EACH ROW EXECUTE FUNCTION sentinel_snapshot_seal()",
@@ -107,3 +119,10 @@ DDL.extend([
     "CREATE TRIGGER snapshot_immutable BEFORE DELETE ON sentinel_price_candidates "
     "FOR EACH ROW EXECUTE FUNCTION sentinel_snapshot_immutable()",
 ])
+for _table in ("sentinel_snapshot_evidence", "sentinel_price_candidates",
+               "sentinel_snapshot_bars", "sentinel_snapshot_benchmarks"):
+    DDL.extend([
+        f"DROP TRIGGER IF EXISTS snapshot_no_truncate ON {_table}",
+        f"CREATE TRIGGER snapshot_no_truncate BEFORE TRUNCATE ON {_table} "
+        "FOR EACH STATEMENT EXECUTE FUNCTION sentinel_snapshot_immutable()",
+    ])

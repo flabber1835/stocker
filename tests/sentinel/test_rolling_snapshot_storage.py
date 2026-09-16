@@ -115,10 +115,17 @@ def test_aggregate_requirement_and_bounded_scope(window):
     ("close_unadjusted", 0), ("close_signal", float("nan")),
     ("split_ratio", -1), ("open_unadjusted", float("inf")),
     ("volume", -1), ("dividend_per_share", float("nan")),
+    ("volume", True), ("close_unadjusted", "50"),
 ])
 def test_invalid_price_domains_refuse(window, field, value):
     with pytest.raises(ValidationError):
         CanonicalBar.model_validate({**bar(window.end).model_dump(), field: value})
+
+
+@pytest.mark.parametrize("label", ["", " ", " P-AAA", "P-AAA "])
+def test_noncanonical_labels_refuse(window, label):
+    with pytest.raises(ValidationError):
+        bar(window.end, sid=label)
 
 
 def test_seal_is_content_addressed_and_attempt_independent(conn, window):
@@ -240,6 +247,36 @@ def test_sealed_rows_and_evidence_are_immutable_even_through_sql(conn, window):
     assert store.manifest(conn, candidate) == value
 
 
+@pytest.mark.parametrize("table", [
+    "sentinel_snapshot_evidence", "sentinel_price_candidates",
+    "sentinel_snapshot_bars", "sentinel_snapshot_benchmarks",
+])
+def test_truncate_cannot_erase_snapshot_evidence(conn, window, table):
+    import psycopg
+    candidate = populated(conn, window)
+    value = seal(conn, candidate, window)
+    conn.commit()
+    with pytest.raises(psycopg.errors.RaiseException, match="immutable"):
+        with conn.cursor() as cur:
+            cur.execute(f"TRUNCATE {table} CASCADE")
+    conn.rollback()
+    assert store.manifest(conn, candidate) == value
+
+
+def test_presealed_insert_cannot_bypass_sealing(conn, window):
+    import psycopg
+    candidate = populated(conn, window)
+    seal(conn, candidate, window)
+    conn.commit()
+    with pytest.raises(psycopg.errors.RaiseException, match="must be unsealed"):
+        with conn.cursor() as cur:
+            cur.execute("INSERT INTO sentinel_price_candidates SELECT gen_random_uuid(),"
+                        "window_start,window_end,session_axis,reference_sha256,"
+                        "source_evidence_sha256,expected_publication_version,"
+                        "dependencies_sha256,snapshot_id,manifest "
+                        "FROM sentinel_price_candidates WHERE candidate_id=%s", (candidate,))
+
+
 def test_rollback_of_seal_preserves_committed_private_batches(conn, window):
     candidate = populated(conn, window)
     conn.commit()
@@ -248,6 +285,39 @@ def test_rollback_of_seal_preserves_committed_private_batches(conn, window):
     with pytest.raises(store.SnapshotStorageRefused, match="no sealed manifest"):
         store.manifest(conn, candidate)
     assert seal(conn, candidate, window) == before
+
+
+def test_explicit_generation_reader_survives_a_newer_candidate(conn, window):
+    first = populated(conn, window)
+    expected = seal(conn, first, window)
+    conn.commit()
+    newer = PriceWindow.through("2026-09-15")
+    second = populated(conn, newer)
+    seal(conn, second, newer)
+    conn.commit()
+    assert list(store.read_bars(conn, first)) == [bar(day) for day in window.sessions]
+    assert list(store.read_benchmarks(conn, first)) == [benchmark(day) for day in window.sessions]
+    assert store.verify_content(conn, first) == expected
+
+
+@pytest.mark.parametrize("damage", ["bar_value", "bar_missing", "benchmark_value"])
+def test_restore_verification_reads_payload_not_only_manifest(conn, window, damage):
+    candidate = populated(conn, window)
+    seal(conn, candidate, window)
+    conn.commit()
+    # Deliberately model corrupt restore bytes with otherwise valid metadata.
+    table = "sentinel_snapshot_benchmarks" if damage == "benchmark_value" else "sentinel_snapshot_bars"
+    with conn.cursor() as cur:
+        cur.execute(f"ALTER TABLE {table} DISABLE TRIGGER snapshot_immutable")
+        if damage == "bar_missing":
+            cur.execute(f"DELETE FROM {table} WHERE candidate_id=%s AND session=%s", (candidate, window.end))
+        else:
+            column = "spy_total_return" if damage == "benchmark_value" else "close_unadjusted"
+            cur.execute(f"UPDATE {table} SET {column}={column}+1 "
+                        "WHERE candidate_id=%s AND session=%s", (candidate, window.end))
+        cur.execute(f"ALTER TABLE {table} ENABLE TRIGGER snapshot_immutable")
+    with pytest.raises(store.SnapshotStorageRefused, match="content differs"):
+        store.verify_content(conn, candidate)
 
 
 def test_missing_reference_and_corrupt_evidence_refuse(conn, window):

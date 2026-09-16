@@ -35,6 +35,24 @@ MUTANTS = {
         "if row.session != expected:", "if False:",
         "test_wrong_benchmark_axis_refuses",
     ),
+    "presealed_insert": (
+        "sentinel.feed.rolling_schema",
+        "IF NEW.snapshot_id IS NOT NULL OR NEW.manifest IS NOT NULL THEN",
+        "IF FALSE THEN",
+        "test_presealed_insert_cannot_bypass_sealing",
+    ),
+    "erase_by_truncate": (
+        "sentinel.feed.rolling_schema",
+        'f"CREATE TRIGGER snapshot_no_truncate BEFORE TRUNCATE ON {_table} "\n'
+        '        "FOR EACH STATEMENT EXECUTE FUNCTION sentinel_snapshot_immutable()",',
+        '"SELECT 1",',
+        "test_truncate_cannot_erase_snapshot_evidence[sentinel_snapshot_bars]",
+    ),
+    "restore_payload": (
+        "sentinel.feed.rolling_store",
+        "or bars_hash.hexdigest() != value.bars_sha256", "or False",
+        "test_restore_verification_reads_payload_not_only_manifest[bar_value]",
+    ),
 }
 
 

@@ -10,7 +10,7 @@ import json
 from datetime import date
 from typing import Annotated, Literal
 
-from pydantic import BaseModel, ConfigDict, Field, model_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
 from sentinel.feed import calendar
 
@@ -18,8 +18,8 @@ PRICE_SESSIONS = 300
 VERIFICATION_POLICY = "sentinel.operational-verification/1"
 Digest = Annotated[str, Field(pattern=r"^[0-9a-f]{64}$")]
 Label = Annotated[str, Field(min_length=1, max_length=256)]
-Positive = Annotated[float, Field(gt=0, allow_inf_nan=False)]
-Nonnegative = Annotated[float, Field(ge=0, allow_inf_nan=False)]
+Positive = Annotated[float, Field(gt=0, allow_inf_nan=False, strict=True)]
+Nonnegative = Annotated[float, Field(ge=0, allow_inf_nan=False, strict=True)]
 
 
 def canonical_json(value: object) -> str:
@@ -91,6 +91,13 @@ class CanonicalBar(Contract):
     volume: Nonnegative | None
     split_ratio: Positive
     dividend_per_share: Nonnegative
+
+    @field_validator("security_id", "ticker")
+    @classmethod
+    def canonical_label(cls, value):
+        if not value.strip() or value != value.strip():
+            raise ValueError("canonical security labels cannot be blank or padded")
+        return value
 
 
 class CanonicalBenchmark(Contract):
