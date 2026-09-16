@@ -4,6 +4,9 @@ Rolling snapshot storage is additive and governed by
 [rolling-snapshot-storage.md](rolling-snapshot-storage.md). Explicit feed schema
 migration installs private generation/evidence tables; installation alone does
 not switch the operational publisher, readers, verification policy or retention.
+The next additive boundary, [durable preparation jobs](rolling-snapshot-jobs.md),
+persists worker fences, deadlines and verified acquisition checkpoints. It also
+requires explicit schema migration and grants no publication authority by itself.
 
 GO and production daily price acquisition are bounded by the contract in
 [bounded-operational-feed.md](bounded-operational-feed.md): 300 XNYS sessions,

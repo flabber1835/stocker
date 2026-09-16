@@ -56,28 +56,29 @@ MUTANTS = {
 }
 
 
-def child(name):
+def child(name, *, mutants=MUTANTS, test_file=TEST):
     import pytest
-    module_name, original, replacement, test = MUTANTS[name]
+    module_name, original, replacement, test = mutants[name]
     module = importlib.import_module(module_name)
     source = Path(module.__file__).read_text(encoding="utf-8")
     if source.count(original) != 1:
         raise RuntimeError("mutant no longer matches exactly one guard: " + name)
     exec(compile(source.replace(original, replacement), module.__file__, "exec"),
          module.__dict__)
-    return pytest.main([TEST + "::" + test, "-q", "-p", "no:cacheprovider"])
+    return pytest.main([test_file + "::" + test, "-q", "-p", "no:cacheprovider"])
 
 
-def main():
+def main(*, mutants=MUTANTS, test_file=TEST,
+         runner="tools.sentinel_rolling_storage_falsifiers"):
     parser = argparse.ArgumentParser()
-    parser.add_argument("--child", choices=MUTANTS)
+    parser.add_argument("--child", choices=mutants)
     args = parser.parse_args()
     if args.child:
-        return child(args.child)
+        return child(args.child, mutants=mutants, test_file=test_file)
     failed = []
-    for name in MUTANTS:
+    for name in mutants:
         result = subprocess.run(
-            [sys.executable, "-m", "tools.sentinel_rolling_storage_falsifiers",
+            [sys.executable, "-m", runner,
              "--child", name], capture_output=True, text=True, check=False)
         killed = result.returncode == 1 and "1 failed" in result.stdout
         print(name + (": KILLED" if killed else ": NOT PROVED"), flush=True)

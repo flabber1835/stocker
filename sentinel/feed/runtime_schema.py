@@ -484,14 +484,19 @@ for _table in _HISTORY_TABLES:
         "execute function sentinel_record_history_mutation()")
 
 from sentinel.feed import rolling_catalog as _rolling_catalog
+from sentinel.feed import rolling_job_catalog as _rolling_job_catalog
 
-_RELATIONS.update({name: ("r", "p", False, False, False)
-                   for name in _rolling_catalog.COLUMNS})
-_COLUMNS.update(_rolling_catalog.COLUMNS)
-_PRIMARY_KEYS.update(_rolling_catalog.PRIMARY_KEYS)
-_TRIGGER_WITNESSES.update(_rolling_catalog.TRIGGERS)
-_CONSTRAINT_WITNESSES.update(_rolling_catalog.CONSTRAINTS)
-_INDEXES.update({name + "_pkey": True for name in _rolling_catalog.COLUMNS})
+for _snapshot_catalog in (_rolling_catalog, _rolling_job_catalog):
+    _RELATIONS.update({name: ("r", "p", False, False, False)
+                      for name in _snapshot_catalog.COLUMNS})
+    _COLUMNS.update(_snapshot_catalog.COLUMNS)
+    _PRIMARY_KEYS.update(_snapshot_catalog.PRIMARY_KEYS)
+    _TRIGGER_WITNESSES.update(_snapshot_catalog.TRIGGERS)
+    _CONSTRAINT_WITNESSES.update(_snapshot_catalog.CONSTRAINTS)
+    _INDEXES.update({name + "_pkey": True for name in _snapshot_catalog.COLUMNS})
+_INDEXES["sentinel_snapshot_jobs_active_request"] = True
+_INDEX_WITNESSES["sentinel_snapshot_jobs_active_request"] = (
+    "sentinel_snapshot_jobs", "request_sha256", "refused", "aborted", "published")
 
 
 def _fold(value: object) -> str:
