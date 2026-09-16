@@ -35,8 +35,12 @@ def _sharadar_availability(exc: BaseException) -> bool:
         return False
     if isinstance(exc, sharadar.SharadarRetryDeferred):
         return True
+    from sentinel.feed.authority import VendorPublicationUnstable
+    if isinstance(exc, VendorPublicationUnstable):
+        return True
     if type(exc) is sharadar.SharadarRequestError:
-        return "Sharadar request failed after " in str(exc)
+        return any(label in str(exc) for label in (
+            "Sharadar request failed after ", "Sharadar snapshot download failed after "))
     return False
 
 

@@ -8,7 +8,7 @@ import tempfile
 from contextlib import contextmanager
 from contextvars import ContextVar
 
-from sentinel.feed import calendar, progress, sharadar, snapshot_export
+from sentinel.feed import acquisition_work, calendar, progress, sharadar, snapshot_export
 
 MAX_PRICE_SESSIONS = 300
 _CURRENT = ContextVar("sentinel_operational_source", default=None)
@@ -80,15 +80,35 @@ class OperationalCapture:
                 f"{self.start}..{self.end} ({MAX_PRICE_SESSIONS} sessions); "
                 "explicit maintenance is required for older inputs")
 
-    def preflight(self):
+    def preflight(self, *, wait=False):
         requests = [(sharadar.ACTIONS, {"date.gte": "1900-01-01", "date.lte": self.end}),
                     (sharadar.TICKERS, {})]
         requests.extend((sharadar.SEP, sharadar.date_params(lo, hi))
                         for lo, hi in _months(self.start, self.end))
         with progress.phase("source_preflight", date_from=self.start, date_to=self.end):
-            for table, params in requests:
-                snapshot = snapshot_export.probe_snapshot(table, params=params)
-                self.snapshots.append(snapshot)
+            ready = {}
+            while len(ready) < len(requests):
+                pending = None
+                for index, (table, params) in enumerate(requests):
+                    if index in ready:
+                        continue
+                    try:
+                        ready[index] = snapshot_export.probe_snapshot(table, params=params)
+                    except snapshot_export.ExportPending as exc:
+                        if not wait:
+                            raise
+                        pending = exc
+                if pending is not None:
+                    delay = max(1, snapshot_export.EXPORT_POLL_SECONDS)
+                    progress.emit("source_preflight", "working", reason="EXPORT_GENERATION_PENDING",
+                                  ready=len(ready), parts=len(requests),
+                                  retry_seconds=int(delay),
+                                  remaining_seconds=int(acquisition_work.remaining() or 0))
+                    try:
+                        acquisition_work.pause(delay)
+                    except sharadar.SharadarRetryDeferred:
+                        raise pending from None
+            self.snapshots = [ready[index] for index in range(len(requests))]
         self._require_sep_generation(self.snapshots)
 
     @staticmethod
@@ -99,7 +119,8 @@ class OperationalCapture:
             raise VendorPublicationUnstable("bounded SEP export partitions crossed a table refresh")
 
     def corroborate(self):
-        with progress.phase("source_refresh", date_from=self.start, date_to=self.end):
+        with acquisition_work.budget(seconds=60), progress.phase(
+                "source_refresh", date_from=self.start, date_to=self.end):
             for captured in self.snapshots:
                 checked = snapshot_export.probe_snapshot(captured.table, params=captured.params)
                 if checked.refreshed != captured.refreshed:
@@ -111,8 +132,12 @@ class OperationalCapture:
     def acquire(self):
         if self.loaded:
             return
+        with acquisition_work.budget():
+            self._acquire()
+
+    def _acquire(self):
         if not self.snapshots:
-            self.preflight()
+            self.preflight(wait=True)
         required = {
             sharadar.SEP: {"ticker", "date", "open", "close", "closeunadj", "volume", "lastupdated"},
             sharadar.ACTIONS: {"date", "action", "ticker", "name", "value", "contraticker", "contraname"},
@@ -230,7 +255,7 @@ class OperationalCapture:
 
 
 @contextmanager
-def acquisition(start, end):
+def acquisition(start, end, *, download=False):
     existing = current()
     if existing is not None:
         existing.require_window(start, end)
@@ -239,7 +264,10 @@ def acquisition(start, end):
     capture = OperationalCapture(start, end)
     token = _CURRENT.set(capture)
     try:
-        capture.preflight()
+        if download:
+            capture.acquire()
+        else:
+            capture.preflight()
         yield capture
     finally:
         _CURRENT.reset(token)

@@ -7,6 +7,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import math
 import threading
 from datetime import date, datetime
 from enum import Enum
@@ -29,6 +30,12 @@ class StaleLeaderRefused(AutomationRefused):
 
 class TransientInfrastructureFailure(AutomationRefused):
     """An explicitly classified temporary dependency failure."""
+
+    def __init__(self, detail, *, retry_after_seconds=0):
+        super().__init__(detail)
+        self.retry_after_seconds = float(retry_after_seconds)
+        if not math.isfinite(self.retry_after_seconds) or self.retry_after_seconds < 0:
+            raise ValueError("retry delay must be finite and nonnegative")
 
 
 class SourceDataPending(TransientInfrastructureFailure):

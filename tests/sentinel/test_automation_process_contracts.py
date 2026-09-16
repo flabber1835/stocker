@@ -143,6 +143,20 @@ def test_reviewed_child_exception_selection_covers_parent_process() -> None:
 
 @pytest.mark.skipif(sys.platform != "linux", reason="requires fork supervision")
 @pytest.mark.asyncio
+async def test_process_boundary_preserves_provider_retry_delay(monkeypatch):
+    async def fail(_context):
+        raise TransientInfrastructureFailure("provider cooldown", retry_after_seconds=3600)
+    monkeypatch.setattr(service_module.store, "require_leader", lambda *a, **k: None)
+    monkeypatch.setattr(service_module.store, "heartbeat_lease", lambda *a, **k: None)
+    monkeypatch.setattr(service_module.store, "register_instance", lambda *a, **k: None)
+    with pytest.raises(TransientInfrastructureFailure) as failure:
+        await _service()._invoke(fail, _CallbackContext(), permit=object(), phase="REFRESH",
+                                heartbeat_conn_factory=_HeartbeatConnection)
+    assert failure.value.retry_after_seconds == 3600
+
+
+@pytest.mark.skipif(sys.platform != "linux", reason="requires fork supervision")
+@pytest.mark.asyncio
 @pytest.mark.parametrize(
     "exception_type",
     tuple(service_module._CHILD_EXCEPTION_TYPES.values()),  # noqa: SLF001

@@ -74,14 +74,18 @@ def _write_new(path: Path, value) -> None:
         f.write("\n")
 
 
+def _checkout_commit() -> str:
+    root = Path(__file__).resolve().parents[2]
+    return subprocess.check_output(
+        ["git", "-c", f"safe.directory={root}", "rev-parse", "HEAD"],
+        cwd=root, text=True).strip()
+
+
 def run_scenario(scenario: Scenario, *, server_dsn: str, output: Path) -> dict:
     from sentinel.feed import ingest, publication, readiness, sharadar, store
 
     output.mkdir(parents=True, exist_ok=False)
-    root = Path(__file__).resolve().parents[2]
-    commit = subprocess.check_output(
-        ["git", "-c", f"safe.directory={root}", "rev-parse", "HEAD"],
-        cwd=root, text=True).strip()
+    commit = _checkout_commit()
     report = {"scenario": scenario.name, "commit": commit,
               "python": platform.python_version(), "postgres": None,
               "dependencies": {name: version(name) for name in

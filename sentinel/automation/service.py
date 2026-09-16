@@ -10,6 +10,7 @@ import ctypes
 import hashlib
 import inspect
 import json
+import math
 import multiprocessing
 import os
 import signal
@@ -196,6 +197,7 @@ def _callback_child(  # pragma: no cover - measured by process fault tests
             "detail": str(exc),
             "reviewed": reviewed_class is not None,
             "failure_domain": _failure_domain(exc),
+            "retry_after_seconds": getattr(exc, "retry_after_seconds", 0),
         }
     try:
         channel.send_bytes(json.dumps(
@@ -241,6 +243,11 @@ def _decode_child_callback(payload: bytes):
     trusted = _CHILD_EXCEPTION_TYPES.get((module, qualname))
     if bool(envelope.get("reviewed")) and trusted is not None:
         decoded = trusted(detail)
+        if isinstance(decoded, TransientInfrastructureFailure):
+            delay = envelope.get("retry_after_seconds", 0)
+            if type(delay) not in (int, float) or not math.isfinite(delay) or delay < 0:
+                raise SoftwareDefect("callback child returned an invalid retry delay")
+            decoded.retry_after_seconds = delay
         failure_domain = str(
             envelope.get("failure_domain") or "").strip().upper()
         if failure_domain in _REVIEWED_FAILURE_DOMAINS:
@@ -476,6 +483,9 @@ class AutomationService:
             None if terminal
             else self._retry_at(
                 now, int(diagnostic["phase_attempt_count"])))
+        if retry_at is not None:
+            retry_at = max(retry_at, now + timedelta(
+                seconds=getattr(exc, "retry_after_seconds", 0)))
         diagnostic = {
             **dict(diagnostic),
             "next_retry_at": retry_at.isoformat() if retry_at else None,

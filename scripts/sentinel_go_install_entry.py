@@ -54,6 +54,8 @@ c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
     with c.cursor() as cur:
         cur.execute('BEGIN TRANSACTION READ ONLY')
+        cur.execute("SET LOCAL statement_timeout = '60s'")
+        cur.execute("SET LOCAL lock_timeout = '5s'")
         cur.execute('SHOW transaction_read_only')
         assert str(cur.fetchone()[0]).lower() == 'on'
     progress.emit('readiness_check', 'started')
@@ -283,7 +285,10 @@ def run_installable_phased(*args, **kwargs):
 
     readiness_pass = gates["sharadar_readiness"].status == go.PASS
     temporal_readiness_wait = False
-    if not readiness_pass:
+    prepared = bool(probes.preparation is not None
+                    and probes.preparation.status == go.PASS
+                    and probes.preparation.complete)
+    if not readiness_pass and prepared:
         runner = args[0] if args else kwargs.get("runner")
         if runner is None:
             runner = controller.DiagnosticRunner()

@@ -92,6 +92,20 @@ def test_command_labels_do_not_echo_arbitrary_command_payloads():
     assert "password" not in label
 
 
+def test_backup_operation_is_named_without_echoing_arguments():
+    assert obs._command_label(["bash", "scripts/sentinel-base-backup.sh", "secret"]) == (
+        "create and archive database base backup")
+
+
+def test_heartbeat_counts_down_wait_budget_without_mutating_progress(capsys):
+    event = dict(stage="source_preflight", status="working", rows=0, elapsed_ms=0,
+                 retry_seconds=30, remaining_seconds=570)
+    obs._working("source acquisition", 80, event, 12)
+    text = capsys.readouterr().out
+    assert "next poll in 18s" in text and "remaining 558s" in text
+    assert event["retry_seconds"] == 30
+
+
 def test_shell_launcher_routes_through_verified_entry_and_not_lower_level():
     source = LAUNCHER.read_text(encoding="utf-8")
     assert '"$PYTHON" scripts/sentinel_go_verified_entry.py "$@"' in source

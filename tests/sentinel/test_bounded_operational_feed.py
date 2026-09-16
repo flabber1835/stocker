@@ -23,7 +23,8 @@ def install_source(monkeypatch, *, changed=False):
     def download(snapshot, *, required):
         calls.append(("download", snapshot.table, snapshot.params))
         if snapshot.table == sharadar.SEP:
-            rows = [{"date": "2026-08-19", "ticker": "TEST", "lastupdated": "2026-08-19",
+            day = source.calendar.sessions_in_range(snapshot.params["date.gte"], snapshot.params["date.lte"])[-1]
+            rows = [{"date": day, "ticker": "TEST", "lastupdated": "2026-08-19",
                      "open": "10", "close": "10", "closeunadj": "10", "volume": "100"}]
         elif snapshot.table == sharadar.ACTIONS:
             rows = [{"date": "2000-01-03", "action": "renamefrom", "ticker": "TEST", "name": "Test",
@@ -95,10 +96,10 @@ def test_larger_startup_requirement_refuses(monkeypatch):
 
 
 @pytest.mark.parametrize("status", ["creating", "regenerating"])
-def test_real_export_probe_refuses_without_polling_or_download(monkeypatch, status):
+def test_diagnostic_probe_reports_pending_without_polling_or_download(monkeypatch, status):
     monkeypatch.setenv("SHARADAR_API_KEY", "unit-key")
     http = _Http([_Response(payload=_status(state=status))])
-    with pytest.raises(export.SharadarSnapshotExportError, match="status=" + status):
+    with pytest.raises(export.ExportPending, match="status=" + status):
         export.probe_snapshot(sharadar.SEP, params=sharadar.date_params("2026-08-18", "2026-08-19"),
                               http=http, sleep=lambda *a: pytest.fail("export probe cannot poll"))
     assert len(http.client.calls) == 1
@@ -254,7 +255,7 @@ def test_production_daily_establishes_a_bounded_capture(monkeypatch):
 def test_cold_or_expired_feed_uses_bounded_seed_without_daily(monkeypatch, visible):
     from contextlib import nullcontext
     seeded = []
-    monkeypatch.setattr(source, "acquisition", lambda *a: nullcontext())
+    monkeypatch.setattr(source, "acquisition", lambda *a, **k: nullcontext())
     monkeypatch.setattr(outage_recovery.store, "latest_visible_session",
                         lambda c: "2026-09-14" if seeded else visible)
     monkeypatch.setattr(publication, "operational_boundary", lambda *a, **k: SimpleNamespace(start="2026-01-01"))

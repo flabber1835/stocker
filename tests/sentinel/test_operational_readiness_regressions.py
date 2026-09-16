@@ -100,7 +100,10 @@ def test_outage_current_frontier_does_not_skip_incoherence_repair(monkeypatch):
     conn = object()
     calls = []
     from contextlib import nullcontext
-    monkeypatch.setattr(outage_recovery.operational_source, "acquisition", lambda *a: nullcontext())
+    def acquisition(*args, download):
+        assert download is True
+        return nullcontext()
+    monkeypatch.setattr(outage_recovery.operational_source, "acquisition", acquisition)
     monkeypatch.setattr(outage_recovery.publication, "operational_boundary",
                         lambda *a, **k: SimpleNamespace(start="2026-01-01"))
     monkeypatch.setattr(

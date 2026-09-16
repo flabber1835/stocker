@@ -101,6 +101,22 @@ def _run(conn, *, status="running") -> str:
     return run.progress.run_id
 
 
+def test_readonly_readiness_does_not_persist_historical_candidates(conn):
+    from sentinel.feed import readiness_impl
+    run_id = _run(conn, status="failed")
+    _restamp_bar(conn, run_id=run_id, sid=INACTIVE_SID,
+                 session=OLD, ticker=INACTIVE_TICKER)
+    conn.rollback()
+    conn.execute("BEGIN TRANSACTION READ ONLY")
+    try:
+        result = readiness_impl.Readiness()
+        readiness_impl._add_version_checks(conn, result)
+        assert not any("could not be evaluated" in str(check) for check in result.checks)
+        assert conn.execute("SELECT 1").fetchone()[0] == 1
+    finally:
+        conn.rollback()
+
+
 def _restamp_bar(conn, *, run_id: str, sid: str, session: str,
                  ticker: str, split: float = 1.0) -> None:
     with conn.cursor() as cur:

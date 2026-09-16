@@ -54,7 +54,7 @@ class _Client:
     def __exit__(self, exc_type, exc, tb):
         return False
 
-    def get(self, url, params=None):
+    def get(self, url, params=None, **kwargs):
         self.calls.append((url, dict(params or {})))
         return self.responses.pop(0)
 

@@ -142,7 +142,7 @@ def catch_up(conn, *, target_session: str, reobserve_current: bool = False):
         raise operational_source.OperationalAcquisitionRefused(
             f"persisted catch-up requires {boundary.start}..{end}; "
             f"automatic acquisition allows {start}..{end}")
-    with operational_source.acquisition(start, end):
+    with operational_source.acquisition(start, end, download=True):
         if visible is None or visible < start:
             backup_guard.require_bulk_writes_permitted(conn, operation="bounded initial feed seed")
             progress.emit("bounded_recovery", "selected", date_from=start, date_to=end,
@@ -155,6 +155,16 @@ def catch_up(conn, *, target_session: str, reobserve_current: bool = False):
                 target, "BOUNDED_INITIAL_SEED" if visible is None else "BOUNDED_RESEED",
                 start, None if visible is None else "OperationalWindowExpired")
         return _catch_up(conn, target_session=target, reobserve_current=reobserve_current)
+
+
+def catch_up_waiting(conn, *, target_session, reobserve_current=False,
+                     wait_seconds=3600, sleep=None, monotonic=None):
+    """GO's bounded wait; daily supervisors retain their own scheduling policy."""
+    from sentinel.feed.acquisition_work import retry_source
+    return retry_source(lambda: catch_up(conn, target_session=target_session,
+                                        reobserve_current=reobserve_current),
+                        rollback=conn.rollback, target_session=target_session,
+                        wait_seconds=wait_seconds, sleep=sleep, monotonic=monotonic)
 
 
 __all__ = [

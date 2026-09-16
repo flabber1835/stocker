@@ -152,6 +152,26 @@ def test_feed_daily_calls_ingest_with_validated_session(monkeypatch):
     assert conn.closed is True
 
 
+def test_feed_daily_waits_on_export_without_changing_target(monkeypatch):
+    from sentinel.feed import acquisition_work, ingest, snapshot_export
+    calls, waits = [], []
+    conn = SimpleNamespace(close=lambda: None, rollback=lambda: calls.append("rollback"))
+    monkeypatch.setattr(feed_cli, "_feed_producer_or_refuse", lambda: {"verified": True})
+    monkeypatch.setattr(feed_store, "connect", lambda url: conn)
+    monkeypatch.setattr(feed_store, "require_feed_schema", lambda c: None)
+    monkeypatch.setattr(feed_store, "reclaim_orphans", lambda c: 0)
+    monkeypatch.setattr(acquisition_work.time, "sleep", waits.append)
+    def daily(c, *, today):
+        calls.append(today)
+        if not waits:
+            raise snapshot_export.ExportPending("SEP", "creating", {})
+        return SimpleNamespace(kind="daily", chunks_done=1, rows_written=1, rows_dropped=0)
+    monkeypatch.setattr(ingest, "daily", daily)
+    args = SimpleNamespace(boundary=SimpleNamespace(through="2026-08-28"))
+    assert feed_cli.cmd_feed_daily(SimpleNamespace(database_url="test"), args) == 0
+    assert calls == ["2026-08-28", "rollback", "2026-08-28"]
+
+
 def test_feed_daily_boundary_refuses_before_configuration(monkeypatch, capsys):
     monkeypatch.setattr(
         cli_main.SentinelConfig,

@@ -215,6 +215,17 @@ def test_temporal_readiness_classifier_rejects_real_data_failure(monkeypatch):
         runtime_ref=RUNTIME_DIGEST) is False
 
 
+def test_failed_preparation_skips_temporal_readiness_subprocess(monkeypatch):
+    from dataclasses import replace
+    probes = _waiting_probes()
+    failed = replace(probes, preparation=replace(probes.preparation, status=go.FAIL))
+    monkeypatch.setattr(install_go, "_BASE_PHASED", lambda *a, **k: failed)
+    monkeypatch.setattr(install_go, "_readiness_wait_is_temporal",
+                        lambda *a, **k: pytest.fail("failed prerequisite cannot run readiness"))
+    result = install_go.run_installable_phased(object())
+    assert result.preparation.status == go.FAIL
+
+
 def test_waiting_install_preserves_truthful_session_and_database_no_go():
     probes = _waiting_probes()
     shadow, dual, paper, failures = install_go.derive_installable_verdicts(probes)

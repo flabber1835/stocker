@@ -285,6 +285,10 @@ def execute():
             code = 'OPERATIONAL_ACQUISITION_BOUND_EXCEEDED'
         elif name == 'SharadarSnapshotExportError':
             code = 'SOURCE_EXPORT_UNAVAILABLE'
+        elif name == 'ExportPending':
+            code = 'SOURCE_EXPORT_PENDING'
+        elif name == 'SharadarRetryDeferred':
+            code = 'SOURCE_RETRY_DEFERRED'
         elif name in {
                 'TickersStructureInvalid', 'TickerMetadataIncomplete',
                 'SnapshotExportIncomplete'}:

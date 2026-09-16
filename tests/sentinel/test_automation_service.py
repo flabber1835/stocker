@@ -930,6 +930,20 @@ async def test_explicit_transient_failure_exhausts_phase_budget(conn) -> None:
 
 
 @pytest.mark.asyncio
+async def test_provider_retry_after_survives_durable_scheduling(conn):
+    from datetime import timedelta
+    cfg = config()
+    enable(conn, cfg)
+    def pending(_context):
+        raise TransientInfrastructureFailure("provider cooldown", retry_after_seconds=3600)
+    service = service_for(cfg, refresh=pending)
+    await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    retry = await service.tick(conn, now=AFTER_WEDNESDAY_CLOSE)
+    assert retry.action is TickAction.RETRY_SCHEDULED
+    assert retry.cycle.next_wake_at == AFTER_WEDNESDAY_CLOSE + timedelta(hours=1)
+
+
+@pytest.mark.asyncio
 async def test_rebound_account_blocks_ambiguous_cycle_without_broker_callback(
         conn) -> None:
     cfg = config()

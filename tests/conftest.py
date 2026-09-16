@@ -14,6 +14,14 @@ import pytest
 
 
 @pytest.fixture(autouse=True)
+def isolated_source_cache(tmp_path, monkeypatch):
+    from sentinel.feed import acquisition_work
+    root = tmp_path / "source-cache"
+    root.mkdir()
+    monkeypatch.setattr(acquisition_work, "cache_root", lambda: root)
+
+
+@pytest.fixture(autouse=True)
 def isolated_image_backup_policy(tmp_path, monkeypatch):
     """Unit fixtures are developer environments, even inside the CI image.
 

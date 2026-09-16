@@ -26,6 +26,7 @@ import os
 import time
 import zipfile
 import hashlib
+from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Mapping
@@ -41,6 +42,21 @@ class SharadarSnapshotExportError(sharadar.SharadarRequestError):
     """The provider could not prove a complete, current export snapshot."""
 
 
+class ExportPending(sharadar.SharadarRetryDeferred):
+    """A valid exporter job has not completed; not a source integrity failure."""
+
+    def __init__(self, table, status, params):
+        super().__init__(max(1, EXPORT_POLL_SECONDS))
+        self.table, self.export_status, self.params = table, status, dict(params or {})
+        self.args = (f"Sharadar {table} export status={status}; "
+                     f"window={self.params.get('date.gte', 'all')}.."
+                     f"{self.params.get('date.lte', 'all')}; waiting for export generation",)
+
+
+class ExportLinkExpired(SharadarSnapshotExportError):
+    pass
+
+
 @dataclass(frozen=True)
 class ExportSnapshot:
     table: str
@@ -52,12 +68,22 @@ class ExportSnapshot:
 
 def probe_snapshot(table, *, params=None, http=None, sleep=time.sleep, now=None):
     """Check availability once, without waiting for or downloading a file."""
+    from sentinel.feed import acquisition_work
+    with acquisition_work.budget(seconds=60):
+        return _probe_snapshot(table, params=params, http=http, sleep=sleep, now=now)
+
+
+def _probe_snapshot(table, *, params, http, sleep, now):
     validate_config()
     if http is None:
         import httpx
         http = httpx
     query = {"api_key": sharadar._api_key(),
              **sharadar._validated_params(params), "qopts.export": "true"}
+    from sentinel.feed import progress
+    progress.emit("export_preflight", "started", table=table,
+                  date_from=str((params or {}).get("date.gte", "")),
+                  date_to=str((params or {}).get("date.lte", "")))
     with http.Client(timeout=sharadar.FETCH_TIMEOUT_SECS) as client:
         response = sharadar._get_with_retry(
             client, f"{sharadar.NDL_BASE}/{table}.json", query,
@@ -68,16 +94,11 @@ def probe_snapshot(table, *, params=None, http=None, sleep=time.sleep, now=None)
             raise SharadarSnapshotExportError(
                 f"Sharadar {table} export status is not valid JSON") from None
     status, link, snapshot, refreshed = _decode_export_status(payload)
-    from sentinel.feed import progress
     progress.emit("export_preflight", status, table=table,
                   date_from=str((params or {}).get("date.gte", "")),
                   date_to=str((params or {}).get("date.lte", "")))
     if status != "fresh":
-        raise SharadarSnapshotExportError(
-            f"Sharadar {table} export status={status}; "
-            f"window={(params or {}).get('date.gte', 'all')}.."
-            f"{(params or {}).get('date.lte', 'all')}; "
-            "source acquisition refused; retry when the export is fresh")
+        raise ExportPending(table, status, params)
     if link is None or snapshot is None or refreshed is None or snapshot < refreshed:
         raise SharadarSnapshotExportError(
             f"Sharadar {table} fresh export lacks current snapshot authority")
@@ -85,12 +106,41 @@ def probe_snapshot(table, *, params=None, http=None, sleep=time.sleep, now=None)
 
 
 def download_snapshot(snapshot, *, required, http=None, sleep=time.sleep, now=None):
+    from sentinel.feed import acquisition_work as work, progress
     if http is None:
         import httpx
         http = httpx
-    with http.Client(timeout=sharadar.FETCH_TIMEOUT_SECS) as client:
-        blob = _safe_download(client, snapshot.link, http=http, sleep=sleep, now=now)
-    rows = _csv_rows(blob, required=required)
+    with work.cached_file(snapshot) as path:
+        blob = work.read_cached(path)
+        if blob is None:
+            # Links have a shorter lifetime than an acquisition. Renew metadata,
+            # never silently upgrade an already selected table generation.
+            for attempt in range(2):
+                renewed = probe_snapshot(snapshot.table, params=snapshot.params,
+                                         http=http, sleep=sleep, now=now)
+                if renewed.refreshed != snapshot.refreshed:
+                    from sentinel.feed.authority import VendorPublicationUnstable
+                    raise VendorPublicationUnstable(
+                        f"Sharadar {snapshot.table} refresh changed before download")
+                try:
+                    with http.Client(timeout=sharadar.FETCH_TIMEOUT_SECS) as client:
+                        blob = _safe_download(client, renewed.link, http=http, sleep=sleep, now=now,
+                                              details={"table": snapshot.table,
+                                                       "date_from": snapshot.params.get("date.gte", ""),
+                                                       "date_to": snapshot.params.get("date.lte", "")})
+                    break
+                except ExportLinkExpired:
+                    if attempt:
+                        raise
+            rows = _csv_rows(blob, required=required)
+            # Key by the actual file's snapshot, not the earlier preflight time.
+            snapshot = renewed
+            destination = path.parent / (work.file_key(snapshot) + ".zip")
+            work.save_cached(destination, blob)
+        else:
+            rows = _csv_rows(blob, required=required)
+            progress.emit("source_download", "observed", table=snapshot.table,
+                          reason="VERIFIED_CACHE_REUSED", rows=len(rows))
     return rows, {
         "authority": "nasdaq-data-link-table-export/v1", "table": snapshot.table,
         "file_status": "fresh", "data_snapshot_time": snapshot.snapshot.isoformat(),
@@ -161,7 +211,8 @@ def _decode_export_status(
     return status, link, snapshot, refreshed
 
 
-def _safe_download(client, link: str, *, http, sleep, now) -> bytes:
+def _safe_download(client, link: str, *, http, sleep, now, details=None) -> bytes:
+    from sentinel.feed import acquisition_work as work
     parsed = urlparse(str(link))
     base = urlparse(str(sharadar.NDL_BASE))
     development_origin = (
@@ -178,29 +229,50 @@ def _safe_download(client, link: str, *, http, sleep, now) -> bytes:
         retry_after = None
         try:
             with sharadar._quiet_http_client_diagnostics():
-                response = client.get(link)
-            status = int(response.status_code)
-            if status in sharadar.RETRYABLE_STATUS:
-                retry_after = response.headers.get("Retry-After")
-                raise RuntimeError("retryable download status")
-            response.raise_for_status()
-            return bytes(response.content)
+                options = work.request_options()
+                response_context = (client.stream("GET", link, **options)
+                                    if hasattr(client, "stream") else
+                                    nullcontext(client.get(link, **options)))
+                with response_context as response:
+                    status = int(response.status_code)
+                    if status in sharadar.RETRYABLE_STATUS:
+                        retry_after = response.headers.get("Retry-After")
+                        raise RuntimeError("retryable download status")
+                    response.raise_for_status()
+                    if not hasattr(response, "iter_bytes"):
+                        return bytes(response.content)
+                    buffer = io.BytesIO()
+                    last_report = time.monotonic()
+                    for chunk in response.iter_bytes():
+                        work.request_options()
+                        buffer.write(chunk)
+                        if time.monotonic() - last_report >= 5:
+                            from sentinel.feed import progress
+                            progress.emit("source_download", "working", bytes=buffer.tell(),
+                                          **(details or {}))
+                            last_report = time.monotonic()
+                    return buffer.getvalue()
         except sharadar.SharadarRetryDeferred:
             raise
         except Exception as exc:  # noqa: BLE001
+            if sharadar._is_transport_error(exc, http):
+                status = None
             if status is not None and status not in sharadar.RETRYABLE_STATUS:
+                if status in {403, 404}:
+                    raise ExportLinkExpired(
+                        f"Sharadar snapshot download failed with HTTP {status}") from None
                 raise SharadarSnapshotExportError(
                     f"Sharadar snapshot download failed with HTTP {status}") from None
             if not sharadar._is_transport_error(exc, http) and status is None:
                 raise SharadarSnapshotExportError(
                     f"Sharadar snapshot download failed ({type(exc).__name__})") from None
             last_kind = f"HTTP {status}" if status is not None else type(exc).__name__
+        delay = sharadar.retry_delay(
+            attempt, status, retry_after,
+            now=now or (lambda: datetime.now(timezone.utc)))
         if attempt < sharadar.FETCH_MAX_RETRIES - 1:
-            delay = sharadar.retry_delay(
-                attempt, status, retry_after,
-                now=now or (lambda: datetime.now(timezone.utc)))
-            sleep(delay)
-    raise SharadarSnapshotExportError(
+            work.pause(delay, sleep=sleep)
+    raise sharadar.SharadarRequestError(
         f"Sharadar snapshot download failed after "
         f"{sharadar.FETCH_MAX_RETRIES} attempt(s) ({last_kind})")
 
@@ -314,6 +386,13 @@ def fetch_complete_actions(*, through: str, **kwargs) -> tuple[list[dict], dict]
 def require_actions_refresh(*, through: str, evidence: Mapping,
                             http=None, sleep=time.sleep, now=None) -> dict:
     """Re-observe export status to corroborate one captured ACTIONS file."""
+    from sentinel.feed import acquisition_work
+    with acquisition_work.budget(seconds=60):
+        return _require_actions_refresh(through=through, evidence=evidence,
+                                        http=http, sleep=sleep, now=now)
+
+
+def _require_actions_refresh(*, through, evidence, http, sleep, now):
     validate_config()
     if http is None:
         import httpx
@@ -330,6 +409,9 @@ def require_actions_refresh(*, through: str, evidence: Mapping,
             raise SharadarSnapshotExportError(
                 "Sharadar ACTIONS refresh status is not valid JSON") from None
     status, link, snapshot, refreshed = _decode_export_status(payload)
+    if status != "fresh":
+        raise ExportPending(sharadar.ACTIONS, status,
+                            {"date.gte": "1900-01-01", "date.lte": str(through)})
     if (status != "fresh" or link is None or snapshot is None
             or refreshed is None or snapshot < refreshed
             or evidence.get("authority") != "nasdaq-data-link-table-export/v1"

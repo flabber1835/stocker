@@ -15,6 +15,7 @@ import sentinel_go_backup_refresh as backup  # noqa: E402
 import sentinel_go_phase_entry as phase  # noqa: E402
 import sentinel_go_validate_entry as entry  # noqa: E402
 import sentinel_go_verified_entry as verified  # noqa: E402
+import sentinel_go_24x7_entry as install_entry  # noqa: E402
 
 COMMIT = "a" * 40
 DIGEST = "sha256:" + "b" * 64
@@ -82,11 +83,14 @@ def test_kill_after_backup_refresh_before_audit_cannot_enter_schema_or_ingest(mo
     assert mutations == []
 
 
-def test_schema_migration_precedes_ingest_and_publication_observation_in_production_code():
-    code = entry.go._PREPARATION_CODE
+@pytest.mark.parametrize("code", [
+    entry._RECOVERY_PREPARATION_CODE,
+    install_entry._PREPARATION_CODE,
+], ids=["validation", "installation"])
+def test_schema_migration_precedes_ingest_and_publication_observation_in_production_code(code):
     schema_at = code.index("schema.ensure_schema(c)")
     migration_at = code.index("store.migrate_schema(c)")
-    ingest_at = code.index("outage_recovery.catch_up(")
+    ingest_at = code.index("outage_recovery.catch_up_waiting(")
     publication_at = code.index("publication.current(c)", ingest_at)
     assert schema_at < migration_at < ingest_at < publication_at
 

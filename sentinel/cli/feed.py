@@ -417,7 +417,7 @@ def prepare_feed_daily(args) -> int | None:
 
 def cmd_feed_daily(config: SentinelConfig, args) -> int:
     """Run one explicitly bounded manual daily ingest."""
-    from sentinel.feed import ingest
+    from sentinel.feed import acquisition_work, ingest
     from sentinel.feed import store as feed_store
 
     if _feed_producer_or_refuse() is None:
@@ -433,7 +433,9 @@ def cmd_feed_daily(config: SentinelConfig, args) -> int:
         if reclaimed:
             log.warning(
                 "sentinel: reclaimed %d abandoned ingest run(s)", reclaimed)
-        p = ingest.daily(conn, today=args.boundary.through)
+        p = acquisition_work.retry_source(
+            lambda: ingest.daily(conn, today=args.boundary.through),
+            rollback=lambda: conn.rollback(), target_session=args.boundary.through)
         log.info(
             "sentinel: %s complete — %d chunks, %s rows written, %s dropped",
             p.kind, p.chunks_done, f"{p.rows_written:,}",

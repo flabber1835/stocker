@@ -205,6 +205,8 @@ def retry_delay(attempt: int, status: Optional[int],
         except (TypeError, ValueError, OverflowError):
             requested = None
         if requested is not None:
+            from sentinel.feed import acquisition_work
+            acquisition_work.defer_for(requested)
             if requested > RATE_LIMIT_BACKOFF_CAP:
                 raise SharadarRetryDeferred(requested, status)
             return max(backoff, requested)
@@ -369,13 +371,15 @@ def _fetch_ndl_table(table: str, params: Mapping[str, str] | None = None, *,
 
 def _get_with_retry(client, url: str, params: dict, *, http, sleep,
                     now: Callable[[], datetime] | None = None):
+    from sentinel.feed import acquisition_work
+    acquisition_work.check_cooldown()
     last_exc: Exception | None = None
     for attempt in range(FETCH_MAX_RETRIES):
         status: Optional[int] = None
         retry_after: Optional[str] = None
         try:
             with _quiet_http_client_diagnostics():
-                resp = client.get(url, params=params)
+                resp = client.get(url, params=params, **acquisition_work.request_options())
                 if resp.status_code in RETRYABLE_STATUS:
                     status = resp.status_code
                     retry_after = resp.headers.get("Retry-After")
@@ -396,15 +400,15 @@ def _get_with_retry(client, url: str, params: dict, *, http, sleep,
                 raise SharadarRequestError(
                     f"Sharadar request failed ({label}) for "
                     f"{_safe_request_target(url, params)}") from None
+        delay = retry_delay(
+            attempt, status, retry_after,
+            now=now or (lambda: datetime.now(timezone.utc)))
         if attempt < FETCH_MAX_RETRIES - 1:
-            delay = retry_delay(
-                attempt, status, retry_after,
-                now=now or (lambda: datetime.now(timezone.utc)))
             print(f"[sentinel-feed] transient fetch failure "
                   f"({status or type(last_exc).__name__}) attempt "
                   f"{attempt + 1}/{FETCH_MAX_RETRIES} -- retrying in {delay:.0f}s",
                   flush=True)
-            sleep(delay)
+            acquisition_work.pause(delay, sleep=sleep)
     assert last_exc is not None
     raise SharadarRequestError(
         f"Sharadar request failed after {FETCH_MAX_RETRIES} attempt(s) "

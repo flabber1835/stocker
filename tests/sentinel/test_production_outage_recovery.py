@@ -21,7 +21,7 @@ from sentinel.panel import app as panel_app, model as panel_model
 @pytest.fixture(autouse=True)
 def offline_acquisition(monkeypatch):
     @contextmanager
-    def acquisition(*_args):
+    def acquisition(*_args, **_kwargs):
         yield None
     monkeypatch.setattr(outage_recovery.operational_source, "acquisition", acquisition)
     monkeypatch.setattr(outage_recovery.publication, "operational_boundary",

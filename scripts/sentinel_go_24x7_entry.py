@@ -77,6 +77,10 @@ def reason_code(phase, exc):
         return 'OPERATIONAL_ACQUISITION_BOUND_EXCEEDED'
     if name == 'SharadarSnapshotExportError':
         return 'SOURCE_EXPORT_UNAVAILABLE'
+    if name == 'ExportPending':
+        return 'SOURCE_EXPORT_PENDING'
+    if name == 'SharadarRetryDeferred':
+        return 'SOURCE_RETRY_DEFERRED'
     if name == 'MutationCursorUnavailable':
         return 'LOCAL_CURSOR_MISSING'
     if name == 'HistoricalIdentityMutation':
@@ -150,10 +154,12 @@ try:
     backup_guard.require_writes_permitted(
         c, operation='NAS validation schema migration')
     phase = 'SCHEMA_MIGRATION'
-    progress.emit('schema_migration', 'started')
+    progress.emit('schema_migration', 'started', reason='BEHAVIORAL_SCHEMA')
     schema_attempted = True
     schema.ensure_schema(c)
+    progress.emit('schema_migration', 'started', reason='FEED_SCHEMA')
     store.migrate_schema(c)
+    progress.emit('schema_migration', 'completed')
 
     phase = 'SOURCE_FINAL_FRONTIER'
     now = datetime.now(timezone.utc)
@@ -166,7 +172,7 @@ try:
     phase = 'DAILY_CATCHUP'
     progress.emit('daily_catchup', 'started', date_to=target)
     daily_attempted = True
-    recovered = outage_recovery.catch_up(c, target_session=target)
+    recovered = outage_recovery.catch_up_waiting(c, target_session=target)
     if recovered.mode == 'ALREADY_CURRENT':
         pass
     elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:
