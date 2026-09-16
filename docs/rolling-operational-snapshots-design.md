@@ -2,7 +2,9 @@
 
 Status: **IMPLEMENTATION IN PROGRESS**. The additive private generation storage
 and versioned scope descriptor are specified in
-[rolling-snapshot-storage.md](rolling-snapshot-storage.md). The direct publisher,
+[rolling-snapshot-storage.md](rolling-snapshot-storage.md). Fenced preparation
+jobs and immutable source-completion checkpoints are specified in
+[rolling-snapshot-jobs.md](rolling-snapshot-jobs.md). The direct publisher,
 reader/checkpoint cutover and retention are not yet implemented. Installing the
 storage does not switch running services, verification verdicts, strategy,
 provider selection or deployment authority. Sharadar remains the production
