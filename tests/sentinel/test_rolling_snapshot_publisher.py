@@ -131,7 +131,12 @@ def test_direct_complete_candidate_is_isolated_and_idempotent(conn, source):
     assert len(bars) == 600
     assert bars[0].open_unadjusted == 98 and bars[0].volume == 5000
     assert bars[10].dividend_per_share == 2
-    assert len(list(rolling_store.read_benchmarks(conn, result["candidate_id"]))) == 300
+    benchmarks = list(rolling_store.read_benchmarks(conn, result["candidate_id"]))
+    assert len(benchmarks) == 300
+    assert benchmarks[0].spy_total_return == 60
+    assert benchmarks[0].bil_close_adjusted == 60
+    assert benchmarks[0].bil_close_signal == 51
+    assert benchmarks[0].bil_close_unadjusted == 51
     assert rolling_store.verify_content(conn, result["candidate_id"]).snapshot_id == result["snapshot_id"]
     state = jobs.status(conn, job)
     assert state["state"] == "READY" and state["reason"] == "COMPARISON_ONLY"

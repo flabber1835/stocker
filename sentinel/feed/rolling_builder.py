@@ -11,10 +11,12 @@ from sentinel.feed import (
 )
 from sentinel.feed.rolling_contract import CanonicalBar, CanonicalBenchmark, RestartRequirement, digest
 from sentinel.feed.source_authority import SeedCoverageAccumulator, SeedListingProjection
-from sentinel.regime.spy import SPY_PRICE_COLUMN
 
 NORMALIZATION_VERSION = "sentinel.sharadar-rolling-comparison/1"
 CHUNK = "rolling-window"
+# SFP transports this vendor field; it remains forbidden for SEP equity signals.
+# Reuse the feed's column spelling without depending on the controller's sensor.
+_SFP_TOTAL_RETURN_COLUMN = domains.SEP_FORBIDDEN_COLUMNS[0]
 
 
 def _rows(conn, lease):
@@ -57,9 +59,9 @@ def benchmarks(window, rows):
         spy, bil = by_key[(str(day), "SPY")], by_key[(str(day), "BIL")]
         # Same mandatory BIL fields as the existing dedicated defensive writer.
         yield CanonicalBenchmark(
-            session=day, spy_total_return=float(spy[SPY_PRICE_COLUMN]),
+            session=day, spy_total_return=float(spy[_SFP_TOTAL_RETURN_COLUMN]),
             bil_open_signal=float(bil["open"]), bil_close_signal=float(bil["close"]),
-            bil_close_adjusted=float(bil[SPY_PRICE_COLUMN]),
+            bil_close_adjusted=float(bil[_SFP_TOTAL_RETURN_COLUMN]),
             bil_close_unadjusted=float(bil["closeunadj"]))
 
 
