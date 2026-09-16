@@ -396,7 +396,6 @@ def load_terminal_events(conn, *, start: str, end: str,
     # Query raw dates that can snap into the requested effective-session window.
     # A Saturday acquisition requested for Monday must be discovered on Monday,
     # not stranded forever because no run processes Saturdays.
-    effective_window = set(calendar.sessions_in_range(start, end))
     raw_start, raw_end = calendar.action_date_window(start, end)
 
     with conn.cursor() as cur:
@@ -411,6 +410,23 @@ def load_terminal_events(conn, *, start: str, end: str,
             " ORDER BY session,ticker,action,source_row_id", (raw_start, raw_end))
         rows = cur.fetchall()
 
+    return map_terminal_rows(
+        rows, start=start, end=end, resolve_identity=resolve_identity,
+        resolve_with_reason=resolve_with_reason,
+        priced_tickers=lambda: _corpus_tickers(conn, start, end))
+
+
+def map_terminal_rows(rows, *, start: str, end: str,
+                      resolve_identity=None, resolve_with_reason=None,
+                      priced_tickers=None) -> TerminalLoadResult:
+    """Map one explicit source generation without reading any database.
+
+    A missing negative-space provider is conservative: unresolved identities
+    stay unresolved. A bounded snapshot cannot prove absence from all history.
+    """
+    from sentinel.feed import calendar
+
+    effective_window = set(calendar.sessions_in_range(start, end))
     priced = None
     out: list = []
     audit: list = []
@@ -460,7 +476,7 @@ def load_terminal_events(conn, *, start: str, end: str,
             # success. A missing event-day print cannot hide a carried holding.
             # Fully resolved daily loads need no scan of historical bars.
             if priced is None:
-                priced = _corpus_tickers(conn, start, end)
+                priced = set() if priced_tickers is None else priced_tickers()
             if priced and tk.upper() not in priced:
                 audit.append(_row("excluded", EXCLUDED_ABSENT_FROM_CORPUS))
                 continue

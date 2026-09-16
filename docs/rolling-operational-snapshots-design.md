@@ -12,6 +12,12 @@ storage does not switch running services, verification verdicts, strategy,
 provider selection or deployment authority. Sharadar remains the production
 source; execution remains paper-only under the existing contract.
 
+The next independent consumer boundary is specified in
+[snapshot-native cold-start inputs](rolling-cold-start-inputs.md). It removes
+legacy non-price dependencies and supplies canonical feature-only initialization
+material without requiring an existing GO/checkpoint or claiming publication
+authority for a private candidate.
+
 Base: `4417bd6523fb1a3b2bd53dc70f77214cbe7635ae`.
 Tracking: [feature #384](https://github.com/flabber1835/stocker/issues/384).
 Read the [dependency audit](rolling-operational-snapshots-audit.md) first.

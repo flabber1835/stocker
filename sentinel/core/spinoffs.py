@@ -59,14 +59,22 @@ def load_distributions(conn, *, session: str) -> tuple[SpinoffDistribution, ...]
     if not rows:
         return ()
     resolver = load_resolver(conn)
+    return map_distributions(rows, session=session,
+                             resolve_with_reason=resolver.resolve_with_reason)
+
+
+def map_distributions(rows, *, session: str, resolve_with_reason):
+    """Map explicit same-generation source rows; never infer child terms."""
+    from sentinel.feed import calendar
+
     result = []
     for day, ticker, child, source, value in rows:
         effective = calendar.session_on_or_after(str(day))
         if effective != session:
             continue
-        parent_id, _ = resolver.resolve_with_reason(str(ticker), effective)
+        parent_id, _ = resolve_with_reason(str(ticker), effective)
         child_ticker = vendor_symbol(child)
-        child_id = (resolver.resolve_with_reason(child_ticker, effective)[0]
+        child_id = (resolve_with_reason(child_ticker, effective)[0]
                     if child_ticker else None)
         result.append(SpinoffDistribution(
             session=effective, parent_ticker=str(ticker),
