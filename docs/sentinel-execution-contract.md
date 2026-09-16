@@ -1029,6 +1029,12 @@ reconstruction of an earlier decision's inputs.
 
 ### 8.1 Two tiers, and their certification state
 
+The opt-in [rolling publication boundary](rolling-operational-publication.md)
+reuses ordinary corpus versions, signed validation receipts and PITR evidence.
+It binds one immutable price/reference generation and fences legacy readers.
+Its DATA_ONLY admission cannot admit old strategy state or grant GO; bounded
+checkpoint continuity and operational caller dispatch remain separate work.
+
 The additive [rolling snapshot storage](rolling-snapshot-storage.md) boundary
 retains immutable candidate prices and exact reference/input bundles. Storage
 sealing is not corpus publication or a verification verdict. Until the direct

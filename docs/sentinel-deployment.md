@@ -1,5 +1,11 @@
 # Sentinel — operational deployment ground truth
 
+The opt-in [rolling publication boundary](rolling-operational-publication.md)
+adds real corpus-version/receipt binding for sealed snapshots. It is not yet a
+GO or automation callback. Legacy readers refuse those versions explicitly;
+do not activate it on a deployment until the operational reader/state cutover
+is implemented and validated. Existing durable state and evidence are retained.
+
 Rolling snapshot storage is additive and governed by
 [rolling-snapshot-storage.md](rolling-snapshot-storage.md). Explicit feed schema
 migration installs private generation/evidence tables; installation alone does

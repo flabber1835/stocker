@@ -1044,6 +1044,10 @@ from sentinel.feed.rolling_publication_schema import DDL as _ROLLING_PUBLICATION
 
 DDL.extend(_ROLLING_PUBLICATION_DDL)
 
+from sentinel.feed.operational_snapshot_schema import DDL as _OPERATIONAL_SNAPSHOT_DDL
+
+DDL.extend(_OPERATIONAL_SNAPSHOT_DDL)
+
 RESTART_ABORT_MARKER = "RESTART_ABORTED"
 
 RECLAIM_ORPHANS = """

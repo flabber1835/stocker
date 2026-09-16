@@ -122,7 +122,7 @@ def _checkpoint(conn, lease, *, ready, component, generation, artifact, rows, by
     conn.commit()
 
 
-def _record_failure(conn, lease, exc):
+def _record_failure(conn, lease, exc, *, operational=False):
     conn.rollback()
     if jobs.expire(conn, lease.job_id):
         conn.commit()
@@ -142,6 +142,7 @@ def _record_failure(conn, lease, exc):
             jobs.wait(conn, lease, state="INTERRUPTED", reason="WORKER_INTERRUPTED", retry_seconds=1)
         else:
             reason = ("SOURCE_GENERATION_CHANGED" if isinstance(exc, authority.VendorPublicationUnstable)
+                      else "OPERATIONAL_PREPARATION_REFUSED" if operational
                       else "COMPARISON_PREPARATION_REFUSED")
             jobs.finish(conn, lease, state="REFUSED", reason=reason)
         conn.commit()
@@ -156,8 +157,17 @@ def prepare(conn, job_id):
     No production CLI calls this entry point. The existing producer/backup gates
     apply, and the caller must explicitly migrate/enqueue first.
     """
+    return _prepare(conn, job_id, operational=False)
+
+
+def _prepare(conn, job_id, *, operational):
+    from sentinel.feed import operational_snapshot, rolling_publisher
+
     runtime_schema.require_feed_schema(conn)
-    result = published(conn, job_id)
+    if operational_snapshot.registered(conn, job_id) != operational:
+        raise ComparisonRefused("preparation job belongs to a different publication path")
+    boundary = operational_snapshot if operational else rolling_publisher
+    result = boundary.published(conn, job_id)
     if result:
         conn.commit()
         return result
@@ -171,7 +181,7 @@ def prepare(conn, job_id):
         if current["state"] not in {"ACQUIRING", "READY"}:
             raise ComparisonRefused("unexpected persisted direct-builder stage")
         with store.corpus_write_lock(conn):
-            freeze(conn, lease, request)
+            boundary.freeze(conn, lease, request)
             conn.commit()
         source = SharadarSource(request.window)
 
@@ -205,13 +215,18 @@ def prepare(conn, job_id):
         with acquisition_work.budget(seconds=min(500, jobs.status(conn, job_id)["remaining_seconds"])):
             conn.commit()
             source.corroborate()
-        with progress.phase("rolling_comparison_publication", job_id=job_id), store.corpus_write_lock(conn):
+        if operational:
+            with progress.phase("rolling_operational_validation", job_id=job_id):
+                operational_snapshot.validate(conn, lease, request)
+                conn.commit()
+        phase = "rolling_operational_publication" if operational else "rolling_comparison_publication"
+        with progress.phase(phase, job_id=job_id), store.corpus_write_lock(conn):
             producer = identity.require_feed_producer_identity()
-            result = publish(conn, lease, request, producer=producer)
+            result = boundary.publish(conn, lease, request, producer=producer)
             conn.commit()
         return result
     except BaseException as exc:
-        _record_failure(conn, lease, exc)
+        _record_failure(conn, lease, exc, operational=operational)
         raise
     finally:
         # Scratch only, scoped to this exact owner; sealed evidence is never deleted.
