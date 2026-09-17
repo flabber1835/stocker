@@ -2,7 +2,7 @@ name: Autonomy 400 evidence
 on:
   push:
     branches: ['audit/autonomy-400-evidence']
-    paths: ['audit/**', '.github/workflows/autonomy-400-evidence.yml']
+    paths: ['audit/**', 'audit-support/**', '.github/workflows/autonomy-400-evidence.yml']
   workflow_dispatch:
 permissions:
   contents: read
@@ -12,13 +12,15 @@ concurrency:
 jobs:
   evidence:
     runs-on: ubuntu-latest
-    timeout-minutes: 25
+    timeout-minutes: 30
     steps:
       - name: Read audit witnesses
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           path: audit-runner
-          sparse-checkout: audit
+          sparse-checkout: |
+            audit
+            audit-support
       - name: Read exact production baseline
         uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
@@ -48,35 +50,44 @@ jobs:
           git status --porcelain > ../evidence/source-status-before.txt
           python -V > ../evidence/python-version.txt
           python -m pip freeze > ../evidence/packages.txt
-          sha256sum sentinel/requirements.lock tests/requirements.lock ../audit-runner/audit/autonomy_400_witnesses.py > ../evidence/input-sha256.txt
+          sha256sum sentinel/requirements.lock tests/requirements.lock ../audit-runner/audit/autonomy_400_witnesses.py ../audit-runner/audit-support/autonomy_400_extended.py > ../evidence/input-sha256.txt
           cp ../audit-runner/audit/autonomy_400_witnesses.py "$RUNNER_TEMP/test_autonomy_400.py"
-      - name: Existing recovery and rolling PostgreSQL suites
-        id: existing
-        continue-on-error: true
-        working-directory: subject
-        env:
-          PYTHONPATH: ${{ github.workspace }}/subject:${{ github.workspace }}/subject/shared
-        run: |
-          set -o pipefail
-          python -m pytest -q -ra \
-            tests/sentinel/test_automation_schedule.py \
-            tests/sentinel/test_automation_process_contracts.py \
-            tests/sentinel/test_automation_worker_source_recovery.py \
-            tests/sentinel/test_shadow_service.py \
-            tests/sentinel/test_rolling_runtime.py \
-            tests/sentinel/test_rolling_retention_runtime.py \
-            tests/sentinel/test_rolling_history_retention.py \
-            tests/sentinel/test_backup_orchestration_hardening.py \
-            --junitxml=../evidence/existing.xml 2>&1 | tee ../evidence/existing.log
-      - name: Falsify unattended-operation claims
+          cp ../audit-runner/audit-support/autonomy_400_extended.py "$RUNNER_TEMP/autonomy_400_extended.py"
+      - name: Initial and extended defect witnesses
         id: witnesses
         continue-on-error: true
         working-directory: subject
         env:
+          PYTHONPATH: ${{ github.workspace }}/subject:${{ github.workspace }}/subject/shared:${{ runner.temp }}
+        run: |
+          set -o pipefail
+          python -m pytest -q -ra "$RUNNER_TEMP/test_autonomy_400.py" "$RUNNER_TEMP/autonomy_400_extended.py" --junitxml=../evidence/witnesses.xml 2>&1 | tee ../evidence/witnesses.log
+      - name: Diagnose existing worker restart failure
+        id: recovery
+        continue-on-error: true
+        working-directory: subject
+        env:
+          PYTHONPATH: ${{ github.workspace }}/subject:${{ github.workspace }}/subject/shared:${{ runner.temp }}
+        run: |
+          set -o pipefail
+          python -m pytest -q -ra -p autonomy_400_extended 'tests/sentinel/test_automation_worker_source_recovery.py::test_worker_wait_restart_source_healing_and_transport[recover]' --junitxml=../evidence/recovery.xml 2>&1 | tee ../evidence/recovery.log
+      - name: Existing execution deployment and strategy components
+        id: components
+        continue-on-error: true
+        working-directory: subject
+        env:
           PYTHONPATH: ${{ github.workspace }}/subject:${{ github.workspace }}/subject/shared
         run: |
           set -o pipefail
-          python -m pytest -q -ra "$RUNNER_TEMP/test_autonomy_400.py" --junitxml=../evidence/witnesses.xml 2>&1 | tee ../evidence/witnesses.log
+          python - <<'PY'
+          from pathlib import Path
+          patterns = ['test_panel*.py','test_paper*.py','test_preopen_paper_gate.py','test_execution*.py','test_guarded_execution_broker.py','test_automation_runtime.py','test_automation_p0_continuity.py','test_automation_p1_continuity.py','test_automation_deployment.py','test_env_automation_config.py','test_rolling_paper_inputs.py','test_rolling_daily.py','test_rolling_go_inputs.py','test_deployment_receipt_key_bootstrap.py','test_v5_opening_execution_freshness.py','test_production_controller_semantics.py']
+          selected = sorted({str(p) for pat in patterns for p in Path('tests/sentinel').glob(pat)})
+          selected += ['tests/wealth_core','tests/champion','tests/v5','tests/production_composition/test_clock_calendar_faults.py','tests/scripts/test_go_process_cleanup.py','tests/scripts/test_sentinel_automation_compose_argument_boundary.py']
+          Path('../evidence/component-selection.txt').write_text('\n'.join(selected)+'\n')
+          PY
+          mapfile -t cases < ../evidence/component-selection.txt
+          python -m pytest -q -ra "${cases[@]}" --junitxml=../evidence/components.xml 2>&1 | tee ../evidence/components.log
       - name: Confirm production source unchanged
         if: always()
         working-directory: subject
@@ -88,12 +99,13 @@ jobs:
         if: always()
         uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         with:
-          name: autonomy-400-evidence-aff4461d
+          name: autonomy-400-extended-aff4461d
           path: evidence/
           retention-days: 30
-      - name: Require both evidence lanes to finish
+      - name: Require all evidence lanes to finish
         if: always()
         env:
-          EXISTING: ${{ steps.existing.outcome }}
+          COMPONENTS: ${{ steps.components.outcome }}
+          RECOVERY: ${{ steps.recovery.outcome }}
           WITNESSES: ${{ steps.witnesses.outcome }}
-        run: test "$EXISTING" = success && test "$WITNESSES" = success
+        run: test "$COMPONENTS" = success && test "$RECOVERY" = success && test "$WITNESSES" = success
