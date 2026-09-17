@@ -737,6 +737,29 @@ def test_rolling_data_proof_cannot_grant_legacy_runtime_authority(monkeypatch):
     assert captured["first_divergence"] == "ROLLING_RUNTIME_SCOPE_NOT_ACTIVATED"
 
 
+@pytest.mark.parametrize("defect", [None, "contract", "scope", "version", "snapshot", "identity", "authority"])
+def test_rolling_go_proof_requires_supported_runtime_and_exact_input_scope(defect):
+    report = _forward_report()
+    report["proof"].update(scope="ROLLING_STARTUP_AND_RESTART", runtime_contract="sentinel.rolling-shadow-runtime/1")
+    report["publication_coherence"].update(scope="ROLLING_CURRENT_INPUTS_ONLY", snapshot={
+        "data_version": 1, "scope": "DATA_ONLY", "operational_go": False,
+        "snapshot_id": "e" * 64, "candidate_id": "11111111-1111-1111-1111-111111111111",
+        "job_id": "22222222-2222-2222-2222-222222222222"})
+    if defect == "contract":
+        report["proof"]["runtime_contract"] = "unsupported"
+    elif defect == "scope":
+        report["publication_coherence"]["scope"] = "PRODUCTION_OPERATIONAL"
+    elif defect == "version":
+        report["publication_coherence"]["snapshot"]["data_version"] = 2
+    elif defect == "snapshot":
+        report["publication_coherence"]["snapshot"]["snapshot_id"] = "malformed"
+    elif defect == "identity":
+        report["publication_coherence"]["snapshot"]["job_id"] = []
+    elif defect == "authority":
+        report["publication_coherence"]["snapshot"]["operational_go"] = True
+    assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash="100000") is (defect is None)
+
+
 def test_shadow_configuration_digest_is_exact_runtime_contract():
     env = {
         "SENTINEL_SHADOW_OBSERVATION_ID": "year-end.1",
@@ -791,6 +814,7 @@ def test_active_wealth_parity_refuses_a_non_read_only_report():
     (DIGEST_A, ("proof", "proof_helper_sha256"), "8" * 64),
     (DIGEST_A, ("proof", "strategy_identity", "strategy"), "legacy-strategy"),
     (DIGEST_A, ("held_publication", "publication_fingerprint"), "8" * 64),
+    (DIGEST_A, ("publication_coherence", "additional_evidence"), "different"),
     (DIGEST_A, ("source_identity", "image_source_revision"), "8" * 40),
     (DIGEST_B, ("source_identity", "identity_hash"), "8" * 64),
     (DIGEST_B, ("proof", "warmup_input", "session_count"), 251),

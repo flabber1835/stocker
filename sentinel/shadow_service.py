@@ -129,9 +129,17 @@ def _preflight(conn, config: ShadowServiceConfig, *,
         starting_cash=config.starting_cash,
         clock=(None if now is None else lambda: now),
         structural_only=allow_stale_frontier)
+    contract = {}
+    if isinstance(classified, dict) and "input_contract" in classified:
+        from sentinel.rolling_runtime import SCHEMA
+        if classified["input_contract"] != SCHEMA:
+            raise ShadowServiceRefused("unknown shadow runtime input contract")
+        classified = dict(classified)
+        contract["input_contract"] = classified.pop("input_contract")
     status = classified.get("status") if isinstance(classified, dict) else None
     if status == "NOT_STARTED" and set(classified) == {"status"}:
         return {
+            **contract,
             "schema": PREFLIGHT_SCHEMA,
             "mode": "BROKER_FREE_SHADOW",
             "status": "NOT_STARTED",
@@ -151,6 +159,7 @@ def _preflight(conn, config: ShadowServiceConfig, *,
             raise ShadowServiceRefused(
                 "recoverable shadow lineage classification is malformed")
         return {
+            **contract,
             "schema": PREFLIGHT_SCHEMA,
             "mode": "BROKER_FREE_SHADOW",
             "status": "RECOVERY_REQUIRED",
@@ -166,6 +175,7 @@ def _preflight(conn, config: ShadowServiceConfig, *,
             raise ShadowServiceRefused(
                 "structural shadow lineage classification is malformed")
         return {
+            **contract,
             "schema": PREFLIGHT_SCHEMA,
             "mode": "BROKER_FREE_SHADOW",
             "status": "ATTESTED_STRUCTURAL",
@@ -182,6 +192,7 @@ def _preflight(conn, config: ShadowServiceConfig, *,
         raise ShadowServiceRefused(
             "retained shadow lineage is not fully runtime-attested")
     return {
+        **contract,
         "schema": PREFLIGHT_SCHEMA,
         "mode": "BROKER_FREE_SHADOW",
         "status": "VERIFIED",
@@ -275,6 +286,22 @@ def advance_once(config: ShadowServiceConfig, *,
               if retained_status == "RECOVERY_REQUIRED"
               else _causal_target(
                   preflight_status=retained_status, now=now))
+    if "input_contract" in retained:
+        from sentinel import rolling_runtime
+        if retained["input_contract"] != rolling_runtime.SCHEMA:
+            raise ShadowServiceRefused("unknown shadow runtime input contract")
+        conn = feed_store.connect(config.database_url)
+        try:
+            return rolling_runtime.service_advance(conn, through=target,
+                observation_id=config.observation_id, starting_cash=config.starting_cash).to_dict()
+        except Exception as exc:
+            from sentinel.shadow_worker import _availability_failure
+            if _availability_failure(exc):
+                raise ShadowServiceRetry("rolling shadow source/backup unavailable") from exc
+            raise ShadowServiceRefused("rolling shadow service refused: " + str(exc)) from exc
+        finally:
+            conn.rollback()
+            conn.close()
     retained_lineage = retained.get("lineage")
     retained_session = (
         retained.get("latest_session")

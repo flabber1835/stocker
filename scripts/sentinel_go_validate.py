@@ -1218,6 +1218,22 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
         "decision_sha256", "controller_configuration_sha256",
         "sentinel_source_sha256", "wealth_core_source_sha256",
         "proof_helper_sha256")
+    scope_valid = (coherence.get("scope") == "PRODUCTION_OPERATIONAL"
+                   and proof.get("scope") == "CURRENT_STRATEGY_STARTUP_AND_RESTART"
+                   and "runtime_contract" not in proof)
+    if (coherence.get("scope") == "ROLLING_CURRENT_INPUTS_ONLY"
+            and proof.get("scope") == "ROLLING_STARTUP_AND_RESTART"
+            and proof.get("runtime_contract") == "sentinel.rolling-shadow-runtime/1"):
+        snapshot = coherence.get("snapshot")
+        scope_valid = (isinstance(snapshot, dict)
+                       and set(snapshot) == {"data_version", "scope", "operational_go", "candidate_id", "job_id", "snapshot_id"}
+                       and snapshot.get("scope") == "DATA_ONLY" and snapshot.get("operational_go") is False
+                       and type(snapshot.get("data_version")) is int
+                       and snapshot.get("data_version") == proof.get("data_version")
+                       and _HEX64.fullmatch(str(snapshot.get("snapshot_id") or "")) is not None
+                       and all(isinstance(snapshot.get(key), str) and re.fullmatch(
+                           r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", snapshot[key])
+                           for key in ("candidate_id", "job_id")))
     return (
         report.get("schema") == "sentinel.production-operational-parity/1"
         and report.get("verdict") == "PASS"
@@ -1226,7 +1242,7 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
         and report.get("transaction") == {
             "isolation": "repeatable read", "read_only": "on"}
         and coherence.get("coherent") is True
-        and coherence.get("scope") == "PRODUCTION_OPERATIONAL"
+        and scope_valid
         and coherence.get("blocking_runs") == []
         and coherence.get("version") == proof.get("data_version")
         and environment.get("compatible") is True
@@ -1236,7 +1252,6 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
         and environment.get("pin_drift") == {}
         and source.get("image_source_revision") == commit
         and _HEX64.fullmatch(str(source.get("identity_hash") or "")) is not None
-        and proof.get("scope") == "CURRENT_STRATEGY_STARTUP_AND_RESTART"
         and proof.get("starting_cash") == starting_cash
         and proof.get("decision_session") == held.get("visible_frontier")
         and type(proof.get("data_version")) is int
@@ -1325,6 +1340,9 @@ def probe_active_wealth_parity(
         elif any(report["held_publication"] != runtime["held_publication"]
                  for report in reports[1:]):
             first_divergence = "PUBLICATION_CHANGED_BETWEEN_IMAGES"
+        elif any(report["publication_coherence"] != runtime["publication_coherence"]
+                 for report in reports[1:]):
+            first_divergence = "INPUT_SCOPE_CHANGED_BETWEEN_IMAGES"
         elif any(report["proof"] != runtime["proof"] for report in reports[1:]):
             first_divergence = "IMAGE_OPERATIONAL_PROOFS_DIFFER"
     passed = first_divergence is None

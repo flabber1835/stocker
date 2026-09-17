@@ -41,15 +41,14 @@ explicitly. Never report legacy-table query plans as proof of snapshot behavior.
 
 ## Authority and rollout
 
-These data proofs do not extend the legacy SHADOW_GO/VERIFIED meaning. Until the
-bounded runtime authority and shadow-service cutover is implemented, the host
-GO validator must reject the new input proof for activation with an explicit
-unsupported-runtime-scope reason. This is a staged integration, not deployment
-permission. Historical certification, runtime attestation, paper activation and
-their source/account/backup boundaries remain independent.
+The [rolling shadow runtime](rolling-shadow-runtime.md) now connects these data
+proofs to a distinct bounded runtime verification scope and daily service route.
+GO accepts only the explicitly supported runtime contract paired with the exact
+rolling input scope and snapshot binding. An unversioned rolling data proof
+still refuses activation. Historical certification, runtime attestation, paper
+activation and their source/account/backup boundaries remain independent.
 
-The next integration PR connects bounded runtime attestation and daily service
-routing to this shared input boundary. Retirement/retention and actual NAS
+Retirement/retention and actual NAS
 qualification follow. Replacing Sharadar is outside this rollout.
 
 ## Validation
@@ -59,5 +58,5 @@ preparation, same-publication idempotence, resumable job identity, changed sourc
 strategy refusal, malformed content, missing domains, population loss, stale
 frontiers, read-only probe behavior, immutable source inputs, canonical restart
 equivalence, exact pin exclusion, unexpected behavioral state and refusal to
-promote the new data proof into legacy runtime authority. Remove guards in child
+promote an unversioned data proof into runtime authority. Remove guards in child
 processes to prove their focused falsifiers fail.

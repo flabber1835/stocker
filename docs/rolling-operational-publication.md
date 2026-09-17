@@ -6,8 +6,9 @@ strategy state. Publication, state admission and execution authority remain
 separate. The existing paper-only, producer and backup rules apply.
 
 The subsequent [GO input integration](rolling-go-inputs.md) now uses this
-publication boundary for preparation and read-only data probes. It still
-refuses runtime activation; service and authority integration remain pending.
+publication boundary for preparation and read-only data probes. The
+[rolling shadow runtime](rolling-shadow-runtime.md) separately binds bounded
+runtime verification and daily shadow-service routing to those inputs.
 
 ## One publication transaction
 
@@ -76,9 +77,9 @@ ordinary signed receipts, atomic rollback, reader exclusion, stale CAS/fence/
 deadline refusal, generation/source changes, no comparison promotion, lost-ack
 idempotence and repeated fresh data publication. Falsify the new guards.
 
-Still required before operational GO: connect bounded runtime authority and
-the remaining execution reference consumers, inspect failed-attempt state,
-and wire daily service preparation. Opt-in fresh initialization, authenticated
-checkpoints and bounded continuation are implemented. Validate NAS backup,
+Still required before deployment: qualify the remaining paper execution
+reference consumers and inspect failed-attempt state. Fresh initialization,
+authenticated checkpoints, bounded runtime authority and daily shadow-service
+preparation are implemented. Validate NAS backup,
 first GO, paper activation/next-open handling, restart and subsequent refresh.
 No local synthetic test is an observed NAS GO or paper fill.

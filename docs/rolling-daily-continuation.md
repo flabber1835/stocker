@@ -3,7 +3,9 @@
 This opt-in boundary advances the canonical book established by the rolling
 cold start. It calls the existing ShadowObserver and kernel, retains their
 immutable genesis/session namespace, and issues no GO, VERIFIED verdict,
-execution plan or broker authority. GO/automation routing remains a later cutover.
+execution plan or broker authority. The separate
+[rolling runtime](rolling-shadow-runtime.md) now wraps it with post-commit
+authority and routes daily shadow-service work; paper automation remains separate.
 
 ## Admission before transition
 

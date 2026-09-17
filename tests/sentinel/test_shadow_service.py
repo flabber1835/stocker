@@ -78,6 +78,30 @@ def test_shadow_service_requires_reviewed_shadow_capable_mode(mode):
             _env(SENTINEL_REVIEWED_DEPLOYMENT_MODE=mode))
 
 
+@pytest.mark.parametrize("transient", [True, False])
+def test_rolling_service_preserves_availability_retry_and_integrity_refusal(monkeypatch, transient):
+    from sentinel import rolling_runtime
+    from sentinel.feed import sharadar
+    cfg = shadow_service.ShadowServiceConfig.from_env(_env())
+    monkeypatch.setattr(shadow_service, "preflight", lambda *_a, **_k: {
+        "input_contract": rolling_runtime.SCHEMA, "status": "ATTESTED_STRUCTURAL"})
+    monkeypatch.setattr(shadow_service, "_causal_target", lambda **_k: "2026-09-15")
+    class Connection:
+        def rollback(self):
+            pass
+        def close(self):
+            pass
+    monkeypatch.setattr(shadow_service.feed_store, "connect", lambda _: Connection())
+    def unavailable(*_a, **_k):
+        if transient:
+            raise sharadar.SharadarRetryDeferred(120, 429)
+        raise rolling_runtime.Refused("CHECKPOINT_CHANGED")
+    monkeypatch.setattr(rolling_runtime, "service_advance", unavailable)
+    expected = shadow_service.ShadowServiceRetry if transient else shadow_service.ShadowServiceRefused
+    with pytest.raises(expected):
+        shadow_service.advance_once(cfg)
+
+
 class _Cursor:
     def __enter__(self):
         return self

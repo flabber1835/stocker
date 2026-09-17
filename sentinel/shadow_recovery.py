@@ -184,6 +184,10 @@ def advance_once(config: base.ShadowServiceConfig, *,
         config, now=instant, allow_stale_frontier=True)
     status = str(retained.get("status") or "")
 
+    if "input_contract" in retained:
+        # Rolling checkpoints cannot be adopted by legacy segment recovery.
+        return base.advance_once(config, now=instant)
+
     if status == "NOT_STARTED":
         _require_backup(config, "initial shadow observation")
         return base.advance_once(config, now=instant)
@@ -226,6 +230,8 @@ def service_health(config: base.ShadowServiceConfig, *,
     retained = base.preflight(
         config, now=instant, allow_stale_frontier=True)
     status = str(retained.get("status") or "")
+    if "input_contract" in retained:
+        return base.service_health(config, now=instant)
     if status == "RECOVERY_REQUIRED":
         cutoff = _cutoff(str(retained.get("recovery_cutoff_at") or ""))
         if instant >= cutoff:
