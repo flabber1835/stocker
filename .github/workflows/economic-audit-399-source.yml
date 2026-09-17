@@ -1,0 +1,36 @@
+name: Economic audit 399 source evidence
+on:
+  push:
+    branches: [audit/economic-399-evidence]
+    paths: [.github/workflows/economic-audit-399-source.yml]
+permissions:
+  contents: read
+jobs:
+  source-evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Export and verify exact tracked source
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
+          test "$(git rev-parse HEAD^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
+          mkdir -p "$RUNNER_TEMP/economic-audit-399"
+          git archive --format=tar HEAD | gzip -n > "$RUNNER_TEMP/economic-audit-399/source.tar.gz"
+          git ls-tree -r -l HEAD > "$RUNNER_TEMP/economic-audit-399/git-tree.txt"
+          git show -s --format=fuller HEAD > "$RUNNER_TEMP/economic-audit-399/commit.txt"
+          cd "$RUNNER_TEMP/economic-audit-399"
+          sha256sum source.tar.gz git-tree.txt commit.txt > SHA256SUMS
+          cat SHA256SUMS
+      - uses: actions/upload-artifact@v4
+        with:
+          name: economic-audit-399-source-aff4461d
+          path: ${{ runner.temp }}/economic-audit-399/
+          retention-days: 7
+          if-no-files-found: error
