@@ -209,6 +209,7 @@ def test_sfp_stability_identity_includes_scalar_return_fields(field, restated):
 def test_paper_planning_resolves_fixed_bil_mark_and_sizes_the_sleeve(
         monkeypatch):
     conn = _Connection(
+        [],  # No publication: exercise the legacy price readers.
         [("SEC-A", "AAA", Decimal("100"))],
         [("SENTINEL:BIL", Decimal("90"))])
     monkeypatch.setattr(
@@ -231,8 +232,9 @@ def test_paper_planning_resolves_fixed_bil_mark_and_sizes_the_sleeve(
     assert sized.quantities == {"SEC-A": Decimal("55")}
     assert sized.defensive_quantity == Decimal("50")
     assert sized.cash_residual == Decimal("0")
-    assert "sentinel_bars" in conn.statements[0][0]
-    assert "sentinel_defensive_bars" in conn.statements[1][0]
+    assert "sentinel_corpus_publications" in conn.statements[0][0]
+    assert "sentinel_bars" in conn.statements[1][0]
+    assert "sentinel_defensive_bars" in conn.statements[2][0]
 
 
 def test_trial_marks_synthetic_identity_from_provider_bil_relation():

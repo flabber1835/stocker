@@ -8,6 +8,7 @@ import sys
 from datetime import date, datetime, timezone
 from pathlib import Path
 from types import SimpleNamespace
+from unittest.mock import Mock
 
 import pytest
 
@@ -198,7 +199,15 @@ def test_reviewed_shadow_starts_only_dedicated_broker_free_service(tmp_path):
     assert all("sentinel-automation" not in call for call in calls)
 
 
-def test_fenced_runtime_uses_canonical_ingest_without_broker(monkeypatch):
+@pytest.fixture
+def legacy_publication(monkeypatch):
+    """These fenced-runtime cases exercise the legacy acquisition path."""
+    monkeypatch.setattr(
+        automation_runtime.publication, "current", lambda _conn: None)
+
+
+def test_fenced_runtime_uses_canonical_ingest_without_broker(
+        monkeypatch, legacy_publication):
     obj = object.__new__(automation_runtime.ProductionAutomation)
     obj.automation_config = SimpleNamespace(alert_max_attempts=8)
     obj._fenced_data_next_wake = None
@@ -234,7 +243,7 @@ def test_fenced_runtime_uses_canonical_ingest_without_broker(monkeypatch):
     assert alerts == []
 
 
-def test_fenced_vendor_lag_is_retained_not_raised(monkeypatch):
+def test_fenced_vendor_lag_is_retained_not_raised(monkeypatch, legacy_publication):
     obj = object.__new__(automation_runtime.ProductionAutomation)
     obj.automation_config = SimpleNamespace(alert_max_attempts=8)
     obj._fenced_data_next_wake = None
@@ -253,15 +262,14 @@ def test_fenced_vendor_lag_is_retained_not_raised(monkeypatch):
     monkeypatch.setattr(automation_runtime.schema, "require_runtime_schema", lambda _c: None)
     monkeypatch.setattr(
         automation_runtime.feed_store, "latest_visible_session", lambda _c: "2026-08-17")
-    monkeypatch.setattr(
-        automation_runtime.ingest, "daily",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("vendor publication incomplete")))
+    ingest = Mock(side_effect=RuntimeError("vendor publication incomplete"))
+    monkeypatch.setattr(automation_runtime.ingest, "daily", ingest)
     monkeypatch.setattr(
         automation_runtime.outbox, "enqueue", lambda _c, **kwargs: alerts.append(kwargs))
 
     wake = asyncio.run(obj._fenced_data_wake(conn))
 
+    ingest.assert_called_once_with(conn, today="2026-08-18")
     assert wake is not None
     assert rolled_back == [True]
     assert alerts[-1]["event_type"] == "AUTOMATION_FENCED_DATA_NOT_READY"
@@ -273,7 +281,8 @@ def test_fenced_vendor_lag_is_retained_not_raised(monkeypatch):
         "feed and readiness evidence")
 
 
-def test_fenced_source_recovery_escalates_once_at_following_open(monkeypatch):
+def test_fenced_source_recovery_escalates_once_at_following_open(
+        monkeypatch, legacy_publication):
     obj = object.__new__(automation_runtime.ProductionAutomation)
     obj.automation_config = SimpleNamespace(alert_max_attempts=8)
     obj._fenced_data_next_wake = None
@@ -295,16 +304,15 @@ def test_fenced_source_recovery_escalates_once_at_following_open(monkeypatch):
     monkeypatch.setattr(
         automation_runtime.feed_store, "latest_visible_session",
         lambda _c: "2026-08-17")
-    monkeypatch.setattr(
-        automation_runtime.ingest, "daily",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            RuntimeError("provider still unavailable")))
+    ingest = Mock(side_effect=RuntimeError("provider still unavailable"))
+    monkeypatch.setattr(automation_runtime.ingest, "daily", ingest)
     monkeypatch.setattr(
         automation_runtime.outbox, "enqueue",
         lambda _c, **kwargs: alerts.append(kwargs))
 
     asyncio.run(obj._fenced_data_wake(conn))
 
+    ingest.assert_called_once_with(conn, today="2026-08-18")
     assert len(alerts) == 1
     assert alerts[0]["idempotency_key"] == \
         "fenced-data:2026-08-18:deadline-missed"
@@ -315,7 +323,7 @@ def test_fenced_source_recovery_escalates_once_at_following_open(monkeypatch):
 
 
 def test_expected_shadow_source_final_wait_shares_fenced_amber_incident(
-        monkeypatch):
+        monkeypatch, legacy_publication):
     from sentinel import shadow_runtime
 
     obj = object.__new__(automation_runtime.ProductionAutomation)
@@ -349,16 +357,17 @@ def test_expected_shadow_source_final_wait_shares_fenced_amber_incident(
     monkeypatch.setattr(
         automation_runtime.readiness, "save_snapshot",
         lambda *_args, **_kwargs: None)
-    monkeypatch.setattr(
-        shadow_runtime, "advance_ready_shadow",
-        lambda *_args, **_kwargs: (_ for _ in ()).throw(
-            shadow_runtime.ShadowSourceFinalPending("2026-08-18", eligible)))
+    advance = Mock(side_effect=shadow_runtime.ShadowSourceFinalPending(
+        "2026-08-18", eligible))
+    monkeypatch.setattr(shadow_runtime, "advance_ready_shadow", advance)
     monkeypatch.setattr(
         automation_runtime.outbox, "enqueue",
         lambda _c, **kwargs: alerts.append(kwargs))
 
     asyncio.run(obj._fenced_data_wake(conn))
 
+    advance.assert_called_once_with(
+        conn, through="2026-08-18", observation_id="primary", starting_cash=100_000)
     assert len(alerts) == 1
     assert alerts[0]["idempotency_key"] == \
         "fenced-data:2026-08-18:not-ready"
@@ -366,7 +375,8 @@ def test_expected_shadow_source_final_wait_shares_fenced_amber_incident(
     assert alerts[0]["severity"] == "WARN"
 
 
-def test_fenced_shadow_mode_advances_without_constructing_broker(monkeypatch):
+def test_fenced_shadow_mode_advances_without_constructing_broker(
+        monkeypatch, legacy_publication):
     from sentinel import shadow_runtime
 
     obj = object.__new__(automation_runtime.ProductionAutomation)

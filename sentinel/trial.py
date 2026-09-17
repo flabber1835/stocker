@@ -360,7 +360,7 @@ def _reverse_session_fills(
 
 def _expected_effective_equity_dividends(
         conn, effective_session: date,
-        closing_positions: Mapping[str, object], commands: object) -> list[dict]:
+        closing_positions: Mapping[str, object], commands: object, *, source=None) -> list[dict]:
     """Read effective-session equity dividends from the published corpus.
 
     The state committed by the plan ends on the preceding decision session, so
@@ -383,15 +383,18 @@ def _expected_effective_equity_dividends(
     if not held:
         return []
 
-    visible = publication.visible_predicate("b")
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT security_id,ticker,close_signal,close_unadjusted,"
-            " dividend_per_share"
-            " FROM sentinel_bars b WHERE session=%s"
-            " AND security_id=ANY(%s) AND " + visible
-            + " ORDER BY security_id", (wanted, held))
-        bar_rows = cur.fetchall()
+    if source is not None:
+        bar_rows = source.bars(wanted, held)
+    else:
+        visible = publication.visible_predicate("b")
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT security_id,ticker,close_signal,close_unadjusted,"
+                " dividend_per_share"
+                " FROM sentinel_bars b WHERE session=%s"
+                " AND security_id=ANY(%s) AND " + visible
+                + " ORDER BY security_id", (wanted, held))
+            bar_rows = cur.fetchall()
     found_security_ids = [str(row[0]) for row in bar_rows]
     if (set(found_security_ids) != set(held)
             or len(found_security_ids) != len(set(found_security_ids))):
@@ -421,17 +424,20 @@ def _expected_effective_equity_dividends(
             str(security_id), str(ticker), signal, raw, per_share)
 
     raw_start, raw_end = calendar.action_date_window(wanted, wanted)
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT session,action,ticker,"
-            " COALESCE(source_payload->>'value',value::text),source_row_id"
-            " FROM sentinel_active_actions"
-            " WHERE session BETWEEN %s AND %s"
-            " ORDER BY session,ticker,source_row_id", (raw_start, raw_end))
-        action_rows = [row for row in cur.fetchall()
-                       if str(row[1] or "").lower() in DIVIDEND_ACTIONS
-                       and calendar.session_on_or_after(str(row[0])) == wanted
-                       and str(row[2] or "").strip().upper() in ticker_rows]
+    if source is not None:
+        action_rows = source.actions(wanted, ticker_rows)
+    else:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT session,action,ticker,"
+                " COALESCE(source_payload->>'value',value::text),source_row_id"
+                " FROM sentinel_active_actions"
+                " WHERE session BETWEEN %s AND %s"
+                " ORDER BY session,ticker,source_row_id", (raw_start, raw_end))
+            action_rows = [row for row in cur.fetchall()
+                           if str(row[1] or "").lower() in DIVIDEND_ACTIONS
+                           and calendar.session_on_or_after(str(row[0])) == wanted
+                           and str(row[2] or "").strip().upper() in ticker_rows]
     sources: dict[str, list[str]] = {}
     reported: dict[str, Decimal] = {}
     seen_sources: set[str] = set()
@@ -499,7 +505,7 @@ def _expected_effective_equity_dividends(
 
 def _expected_defensive_dividends(
         conn, effective_session: date, closing_positions: Mapping[str, object],
-        commands: object) -> list[dict]:
+        commands: object, *, source=None) -> list[dict]:
     """Project published BIL ACTIONS onto raw paper shares, evidence-only."""
     from sentinel.core.decision import DEFENSIVE_SECURITY_ID
     from sentinel.core.terminal import DIVIDEND_ACTIONS
@@ -509,15 +515,19 @@ def _expected_defensive_dividends(
 
     wanted = effective_session.isoformat()
     raw_start, raw_end = calendar.action_date_window(wanted, wanted)
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT session,action,value,source_row_id"
-            " FROM sentinel_active_actions"
-            " WHERE UPPER(ticker)='BIL' AND session BETWEEN %s AND %s"
-            " ORDER BY session,source_row_id", (raw_start, raw_end))
-        rows = [row for row in cur.fetchall()
-                if str(row[1] or "").lower() in DIVIDEND_ACTIONS
-                and calendar.session_on_or_after(str(row[0])) == wanted]
+    if source is not None:
+        rows = [(day, action, value, identity)
+                for day, action, _ticker, value, identity in source.actions(wanted, {"BIL"})]
+    else:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT session,action,value,source_row_id"
+                " FROM sentinel_active_actions"
+                " WHERE UPPER(ticker)='BIL' AND session BETWEEN %s AND %s"
+                " ORDER BY session,source_row_id", (raw_start, raw_end))
+            rows = [row for row in cur.fetchall()
+                    if str(row[1] or "").lower() in DIVIDEND_ACTIONS
+                    and calendar.session_on_or_after(str(row[0])) == wanted]
     if not rows:
         return []
 
@@ -540,14 +550,17 @@ def _expected_defensive_dividends(
     if len(set(source_rows)) != len(source_rows):
         raise TrialEvidenceRefused("BIL distribution source identities repeat")
 
-    visible = publication.visible_predicate("d", sep_retirements=False)
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT close_signal,close_unadjusted"
-            " FROM sentinel_defensive_bars d WHERE session=%s"
-            " AND security_id=%s AND ticker='BIL' AND " + visible,
-            (wanted, DEFENSIVE_SECURITY_ID))
-        mark_row = cur.fetchone()
+    if source is not None:
+        mark_row = source.defensive_mark(wanted)
+    else:
+        visible = publication.visible_predicate("d", sep_retirements=False)
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT close_signal,close_unadjusted"
+                " FROM sentinel_defensive_bars d WHERE session=%s"
+                " AND security_id=%s AND ticker='BIL' AND " + visible,
+                (wanted, DEFENSIVE_SECURITY_ID))
+            mark_row = cur.fetchone()
     if mark_row is None:
         raise TrialEvidenceRefused(
             "BIL distribution lacks published price-domain evidence")

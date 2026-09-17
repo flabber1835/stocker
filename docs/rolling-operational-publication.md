@@ -77,9 +77,9 @@ ordinary signed receipts, atomic rollback, reader exclusion, stale CAS/fence/
 deadline refusal, generation/source changes, no comparison promotion, lost-ack
 idempotence and repeated fresh data publication. Falsify the new guards.
 
-Still required before deployment: qualify the remaining paper execution
-reference consumers and inspect failed-attempt state. Fresh initialization,
+Still required before deployment: retention and long-horizon action bases,
+failed-attempt state inspection and observed NAS qualification. Fresh initialization,
 authenticated checkpoints, bounded runtime authority and daily shadow-service
-preparation are implemented. Validate NAS backup,
+preparation and [paper execution readers](rolling-paper-inputs.md) are implemented. Validate NAS backup,
 first GO, paper activation/next-open handling, restart and subsequent refresh.
 No local synthetic test is an observed NAS GO or paper fill.

@@ -16,7 +16,7 @@ from decimal import Decimal
 from typing import Any, Iterable, Mapping
 
 from sentinel.execution import journal
-from sentinel.execution.reconcile import corpus_action_lookup
+from sentinel.execution.feed_actions import action_lookup as corpus_action_lookup
 
 
 SCHEMA = "sentinel.informational-paper-mirror/1"

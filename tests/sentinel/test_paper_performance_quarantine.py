@@ -109,10 +109,10 @@ def test_preparation_detects_missed_cycle_dividend_using_preopen_ownership(monke
     fills = [("P:AAA", "BUY", 100, bought),
              ("P:AAA", "SELL", 100, datetime(2026, 8, 20, 14, tzinfo=timezone.utc))]
     conn = OwnershipConnection(fills)
-    monkeypatch.setattr("sentinel.execution.reconcile.corpus_action_lookup",
+    monkeypatch.setattr("sentinel.execution.feed_actions.action_lookup",
                         lambda *_args, **_kw: lambda *_: Decimal(1))
     monkeypatch.setattr("sentinel.feed.publication.require_current",
-                        lambda _: SimpleNamespace(to_dict=lambda: {"version": 7}))
+                        lambda _: SimpleNamespace(evidence={}, to_dict=lambda: {"version": 7}))
     marker = P.scan_entitlements(
         conn, binding=result()["binding"], through=date(2026, 8, 24),
         account=SimpleNamespace(cash=20000, equity=100000))

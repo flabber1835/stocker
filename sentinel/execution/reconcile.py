@@ -1244,10 +1244,24 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
             " ORDER BY d.session", (start, end))
         defensive_rows = list(cur.fetchall())
 
+    return reconcile_action_material(
+        start=start, end=end, action_rows=action_rows,
+        published_equity_rows=published_equity_rows, defensive_rows=defensive_rows,
+        dispositions=anomalies.active_rows(conn, start=str(start), end=str(end),
+                                           kinds=anomalies.SPLIT_DISPOSITION_KINDS),
+        equity_mapping=lambda symbol, effective: _published_equity_mapping(conn, symbol, effective))
+
+
+def reconcile_action_material(*, start, end, action_rows, published_equity_rows,
+                              defensive_rows, dispositions, equity_mapping):
+    """One scalar/material policy over a publication-bound input adapter."""
+    from sentinel.feed import calendar, domains
+    from stock_strategy_shared.split_reconciliation import (
+        SPLIT_UNRESOLVED, resolve_split_orientation, split_price_evidence,
+        split_ratio_matches)
+
     active_split_dispositions: dict[tuple[str, date], list[dict]] = {}
-    for row in anomalies.active_rows(
-            conn, start=str(start), end=str(end),
-            kinds=anomalies.SPLIT_DISPOSITION_KINDS):
+    for row in dispositions:
         key = (str(row["ticker"]).upper(),
                date.fromisoformat(str(row["session"])))
         active_split_dispositions.setdefault(key, []).append(row)
@@ -1375,36 +1389,11 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
                  _prior_run, _prior_version) = defensive
                 mapping_rows = [(defensive_sid,)]
         else:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "SELECT b.security_id," +
-                    publication.effective_split_ratio("b") +
-                    ",COALESCE(repair.last_written_run_id::text,"
-                    " b.last_written_run_id::text,'legacy'),"
-                    " COALESCE(repair.publication_version,"
-                    " base_publication.version,0)"
-                    " FROM sentinel_bars b"
-                    " LEFT JOIN LATERAL ("
-                    "   SELECT rr.last_written_run_id,"
-                    "          rp.version AS publication_version"
-                    "   FROM sentinel_bar_split_repairs rr"
-                    "   JOIN sentinel_corpus_publications rp"
-                    "     ON rp.run_id=rr.last_written_run_id"
-                    "   WHERE rr.security_id=b.security_id"
-                    "     AND rr.session=b.session"
-                    "   ORDER BY rp.version DESC LIMIT 1"
-                    " ) repair ON TRUE"
-                    " LEFT JOIN sentinel_corpus_publications base_publication"
-                    "   ON base_publication.run_id=b.last_written_run_id"
-                    " WHERE UPPER(b.ticker)=%s AND b.session=%s AND "
-                    + publication.visible_predicate("b") +
-                    " ORDER BY b.security_id",
-                    (symbol, effective))
-                mapping_rows = list(cur.fetchall())
-                if len(mapping_rows) == 1:
-                    published_ratio = mapping_rows[0][1]
-                    publication_run_id = str(mapping_rows[0][2])
-                    publication_version = int(mapping_rows[0][3])
+            mapping_rows = equity_mapping(symbol, effective)
+            if len(mapping_rows) == 1:
+                published_ratio = mapping_rows[0][1]
+                publication_run_id = str(mapping_rows[0][2])
+                publication_version = int(mapping_rows[0][3])
 
         sid = str(mapping_rows[0][0]) if len(mapping_rows) == 1 else None
         event = CorporateActionEvent(
@@ -1621,3 +1610,22 @@ def corpus_action_lookup(conn, *, start: date, end: date) -> ActionLookup:
         scalar_events=tuple(scalar_events),
         unsupported_events=tuple(unsupported),
         unresolved_events=tuple(unresolved))
+
+
+def _published_equity_mapping(conn, symbol, effective):
+    from sentinel.feed import publication
+    with conn.cursor() as cur:
+        cur.execute(
+            "SELECT b.security_id," + publication.effective_split_ratio("b") +
+            ",COALESCE(repair.last_written_run_id::text,b.last_written_run_id::text,'legacy'),"
+            " COALESCE(repair.publication_version,base_publication.version,0)"
+            " FROM sentinel_bars b LEFT JOIN LATERAL ("
+            " SELECT rr.last_written_run_id,rp.version AS publication_version"
+            " FROM sentinel_bar_split_repairs rr JOIN sentinel_corpus_publications rp"
+            " ON rp.run_id=rr.last_written_run_id WHERE rr.security_id=b.security_id"
+            " AND rr.session=b.session ORDER BY rp.version DESC LIMIT 1) repair ON TRUE"
+            " LEFT JOIN sentinel_corpus_publications base_publication"
+            " ON base_publication.run_id=b.last_written_run_id"
+            " WHERE UPPER(b.ticker)=%s AND b.session=%s AND " + publication.visible_predicate("b") +
+            " ORDER BY b.security_id", (symbol, effective))
+        return list(cur.fetchall())

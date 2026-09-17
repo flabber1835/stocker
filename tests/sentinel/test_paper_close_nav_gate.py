@@ -555,9 +555,12 @@ def test_manual_delayed_preparation_cannot_bypass_due_cycle_gate(monkeypatch):
         lambda _conn: SimpleNamespace(
             mode=paper_preparation.RolloutMode.PINNED_1_00, version=1,
             certificate_sha256=None))
+    publication = SimpleNamespace(version=7, evidence={})
     monkeypatch.setattr(
         paper_preparation.publication, "pinned",
-        lambda _conn, commit=False: nullcontext(SimpleNamespace(version=7)))
+        lambda _conn, commit=False: nullcontext(publication))
+    monkeypatch.setattr(
+        paper_preparation.publication, "current", lambda _conn: publication)
     monkeypatch.setattr(
         paper_preparation, "_readiness_or_refuse", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(

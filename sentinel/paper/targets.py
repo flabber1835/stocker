@@ -80,7 +80,7 @@ def _action_lookup(conn, state: SessionState, through: date):
     ticker reuse out of the lookup; unsupported merger/spinoff shapes remain
     foreign activity and therefore block increases.
     """
-    from sentinel.execution.reconcile import corpus_action_lookup
+    from sentinel.execution.feed_actions import action_lookup as corpus_action_lookup
 
     start = date.fromisoformat(
         state.last_processed_session or through.isoformat())
@@ -100,7 +100,7 @@ def _target_action_lookup(conn, plan: ExecutionPlan, through: date):
     an action in ``(decision_session, execution_session]`` can change shares
     after this plan fixed its basket.
     """
-    from sentinel.execution.reconcile import corpus_action_lookup
+    from sentinel.execution.feed_actions import action_lookup as corpus_action_lookup
 
     return corpus_action_lookup(
         conn, start=plan.decision_session, end=through)
@@ -408,7 +408,8 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
             raise PaperActivationRefused("opening instrument map requires the retained sizing projection")
         opening_prices = OpeningPrices.from_dict(projection.opening_sizing.get("prices"))
         symbols.update(opening_prices.symbols)
-    meta = load_meta(conn)
+    from sentinel.execution import feed_inputs
+    meta = feed_inputs.metadata(conn)
     for security_id in desired:
         if security_id in meta:
             symbols.setdefault(security_id, meta[security_id].ticker)
