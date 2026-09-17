@@ -854,8 +854,9 @@ class PostgresShadowObservationStore:
     appends do not commit: the runtime owns their publication-read transaction.
     """
 
-    def __init__(self, conn, *, observation_id: str) -> None:
+    def __init__(self, conn, *, observation_id: str, commit_genesis: bool = True) -> None:
         self.conn = conn
+        self.commit_genesis = commit_genesis
         self.observation_id = _observation_id(observation_id)
         self.prefix = f"{POSTGRES_CURSOR_PREFIX}{self.observation_id}:"
 
@@ -912,7 +913,8 @@ class PostgresShadowObservationStore:
                 raise ShadowObservationRefused(
                     "shadow observation genesis was already committed with "
                     "different evidence")
-            self.conn.commit()
+            if self.commit_genesis:
+                self.conn.commit()
         except BaseException:
             self.conn.rollback()
             raise

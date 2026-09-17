@@ -1029,6 +1029,11 @@ reconstruction of an earlier decision's inputs.
 
 ### 8.1 Two tiers, and their certification state
 
+The [rolling cold-start checkpoint](rolling-cold-start-state.md) authenticates
+the first canonical shadow state without broadening legacy VERIFIED or granting
+execution authority. Admission refuses existing state; bounded restart reads its
+committed closure without reloading the original warmup corpus.
+
 The opt-in [rolling publication boundary](rolling-operational-publication.md)
 reuses ordinary corpus versions, signed validation receipts and PITR evidence.
 It binds one immutable price/reference generation and fences legacy readers.
