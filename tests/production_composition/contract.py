@@ -111,9 +111,10 @@ EDGES = (
         "host_subprocess", True,
     ),
     AuthorityEdge(
-        "preparation_to_publication", "bounded source catch-up", "current publication",
+        "preparation_to_publication", "rolling snapshot preparation", "current publication",
         "publication completeness", "scripts/sentinel_go_24x7_entry.py",
-        ("outage_recovery.catch_up", "publication_current", "bounded_sharadar_daily"),
+        ("rolling_go_inputs.prepare(c, target_session=target)",
+         "rolling_go_inputs.current(c)", "publication_current", "bounded_sharadar_daily"),
         "docker_postgres", True,
     ),
     AuthorityEdge(
