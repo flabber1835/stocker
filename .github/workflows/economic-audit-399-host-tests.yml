@@ -13,6 +13,7 @@ jobs:
       PYTHONPATH: ${{ github.workspace }}/shared
       ALPACA_HARNESS_REQUIRE_POSTGRES: '1'
       SENTINEL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sentinel_audit
+      SENTINEL_PUBLICATION_RECEIPT_KEY: audit399-publication-receipt-key-0000000000000001
     services:
       postgres:
         image: postgres:16
