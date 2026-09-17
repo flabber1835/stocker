@@ -8,7 +8,7 @@ from types import SimpleNamespace
 import httpx
 import pytest
 
-from sentinel.execution import opening_sizing, target_reprojection as projections
+from sentinel.execution import feed_inputs, opening_sizing, target_reprojection as projections
 from sentinel.execution.alpaca import AlpacaExecutionBroker, MalformedBrokerPayload
 from sentinel.execution.contract import BrokerInstrument, BrokerPosition
 from sentinel.execution.opening_prices import (
@@ -110,7 +110,7 @@ def test_submission_uses_retained_renamed_instrument(monkeypatch, sale):
     evidence = asyncio.run(opening_sizing.prices_for_plan(None, state=env, plan=plan, broker=broker))
     projection = opening_sizing.resolve(env, plan, base(env, plan), evidence)
     monkeypatch.setattr(projections, 'load_projection', lambda *a, **k: projection)
-    monkeypatch.setattr(targets, 'load_meta', lambda *a, **k: {})
+    monkeypatch.setattr(feed_inputs, 'metadata', lambda *a, **k: {})
     observed = _observation(positions=(BrokerPosition(
         BrokerInstrument('SEC-X', 'NEWX', 'asset-SEC-X'), D(10)),) if sale else ())
     requested.clear()
@@ -195,7 +195,7 @@ def test_submission_refuses_asset_id_change_since_opening(monkeypatch, sale):
     evidence = asyncio.run(opening_sizing.prices_for_plan(None, state=env, plan=plan, broker=broker))
     projection = opening_sizing.resolve(env, plan, base(env, plan), evidence)
     monkeypatch.setattr(projections, 'load_projection', lambda *a, **k: projection)
-    monkeypatch.setattr(targets, 'load_meta', lambda *a, **k: {})
+    monkeypatch.setattr(feed_inputs, 'metadata', lambda *a, **k: {})
     observed = _observation(positions=(BrokerPosition(
         BrokerInstrument('SEC-X', 'NEWX', 'different-asset'), D(10)),) if sale else ())
     if not sale:
