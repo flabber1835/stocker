@@ -294,12 +294,14 @@ def _latest_receipt_sha256(conn, *, through_version: int) -> str | None:
     return digest
 
 
-def _validate_publication(conn, publication: Publication | None):
+def _validate_publication(conn, publication: Publication | None, *, allow_snapshot=False):
     if publication is None:
         return None
     _require_object_evidence(
         publication.evidence, where=f"version {publication.version}")
     _verify_receipt_chain(conn, through_version=int(publication.version))
+    if "rolling_snapshot" in publication.evidence and not allow_snapshot:
+        raise _core.CorpusIncoherent("ROLLING_SNAPSHOT_REQUIRES_VERSIONED_READER")
     return publication
 
 
@@ -318,6 +320,52 @@ def require_current(conn):
 def pinned(conn, *, commit: bool = True):
     with _core.pinned(conn, commit=commit) as publication:
         yield _validate_publication(conn, publication)
+
+
+def _insert_receipted_publication(conn, *, previous, next_version, run_id,
+                                  published_at, window_start, window_end,
+                                  publication_evidence):
+    """Insert canonical publication and independent receipt; caller owns commit."""
+    previous_receipt = (
+        _latest_receipt_sha256(conn, through_version=previous.version)
+        if previous is not None else None)
+    unsigned_publication_evidence = dict(publication_evidence)
+    publication_evidence = _add_validation_receipt(
+        conn, version=next_version,
+        previous_version=previous.version if previous else None,
+        run_id=run_id, published_at=published_at,
+        window_start=window_start, window_end=window_end,
+        evidence=publication_evidence,
+        previous_receipt_sha256=previous_receipt)
+    with conn.cursor() as cur:
+        cur.execute(
+            "INSERT INTO sentinel_corpus_publications (version,"
+            " previous_version,run_id,published_at,window_start,window_end,"
+            " evidence) VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb)"
+            " RETURNING version,published_at",
+            (next_version, previous.version if previous else None,
+             run_id, published_at,
+             window_start, window_end,
+             json.dumps(publication_evidence,
+                        sort_keys=True, default=str)))
+        version, _stored_published_at = cur.fetchone()
+        if int(version) != next_version:  # pragma: no cover - DB contract
+            raise _core.CorpusIncoherent(
+                "database stored a different publication version than allocated")
+        receipt = publication_evidence[RECEIPT_EVIDENCE_KEY]
+        cur.execute(
+            "INSERT INTO sentinel_publication_validation_receipts ("
+            " publication_version,previous_version,run_id,published_at,"
+            " window_start,window_end,evidence,origin_run_status,"
+            " previous_receipt_sha256,receipt_sha256,receipt_hmac_sha256)"
+            " VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s)",
+            (next_version, previous.version if previous else None, run_id,
+             published_at, window_start, window_end,
+             json.dumps(unsigned_publication_evidence,
+                        sort_keys=True, default=str),
+             "success" if run_id is not None else None,
+             previous_receipt, receipt["receipt_sha256"],
+             receipt["receipt_hmac_sha256"]))
 
 
 def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
@@ -402,46 +450,10 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
         publication_evidence[EVIDENCE_KEY] = publication_proof(
             conn, previous=previous, version=next_version,
             run_id=run_id, evidence=publication_evidence)
-        previous_receipt = (
-            _latest_receipt_sha256(conn, through_version=previous.version)
-            if previous is not None else None)
-        unsigned_publication_evidence = dict(publication_evidence)
-        publication_evidence = _add_validation_receipt(
-            conn, version=next_version,
-            previous_version=previous.version if previous else None,
-            run_id=run_id, published_at=published_at,
-            window_start=window_start, window_end=window_end,
-            evidence=publication_evidence,
-            previous_receipt_sha256=previous_receipt)
-        with conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO sentinel_corpus_publications (version,"
-                " previous_version,run_id,published_at,window_start,window_end,"
-                " evidence) VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb)"
-                " RETURNING version,published_at",
-                (next_version, previous.version if previous else None,
-                 run_id, published_at,
-                 window_start, window_end,
-                 json.dumps(publication_evidence,
-                            sort_keys=True, default=str)))
-            version, _stored_published_at = cur.fetchone()
-            if int(version) != next_version:  # pragma: no cover - DB contract
-                raise _core.CorpusIncoherent(
-                    "database stored a different publication version than allocated")
-            receipt = publication_evidence[RECEIPT_EVIDENCE_KEY]
-            cur.execute(
-                "INSERT INTO sentinel_publication_validation_receipts ("
-                " publication_version,previous_version,run_id,published_at,"
-                " window_start,window_end,evidence,origin_run_status,"
-                " previous_receipt_sha256,receipt_sha256,receipt_hmac_sha256)"
-                " VALUES (%s,%s,%s,%s,%s,%s,%s::jsonb,%s,%s,%s,%s)",
-                (next_version, previous.version if previous else None, run_id,
-                 published_at, window_start, window_end,
-                 json.dumps(unsigned_publication_evidence,
-                            sort_keys=True, default=str),
-                 "success" if run_id is not None else None,
-                 previous_receipt, receipt["receipt_sha256"],
-                 receipt["receipt_hmac_sha256"]))
+        _insert_receipted_publication(
+            conn, previous=previous, next_version=next_version, run_id=run_id,
+            published_at=published_at, window_start=window_start,
+            window_end=window_end, publication_evidence=publication_evidence)
         conn.commit()
     except BaseException:
         conn.rollback()
@@ -458,6 +470,8 @@ def publish(conn, *, run_id=None, window_start=None, window_end=None,
     """Publish one coherent corpus generation with all durable seed evidence."""
     from sentinel.feed import source_aliases
     merged = _candidate_evidence(evidence)
+    if "rolling_snapshot" in merged:
+        raise _core.CorpusIncoherent("rolling snapshot authority requires its dedicated publisher")
     from sentinel.feed import operational_source, progress
     capture = operational_source.current()
     if capture is not None and capture.loaded:

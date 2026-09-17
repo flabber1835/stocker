@@ -486,13 +486,16 @@ for _table in _HISTORY_TABLES:
 from sentinel.feed import rolling_catalog as _rolling_catalog
 from sentinel.feed import rolling_job_catalog as _rolling_job_catalog
 from sentinel.feed import rolling_publication_catalog as _rolling_publication_catalog
+from sentinel.feed import operational_snapshot_catalog as _operational_snapshot_catalog
 
-for _snapshot_catalog in (_rolling_catalog, _rolling_job_catalog, _rolling_publication_catalog):
+for _snapshot_catalog in (_rolling_catalog, _rolling_job_catalog, _rolling_publication_catalog,
+                          _operational_snapshot_catalog):
     _RELATIONS.update({name: ("r", "p", False, False, False)
                       for name in _snapshot_catalog.COLUMNS})
     _COLUMNS.update(_snapshot_catalog.COLUMNS)
     _PRIMARY_KEYS.update(_snapshot_catalog.PRIMARY_KEYS)
-    _TRIGGER_WITNESSES.update(_snapshot_catalog.TRIGGERS)
+    for _table, _triggers in _snapshot_catalog.TRIGGERS.items():
+        _TRIGGER_WITNESSES.setdefault(_table, {}).update(_triggers)
     _CONSTRAINT_WITNESSES.update(_snapshot_catalog.CONSTRAINTS)
     _INDEXES.update({name + "_pkey": True for name in _snapshot_catalog.COLUMNS})
 _INDEXES["sentinel_snapshot_jobs_active_request"] = True
