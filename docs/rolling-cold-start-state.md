@@ -1,5 +1,9 @@
 # Durable rolling cold start
 
+The next [daily continuation boundary](rolling-daily-continuation.md) retains
+this checkpoint as immutable origin and advances a separately versioned signed
+checkpoint after each adjacent daily transition.
+
 This boundary consumes #391's real DATA_ONLY publication and commits the first
 canonical shadow state. It reuses `ShadowObserver`, its genesis/session format,
 and the existing shadow cursor namespace. It creates no parallel portfolio,

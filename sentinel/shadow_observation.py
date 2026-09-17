@@ -337,6 +337,8 @@ def _published_input_value(
         "session": published.session,
         "data_version": published.data_version,
         "bars": bars,
+        **({"rolling_continuity": dict(published.history_proof)}
+           if (published.history_proof or {}).get("schema") == "sentinel.rolling-continuity/1" else {}),
         "meta": {
             str(key): row(value)
             for key, value in sorted(published.meta.items())
@@ -854,9 +856,11 @@ class PostgresShadowObservationStore:
     appends do not commit: the runtime owns their publication-read transaction.
     """
 
-    def __init__(self, conn, *, observation_id: str, commit_genesis: bool = True) -> None:
+    def __init__(self, conn, *, observation_id: str, commit_genesis: bool = True,
+                 records_from: str | None = None) -> None:
         self.conn = conn
         self.commit_genesis = commit_genesis
+        self.records_from = records_from
         self.observation_id = _observation_id(observation_id)
         self.prefix = f"{POSTGRES_CURSOR_PREFIX}{self.observation_id}:"
 
@@ -921,12 +925,19 @@ class PostgresShadowObservationStore:
 
     def records(self) -> list[dict]:
         with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT cursor_name,session,state"
-                " FROM sentinel_processed_sessions"
-                " WHERE cursor_name LIKE %s"
-                " ORDER BY session,cursor_name",
-                (self.prefix + "session:%",))
+            if self.records_from is not None:
+                cur.execute(
+                    "SELECT cursor_name,session,state FROM sentinel_processed_sessions"
+                    " WHERE cursor_name LIKE %s AND session>=%s"
+                    " ORDER BY session,cursor_name LIMIT 3",
+                    (self.prefix + "session:%", self.records_from))
+            else:
+                cur.execute(
+                    "SELECT cursor_name,session,state"
+                    " FROM sentinel_processed_sessions"
+                    " WHERE cursor_name LIKE %s"
+                    " ORDER BY session,cursor_name",
+                    (self.prefix + "session:%",))
             rows = cur.fetchall()
         out: list[dict] = []
         for cursor_name, stored_session, state in rows:
@@ -1180,6 +1191,17 @@ class ShadowObserver:
             runtime_identity=runtime_identity,
             activation_timing=activation,
             warmup_input_identity=warmup_input)
+
+    @classmethod
+    def resume_checkpoint(cls, *, history_anchor: Mapping, **kwargs):
+        """Use an externally authenticated anchor; legacy resume stays exhaustive.
+
+        The rolling checkpoint boundary authenticates and binds this anchor
+        before calling. This method itself grants no runtime authority.
+        """
+        observer = cls.resume(**kwargs)
+        observer._history_anchor = dict(history_anchor)
+        return observer
 
     def _persist_and_verify_genesis(self) -> None:
         try:
@@ -1550,6 +1572,16 @@ class ShadowObserver:
         prior_data_version = self.initial_state.data_version
         prior_strategy_economics = self.initial_strategy_economics
         expected_session = self.first_session
+        anchor = getattr(self, "_history_anchor", None)
+        if anchor is not None:
+            if (not rows or len(rows) > 2
+                    or rows[0].get("record_sha256") != anchor["record_sha256"]):
+                raise ShadowObservationRefused("authenticated checkpoint suffix changed")
+            expected_session = anchor["session"]
+            previous_record_sha256 = anchor["previous_record_sha256"]
+            prior_state_sha256 = anchor["prior_state_sha256"]
+            prior_data_version = anchor["prior_data_version"]
+            prior_strategy_economics = anchor["prior_strategy_economics"]
         validated: list[dict] = []
         for index, value in enumerate(rows):
             raw = _as_mapping(value, where=f"shadow observation row {index}")

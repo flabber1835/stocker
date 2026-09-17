@@ -70,7 +70,7 @@ def write(conn, checkpoint: Checkpoint):
 def lineage_names(conn):
     with conn.cursor() as cur:
         cur.execute("SELECT cursor_name FROM sentinel_processed_sessions WHERE "
-                    "cursor_name LIKE 'shadow-%%' OR cursor_name LIKE 'rolling-cold-start:%%' "
+                    "cursor_name LIKE 'shadow-%%' OR cursor_name LIKE 'rolling-%%' "
                     "OR cursor_name LIKE 'catchup%%' OR state ? 'wealth_core' OR state ? 'strategy_identity'")
         return {str(row[0]) for row in cur.fetchall()}
 

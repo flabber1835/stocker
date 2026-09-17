@@ -1,5 +1,10 @@
 # Sentinel — operational deployment ground truth
 
+The opt-in [rolling daily continuation](rolling-daily-continuation.md) extends
+the authenticated first state through adjacent source-final sessions. It checks
+current overlap/live dependencies and commits a bounded advancing checkpoint;
+it does not yet connect GO or automation, or authorize execution.
+
 The [durable rolling cold start](rolling-cold-start-state.md) adds opt-in atomic
 canonical genesis, first decision and authenticated restart checkpoint. It has
 no GO/scheduler caller and does not activate paper execution. Existing partial
