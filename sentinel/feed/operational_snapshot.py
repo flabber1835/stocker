@@ -173,6 +173,9 @@ def publish(conn, lease, request, *, producer):
                     "job_id": lease.job_id, "validation_sha256": validated[0]},
                 "strategy_history": {"schema": "sentinel.strategy-history-mutations/1",
                     "baseline_version": version, "publication_version": version, "changes": []}}
+    from sentinel.feed import action_history
+    evidence["action_history"] = action_history.append(
+        conn, candidate=candidate, version=version, previous=previous)
     jobs._owned(conn, lease)
     publication._insert_receipted_publication(
         conn, previous=previous, next_version=version, run_id=None, published_at=at,

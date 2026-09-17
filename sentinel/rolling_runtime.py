@@ -166,4 +166,7 @@ def service_advance(conn, *, through, observation_id, starting_cash):
             inputs._prepare(conn, target_session=through)
     # Fresh genesis and crash recovery must consume the reviewed/current exact
     # publication; neither is permitted to replace it with newly acquired data.
-    return advance(conn, through=through, observation_id=observation_id, starting_cash=starting_cash)
+    result = advance(conn, through=through, observation_id=observation_id, starting_cash=starting_cash)
+    from sentinel.feed import retention
+    retention.maintain(conn)
+    return result

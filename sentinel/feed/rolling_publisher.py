@@ -232,3 +232,7 @@ def _prepare(conn, job_id, *, operational):
         # Scratch only, scoped to this exact owner; sealed evidence is never deleted.
         conn.rollback()
         staging.clear(conn, run_id=lease.owner)
+        if operational:
+            from sentinel.feed import retention
+            conn.commit()
+            retention.maintain(conn)

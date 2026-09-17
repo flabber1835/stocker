@@ -69,6 +69,9 @@ DDL = [
             IF NOT FOUND OR parent.snapshot_id IS NOT NULL THEN
                 RAISE EXCEPTION 'snapshot candidate is absent or sealed';
             END IF;
+            IF EXISTS (SELECT 1 FROM sentinel_snapshot_retirements WHERE candidate_id=NEW.candidate_id) THEN
+                RAISE EXCEPTION 'snapshot candidate is retired';
+            END IF;
             IF NOT parent.session_axis @> to_jsonb(ARRAY[NEW.session::text]) THEN
                 RAISE EXCEPTION 'snapshot observation is outside the session axis';
             END IF;

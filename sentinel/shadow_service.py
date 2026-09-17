@@ -398,7 +398,11 @@ def run(config: ShadowServiceConfig) -> int:
         except ShadowServiceWaiting as exc:
             print("WAITING: %s" % exc, file=sys.stderr, flush=True)
         deadline = time.monotonic() + config.poll_seconds
+        maintenance_pending = True
         while not stopped and time.monotonic() < deadline:
+            if maintenance_pending:
+                from sentinel.feed import retention
+                maintenance_pending = retention.idle_pass(config.database_url)
             time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
     return 0
 

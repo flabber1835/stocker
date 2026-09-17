@@ -487,9 +487,10 @@ from sentinel.feed import rolling_catalog as _rolling_catalog
 from sentinel.feed import rolling_job_catalog as _rolling_job_catalog
 from sentinel.feed import rolling_publication_catalog as _rolling_publication_catalog
 from sentinel.feed import operational_snapshot_catalog as _operational_snapshot_catalog
+from sentinel.feed import history_retention_catalog as _history_retention_catalog
 
 for _snapshot_catalog in (_rolling_catalog, _rolling_job_catalog, _rolling_publication_catalog,
-                          _operational_snapshot_catalog):
+                          _operational_snapshot_catalog, _history_retention_catalog):
     _RELATIONS.update({name: ("r", "p", False, False, False)
                       for name in _snapshot_catalog.COLUMNS})
     _COLUMNS.update(_snapshot_catalog.COLUMNS)
