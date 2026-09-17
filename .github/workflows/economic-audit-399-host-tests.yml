@@ -5,50 +5,59 @@ on:
     paths: [.github/workflows/economic-audit-399-host-tests.yml]
 permissions:
   contents: read
-  actions: read
 jobs:
   host-boundaries:
     runs-on: ubuntu-latest
     timeout-minutes: 25
+    env:
+      PYTHONPATH: ${{ github.workspace }}/shared
+      ALPACA_HARNESS_REQUIRE_POSTGRES: '1'
+      SENTINEL_DATABASE_URL: postgresql://postgres:postgres@127.0.0.1:5432/sentinel_audit
+    services:
+      postgres:
+        image: postgres:16
+        env:
+          POSTGRES_USER: postgres
+          POSTGRES_PASSWORD: postgres
+          POSTGRES_DB: sentinel_audit
+        ports: ['5432:5432']
+        options: --health-cmd pg_isready --health-interval 5s --health-timeout 5s --health-retries 12
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: aff4461d9af6d4a7367018768fda18d948958b49
           persist-credentials: false
           fetch-depth: 1
-      - uses: actions/download-artifact@v4
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
         with:
-          name: economic-audit-399-test-image
-          path: /tmp/audit399-image
-          run-id: 35262421704
-          github-token: ${{ github.token }}
-      - name: Load exact-source runtime
+          python-version: '3.12.13'
+      - name: Install documented host test dependencies and verify source
         run: |
           set -euo pipefail
           test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
           test "$(git rev-parse HEAD^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
-          gzip -dc /tmp/audit399-image/audit399-image.tar.gz | docker load
           mkdir -p /tmp/audit399-host
-          docker image inspect sentinel-test:ci > /tmp/audit399-host/image.json
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r sentinel/requirements.lock -r tests/requirements.lock
+          python -m pip check
+          python -VV > /tmp/audit399-host/python.txt
+          python -m pip freeze > /tmp/audit399-host/packages.txt
           git status --porcelain > /tmp/audit399-host/checkout-before.txt
-      - name: Execute host-boundary regressions in pinned runtime
+      - name: Execute exact-source host and database regressions
         shell: bash
         run: |
           set -euo pipefail
           set +e
-          docker run --rm --network none --shm-size=512m \
-            -v "$GITHUB_WORKSPACE:/work:ro" -v /tmp/audit399-host:/evidence \
-            -e ALPACA_HARNESS_REQUIRE_POSTGRES=1 \
-            --entrypoint python sentinel-test:ci -m pytest \
-            tests/production_composition tests/internal_state tests/broker \
-            tests/shared tests/backup tests/postgres \
+          python -m pytest tests/production_composition tests/internal_state tests/broker tests/shared tests/backup tests/postgres \
             -q -ra --tb=short --disable-warnings --durations=30 \
-            --junitxml=/evidence/results.xml 2>&1 | tee /tmp/audit399-host/tests.log
+            --junitxml=/tmp/audit399-host/results.xml 2>&1 | tee /tmp/audit399-host/tests.log
           rc=${PIPESTATUS[0]}
           printf '%s\n' "$rc" > /tmp/audit399-host/exit-code.txt
           git status --porcelain > /tmp/audit399-host/checkout-after.txt
+          git diff --exit-code > /tmp/audit399-host/tracked-source-diff.txt
           exit "$rc"
-      - uses: actions/upload-artifact@v4
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
           name: economic-audit-399-host-boundaries
