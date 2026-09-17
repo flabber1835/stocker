@@ -1,0 +1,97 @@
+name: Economic audit 399 runtime evidence
+on:
+  push:
+    branches: [audit/economic-399-evidence]
+    paths: [.github/workflows/economic-audit-399-tests.yml]
+permissions:
+  contents: read
+jobs:
+  runtime:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          persist-credentials: false
+          fetch-depth: 1
+      - name: Build exact audited production and test images
+        shell: bash
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
+          test "$(git rev-parse HEAD^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
+          mkdir -p /tmp/audit399-build
+          docker build --build-arg SOURCE_GIT_SHA=aff4461d9af6d4a7367018768fda18d948958b49 -f Dockerfile.sentinel -t sentinel:ci -t sentinel:latest . 2>&1 | tee /tmp/audit399-build/production-build.log
+          docker build --build-arg SENTINEL_IMAGE=sentinel:ci --build-arg SOURCE_GIT_SHA=aff4461d9af6d4a7367018768fda18d948958b49 -f Dockerfile.sentinel-test -t sentinel-test:ci . 2>&1 | tee /tmp/audit399-build/test-build.log
+          docker image inspect sentinel:ci sentinel-test:ci > /tmp/audit399-build/image-identity.json
+          docker save sentinel-test:ci | gzip -1 > /tmp/audit399-image.tar.gz
+          sha256sum /tmp/audit399-image.tar.gz > /tmp/audit399-build/image-sha256.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: economic-audit-399-build-evidence
+          path: /tmp/audit399-build/
+          retention-days: 7
+      - uses: actions/upload-artifact@v4
+        with:
+          name: economic-audit-399-test-image
+          path: /tmp/audit399-image.tar.gz
+          compression-level: 0
+          retention-days: 2
+  financial-tests:
+    needs: runtime
+    runs-on: ubuntu-latest
+    timeout-minutes: 35
+    strategy:
+      fail-fast: false
+      matrix:
+        lane: [strategy, sentinel-0, sentinel-1, sentinel-2, auxiliary]
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: economic-audit-399-test-image
+          path: /tmp/audit399-image
+      - name: Load audited image and select complete lane
+        env:
+          LANE: ${{ matrix.lane }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          gzip -dc /tmp/audit399-image/audit399-image.tar.gz | docker load
+          mkdir -p /tmp/audit399-evidence
+          docker run --rm --network none --entrypoint python sentinel-test:ci -c '
+          import pathlib,sys
+          lane=sys.argv[1]
+          if lane.startswith("sentinel-"):
+              n=int(lane.rsplit("-",1)[1])
+              paths=[str(p) for i,p in enumerate(sorted(pathlib.Path("tests/sentinel").glob("test_*.py"))) if i%3==n]
+          elif lane=="strategy":
+              paths=["tests/wealth_core","tests/champion","tests/median5","tests/v5"]
+          else:
+              paths=["tests/production_composition","tests/internal_state","tests/broker","tests/shared","tests/backup","tests/postgres"]
+          print("\n".join(paths))
+          ' "$LANE" > /tmp/audit399-evidence/test-selection.txt
+          cat /tmp/audit399-evidence/test-selection.txt
+      - name: Execute economic regressions with branch evidence
+        env:
+          LANE: ${{ matrix.lane }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mapfile -t tests < /tmp/audit399-evidence/test-selection.txt
+          set +e
+          docker run --rm --network none --shm-size=512m -v /tmp/audit399-evidence:/evidence -e COVERAGE_FILE=/evidence/.coverage --entrypoint python sentinel-test:ci -m coverage run --branch --source=sentinel,stock_strategy_shared -m pytest "${tests[@]}" -q -ra --tb=short --disable-warnings --durations=30 --junitxml=/evidence/results.xml 2>&1 | tee /tmp/audit399-evidence/tests.log
+          rc=${PIPESTATUS[0]}
+          printf '%s\n' "$rc" > /tmp/audit399-evidence/exit-code.txt
+          docker run --rm --network none -v /tmp/audit399-evidence:/evidence -e COVERAGE_FILE=/evidence/.coverage --entrypoint python sentinel-test:ci -m coverage json -o /evidence/coverage.json
+          docker run --rm --network none -v /tmp/audit399-evidence:/evidence -e COVERAGE_FILE=/evidence/.coverage --entrypoint python sentinel-test:ci -m coverage report > /tmp/audit399-evidence/coverage-summary.txt
+          exit "$rc"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: economic-audit-399-${{ matrix.lane }}
+          path: /tmp/audit399-evidence/
+          include-hidden-files: true
+          retention-days: 7
+          if-no-files-found: error
