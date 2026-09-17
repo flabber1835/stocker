@@ -37,6 +37,8 @@ def test_partial_preparation_attempts_survive_failure(monkeypatch, code, failure
     monkeypatch.setattr(schema, "ensure_schema", fail if failure == "schema" else noop)
     monkeypatch.setattr(store, "migrate_schema", noop)
     monkeypatch.setattr(outage_recovery, "catch_up", fail)
+    from sentinel.feed import rolling_go_inputs
+    monkeypatch.setattr(rolling_go_inputs, "prepare", fail)
     # Select a deterministic eligible instant without rewriting phase/attempt code.
     code = code.replace("now = datetime.now(timezone.utc)",
                         "now = datetime(2026, 8, 12, 3, 46, tzinfo=timezone.utc)")

@@ -74,7 +74,8 @@ def test_preparation_selects_newest_causally_final_frontier():
     assert "def latest_source_final(now)" in code
     assert "while now < publication_not_before(target)" in code
     assert "calendar.previous_sessions(target, 2)" in code
-    assert "outage_recovery.catch_up_waiting(c, target_session=target)" in code
+    assert code.count("rolling_go_inputs.prepare(c, target_session=target)") == 1
+    assert "outage_recovery" not in code
     assert "eligible = source_final and prospective" not in code
 
 

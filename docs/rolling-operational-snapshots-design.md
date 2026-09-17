@@ -6,8 +6,10 @@ and versioned scope descriptor are specified in
 jobs and immutable source-completion checkpoints are specified in
 [rolling-snapshot-jobs.md](rolling-snapshot-jobs.md). The opt-in direct Sharadar
 [comparison publisher](rolling-snapshot-publisher.md) prepares complete private
-snapshots without the nested seed path. Operational publication,
-reader/checkpoint cutover and retention are not yet implemented. Installing the
+snapshots without the nested seed path. Receipted operational publication,
+opt-in cold start and bounded daily checkpoints are implemented. The
+[GO data integration](rolling-go-inputs.md) connects preparation and read-only
+probes; runtime authority, service cutover and retention remain pending. Installing the
 storage does not switch running services, verification verdicts, strategy,
 provider selection or deployment authority. Sharadar remains the production
 source; execution remains paper-only under the existing contract.
@@ -366,9 +368,12 @@ silently sharing legacy reference authority in a production reader.
 
 Deliver separately reviewable steps: (1) storage/archive and verification-scope
 contracts; (2) Sharadar direct candidate publisher and progress/jobs; (3) loader,
-GO and automation cutover with migrations; (4) removal of obsolete operational
+GO and automation cutover for first deployment; (4) removal of obsolete operational
 recovery routes and measured retention; (5) separately qualified Alpaca adapter.
 Each step is linked to the tracking feature and reports its own tests and risks.
+The owner confirmed GO never passed and the NAS was never operational. No
+operational-book migration is required; schema installation remains necessary,
+and failed-attempt records must be inventoried and preserved.
 
 The Alpaca step must prove universe breadth and classification (including the
 current ADR admission), issuer/sector identity, dated aliases, required raw and

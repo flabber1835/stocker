@@ -87,6 +87,8 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.feed.rolling_builder",
     "sentinel.feed.rolling_contract",
     "sentinel.feed.rolling_jobs",
+    "sentinel.feed.rolling_go_inputs",
+    "sentinel.feed.rolling_go_health",
     "sentinel.feed.rolling_publisher",
     "sentinel.feed.rolling_source",
     "sentinel.feed.rolling_store",

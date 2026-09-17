@@ -112,6 +112,11 @@ def _install_single_preparation_contract() -> None:
     """Verify source-owned terminal current/bounded recovery preparation."""
     entry.install()
     code = go._PREPARATION_CODE
+    if "rolling_go_inputs.prepare" in code:
+        if (code.count("rolling_go_inputs.prepare(c, target_session=target)") != 1
+                or "outage_recovery" in code or "ingest.daily" in code):
+            raise PhaseRefused("GO rolling preparation has more than one data path")
+        return
     try:
         start = code.index("if recovered.mode == 'ALREADY_CURRENT':")
         end = code.index("elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:", start)
@@ -328,10 +333,12 @@ def _certify_exact_artifacts(runner: DiagnosticRunner, *, git: go.GitIdentity,
 _ACTUAL_DEADLINE_CODE = r'''
 import json, os
 from datetime import datetime, timezone
-from sentinel.feed import calendar, publication, store
+from sentinel.feed import calendar, rolling_go_inputs, store
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
-    current = publication.require_current(c)
+    current = rolling_go_inputs.current(c)
+    if current is None:
+        raise RuntimeError('current publication required for deadline')
     frontier = current.window_end
     execution_session = calendar.next_session(frontier)
     execution_open, _ = calendar.session_window(execution_session)
