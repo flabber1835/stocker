@@ -991,6 +991,9 @@ class FakeCursor:
         self.conn.statements.append(sql)
         if sql == "begin transaction read only":
             self.result = []
+        elif sql.startswith("select version, previous_version, run_id, window_start, window_end, evidence"):
+            # These legacy adapter fixtures have no rolling publication.
+            self.result = []
         elif sql.startswith("select cursor_name,session,state"):
             prefix = params[0][:-1]
             visible = {**self.conn.rows, **self.conn.pending}
@@ -1362,7 +1365,7 @@ def test_direct_shadow_runtime_cannot_bypass_source_not_before(monkeypatch):
 
     with pytest.raises(SR.ShadowRuntimeRefused, match="not source-final"):
         SR.advance_ready_shadow(
-            object(), through=FIRST, observation_id="year-end-2026",
+            FakePostgres(), through=FIRST, observation_id="year-end-2026",
             starting_cash="100000")
 
 

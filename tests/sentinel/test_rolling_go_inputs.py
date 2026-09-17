@@ -201,4 +201,4 @@ def test_snapshot_parity_uses_canonical_warmup_without_creating_a_book(conn, pub
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
     import sentinel_go_validate as host
-    assert not host._operational_parity_report_valid(report, commit=commit, starting_cash="100000")
+    assert host._operational_parity_report_valid(report, commit=commit, starting_cash="100000")

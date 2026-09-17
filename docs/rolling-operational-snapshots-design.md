@@ -9,7 +9,9 @@ jobs and immutable source-completion checkpoints are specified in
 snapshots without the nested seed path. Receipted operational publication,
 opt-in cold start and bounded daily checkpoints are implemented. The
 [GO data integration](rolling-go-inputs.md) connects preparation and read-only
-probes; runtime authority, service cutover and retention remain pending. Installing the
+probes; the [rolling shadow runtime](rolling-shadow-runtime.md) connects bounded
+runtime authority and the broker-free daily service. Paper automation and
+retention remain separate. Installing the
 storage does not switch running services, verification verdicts, strategy,
 provider selection or deployment authority. Sharadar remains the production
 source; execution remains paper-only under the existing contract.

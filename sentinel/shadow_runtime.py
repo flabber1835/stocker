@@ -776,6 +776,10 @@ def advance_ready_shadow(
         starting_cash: Decimal | str | int | float) -> ShadowObservationResult:
     """Public fail-closed wrapper for one authoritative observation wake."""
     try:
+        from sentinel import rolling_runtime
+        if rolling_runtime.selected(conn):
+            return rolling_runtime.advance(conn, through=through,
+                observation_id=observation_id, starting_cash=starting_cash)
         return _advance_ready_shadow(
             conn, through=through, observation_id=observation_id,
             starting_cash=starting_cash)
@@ -792,6 +796,9 @@ def verified_shadow_status(
         ) -> ShadowObservationResult | None:
     """Public fail-closed wrapper for durable attested performance status."""
     try:
+        from sentinel import rolling_runtime
+        if rolling_runtime.selected(conn):
+            return rolling_runtime.status(conn, observation_id=observation_id, starting_cash=starting_cash)
         return _verified_shadow_status(
             conn, observation_id=observation_id,
             starting_cash=starting_cash)
@@ -808,6 +815,11 @@ def classify_shadow_lineage(
         clock=None, structural_only: bool = False) -> dict:
     """Public read-only classifier for service/deployment restart routing."""
     try:
+        from sentinel import rolling_runtime
+        if rolling_runtime.selected(conn):
+            return {**rolling_runtime.classify(conn, observation_id=observation_id,
+                starting_cash=starting_cash, clock=clock, structural_only=structural_only),
+                "input_contract": rolling_runtime.SCHEMA}
         return _classify_shadow_lineage(
             conn, observation_id=observation_id,
             starting_cash=starting_cash, clock=clock,

@@ -4,24 +4,27 @@ The owner confirmed that GO never passed and the NAS was never operational.
 The rolling rollout is a first deployment; an operational-book migration is
 not required. Preserve and inventory failed-attempt records during setup.
 [Rolling GO inputs](rolling-go-inputs.md) defines preparation and read-only
-data probes; runtime authority and service cutover remain separate.
+data probes. [Rolling shadow runtime](rolling-shadow-runtime.md) connects the
+broker-free service to signed post-commit authority, first startup and bounded
+daily continuation. NAS qualification and paper activation remain separate.
 
 The opt-in [rolling daily continuation](rolling-daily-continuation.md) extends
 the authenticated first state through adjacent source-final sessions. It checks
 current overlap/live dependencies and commits a bounded advancing checkpoint;
-it does not yet connect GO or automation, or authorize execution.
+the rolling runtime now connects it to the shadow service. It does not authorize
+execution or switch the paper automation path.
 
 The [durable rolling cold start](rolling-cold-start-state.md) adds opt-in atomic
 canonical genesis, first decision and authenticated restart checkpoint. It has
-no GO/scheduler caller and does not activate paper execution. Existing partial
+an explicit caller in the rolling shadow runtime and does not activate paper execution. Existing partial
 state refuses fresh initialization and is preserved.
 
 The opt-in [rolling publication boundary](rolling-operational-publication.md)
 adds real corpus-version/receipt binding for sealed snapshots. GO preparation
 and data probes now use it through the rolling input boundary above. Daily
-service and runtime-authority integration remain pending. Legacy readers refuse those versions explicitly;
-do not activate it on a deployment until the operational reader/state cutover
-is implemented and validated. Existing durable state and evidence are retained.
+shadow-service runtime integration is defined above. Legacy readers refuse
+those versions explicitly. Existing durable state and evidence are retained;
+NAS deployment still requires its own observed qualification.
 
 Rolling snapshot storage is additive and governed by
 [rolling-snapshot-storage.md](rolling-snapshot-storage.md). Explicit feed schema

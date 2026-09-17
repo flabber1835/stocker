@@ -826,9 +826,11 @@ class ShadowObservationResult:
     shadow_verdict: str = NOT_DEPLOYABLE
     verification: str = CANDIDATE
     appended: bool = True
+    verification_scope: str | None = None
 
     def to_dict(self) -> dict:
         return {
+            **({"verification_scope": self.verification_scope} if self.verification_scope else {}),
             "session": self.session,
             "shadow_verdict": self.shadow_verdict,
             "verification": self.verification,

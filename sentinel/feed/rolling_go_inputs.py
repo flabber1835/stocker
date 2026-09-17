@@ -112,6 +112,15 @@ def prepare(conn, *, target_session, budget_seconds=3600):
     try:
         require_schemas(conn)
         require_first_deployment(conn)
+        return _prepare(conn, target_session=target_session, budget_seconds=budget_seconds)
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def _prepare(conn, *, target_session, budget_seconds=3600):
+    """Shared acquisition; callers first prove fresh or attested runtime state."""
+    try:
         if target_session != snapshots.source_final_session():
             raise RollingGoRefused("ROLLING_SOURCE_FINAL_TARGET_CHANGED")
         pub = current(conn)

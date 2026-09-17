@@ -109,6 +109,7 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
             if not frontier or held.window_end != frontier:
                 raise OperationalParityRefused("publication does not end at visible frontier")
             if rolling:
+                from sentinel.rolling_runtime import SCHEMA as runtime_contract
                 from sentinel.controller.machine import Controller
                 from sentinel.core.production import warm_session_state
                 from sentinel.rolling_initialization import _published
@@ -161,6 +162,7 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
                 "image_source_revision": revision,
             },
             "proof": {
+                **({"runtime_contract": runtime_contract} if rolling else {}),
                 "scope": "ROLLING_STARTUP_AND_RESTART" if rolling else PROOF_SCOPE,
                 "strategy_identity": strategy,
                 "controller_configuration_sha256": controller.digest,

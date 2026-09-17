@@ -95,7 +95,10 @@ def restore(conn, checkpoint, *, observation_id, starting_cash, controller, stra
             or checkpoint.strategy_identity != strategy or checkpoint.runtime_identity != runtime):
         raise RollingColdStartRefused("CHECKPOINT_CONFIG_CHANGED")
     store = shadow.PostgresShadowObservationStore(conn, observation_id=observation_id, commit_genesis=False)
-    if lineage_names(conn) != {CURSOR, store._genesis_name, store._name(checkpoint.session)}:
+    from sentinel import rolling_authority
+    names = lineage_names(conn)
+    names.discard(rolling_authority.name(observation_id, checkpoint.session))
+    if names != {CURSOR, store._genesis_name, store._name(checkpoint.session)}:
         raise RollingColdStartRefused("CHECKPOINT_LINEAGE_CHANGED")
     genesis = store.genesis()
     rows = store.records()

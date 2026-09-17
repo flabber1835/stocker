@@ -8,7 +8,9 @@ This boundary consumes #391's real DATA_ONLY publication and commits the first
 canonical shadow state. It reuses `ShadowObserver`, its genesis/session format,
 and the existing shadow cursor namespace. It creates no parallel portfolio,
 paper catch-up cursor, execution plan or broker authority. Production GO and
-daily advancement remain unconnected until their reader/admission cutover.
+daily advancement are connected by the separate
+[rolling runtime](rolling-shadow-runtime.md), which earns its own post-commit
+attestation rather than treating this candidate checkpoint as GO.
 
 ## Admission and transaction
 
