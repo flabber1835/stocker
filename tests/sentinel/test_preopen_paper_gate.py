@@ -170,6 +170,8 @@ def _install_recovery_harness(
     monkeypatch.setattr(
         preopen_authority, "load_authority", lambda *_args, **_kwargs: authority)
     monkeypatch.setattr(reconciliation, "reconcile", reconcile)
+    monkeypatch.setattr(paper_recovery.target_reprojection, "load_projection",
+                        lambda *_args, **_kwargs: None)
     monkeypatch.setattr(paper_recovery, "_cash_authority_or_refuse", lambda *_args, **_kwargs: None)
 
     async def evidence_bracket(**kwargs):
@@ -503,26 +505,28 @@ def test_recovery_revalidates_coverage_after_adopting_command(monkeypatch):
             grant=grant, automation_config_sha256="config"))
 
 
-def test_recovery_missing_authority_refuses_nonempty_domain_before_observation(
+def test_recovery_missing_authority_still_reconciles_nonempty_domain(
         monkeypatch):
     plan = _plan(basket={"SEC-A": Decimal(10)})
 
-    async def must_not_reconcile(**_kwargs):
-        pytest.fail("nonempty recovery reached broker reconciliation without authority")
+    calls = []
+    async def reconcile_current(**_kwargs):
+        calls.append(True)
+        return reconciliation.ReconciliationResult(
+            runtime_state=RuntimeState.RUNNING, observation=_observation())
 
     grant, broker, _recorded = _install_recovery_harness(
         monkeypatch, plan=plan, authority=None, commands=[],
-        reconcile=must_not_reconcile)
+        reconcile=reconcile_current)
 
-    with pytest.raises(
-            paper.PreOpenShareUnitAuthorityUnavailable,
-            match="absent for the nonempty recovery book"):
-        asyncio.run(paper.recover_automated_paper_cycle(
-            conn=object(), broker=broker, base_url="https://paper.example",
-            grant=grant, automation_config_sha256="config"))
+    result = asyncio.run(paper.recover_automated_paper_cycle(
+        conn=object(), broker=broker, base_url="https://paper.example",
+        grant=grant, automation_config_sha256="config"))
+    assert result.clean
+    assert calls == [True]
 
 
-def test_recovery_all_zero_domain_is_the_only_authority_bypass(monkeypatch):
+def test_recovery_all_zero_domain_needs_no_optional_authority(monkeypatch):
     plan = _plan(basket={"SEC-A": Decimal(0)})
     calls = []
 

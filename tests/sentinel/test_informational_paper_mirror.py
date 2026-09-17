@@ -130,27 +130,21 @@ def test_every_new_publication_rechecks_old_session_and_latches_correction(
     current["lookup"] = CorpusActionLookup(
         start=_Plan.decision_session, events={},
         unresolved_events=(event,))
-    with pytest.raises(
-            mirror.InformationalPaperMirrorMismatch,
-            match="blocks future PAPER"):
-        mirror.revalidate_all(
-            conn, checked_through=_Plan.effective_session,
-            publication_version=9)
+    assert mirror.revalidate_all(
+        conn, checked_through=_Plan.effective_session,
+        publication_version=9)["status"] == mirror.MISMATCH
 
-    # Removing the row in yet another publication cannot un-disprove the
-    # historical PAPER transport; the mismatch is a durable operational latch.
+    # Historical evidence remains visible after correction without a permanent
+    # transport latch. Current execution reconciliation owns restrictions.
     current["lookup"] = CorpusActionLookup(
         start=_Plan.decision_session, events={})
-    with pytest.raises(
-            mirror.InformationalPaperMirrorMismatch,
-            match="blocks future PAPER"):
-        mirror.revalidate_all(
-            conn, checked_through=_Plan.effective_session,
-            publication_version=10)
-    with pytest.raises(mirror.InformationalPaperMirrorMismatch):
-        mirror.require_transport_permitted(
-            conn, current_frontier=_Plan.effective_session,
-            current_publication_version=10)
+    assert mirror.revalidate_all(
+        conn, checked_through=_Plan.effective_session,
+        publication_version=10)["status"] == mirror.MISMATCH
+    status = mirror.require_transport_permitted(
+        conn, current_frontier=_Plan.effective_session,
+        current_publication_version=10)
+    assert status["historical_mismatch_count"] == 1
 
 
 def test_scalar_split_is_material_even_without_unsupported_event(monkeypatch):
@@ -163,10 +157,9 @@ def test_scalar_split_is_material_even_without_unsupported_event(monkeypatch):
             start=_Plan.decision_session,
             events={"SEC-A": ((_Plan.effective_session, Decimal(2)),)}))
 
-    with pytest.raises(mirror.InformationalPaperMirrorMismatch):
-        mirror.revalidate_all(
-            conn, checked_through=_Plan.effective_session,
-            publication_version=8)
+    assert mirror.revalidate_all(
+        conn, checked_through=_Plan.effective_session,
+        publication_version=8)["status"] == mirror.MISMATCH
 
 
 def test_due_session_requires_exact_current_publication_check():

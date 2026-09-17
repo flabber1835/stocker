@@ -62,6 +62,7 @@ class SessionResult:
     refused: Mapping[str, str] = field(default_factory=dict)
     deferred: tuple = ()
     detail: str = ""
+    restricted_securities: Mapping[str, str] = field(default_factory=dict)
 
     def to_dict(self) -> dict:
         return {"runtime_state": self.runtime_state.value,
@@ -69,6 +70,7 @@ class SessionResult:
                 "refused": dict(self.refused),
                 "deferred": list(self.deferred),
                 "detail": self.detail,
+                "restricted_securities": dict(self.restricted_securities),
                 "reconciliation": (self.reconciliation.to_dict()
                                    if self.reconciliation else None)}
 
@@ -252,6 +254,7 @@ async def execute_session(*, broker: ExecutionBroker, conn,
                           settle_cycles: int = DEFAULT_SETTLE_CYCLES,
                           increase_authority=None,
                           mutation_authority=None,
+                          security_restrictions: Optional[Mapping[str, str]] = None,
                           ) -> SessionResult:
     """TWO PHASES: reduce, settle, re-observe, re-size, increase.
 
@@ -366,7 +369,8 @@ async def execute_session(*, broker: ExecutionBroker, conn,
             target_projection=target_projection,
             min_increment=min_increment, settle_cycles=settle_cycles,
             increase_authority=increase_authority,
-            mutation_authority=mutation_authority)
+            mutation_authority=mutation_authority,
+            security_restrictions=security_restrictions)
 
 
 async def _execute_session_locked(*, broker: ExecutionBroker, conn,
@@ -380,6 +384,7 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
                                   settle_cycles: int = DEFAULT_SETTLE_CYCLES,
                                   increase_authority=None,
                                   mutation_authority=None,
+                                  security_restrictions: Optional[Mapping[str, str]] = None,
                                   ) -> SessionResult:
     desired = (target_projection.target_basket
                if target_projection is not None else plan.target_basket)
@@ -437,6 +442,13 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
     submitted: list = []
     refused: dict = {}
     deferred: list = []
+    restrictions = dict(security_restrictions or {})
+    from sentinel.execution.share_units import material_restrictions
+    restrictions.update(material_restrictions(actions, {
+        sid: getattr(instruments.get(sid), "symbol", sid)
+        for sid in desired if desired[sid] != 0
+        or any(item.security_id == sid for item in plan.opening_intents)}))
+    restrictions.update(rec.restricted_securities)
     window_open = is_execution_window_open(plan, today)
 
     async def authorized(candidates, obs, commands):
@@ -449,7 +461,12 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
         sends an operator to look at the wrong thing.
         """
         out = []
+        restrictions.update(rec.restricted_securities)
         for delta in candidates:
+            if delta.security_id in restrictions:
+                if delta.security_id not in deferred:
+                    deferred.append(delta.security_id)
+                continue
             if delta.classification is C.DeltaClass.NONE:
                 continue
             try:
@@ -639,7 +656,8 @@ async def _execute_session_locked(*, broker: ExecutionBroker, conn,
             detail += ", " + note
     return SessionResult(runtime_state=runtime, reconciliation=rec,
                          submitted=tuple(submitted), refused=refused,
-                         deferred=tuple(deferred), detail=detail)
+                         deferred=tuple(deferred), detail=detail,
+                         restricted_securities=restrictions)
 
 
 async def _settle_reductions(*, broker: ExecutionBroker, conn,
@@ -681,7 +699,7 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
                             if observation is not None else "ABSENT")
             reason = f"reconciliation observation is {completeness}"
             continue
-        if not latest.clean:
+        if not latest.transport_ready:
             reason = f"reconciliation is not clean: {latest.detail}"
             continue
 
@@ -693,6 +711,10 @@ async def _settle_reductions(*, broker: ExecutionBroker, conn,
         missing = sorted(required - set(commands))
         if missing:
             reason = f"reduction command(s) absent from the journal: {missing}"
+            continue
+        if any(command.security_id in latest.restricted_securities
+               for command in commands.values()):
+            reason = "required sale has an unresolved corporate action"
             continue
         not_filled = sorted(
             f"{key}={command.state.value} "

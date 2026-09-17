@@ -9,6 +9,7 @@ simulator; no network or real account is involved.
 from __future__ import annotations
 
 import asyncio
+from dataclasses import replace
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
 from functools import wraps
@@ -80,6 +81,15 @@ INSTRUMENT = BrokerInstrument(
 def test_conclusive_dispositions_require_clean_reconciliation(disposition):
     with pytest.raises(ValueError, match="clean reconciliation identity"):
         ExecuteResult(disposition=disposition)
+
+
+def test_transport_evidence_never_claims_clean_success():
+    for disposition in (ExecuteDisposition.READY_TO_EXECUTE, ExecuteDisposition.SUPERSEDED):
+        result = ExecuteResult(disposition=disposition, transport_reconciliation_id="12")
+        assert result.last_clean_reconciliation_id is None
+    with pytest.raises(ValueError, match="clean reconciliation identity"):
+        ExecuteResult(disposition=ExecuteDisposition.SUCCEEDED,
+                      transport_reconciliation_id="12")
 
 
 def async_test(function):
@@ -543,8 +553,7 @@ async def test_dual_raw_buy_ack_fill_recovery_converges_without_projection(
         lambda *_args, **kwargs: pending_calls.append(kwargs) or {})
     monkeypatch.setattr(
         target_reprojection, "load_projection",
-        lambda *_args, **_kwargs: pytest.fail(
-            "dual raw convergence loaded strict target projection"))
+        lambda *_args, **_kwargs: None)
 
     async def execute_through_membrane(**kwargs):
         outcome = await kwargs["broker"].submit(
@@ -585,6 +594,44 @@ async def test_dual_raw_buy_ack_fill_recovery_converges_without_projection(
     assert completed.disposition is ExecuteDisposition.SUCCEEDED
     assert completed.last_clean_reconciliation_id == "12"
     assert pending_calls[-1]["sizing_authority_sha256"] == "d" * 64
+
+
+@async_test
+async def test_scoped_recovery_retries_and_expires_without_operator_latch(monkeypatch):
+    cfg = config()
+    current_plan = plan()
+    ctx = context(cfg, plan=current_plan)
+    runtime = production(cfg)
+    broker = SimulatedBroker()
+    install_runtime_seams(monkeypatch, runtime, FakeConnection(), ctx, broker)
+    install_durable_projection(monkeypatch, current_plan)
+    monkeypatch.setattr(journal, "latest_plan", lambda _conn: current_plan)
+    monkeypatch.setattr(journal, "in_flight_commands", lambda *_args: ())
+    monkeypatch.setattr(journal, "load_commands", lambda *_args, **_kwargs: ())
+    now = [NOW]
+    monkeypatch.setattr(automation_runtime, "_now_utc", lambda: now[0])
+    restricted = [True]
+
+    async def recover(**kwargs):
+        return replace(reconciliation(await broker.observe(), observation_id=12),
+                       restricted_securities=({INSTRUMENT.security_id: "split pending"}
+                                              if restricted[0] else {}))
+
+    monkeypatch.setattr(paper, "recover_automated_paper_cycle", recover)
+    ready = await runtime.recover(ctx)
+    assert ready.disposition is ExecuteDisposition.READY_TO_EXECUTE
+    assert ready.last_clean_reconciliation_id is None
+    assert ready.transport_reconciliation_id == "12"
+    now[0] = ctx.cycle.execution_close_at
+    expired = await runtime.recover(ctx)
+    assert expired.disposition is ExecuteDisposition.SUPERSEDED
+    assert expired.last_clean_reconciliation_id is None
+    now[0] = NOW
+    broker.seed_position(INSTRUMENT, "1")
+    restricted[0] = False
+    cleared = await runtime.recover(ctx)
+    assert cleared.disposition is ExecuteDisposition.SUCCEEDED
+    assert cleared.last_clean_reconciliation_id == "12"
 
 
 @async_test

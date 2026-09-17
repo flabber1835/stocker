@@ -661,10 +661,10 @@ class TestReconciliation:
             broker=broker, conn=conn, binding=None, deployment=DEPLOY,
             actions=lambda sid: Decimal(2)))
 
-        assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY
-        assert result.foreign_positions == ("SEC-AAA",)
-        assert "broker environment did not post the corporate action" in \
-            result.detail
+        assert result.runtime_state is RuntimeState.RUNNING
+        assert result.foreign_positions == ()
+        assert result.transport_ready and not result.clean
+        assert "prior share units" in result.restricted_securities["SEC-AAA"]
 
     def test_a_genuinely_unexplained_position_IS_foreign(self, conn):
         b = self._broker()

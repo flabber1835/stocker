@@ -105,7 +105,6 @@ from sentinel.feed import calendar, publication, readiness, store as feed_store
 from .model import (
     PaperActivationRefused,
     PaperRetryableRefused,
-    PreOpenShareUnitAuthorityUnavailable,
     PreparationResult,
 )
 
@@ -142,7 +141,7 @@ from .targets import (
     _official_preopen_cutoff,
 )
 
-from .reconciliation_evidence import _clean_or_refuse
+from .reconciliation_evidence import _transport_observation_or_refuse as _clean_or_refuse
 
 from .finalization import _finalize_due_succeeded_cycle_or_refuse
 
@@ -552,15 +551,10 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                             required_cutoff_at=official_open,
                             evaluated_at=clock(), actions=actions,
                             target_actions=due_target_actions))
-                    if due_authority is None:
-                        raise PreOpenShareUnitAuthorityUnavailable(
-                            "pre-open share-unit authority is absent for a "
-                            "nonempty succeeded-cycle finalization book; "
-                            "Sentinel will not interpret prior-plan, command, "
-                            "or broker-position units across its open")
-                    due_observation_target_actions = (
-                        preopen_authority.overlay_actions(
-                            due_observation_target_actions, due_authority))
+                    if due_authority is not None:
+                        due_observation_target_actions = (
+                            preopen_authority.overlay_actions(
+                                due_observation_target_actions, due_authority))
 
             rec = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
@@ -569,15 +563,6 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             if due_existing_cycle:
                 current_commands = journal.load_commands(
                     conn, binding.identity)
-                current_security_ids = _preopen_active_security_ids(
-                    plan=existing_plan, commands=current_commands,
-                    actions=actions)
-                if (not dual_mode and due_authority is None
-                        and current_security_ids):
-                    raise PreOpenShareUnitAuthorityUnavailable(
-                        "pre-open share-unit authority is absent after "
-                        "succeeded-cycle reconciliation adopted a nonempty "
-                        "share-unit identity")
                 if due_authority is not None:
                     _revalidate_preopen_authority_or_refuse(
                         authority=due_authority, plan=existing_plan,

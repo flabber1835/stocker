@@ -10,7 +10,7 @@ import pytest
 from sentinel import automation_runtime, informational_paper_mirror, paper
 from sentinel.core import catchup
 from sentinel.core.production import SessionState
-from sentinel.execution import journal, opening_sizing, preopen_authority
+from sentinel.execution import feed_inputs, journal, opening_sizing, preopen_authority
 from sentinel.execution import target_reprojection as projections
 from sentinel.execution.contract import BrokerCapabilities, BrokerInstrument, BrokerPosition
 from sentinel.execution.opening_prices import OpeningPriceUnavailability
@@ -25,7 +25,7 @@ from tests.sentinel.test_preopen_paper_gate import _install_recovery_harness
 def published_opening_identity(monkeypatch):
     from sentinel.feed import universe
     resolver = universe.IdentityResolver([universe.Listing('SEC-AAA', 'AAA')])
-    monkeypatch.setattr(universe, 'load_resolver', lambda *a, **k: resolver)
+    monkeypatch.setattr(feed_inputs, 'opening_resolver', lambda *a, **k: resolver)
 
 
 def test_expired_opening_returns_no_buy_evidence_for_mixed_plan(monkeypatch):

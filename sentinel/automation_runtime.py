@@ -665,7 +665,7 @@ class ProductionAutomation:
     def _actionable_current_plan_deltas(
             self, conn, *, plan, effective_session, observation,
             minimum_quantity_increment) -> tuple:
-        """Use strict projections normally; exact raw mirror units only in dual."""
+        """Use retained projections; support older stamped raw dual plans."""
         if not self._dual_run_enabled:
             return _actionable_projection_deltas(
                 conn, plan=plan, effective_session=effective_session,
@@ -676,7 +676,8 @@ class ProductionAutomation:
 
         proof = self._require_dual_plan_shadow_match(
             conn, plan, pending_is_retryable=False)
-        if plan.opening_intents:
+        if plan.opening_intents or target_reprojection.load_projection(
+                conn, plan_id=plan.plan_id) is not None:
             return _actionable_projection_deltas(
                 conn, plan=plan, effective_session=effective_session,
                 observation=observation,
@@ -985,8 +986,7 @@ class ProductionAutomation:
                                 "in_flight_commands": [
                                     command.client_key
                                     for command in in_flight]})
-            if (result.runtime_state is not RuntimeState.RUNNING
-                    or not result.clean
+            if (not result.transport_ready
                     or result.observation_id is None):
                 return ExecuteResult(
                     disposition=ExecuteDisposition.BLOCKED,
@@ -1006,6 +1006,11 @@ class ProductionAutomation:
                                 "in_flight_commands": [
                                     command.client_key
                                     for command in in_flight]})
+            evidence = {
+                "last_clean_reconciliation_id": (
+                    str(result.observation_id) if result.clean else None),
+                "transport_reconciliation_id": str(result.observation_id),
+            }
             # An adopted old-generation transport cycle may be terminalized
             # once its journal is clean. Its plan is stale economics and must
             # never be loaded, compared as current intent, or executed. A
@@ -1033,7 +1038,7 @@ class ProductionAutomation:
                             return ExecuteResult(
                                 disposition=(ExecuteDisposition.SUPERSEDED if closed
                                              else ExecuteDisposition.READY_TO_EXECUTE),
-                                last_clean_reconciliation_id=str(result.observation_id),
+                                **evidence,
                                 failure_code=("EXECUTION_WINDOW_CLOSED" if closed
                                               else "OPENING_SIZING_REQUIRED"),
                                 failure_detail=("unsent opening plan execution window closed"
@@ -1072,21 +1077,19 @@ class ProductionAutomation:
                         if _now_utc() >= cycle.execution_close_at:
                             return ExecuteResult(
                                 disposition=ExecuteDisposition.SUPERSEDED,
-                                last_clean_reconciliation_id=
-                                    str(result.observation_id),
+                                **evidence,
                                 failure_code="EXECUTION_WINDOW_CLOSED",
                                 failure_detail=(
-                                    "clean recovery found remaining current-plan "
+                                    "recovery found remaining current-plan "
                                     "delta after the execution close; the plan "
                                     "will never be late-submitted"),
                                 diagnostic=result.to_dict())
                         return ExecuteResult(
                             disposition=ExecuteDisposition.READY_TO_EXECUTE,
-                            last_clean_reconciliation_id=
-                                str(result.observation_id),
+                            **evidence,
                             failure_code="READY_FOR_FRESH_EXECUTION",
                             failure_detail=(
-                                "read-only recovery is clean but the current "
+                                "read-only recovery permits transport but the current "
                                 "plan still has actionable share delta inside "
                                 "its certified window"),
                             diagnostic={
@@ -1099,15 +1102,24 @@ class ProductionAutomation:
             else:
                 return ExecuteResult(
                     disposition=ExecuteDisposition.SUPERSEDED,
-                    last_clean_reconciliation_id=str(result.observation_id),
+                    **evidence,
                     failure_code="OLD_GENERATION_RECOVERED",
                     failure_detail=(
-                        "the adopted old-generation transport is clean; its "
+                        "the adopted old-generation transport is resolved; its "
                         "stale plan economics were not loaded or executed"),
+                    diagnostic=result.to_dict())
+            if result.restricted_securities:
+                closed = _now_utc() >= cycle.execution_close_at
+                return ExecuteResult(
+                    disposition=(ExecuteDisposition.SUPERSEDED if closed
+                                 else ExecuteDisposition.RECONCILE),
+                    **evidence,
+                    failure_code="CORPORATE_ACTION_PENDING",
+                    failure_detail="affected securities await current broker/source reconciliation",
                     diagnostic=result.to_dict())
             return ExecuteResult(
                 disposition=ExecuteDisposition.SUCCEEDED,
-                last_clean_reconciliation_id=str(result.observation_id),
+                **evidence,
                 diagnostic=result.to_dict())
         except BaseException as exc:                          # noqa: BLE001
             mapped = classify_dependency_failure(exc)
@@ -1206,6 +1218,8 @@ class ProductionAutomation:
                 disposition = ExecuteDisposition.BLOCKED
             elif result.session.submitted or in_flight:
                 disposition = ExecuteDisposition.RECONCILE
+            elif result.session.restricted_securities:
+                disposition = ExecuteDisposition.RECONCILE
             elif (final_reconciliation is not None
                   and (final_reconciliation.runtime_state
                        is RuntimeState.RECONCILING
@@ -1244,7 +1258,8 @@ class ProductionAutomation:
                               else "TERMINAL_COMMAND_REFUSAL"
                               if terminal_refusals
                               else "COMMANDS_IN_FLIGHT"
-                              if in_flight else "ACTIONABLE_DELTA_REMAINS"
+                              if in_flight else "CORPORATE_ACTION_PENDING"
+                              if result.session.restricted_securities else "ACTIONABLE_DELTA_REMAINS"
                               if actionable else "MISSING_RECONCILIATION_ID"
                               if reconciliation_id is None
                               else "EXECUTION_INCOMPLETE"),

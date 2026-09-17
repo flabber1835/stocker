@@ -42,20 +42,14 @@ inversion, not a second implementation.
 - A cycle state, a leader lease, or a green panel is never evidence that a
   broker side effect occurred. Only the command journal plus complete broker
   reconciliation establishes external truth.
-- A prior-close corpus is not next-open share-unit authority. After clean
-  reconciliation, Stage 4 may complete without a record only when the active
-  share-unit set is empty: zero targets, zero holdings and no working command or
-  broker order. Numerical equality of nonzero raw target/held shares cannot
-  attest that no split occurred. Every other invocation must present the immutable,
-  session/plan/identity-complete pre-open authority defined by the execution
-  contract. Missing authority terminalizes the cycle as
-  `PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE`; it is not retried into the open
-  and an empty Alpaca action response cannot satisfy it. `SENTINEL:BIL` is in
-  the exact covered set only when its target/expected book is nonzero or it has
-  an in-flight command, not merely because plans retain a zero BIL key. The
-  producer is operationally absent and no trusted issuer/authenticator is
-  configured; arbitrary local record insertion is not reviewed production
-  authority.
+- An absent pre-open certificate does not block transport or assert no event.
+  Present evidence still validates its exact plan/session/identities. See
+  [automatic share-unit reconciliation](automatic-share-unit-reconciliation.md).
+  Current restrictions defer affected securities and clear automatically.
+  Recovery may return ready-to-execute or superseded with a transport-ready
+  observation identity; only clean convergence permits success or populates
+  `last_clean_reconciliation_id`. Diagnostics retain the actual observation
+  and restrictions, without rewriting historical evidence.
 
 ## 2. Durable control and activation
 
