@@ -164,8 +164,9 @@ def publish(conn, lease, request, *, producer):
         raise OperationalSnapshotRefused("BOUND_OPERATIONAL_VALIDATION_REQUIRED")
     previous = _current(conn)
     with conn.cursor() as cur:
-        cur.execute("SELECT nextval(pg_get_serial_sequence('sentinel_corpus_publications','version')),clock_timestamp()")
-        version, at = cur.fetchone()
+        cur.execute("SELECT clock_timestamp()")
+        at = cur.fetchone()[0]
+    version = previous.version + 1 if previous else 1
     evidence = {"producer": actual_producer, "pitr": publication._publication_recovery_target(conn),
                 "rolling_snapshot": {"schema": SCHEMA, "candidate_id": candidate,
                     "snapshot_id": manifest.snapshot_id, "reference_sha256": manifest.reference_sha256,

@@ -1,5 +1,10 @@
 # Sentinel — operational deployment ground truth
 
+The [durable rolling cold start](rolling-cold-start-state.md) adds opt-in atomic
+canonical genesis, first decision and authenticated restart checkpoint. It has
+no GO/scheduler caller and does not activate paper execution. Existing partial
+state refuses fresh initialization and is preserved.
+
 The opt-in [rolling publication boundary](rolling-operational-publication.md)
 adds real corpus-version/receipt binding for sealed snapshots. It is not yet a
 GO or automation callback. Legacy readers refuse those versions explicitly;

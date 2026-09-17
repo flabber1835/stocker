@@ -239,6 +239,20 @@ substituting BIL for SPY or swapping equity signal/raw fields must fail those
 tests. This records a comparison transport surface, not new production GO or
 certification authority.
 
+**Rolling cold-start transport (2026-09-16, PR #392).** Add exactly
+`sentinel/rolling_initialization.py` to the same closed transport allowlist.
+Its sole `closeadj` code occurrence copies typed snapshot `spy_total_return`
+values into `PublishedSession.spy_closeadj` for the canonical first decision
+and its authenticated input checkpoint. It neither reads the raw vendor column
+nor interprets SPY. Equity bars retain their signal/raw domains; current and
+previous BIL bars retain their own four price fields and session identities.
+
+Pin the single named occurrence and test the composed input using distinct
+SPY, equity and BIL values, including both BIL sessions. Substituting BIL for
+SPY, SPY for a BIL field, or an incorrect BIL domain must fail. Keep the
+tokenizer and sole sensor/import boundary unchanged. This exception adds no GO,
+execution or certification authority.
+
 **2. Why total return is CORRECT here.** SPY in this rule is not a holding. It
 is a market-regime sensor, and the frozen specification defines both of its
 predicates on a total-return series (`standalone:176-178`). A dividend paid by

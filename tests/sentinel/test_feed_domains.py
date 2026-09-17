@@ -55,6 +55,9 @@ CLOSEADJ_PERMITTED = (
     # Comparison-only typed SPY benchmark transport into the same session
     # input. Certification §5b pins this exact file and its domain falsifiers.
     "sentinel/core/rolling_reader.py",
+    # Typed snapshot SPY transport into the canonical cold-start decision.
+    # Certification §5b pins this exact file and its domain falsifiers.
+    "sentinel/rolling_initialization.py",
     # Shared type definition for that exact published SPY transport.
     "sentinel/core/session.py",
     # The sole composition that hands the published series to the sensor.
@@ -153,6 +156,7 @@ class TestTheForbiddenColumn:
             "sentinel/feed/coherence.py",
             "sentinel/core/production.py",
             "sentinel/core/rolling_reader.py",
+            "sentinel/rolling_initialization.py",
             "sentinel/core/session.py",
             "sentinel/core/kernel.py",
             "sentinel/shadow_observation.py",
@@ -167,10 +171,14 @@ class TestTheForbiddenColumn:
 
         assert spy_mod.SPY_PRICE_COLUMN == "closeadj"
 
-    def test_rolling_reader_has_only_the_named_spy_transport_occurrence(self):
+    @pytest.mark.parametrize("path", [
+        "sentinel/core/rolling_reader.py",
+        "sentinel/rolling_initialization.py",
+    ])
+    def test_rolling_reader_has_only_the_named_spy_transport_occurrence(self, path):
         """The file exception may not silently grow additional column reads."""
-        source = (REPO / "sentinel/core/rolling_reader.py").read_text()
-        occurrences = _closeadj_in_source(source, "rolling_reader")
+        source = (REPO / path).read_text()
+        occurrences = _closeadj_in_source(source, path)
         assert len(occurrences) == 1
         assert occurrences[0].endswith(": spy_closeadj")
 
