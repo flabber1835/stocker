@@ -33,15 +33,16 @@ jobs:
           out = pathlib.Path(os.environ['RUNNER_TEMP']) / 'economic-audit-399'
           raw = subprocess.check_output(['git','ls-tree','-r','-l','-z','HEAD'])
           rows = []
-          code = {'.py','.sql','.sh','.ps1','.bat','.cmd','.js','.ts','.tsx','.jsx','.css','.html','.yaml','.yml','.toml','.ini','.cfg','.conf'}
-          with tarfile.open(out/'source.tar.gz','w:gz',compresslevel=1) as archive:
+          code = {'.py','.sql','.sh','.bash','.ps1','.bat','.cmd','.js','.ts','.tsx','.jsx','.css','.html','.htm','.yaml','.yml','.toml','.ini','.cfg','.conf','.c','.cpp','.h'}
+          text = {'.md','.rst','.txt','.lock','.json','.csv','.xml','.env','.example','.sample','.ipynb'}
+          with tarfile.open(out/'source.tar.gz','w:gz',compresslevel=6) as archive:
               for entry in raw.split(b'\0'):
                   if not entry:
                       continue
                   metadata, name = entry.split(b'\t',1)
                   mode, kind, sha, size = metadata.decode().split()
                   path = pathlib.Path(os.fsdecode(name))
-                  selected = kind == 'blob' and (int(size) <= 16000000 or path.suffix in code)
+                  selected = kind == 'blob' and (path.suffix in code or ((path.suffix in text or not path.suffix or len(path.parts)==1) and int(size)<=2000000))
                   rows.append({'path':str(path),'mode':mode,'type':kind,'sha':sha,'size':size,'selected':selected})
                   if selected:
                       data = os.readlink(path).encode() if path.is_symlink() else path.read_bytes()
@@ -51,7 +52,9 @@ jobs:
                       archive.add(path,arcname=str(path),recursive=False)
           (out/'inventory.json').write_text(json.dumps(rows,indent=2)+'\n')
           print('Tracked:',len(rows),'Exported:',sum(row['selected'] for row in rows))
-          print('Large non-source exclusions:',[(r['path'],r['size']) for r in rows if not r['selected']])
+          print('Selected bytes:',sum(int(r['size']) for r in rows if r['selected']))
+          print('Archive bytes:',(out/'source.tar.gz').stat().st_size)
+          print('Omitted files are individually identified in inventory.json')
           PY
       - name: Retain prior audit ledgers and change inventory
         env:
