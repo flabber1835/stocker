@@ -1,0 +1,99 @@
+name: Autonomy 400 evidence
+on:
+  push:
+    branches: ['audit/autonomy-400-evidence']
+    paths: ['audit/**', '.github/workflows/autonomy-400-evidence.yml']
+  workflow_dispatch:
+permissions:
+  contents: read
+concurrency:
+  group: autonomy-400-evidence
+  cancel-in-progress: false
+jobs:
+  evidence:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - name: Read audit witnesses
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: audit-runner
+          sparse-checkout: audit
+      - name: Read exact production baseline
+        uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          path: subject
+      - uses: actions/setup-python@a26af69be951a213d495a4c3e4e4022e16d87065
+        with:
+          python-version: '3.12.13'
+          cache: pip
+          cache-dependency-path: |
+            subject/sentinel/requirements.lock
+            subject/tests/requirements.lock
+      - name: Install locked dependencies and disposable PostgreSQL
+        working-directory: subject
+        run: |
+          python -m pip install --require-hashes --only-binary=:all: --no-deps -r sentinel/requirements.lock -r tests/requirements.lock
+          python -m pip check
+          sudo apt-get update
+          sudo apt-get install -y postgresql
+      - name: Record exact audit identity
+        working-directory: subject
+        run: |
+          mkdir -p ../evidence
+          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
+          git rev-parse HEAD > ../evidence/tested-commit.txt
+          git rev-parse 'HEAD^{tree}' > ../evidence/tested-tree.txt
+          git status --porcelain > ../evidence/source-status-before.txt
+          python -V > ../evidence/python-version.txt
+          python -m pip freeze > ../evidence/packages.txt
+          sha256sum sentinel/requirements.lock tests/requirements.lock ../audit-runner/audit/autonomy_400_witnesses.py > ../evidence/input-sha256.txt
+          cp ../audit-runner/audit/autonomy_400_witnesses.py "$RUNNER_TEMP/test_autonomy_400.py"
+      - name: Existing recovery and rolling PostgreSQL suites
+        id: existing
+        continue-on-error: true
+        working-directory: subject
+        env:
+          PYTHONPATH: ${{ github.workspace }}/subject:${{ github.workspace }}/subject/shared
+        run: |
+          set -o pipefail
+          python -m pytest -q -ra \
+            tests/sentinel/test_automation_schedule.py \
+            tests/sentinel/test_automation_process_contracts.py \
+            tests/sentinel/test_automation_worker_source_recovery.py \
+            tests/sentinel/test_shadow_service.py \
+            tests/sentinel/test_rolling_runtime.py \
+            tests/sentinel/test_rolling_retention_runtime.py \
+            tests/sentinel/test_rolling_history_retention.py \
+            tests/sentinel/test_backup_orchestration_hardening.py \
+            --junitxml=../evidence/existing.xml 2>&1 | tee ../evidence/existing.log
+      - name: Falsify unattended-operation claims
+        id: witnesses
+        continue-on-error: true
+        working-directory: subject
+        env:
+          PYTHONPATH: ${{ github.workspace }}/subject:${{ github.workspace }}/subject/shared
+        run: |
+          set -o pipefail
+          python -m pytest -q -ra "$RUNNER_TEMP/test_autonomy_400.py" --junitxml=../evidence/witnesses.xml 2>&1 | tee ../evidence/witnesses.log
+      - name: Confirm production source unchanged
+        if: always()
+        working-directory: subject
+        run: |
+          git status --porcelain > ../evidence/source-status-after.txt
+          git diff --exit-code
+          git rev-parse HEAD > ../evidence/tested-commit-after.txt
+      - name: Retain audit evidence
+        if: always()
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: autonomy-400-evidence-aff4461d
+          path: evidence/
+          retention-days: 30
+      - name: Require both evidence lanes to finish
+        if: always()
+        env:
+          EXISTING: ${{ steps.existing.outcome }}
+          WITNESSES: ${{ steps.witnesses.outcome }}
+        run: test "$EXISTING" = success && test "$WITNESSES" = success
