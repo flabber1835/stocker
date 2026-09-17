@@ -129,7 +129,7 @@ def _install_recovery_harness(
         paper_recovery, "load_rollout_state", lambda *_: SimpleNamespace(mode="PINNED"))
     monkeypatch.setattr(paper_recovery, "_default_paper_strategy", lambda: (object(), {}))
     monkeypatch.setattr(
-        publication, "require_current", lambda *_: SimpleNamespace(version=1))
+        publication, "require_current", lambda *_: SimpleNamespace(version=1, evidence={}))
     monkeypatch.setattr(
         publication, "assert_operationally_coherent", lambda *_args, **_kwargs: None)
     monkeypatch.setattr(
@@ -569,9 +569,9 @@ def test_dual_recovery_earns_due_mirror_check_before_transport_gate(
         lambda *_args, **_kwargs: {"authority_sha256": "a" * 64})
     monkeypatch.setattr(
         publication, "pinned",
-        lambda *_args, **_kwargs: nullcontext(SimpleNamespace(version=1)))
+        lambda *_args, **_kwargs: nullcontext(SimpleNamespace(version=1, evidence={})))
     monkeypatch.setattr(
-        paper_recovery.feed_store, "latest_visible_session",
+        paper_recovery.feed_inputs, "frontier",
         lambda *_args, **_kwargs: plan.effective_session)
     monkeypatch.setattr(
         shadow_runtime, "publication_not_before",

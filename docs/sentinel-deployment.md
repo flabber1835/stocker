@@ -8,6 +8,11 @@ data probes. [Rolling shadow runtime](rolling-shadow-runtime.md) connects the
 broker-free service to signed post-commit authority, first startup and bounded
 daily continuation. NAS qualification and paper activation remain separate.
 
+[Rolling paper inputs](rolling-paper-inputs.md) connects the paper gateway and
+automation to that verified shadow book and the bound snapshot's execution
+references. It retains signed paper authorization and all broker safety gates;
+retention and observed NAS qualification remain separate rollout work.
+
 The opt-in [rolling daily continuation](rolling-daily-continuation.md) extends
 the authenticated first state through adjacent source-final sessions. It checks
 current overlap/live dependencies and commits a bounded advancing checkpoint;

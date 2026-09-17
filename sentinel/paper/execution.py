@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sentinel.execution import feed_inputs
+
 from datetime import date, datetime, timedelta
 
 from decimal import Decimal, InvalidOperation
@@ -235,9 +237,10 @@ async def _execute_current_paper_plan(
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
         _controller_config, strategy_identity = _default_paper_strategy()
-        with publication.pinned(conn, commit=False) as pinned:
+        with feed_inputs.pinned(conn, commit=False) as pinned:
+            feed_inputs.require_shadow_mode(pinned, dual_mode)
             _readiness_or_refuse(conn, now_et=now_et)
-            frontier = feed_store.latest_visible_session(conn)
+            frontier = feed_inputs.frontier(conn)
             dual_result = None
             if dual_mode:
                 plan = _latest_plan_or_refuse(conn)

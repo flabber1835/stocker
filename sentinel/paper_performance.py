@@ -125,7 +125,8 @@ def scan_entitlements(conn, *, binding: Mapping, through: date, account) -> dict
     )
     from sentinel.core.terminal import DIVIDEND_ACTIONS
     from sentinel.feed import calendar
-    from sentinel.execution.reconcile import corpus_action_lookup
+    from sentinel.execution.feed_actions import action_lookup as corpus_action_lookup
+    from sentinel.execution import feed_inputs
 
     if _account(binding) is None:
         return None
@@ -147,12 +148,19 @@ def scan_entitlements(conn, *, binding: Mapping, through: date, account) -> dict
     first = min(stamp.date() for _sid, _side, _quantity, stamp in fills)
     if first > through:
         return None
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT DISTINCT session FROM sentinel_active_actions"
-            " WHERE session BETWEEN %s AND %s AND LOWER(action)=ANY(%s) ORDER BY session",
-            (first, through, sorted(DIVIDEND_ACTIONS)))
-        days = sorted({calendar.session_on_or_after(str(row[0])) for row in cur.fetchall()})
+    current = feed_inputs.require_current(conn)
+    source = None
+    if feed_inputs.is_rolling(current):
+        from sentinel.execution.feed_cash import SnapshotCashInputs
+        source = SnapshotCashInputs(conn, current)
+        days = source.days(first, through)
+    else:
+        with conn.cursor() as cur:
+            cur.execute(
+                "SELECT DISTINCT session FROM sentinel_active_actions"
+                " WHERE session BETWEEN %s AND %s AND LOWER(action)=ANY(%s) ORDER BY session",
+                (first, through, sorted(DIVIDEND_ACTIONS)))
+            days = sorted({calendar.session_on_or_after(str(row[0])) for row in cur.fetchall()})
     for day in days:
         if day > through.isoformat():
             continue
@@ -172,15 +180,14 @@ def scan_entitlements(conn, *, binding: Mapping, through: date, account) -> dict
         if any(quantity < 0 for quantity in pre_open.values()):
             raise TrialEvidenceRefused("paper dividend ownership cannot reconstruct pre-open shares")
         expected = _expected_effective_equity_dividends(
-            conn, date.fromisoformat(day), pre_open, [])
+            conn, date.fromisoformat(day), pre_open, [], source=source)
         expected += _expected_defensive_dividends(
-            conn, date.fromisoformat(day), pre_open, [])
+            conn, date.fromisoformat(day), pre_open, [], source=source)
         if expected:
-            from sentinel.feed import publication
             cash_rows, external, internal = _cash_rows(conn, date.fromisoformat(day))
             result = record_and_project(conn, {
                 "binding": dict(binding), "session": day,
-                "publication": publication.require_current(conn).to_dict(),
+                "publication": feed_inputs.require_current(conn).to_dict(),
                 "paper_limitations": {"expected_dividends": expected},
                 "account_evidence": {"account": {
                     "cash": str(account.cash), "equity": str(account.equity)}},

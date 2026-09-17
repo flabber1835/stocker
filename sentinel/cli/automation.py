@@ -20,12 +20,12 @@ def _automation_authority(conn, config: SentinelConfig, automation_config):
     """Verify exact unattended authority without constructing a broker."""
     from sentinel import authority, binding as binding_mod
     from sentinel.execution.authority_gate import require_current_authority
-    from sentinel.feed import publication
+    from sentinel.execution import feed_inputs
 
     binding = binding_mod.require(conn)
     rollout = authority.load_rollout_state(conn)
     runtime, strategy = authority_cli._current_system_identities()
-    current = publication.require_current(conn)
+    current = feed_inputs.require_current(conn)
     certificate = require_current_authority(
         conn, runtime_identity=runtime, strategy_identity=strategy,
         required_mode=rollout.mode, required_operation="AUTOMATION",

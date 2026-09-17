@@ -530,7 +530,7 @@ async def test_dual_raw_buy_ack_fill_recovery_converges_without_projection(
         lambda *_args, **_kwargs: proof)
     monkeypatch.setattr(
         automation_runtime.publication, "require_current",
-        lambda _conn: SimpleNamespace(version=7))
+        lambda _conn: SimpleNamespace(version=7, evidence={}))
     monkeypatch.setattr(
         automation_runtime.feed_store, "latest_visible_session",
         lambda _conn: DECISION.isoformat())
@@ -1111,7 +1111,7 @@ def test_composition_requires_exact_signed_automation_authority(
             authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(
         automation_runtime.publication, "require_current",
-        lambda _conn: SimpleNamespace(version=81))
+        lambda _conn: SimpleNamespace(version=81, evidence={}))
     monkeypatch.setattr(
         automation_runtime, "production_strategy",
         lambda: (object(), {"strategy": "sentinel-runtime-test"}))
@@ -1174,7 +1174,7 @@ async def test_idle_authority_failure_blocks_cycle_and_enqueues_alert(
             authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(
         automation_runtime.publication, "require_current",
-        lambda _conn: SimpleNamespace(version=1))
+        lambda _conn: SimpleNamespace(version=1, evidence={}))
     monkeypatch.setattr(
         automation_runtime, "production_strategy", lambda: (object(), {}))
     monkeypatch.setattr(
@@ -1254,7 +1254,7 @@ async def test_idle_no_live_cycle_authority_failure_engages_durable_kill(
             authority.RolloutMode.PINNED_1_00, 1, None))
     monkeypatch.setattr(
         automation_runtime.publication, "require_current",
-        lambda _conn: SimpleNamespace(version=1))
+        lambda _conn: SimpleNamespace(version=1, evidence={}))
     monkeypatch.setattr(
         automation_runtime, "production_strategy", lambda: (object(), {}))
     monkeypatch.setattr(

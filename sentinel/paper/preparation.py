@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sentinel.execution import feed_inputs
+
 import math
 
 from datetime import date, datetime, timedelta
@@ -163,6 +165,10 @@ def _load_marks_and_tickers(conn, state: SessionState, session: str
     security_ids = sorted(set(target.shares) | {
         entry.security_id for entry in target.opening_intents})
     tickers = dict(target.tickers)
+    current = feed_inputs.current(conn)
+    if feed_inputs.is_rolling(current):
+        return feed_inputs.marks(conn, current, session=session,
+                                security_ids=security_ids, tickers=tickers)
     marks: dict[str, Decimal] = {}
     visible = publication.visible_predicate("b")
     with conn.cursor() as cur:
@@ -292,7 +298,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
         from sentinel.handover import assert_no_legacy_path
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
-        with publication.pinned(conn, commit=False) as pinned:
+        with feed_inputs.pinned(conn, commit=False) as pinned:
+            feed_inputs.require_shadow_mode(pinned, dual_mode)
             observation_time = (now_et if now_et is not None else
                                 datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)))
             _readiness_or_refuse(conn, now_et=observation_time)
@@ -303,7 +310,7 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                     f"latest closed XNYS session {latest_closed}. An early "
                     "current-session publication is not close evidence and "
                     "cannot become an immutable next-session plan.")
-            frontier = feed_store.latest_visible_session(conn)
+            frontier = feed_inputs.frontier(conn)
             if frontier != through_text:
                 raise PaperActivationRefused(
                     f"requested decision session {through_text} is not the "
@@ -798,8 +805,8 @@ def current_paper_plan(
         state, plan, cursor = _state_and_plan_or_refuse(conn)
     from sentinel.handover import assert_no_legacy_path
     binding = assert_no_legacy_path(conn)
-    current = publication.require_current(conn)
-    frontier = feed_store.latest_visible_session(conn)
+    current = feed_inputs.require_current(conn)
+    frontier = feed_inputs.frontier(conn)
     _controller_config, runtime_identity = _default_paper_strategy()
     rollout = load_rollout_state(conn)
     checks = {

@@ -7,6 +7,8 @@ therefore a refusal, never a reason to reuse an earlier authorization result.
 """
 from __future__ import annotations
 
+from sentinel.execution import feed_inputs
+
 import hashlib
 from contextlib import closing
 from datetime import datetime, timezone
@@ -320,7 +322,7 @@ def build_fresh_execution_guard(
                         conn, operation=f"broker {operation.value} mutation")
                 validate_grant(conn, grant, operation, result)
                 rollout = load_rollout_state(conn)
-                current = publication.require_current(conn)
+                current = feed_inputs.require_current(conn)
                 concrete = _authority_operation(grant, operation)
                 kwargs = dict(
                     runtime_identity=runtime_identity(),

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sentinel.execution import feed_inputs
+
 from datetime import date, datetime, timedelta
 
 from decimal import Decimal, InvalidOperation
@@ -143,11 +145,12 @@ async def recover_automated_paper_cycle(
         binding = assert_no_legacy_path(conn)
         rollout = load_rollout_state(conn)
         _controller_config, strategy = _default_paper_strategy()
-        current = publication.require_current(conn)
+        current = feed_inputs.require_current(conn)
+        feed_inputs.require_shadow_mode(current, dual_mode)
         # Recovery reads the command/expected book and corporate-action units.
         # Historical-only price evidence may be routed around, but an
         # operational candidate must stop before the first broker observation.
-        publication.assert_operationally_coherent(conn)
+        feed_inputs.coherent(conn)
         authority_kwargs = dict(
             runtime_identity=system_identity.rehearsal_identity(),
             strategy_identity=strategy, required_mode=rollout.mode,
@@ -233,12 +236,12 @@ async def recover_automated_paper_cycle(
                 # transport fence is consulted; otherwise require_transport
                 # reports PENDING forever and successor preparation (the other
                 # caller of revalidate_all) is unreachable.
-                with publication.pinned(conn, commit=False) as mirror_pin:
+                with feed_inputs.pinned(conn, commit=False) as mirror_pin:
                     if mirror_pin.version != current.version:
                         raise PaperRetryableRefused(
                             "corpus publication advanced while dual recovery "
                             "authority was being established")
-                    current_frontier = feed_store.latest_visible_session(conn)
+                    current_frontier = feed_inputs.frontier(conn)
                     from sentinel import shadow_runtime
                     if clock() < shadow_runtime.publication_not_before(
                             str(current_frontier)):

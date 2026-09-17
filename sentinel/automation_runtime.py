@@ -7,6 +7,8 @@ handover or migration.
 """
 from __future__ import annotations
 
+from sentinel.execution import feed_inputs
+
 import asyncio
 import errno
 import os
@@ -564,7 +566,7 @@ class ProductionAutomation:
                     != self.automation_config.fingerprint):
                 raise RuntimeError("automation control authority is stale")
             rollout = load_rollout_state(conn)
-            current = publication.require_current(conn)
+            current = feed_inputs.require_current(conn)
             _controller, strategy = production_strategy()
             certificate = require_current_authority(
                 conn, runtime_identity=system_identity.rehearsal_identity(),
@@ -679,8 +681,8 @@ class ProductionAutomation:
                 conn, plan=plan, effective_session=effective_session,
                 observation=observation,
                 minimum_quantity_increment=minimum_quantity_increment)
-        current = publication.require_current(conn)
-        frontier = feed_store.latest_visible_session(conn)
+        current = feed_inputs.require_current(conn)
+        frontier = feed_inputs.frontier(conn)
         try:
             informational_paper_mirror.require_transport_permitted(
                 conn, current_frontier=frontier,
@@ -723,7 +725,23 @@ class ProductionAutomation:
             require_observation_integrity(conn)
             cycle, _control = self._assert_cycle_authority(
                 conn, context, operation_scope="REFRESH")
-            visible = feed_store.latest_visible_session(conn)
+            current = feed_inputs.current(conn)
+            if feed_inputs.is_rolling(current):
+                feed_inputs.require_shadow_mode(current, self._dual_run_enabled)
+                from sentinel import dual_reconciliation
+                try:
+                    dual_reconciliation.verified_shadow_intent(
+                        conn, decision_session=cycle.decision_session,
+                        observation_id=self._shadow_observation_id,
+                        starting_cash=self._shadow_starting_cash)
+                except dual_reconciliation.DualReconciliationPending as exc:
+                    raise TransientInfrastructureFailure(str(exc)) from exc
+                except dual_reconciliation.DualReconciliationRefused as exc:
+                    raise NonRetryableCallbackRefused(str(exc)) from exc
+                return RefreshResult(already_published=True, data_version=str(current.version),
+                    publication_fingerprint=publication_fingerprint(current),
+                    diagnostic={"frontier": current.window_end, "scope": "ROLLING_VERIFIED_SHADOW"})
+            visible = feed_inputs.frontier(conn)
             if visible == cycle.decision_session.isoformat():
                 report = readiness.check_readiness(
                     conn, today=datetime.now(
@@ -732,7 +750,7 @@ class ProductionAutomation:
                 if not report.ready:
                     raise TransientInfrastructureFailure(
                         "published decision close is not operationally ready")
-                current = publication.require_current(conn)
+                current = feed_inputs.require_current(conn)
                 return RefreshResult(
                     already_published=True, data_version=str(current.version),
                     publication_fingerprint=publication_fingerprint(current),
@@ -758,8 +776,8 @@ class ProductionAutomation:
             except REFRESH_TRANSIENT_FAILURES as exc:
                 raise transient_refresh_failure(exc) from exc
             context.require_active()
-            current = publication.require_current(conn)
-            visible = feed_store.latest_visible_session(conn)
+            current = feed_inputs.require_current(conn)
+            visible = feed_inputs.frontier(conn)
             if visible != cycle.decision_session.isoformat():
                 raise RuntimeError(
                     "daily refresh did not publish the owed decision close")
@@ -1338,11 +1356,12 @@ class ProductionAutomation:
         return row[0] if row and row[0] is not None else None
 
     async def _fenced_data_wake(self, conn):
-        """Advance canonical Sharadar readiness while broker mutation is fenced.
+        """Check canonical Sharadar readiness while broker mutation is fenced.
 
         This path intentionally has no CycleContext, leader permit, broker, plan,
-        or execution grant. It can only call the same ingest.daily/publication/
-        readiness path used by active automation. Vendor lag and corpus refusal
+        or execution grant. Rolling inputs are checked against the independently
+        advanced shadow service; legacy inputs retain the daily ingest path.
+        Vendor lag and corpus refusal
         are retained as alerts and retried; they never release the kill switch.
         """
         now = datetime.now(timezone.utc)
@@ -1355,11 +1374,19 @@ class ProductionAutomation:
         try:
             feed_store.require_feed_schema(conn)
             schema.require_runtime_schema(conn)
-            visible = feed_store.latest_visible_session(conn)
+            current = feed_inputs.current(conn)
+            if feed_inputs.is_rolling(current):
+                feed_inputs.require_shadow_mode(current, getattr(self, "_dual_run_enabled", False))
+                from sentinel import dual_reconciliation
+                dual_reconciliation.verified_shadow_intent(
+                    conn, decision_session=target, observation_id=self._shadow_observation_id,
+                    starting_cash=self._shadow_starting_cash)
+                return next_wake
+            visible = feed_inputs.frontier(conn)
             if (visible != target
                     and not getattr(self, "_dual_run_enabled", False)):
                 ingest.daily(conn, today=target)
-                visible = feed_store.latest_visible_session(conn)
+                visible = feed_inputs.frontier(conn)
             report = readiness.check_readiness(
                 conn, today=now.astimezone(
                     ZoneInfo(calendar.EXCHANGE_TZ)).isoformat())

@@ -2,6 +2,8 @@
 
 from __future__ import annotations
 
+from sentinel.execution import feed_inputs
+
 import hashlib
 
 import json
@@ -124,7 +126,7 @@ def _readiness_or_refuse(conn, *, now_et=None):
     """
     if now_et is None:
         now_et = datetime.now(ZoneInfo(calendar.EXCHANGE_TZ))
-    report = readiness.check_readiness(conn, today=now_et.isoformat())
+    report = feed_inputs.readiness(conn, today=now_et.isoformat())
     if report.ready:
         return report
     detail = "; ".join(f"{c.name}: {c.detail}" for c in report.failures)
@@ -267,8 +269,8 @@ def _validate_broker_grant(
     now_et = now_provider()
     if now_et.tzinfo is None:
         raise PaperActivationRefused("broker authority clock is timezone-naive")
-    current = publication.require_current(conn)
-    frontier = feed_store.latest_visible_session(conn)
+    current = feed_inputs.require_current(conn)
+    frontier = feed_inputs.frontier(conn)
     runtime_strategy = dict(strategy_provider())
 
     if isinstance(grant, AutomationExecutionGrant):
@@ -321,7 +323,7 @@ def _validate_broker_grant(
                 runtime_identity=runtime_strategy, rollout=rollout)
             return
         if grant.operation_scope == "RECOVER":
-            publication.assert_operationally_coherent(conn)
+            feed_inputs.coherent(conn)
             return
     elif isinstance(grant, PaperPreparationGrant):
         if binding.broker_account_id != grant.expected_account:
