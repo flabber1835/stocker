@@ -432,6 +432,7 @@ class ExecuteDisposition(str, Enum):
 class ExecuteResult(_FrozenModel):
     disposition: ExecuteDisposition
     last_clean_reconciliation_id: str | None = None
+    transport_reconciliation_id: str | None = None
     failure_code: str | None = None
     failure_detail: str | None = None
     diagnostic: Mapping[str, Any] = Field(default_factory=dict)
@@ -445,6 +446,11 @@ class ExecuteResult(_FrozenModel):
                 ExecuteDisposition.SUPERSEDED,
             }
             and not self.last_clean_reconciliation_id
+            and not (
+                self.disposition in {
+                    ExecuteDisposition.READY_TO_EXECUTE,
+                    ExecuteDisposition.SUPERSEDED,
+                } and self.transport_reconciliation_id)
         ):
             raise ValueError(
                 f"{self.disposition.value} requires a clean reconciliation "

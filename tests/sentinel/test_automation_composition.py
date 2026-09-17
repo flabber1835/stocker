@@ -159,12 +159,6 @@ def test_real_callbacks_prepare_submit_restart_and_reconcile_once(assembly, faul
         assembly.broker.schedule_submit(FaultKind.ACCEPT_THEN_TIMEOUT)
     assembly.clock[0] = dt.datetime(2026, 8, 12, 13, 31, tzinfo=dt.timezone.utc)
     sent = tick(assembly, assembly.create())
-    if fault == "missing-preopen":
-        assert sent.cycle.state is CycleState.BLOCKED, sent
-        assert sent.cycle.failure_code == runtime.PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE
-        assert tick(assembly, assembly.create()).cycle.state is CycleState.BLOCKED
-        assert not fixture._mutations(assembly.broker)
-        return
     assert sent.cycle.state is CycleState.RECONCILING, sent
     with feed_store.connect(assembly.pg.sync_dsn) as conn:
         commands = journal.load_commands(conn, fixture.binding.require(conn).identity)

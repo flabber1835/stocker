@@ -75,7 +75,6 @@ from sentinel.feed import calendar, publication, readiness, store as feed_store
 from .model import (
     PaperActivationRefused,
     PaperRetryableRefused,
-    PreOpenShareUnitAuthorityUnavailable,
     ExecutionResult,
 )
 
@@ -109,7 +108,6 @@ from .targets import (
     _preopen_active_security_ids,
     _informational_active_symbols,
     _plan_deltas,
-    _provably_clean_empty_noop,
     _preopen_views_or_none,
     _revalidate_preopen_authority_or_refuse,
     _official_preopen_cutoff,
@@ -118,7 +116,7 @@ from .targets import (
 )
 
 from .reconciliation_evidence import (
-    _clean_or_refuse,
+    _transport_observation_or_refuse,
     _dual_mutation_observation_or_refuse,
     _settled_account_evidence_bracket,
 )
@@ -376,26 +374,24 @@ async def _execute_current_paper_plan(
                 evaluated_at=clock(), actions=actions,
                 target_actions=target_actions)
             target_projection = None
-            if authority is not None:
-                if opening_prices is None:
-                    opening_prices = await _opening_prices_or_retry(
-                        conn, state=state, plan=plan, broker=broker)
-                # Refuse unsupported/non-scalar corporate actions before the
-                # broker book can be consulted.  Reconciliation may still
-                # adopt a previously unknown command identity, so the exact
-                # projection is re-derived and matched below after that read.
-                target_projection = _target_projection_or_refuse(
-                    conn, state=state, plan=plan, binding=binding,
-                    broker=broker, through=today, actions=actions,
-                    target_actions=target_actions,
-                    persist_projection=False, opening_prices=opening_prices)
+            if opening_prices is None:
+                opening_prices = await _opening_prices_or_retry(
+                    conn, state=state, plan=plan, broker=broker)
+            # Retain canonical sizing independently of optional pre-open
+            # evidence. Known material events become per-security restrictions.
+            target_projection = _target_projection_or_refuse(
+                conn, state=state, plan=plan, binding=binding,
+                broker=broker, through=today, actions=actions,
+                target_actions=target_actions,
+                persist_projection=False, opening_prices=opening_prices,
+                allow_restrictions=True)
             preflight = await reconciliation.reconcile(
                 broker=broker, conn=conn, binding=None,
                 deployment=binding.identity, actions=actions)
             observation = (
                 _dual_mutation_observation_or_refuse(preflight)
                 if dual_mode else
-                _clean_or_refuse(preflight, purpose="paper execution"))
+                _transport_observation_or_refuse(preflight))
             if _account_evidence_is_quiescent(
                     conn, deployment=binding.identity,
                     observation=observation):
@@ -421,20 +417,9 @@ async def _execute_current_paper_plan(
                 evaluated_at=clock())
             minimum_increment = (
                 broker.capabilities.minimum_quantity_increment)
-            preopen_deltas = _plan_deltas(
-                target_basket=plan.target_basket,
-                observation=observation,
-                minimum_quantity_increment=minimum_increment)
             if authority is None and dual_mode:
-                if plan.opening_intents:
-                    raise PreOpenShareUnitAuthorityUnavailable(
-                        "V5 opening sizing requires effective-session share-unit authority")
-                # This is explicitly informational transport, not affirmative
-                # pre-open unit authority. The exact close-unit basket remains
-                # immutable and a post-close source-final check can only block
-                # later mutations; it never rewrites these quantities.
-                target_projection = None
-                projected_deltas = preopen_deltas
+                # Retain the informational audit stamp; current reconciliation
+                # decides transport and historical checks remain reporting.
                 pending_ids = _preopen_active_security_ids(
                     plan=plan, commands=current_commands, actions=actions)
                 pending_symbols = _informational_active_symbols(
@@ -453,51 +438,44 @@ async def _execute_current_paper_plan(
                     # broker call. A later outer rollback must not erase the
                     # fact that a crashed submit may have landed.
                     commit=True)
-            elif authority is None:
-                if not _provably_clean_empty_noop(
-                        deltas=preopen_deltas, commands=current_commands,
-                        observation=observation, opening_intents=plan.opening_intents):
-                    raise PreOpenShareUnitAuthorityUnavailable(
-                        "pre-open share-unit authority is absent and the "
-                        "complete, clean broker book is not an empty no-op; "
-                        "numerical equality of nonzero raw shares cannot prove "
-                        "that no effective-session split occurred; "
-                        "Sentinel will not project a target or create, cancel, "
-                        "or submit a command")
-                target_projection = None
-                projected_deltas = preopen_deltas
-            else:
-                # Reconciliation can durably adopt a broker order that was not
-                # present at the first projection boundary.  Re-run all
-                # material-action checks over that expanded command set and
-                # require the result to equal the immutable pre-read target.
-                target_projection = _target_projection_or_refuse(
-                    conn, state=state, plan=plan, binding=binding,
-                    broker=broker, through=today, actions=actions,
-                    target_actions=target_actions,
-                    expected_projection=target_projection, opening_prices=opening_prices)
-                projected_deltas = _plan_deltas(
-                    target_basket=target_projection.target_basket,
-                    observation=observation,
-                    minimum_quantity_increment=minimum_increment)
+            # Reconciliation can durably adopt a broker order that was not
+            # present at the first projection boundary.  Re-run all
+            # material-action checks over that expanded command set and
+            # require the result to equal the immutable pre-read target.
+            target_projection = _target_projection_or_refuse(
+                conn, state=state, plan=plan, binding=binding,
+                broker=broker, through=today, actions=actions,
+                target_actions=target_actions,
+                expected_projection=target_projection, opening_prices=opening_prices,
+                allow_restrictions=True)
+            projected_deltas = _plan_deltas(
+                target_basket=target_projection.target_basket,
+                observation=observation,
+                minimum_quantity_increment=minimum_increment)
 
-            if all(delta.classification is execution_commands.DeltaClass.NONE
+            from sentinel.execution.share_units import material_restrictions
+            from sentinel.core.decision import shadow_target, DEFENSIVE_SECURITY_ID
+            symbols = dict(shadow_target(state).tickers)
+            symbols[DEFENSIVE_SECURITY_ID] = "BIL"
+            target_symbols = {sid: symbols.get(sid, sid) for sid in plan.target_basket
+                              if plan.target_basket[sid] != 0
+                              or any(item.security_id == sid for item in plan.opening_intents)}
+            restrictions = material_restrictions(target_actions, target_symbols)
+            restrictions.update(preflight.restricted_securities)
+
+            if not restrictions and all(delta.classification is execution_commands.DeltaClass.NONE
                    for delta in projected_deltas):
                 session = executor.SessionResult(
                     runtime_state=RuntimeState.RUNNING,
                     reconciliation=preflight,
-                    detail="complete clean empty no-op; no command transport")
+                    detail="reconciled target already held; no command transport")
             else:
-                # The branch is unreachable without a validated authority:
-                # dust is not a true no-op, even when no broker can fill it.
-                if target_projection is None and not dual_mode:  # pragma: no cover
-                    raise PreOpenShareUnitAuthorityUnavailable(
-                        "pre-open authority is required before command sizing")
                 instruments = await _instrument_map(
                     conn, broker, state, plan, observation,
                     target_basket=(
                         plan.target_basket if target_projection is None
-                        else target_projection.target_basket))
+                        else target_projection.target_basket),
+                    restricted_security_ids=restrictions)
 
                 async def authorize_increases(fresh_observation):
                     if not _account_evidence_is_quiescent(
@@ -531,9 +509,11 @@ async def _execute_current_paper_plan(
                     increase_authority=authorize_increases,
                     mutation_authority=(
                         authorize_dual_mutations
-                        if dual_mode else None))
+                        if dual_mode else None),
+                    security_restrictions=restrictions)
             final_reconciliation = session.reconciliation
             if (final_reconciliation is not None
+                    and not session.restricted_securities
                     and final_reconciliation.runtime_state is RuntimeState.RUNNING
                     and final_reconciliation.clean
                     and final_reconciliation.observation is not None

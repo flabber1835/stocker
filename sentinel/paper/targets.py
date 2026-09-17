@@ -290,7 +290,7 @@ def _target_projection_or_refuse(
         persist_projection: bool = True,
         expected_projection: Optional[
             target_reprojection.TargetProjection] = None,
-        opening_prices=None):
+        opening_prices=None, allow_restrictions: bool = False):
     """Derive the exact unit projection and bind it to durable plan state."""
     if state.state_hash != plan.shadow_snapshot_hash:
         raise PaperActivationRefused(
@@ -326,7 +326,7 @@ def _target_projection_or_refuse(
                 security_ids=security_ids, symbols=symbols))
     unique = {
         (event.source_row_id, event.reason): event for event in material}
-    if unique:
+    if unique and not allow_restrictions:
         detail = [event.to_dict() for event in unique.values()]
         raise PaperActivationRefused(
             "corporate action intersects the executable book but has no "
@@ -393,6 +393,7 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
                           plan: ExecutionPlan,
                           observation: BrokerObservation,
                           target_basket: Mapping[str, Decimal] | None = None,
+                          restricted_security_ids=(),
                           ) -> dict[str, BrokerInstrument]:
     desired = plan.target_basket if target_basket is None else target_basket
     target = shadow_target(state)
@@ -431,7 +432,8 @@ async def _instrument_map(conn, broker: ExecutionBroker, state: SessionState,
     }
     needed = {
         security_id for security_id in all_security_ids
-        if desired.get(security_id, Decimal(0))
+        if security_id not in restricted_security_ids
+        and desired.get(security_id, Decimal(0))
         != effective_current[security_id]
     }
     unresolved = []

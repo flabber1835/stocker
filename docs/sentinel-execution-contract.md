@@ -1,5 +1,11 @@
 # Sentinel — the execution and recovery contract
 
+[Automatic share-unit reconciliation](automatic-share-unit-reconciliation.md)
+supersedes the universal affirmative pre-open certificate and global material-
+action refusal below. Missing optional evidence does not block ordinary paper
+execution. Current known action problems restrict affected securities, with
+automatic reassessment, while command identity and account safety remain intact.
+
 The compact champion carries V5 opening dollar intents through this membrane.
 Execution persists opening prices, permanent instrument identities and sized
 quantities before submission, and restores that projection after a restart.
@@ -1502,76 +1508,35 @@ the aggregate multiplier and the rational result must already be an integer
 number of broker increments. There is no nearest-increment fallback: `300/30`
 is exactly `10`, while `301/30` remains fractional and refuses.
 
-#### Pre-open share-unit authority is an affirmative execution input
+#### Automatic share-unit reconciliation
 
-The stable automation failure for this boundary is
-`PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE`. Automation prepares from the
-decision session's closed and published corpus, then executes at the following
-session's open. The new session's SEP/SFP bar—and therefore its canonical
-effective split ratio—does not exist until that close, while the ordinary
-ACTIONS ingest is also bounded through the decision session. The
-historical/recovery lookup remains correct once the event session is published;
-silence at the open is not proof that no share-unit event exists.
+The current policy is [automatic share-unit reconciliation](automatic-share-unit-reconciliation.md).
+An absent pre-open certificate does not block preparation, execution, or
+read-only recovery. It supplies no negative-event guarantee. Published action
+history, immutable canonical target projections, durable commands, and complete
+current broker observations govern execution. V5 opening dollar intents retain
+their opening-price sizing and freshness limits.
 
-Any invocation with a nonempty active share-unit set therefore requires one
-immutable pre-open authority record. It binds the plan id and
-fingerprint, effective XNYS session, provider and provider-publication id,
-provider cutoff/as-of time,
-complete covered permanent-security identities, an explicit oriented positive
-multiplier for every covered identity (including `1` as an affirmative no-event
-attestation), source event/revision identities, and a canonical evidence digest.
-The covered set is exact: every nonzero plan target, every nonzero action-aged
-durable expected-book identity, and every durable in-flight command identity.
-This includes `SENTINEL:BIL` when its target, expected holding, or in-flight
-command is nonzero/active. A zero-valued BIL basket key by itself is inactive;
-including it as extra coverage is also a refusal. Wrong-session, stale, partial,
-missing/extra identity, duplicate, revised, or digest-inconsistent evidence
-refuses before target projection or command reservation.
+If a pre-open record exists, its exact plan fingerprint, effective session,
+cutoff, covered permanent identities, oriented multipliers, source revisions,
+and evidence digest must still validate. Source silence never manufactures an
+affirmative multiplier. Alpaca announcement timing has no completeness
+guarantee; the accepted residual risk is an event neither source nor broker
+evidence reveals before submission.
 
-A COMPLETE clean reconciliation may bypass the record only for an empty
-share-unit domain: every target, holding and commitment is exactly zero and
-neither a durable command nor a broker order is still working. Equality between
-a nonzero raw plan target and a nonzero broker holding is not proof of no event;
-an unobserved split can make incomparable units numerically equal. Dust is not
-empty, and this exception cannot authorize a held, targeted or committed share.
+Known non-scalar events and attributable positions still in pre-split units
+restrict the affected security. They do not prohibit unrelated execution.
+Required deferred reductions cannot fund dependent purchases. Restrictions are
+recomputed from current evidence and clear automatically when resolved; no
+operator acknowledgement or permanent historical-mismatch latch is required.
+Unexplained foreign activity, incomplete broker observations, and uncertain
+command outcomes retain their existing handling.
 
-Alpaca's corporate-actions endpoint is positive evidence only: its documentation
-does not guarantee creation time and permits provider/processing delay. An empty
-or repeatedly identical response, `data_quality=all`, a quote discontinuity, or
-the absence of a broker position for a fresh target therefore cannot create the
-required negative attestation. Raw ACTIONS values are not an acceptable
-substitute either. The producer is operationally absent and no trusted
-issuer/authenticator is configured. The existing persistence/validation shape
-does not make an arbitrary locally inserted record reviewed market-data
-authority. Every nonempty autonomous cycle therefore remains fail-closed until
-a reviewed source with full-universe pre-open delivery,
-negative-space/completeness authority, and an explicit trust/acceptance boundary
-is integrated. This closes the unsafe execution path; it does not turn missing
-market information into a deployment GO.
-
-This refusal is scoped to broker execution. A broker-free forward observer has
-no broker share-unit domain: it advances the canonical strategy state only
-after the next session's open, close, and action data have been published. Such
-an observer may receive `SHADOW_GO` when the NAS corpus, canonical engine,
-freshness, exact tests, and zero-mutation boundary pass. It may not submit,
-cancel, or replace orders; may not read an Alpaca holding as its economic book;
-and may not translate dual-source silence into a multiplier. The independent
-`PAPER_EXECUTION_GO` verdict continues to require this entire affirmative
-pre-open contract. See `sentinel-nas-go-validation.md`.
-
-Non-scalar events are different. A spinoff, stock/cash merger, rename,
-reorganization, or terms-less terminal event can add an instrument, remove one,
-or add cash. Sharadar ACTIONS is sufficient to detect those event classes but
-not to manufacture broker-grade entitlements. If one intersects the plan,
-shadow target, or durable command book, execution fences before sizing. Sentinel
-does not create synthetic positions, cash, fills, or corrective orders to make
-an Alpaca paper account resemble live clearing.
-
-This is an explicit broker-boundary decision. Alpaca live accounts process
-mandatory corporate actions and expose native activity evidence; Alpaca paper
-accounts may leave positions unchanged. Paper is used as realistically as its
-observable state permits, but a paper-only omission remains a visible limitation
-rather than an invitation to build a second brokerage ledger.
+Alpaca paper omissions never justify synthetic positions, cash, fills, or
+compensating orders. Restricted reconciliation is incomplete convergence and
+cannot verify paper performance. Historical informational-paper mismatches
+remain immutable reporting evidence. Broker-free shadow observation continues
+independently; it never uses an Alpaca holding as the economic book.
 
 ### 10.3 Foreign activity
 
@@ -2173,13 +2138,13 @@ Numbered from 15 to continue `sentinel-architecture.md` §12.
     it returns in the same statement as the pointer. A state that cannot be
     encoded is refused before the first session advances.
 55  A decision-close-to-open scalar corporate action reprojects share units in
-    an immutable record; it never edits plan intent. Non-scalar or incomplete
-    terms fence execution and never create a compensating broker ledger.
-56  Every effective-session invocation with a nonempty target, holding or
-    commitment has affirmative, immutable pre-open share-unit authority
-    covering its exact active permanent-identity set. Equal nonzero raw share
-    counts do not prove no event; source silence never means multiplier 1. Only
-    an all-zero empty book bypasses, and a zero-only BIL key is not coverage.
+    an immutable record; it never edits plan intent. Unsupported terms or an
+    attributable unchanged split position defer that security without creating
+    a compensating broker ledger or funding purchases from a deferred sale.
+56  Missing pre-open authority is not a global transport refusal or proof of
+    no event. Present optional evidence must validate. Current reconciliation
+    recomputes scoped restrictions, which clear automatically when resolved;
+    historical paper mismatches remain reporting evidence, not a trading latch.
 57  Once an adapter has accepted a broker close valuation, persistence binds
     that typed historical source point to the exact account and XNYS session.
     Production source-semantics promotion remains a separate acceptance gate; a

@@ -77,7 +77,6 @@ from sentinel.feed import calendar, publication, readiness, store as feed_store
 from .model import (
     PaperActivationRefused,
     PaperRetryableRefused,
-    PreOpenShareUnitAuthorityUnavailable,
 )
 
 from .inspection import (
@@ -283,30 +282,16 @@ async def recover_automated_paper_cycle(
                     required_cutoff_at=official_open,
                     evaluated_at=clock(), actions=actions,
                     target_actions=target_actions)
-                if authority is None:
-                    raise PreOpenShareUnitAuthorityUnavailable(
-                        "pre-open share-unit authority is absent for the "
-                        "nonempty recovery book; Sentinel will not interpret "
-                        "plan, command, or broker-position share units across "
-                        "the effective-session open")
-                observation_target_actions = (
-                    preopen_authority.overlay_actions(
-                        observation_target_actions, authority))
+                if authority is not None:
+                    observation_target_actions = (
+                        preopen_authority.overlay_actions(
+                            observation_target_actions, authority))
         result = await reconciliation.reconcile(
             broker=broker, conn=conn, binding=None,
             deployment=binding.identity, actions=actions)
 
         if plan is not None:
             current_commands = journal.load_commands(conn, binding.identity)
-            current_security_ids = _preopen_active_security_ids(
-                plan=plan, commands=current_commands, actions=actions)
-            if ((not dual_mode or plan.opening_intents) and authority is None
-                    and current_security_ids):
-                raise PreOpenShareUnitAuthorityUnavailable(
-                    "pre-open share-unit authority is absent after recovery "
-                    "adopted a nonempty share-unit identity; Sentinel will "
-                    "not treat that command or broker position as current "
-                    "plan economics")
             if authority is not None:
                 _revalidate_preopen_authority_or_refuse(
                     authority=authority, plan=plan,
@@ -327,7 +312,17 @@ async def recover_automated_paper_cycle(
                         conn, state=state, plan=plan, binding=binding,
                         broker=broker, through=plan.effective_session,
                         actions=actions, target_actions=target_actions,
-                        require_existing=True)
+                        require_existing=True, allow_restrictions=True)
+            else:
+                # Read-only recovery keeps the exact projection used by the
+                # original commands. Later source revisions are reconciliation
+                # evidence, never permission to rewrite an in-flight target.
+                target_projection = target_reprojection.load_projection(
+                    conn, plan_id=plan.plan_id)
+                if target_projection is not None:
+                    target_reprojection.assert_projection(
+                        conn, plan=plan, projection=target_projection,
+                        through_session=plan.effective_session)
 
         if dual_mode:
             _dual_mutation_observation_or_refuse(result)

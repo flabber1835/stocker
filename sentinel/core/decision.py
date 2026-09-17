@@ -65,6 +65,7 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.execution.plan",
     "sentinel.execution.projection",
     "sentinel.execution.reconcile",
+    "sentinel.execution.share_units",
     "sentinel.execution.target_reprojection",
     "sentinel.execution.opening_prices",
     "sentinel.execution.opening_sizing",

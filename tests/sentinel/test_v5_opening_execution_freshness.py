@@ -16,7 +16,7 @@ from sentinel.execution.identity import CommandIdentity
 from sentinel.execution.states import CommandState
 from sentinel.feed import calendar
 from sentinel.paper import execution as paper_execution
-from tests.v5.test_opening import case
+from tests.v5.test_opening import case, prices
 
 
 # Reuse the production-grade PostgreSQL/simulator paper-activation fixtures.
@@ -102,3 +102,30 @@ def test_late_restart_with_durable_opening_projection_remains_permitted(monkeypa
 
     assert len(seen) == 1
     assert seen[0][1:] == (plan, deployment)
+
+
+def test_fresh_v5_opening_without_certificate_retains_sizing_on_retry(conn, monkeypatch):
+    bound, plan = _install_unresolved_v5_opening(conn, monkeypatch, sale=False)
+    activation._ready(monkeypatch)
+    broker = activation._broker()
+    opened, _ = calendar.session_window(plan.effective_session)
+
+    async def opening_evidence(_conn, *, state, plan, broker):
+        evidence = prices(state, plan, price="10")
+        identities = {
+            sid: (await broker.resolve_instrument(security_id=sid, symbol=symbol)).broker_id
+            for sid, symbol in evidence.symbols.items()}
+        return replace(evidence, broker_ids=identities)
+
+    monkeypatch.setattr(paper_execution, "_opening_prices_or_retry", opening_evidence)
+    first = activation._execute(conn, broker, install_preopen_authority=False,
+                                today=opened + dt.timedelta(seconds=60))
+    projected = target_reprojection.load_projection(conn, plan_id=plan.plan_id)
+    # The $1,000 paper account receives 1% of the canonical $100,000 book.
+    assert projected.target_basket["SEC-AAA"] == D(4)
+    assert [c.quantity for c in first.session.submitted] == [D(4)]
+    broker.fill(first.session.submitted[0].client_key)
+    activation._execute(conn, broker, install_preopen_authority=False,
+                        today=opened + dt.timedelta(seconds=90))
+    assert target_reprojection.load_projection(conn, plan_id=plan.plan_id) == projected
+    assert len(journal.load_commands(conn, bound.identity, plan_id=plan.plan_id)) == 1

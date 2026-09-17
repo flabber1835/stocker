@@ -1,5 +1,11 @@
 # Informational PAPER mirror for reviewed dual observation
 
+**Updated 2026-09-17:** [automatic share-unit reconciliation](../automatic-share-unit-reconciliation.md)
+supersedes the raw close-unit transport and permanent mismatch latch below.
+New transport retains canonical action/opening-price projections. Historical
+mismatches remain visible and immutable; current reconciliation governs scoped
+restrictions and automatic recovery. The following records the original decision.
+
 **Decision:** reviewed `dual` mode may send the immutable certified close-unit
 plan to Alpaca PAPER only as `INFORMATIONAL_PAPER_MIRROR`. It is not
 `PAPER_EXECUTION_GO`, and Alpaca account P/L is never strategy-performance

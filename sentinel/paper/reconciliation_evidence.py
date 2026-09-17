@@ -33,7 +33,7 @@ from .cash import (
 )
 
 
-def _clean_or_refuse(result, *, purpose: str) -> BrokerObservation:
+def _clean_or_refuse(result, *, purpose: str, allow_restrictions: bool = False) -> BrokerObservation:
     observation = result.observation
     replaced = sorted(
         order.broker_order_id
@@ -45,7 +45,8 @@ def _clean_or_refuse(result, *, purpose: str) -> BrokerObservation:
             f"{purpose} observed Sentinel order(s) with unauthorized broker "
             "replacement economics; all broker mutations are blocked: "
             + ", ".join(replaced[:8]))
-    if (result.runtime_state is not RuntimeState.RUNNING or not result.clean
+    if (result.runtime_state is not RuntimeState.RUNNING
+            or not (result.clean or (allow_restrictions and result.transport_ready))
             or observation is None or not observation.is_complete):
         error = (PaperRetryableRefused
                  if (result.runtime_state in {
@@ -58,10 +59,14 @@ def _clean_or_refuse(result, *, purpose: str) -> BrokerObservation:
             f"got {result.runtime_state.value}: {result.detail}")
     return observation
 
+
+def _transport_observation_or_refuse(result, *, purpose="paper execution"):
+    return _clean_or_refuse(result, purpose=purpose, allow_restrictions=True)
+
 def _dual_mutation_observation_or_refuse(result) -> BrokerObservation:
     """Dual PAPER never mutates an unexplained or externally replaced book."""
     return _clean_or_refuse(
-        result, purpose="informational dual PAPER mutation")
+        result, purpose="informational dual PAPER mutation", allow_restrictions=True)
 
 async def _settled_account_evidence_bracket(
         *, conn, broker: ExecutionBroker, binding, expected_account: str,
@@ -78,11 +83,8 @@ async def _settled_account_evidence_bracket(
     confirmation = await reconciliation.reconcile(
         broker=broker, conn=conn, binding=None,
         deployment=deployment, actions=actions)
-    confirmed_observation = (
-        _dual_mutation_observation_or_refuse(confirmation)
-        if dual_mode else
-        _clean_or_refuse(
-            confirmation, purpose="settled account evidence bracket"))
+    confirmed_observation = _clean_or_refuse(
+        confirmation, purpose="settled account evidence bracket")
     if not _account_evidence_is_quiescent(
             conn, deployment=deployment,
             observation=confirmed_observation):

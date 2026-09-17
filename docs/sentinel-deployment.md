@@ -1,5 +1,11 @@
 # Sentinel — operational deployment ground truth
 
+[Automatic share-unit reconciliation](automatic-share-unit-reconciliation.md)
+supersedes the universal pre-open certificate requirement below. Ordinary paper
+execution uses current reconciliation and optional event evidence; known action
+problems defer affected securities and recover automatically. Historical paper
+mismatches remain visible without permanently latching future transport.
+
 The owner confirmed that GO never passed and the NAS was never operational.
 The rolling rollout is a first deployment; an operational-book migration is
 not required. Preserve and inventory failed-attempt records during setup.
@@ -1334,27 +1340,14 @@ reprojection reconstructs the exact rational only from its durable action
 evidence: `300/30` becomes exactly 10 broker units, while `301/30` still refuses
 instead of being rounded.
 
-**Deployment NO-GO:** the runtime structurally validates an immutable
-affirmative pre-open share-unit record before every invocation with any nonzero
-target, holding or commitment. Only a COMPLETE, clean, all-zero empty book may
-bypass it; equal nonzero raw shares are incomparable across an unobserved split.
-Missing evidence terminalizes automation with
-`PREOPEN_SHARE_UNIT_AUTHORITY_UNAVAILABLE`. The record's exact covered set is
-the nonzero target, nonzero action-aged durable expected book, and durable
-in-flight commands. Therefore nonzero/held/working `SENTINEL:BIL` is covered,
-while a merely present `SENTINEL:BIL: 0` basket entry is not and must not appear
-as extra coverage.
-
-This closes the unsafe stale-unit path, but a production evidence producer is
-operationally absent and no trusted issuer/authenticator is configured. The
-runtime does not turn an arbitrary locally inserted structurally valid record
-into reviewed market-data authority. Automation prepares from the prior close
-and executes at the next open, before that SEP/SFP bar exists; its ordinary
-ACTIONS fetch is also bounded through the prior decision session. Alpaca source
-silence cannot attest no event because creation may be delayed. Autonomous
-deployment therefore remains blocked until a reviewed full-universe producer
-and trust/acceptance boundary supplies both oriented events and
-negative-space/completeness authority. Raw ACTIONS is not that authority.
+**Automatic paper operation:** an absent pre-open certificate no longer
+terminalizes automation. Optional present evidence still validates its exact
+plan/session/content. Current reconciliation and canonical target projection
+govern transport. Known unsupported actions or unchanged paper split positions
+defer only the affected security, with automatic re-observation. Deferred sales
+cannot fund dependent buys. Source silence carries no no-event guarantee; this
+policy accepts unobserved-action risk without manufacturing evidence. See
+[automatic share-unit reconciliation](automatic-share-unit-reconciliation.md).
 
 **Financial verification NO-GO:** a successful paper cycle also cannot be
 superseded until three independent post-close authorities are durable: a broker
@@ -1379,8 +1372,9 @@ authorizes only the canonical Wealth Core observer: decisions are made from a
 published close, pending quantities are applied at the next published session's
 open, and NAV/action/dividend economics remain in the Sharadar-backed state
 machine. It performs zero broker mutations and never treats Alpaca paper P/L as
-the economic book. `PAPER_EXECUTION_GO` retains every pre-open, close-NAV,
-fill-interval and close-cash requirement above. A `SHADOW_GO` result cannot be
+the economic book. `PAPER_EXECUTION_GO` for verified performance retains the close-NAV,
+fill-interval and close-cash requirements above; informational paper transport
+uses the automatic reconciliation policy without claiming verified performance. A `SHADOW_GO` result cannot be
 promoted into paper execution. The NAS evidence and review contract is defined
 in `sentinel-nas-go-validation.md`.
 

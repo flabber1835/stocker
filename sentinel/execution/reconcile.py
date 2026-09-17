@@ -101,11 +101,20 @@ class ReconciliationResult:
     unresolved: tuple = ()
     detail: str = ""
     observation_id: Optional[int] = None
+    restricted_securities: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def clean(self) -> bool:
         return (not self.foreign_positions and not self.foreign_orders
-                and not self.unresolved)
+                and not self.unresolved and not self.restricted_securities)
+
+    @property
+    def transport_ready(self) -> bool:
+        """Scoped action restrictions do not disable unrelated transport."""
+        return (self.runtime_state is RuntimeState.RUNNING
+                and not self.foreign_positions and not self.foreign_orders
+                and not self.unresolved and self.observation is not None
+                and self.observation.is_complete)
 
     def to_dict(self) -> dict:
         return {
@@ -121,6 +130,7 @@ class ReconciliationResult:
             "clean": self.clean,
             "detail": self.detail,
             "observation_id": self.observation_id,
+            "restricted_securities": dict(self.restricted_securities),
         }
 
 
@@ -967,8 +977,16 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         if abs(gap) <= available + tolerance:
             lagging_fill_positions_list.append(sid)
     lagging_fill_positions = tuple(lagging_fill_positions_list)
+    from sentinel.execution.share_units import position_restrictions
+    restrictions = position_restrictions(
+        actions=actions, commands=resolved, observation=observation,
+        expected_raw=expected_raw, expected=expected)
+    # An event can explain changed units of an owned holding, but cannot prove
+    # ownership of an otherwise unattributed position that shares its ticker.
+    explained_action_positions = {
+        sid for sid in restrictions if expected_raw.get(sid, Decimal(0)) > 0}
     foreign_positions = tuple(sorted(
-        mismatched_positions - set(lagging_fill_positions)))
+        mismatched_positions - set(lagging_fill_positions) - explained_action_positions))
     foreign_orders = tuple(o for o in observation.orders
                            if o.is_working and not is_sentinel_key(o.client_key))
 
@@ -996,6 +1014,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         detail = (
             f"{len(lagging_fill_positions)} position endpoint value(s) lag "
             "broker-confirmed in-flight fill progress; re-observation required")
+    elif restrictions:
+        detail = f"{len(restrictions)} security corporate-action restriction(s); unrelated transport available"
 
     if applied:
         log.info("sentinel: aged %d holding(s) through corporate actions "
@@ -1024,7 +1044,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
         observed=observed, corporate_actions=applied,
         recovered_orders=recovered, foreign_positions=foreign_positions,
         foreign_orders=foreign_orders, unresolved=unresolved, detail=detail,
-        observation_id=observation_seq)
+        observation_id=observation_seq, restricted_securities=restrictions)
 
 
 #: Action verbs this lookup can express as a share-count multiplier. Named so

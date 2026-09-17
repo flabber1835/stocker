@@ -1618,24 +1618,21 @@ def test_mark_to_market_ticks_do_not_destabilize_cash_bracket(
 
 
 class TestStrictExecutionGate:
-    def test_missing_preopen_authority_blocks_actionable_cycle_before_projection(
+    def test_missing_preopen_authority_executes_from_reconciled_projection(
             self, conn, monkeypatch):
         _bound, _pinned, _state_value, durable_plan = \
             _install_current_authorities(conn, with_target=True)
         _ready(monkeypatch)
         broker = _broker()
 
-        with pytest.raises(
-                paper.PreOpenShareUnitAuthorityUnavailable,
-                match="empty no-op"):
-            _execute(
-                conn, broker, install_preopen_authority=False)
+        result = _execute(conn, broker, install_preopen_authority=False)
 
         assert target_reprojection.load_projection(
-            conn, plan_id=durable_plan.plan_id) is None
-        assert _mutations(broker) == []
+            conn, plan_id=durable_plan.plan_id) is not None
+        assert result.session.submitted
+        assert _mutations(broker)
 
-    def test_missing_preopen_authority_allows_only_clean_empty_noop(
+    def test_missing_preopen_authority_records_clean_empty_projection(
             self, conn, monkeypatch):
         _bound, _pinned, _state_value, durable_plan = \
             _install_current_authorities(conn)
@@ -1647,9 +1644,9 @@ class TestStrictExecutionGate:
 
         assert result.session.submitted == ()
         assert result.session.detail == (
-            "complete clean empty no-op; no command transport")
+            "reconciled target already held; no command transport")
         assert target_reprojection.load_projection(
-            conn, plan_id=durable_plan.plan_id) is None
+            conn, plan_id=durable_plan.plan_id) is not None
         assert _mutations(broker) == []
 
     def test_recovered_command_adopted_by_reconcile_revalidates_exact_coverage(
@@ -2009,13 +2006,12 @@ class TestStrictExecutionGate:
         conn.commit()
         broker = _broker()
 
-        with pytest.raises(
-                paper.PaperActivationRefused,
-                match="no certified scalar projection"):
-            _execute(conn, broker)
+        result = _execute(conn, broker)
+        assert AAA.security_id in result.session.deferred
+        assert AAA.security_id in result.session.restricted_securities
 
         assert "account_snapshot" in broker.calls
-        assert "get_positions" not in broker.calls
+        assert "get_positions" in broker.calls
         assert _mutations(broker) == []
 
     def test_unmapped_split_on_target_symbol_fences(
@@ -2030,10 +2026,9 @@ class TestStrictExecutionGate:
         conn.commit()
         broker = _broker()
 
-        with pytest.raises(
-                paper.PaperActivationRefused,
-                match="no certified scalar projection"):
-            _execute(conn, broker)
+        result = _execute(conn, broker)
+        assert AAA.security_id in result.session.deferred
+        assert AAA.security_id in result.session.restricted_securities
 
         assert _mutations(broker) == []
 
@@ -2110,7 +2105,7 @@ class TestStrictExecutionGate:
                 instrument=observed_instrument, quantity=D("5")),))
         preflight = SimpleNamespace(
             runtime_state=RuntimeState.RUNNING, clean=True,
-            observation=observation, detail="reconciled")
+            observation=observation, detail="reconciled", restricted_securities={})
 
         async def reconcile(**_kwargs):
             return preflight

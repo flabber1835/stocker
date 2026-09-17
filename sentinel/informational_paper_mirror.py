@@ -3,7 +3,8 @@
 This is intentionally not pre-open authority.  A plan is stamped PENDING before
 its first possible broker mutation, then every later source-final publication
 rechecks all prior mirror sessions.  A delayed Sharadar correction therefore
-turns the operational PAPER surface red and blocks future mutation; it never
+remains visible as a PAPER reporting mismatch; current reconciliation governs
+transport. It never
 rewrites either the plan or the certified shadow ledger.
 """
 from __future__ import annotations
@@ -314,21 +315,18 @@ def revalidate_all(
             mismatches.append(pending["plan_id"])
     if commit:
         conn.commit()
-    # A mismatch from ANY older publication remains a latch even if a later
-    # vendor revision removes the row. Historical PAPER transport cannot be
-    # made trustworthy by rewriting the evidence that disproved it.
+    # Retain historical mismatch evidence for reporting. Current reconciliation
+    # owns transport restrictions; a historical incident is not a kill switch.
     for pending in _pending_records(conn):
         if any(item["status"] == MISMATCH
                for item in _checks(conn, plan_id=pending["plan_id"])):
             mismatches.append(pending["plan_id"])
-    if mismatches:
-        raise InformationalPaperMirrorMismatch(
-            "post-close share-unit mismatch blocks future PAPER mutations")
     return {
         "schema": SCHEMA,
-        "status": NO_UNIT_CHANGE,
+        "status": MISMATCH if mismatches else NO_UNIT_CHANGE,
         "checked_publication_version": int(publication_version),
         "checked_sessions": checked,
+        "historical_mismatch_plans": sorted(set(mismatches)),
         "verdict": "PAPER_NOT_VERIFIED",
     }
 
@@ -340,17 +338,17 @@ def require_transport_permitted(
     frontier = (current_frontier if isinstance(current_frontier, date)
                 else date.fromisoformat(str(current_frontier)))
     pending_count = 0
+    mismatch_count = 0
     for pending in _pending_records(conn):
         checks = _checks(conn, plan_id=pending["plan_id"])
         if any(item["status"] == MISMATCH for item in checks):
-            raise InformationalPaperMirrorMismatch(
-                "a prior post-close share-unit mismatch remains latched")
+            mismatch_count += 1
         effective = date.fromisoformat(pending["effective_session"])
         if effective <= frontier:
             exact = [item for item in checks
                      if item["checked_publication_version"]
                      == int(current_publication_version)]
-            if len(exact) != 1 or exact[0]["status"] != NO_UNIT_CHANGE:
+            if len(exact) != 1 or exact[0]["status"] not in {NO_UNIT_CHANGE, MISMATCH}:
                 raise InformationalPaperMirrorPending(
                     "a due mirror session has not been revalidated under the "
                     "current source-final publication")
@@ -358,8 +356,9 @@ def require_transport_permitted(
             pending_count += 1
     return {
         "schema": SCHEMA,
-        "status": PENDING if pending_count else NO_UNIT_CHANGE,
+        "status": MISMATCH if mismatch_count else PENDING if pending_count else NO_UNIT_CHANGE,
         "pending_sessions": pending_count,
+        "historical_mismatch_count": mismatch_count,
         "verdict": "PAPER_NOT_VERIFIED",
     }
 
