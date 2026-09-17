@@ -2,9 +2,28 @@
 from __future__ import annotations
 
 from datetime import date
-from typing import Mapping
+from typing import Literal, Mapping
+
+from pydantic import Field
+
+from sentinel.feed.rolling_contract import Contract, Digest
 
 SCHEMA = "sentinel.strategy-history-mutations/1"
+ROLLING_SCHEMA = "sentinel.rolling-continuity/1"
+
+
+class RollingContinuityProof(Contract):
+    schema_id: Literal["sentinel.rolling-continuity/1"] = Field(default=ROLLING_SCHEMA, alias="schema")
+    prior_version: int = Field(gt=0)
+    publication_version: int = Field(gt=0)
+    prior_session: str
+    session: str
+    prior_state_sha256: Digest
+    previous_snapshot_sha256: Digest
+    snapshot_sha256: Digest
+    overlap_start: str
+    overlap_sha256: Digest
+    reference_sha256: Digest
 
 
 class HistoryReconstructionRequired(ValueError):
@@ -41,7 +60,20 @@ def validate_proof(proof: Mapping, *, version: int) -> dict:
 
 def require_history_compatible(*, prior_version: int | None,
                                last_processed_session: str | None,
-                               version: int, proof: Mapping | None) -> None:
+                               version: int, proof: Mapping | None,
+                               prior_state_sha256: str | None = None,
+                               session: str | None = None) -> None:
+    if isinstance(proof, Mapping) and proof.get("schema") == ROLLING_SCHEMA:
+        from sentinel.feed import calendar
+        checked = RollingContinuityProof.model_validate(proof)
+        if (checked.prior_version != prior_version or checked.publication_version != version
+                or checked.prior_session != last_processed_session
+                or checked.prior_state_sha256 != prior_state_sha256
+                or checked.session != session or version <= checked.prior_version
+                or session != calendar.next_session(checked.prior_session)
+                or checked.overlap_start > checked.prior_session):
+            raise HistoryReconstructionRequired("ROLLING_CONTINUITY_BINDING_CHANGED")
+        return
     if prior_version is None or version == prior_version:
         return
     if version < prior_version:

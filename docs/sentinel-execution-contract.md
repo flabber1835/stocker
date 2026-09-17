@@ -1029,6 +1029,11 @@ reconstruction of an earlier decision's inputs.
 
 ### 8.1 Two tiers, and their certification state
 
+The [rolling daily continuation](rolling-daily-continuation.md) contract adds
+explicit bounded input-continuity proof and authenticated checkpoint advancement
+for adjacent source-final sessions. It neither changes legacy VERIFIED nor
+grants execution authority; causal gaps and missing live dependencies refuse.
+
 The [rolling cold-start checkpoint](rolling-cold-start-state.md) authenticates
 the first canonical shadow state without broadening legacy VERIFIED or granting
 execution authority. Admission refuses existing state; bounded restart reads its

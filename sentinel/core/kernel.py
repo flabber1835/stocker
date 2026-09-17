@@ -135,7 +135,10 @@ def advance_session(
     require_history_compatible(
         prior_version=env.data_version,
         last_processed_session=env.last_processed_session,
-        version=published.data_version, proof=published.history_proof)
+        version=published.data_version, proof=published.history_proof,
+        prior_state_sha256=(env.state_hash if (published.history_proof or {}).get("schema")
+                            == "sentinel.rolling-continuity/1" else None),
+        session=published.session)
     from sentinel.core.spinoffs import require_supported_entitlements
     require_supported_entitlements(env, published.spinoff_distributions)
 
