@@ -2,6 +2,30 @@
 from tools.sentinel_rolling_storage_falsifiers import main
 
 MUTANTS = {
+    "spy_transport_domain": (
+        "sentinel.rolling_initialization",
+        "spy_closeadj=tuple(row.spy_total_return for row in material.benchmarks)",
+        "spy_closeadj=tuple(row.bil_close_adjusted for row in material.benchmarks)",
+        "test_composed_input_keeps_spy_equity_and_bil_domains_separate",
+    ),
+    "bil_spy_contamination": (
+        "sentinel.rolling_initialization",
+        "row.bil_close_adjusted, row.bil_close_unadjusted)",
+        "row.spy_total_return, row.bil_close_unadjusted)",
+        "test_composed_input_keeps_spy_equity_and_bil_domains_separate",
+    ),
+    "bil_raw_domain": (
+        "sentinel.rolling_initialization",
+        "row.bil_close_adjusted, row.bil_close_unadjusted)",
+        "row.bil_close_adjusted, row.bil_close_signal)",
+        "test_composed_input_keeps_spy_equity_and_bil_domains_separate",
+    ),
+    "bil_previous_session": (
+        "sentinel.rolling_initialization",
+        "defensive_previous_bar=defensive(material.benchmarks[-2])",
+        "defensive_previous_bar=defensive(material.benchmarks[-1])",
+        "test_composed_input_keeps_spy_equity_and_bil_domains_separate",
+    ),
     "partial_state": (
         "sentinel.rolling_checkpoint", "if lineage_names(conn):", "if False:",
         "test_partial_state_is_never_interpreted_as_fresh[catchup]",

@@ -1,6 +1,7 @@
 """Real source/publication/canonical-state cold start, rollback and restart."""
 from copy import deepcopy
 from datetime import datetime, timezone
+from types import SimpleNamespace
 
 import pytest
 
@@ -14,6 +15,46 @@ from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # n
 
 NOW = datetime(2026, 9, 15, 4, tzinfo=timezone.utc)
 OBS = "rolling-first"
+
+
+def test_composed_input_keeps_spy_equity_and_bil_domains_separate():
+    from stock_strategy_shared.wealth_core.feed import VendorBar
+    from sentinel.core.loader import CorpusWindow
+    from sentinel.core.rolling_inputs import ColdStartInputs
+    from sentinel.core.session import DefensiveBar
+    from sentinel.feed.rolling_contract import CanonicalBenchmark
+
+    axis = ("2026-09-11", "2026-09-14")
+    benchmarks = tuple(CanonicalBenchmark(
+        session=day, spy_total_return=600. + i,
+        bil_open_signal=91. + i, bil_close_signal=101. + i,
+        bil_close_adjusted=121. + i, bil_close_unadjusted=111. + i,
+    ) for i, day in enumerate(axis))
+    equity = VendorBar(session=axis[-1], security_id="1", ticker="AAA",
+                       raw_open=19., raw_close=20., volume=1_000_000., signal_close=10.)
+    material = ColdStartInputs(
+        snapshot_id="a" * 64, reference_sha256="b" * 64, session=axis[-1],
+        warmup=CorpusWindow([], {}, {}), bars=(equity,), meta={}, sectors={},
+        benchmarks=benchmarks, terminal_events=(), spinoff_distributions=())
+    pub = SimpleNamespace(version=7, evidence={"strategy_history": {}})
+
+    published = init._published(material, pub)
+    assert published.spy_closeadj == (600., 601.)
+    assert published.spy_sessions == published.spy_expected_sessions == axis
+    assert published.bars == (equity,)
+    assert published.bars[0].signal_close == 10.
+    assert published.bars[0].raw_open == 19.
+    assert published.bars[0].raw_close == 20.
+    assert published.defensive_previous_bar == DefensiveBar(
+        axis[0], "SENTINEL:BIL", "BIL", 91., 101., 121., 111.)
+    assert published.defensive_bar == DefensiveBar(
+        axis[1], "SENTINEL:BIL", "BIL", 92., 102., 122., 112.)
+    committed = shadow._published_input_value(published)
+    assert committed["spy_closeadj"] == [600., 601.]
+    assert committed["bars"][0]["signal_close"] == 10.
+    assert committed["bars"][0]["raw_close"] == 20.
+    assert committed["defensive_previous_bar"]["close_adjusted"] == 121.
+    assert committed["defensive_bar"]["close_adjusted"] == 122.
 
 
 @pytest.fixture
