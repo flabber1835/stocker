@@ -126,6 +126,7 @@ def claim(conn, job_id: str, *, lease_seconds: int = 60) -> Lease:
         row = cur.fetchone()
     if row is None:
         raise JobRefused("job is owned, waiting, expired or terminal")
+    conn.execute("INSERT INTO sentinel_snapshot_workers(owner,job_id) VALUES(%s,%s)", (owner, job_id))
     return Lease(job_id, owner, int(row[0]))
 
 

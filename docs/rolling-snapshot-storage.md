@@ -56,11 +56,12 @@ every retained payload/key digest for comparison or restore verification; it
 does not treat a valid manifest hash as proof that the payload survived. This
 full scan is an explicit integrity operation, not a recurring startup gate.
 
-Retention is reference-driven, not a date cascade. This first boundary provides
-no garbage-collection or production-cutover operation. Published generations,
-reader pins, decision inputs, state checkpoints and restore retention must all
-be accounted for before the later retention implementation can remove data.
-No existing corpus, strategy state, command or historical record is deleted.
+Retention is reference-driven, not a date cascade. The integrated
+[history and retirement contract](rolling-history-retention.md) now supplies
+guarded bulk-payload retirement, shared reader pins, checkpoint/job dependencies,
+and retained action evidence. Manifests, decisions, commands and failed-attempt
+records remain immutable. A retired manifest authenticates historical identity;
+it does not promise that its complete price payload remains readable.
 
 ## Verification scope
 

@@ -145,10 +145,14 @@ def test_database_health_measures_actual_snapshot_queries_and_pin(conn, publishe
 
 
 def test_database_health_refuses_a_missing_publication_pin(conn, published, monkeypatch):
+    from sentinel.feed import rolling_store
     @contextmanager
     def unpinned(conn):
         yield inputs.current(conn)
     monkeypatch.setattr(inputs, "pinned", unpinned)
+    # Explicit generation readers now also hold a transaction pin. Remove both
+    # ownership paths to actually falsify the measured writer exclusion.
+    monkeypatch.setattr(rolling_store, "_pin_reader", lambda _conn: None)
     _read_only(conn)
     assert health.inspect(conn)["checks"]["publication_pin_excludes_writers"] is False
 

@@ -9,7 +9,16 @@ def action_lookup(conn, *, start, end):
     pub = feed_inputs.current(conn)
     if not feed_inputs.is_rolling(pub):
         return reconcile.corpus_action_lookup(conn, start=start, end=end)
+    from sentinel.feed import action_history
+    retained = action_history.lookup(conn, pub, start=start, end=end)
+    if retained is not None:
+        return retained
     refs = feed_inputs.references(conn, pub)
+    return snapshot_lookup(conn, refs=refs, pub=pub, start=start, end=end)
+
+
+def snapshot_lookup(conn, *, refs, pub, start, end):
+    """Canonical interpretation for an explicit, validated generation."""
     predecessor = date.fromisoformat(calendar.previous_sessions(start, 1)[0])
     if (predecessor < refs.manifest.window.start or end < start
             or str(end) > calendar.next_session(pub.window_end)):

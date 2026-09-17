@@ -77,8 +77,10 @@ ordinary signed receipts, atomic rollback, reader exclusion, stale CAS/fence/
 deadline refusal, generation/source changes, no comparison promotion, lost-ack
 idempotence and repeated fresh data publication. Falsify the new guards.
 
-Still required before deployment: retention and long-horizon action bases,
-failed-attempt state inspection and observed NAS qualification. Fresh initialization,
+Publication now atomically extends the [retained action archive](rolling-history-retention.md);
+unattended maintenance retires obsolete payloads after live references clear.
+Still required before deployment: failed-attempt state inspection and observed
+NAS qualification. Fresh initialization,
 authenticated checkpoints, bounded runtime authority and daily shadow-service
 preparation and [paper execution readers](rolling-paper-inputs.md) are implemented. Validate NAS backup,
 first GO, paper activation/next-open handling, restart and subsequent refresh.

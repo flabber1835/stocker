@@ -218,6 +218,8 @@ _FEED_TABLES = frozenset({
     "sentinel_snapshot_validations",
     "sentinel_operational_snapshot_jobs", "sentinel_operational_snapshot_validations",
     "sentinel_operational_snapshots",
+    "sentinel_action_history", "sentinel_action_coverage",
+    "sentinel_snapshot_retirements", "sentinel_snapshot_workers", "sentinel_snapshot_maintenance",
     "sentinel_publication_validation_policy",
     "sentinel_publication_validation_receipts",
     "sentinel_readiness_snapshots", "sentinel_corpus_quarantine",

@@ -6,7 +6,6 @@ issues verification authority. The caller owns the transaction and rollback.
 from __future__ import annotations
 
 import hashlib
-import json
 import uuid
 from itertools import islice, zip_longest
 from typing import Iterable, Mapping
@@ -35,6 +34,8 @@ def put_evidence(conn, payload: Mapping) -> str:
         cur.execute(
             "INSERT INTO sentinel_snapshot_evidence (evidence_sha256,payload) "
             "VALUES (%s,%s::jsonb) ON CONFLICT DO NOTHING", (identity, encoded))
+        cur.execute("UPDATE sentinel_snapshot_evidence SET payload=%s::jsonb,restored_bytes=%s "
+                    "WHERE evidence_sha256=%s AND payload IS NULL", (encoded, encoded, identity))
     if load_evidence(conn, identity) != value:
         raise SnapshotStorageRefused("retained evidence differs from its content identity")
     return identity
@@ -75,7 +76,17 @@ def begin(conn, *, window: PriceWindow, reference_sha256: str,
     return candidate_id
 
 
+def _pin_reader(conn):
+    from sentinel.feed.publication import CORPUS_LOCK_KEY, CorpusBusy
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_try_advisory_xact_lock_shared(%s)", (CORPUS_LOCK_KEY,))
+        if not cur.fetchone()[0]:
+            raise CorpusBusy("snapshot reader cannot pin during publication or retirement")
+
+
 def _parent(conn, candidate_id: str, *, lock: bool = False):
+    if not lock:
+        _pin_reader(conn)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT session_axis,reference_sha256,source_evidence_sha256,manifest "
@@ -223,13 +234,26 @@ def manifest(conn, candidate_id: str) -> SnapshotManifest:
             or value.reference_sha256 != reference
             or value.source_evidence_sha256 != source):
         raise SnapshotStorageRefused("snapshot manifest differs from its candidate")
-    load_evidence(conn, value.reference_sha256)
-    load_evidence(conn, value.source_evidence_sha256)
+    if not retired(conn, candidate_id):
+        load_evidence(conn, value.reference_sha256)
+        load_evidence(conn, value.source_evidence_sha256)
     return value
+
+
+def retired(conn, candidate_id):
+    return conn.execute("SELECT 1 FROM sentinel_snapshot_retirements WHERE candidate_id=%s",
+                        (candidate_id,)).fetchone() is not None
+
+
+def require_payload(conn, candidate_id):
+    _parent(conn, candidate_id)
+    if retired(conn, candidate_id):
+        raise SnapshotStorageRefused("SNAPSHOT_PAYLOAD_RETIRED")
 
 
 def read_bars(conn, candidate_id: str):
     """Read one explicit sealed generation, independent of later candidates."""
+    require_payload(conn, candidate_id)
     manifest(conn, candidate_id)
     for row in _rows(conn, candidate_id, table="sentinel_snapshot_bars",
                      columns=BAR_COLUMNS, order='session,security_id COLLATE "C"'):
@@ -237,6 +261,7 @@ def read_bars(conn, candidate_id: str):
 
 
 def read_benchmarks(conn, candidate_id: str):
+    require_payload(conn, candidate_id)
     manifest(conn, candidate_id)
     for row in _rows(conn, candidate_id, table="sentinel_snapshot_benchmarks",
                      columns=BENCHMARK_COLUMNS, order="session"):

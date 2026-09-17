@@ -11,7 +11,7 @@ from sentinel.feed.rolling_contract import (
     CanonicalBar, CanonicalBenchmark, OperationalVerificationScope,
     PriceWindow, RestartRequirement, digest,
 )
-from sentinel.feed.rolling_schema import DDL
+from sentinel.feed.schema import DDL
 from sentinel.feed.store import connect
 from tests.support.postgres import _EphemeralPostgres
 
@@ -21,6 +21,10 @@ def pg():
     server = _EphemeralPostgres()
     server.start()
     try:
+        with connect(server.sync_dsn) as connection:
+            for statement in DDL:
+                connection.execute(statement)
+            connection.commit()
         yield server
     finally:
         server.stop()
@@ -34,10 +38,6 @@ def window():
 @pytest.fixture
 def conn(pg):
     connection = connect(pg.sync_dsn)
-    with connection.cursor() as cur:
-        for statement in DDL:
-            cur.execute(statement)
-    connection.commit()
     try:
         yield connection
     finally:

@@ -36,10 +36,11 @@ broker asset.
 Corporate-action reconciliation consumes snapshot bars, benchmark domains,
 bound ACTIONS and normalization split dispositions through the existing scalar
 and material-event algorithm. It does not implement another split policy.
-The action window must fit the retained snapshot, including the predecessor
-needed for BIL corroboration. An older command basis refuses rather than
-silently dropping price-dependent action history; durable long-horizon action
-bases belong to retention work. Data beyond the published close grants no
+The publication-bound [action archive](rolling-history-retention.md) retains
+the accepted action interval and BIL predecessor evidence after prices expire.
+Command bases within that coverage remain usable without historical prices;
+bases before its initial coverage still refuse explicitly. Older publications
+without an archive retain the snapshot-window check. Data beyond the published close grants no
 negative pre-open action authority: the existing affirmative pre-open contract
 and unsupported-material-event fence remain unchanged.
 The informational mirror's later unit check uses this same action reader.
