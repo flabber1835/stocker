@@ -1,0 +1,57 @@
+name: Economic audit 399 host-boundary evidence
+on:
+  push:
+    branches: [audit/economic-399-evidence]
+    paths: [.github/workflows/economic-audit-399-host-tests.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  host-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          persist-credentials: false
+          fetch-depth: 1
+      - uses: actions/download-artifact@v4
+        with:
+          name: economic-audit-399-test-image
+          path: /tmp/audit399-image
+          run-id: 35262421704
+          github-token: ${{ github.token }}
+      - name: Load exact-source runtime
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
+          test "$(git rev-parse HEAD^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
+          gzip -dc /tmp/audit399-image/audit399-image.tar.gz | docker load
+          mkdir -p /tmp/audit399-host
+          docker image inspect sentinel-test:ci > /tmp/audit399-host/image.json
+          git status --porcelain > /tmp/audit399-host/checkout-before.txt
+      - name: Execute host-boundary regressions in pinned runtime
+        shell: bash
+        run: |
+          set -euo pipefail
+          set +e
+          docker run --rm --network none --shm-size=512m \
+            -v "$GITHUB_WORKSPACE:/work:ro" -v /tmp/audit399-host:/evidence \
+            -e ALPACA_HARNESS_REQUIRE_POSTGRES=1 \
+            --entrypoint python sentinel-test:ci -m pytest \
+            tests/production_composition tests/internal_state tests/broker \
+            tests/shared tests/backup tests/postgres \
+            -q -ra --tb=short --disable-warnings --durations=30 \
+            --junitxml=/evidence/results.xml 2>&1 | tee /tmp/audit399-host/tests.log
+          rc=${PIPESTATUS[0]}
+          printf '%s\n' "$rc" > /tmp/audit399-host/exit-code.txt
+          git status --porcelain > /tmp/audit399-host/checkout-after.txt
+          exit "$rc"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: economic-audit-399-host-boundaries
+          path: /tmp/audit399-host/
+          retention-days: 7
+          if-no-files-found: error
