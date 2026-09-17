@@ -38,7 +38,7 @@ def rename_broker(monkeypatch, env, plan, *, alias=False, wrong_security=False):
     listings += [universe.Listing(sid, symbol, plan.effective_session.isoformat())
                  for sid, symbol in current.items()]
     resolver = universe.IdentityResolver(listings)
-    monkeypatch.setattr(universe, 'load_resolver', lambda *a, **k: resolver)
+    monkeypatch.setattr(feed_inputs, 'opening_resolver', lambda *a, **k: resolver)
     opened, _ = calendar.session_window(plan.effective_session)
     requested = []
     broker = AlpacaExecutionBroker(api_key='test', secret_key='test',
@@ -133,7 +133,7 @@ def test_effective_listing_must_be_unique_and_reversible(monkeypatch, fault):
                                      'OTHER' if fault == 'ambiguous' else 'NEW',
                                      plan.effective_session.isoformat())]
     resolver = universe.IdentityResolver(listings)
-    monkeypatch.setattr(universe, 'load_resolver', lambda *a, **k: resolver)
+    monkeypatch.setattr(feed_inputs, 'opening_resolver', lambda *a, **k: resolver)
     evidence = asyncio.run(opening_sizing.prices_for_plan(
         None, state=env, plan=plan, broker=broker))
     _assert_no_buy(env, plan, evidence, 'unique effective-session')

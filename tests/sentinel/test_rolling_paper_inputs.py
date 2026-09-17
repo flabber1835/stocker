@@ -1,5 +1,6 @@
 """Real snapshot/shadow inputs at the simulated paper execution membrane."""
 import asyncio
+from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -8,12 +9,13 @@ import pytest
 
 from sentinel import binding, dual_plan_authority, rolling_runtime, rolling_initialization, paper
 from sentinel import automation_runtime
-from sentinel.execution import feed_inputs, feed_actions, journal, certification
+from sentinel.execution import feed_inputs, feed_actions, journal, certification, target_reprojection
 from sentinel.execution.feed_cash import SnapshotCashInputs
-from sentinel.execution.contract import BrokerAccountIdentity
+from sentinel.execution.contract import BrokerAccountIdentity, CapabilityNotCertified
+from sentinel.execution.opening_prices import parse_bars
 from sentinel.execution.simulator import SimulatedBroker
 from sentinel.config import DEFAULT_BASE_URL
-from sentinel.feed import publication, operational_snapshot as snapshots, rolling_store
+from sentinel.feed import calendar, publication, operational_snapshot as snapshots, rolling_store, universe
 from sentinel.feed.rolling_contract import digest
 from sentinel.paper import preparation, inspection, execution, recovery, validation
 from sentinel.authority import load_rollout_state
@@ -57,6 +59,11 @@ def test_next_open_resolver_is_bounded_and_historical_dates_do_not_borrow_extens
     assert resolve("AAA", DAY) == "1"
     assert resolve("AAA", "2026-09-16") is None
     assert resolve("missing") is None
+    opening = feed_inputs.opening_resolver(conn, session="2026-09-15")
+    assert opening.ticker_for_security("1", "2026-09-15") == "AAA"
+    assert opening.resolve("AAA", "2026-09-15") == "1"
+    with pytest.raises(feed_inputs.ExecutionInputsRefused, match="BEYOND_NEXT_SESSION"):
+        feed_inputs.opening_resolver(conn, session="2026-09-16")
     with pytest.raises(feed_inputs.ExecutionInputsRefused, match="BEYOND_NEXT_SESSION"):
         feed_inputs.resolver(conn, pub, session="2026-09-16")
 
@@ -74,9 +81,27 @@ def test_corrupt_receipt_cannot_trigger_a_permissive_reader_fallback(monkeypatch
     def refuse(*_):
         raise publication.CorpusIncoherent("receipt authentication failed")
     monkeypatch.setattr(publication, "require_current", refuse)
+    monkeypatch.setattr(publication, "current", refuse)
     monkeypatch.setattr(snapshots, "_current", lambda *_: pytest.fail("integrity refusal bypassed"))
     with pytest.raises(publication.CorpusIncoherent, match="authentication"):
         feed_inputs.require_current(object())
+    with pytest.raises(publication.CorpusIncoherent, match="authentication"):
+        feed_inputs.opening_resolver(object(), session="2026-09-15")
+
+
+def test_legacy_opening_identity_uses_the_publication_reader(monkeypatch):
+    conn, published, expected = object(), object(), object()
+    monkeypatch.setattr(feed_inputs, "current", lambda c: published)
+    monkeypatch.setattr(feed_inputs, "is_rolling", lambda p: p is not published)
+    seen = []
+
+    def legacy(c, *, execution_session):
+        seen.append((c, execution_session))
+        return expected
+
+    monkeypatch.setattr(universe, "load_resolver", legacy)
+    assert feed_inputs.opening_resolver(conn, session="2026-09-15") is expected
+    assert seen == [(conn, "2026-09-15")]
 
 
 @pytest.fixture
@@ -111,7 +136,9 @@ def prepare(conn, broker, **overrides):
     return asyncio.run(paper.prepare_paper_plan(**values))
 
 
-def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(conn, gateway, monkeypatch):
+@pytest.mark.parametrize("opening_capability", [False, True])
+def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(
+        conn, gateway, monkeypatch, opening_capability):
     shadow, bound, broker = gateway
     monkeypatch.setattr(preparation, "_fresh_warmed_state", lambda *_a, **_k: pytest.fail("second strategy book"))
     monkeypatch.setattr(preparation.catchup, "resume_state", lambda *_: pytest.fail("legacy strategy read"))
@@ -129,10 +156,9 @@ def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(c
     assert conn.execute("SELECT COUNT(*) FROM sentinel_processed_sessions WHERE cursor_name='catchup'").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM sentinel_commands").fetchone()[0] == 0
 
-    # The rolling reader must reach, and preserve, the existing V5 pre-open
-    # fence. No source-derived absence is promoted into an opening permission.
+    # Certificate-free execution retains real opening sizing and durable retry
+    # identity. Only broker-delivered opening bars are simulated here.
     from sentinel.execution.guarded import AutomationExecutionGrant
-    from sentinel.feed import calendar
     assert first.plan.opening_intents
     monkeypatch.setattr(execution, "_guard_broker", lambda **kwargs: kwargs["broker"])
     grant = AutomationExecutionGrant("EXECUTE", "rolling-test-cycle", 1, "test", 1,
@@ -140,11 +166,52 @@ def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(c
     monkeypatch.setattr(execution, "_validate_automation_grant", lambda *_: (None, SimpleNamespace(
         plan_id=first.plan.plan_id, plan_fingerprint=first.plan.fingerprint())))
     opened, _ = calendar.session_window(first.plan.effective_session)
-    with pytest.raises(paper.PreOpenShareUnitAuthorityUnavailable, match="share-unit authority"):
-        asyncio.run(paper.execute_automated_paper_plan(conn=conn, broker=broker, base_url=DEFAULT_BASE_URL,
-            grant=grant, automation_config_sha256="b" * 64, today=opened + timedelta(minutes=1),
+    opening_reads = []
+
+    async def opening_prices(*, session, instruments):
+        opening_reads.append(dict(instruments))
+        payload = {"bars": {item.symbol: [
+            {"t": opened.isoformat(), "o": "100", "v": 10}]
+            for item in instruments.values()}, "next_page_token": None}
+        return parse_bars(payload, session=session, instruments=instruments,
+                          observed_at=opened + timedelta(minutes=1))
+
+    broker.capabilities = replace(broker.capabilities,
+                                  regular_session_open_prices=opening_capability)
+    monkeypatch.setattr(broker, "opening_prices", opening_prices)
+    monkeypatch.setattr(universe, "load_resolver",
+                        lambda *_a, **_k: pytest.fail("legacy opening identity read"))
+
+    def execute(seconds):
+        return asyncio.run(paper.execute_automated_paper_plan(
+            conn=conn, broker=broker, base_url=DEFAULT_BASE_URL,
+            grant=grant, automation_config_sha256="b" * 64,
+            today=opened + timedelta(seconds=seconds),
             dual_shadow_observation_id=OBS, dual_shadow_starting_cash=100000))
-    assert conn.execute("SELECT COUNT(*) FROM sentinel_commands").fetchone()[0] == 0
+
+    if not opening_capability:
+        with pytest.raises(CapabilityNotCertified, match="regular_session_open_prices"):
+            execute(60)
+        assert opening_reads == []
+        assert conn.execute("SELECT COUNT(*) FROM sentinel_commands").fetchone()[0] == 0
+        return
+
+    result = execute(60)
+    assert result.session.submitted
+    projection = target_reprojection.load_projection(conn, plan_id=first.plan.plan_id)
+    assert projection.opening_sizing["mode"] == "V5_OPEN_WHOLE_SHARES"
+    assert len(opening_reads) == 1
+    assert {command.security_id: command.quantity for command in result.session.submitted} == {
+        sid: quantity for sid, quantity in projection.target_basket.items() if quantity > 0}
+    for command in result.session.submitted:
+        broker.fill(command.client_key)
+    retry = execute(90)
+    assert retry.session.submitted == ()
+    assert target_reprojection.load_projection(conn, plan_id=first.plan.plan_id) == projection
+    assert len(opening_reads) == 1
+    assert len(journal.load_commands(conn, bound.identity, plan_id=first.plan.plan_id)) == len(result.session.submitted)
+    assert paper.current_paper_plan(conn, dual_shadow_observation_id=OBS,
+        dual_shadow_starting_cash=100000)["plan"]["plan_id"] == first.plan.plan_id
 
 
 def test_rolling_preparation_refuses_non_shadow_mode_before_broker_read(conn, gateway, monkeypatch):
@@ -271,3 +338,6 @@ def test_next_open_identity_never_extends_a_delisted_or_reused_symbol(conn, oper
     resolve = paper.build_security_resolver(conn, "2026-09-15")
     assert resolve("AAA", DAY) == "1"
     assert resolve("AAA") is None
+    opening = feed_inputs.opening_resolver(conn, session="2026-09-15")
+    assert opening.ticker_for_security("1", "2026-09-15") == (
+        "NEW" if defect == "successor" else None)

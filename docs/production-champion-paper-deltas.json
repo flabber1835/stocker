@@ -1,4 +1,5 @@
 {
+  "automatic_share_unit_design": "docs/automatic-share-unit-reconciliation.md",
   "base": "4bba6875b07288cf6ebc6a149b926075b1e41c60",
   "definitions": {
     "_action_lookup": {
@@ -11,13 +12,23 @@
       "historical_ast_sha256": "a28e490e18eda175562816e5047a9cefad6996a968758d0c97b85eefba71d8ab",
       "module": "validation"
     },
+    "_clean_or_refuse": {
+      "generated_ast_sha256": "ac177ed6938e7a9755eeb9f7a50a8ebda2e595851154cc9507d72698a6f0038a",
+      "historical_ast_sha256": "976a000f28d52c62d606ada1932514f028632ba3fd0af294965ff0e4380382d7",
+      "module": "reconciliation_evidence"
+    },
     "_default_paper_strategy": {
       "generated_ast_sha256": "3e10a47c2c9688268e2d972294ee6ea41875d6dc0f9eaadb08ccbe2bc5e0fbe8",
       "historical_ast_sha256": "c9f5987d080d755d3f89cf829e6de00a3c6137ba31fb58bfc99d92bc9c81aebc",
       "module": "preparation"
     },
+    "_dual_mutation_observation_or_refuse": {
+      "generated_ast_sha256": "a0933ad21c2f9f74c24e27cd2d7f407428305f8d6731d22f0c2bad150ca064fd",
+      "historical_ast_sha256": "73cec241b833abc633c6c245974755105dbb7a61b13281a7bc35a127e6e2ed30",
+      "module": "reconciliation_evidence"
+    },
     "_execute_current_paper_plan": {
-      "generated_ast_sha256": "bd4ca25b4150ed060c2f182590cbd6d489388094c0a74e011fcdc661a6cbe352",
+      "generated_ast_sha256": "3b0068e98cedf3fb3b62842b015968b682755e4795a13200c784d6b167428552",
       "historical_ast_sha256": "b98878c22ddd18988528fae60f9f21c288f9f9eef54fa86760ccb6378a15de7f",
       "module": "execution"
     },
@@ -27,7 +38,7 @@
       "module": "preparation"
     },
     "_instrument_map": {
-      "generated_ast_sha256": "6368cb0cc6d05253a9d993ddee9914440b45e4b5f90b461bf9a3c42a382ed57c",
+      "generated_ast_sha256": "0b9dea5e89fb384d7e4c4ded284eb03ae3ada53ea875c8993e8c1976d5756131",
       "historical_ast_sha256": "901822d197c2e7745701f79b95096887b3dd3e3e02dead3160013fe356bbdc30",
       "module": "targets"
     },
@@ -66,6 +77,11 @@
       "historical_ast_sha256": "7ab01a9041855530fb50f2986f6691aa73324f84c2895084f66bdec0f0595e79",
       "module": "validation"
     },
+    "_settled_account_evidence_bracket": {
+      "generated_ast_sha256": "de7c6366383ba5c855c01f28bbb9f32de8eb047e244d86ca43ec8dc5752aa39a",
+      "historical_ast_sha256": "9b4fb19f26df6935be4158365011408607aa90d8b94ced772fdf277b7407a2c0",
+      "module": "reconciliation_evidence"
+    },
     "_state_and_plan_or_refuse": {
       "generated_ast_sha256": "9b16b531f94de5e69fda3355fbbda3b63491ce6c66c8d3ef25f8635fe7baf314",
       "historical_ast_sha256": "b3131f775f556c43b2b3b64107fc6c7d1c9a3911a533887ba9cf2673ed363e9b",
@@ -82,9 +98,14 @@
       "module": "targets"
     },
     "_target_projection_or_refuse": {
-      "generated_ast_sha256": "a5abc1989f743a0e29465cf77e596090711429757f48a5b31c7afaa2dd79b0da",
+      "generated_ast_sha256": "f63e50ff978e6b661d83b3dbcd59364fa5460ce4daa65673ac9c14aa2a0219b3",
       "historical_ast_sha256": "23dfec886b25ef9cb2ad3cb210347e115dd5a2eb4ecc60a7f9febe0bd4935a46",
       "module": "targets"
+    },
+    "_transport_observation_or_refuse": {
+      "generated_ast_sha256": "1d6718127e067bfe59b53b292f20363bb5e09c2c833b1fb015e1b059373ba139",
+      "historical_ast_sha256": null,
+      "module": "reconciliation_evidence"
     },
     "_validate_broker_grant": {
       "generated_ast_sha256": "c2b568eeedc8d56b34a267ee9ce1e42762f4d3117f914ef06de1cba0404843bc",
@@ -102,12 +123,12 @@
       "module": "preparation"
     },
     "prepare_paper_plan": {
-      "generated_ast_sha256": "525cced3dccb3c93ce4bcaf339b179b29d6c5acc1b0c3231ebf1d41981349b3f",
+      "generated_ast_sha256": "2fe6f89af96638a087f3b43cf6ada76d407d8a2ad1529021e1007f1b7a988a25",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
       "module": "preparation"
     },
     "recover_automated_paper_cycle": {
-      "generated_ast_sha256": "104e9b3b3eee846b4e4ca240cca017d65f667bc31239932deeb51a9222e44899",
+      "generated_ast_sha256": "c4cf15579f9ffb06c620b9d1e9769bc847aa1e964a313301670bed6f3353c798",
       "historical_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
       "module": "recovery"
     }
@@ -124,7 +145,11 @@
     "tests/sentinel/test_opening_submit_freshness_boundary.py",
     "tests/sentinel/test_issue209_simplified_ldrc_runtime.py",
     "tests/sentinel/test_automation_runtime.py",
-    "tests/sentinel/test_paper_performance_quarantine.py"
+    "tests/sentinel/test_paper_performance_quarantine.py",
+    "tests/sentinel/test_paper_package_architecture.py",
+    "tests/sentinel/test_rolling_paper_inputs.py",
+    "tests/sentinel/test_automatic_share_units.py",
+    "tests/sentinel/test_preopen_paper_gate.py"
   ],
   "schema": "sentinel.production-champion-paper-deltas/1"
 }

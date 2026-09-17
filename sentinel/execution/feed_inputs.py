@@ -114,7 +114,7 @@ def marks(conn, pub, *, session, security_ids, tickers):
     return marks, symbols
 
 
-def resolver(conn, pub, *, session):
+def _snapshot_identity_authorities(conn, pub, *, session):
     from sentinel.feed import symbol_identity, source_aliases
     refs = references(conn, pub)
     requested = str(session)
@@ -139,7 +139,20 @@ def resolver(conn, pub, *, session):
     projection = symbol_identity.SymbolProjection(rows, [p for _, p, _ in refs.actions],
         through=requested, alias_rejections=validation["alias_rejections"])
     source_aliases.require_current(projection, validation["alias_rejections"])
-    future = projection.resolver()
+    return refs, requested, end, projection.resolver()
+
+
+def opening_resolver(conn, *, session):
+    """Use the current input generation for reversible opening identities."""
+    pub = current(conn)
+    if is_rolling(pub):
+        return _snapshot_identity_authorities(conn, pub, session=session)[3]
+    from sentinel.feed import universe
+    return universe.load_resolver(conn, execution_session=session)
+
+
+def resolver(conn, pub, *, session):
+    refs, requested, end, future = _snapshot_identity_authorities(conn, pub, session=session)
 
     def resolve(symbol, as_of=None):
         effective = str(as_of or requested)
