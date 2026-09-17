@@ -134,7 +134,7 @@ phase = 'RUNTIME_IMPORT'
 try:
     from datetime import datetime, timezone
     from sentinel import backup_guard, schema
-    from sentinel.feed import calendar, outage_recovery, publication, store, progress
+    from sentinel.feed import calendar, rolling_go_inputs, publication, store, progress
     from sentinel.shadow_runtime import publication_not_before
 
     def latest_source_final(now):
@@ -172,19 +172,16 @@ try:
     phase = 'DAILY_CATCHUP'
     progress.emit('daily_catchup', 'started', date_to=target)
     daily_attempted = True
-    recovered = outage_recovery.catch_up_waiting(c, target_session=target)
-    if recovered.mode == 'ALREADY_CURRENT':
-        pass
-    elif recovered.mode in {'BOUNDED_RESEED', 'BOUNDED_INITIAL_SEED'}:
-        print(RECOVERY_MARKER + json.dumps({
-            'mode': recovered.mode,
-            'trigger': recovered.recovered_from,
-        }, sort_keys=True), flush=True)
+    recovered = rolling_go_inputs.prepare(c, target_session=target)
+    print(RECOVERY_MARKER + json.dumps({
+        'mode': recovered['status'],
+        'input_contract': recovered['schema'],
+    }, sort_keys=True), flush=True)
 
     phase = 'PUBLICATION_CHECK'
     progress.emit('publication_check', 'started', date_to=target)
-    after = publication.current(c)
-    visible = store.latest_visible_session(c)
+    after = rolling_go_inputs.current(c)
+    visible = after.window_end if after is not None else None
     current = (
         after is not None and after.window_end is not None
         and after.window_end >= target and visible == target

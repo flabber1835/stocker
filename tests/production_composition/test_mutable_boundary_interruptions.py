@@ -83,15 +83,19 @@ def test_kill_after_backup_refresh_before_audit_cannot_enter_schema_or_ingest(mo
     assert mutations == []
 
 
-@pytest.mark.parametrize("code", [
-    entry._RECOVERY_PREPARATION_CODE,
-    install_entry._PREPARATION_CODE,
+@pytest.mark.parametrize("code,prepare_call,publication_call", [
+    (entry._RECOVERY_PREPARATION_CODE,
+     "outage_recovery.catch_up_waiting(", "publication.current(c)"),
+    (install_entry._PREPARATION_CODE,
+     "rolling_go_inputs.prepare(c, target_session=target)", "rolling_go_inputs.current(c)"),
 ], ids=["validation", "installation"])
-def test_schema_migration_precedes_ingest_and_publication_observation_in_production_code(code):
+def test_schema_migration_precedes_ingest_and_publication_observation_in_production_code(
+        code, prepare_call, publication_call):
     schema_at = code.index("schema.ensure_schema(c)")
     migration_at = code.index("store.migrate_schema(c)")
-    ingest_at = code.index("outage_recovery.catch_up_waiting(")
-    publication_at = code.index("publication.current(c)", ingest_at)
+    assert code.count(prepare_call) == 1
+    ingest_at = code.index(prepare_call)
+    publication_at = code.index(publication_call, ingest_at)
     assert schema_at < migration_at < ingest_at < publication_at
 
 

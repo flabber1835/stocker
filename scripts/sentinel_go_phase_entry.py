@@ -262,6 +262,11 @@ def _install_reviewed_preparation_contract() -> None:
     """Install and verify the source-owned single-preparation implementation."""
     controller.entry.install()
     code = controller.go._PREPARATION_CODE
+    if "rolling_go_inputs.prepare" in code:
+        if (code.count("rolling_go_inputs.prepare(c, target_session=target)") != 1
+                or "outage_recovery" in code or "ingest.daily" in code):
+            raise controller.PhaseRefused("GO rolling preparation has more than one data path")
+        return
     marker = "if recovered.mode == 'ALREADY_CURRENT':"
     try:
         start = code.index(marker)

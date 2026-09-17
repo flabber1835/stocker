@@ -45,6 +45,7 @@ class Connection:
 
 @pytest.fixture
 def operational_inputs(monkeypatch):
+    monkeypatch.setattr(parity.rolling_go_inputs, "require_schemas", lambda conn: None)
     sessions = calendar.previous_sessions(FRONTIER, 253)[:-1]
     meta = {str(i): SecurityMeta(str(i), f"T{i}", "Common Stock", str(i),
                                 first_session=sessions[0]) for i in range(30)}
@@ -72,7 +73,7 @@ def operational_inputs(monkeypatch):
     def pinned(conn, *, commit):
         assert commit is False
         yield held
-    monkeypatch.setattr(parity.publication, "pinned", pinned)
+    monkeypatch.setattr(parity.rolling_go_inputs, "pinned", lambda conn: pinned(conn, commit=False))
     monkeypatch.setattr(parity.publication, "current", lambda _conn: held)
     monkeypatch.setattr(parity.publication, "assert_operationally_coherent",
                         lambda *_a, **_k: SimpleNamespace(to_dict=lambda: {

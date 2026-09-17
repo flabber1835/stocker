@@ -5,6 +5,10 @@ publication. It does not install a GO or scheduler callback or admit durable
 strategy state. Publication, state admission and execution authority remain
 separate. The existing paper-only, producer and backup rules apply.
 
+The subsequent [GO input integration](rolling-go-inputs.md) now uses this
+publication boundary for preparation and read-only data probes. It still
+refuses runtime activation; service and authority integration remain pending.
+
 ## One publication transaction
 
 Reuse the ordinary corpus version sequence, append-only validation receipt,
@@ -72,9 +76,9 @@ ordinary signed receipts, atomic rollback, reader exclusion, stale CAS/fence/
 deadline refusal, generation/source changes, no comparison promotion, lost-ack
 idempotence and repeated fresh data publication. Falsify the new guards.
 
-Still required before operational GO: dispatch all planning/readiness and
-execution reference consumers; inspect partial durable state and implement
-fresh initialization/admission; persist exact input/checkpoint evidence and
-admit bounded continuation; wire GO and daily preparation; validate NAS backup,
+Still required before operational GO: connect bounded runtime authority and
+the remaining execution reference consumers, inspect failed-attempt state,
+and wire daily service preparation. Opt-in fresh initialization, authenticated
+checkpoints and bounded continuation are implemented. Validate NAS backup,
 first GO, paper activation/next-open handling, restart and subsequent refresh.
 No local synthetic test is an observed NAS GO or paper fill.

@@ -16,7 +16,7 @@ from sentinel.core.decision import publication_fingerprint
 from sentinel.core.kernel import advance_session
 from sentinel.core.production import load_published_session
 from sentinel.core.session import SessionState
-from sentinel.feed import publication, store
+from sentinel.feed import publication, store, rolling_go_inputs
 from sentinel.feed.readiness import REQUIRED_SPY_SESSIONS
 from sentinel.shadow_observation import FullyPublishedSession
 from sentinel.shadow_runtime import WARMUP_SESSIONS, _fresh_seed, _starting_cash
@@ -101,30 +101,51 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
             raise OperationalParityRefused("image computational environment uncertified")
         cash = _starting_cash(starting_cash)
         controller, strategy = production_strategy()
+        rolling_go_inputs.require_schemas(conn)
         transaction = _begin_snapshot(conn)
-        with publication.pinned(conn, commit=False) as held:
-            frontier = store.latest_visible_session(conn)
+        with rolling_go_inputs.pinned(conn) as held:
+            rolling = rolling_go_inputs.is_rolling(held)
+            frontier = held.window_end if rolling else store.latest_visible_session(conn)
             if not frontier or held.window_end != frontier:
                 raise OperationalParityRefused("publication does not end at visible frontier")
-            coherence = publication.assert_operationally_coherent(
-                conn, frontier=frontier).to_dict()
-            prior, warmup = _fresh_seed(
-                conn, first_session=frontier, starting_cash=cash,
-                controller_config=controller, strategy_identity=strategy,
-                publication_version=held.version)
+            if rolling:
+                from sentinel.controller.machine import Controller
+                from sentinel.core.production import warm_session_state
+                from sentinel.rolling_initialization import _published
+                from sentinel.shadow_runtime import _warmup_input_identity
+                rolling_go_inputs.require_first_deployment(conn)
+                binding, material, _ = rolling_go_inputs.validate(conn, held)
+                prior = warm_session_state(
+                    SessionState.fresh(starting_cash=float(cash), controller=Controller(controller),
+                                       strategy_identity=strategy), material.warmup,
+                    publication_version=held.version, prospective_concordance_witness=True)
+                warmup = _warmup_input_identity(material.warmup, material.warmup.sessions,
+                                               prospective_witness=True)
+                published = _published(material, held)
+                coherence = {"coherent": True, "scope": rolling_go_inputs.SCOPE,
+                             "version": held.version, "blocking_runs": [], "snapshot": binding}
+            else:
+                coherence = publication.assert_operationally_coherent(
+                    conn, frontier=frontier).to_dict()
+                prior, warmup = _fresh_seed(
+                    conn, first_session=frontier, starting_cash=cash,
+                    controller_config=controller, strategy_identity=strategy,
+                    publication_version=held.version)
+                published = load_published_session(
+                    conn, frontier, spy_sessions=REQUIRED_SPY_SESSIONS)
             if warmup.get("session_count") != WARMUP_SESSIONS:
                 raise OperationalParityRefused("incomplete production feature warm-up")
-            published = load_published_session(
-                conn, frontier, spy_sessions=REQUIRED_SPY_SESSIONS)
             transition = prove_transition(
                 prior, published, held=held, controller=controller, strategy=strategy)
             held_identity = {
                 "publication_fingerprint": publication_fingerprint(held),
                 "visible_frontier": frontier,
             }
-            if (publication_fingerprint(publication.current(conn))
+            current = rolling_go_inputs.current(conn) if rolling else publication.current(conn)
+            visible = current.window_end if rolling else store.latest_visible_session(conn)
+            if (publication_fingerprint(current)
                     != held_identity["publication_fingerprint"]
-                    or store.latest_visible_session(conn) != frontier):
+                    or visible != frontier):
                 raise OperationalParityRefused("publication changed during proof")
         return {
             "schema": REPORT_SCHEMA,
@@ -140,7 +161,7 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
                 "image_source_revision": revision,
             },
             "proof": {
-                "scope": PROOF_SCOPE,
+                "scope": "ROLLING_STARTUP_AND_RESTART" if rolling else PROOF_SCOPE,
                 "strategy_identity": strategy,
                 "controller_configuration_sha256": controller.digest,
                 "starting_cash": format(cash.normalize(), "f"),

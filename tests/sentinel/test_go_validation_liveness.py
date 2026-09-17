@@ -9,18 +9,14 @@ import sys
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 SCRIPT = ROOT / "scripts" / "sentinel_go_phase_controller.py"
-spec = importlib.util.spec_from_file_location("sentinel_go_phase_controller", SCRIPT)
-controller = importlib.util.module_from_spec(spec)
-assert spec.loader is not None
-sys.modules[spec.name] = controller
-spec.loader.exec_module(controller)
+if str(SCRIPT.parent) not in sys.path:
+    sys.path.insert(0, str(SCRIPT.parent))
+# Reuse production module identities: replacing them in sys.modules leaves
+# already-imported deadline guards attached to a different phase state.
+import sentinel_go_phase_controller as controller
+import sentinel_go_phase_entry as phase_entry
 
 ENTRY_SCRIPT = ROOT / "scripts" / "sentinel_go_phase_entry.py"
-entry_spec = importlib.util.spec_from_file_location("sentinel_go_phase_entry", ENTRY_SCRIPT)
-phase_entry = importlib.util.module_from_spec(entry_spec)
-assert entry_spec.loader is not None
-sys.modules[entry_spec.name] = phase_entry
-entry_spec.loader.exec_module(phase_entry)
 
 VERIFIED_SCRIPT = ROOT / "scripts" / "sentinel_go_verified_entry.py"
 verified_spec = importlib.util.spec_from_file_location(

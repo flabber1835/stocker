@@ -173,6 +173,15 @@ def execute():
         target_raw = calendar.latest_closed_session()
         target = dt.date.fromisoformat(str(target_raw))
         source_day = dt.datetime.now(dt.timezone.utc).date()
+        from sentinel.feed import rolling_go_inputs, operational_snapshot
+        if publication_table is not None:
+            held = rolling_go_inputs.current(c)
+            if rolling_go_inputs.is_rolling(held):
+                operational_snapshot._bound(c, held)
+                if held.window_end > operational_snapshot.source_final_session():
+                    raise RuntimeError('rolling publication is ahead of the source-final frontier')
+                emit({'status': 'DEFERRED', 'reason_code': 'ROLLING_INPUT_VALIDATION_REQUIRED'})
+                return
         if dt.datetime.now(dt.timezone.utc) >= publication_not_before(target_raw):
             state['phase'] = 'SOURCE_EXPORT_PREFLIGHT'
             start, end = operational_source.price_window(target_raw)

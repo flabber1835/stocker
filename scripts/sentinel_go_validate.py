@@ -1308,7 +1308,11 @@ def probe_active_wealth_parity(
         reports.append(report)
         if (completed.returncode != 0 or not _operational_parity_report_valid(
                 report, commit=commit, starting_cash=configuration["starting_cash"])):
-            first_divergence = "OPERATIONAL_PARITY_REPORT_INVALID"
+            first_divergence = (
+                "ROLLING_RUNTIME_SCOPE_NOT_ACTIVATED"
+                if isinstance(report, dict) and isinstance(report.get("proof"), dict)
+                and report["proof"].get("scope") == "ROLLING_STARTUP_AND_RESTART"
+                else "OPERATIONAL_PARITY_REPORT_INVALID")
             break
     if timing_values is not None:
         # Schema-1 wire name: now measures the complete operational proof.
@@ -1341,7 +1345,7 @@ def probe_active_wealth_parity(
 
 _READINESS_CODE = r'''
 import json, os
-from sentinel.feed import readiness, store
+from sentinel.feed import readiness, store, rolling_go_inputs
 
 def failure_reason(item):
     detail = str(item.detail or '').casefold()
@@ -1361,11 +1365,14 @@ def failure_reason(item):
 
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
+    rolling_go_inputs.require_schemas(c)
     with c.cursor() as cur:
         cur.execute('BEGIN TRANSACTION READ ONLY')
         cur.execute('SHOW transaction_read_only')
         assert str(cur.fetchone()[0]).lower() == 'on'
-    result = readiness.check_readiness(c)
+    held = rolling_go_inputs.current(c)
+    result = (rolling_go_inputs.readiness(c) if rolling_go_inputs.is_rolling(held)
+              else readiness.check_readiness(c))
     print('SENTINEL_GO_READINESS=' + json.dumps({
         'ready': bool(result.ready),
         'checks_total': len(result.checks),
@@ -1377,6 +1384,7 @@ try:
             for item in result.checks if not item.ok
         ],
         'transaction_read_only': True,
+        **({'input_contract': rolling_go_inputs.SCHEMA} if rolling_go_inputs.is_rolling(held) else {}),
     }, sort_keys=True))
 finally:
     c.rollback(); c.close()
@@ -1429,6 +1437,8 @@ def probe_sharadar_readiness(runner: CommandRunner, *, env: Mapping[str, str],
                   and payload.get("checks_total") == payload.get("checks_passed"))
     evidence = ({
         "transaction_read_only": True,
+        **({"input_contract": "sentinel.rolling-go-inputs/1"}
+           if payload.get("input_contract") == "sentinel.rolling-go-inputs/1" else {}),
         "ready": bool(payload.get("ready")),
         "checks_total": payload["checks_total"],
         "checks_passed": payload["checks_passed"],
@@ -1486,6 +1496,11 @@ try:
         isolation = str(cur.fetchone()[0]).lower()
         cur.execute('SHOW transaction_read_only')
         read_only = str(cur.fetchone()[0]).lower()
+
+    from sentinel.feed import rolling_go_inputs, rolling_go_health
+    if rolling_go_inputs.is_rolling(rolling_go_inputs.current(c)):
+        print('SENTINEL_GO_DATABASE_HEALTH=' + json.dumps(rolling_go_health.inspect(c), sort_keys=True))
+        raise SystemExit(0)
 
     with publication.pinned(c, commit=False) as held:
         coherent = publication.assert_coherent(c, exhaustive=True)
@@ -1690,6 +1705,9 @@ def probe_database_financial_health(
         "warmup_revision_sessions", "warmup_revision_scan_ms",
         "source_final_to_following_open_ms", "transaction_db_writes",
     }
+    rolling_contract = isinstance(payload, dict) and payload.get("input_contract") == "sentinel.rolling-go-inputs/1"
+    if rolling_contract:
+        payload = {key: value for key, value in payload.items() if key != "input_contract"}
     valid = (
         isinstance(payload, dict)
         and set(payload) == expected_payload
@@ -1761,6 +1779,7 @@ def probe_database_financial_health(
         and payload["transaction_db_writes"] == 0)
     evidence = {
         "schema": DATABASE_HEALTH_SCHEMA,
+        **({"input_contract": "sentinel.rolling-go-inputs/1"} if rolling_contract else {}),
         "status": PASS if passed else FAIL,
         "runtime_image_digest": runtime_ref,
         "checks": checks,

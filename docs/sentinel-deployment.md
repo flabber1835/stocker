@@ -1,5 +1,11 @@
 # Sentinel — operational deployment ground truth
 
+The owner confirmed that GO never passed and the NAS was never operational.
+The rolling rollout is a first deployment; an operational-book migration is
+not required. Preserve and inventory failed-attempt records during setup.
+[Rolling GO inputs](rolling-go-inputs.md) defines preparation and read-only
+data probes; runtime authority and service cutover remain separate.
+
 The opt-in [rolling daily continuation](rolling-daily-continuation.md) extends
 the authenticated first state through adjacent source-final sessions. It checks
 current overlap/live dependencies and commits a bounded advancing checkpoint;
@@ -11,8 +17,9 @@ no GO/scheduler caller and does not activate paper execution. Existing partial
 state refuses fresh initialization and is preserved.
 
 The opt-in [rolling publication boundary](rolling-operational-publication.md)
-adds real corpus-version/receipt binding for sealed snapshots. It is not yet a
-GO or automation callback. Legacy readers refuse those versions explicitly;
+adds real corpus-version/receipt binding for sealed snapshots. GO preparation
+and data probes now use it through the rolling input boundary above. Daily
+service and runtime-authority integration remain pending. Legacy readers refuse those versions explicitly;
 do not activate it on a deployment until the operational reader/state cutover
 is implemented and validated. Existing durable state and evidence are retained.
 

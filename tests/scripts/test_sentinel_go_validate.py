@@ -714,6 +714,29 @@ def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary():
     assert timings == {"full_forward_decision_replay": 2_250}
 
 
+def test_rolling_data_proof_cannot_grant_legacy_runtime_authority(monkeypatch):
+    report = _forward_report()
+    report["proof"]["scope"] = "ROLLING_STARTUP_AND_RESTART"
+    report["publication_coherence"]["scope"] = "ROLLING_CURRENT_INPUTS_ONLY"
+    captured = {}
+    original = go.make_gate
+
+    def capture(gate_id, status, observed_at, evidence):
+        captured.update(evidence)
+        return original(gate_id, status, observed_at, evidence)
+
+    monkeypatch.setattr(go, "make_gate", capture)
+    subjects = {}
+    gate = go.probe_active_wealth_parity(
+        _Runner(report), env={"SENTINEL_POSTGRES_PASSWORD": "private"},
+        commit=COMMIT, candidate_image_digest=DIGEST_A,
+        runtime_image_digest=DIGEST_B, source_identity_sha256=IDENTITY,
+        now_text=NOW_TEXT, subject_values=subjects)
+    assert gate.status == go.FAIL
+    assert subjects == {}
+    assert captured["first_divergence"] == "ROLLING_RUNTIME_SCOPE_NOT_ACTIVATED"
+
+
 def test_shadow_configuration_digest_is_exact_runtime_contract():
     env = {
         "SENTINEL_SHADOW_OBSERVATION_ID": "year-end.1",
@@ -852,7 +875,9 @@ def test_upgrade_preparation_uses_exact_runtime_without_broker_authority():
     assert any(
         isinstance(node, ast.Call) and isinstance(node.func, ast.Attribute)
         and isinstance(node.func.value, ast.Name)
-        and (node.func.value.id, node.func.attr) in {("ingest", "daily"), ("outage_recovery", "catch_up")}
+        and (node.func.value.id, node.func.attr) in {
+            ("ingest", "daily"), ("outage_recovery", "catch_up"),
+            ("outage_recovery", "catch_up_waiting"), ("rolling_go_inputs", "prepare")}
         and node.args and isinstance(node.args[0], ast.Name) and node.args[0].id == "c"
         and any(keyword.arg == ("today" if node.func.attr == "daily" else "target_session")
                 and isinstance(keyword.value, ast.Name) and keyword.value.id == "target"
