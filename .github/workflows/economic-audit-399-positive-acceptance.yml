@@ -1,0 +1,84 @@
+name: Economic audit 399 positive acceptance
+on:
+  push:
+    branches: [audit/economic-399-evidence]
+    paths: [.github/workflows/economic-audit-399-positive-acceptance.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  acceptance:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: 3328ad6424db10a5cbf9f06728f0496074bc1b67
+          fetch-depth: 1
+      - name: Acquire immutable runtime and source evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          mkdir -p runtime pinned reference evidence
+          gh api repos/flabber1835/stocker/actions/artifacts/10515536149/zip > runtime.zip
+          echo '90f011c310aab5f128a832408ac531f4437e58d8889234b2a724398f635631ea  runtime.zip' | sha256sum -c -
+          unzip -q runtime.zip -d runtime
+          echo 'fdf51844ace707d0c66238e98519811d87962d53cd323e8252294db232e0a6a7  runtime/audit399-image.tar.gz' | sha256sum -c -
+          gzip -dc runtime/audit399-image.tar.gz | docker load
+          test "$(docker image inspect sentinel-test:ci --format '{{.Id}}')" = sha256:d60e755ed4caf07e38a202dafdc80416124184c70d62874c08d7d7276cf5eaf0
+          git fetch --no-tags --depth=1 origin aff4461d9af6d4a7367018768fda18d948958b49 5afba080859f25ea65fdb82da9ba54b442bac368
+          test "$(git rev-parse aff4461d9af6d4a7367018768fda18d948958b49^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
+          git archive aff4461d9af6d4a7367018768fda18d948958b49 | tar -xf - -C pinned
+          git archive 5afba080859f25ea65fdb82da9ba54b442bac368 shared tests/wealth_core | tar -xf - -C reference
+          cp -a tests/audit399_continued pinned/tests/
+          git ls-tree -r -l aff4461d9af6d4a7367018768fda18d948958b49 > evidence/production-tree.txt
+          git ls-tree -r -l 5afba080859f25ea65fdb82da9ba54b442bac368 shared tests/wealth_core > evidence/reference-tree.txt
+          git ls-tree -r -l 3328ad6424db10a5cbf9f06728f0496074bc1b67 tests/audit399_continued > evidence/tests-tree.txt
+          docker image inspect sentinel-test:ci > evidence/image.json
+          sha256sum runtime.zip runtime/audit399-image.tar.gz > evidence/runtime-sha256.txt
+      - name: Assert required economics on pinned source
+        run: |
+          set -euo pipefail
+          set +e
+          docker run --rm --network none --entrypoint /bin/bash \
+            -e PYTHONUNBUFFERED=1 -e PYTHONDONTWRITEBYTECODE=1 \
+            -e PYTHONPATH=/work:/app \
+            -e SENTINEL_REPO_ROOT=/work -e SENTINEL_IN_IMAGE=1 \
+            -e SENTINEL_STATE_DIR=/tmp/sentinel-audit399-state \
+            -e SENTINEL_IMAGE_SOURCE_REVISION=aff4461d9af6d4a7367018768fda18d948958b49 \
+            -e SENTINEL_RECOVERED_ORDER_AUTHORITY=STRICT_V1 \
+            -e SENTINEL_PUBLICATION_RECEIPT_KEY=audit399-isolated-local-only-signing-authority-20260918 \
+            -v "$PWD/pinned:/work:ro" -v "$PWD/reference:/golden_reference:ro" \
+            -v "$PWD/evidence:/evidence" sentinel-test:ci -c '
+              set -euo pipefail
+              cd /work
+              python --version
+              python -m pip freeze > /evidence/runtime-packages.txt
+              PYTHONPATH=/golden_reference/shared:/work:/app python tests/audit399_continued/golden_diagnostic.py historical
+              python tests/audit399_continued/golden_diagnostic.py pinned
+              set +e
+              python -m pytest tests/audit399_continued -q -p no:cacheprovider --tb=short --junitxml=/evidence/acceptance.xml
+              rc=$?
+              echo "$rc" > /evidence/pytest-exit.txt
+              exit "$rc"
+            ' 2>&1 | tee evidence/acceptance.log
+          rc=${PIPESTATUS[0]}
+          echo "$rc" > evidence/container-exit.txt
+          exit "$rc"
+      - name: Hash retained evidence
+        if: always()
+        run: |
+          python - <<'PY'
+          import hashlib, pathlib
+          root=pathlib.Path('evidence')
+          root.mkdir(exist_ok=True)
+          rows=[hashlib.sha256(p.read_bytes()).hexdigest()+'  '+p.relative_to(root).as_posix() for p in sorted(root.rglob('*')) if p.is_file() and p.name!='SHA256SUMS']
+          (root/'SHA256SUMS').write_text('\n'.join(rows)+'\n')
+          PY
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: economic-audit-399-positive-acceptance
+          path: evidence/
+          retention-days: 30
