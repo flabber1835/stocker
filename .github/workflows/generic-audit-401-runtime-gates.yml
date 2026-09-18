@@ -1,0 +1,75 @@
+name: Generic audit 401 runtime gates
+on:
+  push:
+    branches: [audit/generic-401-runtime-gates-20260918]
+permissions:
+  contents: read
+jobs:
+  runtime-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 50
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          fetch-depth: 1
+      - name: Build the pinned runtime and its original test lens
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/audit401-runtime"
+          mkdir -p "$out"
+          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
+          git rev-parse HEAD > "$out/commit.txt"
+          git rev-parse HEAD^{tree} > "$out/tree.txt"
+          uname -a > "$out/kernel.txt"
+          nproc > "$out/cpus.txt"
+          free -b > "$out/memory.txt"
+          docker version > "$out/docker-version.txt"
+          docker build --build-arg SOURCE_GIT_SHA=aff4461d9af6d4a7367018768fda18d948958b49 -f Dockerfile.sentinel -t sentinel:audit401-runtime . 2>&1 | tee "$out/runtime-build.log"
+          docker build --build-arg SENTINEL_IMAGE=sentinel:audit401-runtime --build-arg SOURCE_GIT_SHA=aff4461d9af6d4a7367018768fda18d948958b49 -f Dockerfile.sentinel-test -t sentinel-test:audit401 . 2>&1 | tee "$out/test-image-build.log"
+          docker image inspect sentinel:audit401-runtime sentinel-test:audit401 > "$out/images.json"
+          docker run --rm --network none --entrypoint python sentinel-test:audit401 -c 'import sys,pytest,psycopg,pandas,numpy; print(sys.version); print("pytest",pytest.__version__,"psycopg",psycopg.__version__,"pandas",pandas.__version__,"numpy",numpy.__version__)' > "$out/runtime-identity.txt"
+      - name: Execute actual image-only import and identity gates
+        run: |
+          set -euo pipefail
+          docker run --rm --network none -v "$RUNNER_TEMP/audit401-runtime:/evidence" sentinel-test:audit401 tests/sentinel/test_runtime_is_the_artifact.py -vv -ra --durations=10 --junitxml=/evidence/runtime-artifact.xml 2>&1 | tee "$RUNNER_TEMP/audit401-runtime/runtime-artifact.log"
+      - name: Execute the complete million-row seed and 300-session warmup module
+        run: |
+          set -euo pipefail
+          docker run --rm --network none -v "$RUNNER_TEMP/audit401-runtime:/evidence" sentinel-test:audit401 tests/sentinel/test_source_seed_warmup.py -vv -ra --capture=tee-sys --durations=10 --junitxml=/evidence/source-seed-warmup.xml 2>&1 | tee "$RUNNER_TEMP/audit401-runtime/source-seed-warmup.log"
+          git diff --exit-code
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: generic-audit-401-runtime-gates
+          path: ${{ runner.temp }}/audit401-runtime/
+          if-no-files-found: warn
+          retention-days: 14
+  live-compose:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          fetch-depth: 1
+      - name: Execute the existing live Docker composition harness
+        run: |
+          set -euo pipefail
+          out="$RUNNER_TEMP/audit401-compose"
+          mkdir -p "$out"
+          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
+          git rev-parse HEAD > "$out/commit.txt"
+          python --version > "$out/python.txt"
+          docker version > "$out/docker.txt"
+          docker compose version > "$out/compose.txt"
+          python tools/production_composition_harness.py --output "$out/composition.json" 2>&1 | tee "$out/composition.log"
+          git diff --exit-code
+          docker ps -a > "$out/containers-after.txt"
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: generic-audit-401-live-compose
+          path: ${{ runner.temp }}/audit401-compose/
+          if-no-files-found: warn
+          retention-days: 14
