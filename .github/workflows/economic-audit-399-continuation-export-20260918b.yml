@@ -1,0 +1,56 @@
+name: Economic audit 399 continuation export
+on:
+  push:
+    branches: [audit/economic-399-evidence]
+    paths: [.github/workflows/economic-audit-399-continuation-export-20260918b.yml]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export immutable evidence and complete ledgers
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          test "$(git rev-parse aff4461d9af6d4a7367018768fda18d948958b49^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
+          git rev-parse HEAD > export/evidence-head.txt
+          git diff --name-status aff4461d9af6d4a7367018768fda18d948958b49 HEAD > export/evidence-branch-diff.txt
+          git ls-tree -r HEAD audit .github/workflows > export/evidence-tree.txt
+          git archive HEAD audit .github/workflows | gzip -1 > export/previous-evidence.tar.gz
+          python - <<'PY'
+          import json, os, urllib.request
+          from pathlib import Path
+          base = 'https://api.github.com/repos/flabber1835/stocker'
+          def read(path):
+              req = urllib.request.Request(base + path, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.load(r)
+          for issue in (399, 400, 401):
+              Path(f'export/issue-{issue}.json').write_text(json.dumps(read(f'/issues/{issue}'), indent=2))
+              comments = []
+              page = 1
+              while True:
+                  batch = read(f'/issues/{issue}/comments?per_page=100&page={page}')
+                  comments.extend(batch)
+                  if len(batch) < 100:
+                      break
+                  page += 1
+              Path(f'export/issue-{issue}-comments.json').write_text(json.dumps(comments, indent=2))
+              print(issue, len(comments))
+          PY
+          (cd export && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: economic-audit-399-continuation-export-20260918b
+          path: export/
+          retention-days: 30
