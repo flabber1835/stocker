@@ -1,0 +1,88 @@
+name: Autonomy audit 400 kernel and policy rechecks
+on:
+  push:
+    branches: [audit/economic-399-evidence]
+    paths: [.github/workflows/autonomy-audit-400-kernel-rechecks-20260918.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  recheck:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          path: pinned
+          persist-credentials: false
+      - name: Recover immutable runtime and verify source identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence image
+          test "$(git -C pinned rev-parse HEAD^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
+          git -C pinned rev-parse HEAD > evidence/production-pin.txt
+          git -C pinned ls-tree -r HEAD scripts > evidence/scripts-tree.txt
+          gh api repos/flabber1835/stocker/actions/artifacts/10515536149/zip > image/runtime.zip
+          echo '90f011c310aab5f128a832408ac531f4437e58d8889234b2a724398f635631ea  image/runtime.zip' | sha256sum -c -
+          unzip -q image/runtime.zip -d image
+          gzip -dc image/audit399-image.tar.gz | docker load
+          test "$(docker image inspect sentinel-test:ci --format '{{.Id}}')" = sha256:d60e755ed4caf07e38a202dafdc80416124184c70d62874c08d7d7276cf5eaf0
+          docker image inspect sentinel-test:ci > evidence/image-inspect.json
+          docker version > evidence/docker-version.txt
+          chmod 0777 evidence
+      - name: Recheck physical process and host wrapper boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            -e PYTHONPATH=/work:/app:/work/scripts \
+            -e SENTINEL_RECOVERED_ORDER_AUTHORITY=STRICT_V1 \
+            -v "$PWD/pinned/scripts:/work/scripts:ro" \
+            -v "$PWD/evidence:/evidence" --entrypoint /bin/sh sentinel-test:ci -c '
+              python -c "import sentinel; from scripts import sentinel_env; import sentinel_go_validate; assert sentinel.__file__.startswith(\"/app/\"); print(sentinel.__file__, sentinel_env.__file__, sentinel_go_validate.__file__)" &&
+              python -m pytest \
+                tests/sentinel/test_automation_process_contracts.py \
+                tests/sentinel/test_process_death_recovery.py \
+                tests/internal_state/test_physical.py \
+                tests/production_composition/test_lock_process_boundary.py \
+                tests/production_composition/test_phase_boundary_kills.py \
+                tests/production_composition/test_broker_network_faults.py \
+                tests/sentinel/test_issue_149_151.py \
+                tests/sentinel/test_merge_readiness_137_149.py \
+                tests/sentinel/test_operational_surface.py \
+                tests/sentinel/test_rolling_go_inputs.py \
+                -vv -ra --junitxml=/evidence/kernel-recheck.xml
+            ' > evidence/kernel-recheck.log 2>&1
+      - name: Recheck legacy recovery expectations in their default policy configuration
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            -e PYTHONPATH=/work:/app:/work/scripts \
+            -v "$PWD/pinned/scripts:/work/scripts:ro" \
+            -v "$PWD/evidence:/evidence" --entrypoint python sentinel-test:ci \
+            -m pytest tests/sentinel/test_adapter_and_recovery_drill.py \
+            tests/sentinel/test_adversarial_scenario.py \
+            tests/sentinel/test_journal_and_reconcile.py \
+            tests/sentinel/test_paper_activation.py \
+            tests/sentinel/test_review_findings.py \
+            -vv -ra --junitxml=/evidence/default-policy-controls.xml \
+            > evidence/default-policy-controls.log 2>&1
+      - name: Seal results and cleanup evidence
+        if: always()
+        shell: bash
+        run: |
+          docker ps -a > evidence/containers-after.txt
+          git -C pinned status --porcelain=v1 > evidence/source-status.txt
+          (cd evidence && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: autonomy-400-kernel-policy-rechecks-${{ github.run_id }}
+          path: evidence/
+          retention-days: 30
