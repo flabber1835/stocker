@@ -1,0 +1,58 @@
+name: Economic audit 399 continuation snapshot
+on:
+  push:
+    branches: [audit/economic-399-evidence]
+    paths: [.github/workflows/economic-audit-399-continuation-snapshot.yml]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  snapshot:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - name: Export current ledgers and audit-only evidence
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVIDENCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          for issue in 399 400; do
+            gh api "repos/$REPO/issues/$issue" > "export/issue-$issue.json"
+            gh api --paginate --slurp "repos/$REPO/issues/$issue/comments?per_page=100" > "export/issue-$issue-comments-pages.json"
+          done
+          gh api "repos/$REPO/git/trees/$EVIDENCE_SHA?recursive=1" > export/evidence-tree.json
+          gh api "repos/$REPO/git/commits/aff4461d9af6d4a7367018768fda18d948958b49" > export/pinned-commit.json
+          python - <<'PY'
+          import json, os, pathlib, urllib.request
+          out = pathlib.Path('export')
+          commit = json.loads((out/'pinned-commit.json').read_text())
+          assert commit['tree']['sha'] == '56790bb69b1c65b981ffee94c2a58542916b3b52'
+          for no in (399,400):
+              pages = json.loads((out/f'issue-{no}-comments-pages.json').read_text())
+              comments = [c for page in pages for c in page]
+              (out/f'issue-{no}-bodies.md').write_text('\n\n'.join(f'## COMMENT {i+1} ID {c["id"]}\n{c["body"]}' for i,c in enumerate(comments)))
+          tree = json.loads((out/'evidence-tree.json').read_text())
+          assert not tree.get('truncated')
+          for entry in tree['tree']:
+              p = entry['path']
+              if entry['type'] != 'blob' or entry.get('size',0) > 2000000:
+                  continue
+              if not ((p.startswith('audit/') or p.startswith('audits/') or p.startswith('evidence/') or 'audit_399' in p or 'audit399' in p or 'economic-399' in p) and p.endswith(('.py','.md','.json','.csv','.yml','.yaml','.xml','.txt','.log'))):
+                  continue
+              url = f'https://api.github.com/repos/{os.environ["REPO"]}/git/blobs/{entry["sha"]}'
+              req = urllib.request.Request(url, headers={'Authorization': 'Bearer '+os.environ['GH_TOKEN'], 'Accept':'application/vnd.github.raw+json'})
+              with urllib.request.urlopen(req, timeout=30) as r: content = r.read()
+              target=out/'evidence'/p
+              target.parent.mkdir(parents=True,exist_ok=True)
+              target.write_bytes(content)
+          PY
+          (cd export && find . -type f -print0 | sort -z | xargs -0 sha256sum > ../SHA256SUMS)
+          mv SHA256SUMS export/
+      - uses: actions/upload-artifact@v4
+        with:
+          name: economic-audit-399-continuation-snapshot
+          path: export/
+          retention-days: 30
