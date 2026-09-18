@@ -1,0 +1,109 @@
+{
+  "baseline": "aff4461d9af6d4a7367018768fda18d948958b49",
+  "tree": "56790bb69b1c65b981ffee94c2a58542916b3b52",
+  "certification": "BLOCKED",
+  "source_review_exhausted": false,
+  "production_source_modified": false,
+  "new_test_source_commit": "502cb0b605aab93a42f5b7e9861c7ed52826f8a3",
+  "primary_unique_cases": 1280,
+  "primary_outcomes": {"passed": 1271, "failed": 6, "xfailed": 3, "errors": 0},
+  "latest_unique_outcomes_after_explicit_xfail_rerun": {"passed": 1271, "failed": 9},
+  "new_unique_cases": 21,
+  "new_outcomes": {"passed": 15, "failed": 6},
+  "campaigns": [
+    {
+      "name": "regression-storage-first",
+      "counts": {"passed": 170},
+      "junit_seconds": 64.172,
+      "junit_sha256": "e51c584cd6c228dc657ee734c29b9591cf45e64bd3164957a85590fb1c8c1e7c",
+      "log_sha256": "70c458029d47ee31173cf4eee77535d5cb8f5b3d892099956fa63c5f28067e13"
+    },
+    {
+      "name": "strategy-regressions-final",
+      "counts": {"passed": 1086, "xfailed": 3},
+      "junit_seconds": 218.405,
+      "junit_sha256": "3166c1aebe2f608b5d7dd3dd947410210a4a8183e1198cb48c003a03274052df",
+      "log_sha256": "90dab5dd9a55735384444f03aaed2ce6fb051e52403633a9297a83ee59d43836"
+    },
+    {
+      "name": "snapshot-restore-final",
+      "counts": {"passed": 8},
+      "junit_seconds": 174.464,
+      "junit_sha256": "68c745edbace121ba08b827c7d45780523552e45ee6c9f7dbfc6fd8d89d2466b",
+      "log_sha256": "802ce304a537dd053a8d071551cba02441341f98f629b5e42c24fce346fe80dd"
+    },
+    {
+      "name": "physical-replay-final",
+      "counts": {"passed": 2},
+      "junit_seconds": 46.576,
+      "junit_sha256": "3b062dc46b1a4246ee2e1daff323ea395c59e8c96c207e0f3b724e057df2438b",
+      "log_sha256": "d9fc8279eda2216cbea0442ebb549c8f491e0065acfac2f03868d959155a2a69"
+    },
+    {
+      "name": "economic-acceptance",
+      "counts": {"passed": 5, "failed": 6},
+      "junit_seconds": 5.518,
+      "junit_sha256": "cc948f40188a0b27bd439abe5b67b950be7bd52d52c2a3490813a10d75c1a4a2",
+      "log_sha256": "491a2197700a36b263590c73fb836946419980f2c2f2a04acfd8cde2c40a9fb5"
+    },
+    {
+      "name": "golden-pins-unmasked",
+      "counts": {"failed": 3},
+      "junit_seconds": 8.701,
+      "adds_unique_nodes": false,
+      "command_option": "--runxfail",
+      "junit_sha256": "de8e4ca6eb26fde72e55ad130fd14c748fb20cbb0a540513c812f2468913918b",
+      "log_sha256": "949aafb5359321a6543a723abd2dda83e3c3bb1b6e5303a32e540cc1bf651350"
+    }
+  ],
+  "failed_economic_conditions": [
+    {"finding": "F2", "failed_cases": 3, "oracle_shares": 25, "actual_shares": 24},
+    {"finding": "F9", "failed_cases": 2, "exact_navs": ["20000.001", "19999.999"], "rounded_diagnostic_nav": "20000.00"},
+    {"finding": "F10", "failed_cases": 1, "peak": "101.00", "close": "70.70", "next_open": "60.00", "oracle_exit": true, "actual_exit": false, "oracle_remaining_shares": 0, "actual_remaining_shares": 10, "oracle_cash": "599.40", "actual_cash": "0"}
+  ],
+  "golden_reference_diagnostic": {
+    "expected_result_hash": "5c1af5731f79c7029d0c92b82275ef3b2b84d2a4fed0afbdc32688dfb6103a89",
+    "actual_result_hash": "11566dc3608fa06644d31aecb90f470ab3c2cec7075b9d32ab84e063a10ecaef",
+    "expected_state_hash": "427baff03aa27870",
+    "actual_state_hash": "11ee55f9687417d1",
+    "expected_ledger_hash": "0cf335b69e5a0279",
+    "actual_ledger_hash": "1405d6573c67b811",
+    "expected_final_cash": "34868.23",
+    "actual_final_cash": "34824.73",
+    "final_positions": 24,
+    "ledger_event_counts_match": true,
+    "blocked_session_labels_match": true,
+    "measurement_preserves_actual_result_hash": true,
+    "causal_economic_reconciliation_complete": false,
+    "reference_modified": false
+  },
+  "logical_snapshot_table_counts": {"production": 81, "audit_control": 0, "total": 81},
+  "physical_snapshot_table_counts": {"production": 81, "audit_control": 1, "total": 82},
+  "final_source_integrity": {
+    "acquired_source_paths": 1164,
+    "runtime_source_mirror_paths": 1164,
+    "runtime_import_or_harness_paths": 921,
+    "total_checks": 3249,
+    "mismatches": 0,
+    "full_inventory_paths": 1264,
+    "unselected_paths": 100,
+    "prior_audit_blobs_verified": 40
+  },
+  "excluded_from_unique_totals": [
+    "two-case logical pilot",
+    "one-case physical pilot",
+    "interrupted coverage-instrumented strategy attempt",
+    "three existing golden nodes rerun with --runxfail",
+    "runtime smoke and read-only golden diagnostic"
+  ],
+  "remaining_conditions": [
+    "F1-F19 retain existing ledger dispositions; C1/F6 counted once; C2 and C3 remain open",
+    "global source/function/mutation/configuration/migration inventory",
+    "remaining compound supervised broker, generation, lease, action, transport and restore schedules",
+    "provider-native order/fill finality, cash and external-flow acceptance",
+    "complete deployment restore, NAS media/resources, long outages and actual alert delivery",
+    "historical economic-impact and reference reconciliation"
+  ],
+  "full_report_sha256": "571fc45646926671a1da0fe59be1d2be5269e59a4ceb54341c9215fd3e266152",
+  "local_full_integrity_report_sha256": "9066f11c9ea7a0d5b914ec55ac3c644ea39b61a21b524273844a01bb52efa0b4"
+}
