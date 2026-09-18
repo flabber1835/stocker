@@ -1,4 +1,4 @@
-name: Generic audit 401 host-container boundaries
+name: Generic audit 401 complete archive integrity
 on:
   push:
     branches: [audit/generic-401-runtime-gates-20260918]
@@ -6,91 +6,83 @@ on:
 permissions:
   contents: read
 jobs:
-  host-container:
+  archive-integrity:
     runs-on: ubuntu-latest
-    timeout-minutes: 50
+    timeout-minutes: 25
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: aff4461d9af6d4a7367018768fda18d948958b49
           fetch-depth: 1
-      - name: Build exact pinned runtime and original test lens
+      - name: Verify all tracked bytes and read every ZIP member through its CRC boundary
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/audit401-host"
-          mkdir -p "$out"
-          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
-          test "$(git rev-parse HEAD^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
-          git rev-parse HEAD > "$out/commit.txt"
-          git rev-parse HEAD^{tree} > "$out/tree.txt"
-          id > "$out/host-user.txt"
-          uname -a > "$out/kernel.txt"
-          python3 --version > "$out/host-python.txt"
-          docker version > "$out/docker-version.txt"
-          docker compose version > "$out/compose-version.txt"
-          docker build --build-arg SOURCE_GIT_SHA=aff4461d9af6d4a7367018768fda18d948958b49 -f Dockerfile.sentinel -t sentinel:latest -t sentinel-authorized:ci . 2>&1 | tee "$out/runtime-build.log"
-          docker build --build-arg SENTINEL_IMAGE=sentinel:latest --build-arg SOURCE_GIT_SHA=aff4461d9af6d4a7367018768fda18d948958b49 -f Dockerfile.sentinel-test -t sentinel-test:ci . 2>&1 | tee "$out/test-image-build.log"
-          docker image inspect sentinel:latest sentinel-test:ci > "$out/images.json"
-          docker run --rm --network none --entrypoint python sentinel-test:ci -c 'import sys,pytest,psycopg,pandas,numpy; print(sys.version); print("pytest",pytest.__version__,"psycopg",psycopg.__version__,"pandas",pandas.__version__,"numpy",numpy.__version__)' > "$out/runtime-identity.txt"
-      - name: Execute original UID, capabilities, cold-start, marker and receipt-lock probes
-        run: |
-          set -euo pipefail
-          bash scripts/test-pr301-runtime-boundaries.sh sentinel:latest 2>&1 | tee "$RUNNER_TEMP/audit401-host/runtime-boundaries.log"
-      - name: Execute original retirement gates against pinned PostgreSQL 16 container
-        if: always()
-        run: |
-          set -euo pipefail
-          bash scripts/test-pr330-postgres-retirement.sh sentinel-test:ci 2>&1 | tee "$RUNNER_TEMP/audit401-host/postgres-retirement.log"
-      - name: Record source and resource cleanup state
-        if: always()
-        run: |
-          out="$RUNNER_TEMP/audit401-host"
-          mkdir -p "$out"
-          git diff --exit-code > "$out/source-diff.txt"
-          git status --porcelain --untracked-files=no > "$out/tracked-status.txt"
-          docker ps -a > "$out/containers-after.txt"
-          docker volume ls > "$out/volumes-after.txt"
-          docker image inspect postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b > "$out/postgres-image.json"
+          mkdir -p "$RUNNER_TEMP/audit401-archive-integrity"
+          python3 - <<'PY'
+          import hashlib,json,os,pathlib,platform,subprocess,sys,time,zipfile
+          root=pathlib.Path.cwd()
+          out=pathlib.Path(os.environ['RUNNER_TEMP'])/'audit401-archive-integrity'
+          pin='aff4461d9af6d4a7367018768fda18d948958b49'
+          tree='56790bb69b1c65b981ffee94c2a58542916b3b52'
+          assert subprocess.check_output(['git','rev-parse','HEAD'],text=True).strip()==pin
+          assert subprocess.check_output(['git','rev-parse','HEAD^{tree}'],text=True).strip()==tree
+          metadata={'pin':pin,'tree':tree,'python':sys.version,'platform':platform.platform(),'files':0,'archives':0,'members':0,'uncompressed_bytes':0,'errors':[]}
+          (out/'runtime.json').write_text(json.dumps(metadata,indent=2)+'\n')
+          raw=subprocess.check_output(['git','ls-tree','-rz','HEAD'])
+          with (out/'files.jsonl').open('w') as files,(out/'zip-members.jsonl').open('w') as members:
+            for item in raw.split(b'\0'):
+              if not item: continue
+              fields,name=item.split(b'\t',1)
+              mode,kind,expected=fields.decode().split()
+              rel=name.decode('utf-8');path=root/rel
+              record={'path':rel,'mode':mode,'expected_git_blob':expected}
+              try:
+                if kind!='blob': raise ValueError('unexpected non-blob tracked entry')
+                data_size=len(os.readlink(path).encode()) if path.is_symlink() else path.stat().st_size
+                git=hashlib.sha1(('blob '+str(data_size)+'\0').encode());sha=hashlib.sha256()
+                if path.is_symlink():
+                  body=os.readlink(path).encode();git.update(body);sha.update(body)
+                else:
+                  with path.open('rb') as stream:
+                    for chunk in iter(lambda:stream.read(1024*1024),b''):git.update(chunk);sha.update(chunk)
+                record.update(bytes=data_size,git_blob=git.hexdigest(),sha256=sha.hexdigest(),matches=git.hexdigest()==expected)
+                if not record['matches']: raise ValueError('working-tree bytes differ from pinned blob')
+                metadata['files']+=1
+                if path.suffix.lower()=='.zip':
+                  metadata['archives']+=1
+                  print('ZIP',rel,flush=True)
+                  with zipfile.ZipFile(path) as archive:
+                    names=set()
+                    for info in archive.infolist():
+                      m={'archive':rel,'name':info.filename,'declared_bytes':info.file_size,'compressed_bytes':info.compress_size,'crc32':info.CRC,'directory':info.is_dir(),'duplicate_name':info.filename in names}
+                      names.add(info.filename)
+                      digest=hashlib.sha256();total=0;newlines=0;prefix=b''
+                      with archive.open(info) as stream:
+                        for chunk in iter(lambda:stream.read(1024*1024),b''):
+                          digest.update(chunk);total+=len(chunk);newlines+=chunk.count(b'\n')
+                          if len(prefix)<4096:prefix=(prefix+chunk[:4096])[:4096]
+                      if total!=info.file_size:raise ValueError('ZIP member size mismatch: '+info.filename)
+                      m.update(actual_bytes=total,sha256=digest.hexdigest(),crc_read_complete=True,physical_newline_bytes=newlines)
+                      if rel.startswith('sec-filings/') and info.filename.lower().endswith(('.tsv','.csv','.txt')):
+                        first=prefix.split(b'\n',1)[0].rstrip(b'\r')
+                        m['header_utf8']=first.decode('utf-8-sig',errors='strict');m['header_truncated']=b'\n' not in prefix and total>len(prefix)
+                      members.write(json.dumps(m,sort_keys=True)+'\n');members.flush()
+                      metadata['members']+=1;metadata['uncompressed_bytes']+=total
+              except Exception as exc:
+                record['error']=type(exc).__name__+': '+str(exc)
+                metadata['errors'].append({'path':rel,'error':record['error']})
+              files.write(json.dumps(record,sort_keys=True)+'\n');files.flush()
+          metadata['completed_at']=time.time()
+          (out/'summary.json').write_text(json.dumps(metadata,indent=2)+'\n')
+          print(json.dumps(metadata,indent=2),flush=True)
+          subprocess.run(['git','diff','--exit-code'],check=True)
+          (out/'tracked-status.txt').write_text(subprocess.check_output(['git','status','--porcelain','--untracked-files=no'],text=True))
+          if metadata['errors']:sys.exit(1)
+          PY
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: generic-audit-401-host-container-boundaries
-          path: ${{ runner.temp }}/audit401-host/
+          name: generic-audit-401-complete-archive-integrity
+          path: ${{ runner.temp }}/audit401-archive-integrity/
           if-no-files-found: warn
-          retention-days: 14
-  physical-pitr:
-    runs-on: ubuntu-latest
-    timeout-minutes: 15
-    steps:
-      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
-        with:
-          ref: aff4461d9af6d4a7367018768fda18d948958b49
-          fetch-depth: 1
-      - name: Execute original physical base-backup and WAL timeline fork regression
-        run: |
-          set -euo pipefail
-          out="$RUNNER_TEMP/audit401-pitr"
-          mkdir -p "$out"
-          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
-          git rev-parse HEAD > "$out/commit.txt"
-          git rev-parse HEAD^{tree} > "$out/tree.txt"
-          uname -a > "$out/kernel.txt"
-          docker version > "$out/docker-version.txt"
-          bash scripts/test-pr301-pitr-recovery.sh 2>&1 | tee "$out/pitr.log"
-          git diff --exit-code
-      - name: Record physical runtime and resource cleanup state
-        if: always()
-        run: |
-          out="$RUNNER_TEMP/audit401-pitr"
-          mkdir -p "$out"
-          docker image inspect postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b > "$out/postgres-image.json"
-          docker run --rm --network none --entrypoint postgres postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b --version > "$out/postgres-version.txt"
-          docker ps -a > "$out/containers-after.txt"
-          git status --porcelain --untracked-files=no > "$out/tracked-status.txt"
-      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
-        if: always()
-        with:
-          name: generic-audit-401-physical-pitr
-          path: ${{ runner.temp }}/audit401-pitr/
-          if-no-files-found: warn
-          retention-days: 14
+          retention-days: 30
