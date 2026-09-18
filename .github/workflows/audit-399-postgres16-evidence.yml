@@ -1,0 +1,37 @@
+name: Economic 399 PostgreSQL16 evidence
+on:
+  push:
+    branches: [audit/economic-399-continuation-20260918b]
+    paths: [.github/workflows/audit-399-postgres16-evidence.yml]
+permissions:
+  contents: read
+jobs:
+  postgres-image:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          persist-credentials: false
+      - name: Verify source and retain immutable deployed database image
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
+          test "$(git rev-parse HEAD^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
+          mkdir -p evidence
+          image='postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b'
+          grep -F "image: $image" docker-compose.sentinel.yml
+          docker pull "$image"
+          docker image inspect "$image" > evidence/postgres16-image-inspect.json
+          docker run --rm --network none --entrypoint postgres "$image" --version > evidence/postgres16-version.txt
+          docker save "$image" | gzip -1 > evidence/postgres16-image.tar.gz
+          git show HEAD:docker-compose.sentinel.yml > evidence/pinned-docker-compose.sentinel.yml
+          git show -s --format=fuller HEAD > evidence/pinned-source.txt
+          sha256sum evidence/* > evidence/SHA256SUMS
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: economic-399-deployed-postgres16-95206741
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
