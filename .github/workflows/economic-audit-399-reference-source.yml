@@ -1,0 +1,48 @@
+name: Economic audit 399 reference source evidence
+on:
+  push:
+    branches: [audit/economic-399-evidence]
+    paths: [.github/workflows/economic-audit-399-reference-source.yml]
+permissions:
+  contents: read
+  issues: read
+jobs:
+  export:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          fetch-depth: 1
+          persist-credentials: true
+      - name: Retain immutable comparison source and live audit ledgers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+          EVIDENCE_SHA: ${{ github.sha }}
+        run: |
+          set -euo pipefail
+          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
+          test "$(git rev-parse HEAD^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
+          mkdir -p export
+          OLD=5afba080859f25ea65fdb82da9ba54b442bac368
+          git fetch --no-tags origin "$OLD" "$EVIDENCE_SHA"
+          git archive "$OLD" shared tests/wealth_core > export/golden-reference-source.tar
+          git ls-tree -r -l "$OLD" shared tests/wealth_core > export/golden-reference-tree.txt
+          git show -s --format=fuller "$OLD" > export/golden-reference-commit.txt
+          git archive "$EVIDENCE_SHA" audit tests/audit399_certification > export/current-evidence.tar
+          git ls-tree -r -l "$EVIDENCE_SHA" audit tests/audit399_certification > export/current-evidence-tree.txt
+          for issue in 399 400; do
+            gh api "repos/$REPO/issues/$issue" > "export/issue-$issue.json"
+            gh api --paginate --slurp "repos/$REPO/issues/$issue/comments?per_page=100" > "export/issue-$issue-comments-pages.json"
+          done
+          git diff --stat "$OLD" HEAD -- shared > export/shared-diff-stat.txt
+          git diff "$OLD" HEAD -- shared > export/shared-diff.patch
+          git log --format='%H %ad %s' --date=iso-strict "$OLD..HEAD" -- shared > export/shared-history.txt
+          (cd export && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: economic-audit-399-golden-reference-source
+          path: export/
+          retention-days: 30
