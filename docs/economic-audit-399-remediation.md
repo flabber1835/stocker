@@ -183,7 +183,7 @@ following are local implementation acceptance results, not deployed acceptance:
 | F1 | Common source-precision scale accepted; nonuniform revisions refuse (`test_rolling_audit_acceptance.py`) |
 | F2/F9/F10 | Independent rational quantity/stop oracles, canonical warmup/fills/restart, full NAV target sizing (`test_economic_boundaries.py`, `test_nav_quantity_precision.py`) |
 | F3 | Dated rename advances; settled old command labels do not replace current identity; live conflicting obligations still refuse (`test_rolling_audit_acceptance.py`, `test_historical_command_symbol.py`) |
-| F4 | Expired preparation gets one coalesced successor while preserving the failed attempt (`test_preparation_expiry_recovery.py`) |
+| F4 | Expired preparation gets one coalesced successor while preserving the failed attempt (`test_operational_snapshot.py::test_expired_first_attempt_gets_one_fresh_successor`) |
 | F5 | Actual callback SIGKILL before/after acknowledgement commit retains reconciliation; mixed-refusal runtime remains recoverable (`test_execution_callback_death.py`, `test_automation_runtime.py`) |
 | F7 | Repeated complete absence preserves UNKNOWN; later original order/fill recovers with one submission (`test_unknown_absence_finality.py`) |
 | F8 | Accepted-capability boundary prevents nested SSE calls for both reachable and forbidden candidate endpoints (`test_recovery_capability_boundary.py`) |
@@ -218,7 +218,7 @@ python -m pytest \
   tests/sentinel/test_native_fill_acceptance.py \
   tests/sentinel/test_nav_quantity_precision.py \
   tests/sentinel/test_planless_action_units.py \
-  tests/sentinel/test_preparation_expiry_recovery.py \
+  tests/sentinel/test_operational_snapshot.py::test_expired_first_attempt_gets_one_fresh_successor \
   tests/sentinel/test_recovery_capability_boundary.py \
   tests/sentinel/test_recovery_numeric_identity.py \
   tests/sentinel/test_retained_coverage_closure.py \
@@ -353,3 +353,12 @@ mutant failures, not failing delivered tests.
 
 Issue 399 must remain open. No economic, operational or provider certificate
 is issued by this remediation PR.
+
+### CI integration follow-up
+
+The internal-state lifecycle is a synthetic assembly lab, not provider
+certification. Its process-external simulator supplies complete native fills,
+so its adapter instance explicitly enables that modeled capability. A companion
+assertion verifies that a separately constructed production adapter still has
+the capability disabled. This preserves positive lifecycle coverage without
+allowing the harness to depend on the former nested-capability bypass.

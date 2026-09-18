@@ -2,6 +2,7 @@
 from __future__ import annotations
 
 from datetime import datetime
+from dataclasses import replace
 from decimal import Decimal
 import json
 import asyncio
@@ -156,10 +157,14 @@ def adapter(service, *, kill_after_accept=False):
         def AsyncClient(**kwargs):
             return httpx.AsyncClient(transport=httpx.MockTransport(transport), trust_env=False, **kwargs)
 
-    return AlpacaExecutionBroker(api_key="simulation-key", secret_key="simulation-secret",
+    client = AlpacaExecutionBroker(api_key="simulation-key", secret_key="simulation-secret",
         base_url=PAPER_URL, http_provider=lambda: HTTPProvider,
         clock_provider=lambda: datetime.fromisoformat(service.now()),
         resolve_security_id=lambda symbol, _as_of=None: SECURITIES.get(symbol))
+    # This simulator supplies complete native events. This instance is a lab
+    # model, not evidence that the deployed Trading/Paper provider earned it.
+    client.capabilities = replace(client.capabilities, recent_fill_history=True)
+    return client
 
 
 def killed_submitter(service):
