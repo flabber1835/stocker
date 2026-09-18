@@ -1,11 +1,12 @@
-"""Frozen V5 admission and opening sizing on the canonical Wealth Core book."""
+"""V5 admission and exact budget sizing on the canonical Wealth Core book."""
 from __future__ import annotations
 
 import math
+from fractions import Fraction
 
 from .shares import affordable_whole_shares
 
-PROFILE = "wealth-core-v5-total-cash-open-sizing-v1"
+PROFILE = "wealth-core-v5-total-cash-open-sizing-v2"
 REFERENCE_SOURCE_SHA256 = "335e2ae06efd5e2ebfa11f0641029609d524f4e75e733a3dbd0a5efcf64ac42d"
 BUFFER_FRACTION = 0.001
 EPSILON = 1e-12
@@ -29,7 +30,7 @@ def admission(*, equity: float, cash: float, price: float | None,
         return None, "INVALID_CLOSE_MARKET"
     if cash + EPSILON < price * (1 + cost_bps / 10_000):
         return None, "TOTAL_CASH_ONE_SHARE_UNAFFORDABLE_AT_CLOSE"
-    return equity * 0.05, ""
+    return float(Fraction(str(equity)) / 20), ""
 
 
 def opening_quantity(*, intended: float, cash: float, price: float,
@@ -37,5 +38,5 @@ def opening_quantity(*, intended: float, cash: float, price: float,
     if (not all(math.isfinite(x) for x in (intended, cash, price, cost_bps))
             or intended <= 0 or cash < 0 or price <= 0 or cost_bps < 0):
         raise ValueError("invalid V5 opening sizing economics")
-    intended_quantity = math.floor(intended / (price * (1 + cost_bps / 10_000)))
+    intended_quantity = affordable_whole_shares(intended, price, cost_bps)
     return min(intended_quantity, affordable_whole_shares(cash, price, cost_bps))

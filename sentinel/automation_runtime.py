@@ -1011,6 +1011,13 @@ class ProductionAutomation:
                     str(result.observation_id) if result.clean else None),
                 "transport_reconciliation_id": str(result.observation_id),
             }
+            if (self._dual_run_enabled and
+                    str(cycle.decision_session) < str(feed_inputs.frontier(conn))):
+                return ExecuteResult(
+                    disposition=ExecuteDisposition.SUPERSEDED, **evidence,
+                    failure_code="HISTORICAL_OBLIGATIONS_RECOVERED",
+                    failure_detail="old commands settled after the shadow advanced",
+                    diagnostic=result.to_dict())
             # An adopted old-generation transport cycle may be terminalized
             # once its journal is clean. Its plan is stale economics and must
             # never be loaded, compared as current intent, or executed. A
@@ -1062,7 +1069,8 @@ class ProductionAutomation:
                                     CommandState.REJECTED))
                         if terminal_refusals:
                             return ExecuteResult(
-                                disposition=ExecuteDisposition.BLOCKED,
+                                disposition=ExecuteDisposition.SUPERSEDED,
+                                **evidence,
                                 failure_code="TERMINAL_COMMAND_REFUSAL",
                                 failure_detail=(
                                     "the current plan retains actionable "
@@ -1214,9 +1222,7 @@ class ProductionAutomation:
             # completed automation cycle.  A subsequent read-only recovery
             # must observe the command terminal, the book converged, and no
             # in-flight key before SUCCEEDED is possible.
-            if terminal_refusals:
-                disposition = ExecuteDisposition.BLOCKED
-            elif result.session.submitted or in_flight:
+            if result.session.submitted or in_flight:
                 disposition = ExecuteDisposition.RECONCILE
             elif result.session.restricted_securities:
                 disposition = ExecuteDisposition.RECONCILE

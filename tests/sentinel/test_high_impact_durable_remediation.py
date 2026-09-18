@@ -78,7 +78,7 @@ def test_crash_after_cycle_transition_reconstructs_missing_alert(conn) -> None:
     assert recovered.payload["reconstructed_from_durable_event"] is True
 
     outbox.mark_delivered(
-        conn, alert_id=recovered.alert_id, holder_id="restart-dispatcher")
+        conn, alert_id=recovered.alert_id, holder_id="restart-dispatcher", attempt=recovered.attempt_count)
     assert outbox.claim_next(
         conn, holder_id="restart-dispatcher", claim_seconds=30) is None
     with conn.cursor() as cur:
@@ -124,7 +124,7 @@ def test_each_same_state_transition_has_one_event_identity(conn) -> None:
             break
         delivered.append(alert)
         outbox.mark_delivered(
-            conn, alert_id=alert.alert_id, holder_id="event-dispatcher")
+            conn, alert_id=alert.alert_id, holder_id="event-dispatcher", attempt=alert.attempt_count)
 
     assert len(delivered) == 2
     assert len({alert.payload["cycle_event_seq"] for alert in delivered}) == 2
@@ -170,7 +170,7 @@ def test_restart_reconstructs_only_notifier_eligible_retry_transition(conn) -> N
     assert alert.event_type == "AUTOMATION_RETRY_SCHEDULED"
     assert alert.payload["detail"]["failure_code"] == "TRANSIENT"
     outbox.mark_delivered(
-        conn, alert_id=alert.alert_id, holder_id="retry-dispatcher")
+        conn, alert_id=alert.alert_id, holder_id="retry-dispatcher", attempt=alert.attempt_count)
     assert outbox.claim_next(
         conn, holder_id="retry-dispatcher", claim_seconds=30) is None
     with conn.cursor() as cur:

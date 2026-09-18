@@ -1,0 +1,104 @@
+"""Validate native execution history before it becomes economic authority."""
+from dataclasses import asdict
+from decimal import Decimal
+from fractions import Fraction
+import hashlib
+import json
+
+from sentinel.execution.identity import is_sentinel_key
+
+
+class FillHistoryIncomplete(ValueError):
+    pass
+
+
+def validate(observation, orders):
+    totals, gross, seen = {}, {}, set()
+    for fill in observation.fills:
+        order = orders.get(fill.broker_order_id)
+        if order is None:
+            raise ValueError('native fill omitted exact order')
+        if not is_sentinel_key(order.client_key):
+            continue
+        native = getattr(fill, 'activity_id', None)
+        if native:
+            if native in seen:
+                raise ValueError('duplicate native execution identity')
+            seen.add(native)
+            if (getattr(fill, 'asset_id', None) != order.instrument.broker_id
+                    or getattr(fill, 'side', None) is not order.side):
+                raise ValueError('native fill asset or side contradicts order')
+        if fill.client_key not in (None, order.client_key):
+            raise ValueError('native fill client key contradicts order')
+        if (fill.filled_at is None or order.submitted_at is None
+                or fill.filled_at < order.submitted_at
+                or fill.filled_at > observation.observed_at):
+            raise ValueError('native fill time is outside order observation lifetime')
+        # Sentinel issues ordinary DAY orders. Publication may be late; the
+        # execution itself cannot move into a later session.
+        from zoneinfo import ZoneInfo
+        from sentinel.feed import calendar
+        day = order.submitted_at.astimezone(ZoneInfo(calendar.EXCHANGE_TZ)).date()
+        _, closed = calendar.session_window(day)
+        if fill.filled_at > closed:
+            raise ValueError('native fill executes after the DAY order session')
+        key = order.broker_order_id
+        totals[key] = totals.get(key, Fraction(0)) + Fraction(fill.quantity)
+        gross[key] = gross.get(key, Fraction(0)) + Fraction(fill.quantity) * Fraction(fill.price)
+        if totals[key] > Fraction(order.filled_quantity):
+            raise ValueError('native fill quantity exceeds cumulative order fills')
+    for key, quantity in totals.items():
+        order = orders[key]
+        if quantity == Fraction(order.filled_quantity):
+            expected = quantity * Fraction(order.filled_average_price)
+            if gross[key] != expected:
+                raise ValueError('native fill gross notional contradicts cumulative order')
+    if observation.fill_history_complete:
+        for key, order in orders.items():
+            if is_sentinel_key(order.client_key) and totals.get(key, 0) != Fraction(order.filled_quantity):
+                raise FillHistoryIncomplete('native fill history does not cover cumulative order fills')
+
+
+def retain_refusal(conn, observation, reason):
+    payload = {'schema': 'sentinel.native-fill-refusal/1', 'reason': str(reason),
+               'observation': asdict(observation)}
+    _retain(conn, payload, observation.observed_at.date())
+
+
+def retain_native_refusal(conn, identity, reason):
+    from datetime import datetime, timezone
+    payload = {'schema': 'sentinel.native-fill-refusal/1', 'reason': str(reason),
+               'account_identity': asdict(identity), 'raw_event': reason.raw_event}
+    _retain(conn, payload, datetime.now(timezone.utc).date())
+
+
+def _retain(conn, payload, session):
+    from sentinel.execution.journal import JournalUnitOfWork
+    encoded = json.dumps(payload, sort_keys=True, separators=(',', ':'), default=str)
+    key = 'native-fill-refusal:' + hashlib.sha256(encoded.encode()).hexdigest()
+    with JournalUnitOfWork(conn):
+        conn.execute('INSERT INTO sentinel_processed_sessions (cursor_name,session,state) '
+                     'VALUES (%s,%s,%s::jsonb) ON CONFLICT (cursor_name) DO NOTHING',
+                     (key, session, encoded))
+
+
+def require_durable_coverage(conn, binding):
+    """A partial/absent cached history cannot freeze a dividend entitlement."""
+    from sentinel.trial import TrialEvidenceRefused
+    with conn.cursor() as cur:
+        cur.execute(
+            'SELECT c.client_key,c.state,c.filled_quantity,c.filled_average_price,'
+            'COALESCE(SUM(f.quantity),0),COALESCE(SUM(f.quantity*f.price),0) '
+            'FROM sentinel_commands c LEFT JOIN sentinel_fills f '
+            'ON f.client_key=c.client_key AND f.broker_order_id=c.broker_order_id '
+            'WHERE c.broker=%s AND c.broker_account_id=%s '
+            'GROUP BY c.client_key,c.state,c.filled_quantity,c.filled_average_price',
+            (binding['broker'], binding['broker_account_id']))
+        for key, state, quantity, average, filled, gross in cur.fetchall():
+            from sentinel.execution.states import IN_FLIGHT, CommandState
+            if CommandState(state) in IN_FLIGHT:
+                raise TrialEvidenceRefused('paper dividend ownership has unresolved commands: ' + key)
+            quantity, filled, gross = map(Decimal, (quantity, filled, gross))
+            if (quantity != filled or (quantity and
+                    (average is None or Fraction(gross) != Fraction(quantity) * Fraction(average)))):
+                raise TrialEvidenceRefused('paper dividend ownership lacks complete native fills: ' + key)

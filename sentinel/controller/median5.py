@@ -170,15 +170,17 @@ def recover(*, state, native, wc_drawdown, recent_r20, recent_r40,
                               "reason": "|".join(reasons) or "NORMAL"}
 
 
-def witness(state, *, session, candidates, closes, terminals=()):
+def witness(state, *, session, candidates, closes, terminals=(), terminal_values=None):
     """Prior membership earns today's return; terminated names leave at close."""
     result = deepcopy(state)
     if state["last_session"] is not None and session <= state["last_session"]:
         raise ValueError("Median-5 witness sessions must advance strictly once")
     returns = []
     for sid in state["selected"]:
-        now, before = closes.get(sid), state["selected_closes"].get(sid)
-        if not (finite(now) and now > 0 and finite(before) and before > 0):
+        terminal = sid in (terminal_values or {})
+        now = terminal_values[sid] if terminal else closes.get(sid)
+        before = state["selected_closes"].get(sid)
+        if not (finite(now) and (now >= 0 if terminal else now > 0) and finite(before) and before > 0):
             raise ValueError(f"unresolved recent-leadership return: {session} {sid}")
         returns.append(now/before-1)
     change = sum(returns)/len(returns) if returns else 0.

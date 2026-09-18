@@ -6,6 +6,8 @@ from dataclasses import asdict, dataclass
 from fractions import Fraction
 import hashlib
 from itertools import zip_longest
+from datetime import date, timedelta
+from stock_strategy_shared.split_reconciliation import SPLIT_PRICE_QUANTUM
 
 from sentinel.core.history import RollingContinuityProof
 from sentinel.core.rolling_inputs import SnapshotReferences
@@ -18,25 +20,49 @@ class RollingContinuityRefused(RuntimeError):
     pass
 
 
-def _ratio(value, prior):
+def _scale_interval(value, prior):
     if value is None or prior is None:
         if value is prior:
             return None
         raise RollingContinuityRefused("OVERLAP_PRICE_AVAILABILITY_CHANGED")
-    return Fraction(str(value)) / Fraction(str(prior))
+    new, old = Fraction(str(value)), Fraction(str(prior))
+    half_quantum = Fraction(str(SPLIT_PRICE_QUANTUM)) / 2
+    if min(new, old) <= half_quantum:
+        raise RollingContinuityRefused("OVERLAP_PRICE_PRECISION_UNAVAILABLE")
+    return ((new - half_quantum) / (old + half_quantum),
+            (new + half_quantum) / (old - half_quantum))
+
+
+def _intersect_scale(scales, key, value, prior, refusal):
+    interval = _scale_interval(value, prior)
+    if interval is None:
+        return
+    lower, upper = scales.get(key, interval)
+    lower, upper = max(lower, interval[0]), min(upper, interval[1])
+    if lower > upper:
+        raise RollingContinuityRefused(refusal + key)
+    scales[key] = (lower, upper)
 
 
 def _same_reference(previous, current, cursor):
-    old_meta, old_sectors = previous.current_metadata()
-    meta, sectors = current.current_metadata()
+    old_meta, old_sectors = previous.current_metadata(session=cursor)
+    historical_meta, historical_sectors = current.current_metadata(session=cursor)
     for sid, value in old_meta.items():
-        if meta.get(sid) != value or sectors.get(sid) != old_sectors[sid]:
+        if historical_meta.get(sid) != value or historical_sectors.get(sid) != old_sectors[sid]:
             raise RollingContinuityRefused("HISTORICAL_REFERENCE_CHANGED: " + sid)
+    boundaries = {cursor}
+    for refs in (previous, current):
+        for sid in old_meta:
+            for item in refs.listings.get(sid, ()):
+                for value in (item.first_session, item.last_session):
+                    if value and value <= cursor:
+                        boundaries.add(value)
+                        boundaries.add((date.fromisoformat(value) - timedelta(days=1)).isoformat())
+                        if value < cursor:
+                            boundaries.add((date.fromisoformat(value) + timedelta(days=1)).isoformat())
     def listing_prefix(refs):
-        return sorted((item.permaticker, item.ticker, item.first_session or "",
-                       min(item.last_session or cursor, cursor))
-                      for sid in old_meta for item in refs.listings.get(sid, ())
-                      if not item.first_session or item.first_session <= cursor)
+        return [(sid, day, refs.resolver.ticker_for_security(sid, day))
+                for sid in sorted(old_meta) for day in sorted(boundaries)]
     listings = listing_prefix(previous)
     if listing_prefix(current) != listings:
         raise RollingContinuityRefused("HISTORICAL_LISTING_IDENTITY_CHANGED")
@@ -44,6 +70,7 @@ def _same_reference(previous, current, cursor):
     actions = sorted(canonical_json(p) for _, p, _ in current.actions if p["date"] <= cursor)
     if actions != old_actions:
         raise RollingContinuityRefused("HISTORICAL_ACTIONS_CHANGED")
+    meta, sectors = current.current_metadata()
     return meta, sectors, digest({"metadata": {k: asdict(v) for k, v in old_meta.items()},
                                  "sectors": old_sectors, "listings": listings, "actions": actions})
 
@@ -61,12 +88,11 @@ def _overlap(conn, previous, current, refs, cursor):
                     or (left.session, left.security_id) != (right.session, right.security_id)):
                 raise RollingContinuityRefused("OVERLAP_IDENTITY_KEYS_CHANGED")
             a, b = asdict(left), asdict(right)
-            ratio = _ratio(b.pop("signal_close"), a.pop("signal_close"))
+            new_signal, old_signal = b.pop("signal_close"), a.pop("signal_close")
             if a != b:
                 raise RollingContinuityRefused("OVERLAP_RAW_ECONOMICS_CHANGED: " + left.security_id)
-            if ratio is not None:
-                if ratio <= 0 or factors.setdefault(left.security_id, ratio) != ratio:
-                    raise RollingContinuityRefused("NONUNIFORM_SIGNAL_REBASE: " + left.security_id)
+            _intersect_scale(factors, left.security_id, new_signal, old_signal,
+                             "NONUNIFORM_SIGNAL_REBASE: ")
             if refs.resolver.resolve(right.ticker, right.session) != right.security_id:
                 raise RollingContinuityRefused("OVERLAP_REFERENCE_IDENTITY_CHANGED")
             evidence.update(canonical_json([asdict(left), asdict(right)]).encode())
@@ -82,9 +108,11 @@ def _overlap(conn, previous, current, refs, cursor):
                 raise RollingContinuityRefused("OVERLAP_BENCHMARK_KEYS_CHANGED")
             a, b = left.model_dump(mode="json"), right.model_dump(mode="json")
             for field in ("spy_total_return", "bil_close_adjusted"):
-                ratio = _ratio(b.pop(field), a.pop(field))
-                if ratio is None or ratio <= 0 or scales.setdefault(field, ratio) != ratio:
-                    raise RollingContinuityRefused("NONUNIFORM_BENCHMARK_REBASE: " + field)
+                new_value, old_value = b.pop(field), a.pop(field)
+                if new_value is None or old_value is None:
+                    raise RollingContinuityRefused("OVERLAP_BENCHMARK_PRICE_UNAVAILABLE")
+                _intersect_scale(scales, field, new_value, old_value,
+                                 "NONUNIFORM_BENCHMARK_REBASE: ")
             if a != b:
                 raise RollingContinuityRefused("OVERLAP_BIL_RAW_ECONOMICS_CHANGED")
             evidence.update(canonical_json([left.model_dump(mode="json"), right.model_dump(mode="json")]).encode())

@@ -112,6 +112,7 @@ def test_retry_backoff_dead_letter_and_ack_are_durable(conn) -> None:
 
     retry = outbox.mark_failed(
         conn, alert_id=alert.alert_id, holder_id="alerter",
+        attempt=first.attempt_count,
         error="temporary adapter outage", retry_base_seconds=10,
         retry_max_seconds=60)
     assert retry.state is AlertState.PENDING
@@ -130,6 +131,7 @@ def test_retry_backoff_dead_letter_and_ack_are_durable(conn) -> None:
     assert second is not None and second.attempt_count == 2
     dead = outbox.mark_failed(
         conn, alert_id=alert.alert_id, holder_id="alerter",
+        attempt=second.attempt_count,
         error="still unavailable", retry_base_seconds=10,
         retry_max_seconds=60)
     assert dead.state is AlertState.DEAD_LETTER
@@ -355,6 +357,7 @@ def test_dispatcher_health_fails_on_stale_heartbeat_and_dead_letter(conn) -> Non
     assert claimed is not None
     outbox.mark_failed(
         conn, alert_id=claimed.alert_id, holder_id="alert-worker",
+        attempt=claimed.attempt_count,
         error="terminal", retryable=False)
     with pytest.raises(alert_health.AlertDispatcherUnhealthy,
                        match="dead-letter"):

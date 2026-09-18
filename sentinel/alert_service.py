@@ -12,6 +12,7 @@ import os
 import signal
 import sys
 import time
+from uuid import uuid4
 from urllib.parse import urlparse
 
 import httpx
@@ -164,7 +165,6 @@ def _enqueue_health_incident(conn, *, health, max_attempts: int):
         payload={
             "reason": health.policy_state,
             "control_generation": health.control_generation,
-            "leader_holder": health.leader_holder,
             "latest_cycle_id": health.latest_cycle_id,
             "latest_cycle_state": health.latest_cycle_state,
             "broker_outcome_unresolved": health.broker_outcome_unresolved,
@@ -242,7 +242,7 @@ async def run() -> int:
             except (NotImplementedError, RuntimeError):
                 pass
 
-    holder = f"alert-dispatcher-{os.getpid()}"
+    holder = f"alert-dispatcher-{os.getpid()}-{uuid4().hex}"
     database_incident_bucket: int | None = None
     database_incident_detail: str | None = None
     database_incident_reported = False
@@ -312,9 +312,13 @@ async def run() -> int:
                     health.latest_cycle_id, health.latest_cycle_state,
                     health.broker_outcome_unresolved)
                 if health_key != last_health_key:
-                    _enqueue_health_incident(
-                        conn, health=health,
-                        max_attempts=automation.alert_max_attempts)
+                    try:
+                        _enqueue_health_incident(
+                            conn, health=health,
+                            max_attempts=automation.alert_max_attempts)
+                    except AutomationRefused as exc:
+                        conn.rollback()
+                        _report_transport_failure(exc)
                     last_health_key = health_key
             result = await outbox.dispatch_once(
                 conn, adapter=adapter, holder_id=holder,
@@ -361,6 +365,11 @@ async def run() -> int:
                         maximum_failures=maximum_failures)
                 except Exception as health_exc:              # noqa: BLE001
                     _report_transport_failure(health_exc)
+            _report_transport_failure(exc)
+            await _sleep_or_stop(stopped, poll)
+            continue
+        except AutomationRefused as exc:
+            conn.rollback()
             _report_transport_failure(exc)
             await _sleep_or_stop(stopped, poll)
             continue

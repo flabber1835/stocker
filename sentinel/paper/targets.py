@@ -58,7 +58,7 @@ from sentinel.execution.guarded import (
 
 from sentinel.execution.plan import ExecutionPlan
 
-from sentinel.execution.states import blocks_overlapping
+from sentinel.execution.states import blocks_overlapping, TERMINAL
 
 from sentinel.execution import target_reprojection
 
@@ -72,7 +72,7 @@ from .model import (
 
 from .inspection import DEFENSIVE_SYMBOL
 
-def _action_lookup(conn, state: SessionState, through: date):
+def _action_lookup(conn, state: SessionState | None, through: date):
     """Corporate-action quantity changes since the last durable decision.
 
     The plan/current state session is the earliest trustworthy boundary this
@@ -83,7 +83,7 @@ def _action_lookup(conn, state: SessionState, through: date):
     from sentinel.execution.feed_actions import action_lookup as corpus_action_lookup
 
     start = date.fromisoformat(
-        state.last_processed_session or through.isoformat())
+        (state.last_processed_session if state is not None else None) or through.isoformat())
     with conn.cursor() as cur:
         cur.execute("SELECT MIN(created_at)::date FROM sentinel_commands")
         row = cur.fetchone()
@@ -192,11 +192,15 @@ def _informational_active_symbols(
     for security_id, symbol in canonical.items():
         add(security_id, symbol)
     for command in commands:
-        add(command.security_id, command.instrument.symbol)
+        # A settled command's immutable historical label is not today's
+        # transport symbol. Current canonical/observed identity owns that label.
+        if command.state not in TERMINAL:
+            add(command.security_id, command.instrument.symbol)
     for position in observation.positions:
         add(position.instrument.security_id, position.instrument.symbol)
     for order in observation.orders:
-        add(order.instrument.security_id, order.instrument.symbol)
+        if order.is_working:
+            add(order.instrument.security_id, order.instrument.symbol)
     missing = sorted(set(active_security_ids) - set(symbols))
     if missing:
         raise PaperActivationRefused(

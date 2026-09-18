@@ -133,6 +133,8 @@ def scan_entitlements(conn, *, binding: Mapping, through: date, account) -> dict
     marker = load(conn, binding)
     if marker is not None:
         return marker
+    from sentinel.execution.fill_integrity import require_durable_coverage
+    require_durable_coverage(conn, binding)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT c.security_id,c.side,f.quantity,f.filled_at"

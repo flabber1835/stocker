@@ -243,10 +243,12 @@ def advance_session(
     ldrc_state = env.ldrc
     concordance_evidence = {}
     if median5:
+        from sentinel.controller import terminal_returns
         median5_state, witness_decision = median5_controller.witness(
             median5_state, session=published.session,
             candidates=plan.leadership_candidates, closes=plan.signal_closes,
-            terminals={t.security_id for t in published.terminal_events})
+            terminals={t.security_id for t in published.terminal_events},
+            terminal_values=terminal_returns.values(prior=env, published=published))
         from sentinel.controller import ex3_v6
         recover = ex3_v6.recover if ex3_v6.enabled(running_identity) else median5_controller.recover
         from sentinel.controller import champion_config

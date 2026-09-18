@@ -76,10 +76,11 @@ def compare_opening(*, equity, price, cash=None, entries=1, sale=False,
 
 
 @pytest.mark.parametrize('equity,price,expected', [
-    (103283.18, 51.59, 99), (2682.68, 1.34, 99),
-    (2702.7, 1.35, 99), (4824.82, 2.41, 100), (4944.94, 2.47, 100),
+    (103283.18, 51.59, 100), (2682.68, 1.34, 100),
+    (2702.7, 1.35, 100), (4824.82, 2.41, 100), (4944.94, 2.47, 100),
 ])
 def test_admitted_dollars_match_canonical_whole_share_boundaries(equity, price, expected):
+    assert int((D(str(equity)) / 20) // (D(str(price)) * D('1.001'))) == expected
     buys, _ = compare_opening(equity=equity, price=price)
     assert buys == {'SEC-AAA': expected}
 

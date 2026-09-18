@@ -31,6 +31,7 @@ import hashlib
 import json
 import math
 from dataclasses import asdict, dataclass, field
+from fractions import Fraction
 from typing import TYPE_CHECKING, AbstractSet, Any, Mapping
 
 from stock_strategy_shared.wealth_core.state_restore_validation import (
@@ -141,7 +142,7 @@ class HoldingEpisode:
         peak = self.episode_peak_split_adjusted_close
         if split_adjusted_close is None or peak is None or peak <= 0:
             return False
-        return float(split_adjusted_close) <= peak * STOP_RETENTION
+        return Fraction(str(split_adjusted_close)) <= Fraction(str(peak)) * Fraction("0.70")
 
     def is_underwater(self, split_adjusted_close: float | None) -> bool:
         """Spec §8, first limb: current split-adjusted close < split-adjusted

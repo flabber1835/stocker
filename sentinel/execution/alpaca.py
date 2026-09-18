@@ -12,7 +12,7 @@ from __future__ import annotations
 import hashlib
 import json
 import logging
-from dataclasses import dataclass, replace
+from dataclasses import dataclass, field, replace
 from datetime import date, datetime, time, timezone
 from decimal import Decimal, InvalidOperation
 from typing import Mapping, Optional, Sequence
@@ -28,6 +28,7 @@ from sentinel.execution.contract import (
 from sentinel.execution.guarded import BrokerAuthorityRefused
 from sentinel.execution import broker_cash, contract, journal
 from sentinel.execution.identity import is_sentinel_key
+from sentinel.execution.numeric import decimal_text
 from sentinel.execution.states import CommandState, CommandState as S, TERMINAL
 from sentinel.feed import calendar
 
@@ -80,6 +81,10 @@ class UnmappedBrokerStatus(RuntimeError):
 
 class MalformedBrokerPayload(MalformedBrokerEvidence):
     """Broker evidence is contradictory or unreadable and cannot be trusted."""
+
+    def __init__(self, message, *, raw_event=None):
+        super().__init__(message)
+        self.raw_event = dict(raw_event) if raw_event is not None else None
 
 
 class IncompleteBrokerPayload(MalformedBrokerPayload):
@@ -1326,6 +1331,10 @@ _DB_CURSOR = _DB_INCARCERATION_CURSOR
 class ActivityCorrectionRequiresRecovery(RuntimeError):
     """A correction/bust needs reversal semantics before trading may continue."""
 
+    def __init__(self, message, *, raw_event=None):
+        super().__init__(message)
+        self.raw_event = dict(raw_event) if raw_event is not None else None
+
 class RestoreGradeIncreaseDeferred(RuntimeError):
     """A database takeover has not yet made predecessor DAY orders harmless."""
 
@@ -1412,6 +1421,9 @@ class NativeBrokerFill(contract.BrokerFill):
     """Fill whose broker-native activity id is the idempotency authority."""
 
     activity_id: Optional[str] = None
+    asset_id: Optional[str] = None
+    side: Optional[Side] = None
+    raw: dict = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         super().__post_init__()
@@ -1641,6 +1653,10 @@ class HardenedAlpacaExecutionBroker(OriginalAlpaca):
             terminal_floor=terminal_floor,
             recovery_through=recovery_through)
 
+        if not self.capabilities.recent_fill_history:
+            return replace(observed, completeness=contract.Completeness.PARTIAL,
+                           terminal_recovery_through=None)
+
         # A fill activity is keyed to when the economic event occurred, not
         # to the order's ancient submitted_at.  Join a newly reported fill
         # back to its exact order so a CANCELLED/FILLED command cannot age
@@ -1681,6 +1697,7 @@ class HardenedAlpacaExecutionBroker(OriginalAlpaca):
             terminal_recovery_through=observed.terminal_recovery_through,
             account_identity=account_before,
             fills=tuple(fills),
+            fill_history_complete=True,
         )
 
 CurrentAlpaca = HardenedAlpacaExecutionBroker
@@ -2217,18 +2234,25 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             if str(event.get("activity_type") or "").upper() != "TRD":
                 continue
             details = event["details"]
-            execution_type = str(details.get("execution_type") or "fill").lower()
+            execution_type = str(details.get("execution_type") or "").lower()
             if (event.get("previous_id")
                     or execution_type in {"trade_correct", "trade_bust"}):
                 raise ActivityCorrectionRequiresRecovery(
                     "trade correction/bust cannot be flattened into an "
-                    "append-only fill history")
+                    "append-only fill history", raw_event=event)
             order_id = str(details.get("order_id") or "").strip()
             if not order_id:
                 raise MalformedBrokerPayload(
-                    "TRD Activity SSE event omitted details.order_id")
+                    "TRD Activity SSE event omitted details.order_id", raw_event=event)
+            asset_id = str(details.get('asset_id') or '').strip()
+            side = str(details.get('side') or '').lower()
+            if execution_type != 'fill' or not asset_id or side not in {'buy', 'sell'}:
+                raise MalformedBrokerPayload(
+                    'TRD native asset/side/execution type missing or unsupported', raw_event=event)
             fills.append(NativeBrokerFill(
                 activity_id=str(event["ref_id"]),
+                asset_id=asset_id, side=Side.BUY if side == 'buy' else Side.SELL,
+                raw=dict(event),
                 client_key=(str(details.get("client_order_id"))
                             if details.get("client_order_id") else None),
                 broker_order_id=order_id,
@@ -2508,7 +2532,7 @@ def completion_proof(conn, through: datetime):
                 "symbol": str(command[1]),
                 "broker_id": None if command[2] is None else str(command[2]),
                 "side": str(command[3]),
-                "quantity": str(command[4]),
+                "quantity": decimal_text(command[4]),
                 "broker_order_id": (
                     None if command[6] is None else str(command[6])),
             }
@@ -2518,7 +2542,7 @@ def completion_proof(conn, through: datetime):
                 "symbol": str(order.get("symbol")),
                 "broker_id": order.get("broker_id"),
                 "side": str(order.get("side")),
-                "quantity": str(order.get("quantity")),
+                "quantity": decimal_text(order.get("quantity")),
                 "broker_order_id": str(order.get("broker_order_id")),
             }
             if immutable != observed_immutable:

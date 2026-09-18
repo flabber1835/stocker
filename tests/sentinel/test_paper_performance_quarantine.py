@@ -86,7 +86,10 @@ class OwnershipConnection(JsonStateConnection):
         self.fills = fills
 
     def execute(self, statement, params=()):
-        if "FROM sentinel_fills f JOIN sentinel_commands c" in statement:
+        if "FROM sentinel_commands c LEFT JOIN sentinel_fills f" in statement:
+            self.result = [(str(index), 'FILLED', quantity, Decimal(100), quantity, quantity * Decimal(100))
+                           for index, (_sid, _side, quantity, _stamp) in enumerate(self.fills)]
+        elif "FROM sentinel_fills f JOIN sentinel_commands c" in statement:
             assert params == ("alpaca", "PA-1")
             self.result = self.fills
         elif statement.startswith("SELECT DISTINCT session FROM sentinel_active_actions"):

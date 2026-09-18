@@ -91,6 +91,7 @@ def trade_event():
             "execution_type": "fill",
             "order_id": "order-1",
             "client_order_id": "sntl-0123456789abcdef0123",
+            "asset_id": "asset-aapl", "side": "buy",
         },
     }
 

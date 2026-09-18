@@ -1442,7 +1442,7 @@ async def test_after_close_clean_delta_is_superseded_not_late_submitted(
 
 
 @async_test
-async def test_terminal_rejection_blocks_revision_loop(monkeypatch) -> None:
+async def test_terminal_rejection_supersedes_old_intent_without_revision_loop(monkeypatch) -> None:
     cfg = config()
     current_plan = plan(target="2")
     ctx = context(cfg, state=CycleState.RECONCILING, plan=current_plan)
@@ -1466,14 +1466,14 @@ async def test_terminal_rejection_blocks_revision_loop(monkeypatch) -> None:
 
     result = await runtime.recover(ctx)
 
-    assert result.disposition is ExecuteDisposition.BLOCKED
+    assert result.disposition is ExecuteDisposition.SUPERSEDED
     assert result.failure_code == "TERMINAL_COMMAND_REFUSAL"
     assert not any(call.startswith(("submit:", "cancel:"))
                    for call in broker.calls)
 
 
 @async_test
-async def test_newly_rejected_submit_is_immediately_blocked(monkeypatch) -> None:
+async def test_newly_rejected_submit_requires_read_only_recovery(monkeypatch) -> None:
     cfg = config()
     current_plan = plan(target="0")
     ctx = context(cfg, plan=current_plan)
@@ -1498,7 +1498,7 @@ async def test_newly_rejected_submit_is_immediately_blocked(monkeypatch) -> None
 
     result = await runtime.execute(ctx)
 
-    assert result.disposition is ExecuteDisposition.BLOCKED
+    assert result.disposition is ExecuteDisposition.RECONCILE
     assert result.failure_code == "TERMINAL_COMMAND_REFUSAL"
 
 

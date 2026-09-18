@@ -498,6 +498,14 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     except BrokerAuthorityRefused:
         raise
     except Exception as exc:                                  # noqa: BLE001
+        if (isinstance(exc, (alpaca_adapter.MalformedBrokerPayload,
+                             alpaca_adapter.ActivityCorrectionRequiresRecovery))
+                and exc.raw_event is not None):
+            from sentinel.execution import fill_integrity
+            fill_integrity.retain_native_refusal(conn, identity, exc)
+            return ReconciliationResult(
+                runtime_state=RuntimeState.RECONCILING,
+                detail=f"native fill evidence refused: {exc}")
         return ReconciliationResult(
             runtime_state=RuntimeState.BROKER_DEGRADED,
             detail=f"broker unreachable: {exc}")
@@ -582,6 +590,16 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                 detail="fill recovery order identity is contradictory")
         orders_by_broker_id[order.broker_order_id] = order
     sentinel_fills = []
+    from sentinel.execution import fill_integrity
+    try:
+        fill_integrity.validate(observation, orders_by_broker_id)
+    except ValueError as exc:
+        fill_integrity.retain_refusal(conn, observation, exc)
+        return ReconciliationResult(
+            runtime_state=RuntimeState.RECONCILING,
+            observation=replace(observation, completeness=Completeness.INCONSISTENT,
+                                terminal_recovery_through=None, fills=()),
+            detail=str(exc))
     for fill in observation.fills:
         order = orders_by_broker_id.get(fill.broker_order_id)
         if order is None:
@@ -849,11 +867,8 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
                     filled_quantity=positive.filled_quantity,
                     filled_average_price=positive.filled_average_price,
                     detail="resolved by positive broker evidence")
-            elif not command.broker_order_id:
-                command = command.transition(
-                    CommandState.CANCELLED,
-                    detail="no order under this key in a COMPLETE observation "
-                           "- never landed")
+            # Absent current reads do not settle an indeterminate request.
+            # Retain UNKNOWN and its original key until positive evidence arrives.
             if (command.state in (
                     CommandState.ACKNOWLEDGED,
                     CommandState.PARTIALLY_FILLED,

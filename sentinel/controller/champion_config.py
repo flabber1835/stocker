@@ -20,6 +20,7 @@ def load():
     base = median5.load()
     config = replace(base, strategy_id=STRATEGY_ID)
     payload = {"native": asdict(config), "wealth_core": asdict(v5.config()),
+               "economic_schema": "audit399-decimal-terminal/1",
                "reference_source_sha256": REFERENCE_SOURCE_SHA256,
                "native_schema": "ramp-free-native/1",
                "recovery_schema": "ramp-free-ex3-rebound-false/1",

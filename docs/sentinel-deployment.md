@@ -1,5 +1,10 @@
 # Sentinel — operational deployment ground truth
 
+[Economic audit 399](economic-audit-399-remediation.md) records the corrected
+economic profile and outstanding certification gates. Local acceptance tests
+do not qualify the NAS or grant paper transport authority. Certification and
+first GO remain blocked pending the evidence recorded there.
+
 [Automatic share-unit reconciliation](automatic-share-unit-reconciliation.md)
 supersedes the universal pre-open certificate requirement below. Ordinary paper
 execution uses current reconciliation and optional event evidence; known action

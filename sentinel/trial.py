@@ -384,6 +384,9 @@ def _expected_effective_equity_dividends(
         return []
 
     if source is not None:
+        held = source.affected_equities(wanted, held)
+        if not held:
+            return []
         bar_rows = source.bars(wanted, held)
     else:
         visible = publication.visible_predicate("b")
