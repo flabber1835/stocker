@@ -1,0 +1,110 @@
+name: Generic audit 401 evidence
+on:
+  push:
+    branches: [audit/generic-401-evidence-20260918]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+jobs:
+  archival-source:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          fetch-depth: 1
+      - name: Export pinned archival review surface and current audit ledgers
+        env:
+          GH_TOKEN: ${{ github.token }}
+          OUT: ${{ runner.temp }}/audit401-archival
+        run: |
+          set -euo pipefail
+          mkdir -p "$OUT"
+          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
+          git rev-parse HEAD > "$OUT/commit.txt"
+          git rev-parse HEAD^{tree} > "$OUT/tree.txt"
+          git ls-tree -r -l HEAD > "$OUT/git-tree.txt"
+          python - <<'PY'
+          import hashlib,json,os,pathlib,subprocess,tarfile,zipfile
+          out=pathlib.Path(os.environ['OUT'])
+          tracked=[pathlib.Path(p) for p in subprocess.check_output(['git','ls-files','-z']).decode().split('\0') if p]
+          selected=[p for p in tracked if (str(p).startswith('docs/') and p.suffix.lower() in {'.zip','.pdf','.diff','.webp'}) or (str(p).startswith('sentinel/panel/static/') and p.suffix=='.png')]
+          manifest=[]
+          with tarfile.open(out/'archival-source.tar.gz','w:gz') as tar:
+              for p in selected:
+                  b=p.read_bytes(); digest=hashlib.sha1(b'blob '+str(len(b)).encode()+b'\0'+b).hexdigest()
+                  expected=subprocess.check_output(['git','rev-parse','HEAD:'+p.as_posix()],text=True).strip()
+                  assert digest==expected,p
+                  manifest.append({'path':p.as_posix(),'bytes':len(b),'git_blob':digest,'sha256':hashlib.sha256(b).hexdigest()})
+                  tar.add(p,arcname=p.as_posix(),recursive=False)
+          (out/'archival-manifest.json').write_text(json.dumps(manifest,indent=2))
+          zips=[]
+          for p in tracked:
+              if p.suffix.lower()!='.zip': continue
+              item={'path':p.as_posix(),'members':[]}
+              with zipfile.ZipFile(p) as z:
+                  for info in z.infolist():
+                      member={'name':info.filename,'bytes':info.file_size,'compressed_bytes':info.compress_size,'crc32':info.CRC}
+                      if info.filename.upper().endswith('SUBMISSION.TSV'):
+                          with z.open(info) as f: member['header']=f.readline(65536).decode('utf-8-sig',errors='replace').rstrip('\r\n')
+                      item['members'].append(member)
+              zips.append(item)
+          (out/'zip-member-inventory.json').write_text(json.dumps(zips,indent=2))
+          PY
+          for number in 364 373 374 399 400 401; do
+            gh api "repos/flabber1835/stocker/issues/$number" > "$OUT/issue-$number.json"
+            gh api --paginate --slurp "repos/flabber1835/stocker/issues/$number/comments?per_page=100" > "$OUT/issue-$number-comments-pages.json"
+          done
+          git diff --exit-code
+          date -u +%FT%TZ > "$OUT/captured-at.txt"
+          (cd "$OUT" && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: generic-audit-401-archival-source
+          path: ${{ runner.temp }}/audit401-archival/
+          if-no-files-found: error
+          retention-days: 14
+  operator-browser:
+    runs-on: ubuntu-latest
+    timeout-minutes: 25
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          fetch-depth: 1
+      - name: Run the existing locked browser suite against the production image
+        env:
+          PLAYWRIGHT_JUNIT_OUTPUT_FILE: ${{ runner.temp }}/audit401-browser/junit.xml
+        run: |
+          set -euo pipefail
+          mkdir -p "$RUNNER_TEMP/audit401-browser"
+          test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
+          git rev-parse HEAD > "$RUNNER_TEMP/audit401-browser/commit.txt"
+          node --version > "$RUNNER_TEMP/audit401-browser/node.txt"
+          npm ci --prefix tests/browser
+          npm run install-browsers --prefix tests/browser
+          container="audit401-browser-${GITHUB_RUN_ID}"
+          cleanup() { docker logs "$container" > "$RUNNER_TEMP/audit401-browser/panel.log" 2>&1 || true; docker rm -f "$container" >/dev/null 2>&1 || true; }
+          trap cleanup EXIT
+          docker build --build-arg SOURCE_GIT_SHA=aff4461d9af6d4a7367018768fda18d948958b49 -f Dockerfile.sentinel -t sentinel:audit401-browser .
+          docker image inspect sentinel:audit401-browser > "$RUNNER_TEMP/audit401-browser/image-inspect.json"
+          docker run -d --name "$container" -p 127.0.0.1:18004:8004 --entrypoint python sentinel:audit401-browser -m uvicorn sentinel.panel.app:app --host 0.0.0.0 --port 8004 >/dev/null
+          ready=0
+          for attempt in $(seq 1 40); do
+            if curl --fail --silent http://127.0.0.1:18004/ >/dev/null; then ready=1; break; fi
+            sleep 1
+          done
+          test "$ready" = 1
+          SENTINEL_BROWSER_BASE_URL=http://127.0.0.1:18004 npm test --prefix tests/browser -- --reporter=line,junit
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: generic-audit-401-operator-browser
+          path: |
+            ${{ runner.temp }}/audit401-browser/
+            tests/browser/playwright-report/
+            tests/browser/test-results/
+          if-no-files-found: warn
+          retention-days: 14
