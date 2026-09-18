@@ -1,0 +1,149 @@
+name: Autonomy audit 400 pinned closure evidence
+on:
+  push:
+    branches: [audit/economic-399-evidence]
+    paths:
+      - .github/workflows/autonomy-audit-400-closure-20260918.yml
+      - audit/autonomy_400/closure_20260918/test_source_cache_kernel_boundaries.py
+permissions:
+  contents: read
+  issues: read
+  actions: read
+jobs:
+  ledger-export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Preserve complete ledgers and audit-only source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence
+          PIN=aff4461d9af6d4a7367018768fda18d948958b49
+          test "$(git rev-parse "$PIN^{tree}")" = 56790bb69b1c65b981ffee94c2a58542916b3b52
+          git diff --exit-code "$PIN" HEAD -- sentinel shared scripts tools config deploy Dockerfile.sentinel Dockerfile.sentinel-test Dockerfile.sentinel-authorized 'docker-compose*'
+          git rev-parse HEAD > evidence/evidence-head.txt
+          git diff --name-status "$PIN" HEAD > evidence/evidence-branch-diff.txt
+          git ls-tree -r "$PIN" > evidence/pinned-tree.txt
+          git ls-tree -r HEAD audit > evidence/audit-tree.txt
+          git archive HEAD audit | gzip -1 > evidence/audit-source.tar.gz
+          python - <<'PY'
+          import json, os, urllib.request
+          from pathlib import Path
+          base = 'https://api.github.com/repos/flabber1835/stocker'
+          def read(path):
+              req = urllib.request.Request(base + path, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json'})
+              with urllib.request.urlopen(req, timeout=60) as response:
+                  return json.load(response)
+          for number in (399, 400, 401):
+              body = read(f'/issues/{number}')
+              comments, page = [], 1
+              while True:
+                  batch = read(f'/issues/{number}/comments?per_page=100&page={page}')
+                  comments.extend(batch)
+                  if len(batch) < 100:
+                      break
+                  page += 1
+              Path(f'evidence/issue-{number}.json').write_text(json.dumps(body, indent=2))
+              Path(f'evidence/issue-{number}-comments.json').write_text(json.dumps(comments, indent=2))
+              print(number, len(comments))
+          PY
+          (cd evidence && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: autonomy-400-closure-ledgers-${{ github.run_id }}
+          path: evidence/
+          retention-days: 30
+  kernel-boundaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: audit-source
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          path: pinned
+          persist-credentials: false
+      - name: Recover the immutable previously audited test lens
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence image
+          git -C pinned rev-parse HEAD > evidence/production-pin.txt
+          test "$(git -C pinned rev-parse HEAD^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
+          gh api repos/flabber1835/stocker/actions/artifacts/10515536149/zip > image/runtime.zip
+          echo '90f011c310aab5f128a832408ac531f4437e58d8889234b2a724398f635631ea  image/runtime.zip' | sha256sum -c -
+          unzip -q image/runtime.zip -d image
+          gzip -dc image/audit399-image.tar.gz | docker load
+          docker image inspect sentinel-test:ci > evidence/image-inspect.json
+          test "$(docker image inspect sentinel-test:ci --format '{{.Id}}')" = sha256:d60e755ed4caf07e38a202dafdc80416124184c70d62874c08d7d7276cf5eaf0
+          test "$(docker image inspect sentinel-test:ci --format '{{index .Config.Labels "org.opencontainers.image.revision"}}')" = aff4461d9af6d4a7367018768fda18d948958b49
+          docker version > evidence/docker-version.txt
+          docker info > evidence/docker-info.txt
+      - name: Exercise A26 Docker parser boundary and adjacent valid-build control
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p empty-context
+          cp pinned/Dockerfile.sentinel-authorized empty-context/Dockerfile.retired
+          cmp pinned/Dockerfile.sentinel-authorized empty-context/Dockerfile.retired
+          printf 'FROM scratch\nLABEL audit.control="400"\n' > empty-context/Dockerfile.control
+          docker build --network none -f empty-context/Dockerfile.control -t audit400-control:local empty-context > evidence/docker-control.log 2>&1
+          set +e
+          docker build --network none -f empty-context/Dockerfile.retired -t audit400-retired:local empty-context > evidence/docker-retired.log 2>&1
+          result=$?
+          set -e
+          printf '%s\n' "$result" > evidence/docker-retired-exit.txt
+          test "$result" -ne 0
+          grep -Ei 'no build stage|no instructions|empty dockerfile' evidence/docker-retired.log
+      - name: Exercise actual cache disk-pressure and SIGKILL boundaries
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod 0777 evidence
+          docker run --rm --network none --tmpfs /scratch:rw,nosuid,size=16777216 \
+            -e AUDIT400_BOUNDED_TMPFS=/scratch \
+            -v "$PWD/audit-source/audit/autonomy_400/closure_20260918:/audit:ro" \
+            -v "$PWD/evidence:/evidence" --entrypoint python sentinel-test:ci \
+            -m pytest /audit/test_source_cache_kernel_boundaries.py -vv -ra \
+            --junitxml=/evidence/cache-kernel.xml > evidence/cache-kernel.log 2>&1
+      - name: Run exact-image process and physical-recovery regressions
+        if: always()
+        shell: bash
+        run: |
+          set -euo pipefail
+          chmod 0777 evidence
+          docker run --rm --network none \
+            -e SENTINEL_RECOVERED_ORDER_AUTHORITY=STRICT_V1 \
+            -v "$PWD/evidence:/evidence" --entrypoint python sentinel-test:ci \
+            -m pytest tests/sentinel/test_automation_process_contracts.py \
+            tests/sentinel/test_process_death_recovery.py \
+            tests/internal_state/test_physical.py \
+            tests/production_composition/test_lock_process_boundary.py \
+            tests/production_composition/test_phase_boundary_kills.py \
+            tests/production_composition/test_broker_network_faults.py \
+            -vv -ra --junitxml=/evidence/kernel-regression.xml \
+            > evidence/kernel-regression.log 2>&1
+      - name: Seal retained evidence
+        if: always()
+        shell: bash
+        run: |
+          (cd evidence && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: autonomy-400-kernel-boundaries-${{ github.run_id }}
+          path: evidence/
+          retention-days: 30
