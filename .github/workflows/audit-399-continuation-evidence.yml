@@ -1,0 +1,63 @@
+name: Economic 399 continuation evidence
+on:
+  push:
+    branches: [audit/economic-399-continuation-20260918b]
+    paths: [.github/workflows/audit-399-continuation-evidence.yml]
+permissions:
+  contents: read
+  issues: read
+  actions: read
+jobs:
+  ledger:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - name: Export complete ledgers and source identity
+        env:
+          GH_TOKEN: ${{ github.token }}
+          REPO: ${{ github.repository }}
+        run: |
+          mkdir -p evidence
+          python3 - <<'PY'
+          import datetime, hashlib, json, os, pathlib, urllib.request
+          out = pathlib.Path('evidence')
+          root = 'https://api.github.com/repos/' + os.environ['REPO']
+          def read(path):
+              req = urllib.request.Request(root + path, headers={'Authorization': 'Bearer ' + os.environ['GH_TOKEN'], 'Accept': 'application/vnd.github+json', 'X-GitHub-Api-Version': '2022-11-28'})
+              with urllib.request.urlopen(req, timeout=60) as r:
+                  return json.load(r)
+          def save(name, obj):
+              (out / name).write_text(json.dumps(obj, indent=2) + '\n')
+          for issue in (399, 400, 401):
+              initial = read('/issues/' + str(issue))
+              comments = []
+              page = 1
+              while True:
+                  rows = read('/issues/' + str(issue) + '/comments?per_page=100&page=' + str(page))
+                  comments.extend(rows)
+                  if len(rows) < 100:
+                      break
+                  page += 1
+              final = read('/issues/' + str(issue))
+              save('issue-' + str(issue) + '.json', final)
+              save('issue-' + str(issue) + '-comments.json', comments)
+              save('issue-' + str(issue) + '-coverage.json', {'initial_count': initial['comments'], 'final_count': final['comments'], 'fetched_count': len(comments), 'ids': [c['id'] for c in comments], 'time': datetime.datetime.now(datetime.timezone.utc).isoformat()})
+              assert len(comments) == final['comments'], 'Concurrent ledger update; repeat export'
+          sha = 'aff4461d9af6d4a7367018768fda18d948958b49'
+          commit = read('/git/commits/' + sha)
+          assert commit['tree']['sha'] == '56790bb69b1c65b981ffee94c2a58542916b3b52'
+          save('pinned-commit.json', commit)
+          tree = read('/git/trees/' + commit['tree']['sha'] + '?recursive=1')
+          assert not tree.get('truncated')
+          save('pinned-tree.json', tree)
+          save('artifacts-page-1.json', read('/actions/artifacts?per_page=100'))
+          save('branches-page-1.json', read('/branches?per_page=100'))
+          (out / 'SHA256SUMS').write_text(''.join(hashlib.sha256(p.read_bytes()).hexdigest() + '  ' + p.name + '\n' for p in sorted(out.iterdir()) if p.is_file()))
+          print('Complete issue bodies/comments and pinned tree retained.')
+          PY
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: economic-399-continuation-ledgers-aff4461d
+          path: evidence/
+          retention-days: 30
+          if-no-files-found: error
