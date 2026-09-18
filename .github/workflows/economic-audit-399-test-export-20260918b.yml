@@ -1,0 +1,32 @@
+name: Economic audit 399 test-source export
+on:
+  push:
+    branches: [audit/economic-399-evidence]
+    paths: [.github/workflows/economic-audit-399-test-export-20260918b.yml]
+permissions:
+  contents: read
+jobs:
+  export:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          persist-credentials: false
+      - name: Export audit-only source additions
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p export
+          git diff --name-only --diff-filter=A aff4461d9af6d4a7367018768fda18d948958b49 HEAD -- tests audit .github/workflows > export/paths.txt
+          mapfile -t paths < export/paths.txt
+          git archive HEAD "${paths[@]}" | gzip -1 > export/audit-additions.tar.gz
+          git ls-tree -r HEAD "${paths[@]}" > export/tree.txt
+          git rev-parse HEAD > export/head.txt
+          (cd export && sha256sum * > SHA256SUMS)
+      - uses: actions/upload-artifact@v4
+        with:
+          name: economic-audit-399-test-export-20260918b
+          path: export/
+          retention-days: 30
