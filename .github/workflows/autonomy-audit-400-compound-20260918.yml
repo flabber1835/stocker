@@ -1,0 +1,77 @@
+name: Autonomy audit 400 native compound recovery
+on:
+  push:
+    branches: [audit/economic-399-evidence]
+    paths: [.github/workflows/autonomy-audit-400-compound-20260918.yml]
+permissions:
+  contents: read
+  actions: read
+jobs:
+  compound:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          path: audit-source
+          persist-credentials: false
+      - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
+        with:
+          ref: aff4461d9af6d4a7367018768fda18d948958b49
+          path: pinned
+          persist-credentials: false
+      - name: Recover exact runtime and pinned source
+        env:
+          GH_TOKEN: ${{ github.token }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p evidence image
+          test "$(git -C pinned rev-parse HEAD^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
+          git -C pinned rev-parse HEAD > evidence/pin.txt
+          git -C audit-source rev-parse HEAD > evidence/audit-head.txt
+          gh api repos/flabber1835/stocker/actions/artifacts/10515536149/zip > image/runtime.zip
+          echo '90f011c310aab5f128a832408ac531f4437e58d8889234b2a724398f635631ea  image/runtime.zip' | sha256sum -c -
+          unzip -q image/runtime.zip -d image
+          gzip -dc image/audit399-image.tar.gz | docker load
+          test "$(docker image inspect sentinel-test:ci --format '{{.Id}}')" = sha256:d60e755ed4caf07e38a202dafdc80416124184c70d62874c08d7d7276cf5eaf0
+          docker image inspect sentinel-test:ci > evidence/image-inspect.json
+          docker version > evidence/docker-version.txt
+          cp audit-source/audit/autonomy_400/closure_20260918/test_retention_diagnostics.py evidence/
+          cp audit-source/audit/autonomy_400/closure_20260918/test_alert_sql.py evidence/
+          cp audit-source/audit/autonomy_400/closure_20260918/test_physical_rolling.py evidence/
+          chmod 0777 evidence
+      - name: Run actual diagnostic SQL, alert loop and physical rolling recovery compositions
+        shell: bash
+        run: |
+          set -euo pipefail
+          docker run --rm --network none \
+            -e PYTHONPATH=/work:/app:/work/scripts \
+            -e SENTINEL_RECOVERED_ORDER_AUTHORITY=STRICT_V1 \
+            -v "$PWD/pinned/scripts:/work/scripts:ro" \
+            -v "$PWD/audit-source/audit/autonomy_400/closure_20260918:/audit:ro" \
+            -v "$PWD/evidence:/audit400/evidence" --entrypoint /bin/sh sentinel-test:ci -c '
+              cp /audit/test_retention_diagnostics.py /work/tests/sentinel/test_audit400_retention_diagnostics.py &&
+              cp /audit/test_alert_sql.py /work/tests/sentinel/test_audit400_alert_sql.py &&
+              cp /audit/test_physical_rolling.py /work/tests/sentinel/test_audit400_physical_rolling.py &&
+              python -c "import sentinel; assert sentinel.__file__.startswith(\"/app/\"); print(sentinel.__file__)" &&
+              python -m pytest \
+                tests/sentinel/test_audit400_retention_diagnostics.py \
+                tests/sentinel/test_audit400_alert_sql.py \
+                tests/sentinel/test_audit400_physical_rolling.py \
+                tests/sentinel/test_runtime_regressions_137_148_149_150.py::test_149_host_emergency_path_needs_no_backup_or_authorized_environment \
+                -vv -ra --junitxml=/audit400/evidence/native-compound.xml
+            ' > evidence/native-compound.log 2>&1
+      - name: Seal evidence and record cleanup
+        if: always()
+        shell: bash
+        run: |
+          docker ps -a > evidence/containers-after.txt
+          git -C pinned status --porcelain=v1 > evidence/pinned-status.txt
+          (cd evidence && find . -type f ! -name SHA256SUMS -print0 | sort -z | xargs -0 sha256sum > SHA256SUMS)
+      - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        if: always()
+        with:
+          name: autonomy-400-native-compound-${{ github.run_id }}
+          path: evidence/
+          retention-days: 30
