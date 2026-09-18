@@ -1,11 +1,12 @@
-name: Generic audit 401 runtime gates
+name: Generic audit 401 host-container boundaries
 on:
   push:
     branches: [audit/generic-401-runtime-gates-20260918]
+    paths: [.github/workflows/generic-audit-401-runtime-gates.yml]
 permissions:
   contents: read
 jobs:
-  runtime-image:
+  host-container:
     runs-on: ubuntu-latest
     timeout-minutes: 50
     steps:
@@ -13,63 +14,83 @@ jobs:
         with:
           ref: aff4461d9af6d4a7367018768fda18d948958b49
           fetch-depth: 1
-      - name: Build the pinned runtime and its original test lens
+      - name: Build exact pinned runtime and original test lens
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/audit401-runtime"
+          out="$RUNNER_TEMP/audit401-host"
           mkdir -p "$out"
           test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
+          test "$(git rev-parse HEAD^{tree})" = 56790bb69b1c65b981ffee94c2a58542916b3b52
           git rev-parse HEAD > "$out/commit.txt"
           git rev-parse HEAD^{tree} > "$out/tree.txt"
+          id > "$out/host-user.txt"
           uname -a > "$out/kernel.txt"
-          nproc > "$out/cpus.txt"
-          free -b > "$out/memory.txt"
+          python3 --version > "$out/host-python.txt"
           docker version > "$out/docker-version.txt"
-          docker build --build-arg SOURCE_GIT_SHA=aff4461d9af6d4a7367018768fda18d948958b49 -f Dockerfile.sentinel -t sentinel:audit401-runtime . 2>&1 | tee "$out/runtime-build.log"
-          docker build --build-arg SENTINEL_IMAGE=sentinel:audit401-runtime --build-arg SOURCE_GIT_SHA=aff4461d9af6d4a7367018768fda18d948958b49 -f Dockerfile.sentinel-test -t sentinel-test:audit401 . 2>&1 | tee "$out/test-image-build.log"
-          docker image inspect sentinel:audit401-runtime sentinel-test:audit401 > "$out/images.json"
-          docker run --rm --network none --entrypoint python sentinel-test:audit401 -c 'import sys,pytest,psycopg,pandas,numpy; print(sys.version); print("pytest",pytest.__version__,"psycopg",psycopg.__version__,"pandas",pandas.__version__,"numpy",numpy.__version__)' > "$out/runtime-identity.txt"
-      - name: Execute actual image-only import and identity gates
+          docker compose version > "$out/compose-version.txt"
+          docker build --build-arg SOURCE_GIT_SHA=aff4461d9af6d4a7367018768fda18d948958b49 -f Dockerfile.sentinel -t sentinel:latest -t sentinel-authorized:ci . 2>&1 | tee "$out/runtime-build.log"
+          docker build --build-arg SENTINEL_IMAGE=sentinel:latest --build-arg SOURCE_GIT_SHA=aff4461d9af6d4a7367018768fda18d948958b49 -f Dockerfile.sentinel-test -t sentinel-test:ci . 2>&1 | tee "$out/test-image-build.log"
+          docker image inspect sentinel:latest sentinel-test:ci > "$out/images.json"
+          docker run --rm --network none --entrypoint python sentinel-test:ci -c 'import sys,pytest,psycopg,pandas,numpy; print(sys.version); print("pytest",pytest.__version__,"psycopg",psycopg.__version__,"pandas",pandas.__version__,"numpy",numpy.__version__)' > "$out/runtime-identity.txt"
+      - name: Execute original UID, capabilities, cold-start, marker and receipt-lock probes
         run: |
           set -euo pipefail
-          docker run --rm --network none -v "$RUNNER_TEMP/audit401-runtime:/evidence" sentinel-test:audit401 tests/sentinel/test_runtime_is_the_artifact.py -vv -ra --durations=10 --junitxml=/evidence/runtime-artifact.xml 2>&1 | tee "$RUNNER_TEMP/audit401-runtime/runtime-artifact.log"
-      - name: Execute the complete million-row seed and 300-session warmup module
+          bash scripts/test-pr301-runtime-boundaries.sh sentinel:latest 2>&1 | tee "$RUNNER_TEMP/audit401-host/runtime-boundaries.log"
+      - name: Execute original retirement gates against pinned PostgreSQL 16 container
+        if: always()
         run: |
           set -euo pipefail
-          docker run --rm --network none -v "$RUNNER_TEMP/audit401-runtime:/evidence" sentinel-test:audit401 tests/sentinel/test_source_seed_warmup.py -vv -ra --capture=tee-sys --durations=10 --junitxml=/evidence/source-seed-warmup.xml 2>&1 | tee "$RUNNER_TEMP/audit401-runtime/source-seed-warmup.log"
-          git diff --exit-code
+          bash scripts/test-pr330-postgres-retirement.sh sentinel-test:ci 2>&1 | tee "$RUNNER_TEMP/audit401-host/postgres-retirement.log"
+      - name: Record source and resource cleanup state
+        if: always()
+        run: |
+          out="$RUNNER_TEMP/audit401-host"
+          mkdir -p "$out"
+          git diff --exit-code > "$out/source-diff.txt"
+          git status --porcelain --untracked-files=no > "$out/tracked-status.txt"
+          docker ps -a > "$out/containers-after.txt"
+          docker volume ls > "$out/volumes-after.txt"
+          docker image inspect postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b > "$out/postgres-image.json"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: generic-audit-401-runtime-gates
-          path: ${{ runner.temp }}/audit401-runtime/
+          name: generic-audit-401-host-container-boundaries
+          path: ${{ runner.temp }}/audit401-host/
           if-no-files-found: warn
           retention-days: 14
-  live-compose:
+  physical-pitr:
     runs-on: ubuntu-latest
-    timeout-minutes: 20
+    timeout-minutes: 15
     steps:
       - uses: actions/checkout@11bd71901bbe5b1630ceea73d27597364c9af683
         with:
           ref: aff4461d9af6d4a7367018768fda18d948958b49
           fetch-depth: 1
-      - name: Execute the existing live Docker composition harness
+      - name: Execute original physical base-backup and WAL timeline fork regression
         run: |
           set -euo pipefail
-          out="$RUNNER_TEMP/audit401-compose"
+          out="$RUNNER_TEMP/audit401-pitr"
           mkdir -p "$out"
           test "$(git rev-parse HEAD)" = aff4461d9af6d4a7367018768fda18d948958b49
           git rev-parse HEAD > "$out/commit.txt"
-          python --version > "$out/python.txt"
-          docker version > "$out/docker.txt"
-          docker compose version > "$out/compose.txt"
-          python tools/production_composition_harness.py --output "$out/composition.json" 2>&1 | tee "$out/composition.log"
+          git rev-parse HEAD^{tree} > "$out/tree.txt"
+          uname -a > "$out/kernel.txt"
+          docker version > "$out/docker-version.txt"
+          bash scripts/test-pr301-pitr-recovery.sh 2>&1 | tee "$out/pitr.log"
           git diff --exit-code
+      - name: Record physical runtime and resource cleanup state
+        if: always()
+        run: |
+          out="$RUNNER_TEMP/audit401-pitr"
+          mkdir -p "$out"
+          docker image inspect postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b > "$out/postgres-image.json"
+          docker run --rm --network none --entrypoint postgres postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b --version > "$out/postgres-version.txt"
           docker ps -a > "$out/containers-after.txt"
+          git status --porcelain --untracked-files=no > "$out/tracked-status.txt"
       - uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
         if: always()
         with:
-          name: generic-audit-401-live-compose
-          path: ${{ runner.temp }}/audit401-compose/
+          name: generic-audit-401-physical-pitr
+          path: ${{ runner.temp }}/audit401-pitr/
           if-no-files-found: warn
           retention-days: 14
