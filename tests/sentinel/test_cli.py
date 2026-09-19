@@ -14,6 +14,7 @@ it never saw.
 from __future__ import annotations
 
 import asyncio
+from sentinel.feed import readers
 import datetime as dt
 import json
 import sys
@@ -167,6 +168,12 @@ class TestCredentialRefusal:
 
 
 class TestPreviewCloseGate:
+    @pytest.fixture(autouse=True)
+    def reader_pin(self, monkeypatch):
+        from contextlib import nullcontext
+        from sentinel.feed import readers
+        monkeypatch.setattr(readers, "pinned", lambda *a, **k: nullcontext(None))
+
     def test_full_instant_is_used_and_current_unclosed_frontier_refuses(
             self, monkeypatch):
         moment = dt.datetime(
@@ -176,11 +183,11 @@ class TestPreviewCloseGate:
         report.add("base", readiness.PASS, "ready")
         captured = {}
         monkeypatch.setattr(
-            readiness, "check_readiness",
+            readers, "readiness",
             lambda _conn, *, today: (
                 captured.setdefault("today", today), report)[1])
         monkeypatch.setattr(
-            feed_store, "latest_visible_session", lambda _conn: "2026-08-12")
+            readers, "frontier", lambda _conn, _pub: "2026-08-12")
         monkeypatch.setattr(
             calendar, "latest_closed_session",
             lambda actual: "2026-08-11")
@@ -199,9 +206,9 @@ class TestPreviewCloseGate:
         report = readiness.Readiness()
         report.add("base", readiness.PASS, "ready")
         monkeypatch.setattr(
-            readiness, "check_readiness", lambda _conn, **_kwargs: report)
+            readers, "readiness", lambda _conn, **_kwargs: report)
         monkeypatch.setattr(
-            feed_store, "latest_visible_session", lambda _conn: "2026-08-12")
+            readers, "frontier", lambda _conn, _pub: "2026-08-12")
         monkeypatch.setattr(
             calendar, "latest_closed_session",
             lambda actual: "2026-08-12")

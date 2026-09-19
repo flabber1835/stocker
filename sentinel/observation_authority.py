@@ -23,7 +23,8 @@ from sentinel.authority import (
     runtime_artifact_identity,
     validate_observation_certificate_claims,
 )
-from sentinel.feed.publication import require_current, visible_predicate
+from sentinel.feed.publication import visible_predicate
+from sentinel.feed import readers
 
 
 ACCEPTED_BOUNDARY_PATH = (
@@ -83,6 +84,36 @@ def accepted_boundary_sha256(
 
 
 def current_metadata_snapshot_identity(conn) -> Mapping:
+    with readers.pinned(conn, commit=False) as pub:
+        if readers.is_rolling(pub):
+            return _rolling_metadata_snapshot_identity(conn, pub)
+        return _legacy_metadata_snapshot_identity(conn)
+
+
+def _rolling_metadata_snapshot_identity(conn, pub) -> Mapping:
+    from sentinel.core.rolling_inputs import SnapshotReferences
+    from sentinel.feed import operational_snapshot, rolling_store, sharadar
+    from sentinel.feed.rolling_contract import canonical_json, digest
+
+    binding = operational_snapshot._bound(conn, pub)
+    refs = SnapshotReferences(conn, candidate_id=binding["candidate_id"],
+                              snapshot_id=binding["snapshot_id"])
+    source = rolling_store.load_evidence(conn, refs.manifest.source_evidence_sha256)
+    components = [item for item in source.get("components", [])
+                  if item.get("table") == sharadar.TICKERS]
+    if len(components) != 1:
+        raise AuthorityRefused("rolling TICKERS provider refresh evidence is missing")
+    refreshed = datetime.fromisoformat(components[0]["refreshed"])
+    if refreshed.tzinfo is None:
+        raise AuthorityRefused("rolling TICKERS provider refresh must be timezone-aware")
+    # Hash provider data with its retained encoding. Only the resulting digest,
+    # not arbitrary provider display strings, enters signed canonical JSON.
+    content = sorted(refs.tickers, key=canonical_json)
+    return {"snapshot_date": refreshed.astimezone(timezone.utc).date().isoformat(),
+            "row_count": len(content), "sha256": digest(content)}
+
+
+def _legacy_metadata_snapshot_identity(conn) -> Mapping:
     """Hash the newest complete visible TICKERS content deterministically.
 
     The observation date is retained separately. The content digest excludes
@@ -131,9 +162,13 @@ def current_metadata_snapshot_identity(conn) -> Mapping:
 
 def current_corpus_root_identity(conn) -> Mapping:
     """Bind the current publication as the root of the permitted lineage."""
+    with readers.pinned(conn, commit=False) as pub:
+        return _corpus_root_identity(conn, pub)
+
+
+def _corpus_root_identity(conn, current) -> Mapping:
     from sentinel.execution.authority_gate import publication_row_sha256
 
-    current = require_current(conn)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT version,previous_version,run_id,published_at,window_start,"
@@ -149,6 +184,13 @@ def current_corpus_root_identity(conn) -> Mapping:
     }
 
 
+def current_input_bindings(conn) -> Mapping:
+    """Read both certificate identities while holding the same generation."""
+    with readers.pinned(conn, commit=False):
+        return {"current_corpus": current_corpus_root_identity(conn),
+                "current_metadata_snapshot": current_metadata_snapshot_identity(conn)}
+
+
 def metadata_matches_claim(claimed: Mapping, current: Mapping) -> bool:
     """Permit only equal content on the same or a later observation date."""
     return bool(
@@ -159,33 +201,59 @@ def metadata_matches_claim(claimed: Mapping, current: Mapping) -> bool:
 
 def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
     """Run the mandatory current 252+1 cold start without broker access."""
-    from sentinel.core.bootstrap import bootstrap
+    from sentinel import shadow_runtime
+    from sentinel.controller.machine import Controller
+    from sentinel.core.decision import publication_fingerprint
+    from sentinel.core.kernel import advance_session
+    from sentinel.core.production import warm_session_state, load_published_session
+    from sentinel.feed.readiness import REQUIRED_SPY_SESSIONS
+    from sentinel.core.session import SessionState
+    from sentinel.feed import rolling_go_inputs
+    from sentinel.rolling_initialization import _published
+    from sentinel.strategy import production_strategy
 
-    visibility = visible_predicate("b")
-    with conn.cursor() as cur:
-        cur.execute(
-            "SELECT session FROM (SELECT DISTINCT session FROM sentinel_bars b"
-            f" WHERE {visibility} ORDER BY session DESC LIMIT 253) s"
-            " ORDER BY session")
-        sessions = [str(row[0]) for row in cur.fetchall()]
-    if len(sessions) != 253:
-        raise AuthorityRefused(
-            "paper-observation candidate requires exactly 253 current "
-            f"sessions, found {len(sessions)}")
-    book = bootstrap(
-        conn, start=sessions[0], end=sessions[-1],
-        starting_cash=float(starting_cash), coherence_scope="operational")
+    controller, strategy = production_strategy()
+    cash = shadow_runtime._starting_cash(starting_cash)
+    with readers.pinned(conn, commit=False) as pub:
+        frontier = readers.frontier(conn, pub)
+        if readers.is_rolling(pub):
+            _, material, _ = rolling_go_inputs.validate(conn, pub)
+            prior = warm_session_state(
+                SessionState.fresh(starting_cash=float(cash),
+                    controller=Controller(controller), strategy_identity=strategy),
+                material.warmup, publication_version=pub.version,
+                prospective_concordance_witness=True)
+            warmup = shadow_runtime._warmup_input_identity(
+                material.warmup, material.warmup.sessions, prospective_witness=True)
+            published = _published(material, pub)
+        else:
+            prior, warmup = shadow_runtime._fresh_seed(
+                conn, first_session=frontier, starting_cash=cash,
+                controller_config=controller, strategy_identity=strategy,
+                publication_version=pub.version)
+            published = load_published_session(conn, frontier, spy_sessions=REQUIRED_SPY_SESSIONS)
+        result = advance_session(prior, published, controller_config=controller,
+                                 strategy_identity=strategy)
+        fingerprint = publication_fingerprint(pub)
+        corpus = _corpus_root_identity(conn, pub)
     record = {
-        "schema": "sentinel.paper-observation-warmup/1",
+        "schema": "sentinel.paper-observation-warmup/2",
         "historical_causality": HISTORICAL_CAUSALITY_UNVERIFIED,
         "historical_certification": "NOT_GRANTED",
         "measured_sessions": 253,
-        "warmup_sessions": book.warmup_sessions,
-        "first_session": sessions[0],
-        "decision_session": sessions[-1],
-        "target_book": _evidence_value(book.to_dict()),
+        "warmup_sessions": warmup["session_count"],
+        "first_session": warmup["first_warmup_session"],
+        "decision_session": frontier,
+        "publication_fingerprint": fingerprint,
+        "current_corpus": corpus,
+        "starting_cash": format(cash.normalize(), "f"),
+        "strategy_identity_sha256": canonical_sha256(strategy),
+        "warmup_input": warmup,
+        "result_state_sha256": result.state_hash,
+        "decision": _evidence_value(result.last_decision),
+        "decision_sha256": canonical_sha256(_evidence_value(result.last_decision)),
     }
-    if book.warmup_sessions != 252 or book.session != sessions[-1]:
+    if warmup["session_count"] != 252 or result.last_processed_session != frontier:
         raise AuthorityRefused(
             "paper-observation warmup did not produce a 252+1 cold start")
     return record
@@ -266,8 +334,17 @@ def build_candidate(
     sentinel_source = environment.get("sentinel_source") or {}
     wealth_source = environment.get("wealth_core_source") or {}
     image_lock = environment.get("image_lock_sha256")
-    corpus = current_corpus_root_identity(conn)
-    metadata = current_metadata_snapshot_identity(conn)
+    from sentinel.core.decision import publication_fingerprint
+    with readers.pinned(conn, commit=False) as pub:
+        inputs = current_input_bindings(conn)
+        if (warmup.get("schema") != "sentinel.paper-observation-warmup/2"
+                or warmup.get("current_corpus") != inputs["current_corpus"]
+                or warmup.get("publication_fingerprint") != publication_fingerprint(pub)
+                or warmup.get("strategy_identity_sha256") != canonical_sha256(strategy_identity)
+                or warmup.get("decision_session") != readers.frontier(conn, pub)):
+            raise AuthorityRefused("observation warmup publication or strategy differs")
+    corpus = inputs["current_corpus"]
+    metadata = inputs["current_metadata_snapshot"]
     controller = controller_for_identity(strategy_identity)
     policy_implementation = publication_policy_implementation_sha256()
     bindings = {

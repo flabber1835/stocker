@@ -1,63 +1,24 @@
 """Versioned market inputs for execution; never strategy or broker authority."""
 from __future__ import annotations
 
-from contextlib import contextmanager, ExitStack
 from decimal import Decimal
 
 from sentinel.feed import calendar, publication, operational_snapshot as snapshots
-from sentinel.feed import rolling_go_inputs, rolling_store, store, readiness as legacy_readiness
+from sentinel.feed import rolling_go_inputs, rolling_store, readiness as legacy_readiness
+
+
+from sentinel.feed import readers
+
+# Preserve the public execution API while operational callers share its reader.
+is_rolling = readers.is_rolling
+current = readers.current
+require_current = readers.require_current
+pinned = readers.pinned
+frontier = readers.frontier
 
 
 class ExecutionInputsRefused(publication.CorpusIncoherent):
     pass
-
-
-def is_rolling(pub):
-    return rolling_go_inputs.is_rolling(pub)
-
-
-def current(conn):
-    try:
-        return publication.current(conn)
-    except publication.CorpusIncoherent as exc:
-        if str(exc) != "ROLLING_SNAPSHOT_REQUIRES_VERSIONED_READER":
-            raise
-    pub = snapshots._current(conn)
-    snapshots._bound(conn, pub)
-    return pub
-
-
-def require_current(conn):
-    # Dispatch only the authenticated publication's explicit reader-version
-    # refusal. Integrity, receipt and all other legacy failures remain failures.
-    try:
-        return publication.require_current(conn)
-    except publication.CorpusIncoherent as exc:
-        if str(exc) != "ROLLING_SNAPSHOT_REQUIRES_VERSIONED_READER":
-            raise
-    pub = snapshots._current(conn)
-    snapshots._bound(conn, pub)
-    return pub
-
-
-@contextmanager
-def pinned(conn, *, commit=True):
-    with ExitStack() as stack:
-        snapshot_reader = False
-        try:
-            pub = stack.enter_context(publication.pinned(conn, commit=commit))
-        except publication.CorpusIncoherent as exc:
-            if str(exc) != "ROLLING_SNAPSHOT_REQUIRES_VERSIONED_READER":
-                raise
-            snapshot_reader = True
-        if snapshot_reader:
-            pub, _ = stack.enter_context(snapshots.pinned(conn, commit=commit))
-        yield pub
-
-
-def frontier(conn, pub=None):
-    pub = current(conn) if pub is None else pub
-    return pub.window_end if is_rolling(pub) else store.latest_visible_session(conn)
 
 
 def coherent(conn):

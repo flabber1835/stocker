@@ -62,6 +62,19 @@ def validate_reconstruction(conn, pub):
 
 
 def _validate(conn, pub, *, target):
+    binding, material, report = _assess(conn, pub, target=target)
+    if not report.ready:
+        raise RollingGoRefused("ROLLING_INPUTS_NOT_READY: " + ", ".join(c.name for c in report.failures))
+    return binding, material, report
+
+
+def assessment(conn, pub, *, now=None):
+    """Report failed clauses without converting integrity failures to readiness."""
+    instant = now or snapshots._now()
+    return _assess(conn, pub, target=snapshots.source_final_session(instant))[2]
+
+
+def _assess(conn, pub, *, target):
     binding = snapshots._bound(conn, pub)
     _, strategy = production_strategy()
     request = rolling_jobs.status(conn, binding["job_id"])["request"]
@@ -105,8 +118,6 @@ def _validate(conn, pub, *, target):
     related = any(meta.related_tickers for meta in material.meta.values())
     report.add("rolling issuer references", PASS if related else FAIL,
                "current reference bundle includes related-ticker issuer evidence")
-    if not report.ready:
-        raise RollingGoRefused("ROLLING_INPUTS_NOT_READY: " + ", ".join(c.name for c in report.failures))
     return binding, material, report
 
 

@@ -123,17 +123,17 @@ VALIDATION_README = (
 _DATA_PUBLICATION_CODE = r'''
 import hashlib, json, os
 from sentinel.core.decision import publication_fingerprint
-from sentinel.feed import publication, store
+from sentinel.feed import readers, store
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
     with c.cursor() as cur:
         cur.execute('BEGIN TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY')
         cur.execute('SHOW transaction_read_only')
         assert str(cur.fetchone()[0]).lower() == 'on'
-    with publication.pinned(c, commit=False) as held:
+    with readers.pinned(c, commit=False) as held:
         value = {
             'publication_fingerprint': publication_fingerprint(held),
-            'visible_frontier': store.latest_visible_session(c),
+            'visible_frontier': readers.frontier(c, held),
         }
     print('SENTINEL_DEPLOY_DATA_BINDING=' + json.dumps({
         'transaction_read_only': True,

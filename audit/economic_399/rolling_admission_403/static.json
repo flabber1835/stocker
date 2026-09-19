@@ -1,0 +1,45 @@
+{
+  "syntax_files": [
+    "audit/economic_399/rolling_admission_403/run_local.py",
+    "scripts/sentinel_autonomous_deploy.py",
+    "scripts/sentinel_autonomous_deploy_driver.py",
+    "scripts/sentinel_autonomous_deploy_install_entry.py",
+    "sentinel/cli/authority.py",
+    "sentinel/cli/feed.py",
+    "sentinel/core/decision.py",
+    "sentinel/execution/feed_inputs.py",
+    "sentinel/feed/readers.py",
+    "sentinel/feed/rolling_go_inputs.py",
+    "sentinel/observation_authority.py",
+    "sentinel/panel/sources.py",
+    "tests/sentinel/test_cli.py",
+    "tests/sentinel/test_merge_readiness_137_149.py",
+    "tests/sentinel/test_operational_parity.py",
+    "tests/sentinel/test_panel.py",
+    "tests/sentinel/test_paper_observation_authority.py",
+    "tests/sentinel/test_rolling_admission_readers.py",
+    "tests/sentinel/test_runtime_regressions_137_148_149_150.py",
+    "tools/sentinel_observation_authority.py",
+    "tools/sentinel_rolling_admission_falsifiers.py"
+  ],
+  "host_scripts_python38_syntax": true,
+  "introduced_production_pyflakes": [],
+  "existing_production_pyflakes": [
+    {
+      "file": "scripts/sentinel_autonomous_deploy_driver.py",
+      "diagnostic": "'pathlib.Path' imported but unused"
+    },
+    {
+      "file": "scripts/sentinel_autonomous_deploy_driver.py",
+      "diagnostic": "'types.SimpleNamespace' imported but unused"
+    },
+    {
+      "file": "sentinel/core/decision.py",
+      "diagnostic": "redefinition of unused 'REFERENCE_SOURCE_SHA256' from line <source>"
+    },
+    {
+      "file": "sentinel/feed/rolling_go_inputs.py",
+      "diagnostic": "'sentinel.feed.calendar' imported but unused"
+    }
+  ]
+}

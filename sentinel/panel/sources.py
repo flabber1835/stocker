@@ -544,7 +544,6 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
                 ["SENTINEL_DATABASE_URL is unset"])
     conn = None
     try:
-        from sentinel.feed import readiness
         from sentinel.feed import store as feed_store
         conn = feed_store.connect(_bounded_dsn(database_url))
 
@@ -559,30 +558,12 @@ def _feed_rows(database_url: str) -> tuple[list[model.Row], list[str]]:
         # is already secured before anything expensive is attempted.
         runs, run_err = _read(conn, lambda c: feed_store.run_status(c, limit=1),
                               STATEMENT_TIMEOUT_MS, default=[])
-        # THE VISIBLE frontier, deliberately — the newest session a DECISION may
-        # read, not the newest row physically present. The panel exists to
-        # answer "is the data current?", and reporting a date the engine refuses
-        # to load would make an ingest that committed rows and then failed to
-        # publish them look like a healthy fetch. Showing the published frontier
-        # makes the same failure read as "we are a day behind", which is true.
-        frontier, front_err = _read(conn, feed_store.latest_visible_session,
-                                    STATEMENT_TIMEOUT_MS, default=None)
-
-        # A VERDICT SOMEBODY ELSE COMPUTED, read by primary key.
-        #
-        # This used to call `check_readiness` here, inside the page load, under
-        # the tightest of the three budgets — with a comment explaining that it
-        # is the expensive read and during a seed it legitimately takes minutes.
-        # Both true, and together they blanked the page on exactly the question
-        # it exists to answer: an operator watching a six-hour seed could not
-        # tell a corpus still building from one that had failed a clause.
-        #
-        # No budget fixes that. The check reads the corpus, the corpus is what
-        # is under load, and anything short enough to protect a page load is
-        # short enough to lose under contention. `check-data` already computes
-        # a full verdict; this reads the last one and reports its age.
-        snap, _ = _read(conn, readiness.latest_snapshot, STATEMENT_TIMEOUT_MS,
-                        default=None)
+        # Bind the cached verdict and frontier to one authenticated generation.
+        # A rolling page load verifies receipts, not the full price window.
+        from sentinel.feed import readers
+        feed, front_err = _read(conn, readers.status_snapshot,
+                               STATEMENT_TIMEOUT_MS, default=(None, None))
+        frontier, snap = feed
         if snap is None:
             # NEVER False. Nothing has computed a verdict — "we have not asked"
             # is not "the corpus failed a clause", and `model.feed_row` already
@@ -1610,7 +1591,7 @@ def _dual_paper_row(conn, *, informational_paper_mirror, publication,
                     if state == "MISMATCH" else
                     "the current PAPER cycle has not transported a plan"))
     active_publication = publication.current(conn)
-    frontier = feed_store.latest_visible_session(conn)
+    frontier = publication.frontier(conn, active_publication)
     if active_publication is None or not isinstance(frontier, str):
         return model.paper_reconciliation_row(
             state="UNKNOWN", error="current publication/frontier is unavailable")
@@ -1707,7 +1688,7 @@ def _dual_authority_rows(
         ], {}, [], [])
 
     from sentinel import informational_paper_mirror, shadow_runtime
-    from sentinel.feed import publication
+    from sentinel.feed import readers as publication
     from sentinel.feed import store as feed_store
 
     conn = None

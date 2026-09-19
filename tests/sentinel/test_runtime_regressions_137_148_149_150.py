@@ -321,6 +321,9 @@ def test_137_candidate_cli_captures_lifecycle_reference_before_warmup(
         def close(self):
             events.append("close")
 
+    from contextlib import nullcontext
+    from sentinel.feed import readers
+    monkeypatch.setattr(readers, "pinned", lambda *a, **k: nullcontext(None))
     monkeypatch.setattr(authority_cli, "datetime", Clock)
     monkeypatch.setattr(feed_store, "connect", lambda _dsn: Conn())
     monkeypatch.setattr(schema, "require_runtime_schema",

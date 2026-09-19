@@ -1,0 +1,28 @@
+{
+  "base": "4dd5af636ed48d6c17d8a75af4209cbc23a17e48",
+  "sha256": {
+    "docs/economic-code-closure.md": "ee30d253eac8ee9383966d1ff841fad178695fe166c05c2deb82822fd9c97810",
+    "docs/rolling-admission-readers.md": "22f75f7108cea218e7917105cc2ece41769ed9f95667ea72a357e8953a6161b7",
+    "docs/sentinel-deployment.md": "e2d73a0c5e0c31d0b6b4ecf9659e7ff7fcbf030ffdcdf51122672ff644c4aea4",
+    "scripts/sentinel_autonomous_deploy.py": "f49e9744883d48c52e14fca58bb3ca50c19e4ae34cde412bbb7beb5636d3f20c",
+    "scripts/sentinel_autonomous_deploy_driver.py": "1ab1f16f7a48185b818c188a739a635b211689da1e9bb0ec4689463671f14dfd",
+    "scripts/sentinel_autonomous_deploy_install_entry.py": "cdcead7ff2b8a57b1da134d94c55c6e6a7fe16a89d6ab321c4189d8972d0c268",
+    "sentinel/cli/authority.py": "f328143e2b747c29f2cd47ccc95a6e307979ce84231b7485d975d617a9be351b",
+    "sentinel/cli/feed.py": "28f457b1b03a12cb232aed51b23cacc40e1996b26c633b55dcd8f13350e08a39",
+    "sentinel/core/decision.py": "adc5afba9e4e97f7a2704ef670c161b3aeac537e17c5ba3f289195196ed95118",
+    "sentinel/execution/feed_inputs.py": "0435a264b95c684bfb1be1eabafe996badfce78f5686ae8b21005d47cc96f3f3",
+    "sentinel/feed/readers.py": "ed334b029becde73106d49aa445557abcae0524ea056b182b06aaa6919785cdd",
+    "sentinel/feed/rolling_go_inputs.py": "21bdccf138fba7ba4cf46d1dc7a54fcbf0a9955c2b56679859343721b03391cf",
+    "sentinel/observation_authority.py": "53a8876ea6d344efad7eb617c24f979cf79371f0f6f6ce899d16c0afac247b41",
+    "sentinel/panel/sources.py": "b8fc9a2e40c7da882c3bc475b1e8df3cc1673fd870f5b3791e857d630712d4fc",
+    "tests/sentinel/test_cli.py": "cf17c358f2a3e1cebea0a1d1bd976019304ada104515ad999279f974315582d3",
+    "tests/sentinel/test_merge_readiness_137_149.py": "0f81c2af76b088ecdda446d9e5804b375ff3a084d48906fe0c72044599fff6c2",
+    "tests/sentinel/test_operational_parity.py": "2d258c00dad79ff23b8266de7409ee0364e5e81e78fc41626ea89bf52b45458c",
+    "tests/sentinel/test_panel.py": "893c85baefdb1ba60b775814d70d111dbd0717db56e25b70d440c95cfac052e6",
+    "tests/sentinel/test_paper_observation_authority.py": "1432c0e3db639434d3f8d56c23acec26123633cd441ffb57569467b3e821ae4e",
+    "tests/sentinel/test_rolling_admission_readers.py": "2d4bbdf0bcfe0eaace3e7085c21bbfc3ea035c3e8505d6459a7b8cc48b0179b4",
+    "tests/sentinel/test_runtime_regressions_137_148_149_150.py": "0645747181aa703bb2a8ea5bc1e615913d285c297c973980fdd97c238a99ef0b",
+    "tools/sentinel_observation_authority.py": "38c5cc93fa5345de964c6e9258a999a8559bde0fbc059911676c534f76835d93",
+    "tools/sentinel_rolling_admission_falsifiers.py": "5fdf3e62a530d43f05547f9b1005dde1b7aaab042b62d2484606350b0ee6f80b"
+  }
+}
