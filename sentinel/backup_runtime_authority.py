@@ -8,10 +8,9 @@ markers and a contiguous external WAL chain from the newest base backup's exact
 manifest End-LSN through the archiver's latest successful segment.
 
 Each archived object carries an atomically published SHA-256 sidecar. Runtime
-performs a complete byte scrub on first use and at a bounded renewal interval.
-Between full scrubs, immutable objects whose size/mtime/ctime/sidecar identity is
-unchanged reuse that proof; newly appended or metadata-changed objects are hashed
-again. A fixed byte/object ceiling bounds the worst-case synchronous proof cost.
+performs two bounded complete byte scrubs on every check. PostgreSQL's coarse
+file timestamps cannot authorize reuse of an earlier content proof. A fixed
+byte/object ceiling bounds the worst-case synchronous proof cost.
 The PostgreSQL OS identity also lstat-checks every required object so a symlink or
 hardlink cannot substitute storage outside the reviewed durable namespace.
 
@@ -38,7 +37,6 @@ MARKER = ".sentinel-independent-durable-target-v1"
 MARKER_CONTENT = "sentinel-independent-durable-target-v1"
 BASE_ROOT = "/sentinel-backup/base"
 WAL_ROOT = "/sentinel-backup/wal"
-RUNTIME_FULL_SCRUB_MAX_AGE_SECONDS = 300.0
 RUNTIME_MAX_VERIFIED_BYTES = 1024 * 1024 * 1024
 RUNTIME_MAX_ARCHIVE_OBJECTS = 1024
 _BASE_NAME = re.compile(r"base-[0-9]{8}T[0-9]{6}Z\Z")
@@ -46,6 +44,7 @@ _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 _RECOVERY_WAL = re.compile(r"^wal=([0-9A-F]{24})$", re.MULTILINE)
 _LSN = re.compile(r"^([0-9A-F]+)/([0-9A-F]+)$")
 _SHA256 = re.compile(r"^sha256=([0-9a-f]{64})\s*\Z")
+# Last successful observations detect regressions; never reuse content authority.
 _PROOF_CACHE: dict[tuple, dict] = {}
 
 
@@ -244,8 +243,11 @@ def _expected_wals(start: str, end: str, *, segment_size: int) -> tuple[str, ...
     if last < first:
         raise BackupRuntimeRefused(
             "archived WAL frontier precedes the base recovery horizon")
-    if last - first > 1_000_000:
-        raise BackupRuntimeRefused("backup WAL chain exceeds reviewed bound")
+    count = last - first + 1
+    if count + (1 if et > 1 else 0) > RUNTIME_MAX_ARCHIVE_OBJECTS:
+        raise BackupRuntimeRefused("backup WAL chain exceeds reviewed bound for archive objects")
+    if count * segment_size > RUNTIME_MAX_VERIFIED_BYTES:
+        raise BackupRuntimeRefused("backup WAL chain exceeds reviewed bound for integrity bytes")
     out = []
     for index in range(first, last + 1):
         log, segment = divmod(index, segments_per_log)
@@ -339,15 +341,16 @@ def _archive_metadata(conn, *, root: str,
 
 
 def _hash_objects(conn, *, root: str,
-                  objects: tuple[str, ...]) -> dict[str, str | None]:
+                  objects: tuple[str, ...],
+                  sizes: dict[str, int]) -> dict[str, str | None]:
     if not objects:
         return {}
     with conn.cursor() as cur:
         cur.execute(
             "SELECT name,encode(sha256(pg_read_binary_file("
-            "%s || '/' || name,0,(pg_stat_file(%s || '/' || name,true)).size,true)),'hex')"
-            " FROM unnest(%s::text[]) AS entries(name)",
-            (root, root, list(objects)))
+            "%s || '/' || name,0,read_length,true)),'hex')"
+            " FROM unnest(%s::text[],%s::bigint[]) AS entries(name,read_length)",
+            (root, list(objects), [sizes[name] for name in objects]))
         return {
             str(name): (None if digest is None else str(digest))
             for name, digest in cur.fetchall()
@@ -412,23 +415,26 @@ def _validate_archive_objects(
     cache_key = (scope, system_id, base, start, segment_size)
     now = time.monotonic()
     cached = _PROOF_CACHE.get(cache_key)
-    full_scrub = (
-        cached is None
-        or now - float(cached["full_scrub_at"])
-        >= RUNTIME_FULL_SCRUB_MAX_AGE_SECONDS)
-    if cached is not None and not full_scrub:
+    if cached is not None:
         previous_names = tuple(cached["objects"])
         if any(name not in objects for name in previous_names):
             raise BackupRuntimeRefused(
                 f"{operation}: archived frontier moved behind an already verified restore horizon")
-        hash_names = tuple(
-            name for name in objects
-            if name not in cached["metadata"]
-            or cached["metadata"][name] != actual[name])
-    else:
-        hash_names = objects
+    hash_names = objects
 
-    digests = _hash_objects(conn, root=wal_root, objects=hash_names)
+    digests = _hash_objects(conn, root=wal_root, objects=hash_names,
+                            sizes={name: int(actual[name][0]) for name in hash_names})
+    if hash_names:
+        repeated = _hash_objects(conn, root=wal_root, objects=hash_names,
+                                 sizes={name: int(actual[name][0]) for name in hash_names})
+        if repeated != digests:
+            raise BackupRuntimeUnavailable(
+                f"{operation}: archived objects changed during content proof")
+        if _archive_metadata(conn, root=wal_root, objects=objects) != actual:
+            raise BackupRuntimeUnavailable(
+                f"{operation}: archived objects changed during integrity proof")
+        _require_no_aliases(conn, base=base, system_id=system_id, objects=objects)
+
     for name in hash_names:
         checksum = actual[name][3]
         assert checksum is not None
@@ -439,9 +445,8 @@ def _validate_archive_objects(
             raise BackupRuntimeRefused(
                 f"archived object {name} failed SHA-256 integrity validation")
 
-    full_at = now if full_scrub else float(cached["full_scrub_at"])
     _PROOF_CACHE[cache_key] = {
-        "full_scrub_at": full_at,
+        "full_scrub_at": now,
         "objects": objects,
         "metadata": actual,
         "end": end,
@@ -450,7 +455,7 @@ def _validate_archive_objects(
         oldest = min(_PROOF_CACHE, key=lambda key: _PROOF_CACHE[key]["full_scrub_at"])
         if oldest != cache_key:
             _PROOF_CACHE.pop(oldest, None)
-    return actual, len(hash_names), full_scrub
+    return actual, 2 * len(hash_names), True
 
 
 def _require(conn, *, operation: str,
@@ -512,6 +517,7 @@ def _require(conn, *, operation: str,
         "wal_integrity": "sha256-sidecar-v1",
         "integrity_objects_hashed": hashed_objects,
         "integrity_full_scrub": full_scrub,
+        "integrity_read_passes": 2,
     }
 
 
@@ -532,7 +538,7 @@ def require(conn, *, operation: str,
 
 __all__ = [
     "AUTHORITY_ENV", "AUTHORITY_VALUE", "BackupRuntimeRefused",
-    "BackupRuntimeUnavailable", "RUNTIME_FULL_SCRUB_MAX_AGE_SECONDS",
+    "BackupRuntimeUnavailable",
     "RUNTIME_MAX_ARCHIVE_OBJECTS", "RUNTIME_MAX_VERIFIED_BYTES",
     "current_system_id", "enabled", "require",
 ]

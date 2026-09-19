@@ -1872,6 +1872,11 @@ with `scripts/sentinel-base-backup.sh`, then run status and the restore drill
 above. Retained WAL is never retroactively granted checksum authority. A fresh
 base establishes a recovery horizon archived by the checksum-aware producer.
 
+Runtime archive proof limits apply before WAL-name enumeration and to the
+actual requested read lengths. A post-hash metadata/alias check refuses a chain
+that changed while it was being verified. See [resource-bound decisions and
+remaining limits](backup-proof-resource-bounds.md).
+
 ### 10h. The panel reports durable facts, never deployment-stage placeholders
 
 The complete operator status, cadence, notification, Web Push, and mobile
