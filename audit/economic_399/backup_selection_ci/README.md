@@ -88,7 +88,7 @@ raw logs, JUnit, scenario inputs/reports/snapshots and provider simulations.
 
 ## Remaining qualification and NAS handoff
 
-Require all five fresh-head GitHub workflows to pass before owner merge. In
+Require all applicable fresh-head GitHub workflows to pass before owner merge. In
 particular, require all four internal-state shards, the entire composition
 authority suite (including the real foreign-owner test), and the PostgreSQL 16
 physical/GO stages previously blocked by these fixture failures. Retain head,
