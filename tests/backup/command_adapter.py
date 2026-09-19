@@ -18,7 +18,8 @@ from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
 ROOT = Path(os.environ["BACKUP_LAB_ROOT"])
 MEDIA = ROOT / "media"
 SYSTEM_ID = "7377777777777777777"
-WAL = "000000010000000000000003"
+WAL = os.environ.get("BACKUP_LAB_CHECKPOINT_WAL", "000000010000000000000003")
+CHECKPOINT_LSN = os.environ.get("BACKUP_LAB_CHECKPOINT_LSN", "0/03000040")
 args = sys.argv[1:]
 name = Path(sys.argv[0]).name
 
@@ -70,7 +71,7 @@ def sql():
         return event("evidence-insert", lambda: 0)
     elif "pg_current_wal_lsn()::text" in query:
         marker = re.search(r"SELECT '([^|]+)\|'", query).group(1)
-        print(f"{marker}|0/03000040|{WAL}")
+        print(f"{marker}|{CHECKPOINT_LSN}|{WAL}")
     elif "pg_switch_wal" in query:
         print("0/04000000")
     elif "j->'WAL-Ranges'" in query:
@@ -88,7 +89,7 @@ def basebackup():
     data = path / "relation-data"
     data.write_bytes(b"complete-base-backup-data")
     manifest = {
-        "WAL-Ranges": [{"Timeline": 1, "End-LSN": "0/03000040"}],
+        "WAL-Ranges": [{"Timeline": 1, "End-LSN": CHECKPOINT_LSN}],
         "Synthetic-Data-SHA256": hashlib.sha256(data.read_bytes()).hexdigest(),
     }
     (path / "backup_manifest").write_text(json.dumps(manifest, sort_keys=True))

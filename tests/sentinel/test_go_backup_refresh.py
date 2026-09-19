@@ -146,6 +146,7 @@ def test_healthy_backup_checkpoint_does_not_create_another_backup():
 
 @pytest.mark.parametrize(("code", "message"), [
     ("BASE_BACKUP_STALE", "latest base backup is 246h old (max 30h)"),
+    ("BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED", "restore horizon exceeds runtime proof budget"),
     ("WAL_ARCHIVE_STALE", "last WAL archive is 31h old"),
     ("BASE_BACKUP_MISSING", "no base backup exists"),
     ("BASE_BACKUP_NOT_FOUND", "requested base backup does not exist: /backup/base/x"),
