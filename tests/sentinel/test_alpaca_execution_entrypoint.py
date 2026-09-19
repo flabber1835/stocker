@@ -85,7 +85,7 @@ def plan(plan_id: str, basket: dict[str, D]) -> ExecutionPlan:
 def execute(conn, world, current_plan, *, instruments=None):
     executor.adopt_plan(conn, current_plan)
     return run(executor.execute_session(
-        broker=world.adapter(),
+        broker=world.adapter(modeled_fill_history=True),
         conn=conn,
         deployment=DEPLOY,
         plan=current_plan,

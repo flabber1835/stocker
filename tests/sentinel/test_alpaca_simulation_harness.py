@@ -50,6 +50,18 @@ def submit(world, *, key="key-1", quantity="10", side=Side.BUY):
                                      side=side, quantity=D(quantity)))
 
 
+def test_modeled_fill_capability_does_not_promote_production(world):
+    modeled = world.adapter(modeled_fill_history=True)
+    production = world.adapter()
+    assert modeled.capabilities.recent_fill_history
+    assert not alpaca.AlpacaExecutionBroker.capabilities.recent_fill_history
+    assert not production.capabilities.recent_fill_history
+    assert modeled.capabilities == replace(
+        production.capabilities, recent_fill_history=True)
+    assert not modeled.financial_activity_sse
+    assert not modeled.account_fill_interval_nas_accepted
+
+
 def test_happy_buy_partial_fill_sell_and_adapter_restart(world):
     outcome = submit(world)
     assert outcome.state is S.ACKNOWLEDGED

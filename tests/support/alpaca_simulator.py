@@ -8,7 +8,7 @@ from __future__ import annotations
 import copy
 import json
 from collections import Counter
-from dataclasses import dataclass
+from dataclasses import dataclass, replace
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
@@ -400,7 +400,7 @@ class AlpacaSimulator:
             response = fault.deliver(self, request, response)
         return response
 
-    def adapter(self):
+    def adapter(self, *, modeled_fill_history=False):
         from sentinel.execution.alpaca import AlpacaExecutionBroker
 
         world = self
@@ -411,8 +411,14 @@ class AlpacaSimulator:
                 return httpx.AsyncClient(transport=httpx.MockTransport(world.handle),
                                          trust_env=False, **kwargs)
 
-        return AlpacaExecutionBroker(
+        adapter = AlpacaExecutionBroker(
             api_key="simulation-key", secret_key="simulation-secret",
             base_url=PAPER_URL, http_provider=lambda: HTTPProvider,
             clock_provider=lambda: self.now,
             resolve_security_id=lambda s, _as_of=None: f"SEC-{s}" if s in self.assets else None)
+        # This in-memory ledger supplies the modeled fill stream. Its capability
+        # is instance-local and makes no claim about the production producer.
+        if modeled_fill_history:
+            adapter.capabilities = replace(
+                adapter.capabilities, recent_fill_history=True)
+        return adapter

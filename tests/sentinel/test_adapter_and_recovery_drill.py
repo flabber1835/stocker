@@ -123,7 +123,7 @@ class FakeHttpx:
         self.AsyncClient = _Client
 
 
-def alpaca(routes, **kw):
+def alpaca(routes, *, modeled_fill_history=False, **kw):
     routes = dict(routes)
     routes.setdefault("/v2/account", {
         "id": "11111111-1111-1111-1111-111111111111",
@@ -134,6 +134,10 @@ def alpaca(routes, **kw):
         api_key="k", secret_key="s", base_url="https://paper-api.alpaca.markets",
         resolve_security_id=lambda symbol: f"SEC-{symbol}",
         http_provider=lambda: http)
+    if modeled_fill_history:
+        # Pagination witnesses use an explicitly empty fake activity stream.
+        # Production's unaccepted fill producer remains disabled.
+        broker.capabilities = replace(broker.capabilities, recent_fill_history=True)
     return broker, http
 
 
@@ -329,7 +333,8 @@ class TestAlpacaObservation:
                 return second
             return first
 
-        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
+        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []},
+                           modeled_fill_history=True)
         observation = run(broker.observe_with_terminal_recovery(
             submitted_after=floor,
             processed_through=floor))
@@ -359,7 +364,8 @@ class TestAlpacaObservation:
                 submitted_at="2026-08-10T12:00:00Z")
                     for i in range(A.PAGE_SIZE)]
 
-        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
+        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []},
+                           modeled_fill_history=True)
         observation = run(broker.observe_with_terminal_recovery(
             submitted_after=floor,
             processed_through=floor))
@@ -382,7 +388,8 @@ class TestAlpacaObservation:
                 oid=f"{cursor}-{i}", status="filled", filled="10",
                 submitted_at="2026-08-11T15:00:00Z") for i in range(2)]
 
-        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
+        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []},
+                           modeled_fill_history=True)
         observation = run(broker.observe_with_terminal_recovery(
             submitted_after=floor,
             processed_through=floor))
@@ -451,7 +458,8 @@ class TestAlpacaObservation:
                               submitted_at="2026-08-11T13:00:00Z"),
             ]
 
-        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []})
+        broker, _ = alpaca({"/v2/orders": orders, "/v2/positions": []},
+                           modeled_fill_history=True)
         first = run(broker.observe_with_terminal_recovery(
             submitted_after=checkpoint - timedelta(minutes=5),
             processed_through=checkpoint))

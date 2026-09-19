@@ -152,7 +152,7 @@ def test_late_fill_after_terminal_order_aged_out_is_discovered(world):
     # The late report revises cumulative fills without reopening the order.
     # Its old submitted_at excludes it from the closed-order recovery window.
     world.orders[oid]["status"] = "canceled"
-    observed = run(world.adapter().observe_with_terminal_recovery(
+    observed = run(world.adapter(modeled_fill_history=True).observe_with_terminal_recovery(
         submitted_after=EPOCH - timedelta(days=1), processed_through=EPOCH))
     assert observed.orders[0].broker_order_id == oid
     assert observed.orders[0].filled_quantity == D(2)

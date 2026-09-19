@@ -437,25 +437,30 @@ class TestRestartConvergence:
         assert [c.state for c in resolved] == [S.ACKNOWLEDGED]
         assert journal.load_commands(conn, DEPLOY)[0].state is S.ACKNOWLEDGED
 
-    def test_a_command_that_NEVER_LANDED_resolves_to_cancelled(self, conn):
+    def test_a_command_that_NEVER_LANDED_remains_UNKNOWN(self, conn):
         b = broker()
         b.schedule_submit(F.NEVER_RECEIVED)
         go(b, conn, {"SEC-AAA": D(10)})
 
         resolved = run(executor.resolve_outstanding(
             broker=b, conn=conn, deployment=DEPLOY))
-        assert [c.state for c in resolved] == [S.CANCELLED]
-        assert journal.in_flight_commands(conn, DEPLOY) == ()
+        assert [c.state for c in resolved] == [S.UNKNOWN]
+        assert journal.in_flight_commands(conn, DEPLOY) == resolved
 
-    def test_after_resolution_the_session_retries_and_converges(self, conn):
+    def test_absence_does_not_authorize_a_replacement_under_a_new_plan(self, conn):
         b = broker()
         b.schedule_submit(F.NEVER_RECEIVED)
         go(b, conn, {"SEC-AAA": D(10)})
+        original = journal.load_commands(conn, DEPLOY)[0]
         run(executor.resolve_outstanding(broker=b, conn=conn, deployment=DEPLOY))
 
         result = go(b, conn, {"SEC-AAA": D(10)}, p=plan(plan_id="plan-2"))
-        assert len(result.submitted) == 1
-        assert result.submitted[0].state is S.ACKNOWLEDGED
+        assert result.submitted == ()
+        retained = journal.load_commands(conn, DEPLOY)
+        assert len(retained) == 1
+        assert retained[0].state is S.UNKNOWN
+        assert retained[0].client_key == original.client_key
+        assert sum(call.startswith("submit:") for call in b.calls) == 1
 
     def test_a_completed_book_asks_for_nothing_further(self, conn):
         b = broker()

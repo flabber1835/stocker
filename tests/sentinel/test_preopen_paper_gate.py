@@ -548,9 +548,10 @@ def test_recovery_all_zero_domain_needs_no_optional_authority(monkeypatch):
     assert len(calls) == 1
 
 
-def test_dual_recovery_earns_due_mirror_check_before_transport_gate(
-        monkeypatch):
-    """A partial cycle crossing close cannot deadlock on a missing check."""
+@pytest.mark.parametrize("shadow_advanced", [False, True])
+def test_dual_recovery_checks_mirror_only_for_current_shadow(
+        monkeypatch, shadow_advanced):
+    """Current intent earns its mirror check; historical obligations only recover."""
     plan = _plan(basket={"SEC-A": Decimal(10)})
     events = []
 
@@ -565,9 +566,14 @@ def test_dual_recovery_earns_due_mirror_check_before_transport_gate(
         reconcile=clean_reconcile)
     shadow_result = SimpleNamespace(
         state=SimpleNamespace(to_dict=lambda: {}))
+
+    def verified_shadow(*_args, **_kwargs):
+        assert not shadow_advanced, "historical recovery must not rederive old intent"
+        return shadow_result
+
     monkeypatch.setattr(
         dual_reconciliation, "verified_shadow_intent",
-        lambda *_args, **_kwargs: shadow_result)
+        verified_shadow)
     monkeypatch.setattr(
         dual_plan_authority, "rederive_plan",
         lambda *_args, **_kwargs: {"authority_sha256": "a" * 64})
@@ -576,7 +582,8 @@ def test_dual_recovery_earns_due_mirror_check_before_transport_gate(
         lambda *_args, **_kwargs: nullcontext(SimpleNamespace(version=1, evidence={})))
     monkeypatch.setattr(
         paper_recovery.feed_inputs, "frontier",
-        lambda *_args, **_kwargs: plan.effective_session)
+        lambda *_args, **_kwargs: (
+            plan.effective_session if shadow_advanced else plan.decision_session))
     monkeypatch.setattr(
         shadow_runtime, "publication_not_before",
         lambda *_args, **_kwargs: NOW.replace(year=2020))
@@ -602,7 +609,8 @@ def test_dual_recovery_earns_due_mirror_check_before_transport_gate(
         dual_shadow_starting_cash=Decimal("100000")))
 
     assert result.clean
-    assert events[:3] == ["revalidate", "require", "reconcile"]
+    assert events == (["reconcile"] if shadow_advanced else
+                      ["revalidate", "require", "reconcile"])
 
 
 def test_old_generation_recovery_never_loads_stale_plan_economics(monkeypatch):
