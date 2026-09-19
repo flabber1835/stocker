@@ -1,7 +1,9 @@
 """Exercise actual offline worker CLI against private, mixed-UID Docker media."""
+import argparse
 import json
 from pathlib import Path
 import subprocess
+import re
 import uuid
 
 ROOT = Path(__file__).resolve().parents[3]
@@ -15,6 +17,11 @@ def run(command, **kwargs):
 
 
 def main():
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--runtime-image')
+    args = parser.parse_args()
+    if args.runtime_image and not re.fullmatch(r'sha256:[0-9a-f]{64}', args.runtime_image):
+        raise ValueError('the optional baked worker must use an immutable local image ID')
     volume = 'sentinel-maintenance-private-' + uuid.uuid4().hex[:12]
     created = subprocess.run(['docker', 'volume', 'create', volume], check=True)
     assert created.returncode == 0
@@ -42,14 +49,24 @@ print(json.dumps(request))
     try:
         result = run(common + ['sentinel-test:ci', '-c', seed])
         assert result.returncode == 0
-        request = result.stdout.strip().splitlines()[-1]
-        worker = ['sentinel-test:ci', '-m', 'sentinel.backup_retention', 'retain',
+        request_value = json.loads(result.stdout.strip().splitlines()[-1])
+        if args.runtime_image:
+            request_value['image'] = args.runtime_image
+            request_value['receipt']['runtime_image'] = args.runtime_image
+        request = json.dumps(request_value)
+        worker = [args.runtime_image or 'sentinel-test:ci', '-m', 'sentinel.backup_retention', 'retain',
                   '--system-id', '7377777777777777777']
+        invocation = common[:3] + ['-i'] + common[3:]
+        if args.runtime_image:
+            # No source overlay or PYTHONPATH: exercise only baked runtime bytes.
+            invocation = ['docker', 'run', '--rm', '-i', '--network', 'none', '--user', '0:0',
+                          '--read-only', '--security-opt', 'no-new-privileges',
+                          '-v', volume + ':/backup', '--entrypoint', 'python']
         # Negative control: root alone with all capabilities dropped cannot
         # traverse PostgreSQL's 0700 namespace. No permission loosening allowed.
-        denied = run(common[:3] + ['-i'] + common[3:] + ['--cap-drop', 'ALL'] + worker, input=request)
+        denied = run(invocation + ['--cap-drop', 'ALL'] + worker, input=request)
         assert denied.returncode == 4 and 'Permission denied' in denied.stderr
-        allowed = run(common[:3] + ['-i'] + common[3:] + ['--cap-drop', 'ALL', '--cap-add', 'DAC_OVERRIDE'] + worker,
+        allowed = run(invocation + ['--cap-drop', 'ALL', '--cap-add', 'DAC_OVERRIDE'] + worker,
                       input=request)
         assert allowed.returncode == 0
         assert json.loads(allowed.stdout)['base_removed'] == 62

@@ -10,6 +10,16 @@ independently fetched main became `ec8351ff2f535885d5a1cefcbca9b9bb83498b5c`.
 The PR records the final reviewed commit. `source-provenance.json` binds the
 reviewed source bytes; `SHA256SUMS.json` binds the retained package. Original
 audit/evidence packages remain unchanged.
+The integration commit is `cdfdae6dc904317eeb9ce640ce2b548c4bd3214e`; its tree
+is byte-identical to the validated implementation commit `a658cc8d` after
+resolving two fixture-helper-list conflicts. No production source changed on
+integration. The canonical `Dockerfile.sentinel` built successfully with that
+revision label, yielding immutable local image
+`sha256:f860878ad1da60718a43ff7895e664fffc4df3ef74463fee5f0ad94194c73ba3`.
+The private-media driver also passed against this baked image without a source
+mount or PYTHONPATH override. An initial `--network=none` build missed the pip
+cache and failed to resolve dependencies; the ordinary hash-locked build reused
+its pinned dependency layer and succeeded. Both build logs are retained.
 
 ## What is established locally
 
@@ -51,6 +61,7 @@ python audit/economic_399/recurring_maintenance/run_local.py final
 python audit/economic_399/recurring_maintenance/run_local.py semantic
 python audit/economic_399/recurring_maintenance/run_local.py mutations
 python audit/economic_399/recurring_maintenance/private_media.py
+python audit/economic_399/recurring_maintenance/private_media.py --runtime-image sha256:f860878ad1da60718a43ff7895e664fffc4df3ef74463fee5f0ad94194c73ba3
 python audit/economic_399/recurring_maintenance/physical_worker.py
 python audit/economic_399/recurring_maintenance/physical_worker.py --mutate-target
 ```
@@ -97,6 +108,17 @@ docker run --rm --network none --entrypoint python \
 `static.log` records Python parsing and pyflakes; `shell-static.log` records
 individual `bash -n` checks, and `ownership.json` records test responsibility.
 No unrelated Wealth Core suite was run.
+
+Relevant entry points and guards (line references refer to the reviewed source):
+`scripts/sentinel_backup_maintenance.py:102` owns renewal; `:134` receipt binding;
+`:194` the connected tick and exact successor check; `:241` supervisor ownership.
+`sentinel/backup_retention.py:197` owns protected sets, `:229` journal recovery,
+`:266` WAL floors and `:303` the gated deletion entry point.
+`scripts/sentinel-restore-worker.sh:7` owns the shared media lock and `:16` the
+target pause; `scripts/sentinel-restore-drill.sh:190` requires the paused proof.
+`scripts/sentinel_env.py:131` owns stable configuration reads.
+The certification ledger records severity and disposition; source hashes allow
+these claims to be checked independently of changing PR line numbers.
 
 ## Concrete NAS handoff — not performed
 
