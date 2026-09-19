@@ -103,3 +103,56 @@ def test_media_repair_recovers_a_real_failed_archive_before_next_mutation():
                 conn, operation="next mutation after media repair")["enabled"] is True
     finally:
         cluster.close()
+
+
+@pytest.mark.parametrize("failure_stage", ["pg_verifybackup", "wait_archive"])
+def test_checkpoint_selects_only_verified_archived_media(monkeypatch, failure_stage):
+    try:
+        cluster = PhysicalCluster()
+    except RuntimeError as exc:
+        if os.environ.get("ALPACA_HARNESS_REQUIRE_POSTGRES") == "1":
+            raise
+        pytest.skip(str(exc))
+    try:
+        cluster.start()
+        initial = cluster.checkpoints["provisioned"]
+        selection = cluster.base_root / f".sentinel-runtime-base-{initial['system_id']}-v1"
+        expected = (f"schema=sentinel.runtime-base/1\nsystem_identifier={initial['system_id']}\n"
+                    f"base_backup={initial['base'].name}\n").encode("ascii")
+        assert selection.read_bytes() == expected
+        with cluster.runtime(), psycopg.connect(cluster.dsn, autocommit=True) as conn:
+            assert backup_runtime_authority.require(conn, operation="initial checkpoint")["enabled"]
+
+        command = cluster.command
+
+        def fail_verification(name, *args, **kwargs):
+            if name == "pg_verifybackup":
+                raise RuntimeError("injected verification failure")
+            return command(name, *args, **kwargs)
+
+        def fail_archive(_wal):
+            raise RuntimeError("injected archive failure")
+
+        with monkeypatch.context() as fault:
+            if failure_stage == "pg_verifybackup":
+                fault.setattr(cluster, "command", fail_verification)
+            else:
+                fault.setattr(cluster, "wait_archive", fail_archive)
+            with pytest.raises(RuntimeError, match="injected"):
+                cluster.checkpoint("failed")
+        assert selection.read_bytes() == expected
+        assert "failed" not in cluster.checkpoints
+
+        recovered = cluster.checkpoint("recovered")
+        assert selection.read_bytes() == expected.replace(
+            initial["base"].name.encode(), recovered["base"].name.encode())
+        with cluster.runtime(), psycopg.connect(cluster.dsn, autocommit=True) as conn:
+            assert backup_runtime_authority.require(conn, operation="recovered checkpoint")["enabled"]
+            selection.unlink()
+            with pytest.raises(backup_runtime_authority.BackupRuntimeUnavailable,
+                               match="no published runtime base selection"):
+                backup_runtime_authority.require(conn, operation="missing selection")
+            assert backup_runtime_authority.require(conn, operation="explicit retained checkpoint",
+                base_backup=recovered["base"].name)["enabled"]
+    finally:
+        cluster.close()

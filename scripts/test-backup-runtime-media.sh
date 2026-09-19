@@ -26,7 +26,7 @@ cleanup() {
 trap cleanup EXIT
 mkdir -p "$repo/scripts" "$work/socket" "$SENTINEL_BACKUP_DIR"/{base,wal}
 for name in sentinel-base-backup.sh sentinel-backup-status.sh sentinel-backup-lib.sh \
-            sentinel-backup-metadata-access.sh sentinel-backup-verify-chain.sh \
+            sentinel-backup-metadata-access.sh sentinel-backup-publish-selection.sh sentinel-backup-verify-chain.sh \
             sentinel-backup-archive-identity.sh \
             sentinel-archive-wal.sh sentinel_host_python.py sentinel_backup_lock.py \
             sentinel_lock_ownership.py \

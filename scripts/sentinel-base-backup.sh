@@ -199,6 +199,10 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
   test -f "/sentinel-backup/base/$NAME/sentinel-pitr-base-identity" || {
   echo "REFUSED: promoted backup lost its PITR base identity" >&2; exit 4; }
 
+# Select the verified generation for bounded foreground discovery first.
+${COMPOSE[@]} exec -T sentinel-postgres sh -s -- /sentinel-backup/base "$SYSTEM_ID" "$NAME" \
+  < scripts/sentinel-backup-publish-selection.sh
+
 # Publish a compact, append-only operator proof only after promotion and WAL
 # coverage have both succeeded. Values interpolated here are regex-validated
 # machine identities, never operator text.
