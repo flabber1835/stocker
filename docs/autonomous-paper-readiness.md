@@ -1,6 +1,7 @@
 # Autonomous Alpaca paper readiness
 
 This implementation starts from `e3dfb033d25ed68e5e1f6d2386285afabc62e801`.
+It integrates main `b1a9aadd1a9baca0c6f863ba09e29a8089e4a9f2` (PR #412).
 The objective is a deployed forward paper trader. Historical performance,
 provider acceptance and NAS qualification remain separate claims. Admission
 already uses the selected strategy and rolling readers from PR #405.
@@ -28,6 +29,10 @@ identity, unreadable evidence and failed integrity do not trigger deletion,
 fallback, or a fabricated healthy result. A new base must pass the existing
 producer and exact-path status verifier before maintenance reports success.
 Failed attempts remain failures and are retried by the next scheduled run.
+If an outage has already exhausted the runtime horizon, accept PR #412's exact
+`BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED` status as a renewal obligation. This does
+not claim integrity for the superseded chain; only the exact fresh base earns
+new runtime authority. Unrecognized or duplicate status reasons still refuse.
 Maintenance never deletes retained backups/WAL or changes restore authority;
 capacity and a separately reviewed retention policy remain required.
 
@@ -98,15 +103,18 @@ python -m pytest tests/sentinel/test_rolling_paper_inputs.py::test_real_paper_pr
 python -m pytest tests/backup/test_maintenance.py tests/sentinel/test_paper_package_architecture.py tests/sentinel/test_paper_close_nav_gate.py tests/sentinel/test_shadow_service.py tests/sentinel/test_automation_runtime.py
   137 passed
 python -m pytest tests/backup/test_maintenance.py tests/sentinel/test_supervisor_dependency_bounds.py
-  40 passed (final files, including bounded log and unknown latch)
+  40 passed (including bounded log and unknown latch)
+python -m pytest tests/backup/test_maintenance.py tests/backup/test_shell_lifecycle.py tests/sentinel/test_go_backup_refresh.py -k 'maintenance or runtime_horizon or status_horizon or status_chain_object or go_backup_refresh'
+  76 passed, 48 deselected (integration with main b1a9aadd)
 ```
 
-Nineteen `tools/paper_readiness_mutation_check.py` cases passed their unmodified
+Twenty `tools/paper_readiness_mutation_check.py` cases passed their unmodified
 baseline and detected the intentional defect: `reporting-gap`, `partial-notional`,
 `all-commands`, `unresolved-command`, `historical-finalization`, `heartbeat-bound`,
 `health-bound`, `holder-bound`, `observer-replacement`, `unknown-latch`,
 `backup-age`, `backup-wal`, `backup-integrity`, `backup-group`, `backup-deadline`,
-`backup-output`, `backup-log`, `exact-backup`, `container-copy-lock`. Invoke each
+`backup-output`, `backup-log`, `exact-backup`, `container-copy-lock`,
+`backup-exhaustion`. Invoke each
 with `python tools/paper_readiness_mutation_check.py CASE`. The maintained
 `shadow-latch` and `reconstruction-health` cases also passed with
 `python tools/economic_audit_mutation_check.py CASE`. Deliberate mutant test

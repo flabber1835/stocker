@@ -79,6 +79,10 @@ CASES = {
 
 
 def case(name):
+    if name == "backup-exhaustion":
+        module = importlib.import_module("sentinel_backup_maintenance")
+        return module, "REPAIRABLE", module.REPAIRABLE - {"BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED"}, (
+            BACKUP + "test_exhausted_horizon_after_outage_renews_and_preserves_old_media")
     if name == "container-copy-lock":
         from test_shell_lifecycle import ShellLab
         original = ShellLab.__init__
@@ -104,7 +108,7 @@ def case(name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mutation", choices=[*CASES, "container-copy-lock"])
+    parser.add_argument("mutation", choices=[*CASES, "container-copy-lock", "backup-exhaustion"])
     name = parser.parse_args().mutation
     owner, attribute, mutant, selection = case(name)
     args = [selection, "-q", "--tb=short", "--show-capture=no", "-p", "no:cacheprovider"]

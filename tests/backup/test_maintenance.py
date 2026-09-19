@@ -219,3 +219,37 @@ def test_scheduler_stop_reaps_private_descendants(tmp_path):
         if parent.poll() is None:
             os.killpg(parent.pid, signal.SIGKILL)
             parent.wait(timeout=3)
+
+
+def test_exhausted_horizon_after_outage_renews_and_preserves_old_media(tmp_path):
+    from test_shell_lifecycle import _runtime_horizon_lab, _write_checksum
+    lab, base = _runtime_horizon_lab(tmp_path, 65)
+    old = base.with_name('base-20260909T120000Z')
+    base.rename(old)
+    retained = (old / 'backup_manifest').read_bytes()
+    checkpoint = lab.namespace / '000000010000000000000044'
+    with checkpoint.open('wb') as stream:
+        stream.truncate(16 * 1024 * 1024)
+    _write_checksum(checkpoint)
+    calls = []
+
+    def run(command):
+        calls.append(command)
+        producer = command[1] == 'scripts/sentinel-base-backup.sh'
+        if producer:
+            lab.env.update(BACKUP_LAB_CHECKPOINT_WAL=checkpoint.name,
+                BACKUP_LAB_CHECKPOINT_LSN='0/44000040', BACKUP_LAB_FRONTIER=checkpoint.name)
+        result = subprocess.run(['bash', str(lab.repo / command[1]), *command[2:]],
+                                env=lab.env, capture_output=True, text=True, timeout=120)
+        if producer and result.returncode == 0:
+            os.utime(base / 'backup_manifest', (1789041600, 1789041600))
+        return maintenance.Result(result.returncode, result.stdout + result.stderr)
+
+    result = maintenance.maintain(run, backup_root=str(lab.media))
+    assert result.returncode == 0, result.stdout
+    assert 'RENEWED reason=BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED' in result.stdout
+    assert calls[-1] == ['bash', 'scripts/sentinel-backup-status.sh', '--backup', str(base)]
+    assert (old / 'backup_manifest').read_bytes() == retained
+    calls.clear()
+    assert maintenance.maintain(run, backup_root=str(lab.media)).returncode == 0
+    assert len(calls) == 1

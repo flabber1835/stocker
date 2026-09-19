@@ -1,5 +1,14 @@
 # Economic certification: remaining code closure
 
+Forward-paper update: [autonomous paper readiness](autonomous-paper-readiness.md)
+adds recurring host backup renewal (including recovery after horizon exhaustion),
+exact successor verification, copy/cleanup exclusion, and bounded supervisor
+filesystem observations. It also applies the owner's informational-reporting
+policy without relaxing current cash/order safety. The historical ledger below
+is preserved. Scheduler installation, retention policy, target resource/restore
+qualification and unsupported economic capabilities remain separate obligations;
+this update does not close full economic certification.
+
 Base: `748d54e12a4cdb4b5403c56feb8d6b68e47d0104`, the verified merge of
 PR #402. This is step 1 of the owner's certification sequence: eliminate known
 implementation defects and exercise recovery locally before the independent

@@ -3,7 +3,8 @@
 [GO backup horizon renewal](backup-horizon-renewal.md) makes an exhausted
 runtime archive-proof budget repairable through the existing certified fresh
 backup path. It preserves old recovery points and requires exact successor
-verification. Recurring proactive maintenance and NAS qualification remain open.
+verification. Recurring proactive maintenance is implemented by the host task
+below; installation and NAS qualification remain deployment requirements.
 
 [Economic audit 399](economic-audit-399-remediation.md) records the corrected
 economic profile and outstanding certification gates. Local acceptance tests
