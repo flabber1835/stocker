@@ -181,4 +181,8 @@ if ! CHAIN="$(${COMPOSE[@]} exec -T -u postgres sentinel-postgres \
     "complete base/WAL restore horizon failed validation"
 fi
 printf '%s\n' "$CHAIN"
+SEGMENTS="$(printf '%s\n' "$CHAIN" | sed -n 's/.* segments=\([0-9][0-9]*\).*/\1/p')"
+[[ "$SEGMENTS" =~ ^[0-9]+$ ]] || refuse "WAL_CHAIN_REPORT_INVALID" 4 "verified chain omitted segment count"
+printf 'backup_maintenance: age_seconds=%s wal_segments=%s wal_segment_bytes=%s\n' \
+  "$((NOW - MTIME))" "$SEGMENTS" "$WAL_BYTES"
 echo "backup_ready:true base=$LATEST age_hours=$AGE_HOURS wal_age_hours=$WAL_AGE_HOURS system_id=$SYSTEM_ID"

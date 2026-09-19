@@ -39,6 +39,9 @@ cleanup_staging() {
   local rc=$?
   if [ "$STAGING_CREATED" -eq 1 ]; then
     ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+      test ! -L /sentinel-backup/base/.sentinel-producer.lock
+      exec 9>>/sentinel-backup/base/.sentinel-producer.lock
+      flock -n 9 || exit 4
       staging="$1"
       case "$staging" in .base-*.part-*) ;; *) exit 2;; esac
       rm -rf -- "/sentinel-backup/base/$staging"
@@ -62,12 +65,6 @@ pitr_source_row() {
     "SELECT pg_snapshot_xmax(pg_current_snapshot())::text || '|' ||
             substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8)"
 }
-
-${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
-  find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d \
-    -name ".base-*.part-*" -exec rm -rf -- {} +
-  sync -f /sentinel-backup/base
-'
 
 MODE="$(${COMPOSE[@]} exec -T sentinel-postgres \
   psql -U sentinel -d sentinel -Atc "SHOW archive_mode")"
@@ -97,6 +94,14 @@ PITR_EPOCH_BEFORE="$(xid_epoch "$PITR_XID8_BEFORE")"
 
 STAGING_CREATED=1
 ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+  # Docker-client death does not kill an in-container copy. Serialize copy
+  # and abandoned-staging cleanup in the database container as well.
+  test ! -L /sentinel-backup/base/.sentinel-producer.lock
+  exec 9>>/sentinel-backup/base/.sentinel-producer.lock
+  flock -n 9 || exit 4
+  find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d \
+    -name ".base-*.part-*" -exec rm -rf -- {} +
+  sync -f /sentinel-backup/base
   staging="$1" final="$2"
   test ! -e "/sentinel-backup/base/$staging"
   test ! -e "/sentinel-backup/base/$final"

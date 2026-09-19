@@ -451,7 +451,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
                 _account_or_refuse(account, binding, expected_account)
                 from sentinel.paper_performance import scan_entitlements
                 scan_entitlements(
-                    conn, binding=binding.to_dict(), through=through_date, account=account)
+                    conn, binding=binding.to_dict(), through=through_date, account=account,
+                    informational_only=True)
                 activity_state = await _broker_cash_state_or_refuse(
                     conn, broker=broker, binding=binding,
                     through=observation_time)
@@ -580,7 +581,8 @@ async def prepare_paper_plan(*, conn, broker: ExecutionBroker, base_url: str,
             if existing_plan is not None:
                 from sentinel.paper_performance import scan_entitlements
                 scan_entitlements(
-                    conn, binding=binding.to_dict(), through=through_date, account=account)
+                    conn, binding=binding.to_dict(), through=through_date, account=account,
+                    informational_only=dual_mode)
                 _cash_authority_or_refuse(
                     conn, plan=existing_plan, deployment=binding.identity,
                     account=account, observation=observation,

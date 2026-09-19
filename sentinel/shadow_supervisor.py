@@ -34,7 +34,20 @@ LATCH_FILE = Path(os.environ.get("SENTINEL_STATE_DIR", "/var/lib/sentinel")) / "
 
 
 def _touch() -> None:
+    try:
+        supervisor_io.run(_touch_file)
+    except Exception as exc:
+        # A stale health file is visible externally. Continue enforcing the
+        # active worker's monotonic deadline even when this filesystem stalls.
+        supervisor_io.report(f"shadow heartbeat unavailable: {type(exc).__name__}")
+
+
+def _touch_file():
     HEARTBEAT_FILE.touch(exist_ok=True)
+
+
+def _latch_exists():
+    return LATCH_FILE.exists()
 
 
 def _enqueue_alert(*, idempotency_key: str, event_type: str,
@@ -136,6 +149,11 @@ def _latch(reason: str, *, failures: int | None = None) -> None:
         "failures": failures,
         "latched_at_unix": time.time(),
     }
+    supervisor_io.run(_persist_latch, payload, timeout=2)
+    _report_latch(reason, failures=failures)
+
+
+def _persist_latch(payload):
     LATCH_FILE.parent.mkdir(parents=True, exist_ok=True)
     try:
         with LATCH_FILE.open("x", encoding="utf-8") as stream:
@@ -149,6 +167,9 @@ def _latch(reason: str, *, failures: int | None = None) -> None:
             os.close(directory)
     except FileExistsError:
         pass  # The original refusal remains the incident evidence.
+
+
+def _report_latch(reason, *, failures=None):
     # The latch remains the local fail-closed authority.  This best-effort
     # projection gives the independent dispatcher one durable critical event
     # when PostgreSQL is still available; inability to report never clears or
@@ -183,6 +204,14 @@ def _latched_wait(stopping) -> int:
 def _health(max_age_seconds: float, *, config=None) -> int:
     """Require supervisor liveness plus a safe shadow recovery state."""
     try:
+        return supervisor_io.run(_health_snapshot, max_age_seconds, config, timeout=3)
+    except Exception as exc:
+        supervisor_io.report(f"REFUSED: shadow health dependency unavailable: {type(exc).__name__}")
+        return 1
+
+
+def _health_snapshot(max_age_seconds, config):
+    try:
         age = time.time() - HEARTBEAT_FILE.stat().st_mtime
     except OSError as exc:
         supervisor_io.report(f"REFUSED: shadow supervisor heartbeat absent: {exc}",
@@ -195,7 +224,8 @@ def _health(max_age_seconds: float, *, config=None) -> int:
         return 1
     if LATCH_FILE.exists():
         try:
-            detail = LATCH_FILE.read_text(encoding="utf-8")
+            with LATCH_FILE.open(encoding="utf-8") as stream:
+                detail = stream.read(4096)
         except OSError as exc:
             detail = f"unreadable critical latch: {exc}"
         supervisor_io.report(f"REFUSED: shadow supervisor critical latch: {detail}",
@@ -243,7 +273,12 @@ def run() -> int:
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     _touch()
-    if LATCH_FILE.exists():
+    try:
+        latched = supervisor_io.run(_latch_exists)
+    except Exception as exc:
+        supervisor_io.report(f"REFUSED: shadow latch state unavailable: {type(exc).__name__}")
+        return EXIT_REFUSED
+    if latched:
         return _latched_wait(lambda: stopping)
     while not stopping:
         active = subprocess.Popen(
@@ -302,10 +337,14 @@ def run() -> int:
             _touch()
             time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
     try:
-        HEARTBEAT_FILE.unlink(missing_ok=True)
-    except OSError:
+        supervisor_io.run(_remove_heartbeat)
+    except Exception:
         pass
     return 0
+
+
+def _remove_heartbeat():
+    HEARTBEAT_FILE.unlink(missing_ok=True)
 
 
 def main(argv=None) -> int:

@@ -5,6 +5,13 @@ economic profile and outstanding certification gates. Local acceptance tests
 do not qualify the NAS or grant paper transport authority. Certification and
 first GO remain blocked pending the evidence recorded there.
 
+[Autonomous paper readiness](autonomous-paper-readiness.md) implements recurring
+backup renewal, bounded supervisor filesystem checks and the owner's approved
+separation of informational paper reporting from current execution safety.
+Historical paper-performance certification is not a prerequisite for the rolling
+informational mirror. Signed paper admission, current reconciliation and NAS
+qualification still apply.
+
 Foreground backup selection requires a cluster-scoped record published by the
 updated verified backup command. Existing installations need a fresh verified
 base before runtime admission; see [bounded selection and rollout](backup-runtime-selection.md).
@@ -34,8 +41,8 @@ not refresh rolling data with legacy `feed-daily`.
 [Runtime manifest admission](backup-manifest-runtime-bound.md) caps a selected
 physical-backup manifest at 8 MiB before JSON parsing. Measure retained manifest
 sizes before qualification; an oversized selected base fences mutation without
-falling back to an older base. Directory discovery and recurring maintenance
-remain separate open gates.
+falling back to an older base. Runtime selection uses the bounded record above;
+recurring renewal uses the host maintenance task below.
 
 
 [Rolling paper inputs](rolling-paper-inputs.md) connects the paper gateway and
@@ -1862,8 +1869,17 @@ a retry can mistake for a complete segment. A mismatched or partial final file
 is a hard archive failure and PostgreSQL retains the source WAL for operator
 repair.
 
-Run base backup daily, status/age monitoring at least hourly, and a restore
-drill after every schema/certification change and at least monthly. Retention is
+Run `bash scripts/sentinel-backup-maintenance.sh` every five minutes and at host
+startup using the NAS task scheduler, under the same host identity/environment
+as the verified producer. Use the absolute checkout path as the working
+directory; configure failure notifications and retain its exit status and logs.
+Run the command once before enabling automation and verify `HEALTHY` or
+`RENEWED`. The default total work deadline is 900 seconds; adjust
+`--timeout-seconds` only within the measured NAS budget (maximum 3600).
+Overlapping invocations refuse under the physical-backup lock; they cannot
+duplicate a generation or clean a live in-container copy's staging directory.
+
+Run a restore drill after every schema/certification change and at least monthly. Retention is
 owned by the second target: keep at least seven daily and four weekly verified
 base backups plus all WAL needed from the oldest retained base. Never prune WAL
 until a newer base has passed both `pg_verifybackup` and the restore drill.
@@ -1873,8 +1889,11 @@ ceiling. With 16 MiB segments, timeline 1 admits at most 64 segments; a later
 timeline's history consumes additional bytes. At the configured five-minute
 archive timeout, continuing database activity can exhaust that horizon in
 roughly five hours, and higher WAL traffic can do so sooner. This is a modeled
-cadence, not a measured NAS rate. Proactive verified renewal, restart-safe
-maintenance ownership and retention remain an open implementation gate. See
+cadence, not a measured NAS rate. The maintenance task renews at 24 hours or half
+the runtime WAL byte/object ceilings, whichever comes first, and verifies the
+exact new generation. It recomputes obligations after restart and does not
+delete retained recovery evidence. NAS cadence/capacity qualification and the
+second target's retention policy remain deployment requirements. See
 the [combined review and local evidence](../audit/economic_399/backup_selection_integration/README.md).
 
 The supported backup overlay sets `SENTINEL_RUNTIME_BACKUP_AUTHORITY=REQUIRED_V1`

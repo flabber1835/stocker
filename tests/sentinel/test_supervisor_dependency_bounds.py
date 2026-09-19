@@ -100,3 +100,63 @@ def test_reconstructed_shadow_is_not_green_health(tmp_path, monkeypatch):
     monkeypatch.setattr(supervisor, 'LATCH_FILE', tmp_path / 'absent')
     monkeypatch.setattr(supervisor, 'service_health', lambda _: {'service_health': 'RECONSTRUCTION_PENDING'})
     assert supervisor._health(30, config=object()) == 1
+
+
+def test_filesystem_heartbeat_stall_cannot_hold_the_worker_deadline(monkeypatch):
+    from sentinel import shadow_supervisor as shadow
+    original = supervisor_io.run
+    monkeypatch.setattr(supervisor_io, 'run', lambda function, *args, **kwargs:
+                        original(function, *args, timeout=.1))
+    monkeypatch.setattr(shadow, '_touch_file', lambda: time.sleep(20))
+    monkeypatch.setattr(supervisor_io, 'report', lambda *a, **k: None)
+    started = time.monotonic()
+    shadow._touch()
+    assert time.monotonic() - started < 2
+
+
+def test_entire_shadow_health_read_is_bounded(monkeypatch):
+    from sentinel import shadow_supervisor as shadow
+    original = supervisor_io.run
+    monkeypatch.setattr(supervisor_io, 'run', lambda function, *args, **kwargs:
+                        original(function, *args, timeout=.1))
+    monkeypatch.setattr(shadow, '_health_snapshot', lambda *args: time.sleep(20))
+    monkeypatch.setattr(supervisor_io, 'report', lambda *a, **k: None)
+    started = time.monotonic()
+    assert shadow._health(30, config=object()) == 1
+    assert time.monotonic() - started < 2
+
+
+def test_holder_file_stall_refuses_before_starting_worker(monkeypatch):
+    original = supervisor_io.run
+    monkeypatch.setattr(supervisor_io, 'run', lambda function, *args, **kwargs:
+                        original(function, *args, timeout=.1))
+    monkeypatch.setattr(supervisor, '_write_holder', lambda *args: time.sleep(20))
+    monkeypatch.setattr(supervisor.subprocess, 'Popen', lambda *a, **k: pytest.fail('worker started'))
+    with pytest.raises(TimeoutError):
+        supervisor._spawn('stalled-filesystem')
+
+
+def test_unreaped_dependency_prevents_replacement(monkeypatch):
+    class Unreaped:
+        def is_alive(self): return True
+    monkeypatch.setattr(supervisor_io, '_UNREAPED', [Unreaped()])
+    monkeypatch.setattr(supervisor_io.multiprocessing, 'get_context',
+                        lambda *args: pytest.fail('replacement created'))
+    with pytest.raises(TimeoutError, match='not reaped'):
+        supervisor_io.run(lambda: None)
+
+
+def test_unknown_shadow_latch_cannot_start_worker(monkeypatch):
+    from sentinel import shadow_supervisor as shadow
+    original = supervisor_io.run
+    monkeypatch.setattr(supervisor_io, 'run', lambda function, *args, **kwargs:
+                        original(function, *args, timeout=.1))
+    monkeypatch.setattr(shadow, '_touch', lambda: None)
+    monkeypatch.setattr(shadow, '_latch_exists', lambda: time.sleep(20))
+    monkeypatch.setattr(shadow.ShadowServiceConfig, 'from_env', lambda: object())
+    monkeypatch.setattr(shadow.signal, 'signal', lambda *a: None)
+    monkeypatch.setattr(supervisor_io, 'report', lambda *a, **k: None)
+    monkeypatch.setattr(shadow.subprocess, 'Popen', lambda *a, **k: pytest.fail('worker started'))
+    started = time.monotonic()
+    assert shadow.run() == shadow.EXIT_REFUSED
+    assert time.monotonic() - started < 2

@@ -105,9 +105,10 @@ def test_legacy_opening_identity_uses_the_publication_reader(monkeypatch):
 
 
 @pytest.fixture
-def gateway(conn, published, monkeypatch):
+def gateway(conn, published, monkeypatch, request):
     result = approve(conn)
-    bound = binding.bind(conn, deployment_id="rolling-paper-test", broker="sim", broker_account_id="paper-fixture")
+    broker_name = getattr(request, "param", "sim")
+    bound = binding.bind(conn, deployment_id="rolling-paper-test", broker=broker_name, broker_account_id="paper-fixture")
     conn.execute("INSERT INTO sentinel_system_certificates "
                  "(certificate_sha256,manifest_bytes,manifest,allowed_rollout_modes) "
                  "VALUES (%s,'{}'::bytea,'{}'::jsonb,'[\"CONTROLLER\"]'::jsonb)", ("a" * 64,))
@@ -116,7 +117,7 @@ def gateway(conn, published, monkeypatch):
     conn.execute("INSERT INTO sentinel_rollout_events (version,from_mode,to_mode,certificate_sha256,reason) "
                  "VALUES (2,'PINNED_1_00','CONTROLLER',%s,'test certificate fixture')", ("a" * 64,))
     conn.commit()
-    broker = SimulatedBroker(account=BrokerAccountIdentity("sim", "paper-fixture"),
+    broker = SimulatedBroker(account=BrokerAccountIdentity(broker_name, "paper-fixture"),
                              equity=Decimal("250000"), cash=Decimal("250000"))
     monkeypatch.setattr(inspection, "require_certified", certification.require_certified_adapter)
     # Offline signed certificate issuance is covered by the existing authority
@@ -137,8 +138,9 @@ def prepare(conn, broker, **overrides):
 
 
 @pytest.mark.parametrize("opening_capability", [False, True])
+@pytest.mark.parametrize("gateway", ["alpaca"], indirect=True)
 def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(
-        conn, gateway, monkeypatch, opening_capability):
+        conn, gateway, operational_source, monkeypatch, opening_capability):
     shadow, bound, broker = gateway
     monkeypatch.setattr(preparation, "_fresh_warmed_state", lambda *_a, **_k: pytest.fail("second strategy book"))
     monkeypatch.setattr(preparation.catchup, "resume_state", lambda *_: pytest.fail("legacy strategy read"))
@@ -212,6 +214,41 @@ def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(
     assert len(journal.load_commands(conn, bound.identity, plan_id=first.plan.plan_id)) == len(result.session.submitted)
     assert paper.current_paper_plan(conn, dual_shadow_observation_id=OBS,
         dual_shadow_starting_cash=100000)["plan"]["plan_id"] == first.plan.plan_id
+
+    # Forward paper preparation does not need a certified historical close.
+    # Continue through real publication, shadow transition and reconciliation.
+    from tests.sentinel.test_rolling_daily import refresh
+    # Durable succeeded-cycle evidence exercises the legacy finalization
+    # branch too; merely preparing a second plan would not reach that gate.
+    _, decision_close = calendar.session_window(DAY)
+    _, execution_close = calendar.session_window(first.plan.effective_session)
+    conn.execute("INSERT INTO sentinel_automation_cycles (cycle_id,state,decision_session,"
+        "effective_session,deployment_id,broker,broker_account_id,takeover_epoch,"
+        "control_generation,certificate_sha256,rollout_mode,rollout_version,config_sha256,"
+        "decision_close_at,prepare_at,execution_open_at,execute_at,execution_close_at,plan_id) "
+        "VALUES ('rolling-test-cycle','SUCCEEDED',%s,%s,'rolling-paper-test','alpaca',"
+        "'paper-fixture',%s,1,%s,'CONTROLLER',2,%s,%s,%s,%s,%s,%s,%s)",
+        (DAY, first.plan.effective_session, bound.takeover_epoch, "a" * 64, "b" * 64,
+         decision_close, NOW, opened, opened + timedelta(seconds=60), execution_close, first.plan.plan_id))
+    conn.commit()
+    broker.capabilities = replace(broker.capabilities, account_close_valuation=False,
+                                  recent_fill_history=False)
+    monkeypatch.setattr(preparation, "_finalize_due_succeeded_cycle_or_refuse",
+                        lambda *a, **k: pytest.fail("historical certification blocked forward paper"))
+    refresh(conn, operational_source, monkeypatch)
+    next_day = "2026-09-15"
+    advanced = rolling_runtime.advance(conn, through=next_day, observation_id=OBS, starting_cash=100000)
+    next_plan = prepare(conn, broker, through=next_day, now_et=NOW + timedelta(days=1))
+    assert next_plan.plan.plan_id != first.plan.plan_id
+    assert next_plan.state_fingerprint == advanced.state.state_hash
+    assert prepare(conn, broker, through=next_day, now_et=NOW + timedelta(days=1)).plan == next_plan.plan
+    assert len(journal.load_commands(conn, bound.identity, plan_id=first.plan.plan_id)) == len(result.session.submitted)
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone()[0] == 0
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_processed_sessions "
+                        "WHERE cursor_name LIKE 'paper-entitlement-gap:v1:%'").fetchone()[0] == 1
+    broker.cash -= Decimal(10)
+    with pytest.raises(paper.PaperActivationRefused, match="cash.*not explained"):
+        prepare(conn, broker, through=next_day, now_et=NOW + timedelta(days=1))
 
 
 def test_rolling_preparation_refuses_non_shadow_mode_before_broker_read(conn, gateway, monkeypatch):

@@ -116,9 +116,10 @@ def _retain(conn, payload, session):
                      (key, session, encoded))
 
 
-def require_durable_coverage(conn, binding):
+def require_durable_coverage(conn, binding, *, allow_incomplete=False):
     """A partial/absent cached history cannot freeze a dividend entitlement."""
     from sentinel.trial import TrialEvidenceRefused
+    complete = True
     with conn.cursor() as cur:
         cur.execute(
             'SELECT c.client_key,c.state,c.filled_quantity,c.filled_average_price,'
@@ -133,6 +134,17 @@ def require_durable_coverage(conn, binding):
             if CommandState(state) in IN_FLIGHT:
                 raise TrialEvidenceRefused('paper dividend ownership has unresolved commands: ' + key)
             quantity, filled, gross = map(Decimal, (quantity, filled, gross))
+            if allow_incomplete and filled < quantity:
+                if (not all(value.is_finite() for value in (quantity, filled, gross))
+                        or filled < 0 or gross < 0 or average is None
+                        or not Decimal(average).is_finite() or Decimal(average) <= 0
+                        or (filled == 0 and gross != 0)
+                        or (filled > 0 and gross <= 0)
+                        or Fraction(gross) >= Fraction(quantity) * Fraction(average)):
+                    raise TrialEvidenceRefused('paper dividend ownership has contradictory native fills: ' + key)
+                complete = False
+                continue
             if (quantity != filled or (quantity and
                     (average is None or Fraction(gross) != Fraction(quantity) * Fraction(average)))):
                 raise TrialEvidenceRefused('paper dividend ownership lacks complete native fills: ' + key)
+    return complete
