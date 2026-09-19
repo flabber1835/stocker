@@ -118,3 +118,35 @@ def test_unsupported_native_correction_retains_diagnostic_without_publishing(con
     assert saved[0][0]['raw_event']['details']['execution_type'] == execution_type
 
 __all__ = ['conn', 'pg']
+
+
+@pytest.mark.parametrize('field,value', [('qty', 'NaN'), ('qty', '0'),
+    ('price', '-1'), ('price', 'bad'), ('executed_at', 'not-a-time')])
+def test_malformed_native_economics_retains_raw_diagnostic(conn, field, value):
+    owner, _, broker, http, events = prior.fixture(conn, native_quantities=('10',))
+    events[0][field] = value
+    http.routes['/v2beta1/events/activities'] = prior.Response(text=prior.sse(*events))
+    result = asyncio.run(R.reconcile(broker=broker, conn=conn, binding=None, deployment=owner.identity))
+    assert result.runtime_state is not RuntimeState.RUNNING
+    assert conn.execute('SELECT count(*) FROM sentinel_fills').fetchone()[0] == 0
+    saved = conn.execute("SELECT state FROM sentinel_processed_sessions WHERE cursor_name LIKE 'native-fill-refusal:%'").fetchall()
+    assert len(saved) == 1
+    assert saved[0][0]['raw_event'][field] == value
+
+
+def test_complete_native_history_cannot_replace_durable_execution_ids(conn):
+    from copy import deepcopy
+    owner, _, broker, http, events = prior.fixture(conn, native_quantities=('10',))
+    result = asyncio.run(R.reconcile(broker=broker, conn=conn, binding=None, deployment=owner.identity))
+    assert result.runtime_state is RuntimeState.RUNNING
+    original = conn.execute('SELECT fill_key,quantity,price FROM sentinel_fills').fetchall()
+    changed = deepcopy(events)
+    changed[0]['ref_id'] = '33333333-3333-3333-3333-000000000001'
+    changed[0]['event_id'] = '01J5R000000000000000099999'
+    http.routes['/v2beta1/events/activities'] = prior.Response(text=prior.sse(*changed))
+    for _ in range(2):
+        result = asyncio.run(R.reconcile(broker=broker, conn=conn, binding=None, deployment=owner.identity))
+        assert result.runtime_state is RuntimeState.RECONCILING
+        assert result.observation.terminal_recovery_through is None
+        assert conn.execute('SELECT fill_key,quantity,price FROM sentinel_fills').fetchall() == original
+    assert conn.execute("SELECT count(*) FROM sentinel_processed_sessions WHERE cursor_name LIKE 'native-fill-refusal:%'").fetchone()[0]

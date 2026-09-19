@@ -1,5 +1,5 @@
 """Validate native execution history before it becomes economic authority."""
-from dataclasses import asdict
+from dataclasses import asdict, replace
 from decimal import Decimal
 from fractions import Fraction
 import hashlib
@@ -63,6 +63,38 @@ def retain_refusal(conn, observation, reason):
     payload = {'schema': 'sentinel.native-fill-refusal/1', 'reason': str(reason),
                'observation': asdict(observation)}
     _retain(conn, payload, observation.observed_at.date())
+
+
+def validate_durable(conn, observation, orders):
+    """Validate the immutable union, including across producer reads/restarts.
+
+    Reconciliation holds the account's single-writer lock until publication.
+    Rows from a previous accepted read cannot disappear or acquire a second ID.
+    """
+    from sentinel.execution.contract import BrokerFill
+    from sentinel.execution.journal import fill_fingerprint
+
+    incoming = {fill_fingerprint(f): f for f in observation.fills}
+    merged = dict(incoming)
+    rows = conn.execute(
+        'SELECT fill_key,broker_order_id,client_key,quantity,price,filled_at '
+        'FROM sentinel_fills WHERE broker_order_id=ANY(%s) OR fill_key=ANY(%s)',
+        (list(orders), list(incoming))).fetchall()
+    for key, order_id, client_key, quantity, price, filled_at in rows:
+        current = incoming.get(key)
+        if current is not None:
+            order = orders.get(current.broker_order_id)
+            if (order_id != current.broker_order_id or order is None
+                    or client_key not in (None, order.client_key)
+                    or quantity != current.quantity or price != current.price
+                    or filled_at != current.filled_at):
+                raise ValueError('native fill contradicts immutable durable execution')
+        elif observation.fill_history_complete:
+            raise FillHistoryIncomplete('complete native history omitted durable execution identity')
+        else:
+            merged[key] = BrokerFill(broker_order_id=order_id, client_key=client_key,
+                quantity=quantity, price=price, filled_at=filled_at)
+    validate(replace(observation, fills=tuple(merged.values())), orders)
 
 
 def retain_native_refusal(conn, identity, reason):

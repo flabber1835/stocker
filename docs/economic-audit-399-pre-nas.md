@@ -1,0 +1,208 @@
+# Economic audit 399: pre-NAS review and qualification handoff
+
+**Certification remains BLOCKED.** This record supplements the
+[finding ledger](economic-audit-399-remediation.md), not the production certificate.
+Review started at PR #402 head `97a5fb45f010848dc68569b91b611494a589c59a`,
+on independently fetched main `aff4461d9af6d4a7367018768fda18d948958b49`.
+The complete PR changes, original issue findings and retained acceptance probes
+were reviewed; the last test-only commit was not treated as the review scope.
+No NAS access or real broker requests occurred. All HTTP broker responses used
+below are deterministic fixtures. Public provider documentation was read.
+
+## Additional defects found
+
+| Finding | Severity | Defect and correction | Independent acceptance |
+|---|---|---|---|
+| C2 compound event | P2 | `controller/terminal_returns.py:values` omitted the source's same-session split before terminal consideration. A 2:1 split followed by $50 cash per new share falsely halved a $100 notional holding. Apply the source share multiplier first; do not double-apply a delivered-security split. Champion economic schema is now `audit399-decimal-terminal/2`. | Six cash/stock/mixed forward/reverse split cases; warmed canonical book and production kernel for held and unheld sensor members, with JSON restart and unchanged prior state. |
+| F19 across observations | P2 | `execution/reconcile.py` validated each response independently. Replacing a complete ten-share fill with a different native ID journaled twenty shares and still returned RUNNING. `fill_integrity.validate_durable` validates retained plus incoming economics and requires complete responses to include retained identities before observation publication. | Previously accepted history followed by replacement IDs refuses repeatedly and preserves original rows; six-then-four progression over fresh SQL connections retains ten shares/$1,000 and exactly two alerts. |
+| F14 missing origin | P2 | `restore_validation._rolling_closure` accepted surviving strategy history with a missing origin as an uninitialized restore. It now checks the existing lineage inventory before returning an empty result. | Actual SQL loss of the origin fails; intact, genuinely uninitialized, damaged HMAC and damaged snapshot cases distinguish the boundaries. |
+| F19 diagnostic retention | P3 | Malformed quantity/price/execution-time parsing could refuse without retaining the raw event. It now uses the account-bound diagnostic path; no economic rows are written. | Invalid decimal, zero/negative economics and malformed time retain the offending field and no fills. |
+
+The first two new probes failed **7 cases** on the unfixed implementation; the
+missing-origin probe separately failed **1 case**. These red results are retained.
+Removing each economic/restore guard must break its passing acceptance test.
+No golden bytes, xfail declarations, capability flags or live safety settings
+were changed. Adapter registry prose was corrected because it overstated cash
+and restore authority that the actual capability gates refuse.
+
+## Requirement-to-caller review
+
+Paths below are under `sentinel/` unless prefixed `shared/`. The existing ledger
+lists exact acceptance files; this table records what those tests establish and
+where an apparently passing test would be insufficient.
+
+| Findings | Production and durable path reviewed | Local disposition and limit |
+|---|---|---|
+| F1/F3 | `rolling_runtime` → `rolling_daily` → `core/rolling_continuity.prepare` → dated `SnapshotReferences` → checkpoint | Common rational source-precision interval, exact raw economics and historical alias boundaries; current rename acceptance and nonuniform-revision refusal. A factor-of-two-only fixture is insufficient. Provider historical identity provenance remains a separate data gate. |
+| F2 | `wealth_core.v5.admission/opening_quantity` → canonical adapter and `execution/opening_sizing` | Both intended budget and affordability floor the same exact decimal-spelled quotient. The 25-share $2,582.0795 oracle and adjacent prices/budgets exercise both callers. Canonical float state is not claimed to be a Decimal ledger. |
+| F4 | `rolling_go_inputs`/`operational_snapshot` → `rolling_jobs.enqueue/expire` | Request lock, retained expiry and one successor cover the original stranded first attempt. This does not clear #400's supervisor handling of an active lease/source wait. |
+| F5/F7 | executor SEND_PENDING/outcome commits → automation result routing/callback death → recovery and journal | Mixed refusal and callback death preserve observation obligations; absent exact-key reads preserve UNKNOWN and block replacement. Positive original-order facts can converge. No finite local wait proves request finality. |
+| F8 | configured `AssetIdAlpacaExecutionBroker` → nested observation → candidate SSE | Real nested call is blocked without the accepted capability, including when the fake endpoint is reachable. Fixture opt-in is explicitly simulator-only. Availability is not completeness. |
+| F9/F10/C2 | canonical close plan serialization → kernel → shadow weights/controller; peak stop → pending exit → next-open ledger | Sub-cent NAV, exact inclusive stop, terminal price-return consideration and same-session split are independently checked. Calling the same kernel twice only proves restart equivalence; it is not an economic oracle. |
+| F11 | cash grace cursor and strict recovery completion → persisted numeric identity | Equal decimal spellings retain one identity; changed economics still refuse. No elapsed grace is converted into provider finality. |
+| F12/F13 | alert service incident enqueue → outbox claim → Web Push per-device result → final attempt result | Leader-independent incident and unique process holder; attempt and expiry fence final and per-device writes. A new HTTP takeover test proves the old response cannot finish its successor. HTTP acceptance/SQL-ack loss can still cause a repeated physical push; stable tag is not exactly-once delivery proof. |
+| F14/F15 | restore entrypoint → rolling origin/daily/authenticated shadow/current snapshot; publication commitments → retained coverage → action reader | Missing origin/coverage, damaged current payload and authenticated history are checked. Historical price retirement remains permitted. Local physical replay is structural evidence, not predecessor broker completeness. |
+| F16 | PAPER preparation → `paper_performance.scan_entitlements` → complete source payer/alias set → scoped price requirements | Unrelated sparse payers do not demand absent prices; affected owned payers must be priced. Native ownership coverage is checked before permanent quarantine is written. No broker cash is invented. |
+| F17/F18 | current/adopted/planless PAPER recovery → earliest durable command basis → retained action lookup → journal reconciliation | Newer shadow state does not reinterpret old target intent. Original command quantities remain native; expected holdings age through complete action history, including exited positions and BIL. Authorization seams in fixtures do not qualify deployed issuance/leases. |
+| F19 | native parser → exact order join → response and durable-union validation → observation/fill journal → notifications/entitlement scanner | Identity, chronology, cumulative quantity/notional, repeated reads and partial progression covered. Corrections/busts refuse append-only accounting; no reversal implementation or accepted average-price rounding rule is claimed. |
+| C1/F6 | candidate cash producer → `broker_cash` rows/cursor/baseline transaction → `paper/cash` | Generic accepted-input arithmetic and crash/retry atomicity are locally testable. They do not establish that the actual provider supplies an accepted complete/final producer. |
+| C3 | physical incarnation → binding takeover epoch → `recovered_order_policy` → strict watermark | Fresh process rejects prefix-only ownership and fences takeover epoch >1. Existing local journal provenance and restored bytes cannot prove omitted predecessor broker activity. |
+
+## Gates that local passing tests cannot close
+
+### Provider and implementation gates
+
+* **C1/F6, P1 certification blocker:** `sentinel/paper/cash.py:188` and
+  `sentinel/execution/alpaca.py:1946`. Production financial activity remains
+  unaccepted. A deposit, fee or distribution cannot be inferred from an empty
+  response or normalized away after cash grace. Require an account-bound,
+  exhaustive cursor/replay contract, correction semantics, cash classification,
+  and a separately evidenced fixed-close finality horizon. The generic cash
+  fixtures explicitly supply this contract; the production adapter does not.
+* **F19, P2 accounting/capability blocker:** `sentinel/execution/alpaca.py:1715`
+  and `sentinel/execution/fill_integrity.py:16`. Candidate history remains
+  disabled. Corrections/busts require reviewed reversal/replacement accounting;
+  the exact cumulative-average comparison deliberately refuses undocumented
+  rounding rather than choosing a tolerance. Late publication and endpoint
+  coherence remain provider questions, not proof supplied by a local replay.
+* **C3, P1 restored-transport blocker:**
+  `sentinel/execution/recovered_order_policy.py:75`. Keep the takeover fence.
+  Ordinary pagination, DAY expiry, a Sentinel-looking key and a restored local
+  table cannot authenticate missing predecessor commands or their outcomes.
+  Need a provider-backed account/interval completeness contract plus retained
+  command preimages and an accepted recovery protocol. No automatic adoption
+  or capability promotion is added here.
+
+Alpaca's [Activity SSE guide](https://docs.alpaca.markets/us/docs/activity-sse)
+distinguishes publication IDs, economic IDs and execution time, and describes
+backfills plus correction/bust links. Its timestamp-filtered snapshot is not
+proof that no later financial event can appear. The guide's Broker API context
+also requires separate validation of the exact Trading paper account surface.
+The [Trading order-list reference](https://docs.alpaca.markets/us/reference/getallorders-1)
+documents bounded pagination and submission-time filters. Neither reviewed page
+establishes the fixed-close, request-finality, predecessor-completeness or
+cumulative-average precision guarantees required here. This is a statement of
+the evidence found, not a claim that the provider can never offer a guarantee.
+
+### #400 dependencies: code work is not NAS-only evidence
+
+The relevant inherited blockers remain on
+[issue 400](https://github.com/flabber1835/stocker/issues/400). PR #402 does not
+claim to remediate that entire autonomy audit. A8/A9/A10 and the A21 restore
+extension overlap F5/F3/F1/F14; their local corrected claims are bounded above.
+The other issues below must retain explicit code dispositions before unattended
+qualification. A physical NAS run alone cannot repair them.
+
+| Dependency | Severity retained | Current source / remaining requirement |
+|---|---|---|
+| A1/A17/A24/A27 | P1/P2 | Supervisor database/log I/O, callback deadlines, deployment health and post-retention diagnostics must have independent bounds. `automation_supervisor.py`, `shadow_supervisor.py`, deployment driver and `feed/retention.py` remain separate review/fix work. |
+| A2/A3/A4/A11/A13/A20 | P1 | `rolling_runtime.service_advance`, shadow supervisor, automation dependency classification and backup guard must recover missed sessions/opens and transient outages without latching away durable obligations. The F5 execution exception fix does not clear every callback phase. |
+| A5 (original)/A6 (backup duplicate) | P1 | Backup guard refusal is safe; recurring base-backup scheduling/rollover still needs autonomous lifecycle implementation and target evidence. |
+| A6 notifications/A18/A19/A25 | P2 (A19 P2) | `automation/outbox.mark_failed` still dead-letters at the attempt limit; `web_push.deliver` still uses `all()` for mixed recipient retryability. Endpoint rotation, recurring incident identity, missing-control alarms and panel event-loop SQL remain separate defects. Per-attempt fencing does not solve delivery continuity. |
+| A12/A14/A15/A16 | P1/P2 | Whole-snapshot status cost, recent SIP entitlement admission, returning-security state and held spinoff continuation need their own accepted dispositions; a tiny synthetic universe cannot establish production resource bounds. |
+| A21/A22/A23/A26 | P1/P2 | Rolling first-install/admission/readers, DUAL mode propagation, standby fencing around migration and effective Dockerfile selection remain deployment-code dependencies. Restore validation fixes only the explicitly shared F14 subset. |
+
+The original audit's global mechanical candidate inventory is not equivalent
+to semantic proof. This PR review and its targeted campaigns do **not** certify
+exhaustion of all indirect callers, arbitrary compound failures, all #400/#401
+paths or every production-sized event sequence. Those open review obligations
+must not be relabeled as provider-only or NAS-only blockers.
+
+## Historical data and reference disposition
+
+Both immutable historical source `5afba080859f25ea65fdb82da9ba54b442bac368`
+and current source were freshly replayed on the unchanged synthetic golden
+scenario. Six retained independent reconciliation tests pass. Historical cash
+is $34,868.23464; current cash is $34,824.73117999994 (exact event arithmetic
+$34,824.73118). The three changed purchases at ledger indexes 35, 36 and 39
+add $239.57934, -$239.55932 and $43.48344 of spend: total **$43.50346**.
+The documented exit-session age-zero cooldown explains their dates. Earned
+unsettled receivables explain the separate $167 ex-date NAV difference.
+Both runs retain 41 events and 24 ending positions. Full replay captures are
+retained; old and current result/state/ledger hashes remain distinct.
+
+The three original golden assertions were deliberately run with `--runxfail`:
+all three still fail against the obsolete reference. The measurement assertion
+fails before measurement executes. This does not demonstrate nondeterminism or
+measurement mutation. No golden or xfail was changed and no new compatibility
+reference was approved.
+
+**Corrected champion history remains data-dependent.** Missing inputs are the
+complete authenticated Sharadar SEP history, SFP SPY/BIL benchmark history,
+ACTIONS/terminal terms, dated TICKERS/issuer/exchange/alias authority, and the
+matching manifest/publication/rejection provenance for the selected historical
+window and warmup. The retained research tape/dataset digest
+`5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993`
+does not substitute for those production inputs. No matching complete raw
+corpus is available in the inspected checkout. Snapshot TICKERS without dated
+effective history is insufficient for a point-in-time claim.
+
+When those inputs are provided: hash and inventory them; validate domains,
+coverage, actions and dated identities; pin one read-only publication; drive
+`production_strategy`, `warm_session_state` and `advance_session` in session
+order through the measurement window. Retain every input/state/ledger hash and
+controller decision, with scheduled JSON/process restarts. Compare against
+the prior implementation on the **same** inputs, decompose share/cash/action/
+terminal/cooldown/exposure deltas, and independently sum economic events.
+Decision-at-close versus effective-next-open alignment must be explicit.
+Do not use `tools/sentinel_forward_chain.py` as a compact-champion certificate:
+it pins the older Sentinel 1.1 rule/reference. A corrected-profile replay driver
+and reviewed economic reference are still required; inventing metrics without
+the corpus would hide that gap.
+
+## Concrete NAS handoff (not executed here)
+
+1. Before NAS qualification, resolve or explicitly review the code/provider/data
+   blockers above, merge through owner review, and require successful CI for
+   the exact accepted commit. Record source SHA, image digest, configuration
+   digest, strategy economic schema and accepted capability evidence. Preserve
+   all previous failed GO attempts. No earlier certificate transfers to /2.
+2. Authorized operator first records read-only inventory: `git rev-parse HEAD`,
+   `git status --short`, `docker ps --format '{{.Names}} {{.Image}} {{.Status}}'`,
+   and `docker image inspect <reviewed-image> --format '{{.Id}}'`. Run
+   `bash scripts/sentinel-backup-status.sh` under the reviewed maintenance
+   environment. Retain sanitized output; do not dump credential environments.
+   **Fail** on source/image mismatch, missing failed-attempt history, missing
+   backup/WAL identity, mixed runtime or an unexplained authority generation.
+3. On an isolated restored database, using the exact accepted runtime and no
+   broker credentials/network, run `python -m sentinel.restore_validation` with
+   `SENTINEL_DATABASE_URL` pointing only to that clone. Run the retained local
+   acceptance commands below under the reviewed test image. **Pass** requires
+   read-only semantic validation, rolling origin/current checkpoint/shadow and
+   action closure, exact cash/fill/command reconstruction, and refusal of each
+   corrupted fixture. A structural pass grants neither GO nor broker authority.
+4. With separate operator authorization, run
+   `bash scripts/sentinel-restore-drill.sh --backup <completed-base-path>`.
+   This creates a disposable restore and appends a proof after success; it is
+   not a purely read-only primary operation. Retain base manifest, system ID,
+   timeline, marker/XID/LSN, WAL checksums, replay target, semantic report and
+   final backup proof. **Fail** on any missing segment, wrong branch/target,
+   changed economic state, retained-history loss or absent current snapshot.
+   Physical-only success cannot satisfy semantic qualification.
+5. Run the accepted full corpus replay on an isolated copy as specified above.
+   Inventory exported raw inputs with
+   `python scripts/sentinel-corpus-inventory.py --sharadar <export-root> --deep --out <new-evidence>/corpus.json`.
+   **Pass** requires complete causal input authority and independently explained
+   deltas; no unexplained mismatch, hidden xfail or golden rewrite is acceptable.
+6. Only after provider contracts and a separately approved paper-account test
+   plan exist, qualify cash/fill/backfill/correction/request and predecessor
+   histories on the exact intended provider surface. Retain native IDs, query
+   boundaries, account binding, complete pages/cursors, execution/publication
+   clocks, endpoint observations and rejected contradictions. **Fail** if empty
+   reads, elapsed time or test-only capability switches supply finality.
+7. Qualify restart/reboot, prolonged source/database outage, missing sessions,
+   full log/storage/backpressure, lease/generation takeover, backup rollover,
+   retention and real-device push/rotation on the target topology. Retain
+   bounded completion times, memory/disk peaks and each durable transition.
+   **Fail** on abandoned uncertain commands, replacement transport, lost alerts,
+   incomplete restore or violation of the documented operational budgets.
+
+The operator must keep provider acceptance, replay compatibility, physical
+restore and unattended runtime qualification as separate verdicts. Issue 399
+remains open until every required gate has affirmative, reviewed evidence.
+
+## Local execution record
+
+The final reviewed code commit, commands, runtime, results and evidence hashes
+are recorded with the completion of this review below. Test counts across
+campaigns overlap and must not be added as a unique coverage number.

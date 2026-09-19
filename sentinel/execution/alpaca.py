@@ -1856,9 +1856,12 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                     raise MalformedBrokerPayload(
                         f"Activity SSE event {event_id} business time lies "
                         "outside the requested bounded snapshot")
-                _required_aware_ts(
-                    event.get("executed_at"),
-                    where=f"Activity SSE {event_id} execution time")
+                try:
+                    _required_aware_ts(
+                        event.get("executed_at"),
+                        where=f"Activity SSE {event_id} execution time")
+                except MalformedBrokerPayload as exc:
+                    raise MalformedBrokerPayload(str(exc), raw_event=event) from exc
                 settle_date = event.get("settle_date")
                 try:
                     if not isinstance(settle_date, str):
@@ -2249,23 +2252,26 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             if execution_type != 'fill' or not asset_id or side not in {'buy', 'sell'}:
                 raise MalformedBrokerPayload(
                     'TRD native asset/side/execution type missing or unsupported', raw_event=event)
-            fills.append(NativeBrokerFill(
-                activity_id=str(event["ref_id"]),
-                asset_id=asset_id, side=Side.BUY if side == 'buy' else Side.SELL,
-                raw=dict(event),
-                client_key=(str(details.get("client_order_id"))
-                            if details.get("client_order_id") else None),
-                broker_order_id=order_id,
-                quantity=_required_dec(
-                    event.get("qty"),
-                    where=f"TRD {event.get('event_id')} qty"),
-                price=_required_dec(
-                    event.get("price"),
-                    where=f"TRD {event.get('event_id')} price"),
-                filled_at=_required_aware_ts(
-                    event.get("executed_at"),
-                    where=f"TRD {event.get('event_id')} executed_at"),
-            ))
+            try:
+                fills.append(NativeBrokerFill(
+                    activity_id=str(event["ref_id"]),
+                    asset_id=asset_id, side=Side.BUY if side == 'buy' else Side.SELL,
+                    raw=dict(event),
+                    client_key=(str(details.get("client_order_id"))
+                                if details.get("client_order_id") else None),
+                    broker_order_id=order_id,
+                    quantity=_required_dec(
+                        event.get("qty"),
+                        where=f"TRD {event.get('event_id')} qty"),
+                    price=_required_dec(
+                        event.get("price"),
+                        where=f"TRD {event.get('event_id')} price"),
+                    filled_at=_required_aware_ts(
+                        event.get("executed_at"),
+                        where=f"TRD {event.get('event_id')} executed_at"),
+                ))
+            except (MalformedBrokerPayload, ValueError) as exc:
+                raise MalformedBrokerPayload(str(exc), raw_event=event) from exc
         return tuple(fills)
 
     async def recent_fills(

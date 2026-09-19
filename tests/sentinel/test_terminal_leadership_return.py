@@ -16,7 +16,8 @@ from stock_strategy_shared.wealth_core import v5
 from stock_strategy_shared.wealth_core.terminal import TerminalTerms, TerminalKind
 
 @pytest.mark.parametrize('sid,held', [('0',True),('5',False)])
-def test_complete_cash_terminal_earns_return_before_leaving_sensor(sid, held):
+@pytest.mark.parametrize('split', [1, 2, .5])
+def test_complete_cash_terminal_earns_return_before_leaving_sensor(sid, held, split):
     env, meta, _stages = canonical_two_days(0.)
     assert sid in env.median5['selected']
     assert any(ep['security_id']==sid for ep in env.wealth_core['episodes'].values()) is held
@@ -24,10 +25,14 @@ def test_complete_cash_terminal_earns_return_before_leaving_sensor(sid, held):
     all_days=calendar.previous_sessions('2026-08-11',253)[:-1]+['2026-08-11','2026-08-12',session]
     spy={d:100+i*.05 for i,d in enumerate(all_days)}
     days=calendar.previous_sessions(session,210)
-    term=TerminalTerms(session,sid,TerminalKind.CASH_MERGER,cash_per_share=110.,reference='audit-complete-cash-deal')
+    term=TerminalTerms(session,sid,TerminalKind.CASH_MERGER,cash_per_share=110./split,reference='audit-complete-cash-deal')
     assert term.completeness(10 if held else 0)==(True,'')
     bars=[VendorBar(session=session,security_id=k,ticker=m.ticker,raw_open=100.,raw_close=100.,volume=1e6,signal_close=100.)
           for k,m in meta.items() if k!=sid]
+    if split != 1:
+        bars.append(VendorBar(session=session, security_id=sid, ticker=meta[sid].ticker,
+            raw_open=100./split, raw_close=100./split, volume=1e6,
+            signal_close=100., split_ratio=split))
     published=PublishedSession(session,7,bars,meta,{k:'Sector' for k in meta},[spy[d] for d in days],
         spy_sessions=days,spy_expected_sessions=days,terminal_events=(term,))
     # Independent invocation of the same canonical book transition used by the kernel.

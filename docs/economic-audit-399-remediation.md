@@ -74,6 +74,30 @@ current shadow, generation, time and execution-authority check.
 
 ## Finding ledger
 
+### Pre-NAS follow-up decisions
+
+The prior-session notional leadership share undergoes a source split before
+same-session terminal consideration, matching the canonical corporate-action
+ordering. Multiply terminal consideration by that source share multiplier
+before translating the retained prior raw/signal basis. A delivered-security
+split is already reflected in its current price and contractual exchange terms.
+The corrected champion economic schema advances to `audit399-decimal-terminal/2`;
+the old schema and historical reference remain evidence, not authority.
+
+Native fill acceptance must also compare the incoming set with durable history
+before publishing an observation. An individually coherent replacement set of
+new activity IDs must not add a second economic copy of already retained fills.
+Validate the immutable union against the exact order's cumulative quantity and
+notional; complete lifetime history must include all previously retained IDs.
+Retain contradictions as diagnostics and publish no normal fills or watermark.
+This strengthens local consumers without accepting provider completeness.
+
+Restore must distinguish an uninitialized rolling publication from missing
+origin evidence. Surviving strategy lineage without its origin is corrupt,
+including when no daily checkpoint has yet been written. It cannot be reported
+as a valid empty restore. Numeric and execution-time parser refusals retain
+the same account-bound raw diagnostic as native identity/type refusals.
+
 F1 permits a uniform adjusted-price scale only when every overlapping pair
 admits one common positive factor within the source's published mill precision.
 Intersect rational rounding intervals; do not compare rounded ratios or use a
@@ -130,7 +154,8 @@ terminal events or a missing source price basis refuse. The witness does not
 read broker holdings, and source identity changes bind this economic revision.
 
 Corrected admission/opening uses `wealth-core-v5-total-cash-open-sizing-v2`.
-The compact champion configuration also binds `audit399-decimal-terminal/1`.
+The initial compact champion remediation bound `audit399-decimal-terminal/1`;
+the pre-NAS split/terminal correction advances it to `audit399-decimal-terminal/2`.
 Historical reference metrics remain attached to the original implementation;
 neither a previous certificate nor an old restart profile authorizes this one.
 This first deployment needs fresh reviewed authority, not a state migration.

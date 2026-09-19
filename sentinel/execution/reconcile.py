@@ -593,6 +593,7 @@ async def reconcile(*, broker: ExecutionBroker, conn, binding,
     from sentinel.execution import fill_integrity
     try:
         fill_integrity.validate(observation, orders_by_broker_id)
+        fill_integrity.validate_durable(conn, observation, orders_by_broker_id)
     except ValueError as exc:
         fill_integrity.retain_refusal(conn, observation, exc)
         return ReconciliationResult(

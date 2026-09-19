@@ -90,6 +90,8 @@ def _rolling_closure(conn):
     if initial is None:
         if daily is not None:
             raise RestoreValidationRefused("daily checkpoint without rolling origin")
+        if rolling_checkpoint.lineage_names(conn):
+            raise RestoreValidationRefused("strategy lineage without rolling origin")
         return {"state_present": False, "publication_version": pub.version}
     context = rolling_initialization._context(initial.observation_id, initial.starting_cash)
     checkpoint, _, _, attested, _ = rolling_runtime._closure(conn, context)

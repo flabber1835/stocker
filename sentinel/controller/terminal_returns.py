@@ -43,5 +43,9 @@ def values(*, prior, published):
                 consideration += Fraction(str(terms.cash_per_share))
         else:
             raise ValueError('unsupported leadership terminal: ' + sid)
-        result[sid] = float(consideration * signal / raw)
+        source = bars.get(sid)
+        split = Fraction(str(source.split_ratio)) if source is not None else Fraction(1)
+        if split <= 0 or (source is not None and source.session != published.session):
+            raise ValueError('invalid leadership terminal split basis: ' + sid)
+        result[sid] = float(consideration * split * signal / raw)
     return result
