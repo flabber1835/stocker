@@ -5,6 +5,10 @@ economic profile and outstanding certification gates. Local acceptance tests
 do not qualify the NAS or grant paper transport authority. Certification and
 first GO remain blocked pending the evidence recorded there.
 
+Foreground backup selection requires a cluster-scoped record published by the
+updated verified backup command. Existing installations need a fresh verified
+base before runtime admission; see [bounded selection and rollout](backup-runtime-selection.md).
+
 [Automatic share-unit reconciliation](automatic-share-unit-reconciliation.md)
 supersedes the universal pre-open certificate requirement below. Ordinary paper
 execution uses current reconciliation and optional event evidence; known action

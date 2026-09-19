@@ -299,6 +299,42 @@ The authoritative provider references and their precise limits are retained in
 No new provider promise is inferred here. Issue #399 is closed on GitHub after
 the owner merged #402; that administrative state does not satisfy these gates.
 
+### Bounded base selection follow-up
+
+On main `58c3e071ede06c176e1ed814fb1a7e35b13c33b2`, runtime default base
+selection still materialized and sorted the whole retained directory. This
+**P2 resource defect** is locally addressed by a cluster-scoped, atomically
+published selection record; it supersedes the foreground directory-discovery
+gap described above. See [design and rollout](backup-runtime-selection.md).
+`sentinel/backup_runtime_authority.py` now reads at most 257 selection bytes,
+refuses oversized/malformed/wrong-cluster input and validates the selected
+base through the unchanged manifest/WAL/content authority. Missing selection
+waits; there is no discovery fallback. A final reread precedes recording a
+successful proof, so selection loss/change cannot advance that observation.
+
+`scripts/sentinel-base-backup.sh` invokes the root-owned selection publisher
+after verified base promotion. A producer-call falsifier and actual shell/SQL
+acceptance connect publication to consumption. Existing media without a record
+requires a fresh verified backup through the updated command before ordinary
+runtime admission; explicit checkpoint validation remains independently usable.
+This rollout prerequisite is intentional and must not be bypassed with a
+hand-written record or a capability flag.
+
+The initial broader regression caught premature cache advancement after a
+failed final reread (four failure-injection cases). The code was corrected;
+those assertions were retained. The additive [evidence package](../audit/economic_399/bounded_base_selection/README.md)
+records failed attempts, final results, commands and source hashes.
+Final local regression: 291 passed; all seven guard/caller/producer falsifiers
+detected. Eight Python files parse, pyflakes is clean, and all 479 test modules
+have declared ownership. Exact-head CI, owner merge and NAS qualification remain
+required. Key code: `backup_runtime_authority.py:137`, `:475`, `:537`;
+`scripts/sentinel-base-backup.sh:202`; `scripts/sentinel-backup-publish-selection.sh:20`.
+
+Recurring scheduling, single-owner maintenance, proactive horizon rollover,
+retention, host status/cleanup enumeration, filesystem progress, full-universe
+resource measurements and provider/data/NAS gates remain open. This change
+does not prove historical economic output was affected or certify the system.
+
 ### Local execution record
 
 The follow-up package records 239 relevant regression passes before the final

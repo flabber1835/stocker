@@ -43,6 +43,9 @@ class Media:
             (parent / MARKER).write_text(CONTENT)
         self.backup = self.base / BASE
         self.backup.mkdir()
+        self.selection = self.base / f".sentinel-runtime-base-{SYSTEM_ID}-v1"
+        self.selection.write_text(
+            f"schema=sentinel.runtime-base/1\nsystem_identifier={SYSTEM_ID}\nbase_backup={BASE}\n")
         self.metadata = (
             f"marker=sentinel-backup-20260910T110000Z-42\nlsn=0/300040\n"
             f"wal={wal_name(3)}\nsystem_identifier={SYSTEM_ID}\n")
@@ -136,8 +139,13 @@ class Cursor:
                 self.rows = [(None,)]
             else:
                 raise FileNotFoundError(path)
-        elif query == "SELECT pg_ls_dir(%s)":
-            self.rows = [(p.name,) for p in db.media.path(params[0]).iterdir()]
+        elif query == "SELECT pg_read_binary_file(%s,0,%s,true)":
+            path = db.media.path(params[0])
+            if path.exists():
+                with path.open("rb") as stream:
+                    self.rows = [(stream.read(params[1]),)]
+            else:
+                self.rows = [(None,)]
         elif query == "SELECT pg_read_binary_file(%s,0,1,true)":
             path = db.media.path(params[0])
             if path.exists():
@@ -189,6 +197,7 @@ class Cursor:
             names = re.findall(r"'([0-9A-F]{24}|[0-9A-F]{8}\.history)'", query)
             checks = [db.media.base, db.media.wal, db.media.backup, db.media.namespace]
             checks.extend((db.media.base / MARKER, db.media.wal / MARKER))
+            checks.append(db.media.selection)
             checks.extend(
                 db.media.backup / name for name in (
                     "backup_manifest", "backup_label", "sentinel-recovery-marker",

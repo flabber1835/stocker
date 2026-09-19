@@ -1,0 +1,13 @@
+{
+  "sentinel/backup_runtime_authority.py": "6d8df32e0a6189caa2f3cc0be4aa5d9e3d52dca059e1a947d2495aed7ec05f78",
+  "scripts/sentinel-base-backup.sh": "eccfa1c82b540aafb5df3fa411cddaf4307a790d50e4b24ea720dc498a0d2b48",
+  "scripts/sentinel-backup-publish-selection.sh": "a2a2ef35870049fe98b6b8a85f2e85a534a493208acf64b22a7368ed93f06dfc",
+  "scripts/test-backup-runtime-media.sh": "7b7c741d1e4bb6aa27b3defb8067bbd7103086799a5ced3d3f3543dc199112f1",
+  "tests/backup/lab.py": "2feb676f3b6c117dd5c2f086a0248362b97dd1387a0451c72c862df46e970fe3",
+  "tests/backup/command_adapter.py": "c530c331802dac3fb294a1b725edac927cf79e7e60e6a1704bb2d1c445959285",
+  "tests/backup/test_shell_lifecycle.py": "24a6cc35628e9a72b2e3e28daf8b5681a3e4df081e9fe4a4337d2891a37f72e5",
+  "tests/backup/test_runtime_base_selection.py": "cae5449ebed085effd42696353ac60844e8f76421db06eb9aa31aba42a963c77",
+  "tests/sentinel/test_backup_selection_sql.py": "abe2b0d067712b214416699abf475d5355ffb5a3c519989d7cb4c7ab0d483732",
+  "tools/sentinel_backup_selection_falsifiers.py": "415b62b1386680b8a84682ab2f6573a261633037b5282874a9a8e87e34bc49c1",
+  "audit/economic_399/bounded_base_selection/run_local.py": "d084030dc6cebb9b246cb6bca44bddbc4b046165d8be82b0cb9576b2f6c4a6de"
+}
