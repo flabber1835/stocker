@@ -1,0 +1,14 @@
+{
+  "base": "65e261312ec219e014f062c0b6b374066db19d75",
+  "python_files_parsed": 7,
+  "pyflakes_findings": 0,
+  "source_sha256_git_lf": {
+    "audit/economic_399/manifest_bound/measure_manifest.py": "551f4eada222ecfb7056697fd27700c3213034258f10906be497c261ca2ca9c4",
+    "audit/economic_399/manifest_bound/run_local.py": "c22ef7966703a2688ab69096d052d1ad71b6ccdf597fd2e8d1a08e4b174dc377",
+    "sentinel/backup_runtime_authority.py": "2207cba360b56ee28939b562ae59689d7026b363e97ab59c55f5d67ced1e796a",
+    "tests/backup/lab.py": "0b15376f7210b8d5aef36fd4a8371a5b23bea1a4ca27a8073454ed14c763e72b",
+    "tests/backup/test_manifest_admission.py": "2343404cd8276c7d682b00adf191afddf43172c59d712996d367d56e3fc22157",
+    "tests/sentinel/test_backup_manifest_bound.py": "5d63472a335618432b0aa0935fe08d62022833db36dd87a61592ca8483a89a91",
+    "tools/sentinel_manifest_bound_falsifiers.py": "69a6b75319b5ef254be2871054f474d511393d6790d89790395790730e0f5643"
+  }
+}

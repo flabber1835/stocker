@@ -1,0 +1,16 @@
+{
+  "base": "3c4fb030b3ad06bc8996771479b2d68b71cb17e6",
+  "normalization": "CRLF to LF, matching Git text blobs",
+  "sha256": {
+    "audit/economic_399/backup_proof_bounds/measure_payload.py": "a9ea9f367100ca9860b6c929f986d963178b5608796df004090d960882583e82",
+    "audit/economic_399/backup_proof_bounds/run_local.py": "2bc0ed1b706270980acc3ac107ed43292b2d8f10f9c7ff1559583bb5616ea644",
+    "sentinel/backup_runtime_authority.py": "a75c78741cbc6d9df38b7fb055d26b10c6e5941ddc0253bb3896932efa16aa18",
+    "tests/backup/lab.py": "0e7823dbe485920c6c49c60d8e31dd060954e89f77a6c41d192743ca507d364b",
+    "tests/backup/test_runtime_backup_authority.py": "4b44178838a11d5b9d9a9fbce681830132f4c294fe6e02f8f82e2baa7ebed07e",
+    "tests/backup/test_runtime_backup_bounds.py": "9fe96d1624829f158231f0b4ef82d944f811600e299a579b493464911857949f",
+    "tests/backup/test_runtime_backup_integrity.py": "7a8ca3bf4fb278a9ff8cc853844ec0bb88a6deba725d9632c795644c053fe1fa",
+    "tests/backup/test_runtime_sequences.py": "c525346202488c8b84f954beb38616ac8c7a93b271ff4e326046b59f9d45c684",
+    "tests/sentinel/test_backup_bounded_reads.py": "1961b910c1f4611efc8dc4a13c1d91c034868085491c34266a59dd0e41446837",
+    "tools/sentinel_backup_bound_falsifiers.py": "eb1166cf54c13bb9dfd1d37488519d841c52eb1bd550a2325f9cc0603a8a2e71"
+  }
+}

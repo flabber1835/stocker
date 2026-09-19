@@ -253,6 +253,31 @@ evidence package remains unchanged. See the [CI follow-up evidence](
 mutation and ownership commands on the combined source. Fresh CI remains a
 separate requirement; none of this closes the remaining certification gates.
 
+### Bounded backup manifest follow-up
+
+Reviewed from fetched main `65e261312ec219e014f062c0b6b374066db19d75`.
+The runtime manifest query parsed an unlimited file (**P2 resource defect**,
+`sentinel/backup_runtime_authority.py:182`). Its preliminary text-prefix
+presence check could also split a valid UTF-8 character and reject a complete
+base (**P2 availability defect**, `sentinel/backup_runtime_authority.py:118`).
+The presence probe now reads one binary byte. Selected manifests use a single
+bounded read of 8 MiB plus an overflow byte; oversized input is refused before
+decoding or JSON conversion. Exactly-at-limit complete input remains accepted.
+No fallback to an older base or proof-cache advancement follows refusal.
+
+See [design and NAS criteria](backup-manifest-runtime-bound.md) and
+[exact commands and retained evidence](../audit/economic_399/manifest_bound/README.md).
+The separate archive-integrity changes in [PR #406](https://github.com/flabber1835/stocker/pull/406)
+are not included in this branch's main base. Neither change establishes economic
+certification. The new 8 MiB manifest ceiling still requires qualification
+against deployed manifests and complete-caller resource limits.
+
+**Directory discovery remains locally unresolved**: `_latest_complete_base`
+still obtains a materialized directory listing. SQL LIMIT would not bound
+PostgreSQL's internal enumeration. A bounded publication index/reader and its
+producer ownership contract remain design/implementation work, along with
+recurring verified backups and proactive horizon/retention maintenance.
+
 ### Known remaining gates
 
 | Gate | Severity / category | Exact remaining work |
@@ -424,3 +449,45 @@ continues to apply. Add these prerequisites and checks for this change:
    restart capital or warmup at each chunk. Retain cash/NAV/share/action/terminal/
    exposure deltas and independently reconcile the event ledger. An unexplained
    difference blocks a reference or multiple; preserve the old golden bytes.
+
+### Backup proof resource and integrity follow-up
+
+Reviewed against independently fetched main
+`3c4fb030b3ad06bc8996771479b2d68b71cb17e6` (owner-merged #404).
+The owner subsequently merged the rolling-admission implementation in
+[PR #405](https://github.com/flabber1835/stocker/pull/405). PR #406 incorporates
+freshly fetched main `65e261312ec219e014f062c0b6b374066db19d75` without source
+conflicts. See the [combined validation record](
+../audit/economic_399/combined_405_406/README.md); previous evidence remains
+unchanged. Step 1 and economic certification remain open.
+
+| Finding | Severity and disposition | Production path and acceptance |
+|---|---|---|
+| WAL enumeration preceded its real proof ceiling | P2, locally fixed | `sentinel/backup_runtime_authority.py:230`: inclusive interval count, history-object reservation and WAL byte subtotal refuse before name construction. Independent exact-limit/log-boundary cases and enumeration tripwires cover all three limits. |
+| Re-statting payload size bypassed the checked read budget | P2, locally fixed | `sentinel/backup_runtime_authority.py:343`: SQL reads at most the already-checked length. Real PostgreSQL growth, short-file and missing-file cases exercise the query; a stat-sized-read mutant fails the independent digest oracle. |
+| Coarse timestamps could authorize unchanged-content reuse after same-second replacement | P1, locally fixed; performance qualification open | `sentinel/backup_runtime_authority.py:423`: metadata can no longer skip fresh hashes. Two bounded content passes, final metadata and alias checks must agree. Actual SQL caught the original defect; deterministic precision-collision, replacement, sidecar, alias and cache-poisoning falsifiers verify refusal. Last observations detect horizon regression but never grant cached content authority. |
+
+The final broader campaign passed **252 tests**, including physical-recovery
+tests and every consumer of the changed backup test adapter; the focused
+campaign passed **94** (overlapping counts). All **nine** new mutants failed at
+their intended assertions. The media-fault campaign now derives all read
+boundaries from the successful trace, testing four failure classes at all
+18 reads (72 injections), instead of asserting an obsolete count of 15.
+Failed intermediate campaigns are retained, including the real timestamp
+failure; no golden return, xfail or capability was changed.
+
+At the maximum 1 GiB distinct payload horizon, three local, two-pass SQL proofs
+took 2.432, 1.559 and 1.550 seconds. PostgreSQL backend peak RSS was 35,040 kB;
+whole-container peak memory was 1,215,889,408 bytes, including filesystem cache.
+This used sparse synthetic zero files, PostgreSQL 17.11 and Docker capped at
+2 GiB / two CPUs. It measures only the archive payload phase on this workstation,
+not the complete caller, production media or PostgreSQL 16/NAS latency.
+
+See [design, limits and NAS procedure](backup-proof-resource-bounds.md) and
+[exact commands, source hashes and raw evidence](../audit/economic_399/backup_proof_bounds/README.md).
+Open **P1 maintenance** remains: recurring verified backups, proactive horizon
+rollover, single ownership, restart/outage recovery and retention. Open **P2
+resource review** also includes base-directory enumeration
+(`sentinel/backup_runtime_authority.py:131`) and full manifest parsing (`:175`).
+The pre-existing full-universe status and filesystem-progress gates remain open.
+No NAS or real broker account was accessed.

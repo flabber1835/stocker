@@ -138,10 +138,22 @@ class Cursor:
                 raise FileNotFoundError(path)
         elif query == "SELECT pg_ls_dir(%s)":
             self.rows = [(p.name,) for p in db.media.path(params[0]).iterdir()]
-        elif query.startswith("SELECT (j->'WAL-Ranges'"):
-            data = json.loads(db.media.path(params[0]).read_text())
-            record = data.get("WAL-Ranges", [{}])[-1]
-            self.rows = [(record.get("Timeline"), record.get("End-LSN"))]
+        elif query == "SELECT pg_read_binary_file(%s,0,1,true)":
+            path = db.media.path(params[0])
+            if path.exists():
+                with path.open("rb") as stream:
+                    self.rows = [(stream.read(1),)]
+            else:
+                self.rows = [(None,)]
+        elif query.startswith("WITH payload AS MATERIALIZED ("):
+            with db.media.path(params[0]).open("rb") as stream:
+                payload = stream.read(params[1])
+            if len(payload) > params[2]:
+                self.rows = [(len(payload), None, None)]
+            else:
+                data = json.loads(payload)
+                record = data.get("WAL-Ranges", [{}])[-1]
+                self.rows = [(len(payload), record.get("Timeline"), record.get("End-LSN"))]
         elif query.startswith("SELECT name,(pg_stat_file"):
             assert "FROM unnest(%s::text[])" in query, query
             root = db.media.path(params[0])
@@ -163,11 +175,16 @@ class Cursor:
             self.rows = rows
         elif query.startswith("SELECT name,encode(sha256(pg_read_binary_file("):
             root = db.media.path(params[0])
-            self.rows = [
-                (name, hashlib.sha256((root / name).read_bytes()).hexdigest()
-                 if (root / name).exists() else None)
-                for name in params[-1]
-            ]
+            assert "AS entries(name,read_length)" in query, query
+            self.rows = []
+            for name, length in zip(params[1], params[2], strict=True):
+                path = root / name
+                if path.exists():
+                    with path.open("rb") as stream:
+                        value = hashlib.sha256(stream.read(length)).hexdigest()
+                else:
+                    value = None
+                self.rows.append((name, value))
         elif query.startswith("COPY (SELECT name FROM unnest(ARRAY["):
             names = re.findall(r"'([0-9A-F]{24}|[0-9A-F]{8}\.history)'", query)
             checks = [db.media.base, db.media.wal, db.media.backup, db.media.namespace]
