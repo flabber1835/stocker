@@ -1,0 +1,75 @@
+{
+  "encoding": "UTF-8, Git LF source bytes",
+  "main_base": "8212a55335500b4bbb81853572019d9eb4443724",
+  "previous_pr_head": "ec0f1d3bc1535882fcc5fd3523f8455d248396a6",
+  "sources": {
+    "audit/economic_399/backup_proof_bounds/measure_payload.py": {
+      "bytes": 3326,
+      "sha256": "a9ea9f367100ca9860b6c929f986d963178b5608796df004090d960882583e82"
+    },
+    "audit/economic_399/backup_proof_bounds/run_local.py": {
+      "bytes": 2546,
+      "sha256": "2bc0ed1b706270980acc3ac107ed43292b2d8f10f9c7ff1559583bb5616ea644"
+    },
+    "audit/economic_399/backup_selection_integration/horizon_probe.py": {
+      "bytes": 1862,
+      "sha256": "df4be4c25ad038118cf707a34aec7d80cdddbb262690a8a75a0193227c99b8e1"
+    },
+    "audit/economic_399/bounded_base_selection/run_local.py": {
+      "bytes": 1672,
+      "sha256": "d084030dc6cebb9b246cb6bca44bddbc4b046165d8be82b0cb9576b2f6c4a6de"
+    },
+    "audit/economic_399/host_lock_ownership/run_local.py": {
+      "bytes": 2489,
+      "sha256": "7e71b1827649872322490dd7f3483e285bcc7e829eb05fa9bd423848bc8280fc"
+    },
+    "docker-compose.sentinel-backup.yml": {
+      "bytes": 2601,
+      "sha256": "cf4f7517a48790e09bd116a048687e080a3c74ee8563b457c829ad04aecad814"
+    },
+    "docs/economic-code-closure.md": {
+      "bytes": 45604,
+      "sha256": "2e9ca47ab532d39b801ec20bc615e0ebd74e7624d0fe07167fc6a29da82a8e29"
+    },
+    "docs/sentinel-deployment.md": {
+      "bytes": 124341,
+      "sha256": "95aa87c4f75faff36d56d7f2e52cfd0d36db76532db3a50458830bb047e5907b"
+    },
+    "scripts/sentinel-backup-publish-selection.sh": {
+      "bytes": 1543,
+      "sha256": "a2a2ef35870049fe98b6b8a85f2e85a534a493208acf64b22a7368ed93f06dfc"
+    },
+    "scripts/sentinel-base-backup.sh": {
+      "bytes": 9782,
+      "sha256": "eccfa1c82b540aafb5df3fa411cddaf4307a790d50e4b24ea720dc498a0d2b48"
+    },
+    "scripts/sentinel_backup_lock.py": {
+      "bytes": 4218,
+      "sha256": "f73e5ecace4430207c74263338889719fadb0da92ca424e05c9bd2d2f9d8cb32"
+    },
+    "scripts/sentinel_go_lock.py": {
+      "bytes": 3843,
+      "sha256": "ce8053722899c5445254d36801a7f545516186d9c739758116a454bcada09f3d"
+    },
+    "scripts/sentinel_lock_ownership.py": {
+      "bytes": 1027,
+      "sha256": "a82f7310b21f3dcee5a3e56fdc83e74d5ab39bdbee7a37ac2bff0f1f1f3da7fb"
+    },
+    "scripts/test-backup-runtime-media.sh": {
+      "bytes": 12901,
+      "sha256": "7846e0c8950c515de3ff5053fa8325054a6e6dd6d4f621ed4360e11cb0c7f8b0"
+    },
+    "sentinel/backup_runtime_authority.py": {
+      "bytes": 25011,
+      "sha256": "6d8df32e0a6189caa2f3cc0be4aa5d9e3d52dca059e1a947d2495aed7ec05f78"
+    },
+    "tests/backup/test_shell_lifecycle.py": {
+      "bytes": 15315,
+      "sha256": "9c44a84c959d261a8b7bfb94a5157f1c2fdcdf4af975679549f206ce2f717e5b"
+    },
+    "tests/scripts/test_host_lock_ownership.py": {
+      "bytes": 6428,
+      "sha256": "9a28ac607a2154dfc61b29fef5caec1f0d836fecdb39f51f9584da463a59d965"
+    }
+  }
+}

@@ -39,6 +39,7 @@ class ShellLab:
                      "sentinel-restore-drill.sh", "sentinel_host_python.py",
                      "sentinel_backup_lock.py", "sentinel_lock_ownership.py",
                      "sentinel-backup-metadata-access.sh",
+                     "sentinel-backup-publish-selection.sh",
                      "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh",
                      "sentinel-env.sh", "sentinel_env.py"):
             shutil.copy2(ROOT / "scripts" / name, self.scripts / name)
@@ -264,6 +265,35 @@ def test_base_before_application_schema_defers_only_display_evidence(tmp_path):
     assert "SENTINEL_BASE_BACKUP_EVIDENCE=DEFERRED_SCHEMA_NOT_INSTALLED" in result.stdout
     assert "verified_base_backup:" in result.stdout
     assert "evidence-insert" not in lab.events()
+
+
+def test_verified_producer_publishes_exact_runtime_selection(tmp_path):
+    lab = ShellLab(tmp_path)
+    result = lab.run()
+    assert result.returncode == 0, result.stderr
+    record = lab.base / f'.sentinel-runtime-base-{SYSTEM_ID}-v1'
+    assert record.read_bytes() == (
+        f'schema=sentinel.runtime-base/1\nsystem_identifier={SYSTEM_ID}\n'
+        'base_backup=base-20260910T120000Z\n').encode()
+    stages = lab.events()
+    assert stages.index('base-verify') < stages.index('base-publish') < stages.index('selection-publish')
+    assert record.stat().st_mode & 0o777 == 0o640
+    assert not list(lab.base.glob('.sentinel-runtime-base-*.part-*'))
+
+
+@pytest.mark.parametrize('point', ['before', 'after'])
+def test_selection_publication_failure_preserves_a_complete_old_or_new_record(tmp_path, point):
+    lab = ShellLab(tmp_path)
+    record = lab.base / f'.sentinel-runtime-base-{SYSTEM_ID}-v1'
+    old = (f'schema=sentinel.runtime-base/1\nsystem_identifier={SYSTEM_ID}\n'
+           'base_backup=base-20260909T120000Z\n').encode()
+    record.write_bytes(old)
+    lab.env['BACKUP_LAB_FAULT'] = 'selection-publish:' + point
+    result = lab.run()
+    assert result.returncode != 0
+    assert 'verified_base_backup:' not in result.stdout
+    expected = old if point == 'before' else old.replace(b'20260909', b'20260910')
+    assert record.read_bytes() == expected
 
 
 def test_unknown_evidence_schema_is_not_treated_as_absent(tmp_path):

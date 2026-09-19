@@ -1,0 +1,18 @@
+{
+  "hash_domain": "Git LF bytes; final containing commit is the delivered head",
+  "lifecycle_synthetic_commit": "4a024c5eeb11a86c64cd87b283e38ac35142dde7",
+  "lifecycle_synthetic_tree": "53bb95f0c1fb630ae2dd75146aa7346d0e68c503",
+  "local_image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+  "notes": "The regression and lifecycle snapshot preceded the runner-only inside-mode guard. Final falsifiers exercised the guard; fixture and acceptance-test modules were unchanged between campaigns. No production files changed in this follow-up.",
+  "reviewed_failing_head": "5fd72485c9bbe1e28a470ddbb9697f9ea7ba4aac",
+  "sources": {
+    "audit/economic_399/backup_selection_ci/run_local.py": "cf66497cd0db2e94a37606e7caeb685b02d4d1441829c642685d3841fe03b01d",
+    "docs/backup-runtime-selection.md": "23ebc26fe345cb78ec84ad761e7adc28bd379f1fad1272b3be0beef6b3ecd56d",
+    "docs/economic-code-closure.md": "7cda4c4a1c39d3e293eba94e3e4155a666b20965079173b69162c14e6e21a5a5",
+    "tests/internal_state/physical.py": "395b75a64c1fd33cdd0af4a84cf2fba207a24f51afa9edb791205df16fbb0239",
+    "tests/internal_state/test_physical.py": "85808268f905d1919e2231feecc3fe86e4c1f8d926fa35129daa13d8530a5db8",
+    "tests/production_composition/test_canonical_go_e2e_harness.py": "572971d04a78343f6ef1cbec8d2910cc6b65ca1830f9b3b8e940cf77ee0e05aa",
+    "tools/sentinel_backup_fixture_falsifiers.py": "00e448a056d11debf45ad25b2d92263ac965894135a053fe0d3e980d87eca65b"
+  },
+  "verified_base": "58c3e071ede06c176e1ed814fb1a7e35b13c33b2"
+}

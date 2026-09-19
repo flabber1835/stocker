@@ -184,7 +184,7 @@ def docker():
             return event(stage, lambda: subprocess.run(
                 command, input=script, text=True).returncode)
         elif command[:3] == ["sh", "-s", "--"]:
-            stage = "metadata-access"
+            stage = "selection-publish" if len(command) == 6 else "metadata-access"
         return event(stage, lambda: shell(command))
     if args[:2] in (["volume", "create"], ["network", "create"]):
         if args[0] == "volume":

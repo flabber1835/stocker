@@ -150,3 +150,41 @@ def test_complete_native_history_cannot_replace_durable_execution_ids(conn):
         assert result.observation.terminal_recovery_through is None
         assert conn.execute('SELECT fill_key,quantity,price FROM sentinel_fills').fetchall() == original
     assert conn.execute("SELECT count(*) FROM sentinel_processed_sessions WHERE cursor_name LIKE 'native-fill-refusal:%'").fetchone()[0]
+
+
+@pytest.mark.parametrize('price,coherent', [('400', True), ('500', False), ('600', False)])
+def test_partial_native_notional_leaves_positive_economics_for_missing_shares(conn, monkeypatch, price, coherent):
+    from dataclasses import replace
+    from fractions import Fraction
+
+    owner, _, broker, http, events = prior.fixture(conn, native_quantities=('2',))
+    events[0].update(price=price, net_amount=str(-D(2) * D(price)))
+    http.routes['/v2beta1/events/activities'] = prior.Response(text=prior.sse(*events))
+    observe = broker._observe_snapshot
+
+    async def partial_history(**kwargs):
+        # Model an explicitly incomplete event set; do not certify provider
+        # completeness or alter the production adapter's capability flags.
+        return replace(await observe(**kwargs), fill_history_complete=False)
+
+    monkeypatch.setattr(broker, '_observe_snapshot', partial_history)
+    # Ten shares cost $1,000. The eight missing shares need positive price.
+    remaining_price = (Fraction(1000) - 2 * Fraction(price)) / 8
+    assert (remaining_price > 0) is coherent
+    result = asyncio.run(R.reconcile(broker=broker, conn=conn, binding=None, deployment=owner.identity))
+    conn.execute('UPDATE sentinel_notification_policy SET web_push_activated_at=%s WHERE id=1', (prior.START,))
+    conn.commit()
+    outbox._reconstruct_missing_transition_alerts(conn)
+    conn.commit()
+    count = conn.execute('SELECT count(*) FROM sentinel_fills').fetchone()[0]
+    if coherent:
+        assert result.clean and result.runtime_state is RuntimeState.RUNNING, result.to_dict()
+        assert count == 1
+    else:
+        assert result.runtime_state is RuntimeState.RECONCILING, result.to_dict()
+        assert result.observation.terminal_recovery_through is None
+        assert count == 0
+        assert conn.execute('SELECT count(*) FROM sentinel_observations').fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM sentinel_alert_outbox WHERE event_type='BROKER_FILL'").fetchone()[0] == 0
+        assert conn.execute("SELECT count(*) FROM sentinel_processed_sessions WHERE cursor_name LIKE 'native-fill-refusal:%'").fetchone()[0] == 1
+    assert all(method == 'GET' for method, *_ in http.calls)
