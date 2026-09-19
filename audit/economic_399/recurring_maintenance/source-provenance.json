@@ -1,0 +1,32 @@
+{
+  "source_commit": "ef3810f46292ecf2f65455bdd0f339b87fb93627",
+  "production_code_commit": "cdfdae6dc904317eeb9ce640ce2b548c4bd3214e",
+  "verified_initial_main": "84582af2020a708ab076821693ffa4ea93ebed1c",
+  "integrated_main": "ec8351ff2f535885d5a1cefcbca9b9bb83498b5c",
+  "runtime_image": "sha256:f860878ad1da60718a43ff7895e664fffc4df3ef74463fee5f0ad94194c73ba3",
+  "postgres_image": "postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b",
+  "hash_encoding": "exact committed Git blob bytes",
+  "files": {
+    ".github/workflows/backup-reliability.yml": "69d437d2ede0704607cbb4f806505d7571d1fda797ae9727ecc58a6c65d7a766",
+    "Dockerfile.sentinel": "1298e2874448063965e223f4d31b1a997ee992d851042390af99d293c6848357",
+    "audit/economic_399/recurring_maintenance/physical_worker.py": "957c52c2e6034dd5d22cc201302975813495c94e0694d12616a7536545e3587d",
+    "audit/economic_399/recurring_maintenance/private_media.py": "69d3819429562f4a1ced36c8080129df4f57a88f88522ec9e4824f497986cf6e",
+    "audit/economic_399/recurring_maintenance/run_local.py": "9592484554b439d2501036b7078995caa01e4c5e8f95c813db40916f5a8f3666",
+    "scripts/sentinel-backup-maintenance.sh": "344119756ee96c7257135186b59dc9313b83bfac22f369ee10a7ed9d64960d65",
+    "scripts/sentinel-backup-media-lock.sh": "25e3c67d9b4a24720c594465ea1c5d16e318652b0979b1c400af04d31b55365a",
+    "scripts/sentinel-base-backup.sh": "dd1ce56731498d8f2aa568b1035842574a4391cd7d20d5dd8947ba1eee0ae9b2",
+    "scripts/sentinel-restore-drill.sh": "05d84bf47271f407ef4f932c564ef3579a20d5aa60ef9226c1c5a8429d79ad23",
+    "scripts/sentinel-restore-worker.sh": "88c4d216c70713098fa7cbe6a53e3f57201d8e4f0d8b1b7e72c548207fbdaabf",
+    "scripts/sentinel_backup_maintenance.py": "8bc445347ef527ca604180c7d1605f48da92bfcec39f385418c997ca1a4cacc6",
+    "scripts/sentinel_env.py": "961a1cc138c8252a2b33ac80cce8088752c89cb140dd56be44205b05f0582137",
+    "scripts/test-backup-maintenance-worker.sh": "e7307bb3166eb3a127387958230ea7d90bc144ad26df4958899173507d171e9e",
+    "scripts/test-backup-runtime-media.sh": "11bc99344fcdd0ae4c49133936ab7a8ab457ff1d32b8fec170f813013b747467",
+    "sentinel/backup_retention.py": "b800fd35628404440c758833517edfc4f081bd8e7e517836bce65be7c5e8b7f4",
+    "tests/backup/command_adapter.py": "25de176dc0775ffbfb18f3fda3ea0e6f9d483a724f6522c68a926f1a3dcfdf39",
+    "tests/backup/test_recurring_maintenance.py": "5a0c14a452d8e88c4c31f19321a11722c3f77a767466eccd80e92cfae9e58d9a",
+    "tests/backup/test_shell_lifecycle.py": "1ed6eb357ae3cc7de55ab126928f409b1a9e76880fd147f1cf9036b83169a5b0",
+    "tests/host_python38/test_env_ingestion.py": "877a0fd1f69e3d8ed1163e6e9eda9cf224689cbcd1068b46a1e7ae4f389f65d5",
+    "tests/sentinel/test_backup_contract.py": "a02eb7b43bdd397b3e0e356232a826142bfb4d68919d44b512b752761fb77e9f",
+    "tools/sentinel_maintenance_falsifiers.py": "7081a0117a04e6153d470bda25b2adb8655e09315fe5c5fdae707e862496c70b"
+  }
+}
