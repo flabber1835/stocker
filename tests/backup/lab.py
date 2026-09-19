@@ -175,11 +175,16 @@ class Cursor:
             self.rows = rows
         elif query.startswith("SELECT name,encode(sha256(pg_read_binary_file("):
             root = db.media.path(params[0])
-            self.rows = [
-                (name, hashlib.sha256((root / name).read_bytes()).hexdigest()
-                 if (root / name).exists() else None)
-                for name in params[-1]
-            ]
+            assert "AS entries(name,read_length)" in query, query
+            self.rows = []
+            for name, length in zip(params[1], params[2], strict=True):
+                path = root / name
+                if path.exists():
+                    with path.open("rb") as stream:
+                        value = hashlib.sha256(stream.read(length)).hexdigest()
+                else:
+                    value = None
+                self.rows.append((name, value))
         elif query.startswith("COPY (SELECT name FROM unnest(ARRAY["):
             names = re.findall(r"'([0-9A-F]{24}|[0-9A-F]{8}\.history)'", query)
             checks = [db.media.base, db.media.wal, db.media.backup, db.media.namespace]

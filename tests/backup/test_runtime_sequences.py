@@ -156,34 +156,39 @@ def test_namespace_disappears_between_marker_check_and_scan_then_recovers(world)
     ready(world)
 
 
-@pytest.mark.parametrize("read_index", range(15))
 @pytest.mark.parametrize("sqlstate", ["58P01", "42501", "58030", None])
-def test_media_error_at_every_runtime_read_fences_then_heals(world, monkeypatch, read_index, sqlstate):
+def test_media_error_at_every_runtime_read_fences_then_heals(world, monkeypatch, sqlstate):
     authority._PROOF_CACHE.clear()
     ready(world)
-    assert len(world.statements) == 15
-    authority._PROOF_CACHE.clear()
+    observed_reads = tuple(world.statements)
+    assert observed_reads
     original = Cursor.execute
-    count = 0
+    # Fault every observed read, including new second-pass and final-stability
+    # operations. Do not freeze an implementation-specific SQL count.
+    for read_index, expected in enumerate(observed_reads):
+        authority._PROOF_CACHE.clear()
+        count = 0
 
-    def execute(cursor, sql, params=()):
-        nonlocal count
-        current = count
-        count += 1
-        if current == read_index:
-            error = OSError("injected media interruption") if sqlstate is None else RuntimeError(
-                "injected PostgreSQL filesystem error")
-            if sqlstate is not None:
-                error.sqlstate = sqlstate
-            raise error
-        return original(cursor, sql, params)
+        def execute(cursor, sql, params=()):
+            nonlocal count
+            current = count
+            count += 1
+            if current == read_index:
+                assert (sql, params) == expected
+                error = OSError("injected media interruption") if sqlstate is None else RuntimeError(
+                    "injected PostgreSQL filesystem error")
+                if sqlstate is not None:
+                    error.sqlstate = sqlstate
+                raise error
+            return original(cursor, sql, params)
 
-    with monkeypatch.context() as patch:
-        patch.setattr(Cursor, "execute", execute)
-        with pytest.raises(authority.BackupRuntimeUnavailable):
-            ready(world)
-    authority._PROOF_CACHE.clear()
-    assert ready(world)["wal_segments"] == 4
+        with monkeypatch.context() as patch:
+            patch.setattr(Cursor, "execute", execute)
+            with pytest.raises(authority.BackupRuntimeUnavailable):
+                ready(world)
+        assert count == read_index + 1
+        assert authority._PROOF_CACHE == {}
+        assert ready(world)["wal_segments"] == 4
 
 
 def test_malformed_manifest_remains_integrity_refusal(world):
