@@ -1,0 +1,7 @@
+{
+  "sentinel/core/rolling_inputs.py": "a9a219cc27f5cd54ba5e849c397ad788255fe6449708efd32dbd75258ae954be",
+  "sentinel/feed/rolling_go_inputs.py": "247e4623c8c9dded53f16c98407140c4d68d01f039bbe352e924282004927832",
+  "sentinel/rolling_runtime.py": "ef43731ceae55404964c7ac167d306db4002a99e9422eba07b89d6a969626a1e",
+  "tests/sentinel/test_rolling_status_inputs.py": "db4b305112e351fae53c92081137fda0b6c1957d6bac855336e2dd742ccced35",
+  "tools/sentinel_rolling_go_falsifiers.py": "88791ad53af028a2804a46a75ad6a67410ccdb3c84463818aa1ff501da1dad23"
+}

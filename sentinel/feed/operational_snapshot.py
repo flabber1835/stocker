@@ -75,13 +75,13 @@ def freeze(conn, lease, request):
 
 def validate(conn, lease, request):
     """Expensive immutable content/reference checks outside the publication lock."""
-    from sentinel.core.rolling_inputs import cold_start_inputs
+    from sentinel.core.rolling_inputs import readiness_inputs
     row = jobs._owned(conn, lease)
     if row[0] != "READY":
         raise OperationalSnapshotRefused("OPERATIONAL_VALIDATION_REQUIRES_READY")
     candidate = str(row[6])
     manifest = rolling_store.manifest(conn, candidate)
-    cold_start_inputs(conn, candidate_id=candidate, snapshot_id=manifest.snapshot_id)
+    readiness_inputs(conn, candidate_id=candidate, snapshot_id=manifest.snapshot_id)
     proof = {"schema": VALIDATION_SCHEMA, "scope": "DATA_ONLY",
              "snapshot_id": manifest.snapshot_id, "reference_sha256": manifest.reference_sha256,
              "source_evidence_sha256": manifest.source_evidence_sha256,

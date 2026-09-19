@@ -232,7 +232,7 @@ these acceptance tests is not a claim that no other economic defect exists.
 
 | Finding | Locally established behavior and production path | Evidence |
 |---|---|---|
-| A2, P1 | `shadow_service.advance_once` → `rolling_runtime.service_advance` → `rolling_recovery.advance_one` preserves the canonical book and advances one missed session using retained dated inputs. Separate reconstruction receipts cannot grant prospective authority. Restart recovers committed candidates/receipts exactly once. | Continuous versus interrupted PostgreSQL clones with actual holdings, a stop shock, pending exits, cooldowns and a subsequent fresh session; equal full canonical state, unchanged genesis/capital and zero execution rows. Full restore validation reports reconstruction without attestation. |
+| A2, P1 | `shadow_service.advance_once` â†’ `rolling_runtime.service_advance` â†’ `rolling_recovery.advance_one` preserves the canonical book and advances one missed session using retained dated inputs. Separate reconstruction receipts cannot grant prospective authority. Restart recovers committed candidates/receipts exactly once. | Continuous versus interrupted PostgreSQL clones with actual holdings, a stop shock, pending exits, cooldowns and a subsequent fresh session; equal full canonical state, unchanged genesis/capital and zero execution rows. Full restore validation reports reconstruction without attestation. |
 | A3/A4/A11/A13/A20, P1/P2 | Typed dependency failures propagate through worker, preparation, guarded authority checks and backup cleanup. Explicit revocation/integrity remains terminal. Live leases/retry deadlines wait without replacing identity. | `test_dependency_recovery.py`, actual PostgreSQL lock/cancellation fixtures, `test_rolling_snapshot_jobs.py`; removal falsifiers for classification and waiting. |
 | A15, P2 | Proven inactive returning identities start fresh formation; dated metadata does not import a future listing into earlier history. Protected holdings/pending/cooldown dependencies still require anchors. | `test_returning_identity.py`: real snapshot publication, restart and protected-anchor refusal; independent dated-label assertions. |
 | A1/A17, P1/P2 | Callback invocation markers distinguish repeated same-phase calls. Killable database/alert observations and bounded stderr preserve supervisor progress. Dispatcher parent kills/reaps a silent dependency worker and restarts it. | Real lock, full log pipe, silent local socket, SIGTERM-resistant child, new invocation and expired invocation tests. No remote socket/account used. |
@@ -530,7 +530,7 @@ cases; it now shares the production module namespace. Both affected falsifiers
 were rerun and killed. No acceptance was obtained by xfail, fixture repinning,
 removing an economic assertion or promoting a capability bit.
 
-### Concrete NAS handoff — not executed
+### Concrete NAS handoff â€” not executed
 
 For the notification follow-up, explicitly migrate the isolated clone through
 the reviewed fenced installer before starting the dispatcher. Runtime schema
@@ -710,3 +710,59 @@ producer completeness/finality, native F19 provider authority and C3 predecessor
 incarnation evidence are unchanged. No broker capability flag, golden economic
 result or certification status was loosened. Step 1 and economic certification
 are not marked complete.
+
+### Compact rolling status input review (A12/A1)
+
+Reviewed from current main `e3dfb033d25ed68e5e1f6d2386285afabc62e801`
+(owner-merged #411). **P2, locally fixed:** the read-only status path discarded
+its input material only after retaining 252 sessions for every security. A
+5,000-security / 300-session synthetic input-phase probe measured 778,904 KiB
+Python peak RSS, above the panel's 512 MiB limit. This is evidence of excessive
+allocation, not evidence of a deployed OOM or an incorrect historical return.
+
+`rolling_runtime._current` now uses compact readiness counts, with the same
+complete sealed-content hashes, dated security mapping, action checks, source
+clock, publication pin and readiness thresholds. The strategy materialization
+API and economic state are preserved. Independent SQL counts, production status
+tripwires and guard-removal failures accompany the existing runtime regressions.
+The compact input phase measured 130,592 KiB peak RSS on the same synthetic scale;
+it still took 28.70 seconds. Source identity changes require the existing reviewed
+continuation boundary; prior certificates and golden artifacts are not rewritten.
+
+**Open P2:** complete status/checkpoint and reference/action-history memory,
+full-hash scan latency, concurrent panel requests and target resource limits.
+The input-phase measurement does not close these gates. Proactive maintenance
+and heartbeat supervision are tracked separately in pending #413 and #414.
+Provider cash/fill/predecessor guarantees, authoritative historical economic
+deltas and NAS qualification remain open. Step 1 and certification are not
+complete. See [design](rolling-status-resource-bounds.md) and
+[commands, retained evidence and qualification procedure](../audit/economic_399/rolling_status/README.md).
+
+### Report-only caller closure and current resource inventory
+
+Further tracing of #415 found nine remaining calls that discarded a materialized
+warmup: operational assessment, strict readiness, execution readiness, already-
+current acquisition, newly published acquisition, its inner operational validation,
+runtime admission before an idempotent retry, and both historical recovery gates.
+These now use compact assessment
+without changing their failed-clause/refusal semantics, publication/owner checks,
+source identity or DATA_ONLY scope. Six production-entrypoint tests reproduced
+the allocation before the fix; the first-publication case covers both inner and
+outer checks. Historical recovery has additional fresh-step and trailing-candidate
+acceptance that preserves reconstruction-only authority and original state identity.
+See the [additive evidence](../audit/economic_399/rolling_status/report_consumers/README.md).
+
+The earlier backup directory/manifest implementation-gap descriptions are
+historical: current main `e3dfb033d25ed68e5e1f6d2386285afabc62e801` includes
+bounded selection (257 bytes including overflow) and bounded manifest reads
+(8 MiB plus overflow), with no discovery fallback. Their previously retained
+acceptance remains valid; deployed capacity/latency qualification remains open.
+They must not be counted again as unimplemented fixes.
+
+The remaining local resource review is the complete status/checkpoint and
+reference/action load, concurrency and full-scan latency, plus actual material
+consumers in strategy warmup/database-health certification. Compact counts do
+not replace those consumers' economic inputs or warmup identity. Pending #413
+implements recurring maintenance; pending #414 addresses heartbeat supervision.
+Their CI/integration and independent filesystem/host qualification remain distinct.
+No required provider/data/NAS gate is closed by these resource fixes.

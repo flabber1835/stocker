@@ -1,0 +1,11 @@
+{
+  "audit/economic_399/rolling_status/report_consumers/README.md": "b32bad1b84077bb1c2ba625a221a77811719c6218fc03fcde6d616033738ed6f",
+  "audit/economic_399/rolling_status/report_consumers/mutations.py": "9e3ff6b613c7c60474a55ade5e6a2c19eeef7177f0582065dc7cf815576b9a84",
+  "audit/economic_399/rolling_status/report_consumers/raw-log-sha256.json": "558b49d8f2808bbe2d8f1ea0352880063e55d3610ce96227b390eb986fe9ed20",
+  "audit/economic_399/rolling_status/report_consumers/raw-logs.zip": "f47404c7d07529d9455f4cb6f7deb7830625b8ace22d8bf7a9a35c93de9e47bb",
+  "audit/economic_399/rolling_status/report_consumers/source-sha256.json": "d201e6bafb34515b361725f30b80bdb189f11eb26403ad39ee93b8ec9dceb8c6",
+  "audit/economic_399/rolling_status/report_consumers/static_check.py": "9638c990dfdcaed96668d90d5eefb9a7c7fcbe30b5941a178f609bbe70e455da",
+  "audit/economic_399/rolling_status/run_local.py": "453060c387db0129d9f2227a223a9103abd07d4e048715827288849e1896d48c",
+  "docs/economic-code-closure.md": "a7b78326be2112e259351da9c390ecfdcc92dffa5aaad4d8fafff3791128dfb2",
+  "docs/rolling-status-resource-bounds.md": "6d36f087a132798cbf45ccda7d022892a0459432abd43733437e367db9f88ca3"
+}

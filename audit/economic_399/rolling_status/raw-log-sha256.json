@@ -1,0 +1,11 @@
+{
+  "rolling-status-before.log": "5782213ad1f4a4b94e35524ed09136086cc40d4cbe0edabd0a2e6e2a6f75732c",
+  "rolling-status-compact.log": "803c16454e5050ddfada6964867270da0ecc1b40b50ef6fd98cee88b029ddc66",
+  "rolling-status-final-tests.log": "d6015bb6b42e1cc8192dbe98c2a264e6872beb95d8ce784450a259a753f4bf66",
+  "rolling-status-go-mutants.log": "69b9599d0ffd34909484c36dcd8eba55592cb587496aff68c877e479ad643e33",
+  "rolling-status-materialized.log": "75a06f51d81f0d5cd49798e3620f95d881feefc6592f3412635df4072f3a89b3",
+  "rolling-status-mutations.log": "d557940bb88a1e20ab939d1d8ea1ee5cf157c6e041d5e1434d9448c586a7249b",
+  "rolling-status-ownership.log": "5f7470d0111127d8f5f11378644e8c390bfd9ea3b9c7d9d4f62c68cff0b517aa",
+  "rolling-status-static.log": "9af879b99154f9b2bcfb089074d1f6c1a73a4134c25dd0a94e4a5bb3c772c0b8",
+  "rolling-status-tests.log": "f3ceae8359d38e66bc6235d776cc0f2fc88546606a5f929be76efab8c5caa4a8"
+}

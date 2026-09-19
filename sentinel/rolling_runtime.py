@@ -48,7 +48,7 @@ def _closure(conn, context):
 def _current(conn, checkpoint, pub, *, now=None):
     if checkpoint.publication != pub.to_dict():
         raise Refused("ROLLING_RUNTIME_PUBLICATION_CHANGED")
-    binding, _, report = inputs.validate(conn, pub, now=now)
+    binding, report = inputs.validate_status(conn, pub, now=now)
     if binding != checkpoint.snapshot:
         raise Refused("ROLLING_RUNTIME_SNAPSHOT_CHANGED")
     return report
@@ -110,7 +110,7 @@ def advance(conn, *, through, observation_id, starting_cash):
             with snapshots.pinned(conn, commit=False) as (pub, _binding):
                 if through != pub.window_end:
                     raise Refused("ROLLING_RUNTIME_TARGET_CHANGED")
-                inputs.validate(conn, pub)
+                inputs.validate_status(conn, pub)
                 if origin.read(conn) is None:
                     candidate = initial.initialize(conn, observation_id=observation_id, starting_cash=starting_cash)
                 else:
