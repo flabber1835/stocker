@@ -81,7 +81,7 @@ def _candidate(path: Path) -> tuple[Mapping, Mapping]:
             "paper-observation candidate lacks an exact review record")
     warmup = evidence.get("warmup")
     if (not isinstance(warmup, Mapping)
-            or warmup.get("schema") != "sentinel.paper-observation-warmup/1"
+            or warmup.get("schema") != "sentinel.paper-observation-warmup/2"
             or warmup.get("historical_causality")
             != "HISTORICAL_CAUSALITY_UNVERIFIED"
             or warmup.get("historical_certification") != "NOT_GRANTED"
@@ -89,6 +89,17 @@ def _candidate(path: Path) -> tuple[Mapping, Mapping]:
             or warmup.get("warmup_sessions") != 252):
         raise IssuanceRefused(
             "paper-observation candidate lacks the current 252+1 warmup")
+    inputs = warmup.get("warmup_input")
+    if (warmup.get("strategy_identity_sha256") != claims["bindings"]["strategy_identity_sha256"]
+            or warmup.get("current_corpus") != claims["bindings"]["current_corpus"]
+            or not isinstance(warmup.get("decision"), Mapping)
+            or not warmup["decision"]
+            or warmup.get("decision_sha256") != canonical_sha256(warmup["decision"])
+            or not isinstance(inputs, Mapping)
+            or inputs.get("session_count") != 252
+            or inputs.get("warmup_input_sha256") != canonical_sha256({
+                k: v for k, v in inputs.items() if k != "warmup_input_sha256"})):
+        raise IssuanceRefused("warmup selected-strategy, publication or computed evidence differs")
     return claims, evidence
 
 

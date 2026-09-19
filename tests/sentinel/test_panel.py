@@ -1352,7 +1352,7 @@ class TestReviewedDualAuthority:
         from types import SimpleNamespace
 
         from sentinel import informational_paper_mirror, shadow_runtime
-        from sentinel.feed import publication
+        from sentinel.feed import readers as publication
         from sentinel.feed import store as feed_store
         from sentinel.panel import sources
 
@@ -1379,7 +1379,7 @@ class TestReviewedDualAuthority:
                 "plan_fingerprint": "a" * 64,
                 "clean_reconciliation_id": "reconciliation-1"})
         monkeypatch.setattr(
-            publication, "current", lambda _c: SimpleNamespace(version=7))
+            publication, "current", lambda _c: SimpleNamespace(version=7, evidence={}))
         monkeypatch.setattr(
             feed_store, "latest_visible_session", lambda _c: "2026-08-20")
         monkeypatch.setattr(
@@ -1409,7 +1409,7 @@ class TestReviewedDualAuthority:
         from types import SimpleNamespace
 
         from sentinel import informational_paper_mirror
-        from sentinel.feed import publication
+        from sentinel.feed import readers as publication
         from sentinel.feed import store as feed_store
         from sentinel.panel import sources
 
@@ -1420,7 +1420,7 @@ class TestReviewedDualAuthority:
                 "plan_fingerprint": "a" * 64,
                 "clean_reconciliation_id": None})
         monkeypatch.setattr(
-            publication, "current", lambda _c: SimpleNamespace(version=7))
+            publication, "current", lambda _c: SimpleNamespace(version=7, evidence={}))
         monkeypatch.setattr(
             feed_store, "latest_visible_session", lambda _c: "2026-08-20")
         monkeypatch.setattr(
@@ -1447,7 +1447,7 @@ class TestReviewedDualAuthority:
         from types import SimpleNamespace
 
         from sentinel import informational_paper_mirror
-        from sentinel.feed import publication
+        from sentinel.feed import readers as publication
         from sentinel.feed import store as feed_store
         from sentinel.panel import sources
 
@@ -1458,7 +1458,7 @@ class TestReviewedDualAuthority:
                 "plan_fingerprint": "a" * 64,
                 "clean_reconciliation_id": None})
         monkeypatch.setattr(
-            publication, "current", lambda _c: SimpleNamespace(version=7))
+            publication, "current", lambda _c: SimpleNamespace(version=7, evidence={}))
         monkeypatch.setattr(
             feed_store, "latest_visible_session", lambda _c: "2026-08-20")
         monkeypatch.setattr(
@@ -1482,7 +1482,7 @@ class TestReviewedDualAuthority:
         from types import SimpleNamespace
 
         from sentinel import informational_paper_mirror
-        from sentinel.feed import publication
+        from sentinel.feed import readers as publication
         from sentinel.feed import store as feed_store
         from sentinel.panel import sources
 
@@ -1492,7 +1492,7 @@ class TestReviewedDualAuthority:
             lambda _c: {"state": "RETRY_WAIT", "plan_id": None,
                         "plan_fingerprint": None})
         monkeypatch.setattr(
-            publication, "current", lambda _c: SimpleNamespace(version=7))
+            publication, "current", lambda _c: SimpleNamespace(version=7, evidence={}))
         monkeypatch.setattr(
             feed_store, "latest_visible_session", lambda _c: "2026-08-20")
         monkeypatch.setattr(
@@ -1512,7 +1512,7 @@ class TestReviewedDualAuthority:
         from types import SimpleNamespace
 
         from sentinel import informational_paper_mirror
-        from sentinel.feed import publication
+        from sentinel.feed import readers as publication
         from sentinel.feed import store as feed_store
         from sentinel.panel import sources
 
@@ -1522,7 +1522,7 @@ class TestReviewedDualAuthority:
             lambda _c: {"state": "PREPARING", "plan_id": None,
                         "plan_fingerprint": None})
         monkeypatch.setattr(
-            publication, "current", lambda _c: SimpleNamespace(version=7))
+            publication, "current", lambda _c: SimpleNamespace(version=7, evidence={}))
         monkeypatch.setattr(
             feed_store, "latest_visible_session", lambda _c: "2026-08-20")
         monkeypatch.setattr(
@@ -1542,7 +1542,7 @@ class TestReviewedDualAuthority:
         from types import SimpleNamespace
 
         from sentinel import informational_paper_mirror
-        from sentinel.feed import publication
+        from sentinel.feed import readers as publication
         from sentinel.feed import store as feed_store
         from sentinel.panel import sources
 
@@ -1553,7 +1553,7 @@ class TestReviewedDualAuthority:
                 "plan_fingerprint": "a" * 64,
                 "clean_reconciliation_id": "reconciliation-1"})
         monkeypatch.setattr(
-            publication, "current", lambda _c: SimpleNamespace(version=7))
+            publication, "current", lambda _c: SimpleNamespace(version=7, evidence={}))
         monkeypatch.setattr(
             feed_store, "latest_visible_session", lambda _c: "2026-08-20")
         monkeypatch.setattr(
@@ -1576,7 +1576,7 @@ class TestReviewedDualAuthority:
     def test_superseded_cycle_is_red_even_with_historical_clean_mirror(
             self, monkeypatch):
         from sentinel import informational_paper_mirror
-        from sentinel.feed import publication
+        from sentinel.feed import readers as publication
         from sentinel.feed import store as feed_store
         from sentinel.panel import sources
 
@@ -1597,7 +1597,7 @@ class TestReviewedDualAuthority:
         from types import SimpleNamespace
 
         from sentinel import informational_paper_mirror
-        from sentinel.feed import publication
+        from sentinel.feed import readers as publication
         from sentinel.feed import store as feed_store
         from sentinel.panel import sources
 
@@ -1608,7 +1608,7 @@ class TestReviewedDualAuthority:
                 "plan_fingerprint": "a" * 64,
                 "clean_reconciliation_id": None})
         monkeypatch.setattr(
-            publication, "current", lambda _c: SimpleNamespace(version=7))
+            publication, "current", lambda _c: SimpleNamespace(version=7, evidence={}))
         monkeypatch.setattr(
             feed_store, "latest_visible_session", lambda _c: "2026-08-20")
         monkeypatch.setattr(
@@ -1668,7 +1668,7 @@ class TestReviewedDualAuthority:
         from types import SimpleNamespace
 
         from sentinel import informational_paper_mirror
-        from sentinel.feed import publication
+        from sentinel.feed import readers as publication
         from sentinel.feed import store as feed_store
         from sentinel.panel import sources
 
@@ -1680,7 +1680,7 @@ class TestReviewedDualAuthority:
                 "plan_fingerprint": "a" * 64,
                 "clean_reconciliation_id": "reconciliation-1"})
         monkeypatch.setattr(
-            publication, "current", lambda _c: SimpleNamespace(version=7))
+            publication, "current", lambda _c: SimpleNamespace(version=7, evidence={}))
         monkeypatch.setattr(
             feed_store, "latest_visible_session", lambda _c: "2026-08-20")
         monkeypatch.setattr(

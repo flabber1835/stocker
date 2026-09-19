@@ -105,6 +105,26 @@ def test_current_champion_real_startup_and_restart_from_operational_window(opera
     assert conn.statements[0].endswith("REPEATABLE READ, READ ONLY")
 
 
+def test_legacy_observation_warmup_uses_the_same_selected_production_strategy(
+        monkeypatch, operational_inputs):
+    from sentinel import observation_authority
+    from sentinel.core import production
+    from sentinel.feed import readers
+
+    # Supply the legacy loader's deterministic material at its I/O boundary;
+    # canonical warm_session_state and advance_session remain real.
+    monkeypatch.setattr(readers, "pinned", lambda c, **kw: parity.rolling_go_inputs.pinned(c))
+    monkeypatch.setattr(production, "load_published_session", lambda *a, **kw: operational_inputs)
+    monkeypatch.setattr(observation_authority, "_corpus_root_identity", lambda *a: {
+        "data_version": 1, "publication_chain_root_sha256": "1" * 64})
+    evidence = observation_authority.current_warmup_evidence(Connection(), starting_cash=100000)
+    proof = parity.run_proof(Connection(), starting_cash="100000", expected_commit=COMMIT)
+    assert evidence["schema"] == "sentinel.paper-observation-warmup/2"
+    assert evidence["warmup_sessions"] == 252 and evidence["decision_session"] == FRONTIER
+    assert evidence["starting_cash"] == "100000"
+    assert evidence["result_state_sha256"] == proof["proof"]["result_state_sha256"]
+
+
 @pytest.mark.parametrize("fault", ["mutate_prior", "mutate_input", "restart_diverges", "wrong_version", "no_advance"])
 def test_real_transition_faults_refuse_and_rollback(monkeypatch, operational_inputs, fault):
     real = parity.advance_session

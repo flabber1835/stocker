@@ -200,8 +200,8 @@ A2 follows the user-approved preserve-and-replay policy in
 [rolling missed-session recovery](rolling-missed-session-recovery.md).
 
 This follow-up closes the implementation defects listed below. **Step 1 and
-economic certification remain OPEN.** In particular, the known rolling-admission
-and backup-lifecycle code dependencies below are not NAS-only work. Passing
+economic certification remain OPEN.** In particular, the backup-lifecycle and resource code dependencies below are
+not NAS-only work. Passing
 these acceptance tests is not a claim that no other economic defect exists.
 
 | Finding | Locally established behavior and production path | Evidence |
@@ -223,6 +223,36 @@ in the #402 evidence package. No old golden, xfail, reference return or provider
 capability was changed in this follow-up. The 20-year broad-universe multiple
 has **not** been computed.
 
+### Rolling admission follow-up after #403
+
+The independent reader follow-up uses verified base
+`4dd5af636ed48d6c17d8a75af4209cbc23a17e48`. Its local acceptance covers the
+actual public observation-candidate CLI, competing publication exclusion, sealed
+metadata and source refresh dates, canonical warmup/production initializer
+agreement, offline signing and installation/activation, and the generated
+installer's Python programs against isolated PostgreSQL. Legacy readiness and
+execution reader regressions remain covered. Strategy/data-semantics identity
+changes with the new reader; old runtime certificates and reviewed input
+identities cannot simply be reused. No economic golden or provider capability
+was changed. The sibling [PR #404](https://github.com/flabber1835/stocker/pull/404)
+contains the separate A6/A24 fixes and has six passing CI workflows on
+`d79e4207cbc4b12093d9911fb0f3f37e70080b66`; that result does not qualify this
+reader branch or the NAS. Detailed commands, source hashes and failure traces
+are retained in the reader evidence package linked in A21.
+
+PR #405 CI on `4d758ad993e96043c160f0421bb97881e87e1019` found one
+obsolete acceptance fixture: the empty-account test expected a candidate from
+warmup `/1` containing only a schema label. The new `/2` guard correctly refused
+it (1 failed, 5,023 passed in that lane). The correction retains that input as
+a rejection test and moves the positive before/after-binding assertion into
+the real sealed-input warmup, signing and activation test. No production guard
+or economic expectation is relaxed. The owner-merged #404 base
+`3c4fb030b3ad06bc8996771479b2d68b71cb17e6` is incorporated; the original
+evidence package remains unchanged. See the [CI follow-up evidence](
+../audit/economic_399/rolling_admission_ci_405/README.md) for the exact regression,
+mutation and ownership commands on the combined source. Fresh CI remains a
+separate requirement; none of this closes the remaining certification gates.
+
 ### Known remaining gates
 
 | Gate | Severity / category | Exact remaining work |
@@ -230,7 +260,7 @@ has **not** been computed.
 | C1/F6 | P1, provider contract plus producer implementation | `sentinel/paper/cash.py:188`, `sentinel/execution/alpaca.py:1938`: accepted account-bound exhaustive cash history, correction/classification rules and fixed-close finality are still absent. Empty/repeated snapshots cannot establish completeness. Preserve disabled production acceptance. |
 | F19 | P2, provider contract plus accounting design | `sentinel/execution/alpaca.py:1724`, `sentinel/execution/fill_integrity.py:16`: native authority, cumulative-average precision and correction/bust reversal remain unaccepted. Refusal is safe but is not support for these lifecycles. |
 | C3 | P1, predecessor recovery protocol | `sentinel/execution/recovered_order_policy.py:75`: retain takeover fencing until account/interval completeness and command preimages prove predecessor ownership and finality. A restored local journal cannot prove omitted provider activity. |
-| A21 | P1 admission / P2 visibility, **open code integration** | `sentinel/observation_authority.py:85`, `:132`, `:160`; `sentinel/cli/feed.py:16`; `scripts/sentinel_autonomous_deploy.py:123`; `scripts/sentinel_autonomous_deploy_driver.py:51`; `scripts/sentinel_autonomous_deploy_install_entry.py:283`; `sentinel/panel/sources.py:531`: version-dispatch rolling readiness, publication, metadata, warmup, causal preflight and panel state. Existing authenticated rolling inputs do not make these legacy readers compatible. Require a complete signed public-installer/admission integration test, not helper-only acceptance. |
+| A21 | P1 admission / P2 visibility, **locally fixed; NAS qualification pending** | `sentinel/feed/readers.py:57`, `sentinel/observation_authority.py:86`, `:187`, `:202`, `:338`, `sentinel/cli/authority.py:65`, `scripts/sentinel_autonomous_deploy_driver.py:384`: authenticated rolling publication/readiness/reference inputs now reach the observation CLI, signed installation/activation identities and generated installer programs. Warmup `/2` runs the selected canonical production strategy; the offline issuer rejects legacy or rehashed strategy/corpus mismatches rather than accepting counts alone. A publication pin spans readiness/warmup/claims; mismatched generation or strategy refuses. Panel readiness is generation-bound. See [design, limitations and NAS handoff](rolling-admission-readers.md) and [retained local evidence](../audit/economic_399/rolling_admission_403/README.md). Stale rolling renewal remains part of the separate open maintenance lifecycle. |
 | A5 original / backup duplicate A6 | P1, **open maintenance implementation** | `docker-compose.sentinel-backup.yml:1`, `sentinel/backup_runtime_authority.py:42`: daily verified backup scheduling and proactive horizon rollover remain absent. A single-owner restart-safe maintenance lifecycle, bounded outage recovery and accelerated WAL/retention qualification are still required. This change does not add that service or weaken its guard. |
 | A6 endpoint replacement | P2, **locally fixed after #403; device qualification pending** | `sentinel/panel/push_enrollment.py:127`, `sentinel/push_recipients.py:23`, `sentinel/web_push.py:316`: durable successors preserve pending obligations before/after capture. Current recipient revision and outbox attempt fence late results; explicit removal/re-enrollment cannot inherit old alerts. Policy-row serialization and consistent policy-to-outbox lock order exclude rotation during result commit. Real PostgreSQL tests cover endpoint/key rotation during HTTP, restart, delivered peers, targeted enrollment tests and conflicting-device refusal. |
 | A12 / A1 residual | P2/P1, code/resource limits | `sentinel/rolling_runtime.py:95` still validates full current inputs during status. `sentinel/shadow_supervisor.py:35` and `:138`, `sentinel/automation_supervisor.py:150` still depend on local filesystem progress. A tiny universe and killable SQL do not establish full-universe latency or resilience to a wedged state filesystem. Qualify independent external health and resource limits; any required bounded-reader/cache or filesystem-isolation implementation remains code work. |

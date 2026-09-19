@@ -61,25 +61,27 @@ def cmd_create_paper_observation_candidate(
     conn = feed_store.connect(config.database_url)
     try:
         schema.require_runtime_schema(conn)
-        ready, _frontier = feed_cli._closed_preview_frontier(conn)
-        if not ready.ready:
-            raise RuntimeError(
-                "current data readiness failed; run check-data before "
-                "creating observation authority")
-        runtime, strategy = _current_system_identities()
-        warmup = current_warmup_evidence(
-            conn, starting_cash=args.cash)
-        candidate = build_candidate(
-            conn, certificate_id=args.certificate_id,
-            issuer_generation=args.issuer_generation,
-            deployment_id=args.deployment_id,
-            expected_account=args.expect_account,
-            runtime_identity=runtime, strategy_identity=strategy,
-            automation_config_sha256=config_from_env().fingerprint,
-            warmup=warmup, maximum_exposure=args.maximum_exposure,
-            reviewer=args.reviewer, ticket=args.ticket,
-            not_before=not_before, expires_at=expires_at,
-            now=lifecycle_reference)
+        from sentinel.feed import readers
+        with readers.pinned(conn, commit=False):
+            ready, _frontier = feed_cli._closed_preview_frontier(conn)
+            if not ready.ready:
+                raise RuntimeError(
+                    "current data readiness failed; run check-data before "
+                    "creating observation authority")
+            runtime, strategy = _current_system_identities()
+            warmup = current_warmup_evidence(
+                conn, starting_cash=args.cash)
+            candidate = build_candidate(
+                conn, certificate_id=args.certificate_id,
+                issuer_generation=args.issuer_generation,
+                deployment_id=args.deployment_id,
+                expected_account=args.expect_account,
+                runtime_identity=runtime, strategy_identity=strategy,
+                automation_config_sha256=config_from_env().fingerprint,
+                warmup=warmup, maximum_exposure=args.maximum_exposure,
+                reviewer=args.reviewer, ticket=args.ticket,
+                not_before=not_before, expires_at=expires_at,
+                now=lifecycle_reference)
     except (ValueError, RuntimeError) + _paper_refusal_types() as exc:
         return _paper_refused(exc)
     finally:
@@ -396,14 +398,9 @@ def _install_system_certificate(config: SentinelConfig, args) -> int:
             observation_bindings = {}
             if prospective.authorization_mode == authority.PAPER_OBSERVATION_ONLY:
                 from sentinel.observation_authority import (
-                    current_corpus_root_identity,
-                    current_metadata_snapshot_identity,
+                    current_input_bindings,
                 )
-                observation_bindings = {
-                    "current_corpus": current_corpus_root_identity(conn),
-                    "current_metadata_snapshot":
-                        current_metadata_snapshot_identity(conn),
-                }
+                observation_bindings = current_input_bindings(conn)
             bindings = authority.bind_current_immutable_identities(
                 prospective.claims["bindings"], runtime_identity=runtime,
                 strategy_identity=strategy, paper_base_url=config.base_url,
@@ -497,14 +494,9 @@ def _activate_system_certificate(config: SentinelConfig, args) -> int:
             observation_bindings = {}
             if staged.authorization_mode == authority.PAPER_OBSERVATION_ONLY:
                 from sentinel.observation_authority import (
-                    current_corpus_root_identity,
-                    current_metadata_snapshot_identity,
+                    current_input_bindings,
                 )
-                observation_bindings = {
-                    "current_corpus": current_corpus_root_identity(conn),
-                    "current_metadata_snapshot":
-                        current_metadata_snapshot_identity(conn),
-                }
+                observation_bindings = current_input_bindings(conn)
             bindings = authority.bind_current_immutable_identities(
                 staged.claims["bindings"], runtime_identity=runtime,
                 strategy_identity=strategy, paper_base_url=config.base_url,

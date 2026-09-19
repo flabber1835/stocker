@@ -552,7 +552,7 @@ def runtime_identity() -> dict:
     }
 
 
-def test_paper_observation_candidate_refuses_before_binding_and_succeeds_after(
+def test_paper_observation_binding_does_not_authorize_legacy_warmup(
         conn):
     from sentinel.observation_authority import build_candidate as observation
 
@@ -570,9 +570,11 @@ def test_paper_observation_candidate_refuses_before_binding_and_succeeds_after(
     binding.bind(
         conn, deployment_id="nas-01", broker="alpaca",
         broker_account_id="paper-123")
-    candidate = observation(conn, **kwargs)
-    assert candidate["claims"]["authorization_mode"] \
-        == "PAPER_OBSERVATION_ONLY"
+    # Binding an empty account does not upgrade obsolete evidence. The positive
+    # before/after-binding path uses real warmup in test_rolling_admission_readers.
+    with pytest.raises(authority.AuthorityRefused,
+                       match="warmup publication or strategy differs"):
+        observation(conn, **kwargs)
 
 
 def test_prebinding_candidate_binds_current_runtime_and_refuses_drift(conn):

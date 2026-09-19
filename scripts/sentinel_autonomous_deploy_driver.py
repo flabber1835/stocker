@@ -52,10 +52,10 @@ class AutonomousDeploy(core.AutonomousDeploy):
         """Read the exact readiness object as JSON without parsing terminal prose."""
         code = r'''
 import json, os
-from sentinel.feed import readiness, store
+from sentinel.feed import readiness, readers, store
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
-    result = readiness.check_readiness(c)
+    result = readers.readiness(c)
     readiness.save_snapshot(c, result)
     checks = [
         {'name': item.name, 'status': item.status,
@@ -64,6 +64,7 @@ try:
     ]
     print(json.dumps({
         'ready': bool(result.ready),
+        'rolling': any(item['name'] == 'rolling publication binding' for item in checks),
         'checks': checks,
         'failures': [item for item in checks if item['status'] == 'FAIL'],
     }, default=str))
@@ -387,6 +388,16 @@ print(json.dumps({
         self._assert_wait_fence()
         verdict = self._readiness_verdict()
         requirements = self._freshness_wait_requirements(verdict)
+
+        if verdict.get("rolling") is True:
+            if verdict.get("ready") is not True:
+                self._refuse_data_readiness(
+                    verdict, attempt=1,
+                    reason="rolling inputs require authenticated source-final preparation")
+            self._base_cli(["check-data"])
+            self.runner.run(self.base_compose + ["up", "-d", "sentinel-panel"])
+            self._write_deployment_state("DATA_READY", attempt=1, failures=[])
+            return
 
         if requirements is None:
             self._base_cli(["feed-daily"])

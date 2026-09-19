@@ -285,12 +285,12 @@ class InstallAnytimeDeploy(bootstrap.BootstrapDeploy):
         code = r'''
 import json, os
 from datetime import datetime, timezone
-from sentinel.feed import calendar, publication, store
+from sentinel.feed import calendar, readers, store
 from sentinel.shadow_runtime import publication_not_before
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
-    current = publication.require_current(c)
-    frontier = store.latest_visible_session(c)
+    with readers.pinned(c, commit=False) as current:
+        frontier = readers.frontier(c, current)
     if frontier is None or current.window_end != frontier:
         raise RuntimeError('current publication/frontier disagree')
     now = datetime.now(timezone.utc)
