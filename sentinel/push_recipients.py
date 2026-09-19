@@ -22,6 +22,7 @@ class Recipient:
 
 def resolve(cur, subscription_id: str, *, created_at: datetime) -> Recipient | None:
     seen = set()
+    eligibility = None
     while subscription_id not in seen:
         seen.add(subscription_id)
         cur.execute(
@@ -33,6 +34,9 @@ def resolve(cur, subscription_id: str, *, created_at: datetime) -> Recipient | N
         if row is None:
             raise RuntimeError("Web Push recipient succession is missing")
         recipient = Recipient(*row[:7])
+        if eligibility is not None and recipient.eligible_from != eligibility:
+            return None
+        eligibility = recipient.eligible_from
         if recipient.eligible_from > created_at:
             # A new enrollment at a reused endpoint has no old obligations.
             return None

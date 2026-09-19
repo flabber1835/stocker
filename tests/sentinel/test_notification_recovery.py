@@ -378,3 +378,37 @@ def test_delivery_result_uses_enrollment_lock_order(db, issue369_pg, monkeypatch
     monkeypatch.setattr(outbox, 'renew_claim', renew)
     push_adapter(issue369_pg, lambda *_: 201).deliver_fenced(claim, claim.idempotency_key, claim_seconds=60)
     assert calls == 2
+
+
+def test_old_rotation_retry_cannot_reconnect_removed_successor(db, issue369_pg, monkeypatch):
+    old = _add_subscription(db, 'old-incarnation')
+    replacement = 'https://push.example.test/new-incarnation'
+    client = browser(issue369_pg, monkeypatch)
+    alert = outbox.enqueue(db, idempotency_key='old-incarnation', event_type='AUTOMATION_RETRY',
+                           severity='WARN', payload={})
+    first = asyncio.run(outbox.dispatch_once(db, adapter=push_adapter(issue369_pg, lambda *_: 503), holder_id='first'))
+    assert first.alert.state is AlertState.PENDING
+    assert rotate(client, old, replacement).status_code == 200
+    assert client.post('/push/subscriptions/remove', json={'endpoint': replacement}).status_code == 200
+    assert rotate(client, replacement, replacement, material=37).status_code == 200
+    assert rotate(client, old, replacement).status_code == 503
+    due(db, alert.alert_id)
+    result = asyncio.run(outbox.dispatch_once(db,
+        adapter=push_adapter(issue369_pg, lambda *_: pytest.fail('removed successor inherited old history')),
+        holder_id='restarted'))
+    assert result.dead_lettered
+
+
+def test_removal_follows_current_successor_but_never_an_independent_reenrollment(
+        db, issue369_pg, monkeypatch):
+    old = _add_subscription(db, 'remove-root')
+    middle, latest = 'https://push.example.test/remove-middle', 'https://push.example.test/remove-latest'
+    client = browser(issue369_pg, monkeypatch)
+    assert rotate(client, old, middle).status_code == 200
+    assert rotate(client, middle, latest).status_code == 200
+    assert client.post('/push/subscriptions/remove', json={'endpoint': old}).status_code == 200
+    assert db.execute('SELECT retired_at IS NOT NULL FROM sentinel_web_push_subscriptions WHERE endpoint=%s', (latest,)).fetchone() == (True,)
+    db.commit()
+    assert rotate(client, latest, latest, material=41).status_code == 200
+    assert client.post('/push/subscriptions/remove', json={'endpoint': middle}).status_code == 200
+    assert db.execute('SELECT retired_at FROM sentinel_web_push_subscriptions WHERE endpoint=%s', (latest,)).fetchone() == (None,)

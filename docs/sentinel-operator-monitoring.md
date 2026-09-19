@@ -229,6 +229,11 @@ rotation after capture resolves the original pending recipient to the current
 endpoint. Delivered recipients remain delivered. A later unrelated enrollment
 does not inherit earlier alerts. Explicit removal ends continuity; re-enrollment
 starts a new eligibility interval even when the endpoint is reused.
+An old rotation request may be retried only while the successor still has that
+same eligibility interval; it cannot reconnect a removed/re-enrolled endpoint.
+Removal of a predecessor also retires its current same-browser successor within
+that unchanged eligibility interval. A stale predecessor cannot remove a later
+independent re-enrollment at the successor's reused endpoint.
 
 Enrollment, removal, fan-out capture and delivery-result writes serialize on the
 notification policy row, never across network I/O. Result transactions acquire

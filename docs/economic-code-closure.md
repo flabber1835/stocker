@@ -247,8 +247,11 @@ the owner merged #402; that administrative state does not satisfy these gates.
 ### Local execution record
 
 The follow-up package records 239 relevant regression passes before the final
-lock-order correction, followed by 29 notification/attempt tests on that final
-correction. Eight new falsifiers each pass unmodified and fail when the named
+lock-order correction, followed by 29 notification/attempt tests on that
+correction and 30 on the stale-rotation/re-enrollment guard. The final expanded
+regression passes 242 tests, including removal through successor chains without
+crossing an independent re-enrollment boundary. Eleven new
+falsifiers each pass unmodified and fail when the named
 guard is broken. The first conflict mutant did not reach FastAPI's registered
 handler; its failed harness attempt is retained, and the corrected mutant
 patches the transaction helper actually called by that route. Syntax/static and

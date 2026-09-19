@@ -5,6 +5,7 @@ import json
 import os
 import re
 from contextlib import closing
+from datetime import datetime, timezone
 from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
@@ -136,11 +137,12 @@ def _replace_subscription(cur, *, endpoint, p256dh, auth, previous, user_agent):
         if predecessor and predecessor[2] == 'removed by device':
             predecessor = None
         if predecessor:
-            cur.execute("SELECT subscription_id,retired_at FROM sentinel_web_push_subscriptions"
+            cur.execute("SELECT subscription_id,retired_at,eligible_from FROM sentinel_web_push_subscriptions"
                         " WHERE subscription_id=%s", (subscription_id(endpoint),))
             existing = cur.fetchone()
             if existing and (predecessor[3] != subscription_id(endpoint)
-                             or existing[1] is not None):
+                             or existing[1] is not None
+                             or existing[2] != predecessor[0]):
                 raise ValueError('replacement already belongs to another enrollment')
             if predecessor[3] not in (None, subscription_id(endpoint)):
                 raise ValueError('predecessor already has a different successor')
@@ -159,6 +161,19 @@ def _replace_subscription(cur, *, endpoint, p256dh, auth, previous, user_agent):
             " WHERE subscription_id=%s AND subscription_id<>%s",
             (sub_id, subscription_id(previous), sub_id))
     return sub_id
+
+
+def _remove_subscription(cur, sub_id):
+    push_recipients.lock(cur)
+    recipient = push_recipients.resolve(
+        cur, sub_id, created_at=datetime.max.replace(tzinfo=timezone.utc))
+    actual = recipient.subscription_id if recipient else None
+    cur.execute(
+        "UPDATE sentinel_web_push_subscriptions"
+        " SET retired_at=COALESCE(retired_at,clock_timestamp()),"
+        " retire_reason='removed by device',successor_id=NULL,"
+        " refreshed_at=clock_timestamp()"
+        " WHERE subscription_id IN (%s,%s)", (sub_id, actual))
 
 
 @router.get("/push/config")
@@ -262,13 +277,9 @@ async def remove(request: Request) -> JSONResponse:
             with closing(feed_store.connect(_bounded_dsn(_database_url()),
                          connect_timeout=3, statement_timeout_ms=2000)) as conn:
                 with conn.cursor() as cur:
-                    push_recipients.lock(cur)
-                    cur.execute(
-                        "UPDATE sentinel_web_push_subscriptions"
-                        " SET retired_at=COALESCE(retired_at,clock_timestamp()),"
-                        " retire_reason='removed by device',successor_id=NULL,"
-                        " refreshed_at=clock_timestamp()"
-                        " WHERE subscription_id=%s", (sub_id,))
+                    cur.execute("SELECT 1 FROM sentinel_web_push_subscriptions WHERE subscription_id=%s", (sub_id,))
+                    if cur.fetchone():
+                        _remove_subscription(cur, sub_id)
                 conn.commit()
         except Exception as exc:                                  # noqa: BLE001
             raise HTTPException(

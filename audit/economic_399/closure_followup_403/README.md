@@ -21,13 +21,20 @@ the delivered commit is recorded in the associated PR.
 | Additional migration/concurrency acceptance | 27 passed |
 | Expanded relevant regression | 239 passed in 64.49 s |
 | Final lock-order correction and stale-attempt acceptance | 29 passed in 18.28 s |
-| New falsifiers | Eight killed, each after a passing baseline |
+| Stale rotation after successor removal/re-enrollment | 30 notification/attempt tests; separate removal falsifier |
+| Final expanded regression including removal through successors | 242 passed in 66.08 s |
+| New falsifiers | Eleven killed, each after a passing baseline |
 | Static/ownership | Eight changed Python files parse; no introduced pyflakes diagnostics; 472 owned test modules, PASS |
 
 Counts overlap. The 239-case run preceded the final policy-to-outbox lock-order
-correction; the 29-case run covers that change. Mutation failures in the logs
+correction; the 29-case run covers that change. The final 30-case run also covers
+an old rotation retry after successor removal/re-enrollment. The earlier request
+must not transfer the predecessor's eligibility interval to that new enrollment.
+Mutation failures in the logs
 are expected only after their unmodified acceptance passes. The existing
 outbox attempt mutant is rerun alongside the final result/serialization guards.
+The final 242-case run covers all follow-up changes, including removal through
+the current successor and refusal to cross into an independent re-enrollment.
 
 Failed attempts are retained: initial schema measurement refused the newly
 declared catalog until its measured digest was recorded; the first device-

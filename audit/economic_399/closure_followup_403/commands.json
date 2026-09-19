@@ -55,7 +55,10 @@
     "push-capture",
     "push-serialization",
     "push-conflict",
-    "push-attempt"
+    "push-attempt",
+    "push-incarnation",
+    "push-removal",
+    "push-chain-interval"
   ],
   "static_commands": [
     "Python ast.parse on changed Python files",
