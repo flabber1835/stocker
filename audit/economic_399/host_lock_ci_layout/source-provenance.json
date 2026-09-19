@@ -1,0 +1,7 @@
+{
+  "tests/scripts/test_host_lock_ownership.py": "9a28ac607a2154dfc61b29fef5caec1f0d836fecdb39f51f9584da463a59d965",
+  "audit/economic_399/host_lock_ci_layout/run_local.py": "d056f04a2870d533ff183120ee8aaf994c8e0fe3561b82f4e7ce3237e23477d9",
+  "scripts/sentinel_backup_lock.py": "f73e5ecace4430207c74263338889719fadb0da92ca424e05c9bd2d2f9d8cb32",
+  "scripts/sentinel_go_lock.py": "ce8053722899c5445254d36801a7f545516186d9c739758116a454bcada09f3d",
+  "scripts/sentinel_lock_ownership.py": "a82f7310b21f3dcee5a3e56fdc83e74d5ab39bdbee7a37ac2bff0f1f1f3da7fb"
+}

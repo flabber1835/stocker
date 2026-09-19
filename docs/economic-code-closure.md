@@ -299,6 +299,42 @@ The authoritative provider references and their precise limits are retained in
 No new provider promise is inferred here. Issue #399 is closed on GitHub after
 the owner merged #402; that administrative state does not satisfy these gates.
 
+### Host lock ownership follow-up
+
+Review from main `65e261312ec219e014f062c0b6b374066db19d75` found a **P1
+serialization-integrity defect** in both host lock verifiers:
+`scripts/sentinel_backup_lock.py:50` and `scripts/sentinel_go_lock.py:26` proved
+contention at the expected inode, not ownership by the inherited descriptor.
+Both now require the same bounded, read-only Linux descriptor-ownership proof
+in `scripts/sentinel_lock_ownership.py:8`. Independent, shared and released
+descriptors refuse; verification cannot acquire, upgrade or release a lock.
+The kernel-owned descriptor remains accepted after the original parent exits.
+No historical economic discrepancy is attributed to this finding without
+deployed evidence.
+
+See [documented contract and NAS prerequisites](host-lock-ownership.md) and
+[retained commands, results and falsifiers](../audit/economic_399/host_lock_ownership/README.md).
+This fixes ownership verification within existing lock scopes. Backup locking
+is still scoped to the canonical target and host UID; GO locking is scoped to
+its checkout. Cross-UID/cross-host backup ownership and cross-checkout GO
+coordination are not established by these tests and must be resolved by the
+maintenance/deployment ownership contract. Do not claim global single ownership
+from a descriptor-level proof.
+
+Recurring maintenance, bounded directory discovery, horizon rollover/retention,
+filesystem-progress and other listed provider/data/NAS gates remain open.
+PRs #406 and #407 are separate changes; this follow-up does not supersede them.
+
+PR #408's initial head `43540abffff324a567e8cb2e8c8a3aa239a981a9` failed
+the operator image-build test lane: the inherited-owner process test passed
+`/work/scripts` to its child while CI stores the ownership helper under
+`/work/repo/scripts`. The test now honors `SENTINEL_REPO_ROOT`, matching the
+inspection-source contract. This is a test execution defect; no production
+ownership or economic assertion changed. The original local checkout layout
+missed this discrepancy. The separate [CI-layout evidence package](../audit/economic_399/host_lock_ci_layout/README.md)
+retains its reproduction and corrected validation; the earlier evidence is
+preserved. Exact-image GitHub CI remains required.
+
 ### Local execution record
 
 The follow-up package records 239 relevant regression passes before the final
