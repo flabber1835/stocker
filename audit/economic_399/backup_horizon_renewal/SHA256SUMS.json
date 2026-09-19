@@ -1,0 +1,18 @@
+{
+  "README.md": {
+    "bytes": 7970,
+    "sha256": "71c1a3b54733af66abaf42b9cef62994aae10c2a70ef054d87161b953babf1a2"
+  },
+  "results.zip": {
+    "bytes": 10974,
+    "sha256": "0d005789ead4bcce7869ed87f167b0802d0873ec7b90f91d84474270c1b66f34"
+  },
+  "run_local.py": {
+    "bytes": 2086,
+    "sha256": "bec201bb59e3995e295cba29686d0d4ecda821f8049f28bc2f42d81c51aaade0"
+  },
+  "source-provenance.json": {
+    "bytes": 1855,
+    "sha256": "dbad50b2ef83c9d7eb04fb4858c5f174f5134f0b9b3d6c4f1daf8d593d5ce2f6"
+  }
+}

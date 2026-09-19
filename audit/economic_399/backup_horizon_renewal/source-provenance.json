@@ -1,0 +1,50 @@
+{
+  "main_base": "8212a55335500b4bbb81853572019d9eb4443724",
+  "source_encoding": "Git LF bytes",
+  "sources": {
+    "audit/economic_399/backup_horizon_renewal/run_local.py": {
+      "bytes": 2086,
+      "sha256": "bec201bb59e3995e295cba29686d0d4ecda821f8049f28bc2f42d81c51aaade0"
+    },
+    "docs/backup-horizon-renewal.md": {
+      "bytes": 3265,
+      "sha256": "a823aeaec8400b38f519d06002ce911b084d42327bded826557d85273468599c"
+    },
+    "docs/economic-code-closure.md": {
+      "bytes": 41918,
+      "sha256": "bbf63595061d11a0f1d21334d85be819d3203d506142b07cf01f3e954225b694"
+    },
+    "docs/sentinel-deployment.md": {
+      "bytes": 123758,
+      "sha256": "52c5f9e07f742dd1b6cec7b357b3ec58a73cdc174241fafb9cce66f5a217e4d5"
+    },
+    "scripts/sentinel-backup-status.sh": {
+      "bytes": 8540,
+      "sha256": "85245c6fd1e5a3a1ad6b84de3569601d5ee5c29bbca2fe51d6c36a811fe7e8d0"
+    },
+    "scripts/sentinel-backup-verify-chain.sh": {
+      "bytes": 7204,
+      "sha256": "f93217acbeed28a97bd5165a590dd653444901060670267b48149024dc7d91bd"
+    },
+    "scripts/sentinel_go_backup_refresh.py": {
+      "bytes": 15463,
+      "sha256": "e89836b22d6f31e0a4443a818198e4abe6f6e9d4c2e34648e5cc57d3d962a0d0"
+    },
+    "tests/backup/command_adapter.py": {
+      "bytes": 10754,
+      "sha256": "088e86737096879c99225b92ebc9d0e065cac6f289cef6fa37c0ac0dbefcb1f5"
+    },
+    "tests/backup/test_shell_lifecycle.py": {
+      "bytes": 23965,
+      "sha256": "931ea5da250e846b37d26a8b6457db726bc1838c9efebc682be70b7d54fddd4f"
+    },
+    "tests/sentinel/test_go_backup_refresh.py": {
+      "bytes": 16857,
+      "sha256": "a9238e73aa7ce1dd17452db83f44ea19c0d7ca119419a681733177eec12ca27d"
+    },
+    "tools/sentinel_backup_horizon_falsifiers.py": {
+      "bytes": 3085,
+      "sha256": "3b3860f6b9b8c603e779e4361e88b5c65699080f53eb11e1839f2f2e843463d4"
+    }
+  }
+}
