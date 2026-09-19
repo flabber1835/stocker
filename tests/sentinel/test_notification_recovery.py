@@ -184,3 +184,197 @@ async def test_waiting_subscription_database_does_not_block_event_loop(monkeypat
 
 
 __all__ = ['db', 'issue369_pg']
+
+
+def browser(issue369_pg, monkeypatch):
+    import importlib
+    from starlette.testclient import TestClient
+    monkeypatch.setenv('SENTINEL_DATABASE_URL', issue369_pg.sync_dsn)
+    monkeypatch.setenv('SENTINEL_PUBLIC_ORIGIN', 'https://panel.example.test')
+    client = TestClient(importlib.import_module('sentinel.panel.app').app)
+    client.headers['Origin'] = 'https://panel.example.test'
+    return client
+
+
+def rotate(client, old, new, material=23):
+    p256dh, auth = _subscription_material(material)
+    return client.post('/push/subscriptions/refresh', json={
+        'previous_endpoint': old,
+        'subscription': {'endpoint': new, 'keys': {'p256dh': p256dh, 'auth': auth}}})
+
+
+def push_adapter(issue369_pg, sender):
+    return WebPushAlertAdapter(connection_factory=lambda: store.connect(issue369_pg.sync_dsn),
+                               credentials=_vapid(), sender=sender)
+
+
+@pytest.mark.parametrize('captured', [False, True])
+@pytest.mark.parametrize('targeted', [False, True])
+def test_pending_alert_follows_rotation_before_or_after_fanout(
+        db, issue369_pg, monkeypatch, captured, targeted):
+    from sentinel.web_push import subscription_id
+    old = _add_subscription(db, 'rotating')
+    peer = _add_subscription(db, 'peer')
+    client = browser(issue369_pg, monkeypatch)
+    alert = outbox.enqueue(db, idempotency_key='rotation',
+        event_type='PUSH_ENROLLMENT_TEST' if targeted else 'AUTOMATION_RETRY',
+        severity='INFO' if targeted else 'WARN',
+        payload={'subscription_id': subscription_id(old)} if targeted else {})
+    first = push_adapter(issue369_pg, lambda endpoint, *_: 503 if endpoint == old else 201)
+    if captured:
+        assert asyncio.run(outbox.dispatch_once(db, adapter=first, holder_id='first')).alert.state is AlertState.PENDING
+        due(db, alert.alert_id)
+    replacement = 'https://push.example.test/replaced'
+    assert rotate(client, old, replacement).status_code == 200
+    unrelated = _add_subscription(db, 'late-unrelated')
+    calls = []
+    result = asyncio.run(outbox.dispatch_once(db,
+        adapter=push_adapter(issue369_pg, lambda endpoint, *_: calls.append(endpoint) or 201),
+        holder_id='restarted'))
+    assert result.delivered and result.alert.alert_id == alert.alert_id
+    assert calls.count(replacement) == 1 and old not in calls and unrelated not in calls
+    assert calls.count(peer) == int(not captured and not targeted)
+    assert db.execute('SELECT COUNT(*) FROM sentinel_web_push_deliveries').fetchone()[0] == (1 if targeted else 2)
+
+
+@pytest.mark.parametrize('status', [201, 410, 503])
+@pytest.mark.parametrize('same_endpoint', [False, True])
+def test_rotation_during_http_fences_old_result_and_retries_successor(
+        db, issue369_pg, monkeypatch, status, same_endpoint):
+    old = _add_subscription(db, 'in-flight')
+    replacement = old if same_endpoint else 'https://push.example.test/in-flight-next'
+    client = browser(issue369_pg, monkeypatch)
+    alert = outbox.enqueue(db, idempotency_key='in-flight', event_type='AUTOMATION_RETRY',
+                           severity='WARN', payload={})
+    def sender(*_):
+        assert rotate(client, old, replacement, material=31).status_code == 200
+        return status
+    result = asyncio.run(outbox.dispatch_once(db, adapter=push_adapter(issue369_pg, sender), holder_id='old'))
+    assert result.alert.state is AlertState.PENDING
+    assert db.execute('SELECT state,last_status_code,attempt_count FROM sentinel_web_push_deliveries').fetchall() == [('PENDING', None, 0)]
+    assert db.execute('SELECT retired_at FROM sentinel_web_push_subscriptions WHERE endpoint=%s',
+                      (replacement,)).fetchone() == (None,)
+    db.commit()
+    due(db, alert.alert_id)
+    calls = []
+    final = asyncio.run(outbox.dispatch_once(db,
+        adapter=push_adapter(issue369_pg, lambda endpoint, *_: calls.append(endpoint) or 201),
+        holder_id='new'))
+    assert final.delivered and calls == [replacement]
+
+
+@pytest.mark.parametrize('same_endpoint', [False, True])
+def test_explicit_removal_and_new_enrollment_cannot_inherit_pending_alert(
+        db, issue369_pg, monkeypatch, same_endpoint):
+    old = _add_subscription(db, 'removed')
+    client = browser(issue369_pg, monkeypatch)
+    alert = outbox.enqueue(db, idempotency_key='removed', event_type='AUTOMATION_RETRY',
+                           severity='WARN', payload={})
+    first = asyncio.run(outbox.dispatch_once(db, adapter=push_adapter(issue369_pg, lambda *_: 503), holder_id='first'))
+    assert first.alert.state is AlertState.PENDING
+    assert client.post('/push/subscriptions/remove', json={'endpoint': old}).status_code == 200
+    new = old if same_endpoint else 'https://push.example.test/unrelated-enrollment'
+    assert rotate(client, old, new).status_code == 200
+    due(db, alert.alert_id)
+    final = asyncio.run(outbox.dispatch_once(db,
+        adapter=push_adapter(issue369_pg, lambda *_: pytest.fail('removed obligation reached new enrollment')),
+        holder_id='restarted'))
+    assert final.dead_lettered
+
+
+def test_rotation_chain_survives_restart_and_refuses_merging_devices(db, issue369_pg, monkeypatch):
+    old = _add_subscription(db, 'chain-first')
+    peer = _add_subscription(db, 'chain-peer')
+    client = browser(issue369_pg, monkeypatch)
+    alert = outbox.enqueue(db, idempotency_key='chain', event_type='AUTOMATION_RETRY', severity='WARN', payload={})
+    first = asyncio.run(outbox.dispatch_once(db,
+        adapter=push_adapter(issue369_pg, lambda endpoint, *_: 201 if endpoint == peer else 503), holder_id='first'))
+    assert first.alert.state is AlertState.PENDING
+    second, third = 'https://push.example.test/chain-second', 'https://push.example.test/chain-third'
+    assert rotate(client, old, second).status_code == 200
+    assert rotate(client, old, second).status_code == 200  # lost acknowledgement
+    assert rotate(client, second, third).status_code == 200
+    assert rotate(client, old, second).status_code == 503  # stale predecessor request
+    assert rotate(client, third, peer).status_code == 503
+    due(db, alert.alert_id)
+    calls = []
+    final = asyncio.run(outbox.dispatch_once(db,
+        adapter=push_adapter(issue369_pg, lambda endpoint, *_: calls.append(endpoint) or 201), holder_id='restarted'))
+    assert final.delivered and calls == [third]
+
+
+def test_recipient_schema_migration_preserves_eligibility_and_pending_evidence(db):
+    from sentinel import schema
+    old = _add_subscription(db, 'legacy-subscription')
+    db.execute('ALTER TABLE sentinel_web_push_subscriptions DROP COLUMN eligible_from, DROP COLUMN successor_id')
+    db.commit()
+    with pytest.raises(schema.SchemaMigrationRefused, match='missing migration columns'):
+        schema.require_runtime_schema(db)
+    db.rollback()
+    schema.ensure_schema(db)
+    row = db.execute('SELECT created_at,eligible_from,successor_id FROM sentinel_web_push_subscriptions WHERE endpoint=%s', (old,)).fetchone()
+    assert row[0] == row[1] and row[2] is None
+    db.commit()
+    schema.ensure_schema(db)
+    assert db.execute('SELECT created_at,eligible_from,successor_id FROM sentinel_web_push_subscriptions WHERE endpoint=%s', (old,)).fetchone() == row
+
+
+def test_rotation_cannot_cross_delivery_result_transaction(db, issue369_pg, monkeypatch):
+    from concurrent.futures import ThreadPoolExecutor
+    from sentinel import push_recipients
+    old = _add_subscription(db, 'serialization')
+    client = browser(issue369_pg, monkeypatch)
+    alert = outbox.enqueue(db, idempotency_key='serialization', event_type='AUTOMATION_RETRY',
+                           severity='WARN', payload={})
+    entered, release, refresh_started = threading.Event(), threading.Event(), threading.Event()
+    original = push_recipients.resolve
+    calls = 0
+    def resolve(*args, **kwargs):
+        nonlocal calls
+        result = original(*args, **kwargs)
+        calls += 1
+        if calls == 2:  # after result revalidation, before durable result update
+            entered.set()
+            assert release.wait(2)
+        return result
+    monkeypatch.setattr(push_recipients, 'resolve', resolve)
+    adapter = push_adapter(issue369_pg, lambda *_: 201)
+    def refreshing():
+        refresh_started.set()
+        return rotate(client, old, 'https://push.example.test/serialized-next')
+    with ThreadPoolExecutor(max_workers=2) as workers:
+        delivery = workers.submit(adapter.deliver, alert, alert.idempotency_key)
+        try:
+            assert entered.wait(2)
+            refreshed = workers.submit(refreshing)
+            assert refresh_started.wait(2)
+            import time
+            time.sleep(.15)
+            assert not refreshed.done(), 'rotation crossed an uncommitted delivery result'
+        finally:
+            release.set()
+        delivery.result(timeout=2)
+        assert refreshed.result(timeout=2).status_code == 200
+    assert db.execute('SELECT state FROM sentinel_web_push_deliveries').fetchall() == [('DELIVERED',)]
+
+
+def test_delivery_result_uses_enrollment_lock_order(db, issue369_pg, monkeypatch):
+    import psycopg
+    _add_subscription(db, 'lock-order')
+    outbox.enqueue(db, idempotency_key='lock-order', event_type='AUTOMATION_RETRY',
+                   severity='WARN', payload={})
+    claim = outbox.claim_next(db, holder_id='dispatch', claim_seconds=60)
+    original = outbox.renew_claim
+    calls = 0
+    def renew(connection, **kwargs):
+        nonlocal calls
+        calls += 1
+        if calls == 2:  # result commit, after the pre-HTTP renewal
+            with store.connect(issue369_pg.sync_dsn) as contender:
+                with pytest.raises(psycopg.errors.LockNotAvailable):
+                    contender.execute('SELECT id FROM sentinel_notification_policy WHERE id=1 FOR UPDATE NOWAIT')
+                contender.rollback()
+        return original(connection, **kwargs)
+    monkeypatch.setattr(outbox, 'renew_claim', renew)
+    push_adapter(issue369_pg, lambda *_: 201).deliver_fenced(claim, claim.idempotency_key, claim_seconds=60)
+    assert calls == 2

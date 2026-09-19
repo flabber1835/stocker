@@ -1,0 +1,15 @@
+{
+  "base": "4dd5af636ed48d6c17d8a75af4209cbc23a17e48",
+  "sha256": {
+    "docs/economic-code-closure.md": "5a4c16fb6dc63ba547e5add72710c1ddbf15d6a394bd28fbaffbdc5876524da8",
+    "docs/sentinel-operator-monitoring.md": "773ce219d139d44a00aa26959b0bfe5b8b7938909672736edf5d676e6e47e866",
+    "scripts/sentinel_autonomous_deploy.py": "3deea09c2d8f70cc7f9018d8ea98e6a3b5e789ec68297f4a626726a1f90ed5a4",
+    "sentinel/panel/push_enrollment.py": "c69d4c90b9856d2d0faab66569d94073b2e7640e35bb02e9e26ba2ba8a5be191",
+    "sentinel/schema.py": "a23fd0309ec63e679df58fea515f06934709df3e2dd14879d5f53c31562067ab",
+    "sentinel/web_push.py": "6b507864bb73d7edcf591cb7b1680228950108143db2380de7f322f3fc269681",
+    "tests/sentinel/test_autonomous_deploy.py": "722d3dcdb3eadc56ec2913bfebcda69126ac0371bfe14a3d903d0c9af56cb832",
+    "tests/sentinel/test_notification_recovery.py": "6ef8e33f71719cb3f2bc9101cf2171bab300516e33fe676d0de4efa5ec1adcef",
+    "tools/economic_audit_mutation_check.py": "7399e1eafc7707ae6595ae5b98d74dadb4915d89f4a4c3948b3a33f5d69314c6",
+    "sentinel/push_recipients.py": "010dc07066fb58f7850da10318dd3fea6776c714088ba2e734440222c437f9ea"
+  }
+}

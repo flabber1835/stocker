@@ -12,7 +12,26 @@ dependencies. Preserve that historical evidence. No NAS or broker-account
 access is part of this work. The final execution/disposition ledger below must
 separate fixed defects, unsupported economic capabilities, and external evidence.
 
+**Follow-up after #403:** current `main` was independently verified on GitHub
+and by `git fetch origin main` as
+`4dd5af636ed48d6c17d8a75af4209cbc23a17e48`. The endpoint-replacement and
+streaming-timeout entries below now have local fixes and retained acceptance
+evidence in [the follow-up package](../audit/economic_399/closure_followup_403/README.md).
+Step 1 remains open; the rolling-admission and backup-lifecycle rows still name
+implementation work, not merely NAS qualification.
+
 ## Decisions before implementation
+
+### Streaming deployment deadlines (A24 follow-up after #403)
+
+The optional command timeout also applies to streaming commands, including a
+silent child, output without a newline, and a descendant holding stdout open.
+Use one monotonic deadline for pipe reads and process exit. Start the command
+in a private process group; timeout or interrupted streaming kills and reaps
+that group without affecting the installer. Retain output already received in
+the command log. A checked timeout refuses; an unchecked timeout returns 124.
+This deadline bounds the child process and its pipe; the existing separate
+host filesystem/output-device qualification remains required.
 
 ### Temporary dependencies and authority (A3/A4/A11/A13/A20)
 
@@ -213,10 +232,10 @@ has **not** been computed.
 | C3 | P1, predecessor recovery protocol | `sentinel/execution/recovered_order_policy.py:75`: retain takeover fencing until account/interval completeness and command preimages prove predecessor ownership and finality. A restored local journal cannot prove omitted provider activity. |
 | A21 | P1 admission / P2 visibility, **open code integration** | `sentinel/observation_authority.py:85`, `:132`, `:160`; `sentinel/cli/feed.py:16`; `scripts/sentinel_autonomous_deploy.py:123`; `scripts/sentinel_autonomous_deploy_driver.py:51`; `scripts/sentinel_autonomous_deploy_install_entry.py:283`; `sentinel/panel/sources.py:531`: version-dispatch rolling readiness, publication, metadata, warmup, causal preflight and panel state. Existing authenticated rolling inputs do not make these legacy readers compatible. Require a complete signed public-installer/admission integration test, not helper-only acceptance. |
 | A5 original / backup duplicate A6 | P1, **open maintenance implementation** | `docker-compose.sentinel-backup.yml:1`, `sentinel/backup_runtime_authority.py:42`: daily verified backup scheduling and proactive horizon rollover remain absent. A single-owner restart-safe maintenance lifecycle, bounded outage recovery and accelerated WAL/retention qualification are still required. This change does not add that service or weaken its guard. |
-| A6 endpoint replacement | P2, **open notification ownership implementation** | `sentinel/panel/push_enrollment.py:176`, `sentinel/web_push.py:242`: same-browser rotation still strands a previously captured obligation. Implement durable recipient succession with attempt fencing, preserving explicit removal and unrelated enrollment boundaries. Require before/after-fanout, in-flight rotation and delivered-peer tests. |
+| A6 endpoint replacement | P2, **locally fixed after #403; device qualification pending** | `sentinel/panel/push_enrollment.py:127`, `sentinel/push_recipients.py:23`, `sentinel/web_push.py:316`: durable successors preserve pending obligations before/after capture. Current recipient revision and outbox attempt fence late results; explicit removal/re-enrollment cannot inherit old alerts. Policy-row serialization and consistent policy-to-outbox lock order exclude rotation during result commit. Real PostgreSQL tests cover endpoint/key rotation during HTTP, restart, delivered peers, targeted enrollment tests and conflicting-device refusal. |
 | A12 / A1 residual | P2/P1, code/resource limits | `sentinel/rolling_runtime.py:95` still validates full current inputs during status. `sentinel/shadow_supervisor.py:35` and `:138`, `sentinel/automation_supervisor.py:150` still depend on local filesystem progress. A tiny universe and killable SQL do not establish full-universe latency or resilience to a wedged state filesystem. Qualify independent external health and resource limits; any required bounded-reader/cache or filesystem-isolation implementation remains code work. |
 | A14 / A16 | P1/P2, provider/economic policy | Recent SIP entitlement admission and held-spinoff continuation need accepted provider evidence and reviewed economic handling. Do not infer permission from a synthetic fixture or force continuation past an unsupported event. See the retained #400 dispositions. |
-| A24 residual | P2, code limitation | `scripts/sentinel_autonomous_deploy.py:1133`: streaming command execution still does not honor an optional timeout. The readiness path tested here uses capture mode. Do not generalize its deadline result to the streaming runner. |
+| A24 residual | P2, **locally fixed after #403** | `scripts/sentinel_autonomous_deploy.py:1127`: streaming uses one monotonic pipe/process deadline, kills its private process group, reaps the child, retains partial output and returns 124 or refuses. Actual subprocess tests cover silence, partial lines, closed/inherited stdout and a descendant's prevented late write. Host filesystem/output-device stalls remain the separate A1/resource qualification. |
 | Full historical replay | Data-dependent, with an import/replay adapter still required | Supply the complete 20-year PIT corpus and warmup: SEP, SPY/BIL SFP, dated TICKERS/issuer/alias/exchange history, ACTIONS and terminal/spinoff terms, completeness/availability evidence, manifests and normalization versions. The user's corpus exists elsewhere; it was not accessed on the NAS. Retained operational publications cover only sessions actually published before their next open. A whole feed outage needs separately authenticated historical input; this recovery implementation does not backdate today's metadata. |
 | Deployed qualification | NAS-only evidence after code/provider gates | Exact image/PostgreSQL version, storage capacity, physical WAL restore, real-device delivery, process/container/NAS restart and production-universe resource measurements remain unexecuted. |
 
@@ -226,6 +245,15 @@ No new provider promise is inferred here. Issue #399 is closed on GitHub after
 the owner merged #402; that administrative state does not satisfy these gates.
 
 ### Local execution record
+
+The follow-up package records 239 relevant regression passes before the final
+lock-order correction, followed by 29 notification/attempt tests on that final
+correction. Eight new falsifiers each pass unmodified and fail when the named
+guard is broken. The first conflict mutant did not reach FastAPI's registered
+handler; its failed harness attempt is retained, and the corrected mutant
+patches the transaction helper actually called by that route. Syntax/static and
+test ownership checks are retained with exact commands and source hashes.
+These tests change no strategy calculation or historical reference result.
 
 Verified base and still-current `origin/main`:
 `748d54e12a4cdb4b5403c56feb8d6b68e47d0104`. GitHub confirms #402 merged and
@@ -261,6 +289,21 @@ were rerun and killed. No acceptance was obtained by xfail, fixture repinning,
 removing an economic assertion or promoting a capability bit.
 
 ### Concrete NAS handoff — not executed
+
+For the notification follow-up, explicitly migrate the isolated clone through
+the reviewed fenced installer before starting the dispatcher. Runtime schema
+inspection must reject the old catalog and accept the measured Stage-4 digest
+`9d80e0801cf8c8e98b739e337eab3d883f3aac3495e47766b3214423ff90b7c1` afterward.
+Run `python audit/economic_399/closure_followup_403/run_local.py regression`
+and each mutation named in its `commands.json` using the accepted test image.
+Retain raw output and the exact source/image/database identities. Pass requires
+zero unexpected failures/skips/xfails and detection of every mutant. On a
+separately authorized device test, rotate the subscription before capture and
+during an in-flight request; retain the original alert/delivery row, successor
+link, HTTP attempt and visible notification. Pass requires eventual delivery
+on the successor without resending an already-confirmed peer. A stale response
+must not retire or complete the successor. Remove/re-enroll must not deliver
+the predecessor's pending history. Existing terminal rows are not resurrected.
 
 The earlier [NAS handoff](economic-audit-399-pre-nas.md#concrete-nas-handoff-not-executed)
 continues to apply. Add these prerequisites and checks for this change:

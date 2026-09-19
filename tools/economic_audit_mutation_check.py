@@ -13,6 +13,41 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def case(name):
+    if name == 'push-serialization':
+        from sentinel import push_recipients
+        return (push_recipients, 'lock', lambda cur: None,
+                'tests/sentinel/test_notification_recovery.py::test_rotation_cannot_cross_delivery_result_transaction')
+    if name in {'stream-deadline', 'stream-group', 'push-successor', 'push-eligibility', 'push-revision', 'push-capture', 'push-conflict'}:
+        import importlib
+        import textwrap
+        import types
+        if name.startswith('stream-'):
+            module = importlib.import_module('tests.sentinel.test_autonomous_deploy').deploy
+            owner, attribute = module.Runner, '_stream'
+            old, new, selection = {
+                'stream-deadline': ('deadline = None if timeout is None else time.monotonic() + timeout', 'deadline = None', 'test_streaming_deadline_covers_silent_partial_closed_and_inherited_pipe'),
+                'stream-group': ('os.killpg(process.pid, signal.SIGKILL)', 'pass', 'test_stream_timeout_kills_descendant_before_its_late_side_effect'),
+            }[name]
+            selection = 'tests/sentinel/test_autonomous_deploy.py::' + selection
+        else:
+            module = importlib.import_module('sentinel.panel.push_enrollment' if name == 'push-conflict' else 'sentinel.push_recipients' if name in {'push-successor', 'push-eligibility'} else 'sentinel.web_push')
+            owner = module if name in {'push-successor', 'push-eligibility', 'push-conflict'} else module.WebPushAlertAdapter
+            attribute, old, new, selection = {
+                'push-successor': ('resolve', 'if successor is None:', 'if True:', 'test_pending_alert_follows_rotation_before_or_after_fanout'),
+                'push-eligibility': ('resolve', 'if recipient.eligible_from > created_at:', 'if False:', 'test_explicit_removal_and_new_enrollment_cannot_inherit_pending_alert'),
+                'push-revision': ('_record', 'if current != recipient:', 'if False:', 'test_rotation_during_http_fences_old_result_and_retries_successor'),
+                'push-capture': ('_initialize_fanout', 'eligible_from<=%s', 'created_at<=%s', 'test_pending_alert_follows_rotation_before_or_after_fanout'),
+                'push-conflict': ('_replace_subscription', 'if existing and (', 'if False and (', 'test_rotation_chain_survives_restart_and_refuses_merging_devices'),
+            }[name]
+            selection = 'tests/sentinel/test_notification_recovery.py::' + selection
+        source = textwrap.dedent(inspect.getsource(getattr(owner, attribute)))
+        assert old in source, 'mutation seam disappeared'
+        namespace = dict(module.__dict__)
+        exec(compile(source.replace(old, new), module.__file__, 'exec'), namespace)
+        compiled = namespace[attribute]
+        mutant = types.FunctionType(compiled.__code__, module.__dict__, attribute, compiled.__defaults__)
+        mutant.__kwdefaults__ = compiled.__kwdefaults__
+        return owner, attribute, mutant, selection
     if name in {'migration-stop', 'migration-replay', 'migration-feed-core', 'migration-feed-bootstrap'}:
         import importlib
         import os
@@ -232,7 +267,10 @@ def main():
                                             'reconstruction-health', 'health-recurrence', 'dispatcher-deadline',
                                             'deployment-global-fence', 'deploy-fence-order',
                                             'migration-stop', 'migration-replay',
-                                            'migration-feed-core', 'migration-feed-bootstrap'))
+                                            'migration-feed-core', 'migration-feed-bootstrap',
+                                            'stream-deadline', 'push-successor', 'push-eligibility',
+                                            'push-revision', 'push-capture', 'push-serialization',
+                                            'stream-group', 'push-conflict'))
     name = parser.parse_args().mutation
     module, attribute, mutant, selection = case(name)
     args = [selection, '-q', '--tb=short', '--show-capture=no', '-p', 'no:cacheprovider']

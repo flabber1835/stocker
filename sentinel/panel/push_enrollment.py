@@ -12,6 +12,7 @@ from fastapi.responses import JSONResponse
 from starlette.concurrency import run_in_threadpool
 
 from sentinel.automation import outbox
+from sentinel import push_recipients
 from sentinel.panel.sources import _bounded_dsn
 from sentinel.web_push import b64url_decode, subscription_id, validate_subscription
 
@@ -96,6 +97,11 @@ def _upsert_subscription(
         cur, *, endpoint: str, p256dh: str, auth: str,
         user_agent: str) -> str:
     sub_id = subscription_id(endpoint)
+    cur.execute("SELECT successor_id FROM sentinel_web_push_subscriptions WHERE subscription_id=%s",
+                (sub_id,))
+    existing = cur.fetchone()
+    if existing and existing[0] is not None:
+        raise ValueError('retired predecessor cannot replace its current successor')
     cur.execute(
         "INSERT INTO sentinel_web_push_subscriptions"
         " (subscription_id,endpoint,p256dh,auth,user_agent)"
@@ -107,9 +113,51 @@ def _upsert_subscription(
         " sentinel_web_push_subscriptions.retired_at IS NOT NULL"
         " THEN clock_timestamp() ELSE"
         " sentinel_web_push_subscriptions.created_at END,"
+        " eligible_from=CASE WHEN"
+        " sentinel_web_push_subscriptions.retired_at IS NOT NULL"
+        " THEN clock_timestamp() ELSE"
+        " sentinel_web_push_subscriptions.eligible_from END,"
+        " successor_id=NULL,"
         " refreshed_at=clock_timestamp(),retired_at=NULL,"
         " retire_reason=NULL",
         (sub_id, endpoint, p256dh, auth, user_agent[:512]))
+    return sub_id
+
+
+def _replace_subscription(cur, *, endpoint, p256dh, auth, previous, user_agent):
+    push_recipients.lock(cur)
+    predecessor = None
+    if previous is not None and previous != endpoint:
+        cur.execute(
+            "SELECT eligible_from,retired_at,retire_reason,successor_id"
+            " FROM sentinel_web_push_subscriptions WHERE subscription_id=%s",
+            (subscription_id(previous),))
+        predecessor = cur.fetchone()
+        if predecessor and predecessor[2] == 'removed by device':
+            predecessor = None
+        if predecessor:
+            cur.execute("SELECT subscription_id,retired_at FROM sentinel_web_push_subscriptions"
+                        " WHERE subscription_id=%s", (subscription_id(endpoint),))
+            existing = cur.fetchone()
+            if existing and (predecessor[3] != subscription_id(endpoint)
+                             or existing[1] is not None):
+                raise ValueError('replacement already belongs to another enrollment')
+            if predecessor[3] not in (None, subscription_id(endpoint)):
+                raise ValueError('predecessor already has a different successor')
+    sub_id = _upsert_subscription(
+        cur, endpoint=endpoint, p256dh=p256dh, auth=auth,
+        user_agent=user_agent)
+    if predecessor:
+        cur.execute(
+            "UPDATE sentinel_web_push_subscriptions SET eligible_from=%s"
+            " WHERE subscription_id=%s", (predecessor[0], sub_id))
+        cur.execute(
+            "UPDATE sentinel_web_push_subscriptions"
+            " SET retired_at=COALESCE(retired_at,clock_timestamp()),"
+            " retire_reason='replaced by browser',successor_id=%s,"
+            " refreshed_at=clock_timestamp()"
+            " WHERE subscription_id=%s AND subscription_id<>%s",
+            (sub_id, subscription_id(previous), sub_id))
     return sub_id
 
 
@@ -146,6 +194,7 @@ async def enroll(request: Request) -> JSONResponse:
             with closing(feed_store.connect(_bounded_dsn(_database_url()),
                          connect_timeout=3, statement_timeout_ms=2000)) as conn:
                 with conn.cursor() as cur:
+                    push_recipients.lock(cur)
                     _upsert_subscription(
                         cur, endpoint=endpoint, p256dh=p256dh, auth=auth,
                         user_agent=request.headers.get("user-agent", ""))
@@ -185,17 +234,9 @@ async def refresh(request: Request) -> JSONResponse:
             with closing(feed_store.connect(_bounded_dsn(_database_url()),
                          connect_timeout=3, statement_timeout_ms=2000)) as conn:
                 with conn.cursor() as cur:
-                    sub_id = _upsert_subscription(
+                    sub_id = _replace_subscription(
                         cur, endpoint=endpoint, p256dh=p256dh, auth=auth,
-                        user_agent=request.headers.get("user-agent", ""))
-                    if previous is not None and previous != endpoint:
-                        cur.execute(
-                            "UPDATE sentinel_web_push_subscriptions"
-                            " SET retired_at=COALESCE(retired_at,clock_timestamp()),"
-                            " retire_reason=COALESCE("
-                            " retire_reason,'replaced by browser')"
-                            " WHERE subscription_id=%s AND subscription_id<>%s",
-                            (subscription_id(previous), sub_id))
+                        previous=previous, user_agent=request.headers.get("user-agent", ""))
                 conn.commit()
         except Exception as exc:                                  # noqa: BLE001
             raise HTTPException(
@@ -221,10 +262,12 @@ async def remove(request: Request) -> JSONResponse:
             with closing(feed_store.connect(_bounded_dsn(_database_url()),
                          connect_timeout=3, statement_timeout_ms=2000)) as conn:
                 with conn.cursor() as cur:
+                    push_recipients.lock(cur)
                     cur.execute(
                         "UPDATE sentinel_web_push_subscriptions"
                         " SET retired_at=COALESCE(retired_at,clock_timestamp()),"
-                        " retire_reason=COALESCE(retire_reason,'removed by device')"
+                        " retire_reason='removed by device',successor_id=NULL,"
+                        " refreshed_at=clock_timestamp()"
                         " WHERE subscription_id=%s", (sub_id,))
                 conn.commit()
         except Exception as exc:                                  # noqa: BLE001

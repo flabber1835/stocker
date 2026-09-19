@@ -1,0 +1,23 @@
+{
+  "files": {
+    "commands.json": "08e8d5d03d84388dd0931b6d6b0b9a17d6d21da49279beb880dc8767c358c27d",
+    "ownership.json": "dc2ca89942926f83c63da371973cb79df77093d8d1dec8a6be789182e616592c",
+    "README.md": "3c2fcb13acf60249e11ce353ad6425bcf7f9268f49b412a5b5f4bb42aad8f8df",
+    "results.zip": "3ac8b2a3e425537ff310270f2d50293323954589ab51d805416a3126cef41c1c",
+    "run_local.py": "60267420c53a6d49451b6bc1a79fbac73a541ad1d18ecdb986749896b5f5dcec",
+    "source-provenance.json": "984bacefb108d10e08914970d7d67a77b2ea9961f4f55b8461918f9a24042ce7",
+    "static.json": "97ce6f2408439d50ff67b846083d3c933ace5b2a9283fc47a1243f3eddcf50a1"
+  },
+  "archive_members": {
+    "economic-closure-followup-conflict-mutant.log": "24ef51b3ea5d24aa06881458b212237581fa00147583a0093f1c617f1136264e",
+    "economic-closure-followup-deployment.log": "e27292fcda012d9cdda4d87fedb1044a65a80fe7f40449742a147e3b722a70f0",
+    "economic-closure-followup-extra-mutants.log": "fd1375ba4c998c8b4cad68e4002dd120379c77a7db8cc40bda957e4ee945ae44",
+    "economic-closure-followup-final-mutants.log": "3e1acb3a19680716a81918b729c157ad10520db1f33c01dddbea9851cc435d2c",
+    "economic-closure-followup-lock-order.log": "18d63ed92c8d557db1ede3c2fe60b48c80d027cd267ff1f7773dc9e19373d50d",
+    "economic-closure-followup-mutations.log": "2226afa0261dc1786d4fc5369be24686ed1751e4c4136b90f1f3189334f5eccc",
+    "economic-closure-followup-notification-final.log": "45543b09f497be8f2e9803a5423ab04095b223a8a67d41d5997e79fa39d7b5d9",
+    "economic-closure-followup-notifications.log": "45d99f0d8f9135442a9fe443056091dcf75b0d87162208ae760311e6fa6607fb",
+    "economic-closure-followup-regression-final.log": "28b6fdf2d4108d12175ad4372dd4de415684d5e4f9b7f9923ac70e41ef79adc2",
+    "economic-closure-followup-schema.log": "0fce4c23e8d25d764876335961d57168c674e30a3dce40b399b92d67fd471ef2"
+  }
+}
