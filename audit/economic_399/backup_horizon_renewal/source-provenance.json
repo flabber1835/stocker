@@ -1,5 +1,6 @@
 {
-  "main_base": "8212a55335500b4bbb81853572019d9eb4443724",
+  "delivery_main_base": "84582af2020a708ab076821693ffa4ea93ebed1c",
+  "initial_main_base": "8212a55335500b4bbb81853572019d9eb4443724",
   "source_encoding": "Git LF bytes",
   "sources": {
     "audit/economic_399/backup_horizon_renewal/run_local.py": {
@@ -11,8 +12,8 @@
       "sha256": "a823aeaec8400b38f519d06002ce911b084d42327bded826557d85273468599c"
     },
     "docs/economic-code-closure.md": {
-      "bytes": 41918,
-      "sha256": "bbf63595061d11a0f1d21334d85be819d3203d506142b07cf01f3e954225b694"
+      "bytes": 43816,
+      "sha256": "b75482c2ce9c95344d5e4fda8629d6d0d2332098a1b0fc1ecb2205cd05cbb41e"
     },
     "docs/sentinel-deployment.md": {
       "bytes": 123758,

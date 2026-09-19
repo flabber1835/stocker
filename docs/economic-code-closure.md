@@ -541,7 +541,10 @@ shell/manifest test** admitting 64 segments and refusing 65. **All eight mutants
 detected**. The actual shell/GO path renews at a later WAL position, avoids a
 second renewal on a fresh invocation, and refuses failed creation or corrupted
 successor evidence. Six Python files parse/pyflakes clean; both changed shell
-scripts pass syntax; 479 test modules owned. See [design](backup-horizon-renewal.md)
+scripts pass syntax; 480 test modules owned after integration of owner-merged
+#409/main `84582af2020a708ab076821693ffa4ea93ebed1c`. All eight changed production,
+test and runner files are unchanged by that merge; all 22 focused cases passed
+on the combined source. See [design](backup-horizon-renewal.md)
 and [retained commands, failures, provenance and NAS handoff](../audit/economic_399/backup_horizon_renewal/README.md).
 
 This closes exhausted-horizon GO classification/renewal, not unattended

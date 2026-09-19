@@ -1,6 +1,9 @@
 # GO backup horizon renewal: local evidence
 
 Verified main base: `8212a55335500b4bbb81853572019d9eb4443724`.
+Current-main delivery base: `84582af2020a708ab076821693ffa4ea93ebed1c`
+(owner-merged #409 during validation). It was merged without conflicts; all
+eight production/test/runner source files are unchanged from the validated fix.
 Feature branch: `codex/backup-horizon-renewal`; delivery is a PR to main.
 The commit containing this additive package is the reviewed head; the source
 provenance binds the reviewed bytes independently of the final commit identity.
@@ -41,7 +44,7 @@ python audit/economic_399/backup_horizon_renewal/run_local.py focused
 python audit/economic_399/backup_horizon_renewal/run_local.py regression
 python audit/economic_399/backup_horizon_renewal/run_local.py postgres
 python audit/economic_399/backup_horizon_renewal/run_local.py mutations
-python tools/validate_test_responsibility.py --base 8212a55335500b4bbb81853572019d9eb4443724 --output ownership.json
+python tools/validate_test_responsibility.py --base 84582af2020a708ab076821693ffa4ea93ebed1c --output ownership.json
 bash -n scripts/sentinel-backup-status.sh
 bash -n scripts/sentinel-backup-verify-chain.sh
 git diff --check origin/main HEAD
@@ -52,6 +55,8 @@ git diff --check origin/main HEAD
   refusals and rejection of the new renewal reason by the old GO classifier.
   That initial focused selection predates the additional successor/SQL cases.
 - Focused acceptance: **21 passed, 69 deselected in 56.44 s**.
+- After integration of main `84582af2`: **22 passed, 69 deselected in 70.90 s**,
+  including the added real-PostgreSQL case, using the same focused command.
 - Relevant regression: **319 passed in 210.03 s**, zero skips/xfails. This covers
   backup reliability, certified GO refresh, its call contract and bring-up.
 - Added real SQL acceptance: **1 passed in 6.93 s**. The production shell reads
@@ -64,7 +69,8 @@ git diff --check origin/main HEAD
   verification. Each was killed by one failed acceptance test, not import or
   collection errors.
 - Six Python files parse and pass pyflakes; both changed shell scripts pass
-  syntax independently. Ownership: **479 modules, zero unowned**. Committed
+  syntax independently. Ownership: **480 modules, zero unowned** after current-main
+  integration (479 beforehand). Committed
   whitespace, source hashes and package hashes verified.
 
 The first SQL fixture attempt lacked traversal permission for the real server
