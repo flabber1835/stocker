@@ -253,6 +253,31 @@ evidence package remains unchanged. See the [CI follow-up evidence](
 mutation and ownership commands on the combined source. Fresh CI remains a
 separate requirement; none of this closes the remaining certification gates.
 
+### Bounded backup manifest follow-up
+
+Reviewed from fetched main `65e261312ec219e014f062c0b6b374066db19d75`.
+The runtime manifest query parsed an unlimited file (**P2 resource defect**,
+`sentinel/backup_runtime_authority.py:182`). Its preliminary text-prefix
+presence check could also split a valid UTF-8 character and reject a complete
+base (**P2 availability defect**, `sentinel/backup_runtime_authority.py:118`).
+The presence probe now reads one binary byte. Selected manifests use a single
+bounded read of 8 MiB plus an overflow byte; oversized input is refused before
+decoding or JSON conversion. Exactly-at-limit complete input remains accepted.
+No fallback to an older base or proof-cache advancement follows refusal.
+
+See [design and NAS criteria](backup-manifest-runtime-bound.md) and
+[exact commands and retained evidence](../audit/economic_399/manifest_bound/README.md).
+The separate archive-integrity changes in [PR #406](https://github.com/flabber1835/stocker/pull/406)
+are not included in this branch's main base. Neither change establishes economic
+certification. The new 8 MiB manifest ceiling still requires qualification
+against deployed manifests and complete-caller resource limits.
+
+**Directory discovery remains locally unresolved**: `_latest_complete_base`
+still obtains a materialized directory listing. SQL LIMIT would not bound
+PostgreSQL's internal enumeration. A bounded publication index/reader and its
+producer ownership contract remain design/implementation work, along with
+recurring verified backups and proactive horizon/retention maintenance.
+
 ### Known remaining gates
 
 | Gate | Severity / category | Exact remaining work |

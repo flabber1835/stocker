@@ -39,6 +39,7 @@ BASE_ROOT = "/sentinel-backup/base"
 WAL_ROOT = "/sentinel-backup/wal"
 RUNTIME_MAX_VERIFIED_BYTES = 1024 * 1024 * 1024
 RUNTIME_MAX_ARCHIVE_OBJECTS = 1024
+RUNTIME_MAX_MANIFEST_BYTES = 8 * 1024 * 1024
 _BASE_NAME = re.compile(r"base-[0-9]{8}T[0-9]{6}Z\Z")
 _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 _RECOVERY_WAL = re.compile(r"^wal=([0-9A-F]{24})$", re.MULTILINE)
@@ -114,8 +115,12 @@ def _metadata_fields(value: str) -> dict[str, str]:
 
 
 def _base_is_complete(conn, name: str, *, system_id: str) -> bool:
-    manifest = _read_text(
-        conn, f"{BASE_ROOT}/{name}/backup_manifest", missing_ok=True)
+    # Presence only; decoding a prefix can split a valid UTF-8 character.
+    with conn.cursor() as cur:
+        cur.execute("SELECT pg_read_binary_file(%s,0,1,true)",
+                    (f"{BASE_ROOT}/{name}/backup_manifest",))
+        row = cur.fetchone()
+    manifest = None if row is None else row[0]
     recovery = _read_text(
         conn, f"{BASE_ROOT}/{name}/sentinel-recovery-marker", missing_ok=True)
     label = _read_text(
@@ -178,28 +183,40 @@ def _manifest_end_wal(conn, base: str, *, segment_size: int) -> str:
     try:
         with conn.cursor() as cur:
             cur.execute(
-                "SELECT (j->'WAL-Ranges'->-1->>'Timeline'),"
+                "WITH payload AS MATERIALIZED ("
+                " SELECT pg_read_binary_file(%s,0,%s,false) AS bytes),"
+                " manifest AS MATERIALIZED ("
+                " SELECT octet_length(bytes) AS size,"
+                " CASE WHEN octet_length(bytes) <= %s"
+                " THEN convert_from(bytes,'UTF8')::jsonb ELSE NULL END AS j"
+                " FROM payload)"
+                " SELECT size,(j->'WAL-Ranges'->-1->>'Timeline'),"
                 " (j->'WAL-Ranges'->-1->>'End-LSN')"
-                " FROM (SELECT pg_read_file(%s)::jsonb AS j) AS manifest",
-                (path,))
+                " FROM manifest",
+                (path, RUNTIME_MAX_MANIFEST_BYTES + 1,
+                 RUNTIME_MAX_MANIFEST_BYTES))
             row = cur.fetchone()
     except Exception as exc:
         if _is_media_error(exc):
             raise
         raise BackupRuntimeRefused(
             f"base backup {base} manifest cannot establish WAL range") from exc
-    if row is None or row[0] is None or row[1] is None:
+    if row is not None and row[0] > RUNTIME_MAX_MANIFEST_BYTES:
+        raise BackupRuntimeRefused(
+            f"base backup {base} manifest exceeds runtime byte bound "
+            f"{RUNTIME_MAX_MANIFEST_BYTES}")
+    if row is None or row[1] is None or row[2] is None:
         raise BackupRuntimeRefused(
             f"base backup {base} manifest has no final WAL range")
     try:
-        timeline = int(str(row[0]))
+        timeline = int(str(row[1]))
     except ValueError as exc:
         raise BackupRuntimeRefused(
             f"base backup {base} manifest timeline is invalid") from exc
     if timeline < 1 or timeline > 0xFFFFFFFF:
         raise BackupRuntimeRefused(
             f"base backup {base} manifest timeline is outside WAL bounds")
-    match = _LSN.fullmatch(str(row[1]).upper())
+    match = _LSN.fullmatch(str(row[2]).upper())
     if match is None:
         raise BackupRuntimeRefused(
             f"base backup {base} manifest End-LSN is invalid")

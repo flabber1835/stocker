@@ -24,6 +24,12 @@ the public installer's probes. Cached panel readiness is bound to its generation
 Stale rolling preparation and recurring maintenance remain distinct gates; do
 not refresh rolling data with legacy `feed-daily`.
 
+[Runtime manifest admission](backup-manifest-runtime-bound.md) caps a selected
+physical-backup manifest at 8 MiB before JSON parsing. Measure retained manifest
+sizes before qualification; an oversized selected base fences mutation without
+falling back to an older base. Directory discovery and recurring maintenance
+remain separate open gates.
+
 
 [Rolling paper inputs](rolling-paper-inputs.md) connects the paper gateway and
 automation to that verified shadow book and the bound snapshot's execution
