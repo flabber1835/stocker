@@ -1,0 +1,7 @@
+{
+  "sentinel/shadow_supervisor.py": "9f362e776adb549dd89661057ebcf61b8c72b147c4d3ec4f7777c393e38786be",
+  "sentinel/automation_supervisor.py": "0d0e2d4395f9dab733e558eab3c1a48ab0fb4bee7b6ad0cbfc8400d0584e0dd2",
+  "tests/sentinel/test_supervisor_timing_admission.py": "7dd33a11f1cb1cb0353be872ea0dd820cd402112579bd69cafc121c716528f08",
+  "tools/sentinel_supervisor_timing_falsifiers.py": "2fcbc5ebc458960753fab984ba3cf235ce8124d00bba3a8afa441cfe0cc92f1c",
+  "audit/economic_399/supervisor_finite_timing/run_local.py": "e271e5f01f3f4165ff079718fc7cddbcd5c8f7fa5d3d896642cf63c7923efbf0"
+}
