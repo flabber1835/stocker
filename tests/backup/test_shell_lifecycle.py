@@ -36,7 +36,8 @@ class ShellLab:
         for name in ("sentinel-base-backup.sh", "sentinel-backup-status.sh",
                      "sentinel-backup-verify-chain.py", "sentinel-backup-verify-chain.sh",
                      "sentinel-restore-drill.sh", "sentinel_host_python.py",
-                     "sentinel_backup_lock.py", "sentinel-backup-metadata-access.sh",
+                     "sentinel_backup_lock.py", "sentinel_lock_ownership.py",
+                     "sentinel-backup-metadata-access.sh",
                      "sentinel-backup-publish-selection.sh",
                      "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh",
                      "sentinel-env.sh", "sentinel_env.py"):

@@ -335,6 +335,72 @@ retention, host status/cleanup enumeration, filesystem progress, full-universe
 resource measurements and provider/data/NAS gates remain open. This change
 does not prove historical economic output was affected or certify the system.
 
+### Combined backup selection, ownership and horizon review
+
+PR #410 now includes owner-merged #408 from verified main
+`8212a55335500b4bbb81853572019d9eb4443724`. Conflict resolution retains both
+contracts and includes both helpers in the actual shell-lifecycle fixture.
+No production algorithm or authority guard changed during this integration.
+The additive [retained evidence](../audit/economic_399/backup_selection_integration/README.md)
+records 291 backup and 55 lock/concurrency passes, all seven selection and six
+ownership falsifiers, and the source identities. Prior evidence is unchanged.
+
+**A5 / backup A6, P1 maintenance remains open, locally quantified.** The actual
+runtime interval code admits 64 16 MiB segments (1 GiB) on timeline 1 and refuses
+65 before enumeration; a 288-segment daily interval also refuses. PostgreSQL
+documents that timeout-switched archived files retain full segment length.
+With continuing activity and five-minute switches, the 64-segment scale is
+320 minutes; higher traffic or an already nonempty horizon shortens it. Daily
+base creation alone is insufficient. This is an arithmetic scenario, not a
+measurement of deployed traffic or a new acceptance policy. Required work is
+still proactive renewal with verified successor publication, restart-safe
+single ownership, bounded outage recovery and retention/restore qualification.
+
+**A1/resource measurement, partially local; NAS qualification open.** The
+existing isolated payload probe, limited to two CPUs and 2 GiB memory, completed
+three 1 GiB proofs in 2.5663 / 1.6848 / 1.6512 seconds, each with 128 hashes and
+2 GiB of payload reads. Container peak memory was 1,245,999,104 bytes. Sparse
+zero-filled fixture, PostgreSQL 17.11, payload phase only: this does not prove
+the full production caller meets its deadline or the accepted NAS memory limit.
+Real populated WAL, complete admission, concurrent workload, exact PG16 image,
+filesystem stalls and restart remain required. No economic return is inferred.
+
+### Host lock ownership follow-up
+
+Review from main `65e261312ec219e014f062c0b6b374066db19d75` found a **P1
+serialization-integrity defect** in both host lock verifiers:
+`scripts/sentinel_backup_lock.py:50` and `scripts/sentinel_go_lock.py:26` proved
+contention at the expected inode, not ownership by the inherited descriptor.
+Both now require the same bounded, read-only Linux descriptor-ownership proof
+in `scripts/sentinel_lock_ownership.py:8`. Independent, shared and released
+descriptors refuse; verification cannot acquire, upgrade or release a lock.
+The kernel-owned descriptor remains accepted after the original parent exits.
+No historical economic discrepancy is attributed to this finding without
+deployed evidence.
+
+See [documented contract and NAS prerequisites](host-lock-ownership.md) and
+[retained commands, results and falsifiers](../audit/economic_399/host_lock_ownership/README.md).
+This fixes ownership verification within existing lock scopes. Backup locking
+is still scoped to the canonical target and host UID; GO locking is scoped to
+its checkout. Cross-UID/cross-host backup ownership and cross-checkout GO
+coordination are not established by these tests and must be resolved by the
+maintenance/deployment ownership contract. Do not claim global single ownership
+from a descriptor-level proof.
+
+Recurring maintenance, bounded directory discovery, horizon rollover/retention,
+filesystem-progress and other listed provider/data/NAS gates remain open.
+PRs #406 and #407 are separate changes; this follow-up does not supersede them.
+
+PR #408's initial head `43540abffff324a567e8cb2e8c8a3aa239a981a9` failed
+the operator image-build test lane: the inherited-owner process test passed
+`/work/scripts` to its child while CI stores the ownership helper under
+`/work/repo/scripts`. The test now honors `SENTINEL_REPO_ROOT`, matching the
+inspection-source contract. This is a test execution defect; no production
+ownership or economic assertion changed. The original local checkout layout
+missed this discrepancy. The separate [CI-layout evidence package](../audit/economic_399/host_lock_ci_layout/README.md)
+retains its reproduction and corrected validation; the earlier evidence is
+preserved. Exact-image GitHub CI remains required.
+
 ### Local execution record
 
 PR #410 CI follow-up (reviewed failing head `5fd72485c9bbe1e28a470ddbb9697f9ea7ba4aac`):
