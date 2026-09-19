@@ -222,6 +222,35 @@ An unchanged endpoint with rotated keys is refreshed in place. Permission
 revocation that prevents replacement is ultimately retired by the push
 service's terminal 404/410 response or by explicit device removal.
 
+Endpoint replacement preserves notification obligations. Retain the predecessor
+subscription and its durable successor link, and carry its eligibility time to
+the replacement. Thus rotation before first fan-out does not lose an alert;
+rotation after capture resolves the original pending recipient to the current
+endpoint. Delivered recipients remain delivered. A later unrelated enrollment
+does not inherit earlier alerts. Explicit removal ends continuity; re-enrollment
+starts a new eligibility interval even when the endpoint is reused.
+An old rotation request may be retried only while the successor still has that
+same eligibility interval; it cannot reconnect a removed/re-enrolled endpoint.
+Removal of a predecessor also retires its current same-browser successor within
+that unchanged eligibility interval. A stale predecessor cannot remove a later
+independent re-enrollment at the successor's reused endpoint.
+
+Enrollment, removal, fan-out capture and delivery-result writes serialize on the
+notification policy row, never across network I/O. Result transactions acquire
+the policy row before renewing the outbox claim, matching enrollment's lock
+order. Immediately before each
+request, resolve the recipient again and snapshot its endpoint, keys and refresh
+revision. The result write must match that same current subscription revision
+and the existing outbox attempt. Rotation during HTTP makes the old response
+retryable without recording success or retirement against the successor. This
+includes key rotation without an endpoint change. Missing, cyclic or conflicting
+succession refuses; no browser refresh may merge two independently active devices.
+Explicit schema migration installs the successor and eligibility fields;
+runtime never repairs missing schema or invents succession for legacy retired
+subscriptions. Existing already-terminal deliveries are not resurrected.
+The additive Stage-4 catalog fingerprint, measured on isolated PostgreSQL, is
+`9d80e0801cf8c8e98b739e337eab3d883f3aac3495e47766b3214423ff90b7c1`.
+
 The service worker displays every received push, focuses an existing
 Caesar's Palace window on click, or opens the stable start URL. It does not
 cache panel health. An offline navigation renders an explicit red offline page
