@@ -766,3 +766,38 @@ not replace those consumers' economic inputs or warmup identity. Pending #413
 implements recurring maintenance; pending #414 addresses heartbeat supervision.
 Their CI/integration and independent filesystem/host qualification remain distinct.
 No required provider/data/NAS gate is closed by these resource fixes.
+
+### Complete public status and HTTP concurrency review
+
+Reviewed against owner-merged main
+`29cdd7727ba2adea27672830c538d76a2218943e`, with pending #415
+`558673b1b434760673ee1de52c25c4e1e1f707c7` integrated in an isolated branch.
+Main now contains #412 and #413; their earlier pending labels above are historical.
+
+**P2 concurrency defect, locally fixed:** all three full panel routes previously
+ran independent expensive builds. `sentinel/panel/app.py:39` now admits one build
+and returns immediate 503 UNKNOWN with retry/no-store for contenders; completion
+and exceptions release the slot. The deployed Uvicorn command explicitly selects
+one worker. Real routed acceptance reproduces the defect before the fix; final
+targeted regression passes 160 cases and all four removal mutants are detected.
+
+**P2 single-request resource defect, still OPEN:** complete public shadow status
+on 5,000 synthetic securities / 300 sessions reaches **2,013,424 and 2,012,992 KiB
+VmHWM per reader**, well beyond the panel's unchanged 512 MiB budget. Two readers
+sharing an 8 GiB / two-CPU test container take **131.21 / 131.33 seconds** each.
+Closure/checkpoint/observer verification accounts for about 99 seconds; compact
+current-input assessment takes about 31 seconds. The concurrency fix does not
+resolve this allocation or establish a cumulative latency bound. No deployed OOM
+or target performance is inferred from the fixture.
+
+Both readers preserve initialized canonical state, session counts and zero
+command/fill counts; retained outputs agree on NAV and authority. This is a
+first-origin synthetic status probe, not a historical economic replay or the
+entire HTTP build. Advanced held-position checkpoints, realistic retained
+references/actions, actual strategy material consumers and full HTTP resource
+qualification remain open. Repeated canonical-state construction needs further
+local code work, not merely NAS evidence. Provider and historical-data gates are
+unchanged; Stage 1 and economic certification remain incomplete.
+
+See the [design](full-status-resource-review.md) and
+[retained measurements, exact commands and NAS handoff](../audit/economic_399/full_status/README.md).
