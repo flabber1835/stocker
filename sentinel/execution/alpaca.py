@@ -1320,7 +1320,7 @@ def _required_aware_ts(value, *, where: str) -> datetime:
 _ACTIVITY_BUSINESS_TIME_FLOOR = datetime(1970, 1, 1, tzinfo=timezone.utc)
 ACTIVITY_FILL_INTERVAL_SOURCE = "alpaca_trading_activity_sse_candidate"
 ACTIVITY_FILL_INTERVAL_SEMANTICS = (
-    "ALPACA_ACCOUNT_ACTIVITY_FIXED_EVENT_FRONTIER_UNACCEPTED_V1"
+    "ALPACA_ACCOUNT_ACTIVITY_BOUNDED_SNAPSHOT_UNACCEPTED_V2"
 )
 _OBSERVATION_PREFIX = "broker-observation:v4:"
 _WITNESS_PREFIX = "terminal-recovery-witness:v3:"
@@ -1785,7 +1785,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             self, *, after: datetime,
             through: datetime,
             since_event_id: Optional[str] = None,
-            verify_fixed_frontier: bool = False) -> tuple[dict, ...]:
+            verify_snapshot_replay: bool = False) -> tuple[dict, ...]:
         floor = _required_aware_ts(
             after, where="Activity SSE lower boundary")
         upper = _required_aware_ts(
@@ -1894,25 +1894,17 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         snapshot = await request({
             "since": floor.isoformat(), "until": upper.isoformat()})
         if since_event_id is None:
-            if verify_fixed_frontier:
-                # Freeze the discovery response at its native publication
-                # frontier, then demand a byte-for-byte equivalent replay.
-                # For an empty account there is no event id to name, so the
-                # exact bounded empty query is repeated instead.  Neither
-                # case claims that a later backfill cannot append after the
-                # captured frontier.
-                if snapshot:
-                    replay = await request({
-                        "until_id": str(snapshot[-1]["event_id"])})
-                else:
-                    replay = await request({
-                        "since": floor.isoformat(),
-                        "until": upper.isoformat(),
-                    })
+            if verify_snapshot_replay:
+                # until_id requires a real since_id. Initial discovery owns
+                # no prior native cursor, so repeat the valid timestamp query.
+                # Matching snapshots prove neither a fixed publication frontier
+                # nor the absence of later backfills, including when empty.
+                replay = await request({
+                    "since": floor.isoformat(), "until": upper.isoformat()})
                 if replay != snapshot:
                     raise MalformedBrokerPayload(
-                        "Activity SSE fixed-frontier replay disagreed with "
-                        "its exhaustive discovery snapshot")
+                        "Activity SSE bounded snapshot replay disagreed with "
+                        "its discovery snapshot")
             return snapshot
         cursor = str(since_event_id).strip()
         if not cursor:
@@ -2055,11 +2047,12 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             self, *, session: date,
             interval_start: datetime
             ) -> contract.BrokerFillIntervalEvidence:
-        """Return a fixed-frontier, account-wide NAS acceptance candidate.
+        """Return a repeated bounded-snapshot account-wide acceptance candidate.
 
         ``Completeness.COMPLETE`` describes the terminated, exhaustively
-        replayed snapshot through the captured boundary.  It is not cash or
-        late-publication finality: the deliberately non-certified semantics
+        replayed snapshot through the queried business-time boundary. It is
+        not a fixed publication frontier, cash or late-publication finality:
+        the deliberately non-certified semantics
         and false capability bit prevent trial persistence until the paper
         endpoint and its correction/finality behavior pass NAS acceptance.
         """
@@ -2094,7 +2087,7 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
         events = await self._bounded_activity_events(
             after=_ACTIVITY_BUSINESS_TIME_FLOOR,
             through=processed_through,
-            verify_fixed_frontier=True)
+            verify_snapshot_replay=True)
         identity_after = await self.identify_account()
         native_after = str(identity_after.raw.get("id") or "").strip()
         request_completed_at = self._now()
@@ -2198,7 +2191,8 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
             raw={
                 "events": [dict(event) for event in events],
                 "upper_event_id": upper_event_id,
-                "fixed_frontier_replayed": True,
+                "fixed_frontier_replayed": False,
+                "bounded_snapshot_replayed": True,
                 "late_publication_finality": False,
                 "nas_acceptance_required": True,
             },

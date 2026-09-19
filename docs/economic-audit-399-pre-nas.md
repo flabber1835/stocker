@@ -17,9 +17,11 @@ below are deterministic fixtures. Public provider documentation was read.
 | F19 across observations | P2 | `execution/reconcile.py` validated each response independently. Replacing a complete ten-share fill with a different native ID journaled twenty shares and still returned RUNNING. `fill_integrity.validate_durable` validates retained plus incoming economics and requires complete responses to include retained identities before observation publication. | Previously accepted history followed by replacement IDs refuses repeatedly and preserves original rows; six-then-four progression over fresh SQL connections retains ten shares/$1,000 and exactly two alerts. |
 | F14 missing origin | P2 | `restore_validation._rolling_closure` accepted surviving strategy history with a missing origin as an uninitialized restore. It now checks the existing lineage inventory before returning an empty result. | Actual SQL loss of the origin fails; intact, genuinely uninitialized, damaged HMAC and damaged snapshot cases distinguish the boundaries. |
 | F19 diagnostic retention | P3 | Malformed quantity/price/execution-time parsing could refuse without retaining the raw event. It now uses the account-bound diagnostic path; no economic rows are written. | Invalid decimal, zero/negative economics and malformed time retain the offending field and no fills. |
+| C1/F6 candidate wire/evidence | P2 | The candidate sent `until_id` without required `since_id`. It now repeats a valid timestamp-bounded request and explicitly reports a repeated snapshot, not fixed-frontier replay or finality. Unaccepted semantics advance to V2; capability bits stay false. | Provider parameter-rule falsifier failed before the fix; changed/missing/late rows refuse, and repeated empty responses explicitly carry no finality. |
 
 The first two new probes failed **7 cases** on the unfixed implementation; the
 missing-origin probe separately failed **1 case**. These red results are retained.
+The independent provider parameter-rule probe failed **1 additional case**.
 Removing each economic/restore guard must break its passing acceptance test.
 No golden bytes, xfail declarations, capability flags or live safety settings
 were changed. Adapter registry prose was corrected because it overstated cash
@@ -76,8 +78,12 @@ where an apparently passing test would be insufficient.
 Alpaca's [Activity SSE guide](https://docs.alpaca.markets/us/docs/activity-sse)
 distinguishes publication IDs, economic IDs and execution time, and describes
 backfills plus correction/bust links. Its timestamp-filtered snapshot is not
-proof that no later financial event can appear. The guide's Broker API context
-also requires separate validation of the exact Trading paper account surface.
+proof that no later financial event can appear. The
+[Trading SSE reference](https://docs.alpaca.markets/us/reference/subscribetoactivitiessse)
+explicitly lists the paper endpoint and requires a lower cursor with `until_id`.
+Endpoint existence is established; permissions and accepted completeness on
+the exact account remain untested. The repaired initial candidate makes only
+two identical timestamp-bounded reads and labels that limited evidence honestly.
 The [Trading order-list reference](https://docs.alpaca.markets/us/reference/getallorders-1)
 documents bounded pagination and submission-time filters. Neither reviewed page
 establishes the fixed-close, request-finality, predecessor-completeness or
@@ -98,7 +104,7 @@ qualification. A physical NAS run alone cannot repair them.
 | A1/A17/A24/A27 | P1/P2 | Supervisor database/log I/O, callback deadlines, deployment health and post-retention diagnostics must have independent bounds. `automation_supervisor.py`, `shadow_supervisor.py`, deployment driver and `feed/retention.py` remain separate review/fix work. |
 | A2/A3/A4/A11/A13/A20 | P1 | `rolling_runtime.service_advance`, shadow supervisor, automation dependency classification and backup guard must recover missed sessions/opens and transient outages without latching away durable obligations. The F5 execution exception fix does not clear every callback phase. |
 | A5 (original)/A6 (backup duplicate) | P1 | Backup guard refusal is safe; recurring base-backup scheduling/rollover still needs autonomous lifecycle implementation and target evidence. |
-| A6 notifications/A18/A19/A25 | P2 (A19 P2) | `automation/outbox.mark_failed` still dead-letters at the attempt limit; `web_push.deliver` still uses `all()` for mixed recipient retryability. Endpoint rotation, recurring incident identity, missing-control alarms and panel event-loop SQL remain separate defects. Per-attempt fencing does not solve delivery continuity. |
+| A6 notifications/A18/A19/A25 | P2 (A19 P2) | `automation/outbox.py:558` still dead-letters at the attempt limit; `web_push.py:432` still uses `all()` for mixed recipient retryability. Endpoint rotation, recurring incident identity, missing-control alarms and panel event-loop SQL remain separate defects. Per-attempt fencing does not solve delivery continuity. |
 | A12/A14/A15/A16 | P1/P2 | Whole-snapshot status cost, recent SIP entitlement admission, returning-security state and held spinoff continuation need their own accepted dispositions; a tiny synthetic universe cannot establish production resource bounds. |
 | A21/A22/A23/A26 | P1/P2 | Rolling first-install/admission/readers, DUAL mode propagation, standby fencing around migration and effective Dockerfile selection remain deployment-code dependencies. Restore validation fixes only the explicitly shared F14 subset. |
 

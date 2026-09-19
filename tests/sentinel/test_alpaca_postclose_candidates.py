@@ -53,9 +53,10 @@ class Response:
 
 
 class Httpx:
-    def __init__(self, *, accounts, activity_events=()):
+    def __init__(self, *, accounts, activity_events=(), replay_events=None):
         self.accounts = list(accounts)
         self.activity_events = tuple(activity_events)
+        self.replay_events = replay_events
         self.calls = []
         outer = self
 
@@ -80,9 +81,17 @@ class Httpx:
                         payload = outer.accounts[0]
                     return Response(payload=payload)
                 if path == "/v2beta1/events/activities":
+                    # Independent provider wire rules, not implementation output.
+                    assert 'until_id' not in params or 'since_id' in params
+                    assert 'until' not in params or 'since' in params
+                    assert not ('since' in params and 'since_id' in params)
+                    events = outer.activity_events
+                    if (outer.replay_events is not None and
+                            sum(p == path for p, _ in outer.calls) > 1):
+                        events = outer.replay_events
                     text = "".join(
                         "data: " + json.dumps(event, sort_keys=True) + "\n\n"
-                        for event in outer.activity_events)
+                        for event in events)
                     return Response(text=text)
                 raise AssertionError(path)
 
@@ -190,7 +199,7 @@ def test_last_equity_candidate_refuses_half_day_and_in_bracket_revision():
         run(adapter(changed_http).account_close_valuation(session=SESSION))
 
 
-def test_activity_sse_candidate_is_complete_at_fixed_replayed_frontier():
+def test_activity_sse_candidate_is_only_a_repeated_bounded_snapshot():
     event = trade_event()
     http = Httpx(accounts=[account(), account(), account()],
                  activity_events=[event])
@@ -217,18 +226,40 @@ def test_activity_sse_candidate_is_complete_at_fixed_replayed_frontier():
     assert fill.raw["event_id"] == event["event_id"]
     assert fill.raw["details"]["asset_id"] == "asset-aapl"
     assert result.raw["upper_event_id"] == event["event_id"]
-    assert result.raw["fixed_frontier_replayed"] is True
+    assert result.raw["fixed_frontier_replayed"] is False
+    assert result.raw["bounded_snapshot_replayed"] is True
     assert result.raw["late_publication_finality"] is False
     sse_calls = [call for call in http.calls
                  if call[0] == "/v2beta1/events/activities"]
     assert [call[1] for call in sse_calls] == [
         {"since": "1970-01-01T00:00:00+00:00",
          "until": OBSERVED.isoformat()},
-        {"until_id": event["event_id"]},
+        {"since": "1970-01-01T00:00:00+00:00",
+         "until": OBSERVED.isoformat()},
     ]
     assert broker.capabilities.account_fill_interval_evidence is False
     assert broker.candidate_account_fill_interval_evidence is True
     assert broker.account_fill_interval_nas_accepted is False
+
+
+@pytest.mark.parametrize('initial,later', [([trade_event()], []),
+    ([], [trade_event()]), ([trade_event()], [trade_event(qty='3')])])
+def test_candidate_snapshot_replay_refuses_changed_history(initial, later):
+    http = Httpx(accounts=[account()], activity_events=initial, replay_events=later)
+    with pytest.raises(MalformedBrokerPayload, match='snapshot replay disagreed'):
+        run(adapter(http).candidate_fill_interval_evidence(session=SESSION,
+            interval_start=datetime(2026, 8, 20, 12, tzinfo=UTC)))
+
+
+def test_empty_candidate_snapshot_never_claims_finality():
+    broker = adapter(Httpx(accounts=[account()], activity_events=[]))
+    result = run(broker.candidate_fill_interval_evidence(session=SESSION,
+        interval_start=datetime(2026, 8, 20, 12, tzinfo=UTC)))
+    assert result.fills == ()
+    assert result.raw['fixed_frontier_replayed'] is False
+    assert result.raw['late_publication_finality'] is False
+    assert result.semantics != FILL_INTERVAL_SEMANTICS
+    assert broker.capabilities.account_fill_interval_evidence is False
 
 
 @pytest.mark.parametrize(

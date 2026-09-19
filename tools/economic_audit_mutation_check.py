@@ -37,6 +37,19 @@ def case(name):
         return (WebPushAlertAdapter, '_record', unfenced,
                 'tests/sentinel/test_web_push_attempt_fencing.py::'
                 'test_push_response_after_takeover_cannot_complete_successor')
+    if name == 'snapshot-replay':
+        import textwrap
+        from sentinel.execution.alpaca import FinancialGradeAlpacaExecutionBroker as module
+        attribute = '_bounded_activity_events'
+        source = textwrap.dedent(inspect.getsource(getattr(module, attribute)))
+        old = 'if replay != snapshot:'
+        assert source.count(old) == 1, 'mutation seam disappeared'
+        from sentinel.execution import alpaca
+        namespace = dict(alpaca.__dict__)
+        exec(compile(source.replace(old, 'if False:'), alpaca.__file__, 'exec'), namespace)
+        return (module, attribute, namespace[attribute],
+                'tests/sentinel/test_alpaca_postclose_candidates.py::'
+                'test_candidate_snapshot_replay_refuses_changed_history')
     if name in ('terminal-split', 'restore-origin'):
         if name == 'terminal-split':
             from sentinel.controller import terminal_returns as module
@@ -69,7 +82,8 @@ def case(name):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('mutation', choices=('fills', 'coverage', 'attempt',
-                                            'durable-fills', 'terminal-split', 'restore-origin', 'push-attempt'))
+                                            'durable-fills', 'terminal-split', 'restore-origin', 'push-attempt',
+                                            'snapshot-replay'))
     name = parser.parse_args().mutation
     module, attribute, mutant, selection = case(name)
     args = [selection, '-q', '--tb=short', '--show-capture=no', '-p', 'no:cacheprovider']

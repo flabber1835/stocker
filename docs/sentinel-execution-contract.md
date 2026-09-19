@@ -864,17 +864,21 @@ that stability alone does not supply missing provider authority.
 ### 5.4 Activity SSE has separate economic and replay identities
 
 The current Alpaca Trading/Paper adapter does **not** advertise account-cash
-activity authority. Alpaca documents Activity SSE on its Broker API endpoint and
-authentication/account model, while this adapter is bound to the Trading/Paper
-API. Its SSE decoder remains a quarantined acceptance-harness candidate; method
+activity authority. Alpaca's [Trading SSE reference](https://docs.alpaca.markets/us/reference/subscribetoactivitiessse)
+documents the paper endpoint. Endpoint existence does not establish accepted
+account completeness or finality. Its SSE decoder remains a quarantined acceptance-harness candidate; method
 presence cannot make the production guard call it or earn the identity scheme.
 A reviewed, reachable, account-bound integration is required first.
 
 For Alpaca financial activities, `ref_id` is the durable idempotency key for the
 economic row and `event_id` is the durable replay cursor. `event_id` is persisted
 after a complete batch and supplied as `since_id` on reconnect. Timestamp
-`since`/`until` queries are permitted only to establish a bounded upper event
-cursor. Discovery always starts at the fixed 1970 business-time floor, before
+`since`/`until` queries establish a bounded snapshot and observed upper event
+cursor. The initial fill-interval candidate repeats that exact query and
+requires identical content. It carries unaccepted V2 semantics and explicitly
+denies fixed-frontier and late-publication finality. A lone `until_id` request
+violates the documented requirement for `since_id`; no synthetic genesis
+cursor is invented to satisfy it. Discovery always starts at the fixed 1970 business-time floor, before
 any possible Alpaca account activity; binding establishment and the stream's
 2026-02-11 availability date are not valid `at` lower bounds. Timestamp filters
 never authorize gap-free resumption because they filter business time (`at`)

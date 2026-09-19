@@ -98,6 +98,15 @@ including when no daily checkpoint has yet been written. It cannot be reported
 as a valid empty restore. Numeric and execution-time parser refusals retain
 the same account-bound raw diagnostic as native identity/type refusals.
 
+The Trading Activity SSE reference requires `since_id` with `until_id`; the
+candidate's lone `until_id` query is invalid. With no independently accepted
+initial native cursor, repeat the same valid timestamp-bounded request and
+require identical contents. Name this evidence a repeated bounded snapshot,
+not fixed-event-frontier replay; version its unaccepted semantics to V2 and
+explicitly report no fixed-frontier or late-publication finality. Keep every
+production acceptance/capability bit false. This repairs the wire request and
+removes an overstated evidence claim without inventing a genesis cursor.
+
 F1 permits a uniform adjusted-price scale only when every overlapping pair
 admits one common positive factor within the source's published mill precision.
 Intersect rational rounding intervals; do not compare rounded ratios or use a
