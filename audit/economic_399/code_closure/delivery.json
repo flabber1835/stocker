@@ -1,0 +1,11 @@
+{
+  "schema": "sentinel.local-review-delivery/1",
+  "reviewed_code_commit": "e14b627ab01e2ed279184d47ca0468de8b71f45d",
+  "base_commit": "748d54e12a4cdb4b5403c56feb8d6b68e47d0104",
+  "pr": "https://github.com/flabber1835/stocker/pull/403",
+  "base_branch": "main",
+  "step_1_complete": false,
+  "economic_certification": "BLOCKED",
+  "source_files_verified": 56,
+  "note": "This record and checksums are added in a metadata-only successor commit. CI must validate the final delivery head separately."
+}
