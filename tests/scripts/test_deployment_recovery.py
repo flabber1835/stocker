@@ -1,6 +1,5 @@
 """Public deployment dispatch and actual subprocess deadline regressions."""
 import os
-from pathlib import Path
 import subprocess
 import sys
 from types import SimpleNamespace
@@ -8,7 +7,7 @@ import time
 
 import pytest
 
-from tests.scripts.test_sentinel_reviewed_deploy_gate import deploy
+from tests.scripts.test_sentinel_reviewed_deploy_gate import ROOT, deploy
 
 
 def test_unreviewed_install_builds_runtime_then_its_test_lens(tmp_path):
@@ -84,7 +83,7 @@ assert any('--wait' in c for c in calls)
 assert not any('schema.ensure_schema' in str(c) for c in calls)
 '''
     result = subprocess.run([sys.executable, '-c', script, proof],
-                            cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True, timeout=10)
+                            cwd=ROOT, capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
 
 
@@ -177,5 +176,5 @@ assert [c[0] for c in calls] == ['prepare-paper-plan', 'current-paper-plan',
                                'activate-paper-automation', 'release-paper-automation-kill-switch']
 '''
     result = subprocess.run([sys.executable, '-c', script, mode],
-                            cwd=Path(__file__).resolve().parents[2], capture_output=True, text=True, timeout=10)
+                            cwd=ROOT, capture_output=True, text=True, timeout=10)
     assert result.returncode == 0, result.stdout + result.stderr
