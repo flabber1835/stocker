@@ -1,0 +1,8 @@
+{
+  "audit/economic_399/recurring_maintenance/ci_followup/README.md": "5f0b68eb6473a98a4457ac25dbf73db49f5a4c29eb705e390f0eb41c0adc9f6a",
+  "audit/economic_399/recurring_maintenance/ci_followup/github-failure.txt": "0c824712cef2a61bacce1a177cb5a248cc25ad57d9e07e2db43826a1db6fef3d",
+  "audit/economic_399/recurring_maintenance/ci_followup/mutations.log": "3a96cf35ea5bde57bf10f5b1a38e86ece117a1d074aad4bd91630cae6c419d5e",
+  "audit/economic_399/recurring_maintenance/ci_followup/regression.log": "af079205cf52ce3dd0d18c7d03b52f0c317ef33a639b5feb0afd161c1f1418b3",
+  "tests/backup/test_recurring_maintenance.py": "a8041ac7ba82c07c5841225fc27f1798d03c4c4efbf19287cf175f2a559a67b8",
+  "tools/sentinel_maintenance_falsifiers.py": "fe556fc08ceff864f73b1f1e35468b59704cc019585555a0758b761e0cac22df"
+}

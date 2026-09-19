@@ -1,0 +1,27 @@
+2026-09-19T20:13:37.3230197Z =================================== FAILURES ===================================
+2026-09-19T20:13:37.3230784Z ___________________ test_bounds_are_checked_before_deletion ____________________
+2026-09-19T20:13:37.3231157Z 
+2026-09-19T20:13:37.3231399Z media = <sentinel.backup_retention.Media object at 0x7fae9fa8fa10>
+2026-09-19T20:13:37.3232015Z monkeypatch = <_pytest.monkeypatch.MonkeyPatch object at 0x7fae9f573650>
+2026-09-19T20:13:37.3232407Z 
+2026-09-19T20:13:37.3232633Z     def test_bounds_are_checked_before_deletion(media, monkeypatch):
+2026-09-19T20:13:37.3233127Z         monkeypatch.setattr(retention, "MAX_BASES", 3)
+2026-09-19T20:13:37.3233536Z         original, reads = retention.metadata, []
+2026-09-19T20:13:37.3233881Z         def counted(*args):
+2026-09-19T20:13:37.3234115Z             reads.append(args[1])
+2026-09-19T20:13:37.3234363Z             return original(*args)
+2026-09-19T20:13:37.3234662Z         monkeypatch.setattr(retention, "metadata", counted)
+2026-09-19T20:13:37.3235008Z         with pytest.raises(retention.Refused):
+2026-09-19T20:13:37.3235290Z             apply(media)
+2026-09-19T20:13:37.3235704Z >       assert len(reads) <= 4, "inventory ceiling must stop reads before spending the full scan budget"
+2026-09-19T20:13:37.3236578Z E       AssertionError: inventory ceiling must stop reads before spending the full scan budget
+2026-09-19T20:13:37.3237026Z E       assert 5 <= 4
+2026-09-19T20:13:37.3237558Z E        +  where 5 = len(['base-20260919T120000Z', 'base-20260919T120000Z', 'base-20260907T000000Z', 'base-20260831T000000Z', 'base-20260830T000000Z'])
+2026-09-19T20:13:37.3238070Z 
+2026-09-19T20:13:37.3238242Z tests/backup/test_recurring_maintenance.py:395: AssertionError
+2026-09-19T20:13:37.3238729Z -- generated xml file: /home/runner/work/stocker/stocker/evidence/backup.xml ---
+2026-09-19T20:13:37.3239195Z =========================== short test summary info ============================
+2026-09-19T20:13:37.3240127Z FAILED tests/backup/test_recurring_maintenance.py::test_bounds_are_checked_before_deletion - AssertionError: inventory ceiling must stop reads before spending the full scan budget
+2026-09-19T20:13:37.3240870Z assert 5 <= 4
+2026-09-19T20:13:37.3241708Z  +  where 5 = len(['base-20260919T120000Z', 'base-20260919T120000Z', 'base-20260907T000000Z', 'base-20260831T000000Z', 'base-20260830T000000Z'])
+2026-09-19T20:13:37.3242318Z 1 failed, 305 passed in 288.65s (0:04:48)

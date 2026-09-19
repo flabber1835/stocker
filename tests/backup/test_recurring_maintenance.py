@@ -1,4 +1,5 @@
 """Positive lifecycle and independent calendar/WAL retention boundary oracles."""
+from contextlib import contextmanager
 from datetime import datetime, timedelta, timezone
 import hashlib
 import json
@@ -383,15 +384,31 @@ def test_reaper_keeps_active_recent_foreign_and_unlabeled_resources():
     assert removed == []
 
 
-def test_bounds_are_checked_before_deletion(media, monkeypatch):
+@pytest.mark.parametrize("bases_first", [True, False])
+def test_bounds_are_checked_before_deletion(media, monkeypatch, bases_first):
+    # Receipt acquisition precedes the retention operation and has its own
+    # selected-base read. Do not charge that fixture setup to inventory reads.
+    proof = receipt(media.selected())
     monkeypatch.setattr(retention, "MAX_BASES", 3)
+    scandir = os.scandir
+    @contextmanager
+    def ordered(path):
+        with scandir(path) as entries:
+            if Path(path) == media.base:
+                values = sorted(entries, key=lambda entry: (
+                    entry.name.startswith("base-") != bases_first, entry.name))
+                yield iter(values)
+            else:
+                yield entries
+    monkeypatch.setattr(retention.os, "scandir", ordered)
     original, reads = retention.metadata, []
     def counted(*args):
         reads.append(args[1])
         return original(*args)
     monkeypatch.setattr(retention, "metadata", counted)
-    with pytest.raises(retention.Refused):
-        apply(media)
+    with retention.media_lock(media.base):
+        with pytest.raises(retention.Refused, match="base inventory limit exceeded"):
+            retention.retain(media, proof, IMAGE, NOW, SEGMENT)
     assert len(reads) <= 4, "inventory ceiling must stop reads before spending the full scan budget"
     assert (media.base / "base-20260815T000000Z").is_dir()
     assert not (media.base / retention.JOURNAL).exists()

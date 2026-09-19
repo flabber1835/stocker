@@ -31,7 +31,7 @@ MUTANTS = {
     'active_volume': (HOST, 'if runner(["docker", "ps", "-a", "--filter", "volume=" + name, "--format", "{{.ID}}"]):',
                        'if False:', 'test_reaper_keeps_active_recent_foreign_and_unlabeled_resources'),
     'inventory_bound': (MEDIA, 'require(count <= MAX_BASES, "base inventory limit exceeded")',
-                        'require(True, "base inventory limit exceeded")', 'test_bounds_are_checked_before_deletion'),
+                        'require(True, "base inventory limit exceeded")', 'test_bounds_are_checked_before_deletion[True]'),
     'journal_clock': (MEDIA,
         'type(journal.get("observed_at")) is int and journal["observed_at"] <= now', 'True',
         'test_journal_clock_regression_preserves_obsolete_and_protected_bases'),

@@ -1,0 +1,238 @@
+["docker", "run", "--rm", "--network", "none", "--mount", "type=bind,source=C:/GitHub/stocker/.codex-tmp/backup-maintenance-worktree,target=/source,readonly", "--entrypoint", "python", "sentinel-test:ci", "-u", "-c", "import os,shutil,subprocess,sys\nshutil.copytree('/source','/tmp/repo',ignore=shutil.ignore_patterns('.git','.env','__pycache__'))\nos.chdir('/tmp/repo')\nos.environ.update(PYTHONPATH='/tmp/repo:/tmp/repo/shared:/tmp/repo/scripts',SENTINEL_REPO_ROOT='/tmp/repo',PYTHONDONTWRITEBYTECODE='1')\nraise SystemExit(subprocess.run([sys.executable,*sys.argv[1:]]).returncode)\n", "-m", "tools.sentinel_maintenance_falsifiers"]
+wal_headroom: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_proactive_wal_boundary_is_independent_of_age[15-True] __________
+tests/backup/test_recurring_maintenance.py:322: in test_proactive_wal_boundary_is_independent_of_age
+    assert coordinator.renewal_due(item, observation) is due
+E   AssertionError: assert False is True
+E    +  where False = <function renewal_due at 0x7910bf815440>({'marker': 'sentinel-backup-20260919T120000Z-42', 'metadata_sha256': 'aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa...aaaaaaaaaaaa', 'name': 'base-20260919T120000Z', 'ranges': [{'end': 184549376, 'start': 167772160, 'timeline': 1}], ...}, {'lsn': '0/19000000', 'now': 1789819200, 'segment_size': 16777216, 'timeline': '00000001'})
+E    +    where <function renewal_due at 0x7910bf815440> = coordinator.renewal_due
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_proactive_wal_boundary_is_independent_of_age[15-True]
+1 failed in 0.09s
+
+
+age_renewal: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_production_tick_renews_verifies_restores_then_retains_and_restarts ____
+tests/backup/test_recurring_maintenance.py:286: in test_production_tick_renews_verifies_restores_then_retains_and_restarts
+    create = next(i for i, call in enumerate(calls) if "scripts/sentinel-base-backup.sh" in call)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   StopIteration
+----------------------------- Captured stdout call -----------------------------
+{"base": "base-20260919T120000Z", "maintenance_ready": true, "observed_at": 1789819200, "renewed": false, "retention_ready": true}
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_production_tick_renews_verifies_restores_then_retains_and_restarts
+1 failed in 0.08s
+
+
+restore_receipt: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_bad_restore_evidence_never_deletes[physical_only-True] __________
+tests/backup/test_recurring_maintenance.py:107: in test_bad_restore_evidence_never_deletes
+    with pytest.raises(retention.Refused, match="receipt identity"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'sentinel.backup_retention.Refused'>
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_bad_restore_evidence_never_deletes[physical_only-True]
+1 failed in 0.48s
+
+
+wal_floor: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_calendar_retention_and_exact_start_segment_boundary ___________
+tests/backup/test_recurring_maintenance.py:90: in test_calendar_retention_and_exact_start_segment_boundary
+    assert result["wal_floor_segment"] == 131
+E   assert 132 == 131
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_calendar_retention_and_exact_start_segment_boundary
+1 failed in 0.50s
+
+
+every_range: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_every_manifest_range_contributes_to_retention_floor ___________
+tests/backup/test_recurring_maintenance.py:117: in test_every_manifest_range_contributes_to_retention_floor
+    assert apply(media)["wal_floor_segment"] == 1
+E   assert 131 == 1
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_every_manifest_range_contributes_to_retention_floor
+1 failed in 0.47s
+
+
+keep_selected: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_selected_historical_generation_is_never_pruned ______________
+tests/backup/test_recurring_maintenance.py:335: in test_selected_historical_generation_is_never_pruned
+    result = apply(media)
+             ^^^^^^^^^^^^
+tests/backup/test_recurring_maintenance.py:75: in apply
+    return retention.retain(media, receipt(media.selected()), IMAGE, NOW, SEGMENT)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sentinel/backup_retention.py:328: in retain
+    resume_journal(media, selected, now)
+sentinel/backup_retention.py:243: in resume_journal
+    require(selected["name"] not in remove, "journal now targets selected base")
+sentinel/backup_retention.py:42: in require
+    raise Refused(message)
+E   sentinel.backup_retention.Refused: journal now targets selected base
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_selected_historical_generation_is_never_pruned
+1 failed in 0.18s
+
+
+journal_revalidation: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______________ test_restart_revalidates_every_protected_identity _______________
+tests/backup/test_recurring_maintenance.py:176: in test_restart_revalidates_every_protected_identity
+    with pytest.raises(retention.Refused, match="protected backup changed"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'sentinel.backup_retention.Refused'>
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_restart_revalidates_every_protected_identity
+1 failed in 0.52s
+
+
+worker_flock: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________________ test_worker_lock_survives_parent_death ____________________
+tests/backup/test_recurring_maintenance.py:205: in test_worker_lock_survives_parent_death
+    pytest.fail("lost-worker lock was not inherited")
+E   Failed: lost-worker lock was not inherited
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_worker_lock_survives_parent_death
+1 failed in 0.17s
+
+
+successor_binding: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_successor_identity_mismatch_refuses_before_status_or_retention ______
+tests/backup/test_recurring_maintenance.py:344: in test_successor_identity_mismatch_refuses_before_status_or_retention
+    coordinator.tick("/media", boundary)
+scripts/sentinel_backup_maintenance.py:213: in tick
+    runner(["bash", "scripts/sentinel-backup-status.sh", "--backup", path], timeout=600)
+tests/backup/test_recurring_maintenance.py:270: in __call__
+    assert command[-1] == "/media/base/" + self.name
+E   AssertionError: assert '/media/base/...60919T110000Z' == '/media/base/...60919T120000Z'
+E     
+E     - /media/base/base-20260919T120000Z
+E     ?                            ^
+E     + /media/base/base-20260919T110000Z
+E     ?                            ^
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_successor_identity_mismatch_refuses_before_status_or_retention
+1 failed in 0.10s
+
+
+active_volume: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_reaper_keeps_active_recent_foreign_and_unlabeled_resources ________
+tests/backup/test_recurring_maintenance.py:372: in test_reaper_keeps_active_recent_foreign_and_unlabeled_resources
+    assert coordinator.reap_restore_resources(NOW, runner) == 1
+E   assert 2 == 1
+E    +  where 2 = <function reap_restore_resources at 0x7c34226756c0>(1789819200, <function test_reaper_keeps_active_recent_foreign_and_unlabeled_resources.<locals>.runner at 0x7c34226772e0>)
+E    +    where <function reap_restore_resources at 0x7c34226756c0> = coordinator.reap_restore_resources
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_reaper_keeps_active_recent_foreign_and_unlabeled_resources
+1 failed in 0.08s
+
+
+inventory_bound: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________________ test_bounds_are_checked_before_deletion[True] _________________
+tests/backup/test_recurring_maintenance.py:411: in test_bounds_are_checked_before_deletion
+    retention.retain(media, proof, IMAGE, NOW, SEGMENT)
+sentinel/backup_retention.py:328: in retain
+    resume_journal(media, selected, now)
+sentinel/backup_retention.py:240: in resume_journal
+    require(isinstance(keep, dict) and isinstance(remove, dict) and keep and remove
+sentinel/backup_retention.py:42: in require
+    raise Refused(message)
+E   sentinel.backup_retention.Refused: invalid retention journal sets
+
+During handling of the above exception, another exception occurred:
+tests/backup/test_recurring_maintenance.py:410: in test_bounds_are_checked_before_deletion
+    with pytest.raises(retention.Refused, match="base inventory limit exceeded"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'base inventory limit exceeded'
+E    Input: 'invalid retention journal sets'
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_bounds_are_checked_before_deletion[True]
+1 failed in 0.20s
+
+
+journal_clock: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_journal_clock_regression_preserves_obsolete_and_protected_bases _____
+tests/backup/test_recurring_maintenance.py:433: in test_journal_clock_regression_preserves_obsolete_and_protected_bases
+    with pytest.raises(retention.Refused, match="journal clock regressed"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'sentinel.backup_retention.Refused'>
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_journal_clock_regression_preserves_obsolete_and_protected_bases
+1 failed in 0.48s
+
+
+wal_alias_preflight: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_private_wal_alias_refuses_before_any_base_deletion ____________
+tests/backup/test_recurring_maintenance.py:444: in test_private_wal_alias_refuses_before_any_base_deletion
+    assert len(media.inventory()) == 72
+E   AssertionError: assert 10 == 72
+E    +  where 10 = len({'base-20260830T120000Z': {'marker': 'sentinel-backup-20260830T120000Z-42', 'metadata_bytes': 341, 'metadata_sha256': ...ha256': 'c5dafeff590cbe83f0500f09954c098d19362377ce8847591693d931ff06802e', 'name': 'base-20260914T120000Z', ...}, ...})
+E    +    where {'base-20260830T120000Z': {'marker': 'sentinel-backup-20260830T120000Z-42', 'metadata_bytes': 341, 'metadata_sha256': ...ha256': 'c5dafeff590cbe83f0500f09954c098d19362377ce8847591693d931ff06802e', 'name': 'base-20260914T120000Z', ...}, ...} = inventory()
+E    +      where inventory = <sentinel.backup_retention.Media object at 0x73b334d70980>.inventory
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_private_wal_alias_refuses_before_any_base_deletion
+1 failed in 0.49s
+
+
+supervisor_flock: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_loop_has_one_owner_retries_failed_tick_and_releases_lock _________
+tests/backup/test_recurring_maintenance.py:470: in test_loop_has_one_owner_retries_failed_tick_and_releases_lock
+    coordinator.supervise()
+scripts/sentinel_backup_maintenance.py:255: in supervise
+    result = subprocess.run(["bash", "scripts/sentinel-backup-maintenance.sh"],
+tests/backup/test_recurring_maintenance.py:459: in child
+    assert coordinator.supervise() == 0
+           ^^^^^^^^^^^^^^^^^^^^^^^
+scripts/sentinel_backup_maintenance.py:255: in supervise
+    result = subprocess.run(["bash", "scripts/sentinel-backup-maintenance.sh"],
+tests/backup/test_recurring_maintenance.py:454: in child
+    assert not active, "a second supervisor launched a concurrent tick"
+E   AssertionError: a second supervisor launched a concurrent tick
+E   assert not [True]
+=========================== short test summary info ============================
+FAILED tests/backup/test_recurring_maintenance.py::test_loop_has_one_owner_retries_failed_tick_and_releases_lock
+1 failed in 0.10s
+
+
+environment_bytes: KILLED
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_ EnvHarness.test_same_timestamp_rewrite_requires_two_matching_byte_observations _
+tests/host_python38/test_env_ingestion.py:283: in test_same_timestamp_rewrite_requires_two_matching_byte_observations
+    with self.assertRaisesRegex(env.EnvRefused, "FILE_CHANGED"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: EnvRefused not raised
+=========================== short test summary info ============================
+FAILED tests/host_python38/test_env_ingestion.py::EnvHarness::test_same_timestamp_rewrite_requires_two_matching_byte_observations
+1 failed in 0.22s
+
+
