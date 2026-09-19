@@ -3,7 +3,10 @@
 [GO backup horizon renewal](backup-horizon-renewal.md) makes an exhausted
 runtime archive-proof budget repairable through the existing certified fresh
 backup path. It preserves old recovery points and requires exact successor
-verification. Recurring proactive maintenance and NAS qualification remain open.
+verification. [Recurring maintenance and retention](backup-recurring-maintenance.md)
+now have a host scheduler entry point, proactive renewal and restore-gated
+deletion with restart recovery. Scheduler installation, measured throughput,
+filesystem locking and populated restore evidence remain NAS qualification gates.
 
 [Economic audit 399](economic-audit-399-remediation.md) records the corrected
 economic profile and outstanding certification gates. Local acceptance tests
@@ -33,14 +36,14 @@ daily continuation. NAS qualification and paper activation remain separate.
 [Rolling admission readers](rolling-admission-readers.md) connects current sealed
 inputs to readiness, selected-strategy observation warmup, signed admission and
 the public installer's probes. Cached panel readiness is bound to its generation.
-Stale rolling preparation and recurring maintenance remain distinct gates; do
+Stale rolling preparation and deployed maintenance qualification remain distinct gates; do
 not refresh rolling data with legacy `feed-daily`.
 
 [Runtime manifest admission](backup-manifest-runtime-bound.md) caps a selected
 physical-backup manifest at 8 MiB before JSON parsing. Measure retained manifest
 sizes before qualification; an oversized selected base fences mutation without
-falling back to an older base. Directory discovery and recurring maintenance
-remain separate open gates.
+falling back to an older base. Bounded runtime selection and recurring maintenance
+are implemented; their deployed resource and filesystem qualification remains open.
 
 
 [Rolling paper inputs](rolling-paper-inputs.md) connects the paper gateway and

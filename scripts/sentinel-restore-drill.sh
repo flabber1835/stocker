@@ -13,6 +13,11 @@ sentinel_load_environment --profile maintenance
 
 . scripts/sentinel-backup-lib.sh
 BACKUP_ROOT="$(sentinel_backup_root)"
+export SENTINEL_BASE_BACKUP_LOCK_ROOT="$BACKUP_ROOT"
+if ! "$PYTHON" scripts/sentinel_backup_lock.py verify >/dev/null 2>&1; then
+  exec "$PYTHON" scripts/sentinel_backup_lock.py hold \
+    bash scripts/sentinel-restore-drill.sh "$@"
+fi
 COMPOSE=(docker compose -f docker-compose.sentinel.yml \
   -f docker-compose.sentinel-backup.yml)
 COMPLETED_NAME_RE='^base-[0-9]{8}T[0-9]{6}Z$'
@@ -111,38 +116,68 @@ else
   WAL_SOURCE="$BACKUP_ROOT/wal"
 fi
 
-TOKEN="$(date -u +%Y%m%dT%H%M%SZ)-$$"
+metadata_digest() {
+  ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+    cd "/sentinel-backup/base/$1"
+    for field in backup_manifest backup_label sentinel-recovery-marker sentinel-pitr-base-identity; do
+      test -f "$field" && test ! -L "$field" && test "$(stat -c %h "$field")" = 1
+    done
+    sha256sum backup_manifest backup_label sentinel-recovery-marker sentinel-pitr-base-identity | sha256sum
+  ' sh "$NAME" | cut -d ' ' -f 1
+}
+METADATA_SHA256=""
+if [ -n "$SYSTEM_ID" ]; then
+  METADATA_SHA256="$(metadata_digest)"
+  [[ "$METADATA_SHA256" =~ ^[0-9a-f]{64}$ ]] || {
+    echo 'REFUSED: restore metadata digest unavailable' >&2; exit 4; }
+fi
+
+TOKEN="$(date -u +%Y%m%dT%H%M%SZ)-$$-$("$PYTHON" -c 'import secrets; print(secrets.token_hex(16))')"
 VOLUME="sentinel-restore-drill-$TOKEN"
 CONTAINER="sentinel-restore-drill-$TOKEN"
 NETWORK="sentinel-restore-drill-$TOKEN"
+VOLUME_CREATED=0
+NETWORK_CREATED=0
+CONTAINER_STARTED=0
+SEMANTIC_STARTED=0
 cleanup() {
-  docker rm -f "$CONTAINER" >/dev/null 2>&1 || true
-  docker volume rm "$VOLUME" >/dev/null 2>&1 || true
-  docker network rm "$NETWORK" >/dev/null 2>&1 || true
+  if [ "$SEMANTIC_STARTED" -eq 1 ]; then docker rm -f "$CONTAINER-semantic" >/dev/null 2>&1 || true; fi
+  if [ "$CONTAINER_STARTED" -eq 1 ]; then docker rm -f "$CONTAINER" >/dev/null 2>&1 || true; fi
+  if [ "$VOLUME_CREATED" -eq 1 ]; then docker volume rm "$VOLUME" >/dev/null 2>&1 || true; fi
+  if [ "$NETWORK_CREATED" -eq 1 ]; then docker network rm "$NETWORK" >/dev/null 2>&1 || true; fi
 }
-trap cleanup EXIT INT TERM
+trap cleanup EXIT
+trap 'exit 130' INT
+trap 'exit 143' TERM
 
-docker volume create "$VOLUME" >/dev/null
-docker network create --internal "$NETWORK" >/dev/null
-docker run --rm --network none \
-  -v "$LATEST:/source:ro" -v "$VOLUME:/target" \
-  --entrypoint sh postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
-  -ceu '
-    cp -a /source/. /target/
-    pg_verifybackup --ignore=sentinel-recovery-marker --ignore=sentinel-pitr-base-identity /target
-    chown -R postgres:postgres /target
-    chmod 700 /target
-    touch /target/recovery.signal
-    chown postgres:postgres /target/recovery.signal
-  '
-
-docker run -d --name "$CONTAINER" --network "$NETWORK" \
+if docker volume inspect "$VOLUME" >/dev/null 2>&1; then
+  echo 'REFUSED: restore volume identity already exists' >&2; exit 4
+fi
+for object in "$CONTAINER" "$CONTAINER-semantic"; do
+  if docker container inspect "$object" >/dev/null 2>&1; then
+    echo 'REFUSED: restore container identity already exists' >&2; exit 4
+  fi
+done
+docker volume create --label sentinel.restore-drill=v1 "$VOLUME" >/dev/null
+VOLUME_CREATED=1
+docker network create --internal --label sentinel.restore-drill=v1 "$NETWORK" >/dev/null
+NETWORK_CREATED=1
+# One worker owns the media lock continuously through copy, verify and replay.
+# Its finite lifetime also releases the lock when its host/Docker client dies.
+docker run -d --rm --name "$CONTAINER" --network "$NETWORK" \
+  --label sentinel.restore-drill=v1 --memory 1g --pids-limit 128 \
+  -e "SENTINEL_RESTORE_TARGET_LSN=$TARGET_LSN" \
   --network-alias restored-postgres \
+  -v "$LATEST:/source:ro" -v "$BACKUP_ROOT/base:/backup-lock" \
+  -v "$(pwd -P)/scripts/sentinel-backup-media-lock.sh:/media-lock-helper:ro" \
+  -v "$(pwd -P)/scripts/sentinel-restore-worker.sh:/restore-worker:ro" \
   -v "$VOLUME:/var/lib/postgresql/data" -v "$WAL_SOURCE:/archive:ro" \
+  --entrypoint timeout \
   postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
-  postgres -c "restore_command=cp /archive/%f %p" -c "listen_addresses=*" >/dev/null
+  --kill-after=30s 1800 sh /restore-worker >/dev/null
+CONTAINER_STARTED=1
 
-for _ in $(seq 1 60); do
+for _ in $(seq 1 1200); do
   if docker exec "$CONTAINER" pg_isready -U sentinel -d sentinel >/dev/null 2>&1; then
     break
   fi
@@ -152,6 +187,7 @@ docker exec "$CONTAINER" pg_isready -U sentinel -d sentinel >/dev/null
 for _ in $(seq 1 60); do
   REPLAYED="$(docker exec "$CONTAINER" psql -U sentinel -d sentinel -Atc \
     "SELECT CASE WHEN pg_last_wal_replay_lsn() >= '$TARGET_LSN'::pg_lsn
+       AND pg_get_wal_replay_pause_state() = 'paused'
        AND EXISTS (SELECT 1 FROM sentinel_backup_recovery_markers
                     WHERE marker = '$MARKER') THEN 'yes' ELSE 'no' END" \
     2>/dev/null || true)"
@@ -186,7 +222,8 @@ record_restore_evidence() {
       WITH evidence AS (
         SELECT jsonb_build_object(
           'base_backup','$NAME','marker','$MARKER','target_lsn','$TARGET_LSN',
-          'system_identifier','$SYSTEM_ID','physical_only',false) AS proof
+          'system_identifier','$SYSTEM_ID','physical_only',false,
+          'metadata_sha256','$METADATA_SHA256','runtime_image','$RUNTIME_IMAGE') AS proof
       )
       INSERT INTO sentinel_backup_evidence(kind,evidence_sha256,proof)
       SELECT 'RESTORE_DRILL',
@@ -226,10 +263,17 @@ IN_RECOVERY="$(docker exec "$CONTAINER" psql -U sentinel -d sentinel -Atc \
   exit 4
 }
 
-docker run --rm --network "$NETWORK" --read-only --cap-drop ALL \
+SEMANTIC_STARTED=1
+docker run --rm --name "$CONTAINER-semantic" --label sentinel.restore-drill=v1 \
+  --network "$NETWORK" --read-only --cap-drop ALL --memory 1g --pids-limit 128 \
   --security-opt no-new-privileges --tmpfs /tmp:rw,noexec,nosuid,size=16m \
   -e SENTINEL_RESTORE_DATABASE_HOST=restored-postgres \
   -e SENTINEL_RESTORE_DATABASE_PASSWORD="$SENTINEL_POSTGRES_PASSWORD" \
-  --entrypoint python "$RUNTIME_IMAGE" -m sentinel.restore_validation
+  --entrypoint python "$RUNTIME_IMAGE" -c \
+  'import runpy,signal; signal.alarm(600); runpy.run_module("sentinel.restore_validation",run_name="__main__")'
 echo "restore_semantics_ready:true backup=$LATEST image=$RUNTIME_IMAGE"
+if [ -n "$METADATA_SHA256" ]; then
+  [ "$(metadata_digest)" = "$METADATA_SHA256" ] || {
+    echo 'REFUSED: backup metadata changed during restore' >&2; exit 4; }
+fi
 record_restore_evidence

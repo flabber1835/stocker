@@ -645,3 +645,36 @@ restore drill can still examine older recovery points independently. Pending
 #410's bounded selection remains separate and must retain both contracts on
 integration. C1/F6, F19, C3 and authoritative replay/data gates are unchanged.
 No historical-return impact or economic certification is established.
+
+### Recurring proactive backup maintenance and retention
+
+Implemented as Step 1 work, initially based on main
+`84582af2020a708ab076821693ffa4ea93ebed1c`, incorporating #410 and #412.
+The owner merged #410 during implementation; current-main integration and
+reviewed source identities are retained in the
+[maintenance evidence](../audit/economic_399/recurring_maintenance/README.md).
+
+| Claim / finding | Disposition | Production path and limits |
+|---|---|---|
+| A5 / backup A6 recurring renewal and retention were absent | P1 implementation gap addressed locally | `scripts/sentinel-backup-maintenance.sh` enters `scripts/sentinel_backup_maintenance.py`: 12-hour / 256 MiB current-WAL triggers, exact successor status, full restore, durable identity-bound receipt, then offline retention. Single ticks and an optional single-owner loop are provided. Scheduler installation is a NAS prerequisite. |
+| A worker could outlive its host client's lock | P1 lifecycle gap addressed for the documented one-host/one-account scope | Actual producer, restore and retention workers hold the same persistent media flock. Restore holds it continuously from copy through PostgreSQL shutdown. Worker deadlines, journal recovery and labeled disposable-resource reclamation handle interruption. NAS flock behavior remains unqualified. |
+| Archive-end timing could auto-promote the restore before its recovery-state check | P2 restore availability defect fixed locally | `scripts/sentinel-restore-worker.sh` pauses at the recorded target LSN; `scripts/sentinel-restore-drill.sh` requires pause and marker replay, then explicitly promotes. Pinned PG16 positive acceptance and removal falsifier exercise actual PostgreSQL. |
+| Equal timestamps could conceal a same-size `.env` rewrite | P2 input-consistency defect fixed locally | `scripts/sentinel_env.py:read_bytes` now requires two bounded complete byte observations to agree, preserving metadata/alias/type checks. A deterministic same-timestamp rewrite falsifier detects removal of the byte guard. |
+| Safe deletion of obsolete bases and WAL | Locally verified under explicit scope | `sentinel/backup_retention.py` keeps selected/recent/daily/weekly bases; journals deletion before quarantine; revalidates protected identities after interruption; computes WAL floor from every retained Start-LSN. Boundary segments, timeline histories, other timelines and unknown names are preserved. Mixed timelines retain all WAL. |
+
+Local results: 361 backup/GO/ownership regression passes; 930 final maintenance,
+restore-contract and environment checks; 873 environment checks on actual host
+Python 3.8.15 (overlapping cases); 15 code falsifiers plus the PG16 target
+falsifier detected. Private PostgreSQL-owned 0700 WAL directories are exercised
+through the actual worker CLI: missing capability refuses before base deletion;
+the reviewed offline worker capability succeeds without weakening media modes.
+Final receipt/semantic and provenance details are in the retained record.
+
+**Still open:** NAS scheduling/reboot/alert delivery, the one-host/one-account
+operational prerequisite, real target flock/rename/fsync guarantees, full-volume
+capacity and throughput, populated exact-image restores, corpus-dependent
+historical deltas and full-universe/callback resource qualification. C1/F6 cash
+producer completeness/finality, native F19 provider authority and C3 predecessor
+incarnation evidence are unchanged. No broker capability flag, golden economic
+result or certification status was loosened. Step 1 and economic certification
+are not marked complete.

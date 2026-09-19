@@ -50,6 +50,15 @@ jobs:
         run: |
           set -euo pipefail
           bash scripts/test-backup-physical.sh 2>&1 | tee evidence/physical.txt
+      - name: Prove maintenance worker recovery and media lock ownership on PostgreSQL 16
+        run: |
+          set -euo pipefail
+          docker run --rm --network none --user 0 --entrypoint bash \
+            -v "$PWD/scripts/sentinel-backup-media-lock.sh:/media-lock-helper:ro" \
+            -v "$PWD/scripts/sentinel-restore-worker.sh:/restore-worker:ro" \
+            -v "$PWD/scripts/test-backup-maintenance-worker.sh:/lab-test:ro" \
+            postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b \
+            /lab-test 2>&1 | tee evidence/maintenance-worker.txt
       - name: Prove recovery promotion and timeline history archival
         run: |
           set -euo pipefail
