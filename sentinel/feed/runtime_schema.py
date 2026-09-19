@@ -586,6 +586,8 @@ def _validate_catalog(catalog) -> None:
 
 
 def _validate_views(cur) -> None:
+    from sentinel.feed.history_retention_catalog import require_recovery_pin
+    require_recovery_pin(cur)
     for view, witnesses in _VIEW_WITNESSES.items():
         cur.execute("SELECT pg_catalog.pg_get_viewdef(%s::regclass,true)",
                     (f"public.{view}",))

@@ -111,7 +111,17 @@ class ProductionAutomation(base.ProductionAutomation):
             notify=self.notify, terminal=self.certify_terminal_cycle)
 
     def _require_backup_for_new_mutation(self, operation: str):
+        try:
+            return self._check_backup_for_new_mutation(operation)
+        except Exception as exc:
+            mapped = base.classify_dependency_failure(exc)
+            if mapped is None or mapped is exc:
+                raise
+            raise mapped from exc
+
+    def _check_backup_for_new_mutation(self, operation: str):
         conn = self.connect()
+        primary = None
         try:
             try:
                 proof = backup_runtime_authority.require(
@@ -132,9 +142,22 @@ class ProductionAutomation(base.ProductionAutomation):
                 raise BackupIntegrityRefused(
                     "backup durability configuration/integrity refused: "
                     f"{exc}") from exc
+        except BaseException as exc:
+            primary = exc
+            raise
         finally:
-            conn.rollback()
-            conn.close()
+            cleanup = None
+            try:
+                conn.rollback()
+            except Exception as exc:
+                cleanup = exc
+            try:
+                conn.close()
+            except Exception as exc:
+                cleanup = cleanup or exc
+            # Cleanup must not erase an already established integrity refusal.
+            if primary is None and cleanup is not None:
+                raise cleanup
 
     async def _require_external_execution_clock(self, context) -> None:
         """Bind new transport to an independent Alpaca wall-clock observation."""
@@ -168,6 +191,9 @@ class ProductionAutomation(base.ProductionAutomation):
             raise NonRetryableCallbackRefused(
                 f"Alpaca clock evidence is malformed: {exc}") from exc
         except BrokerAuthorityRefused as exc:
+            mapped = base.classify_dependency_failure(exc)
+            if isinstance(mapped, TransientInfrastructureFailure):
+                raise mapped from exc
             raise NonRetryableCallbackRefused(
                 f"Alpaca clock authority refused: {exc}") from exc
         except Exception as exc:  # reviewed dependency classifier owns transport

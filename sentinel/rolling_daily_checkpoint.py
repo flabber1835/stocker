@@ -22,8 +22,14 @@ class Checkpoint(origin.Checkpoint):
     history_anchor: dict
 
 
+class ReconstructionCheckpoint(Checkpoint):
+    schema_id: Literal["sentinel.rolling-reconstruction-checkpoint/1"] = Field(
+        default="sentinel.rolling-reconstruction-checkpoint/1", alias="schema")
+    status: Literal["RECONSTRUCTION_COMMITTED"] = "RECONSTRUCTION_COMMITTED"
+
+
 def signature(payload):
-    return publication._receipt_hmac({"purpose": SCHEMA, "checkpoint": payload})
+    return publication._receipt_hmac({"purpose": payload.get("schema", SCHEMA), "checkpoint": payload})
 
 
 def input_name(observation_id, session):
@@ -55,7 +61,9 @@ def read(conn):
     if (not isinstance(raw, dict) or set(raw) != {"checkpoint", "hmac_sha256"}
             or not hmac.compare_digest(str(raw["hmac_sha256"]), signature(raw["checkpoint"]))):
         raise Refused("DAILY_CHECKPOINT_AUTHENTICATION_FAILED")
-    checkpoint = Checkpoint.model_validate(raw["checkpoint"])
+    model = (ReconstructionCheckpoint if raw["checkpoint"].get("schema") ==
+             "sentinel.rolling-reconstruction-checkpoint/1" else Checkpoint)
+    checkpoint = model.model_validate(raw["checkpoint"])
     if str(row[0]) != checkpoint.session or raw["checkpoint"] != checkpoint.model_dump(by_alias=True):
         raise Refused("DAILY_CHECKPOINT_SHAPE_CHANGED")
     return checkpoint
@@ -141,6 +149,10 @@ def load(conn, context):
             or observer.genesis_sha256 != checkpoint.genesis_sha256):
         raise Refused("DAILY_CHECKPOINT_RECORD_CHANGED")
     _publication(conn, checkpoint)
-    shadow._timing_proof(checkpoint.precommit_timing, decision_session=checkpoint.session,
-                         committed=False, where="daily checkpoint precommit timing")
+    if isinstance(checkpoint, ReconstructionCheckpoint):
+        from sentinel import rolling_reconstruction_evidence as evidence
+        evidence.validate_timing(checkpoint.precommit_timing, checkpoint.session)
+    else:
+        shadow._timing_proof(checkpoint.precommit_timing, decision_session=checkpoint.session,
+                             committed=False, where="daily checkpoint precommit timing")
     return checkpoint, observer, observer.verify_history()

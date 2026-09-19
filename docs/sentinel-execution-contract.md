@@ -1044,6 +1044,11 @@ reconstruction of an earlier decision's inputs.
 
 ### 8.1 Two tiers, and their certification state
 
+The [preserved-state recovery](rolling-missed-session-recovery.md) contract
+replays missed sessions from retained dated publications without resetting the
+canonical book or issuing historical broker orders. Reconstruction evidence is
+distinct from prospective runtime authority.
+
 The [rolling daily continuation](rolling-daily-continuation.md) contract adds
 explicit bounded input-continuity proof and authenticated checkpoint advancement
 for adjacent source-final sessions. It neither changes legacy VERIFIED nor

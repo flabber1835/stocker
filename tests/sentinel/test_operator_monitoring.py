@@ -548,8 +548,7 @@ def test_health_alarm_reuses_terminal_cycle_alert_identity(monkeypatch) -> None:
         "cycle_id": "cycle-a", "state": "BLOCKED"})]
 
 
-def test_red_scheduler_alarm_does_not_collapse_into_amber_retry(monkeypatch) -> None:
-    connection = object()
+def test_red_scheduler_alarm_does_not_collapse_into_amber_retry(db, monkeypatch) -> None:
     health = SimpleNamespace(
         policy_state="SCHEDULER_STALLED", control_generation=7,
         latest_cycle_id="cycle-a", latest_cycle_state="RETRY_WAIT",
@@ -557,17 +556,13 @@ def test_red_scheduler_alarm_does_not_collapse_into_amber_retry(monkeypatch) -> 
     monkeypatch.setattr(
         outbox, "enqueue_cycle_transition_alert",
         lambda *_args, **_kwargs: pytest.fail("red alarm reused amber alert"))
-    calls = []
-    monkeypatch.setattr(
-        outbox, "enqueue",
-        lambda conn, **kwargs: calls.append((conn, kwargs)) or "red-alert")
-
     result = alert_service._enqueue_health_incident(  # noqa: SLF001
-        connection, health=health, max_attempts=8)
+        db, health=health, max_attempts=8)
 
-    assert result == "red-alert"
-    assert calls[0][1]["severity"] == "CRITICAL"
-    assert calls[0][1]["event_type"] == "AUTOMATION_OPERATIONAL_RED"
+    retained = outbox.load_alert(db, result.alert_id)
+    assert retained.severity == "CRITICAL"
+    assert retained.event_type == "AUTOMATION_OPERATIONAL_RED"
+    assert retained.payload["reason"] == "SCHEDULER_STALLED"
 
 
 def test_secondary_webhook_cannot_probe_or_clear_primary_web_push_health() -> None:
@@ -595,12 +590,15 @@ async def test_contiguous_database_outage_retries_one_external_incident(
                 raise alert_service.AlertTransportFailure(
                     "synthetic independent transport outage")
 
-    def unavailable(_dsn):
+    def unavailable(_dsn, *, connect_timeout, statement_timeout_ms):
+        assert connect_timeout == 3
+        assert statement_timeout_ms == 2000
         nonlocal connect_attempts
         connect_attempts += 1
         raise ConnectionError(f"database unavailable attempt {connect_attempts}")
 
     async def finite_sleep(stop: asyncio.Event, _seconds: float) -> None:
+        await asyncio.sleep(0)
         if connect_attempts >= 4:
             stop.set()
 

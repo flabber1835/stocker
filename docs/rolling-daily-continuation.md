@@ -19,8 +19,9 @@ the source-final/next-open deadline before commit.
 
 Advance exactly the next XNYS session, which must equal the current publication
 frontier. Do not backdate current TICKERS into missed sessions. Multi-session
-gaps, out-of-window anchors and returning securities without proven inception
-refuse with named dependencies. No new genesis, default historical split anchor,
+gaps require the separate [missed-session recovery](rolling-missed-session-recovery.md)
+contract. Out-of-window anchors and unproven returning identities refuse with
+named dependencies. No new genesis, default historical split anchor,
 legacy reader fallback or retrospective performance segment is manufactured.
 
 ## Current input continuity

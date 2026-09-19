@@ -52,7 +52,7 @@ def _published(material, pub):
     axis = tuple(str(row.session) for row in material.benchmarks)
     return PublishedSession(
         session=material.session, data_version=pub.version, bars=material.bars,
-        meta=material.meta, sectors=material.sectors,
+        meta=material.meta, sectors=material.sectors, feed_anchors=material.feed_anchors,
         spy_closeadj=tuple(row.spy_total_return for row in material.benchmarks),
         spy_sessions=axis, spy_expected_sessions=axis, terminal_events=material.terminal_events,
         defensive_bar=defensive(material.benchmarks[-1]),

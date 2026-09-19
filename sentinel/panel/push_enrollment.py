@@ -9,6 +9,7 @@ from urllib.parse import urlsplit
 
 from fastapi import APIRouter, HTTPException, Request
 from fastapi.responses import JSONResponse
+from starlette.concurrency import run_in_threadpool
 
 from sentinel.automation import outbox
 from sentinel.panel.sources import _bounded_dsn
@@ -139,24 +140,27 @@ async def enroll(request: Request) -> JSONResponse:
         # Never echo the endpoint or key input in a validation response.
         raise HTTPException(400, "invalid Web Push subscription") from exc
     sub_id = subscription_id(endpoint)
-    from sentinel.feed import store as feed_store
-    try:
-        with closing(feed_store.connect(_bounded_dsn(_database_url()))) as conn:
-            with conn.cursor() as cur:
-                _upsert_subscription(
-                    cur, endpoint=endpoint, p256dh=p256dh, auth=auth,
-                    user_agent=request.headers.get("user-agent", ""))
-            outbox.enqueue(
-                conn,
-                idempotency_key=f"push-enrollment-test:{sub_id}:{test_id}",
-                event_type="PUSH_ENROLLMENT_TEST", severity="INFO",
-                payload={"subscription_id": sub_id, "test_id": test_id},
-                max_attempts=3)
-    except HTTPException:
-        raise
-    except Exception as exc:                                  # noqa: BLE001
-        raise HTTPException(
-            503, f"push enrollment unavailable: {type(exc).__name__}") from exc
+    def persist():
+        from sentinel.feed import store as feed_store
+        try:
+            with closing(feed_store.connect(_bounded_dsn(_database_url()),
+                         connect_timeout=3, statement_timeout_ms=2000)) as conn:
+                with conn.cursor() as cur:
+                    _upsert_subscription(
+                        cur, endpoint=endpoint, p256dh=p256dh, auth=auth,
+                        user_agent=request.headers.get("user-agent", ""))
+                outbox.enqueue(
+                    conn,
+                    idempotency_key=f"push-enrollment-test:{sub_id}:{test_id}",
+                    event_type="PUSH_ENROLLMENT_TEST", severity="INFO",
+                    payload={"subscription_id": sub_id, "test_id": test_id},
+                    max_attempts=3)
+        except HTTPException:
+            raise
+        except Exception as exc:                                  # noqa: BLE001
+            raise HTTPException(
+                503, f"push enrollment unavailable: {type(exc).__name__}") from exc
+    await run_in_threadpool(persist)
     return JSONResponse(
         {"status": "subscribed", "subscription_id": sub_id},
         status_code=201, headers={"Cache-Control": "no-store"})
@@ -175,25 +179,29 @@ async def refresh(request: Request) -> JSONResponse:
         previous = _previous_endpoint(value.get("previous_endpoint"))
     except ValueError as exc:
         raise HTTPException(400, "invalid Web Push subscription") from exc
-    from sentinel.feed import store as feed_store
-    try:
-        with closing(feed_store.connect(_bounded_dsn(_database_url()))) as conn:
-            with conn.cursor() as cur:
-                sub_id = _upsert_subscription(
-                    cur, endpoint=endpoint, p256dh=p256dh, auth=auth,
-                    user_agent=request.headers.get("user-agent", ""))
-                if previous is not None and previous != endpoint:
-                    cur.execute(
-                        "UPDATE sentinel_web_push_subscriptions"
-                        " SET retired_at=COALESCE(retired_at,clock_timestamp()),"
-                        " retire_reason=COALESCE("
-                        " retire_reason,'replaced by browser')"
-                        " WHERE subscription_id=%s AND subscription_id<>%s",
-                        (subscription_id(previous), sub_id))
-            conn.commit()
-    except Exception as exc:                                  # noqa: BLE001
-        raise HTTPException(
-            503, f"push refresh unavailable: {type(exc).__name__}") from exc
+    def persist():
+        from sentinel.feed import store as feed_store
+        try:
+            with closing(feed_store.connect(_bounded_dsn(_database_url()),
+                         connect_timeout=3, statement_timeout_ms=2000)) as conn:
+                with conn.cursor() as cur:
+                    sub_id = _upsert_subscription(
+                        cur, endpoint=endpoint, p256dh=p256dh, auth=auth,
+                        user_agent=request.headers.get("user-agent", ""))
+                    if previous is not None and previous != endpoint:
+                        cur.execute(
+                            "UPDATE sentinel_web_push_subscriptions"
+                            " SET retired_at=COALESCE(retired_at,clock_timestamp()),"
+                            " retire_reason=COALESCE("
+                            " retire_reason,'replaced by browser')"
+                            " WHERE subscription_id=%s AND subscription_id<>%s",
+                            (subscription_id(previous), sub_id))
+                conn.commit()
+        except Exception as exc:                                  # noqa: BLE001
+            raise HTTPException(
+                503, f"push refresh unavailable: {type(exc).__name__}") from exc
+        return sub_id
+    sub_id = await run_in_threadpool(persist)
     return JSONResponse(
         {"status": "refreshed", "subscription_id": sub_id},
         headers={"Cache-Control": "no-store"})
@@ -207,19 +215,22 @@ async def remove(request: Request) -> JSONResponse:
     if not isinstance(endpoint, str) or len(endpoint) > 4096:
         raise HTTPException(400, "invalid Web Push subscription")
     sub_id = subscription_id(endpoint)
-    from sentinel.feed import store as feed_store
-    try:
-        with closing(feed_store.connect(_bounded_dsn(_database_url()))) as conn:
-            with conn.cursor() as cur:
-                cur.execute(
-                    "UPDATE sentinel_web_push_subscriptions"
-                    " SET retired_at=COALESCE(retired_at,clock_timestamp()),"
-                    " retire_reason=COALESCE(retire_reason,'removed by device')"
-                    " WHERE subscription_id=%s", (sub_id,))
-            conn.commit()
-    except Exception as exc:                                  # noqa: BLE001
-        raise HTTPException(
-            503, f"push removal unavailable: {type(exc).__name__}") from exc
+    def persist():
+        from sentinel.feed import store as feed_store
+        try:
+            with closing(feed_store.connect(_bounded_dsn(_database_url()),
+                         connect_timeout=3, statement_timeout_ms=2000)) as conn:
+                with conn.cursor() as cur:
+                    cur.execute(
+                        "UPDATE sentinel_web_push_subscriptions"
+                        " SET retired_at=COALESCE(retired_at,clock_timestamp()),"
+                        " retire_reason=COALESCE(retire_reason,'removed by device')"
+                        " WHERE subscription_id=%s", (sub_id,))
+                conn.commit()
+        except Exception as exc:                                  # noqa: BLE001
+            raise HTTPException(
+                503, f"push removal unavailable: {type(exc).__name__}") from exc
+    await run_in_threadpool(persist)
     return JSONResponse(
         {"status": "removed", "subscription_id": sub_id},
         headers={"Cache-Control": "no-store"})

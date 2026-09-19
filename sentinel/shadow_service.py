@@ -137,6 +137,11 @@ def _preflight(conn, config: ShadowServiceConfig, *,
         classified = dict(classified)
         contract["input_contract"] = classified.pop("input_contract")
     status = classified.get("status") if isinstance(classified, dict) else None
+    if status in {"RECONSTRUCTION_REQUIRED", "RECONSTRUCTED_STRUCTURAL"} and contract:
+        if set(classified) != {"status", "latest_session"} or not isinstance(classified["latest_session"], str):
+            raise ShadowServiceRefused("reconstruction classification is malformed")
+        return {**contract, **classified, "schema": PREFLIGHT_SCHEMA,
+                "mode": "BROKER_FREE_SHADOW", "broker_mutations_authorized": False}
     if status == "NOT_STARTED" and set(classified) == {"status"}:
         return {
             **contract,
@@ -226,6 +231,17 @@ def service_health(config: ShadowServiceConfig, *,
     retained = preflight(
         config, now=now, allow_stale_frontier=True)
     status = str(retained.get("status") or "")
+    if "input_contract" in retained and status in {
+            "ATTESTED_STRUCTURAL", "RECONSTRUCTION_REQUIRED", "RECONSTRUCTED_STRUCTURAL"}:
+        instant = now or datetime.now(timezone.utc)
+        target = calendar.latest_closed_session(instant)
+        following = calendar.next_session(retained["latest_session"])
+        opened, _ = calendar.session_window(calendar.next_session(following))
+        return {**retained, "service_health": "RECONSTRUCTION_PENDING" if
+                status != "ATTESTED_STRUCTURAL" or following < target
+                or following <= target and instant >= opened
+                else "HEALTHY_ATTESTED" if retained["latest_session"] == target else "HEALTHY_WAITING",
+                "target_session": target}
     if status == "ATTESTED_STRUCTURAL":
         instant = now or datetime.now(timezone.utc)
         target = calendar.latest_closed_session(instant)
@@ -295,6 +311,9 @@ def advance_once(config: ShadowServiceConfig, *,
             return rolling_runtime.service_advance(conn, through=target,
                 observation_id=config.observation_id, starting_cash=config.starting_cash).to_dict()
         except Exception as exc:
+            from sentinel.rolling_reconstruction_evidence import InputsUnavailable
+            if isinstance(exc, InputsUnavailable):
+                raise ShadowServiceWaiting(str(exc)) from exc
             from sentinel.shadow_worker import _availability_failure
             if _availability_failure(exc):
                 raise ShadowServiceRetry("rolling shadow source/backup unavailable") from exc

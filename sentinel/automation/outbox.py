@@ -433,22 +433,6 @@ def claim_next(
         _reconstruct_missing_transition_alerts(conn)
         with conn.cursor() as cur:
             cur.execute(
-                "UPDATE sentinel_alert_outbox SET state='DEAD_LETTER',"
-                " delivery_holder=NULL,delivery_expires_at=NULL,"
-                " last_error='delivery claim expired at maximum attempts',"
-                " updated_at=clock_timestamp()"
-                " WHERE attempt_count>=max_attempts AND ("
-                "  state='PENDING' OR (state='DELIVERING'"
-                "   AND delivery_expires_at <= clock_timestamp()))"
-                " RETURNING alert_id,attempt_count")
-            for alert_id, attempt in cur.fetchall():
-                _append_event(
-                    cur, alert_id=alert_id, attempt=attempt,
-                    action="DEAD_LETTERED",
-                    holder_id="expired-claim-recovery",
-                    error="delivery claim expired at maximum attempts")
-
-            cur.execute(
                 "UPDATE sentinel_alert_outbox SET state='PENDING',"
                 " delivery_holder=NULL,delivery_expires_at=NULL,"
                 " next_attempt_at=clock_timestamp(),"
@@ -466,7 +450,6 @@ def claim_next(
             cur.execute(
                 "SELECT alert_id FROM sentinel_alert_outbox"
                 " WHERE state='PENDING'"
-                " AND attempt_count < max_attempts"
                 " AND next_attempt_at <= clock_timestamp()"
                 " ORDER BY next_attempt_at,created_at,alert_id"
                 " FOR UPDATE SKIP LOCKED LIMIT 1")
@@ -555,7 +538,7 @@ def mark_failed(
                 raise AutomationRefused(
                     "alert failure result does not own the active claim")
             attempt, maximum = row
-            if not retryable or attempt >= maximum:
+            if not retryable:
                 state = AlertState.DEAD_LETTER
                 action = "DEAD_LETTERED"
                 cur.execute(

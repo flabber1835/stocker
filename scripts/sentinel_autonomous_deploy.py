@@ -1489,15 +1489,12 @@ class AutonomousDeploy:
             else "build: exact Sentinel runtime, authorized runtime, and test lens")
         self.resolve_compose()
         if reviewed is None:
-            self.runner.run(self.base_compose + [
-                "build", "--build-arg", "SOURCE_GIT_SHA=" + self.commit,
-                "sentinel", "sentinel-panel"])
             self.runner.run([
-                "docker", "build", "--network", "host",
-                "--build-arg", "SENTINEL_RUNTIME_BASE_IMAGE=sentinel:latest",
-                "--build-arg", "SOURCE_GIT_SHA=" + self.commit,
-                "-t", "sentinel-authorized:latest", "-f",
-                "Dockerfile.sentinel-authorized", "."])
+                "docker", "build", "--network", "host", "--build-arg",
+                "SOURCE_GIT_SHA=" + self.commit, "-t", "sentinel:latest",
+                "-f", "Dockerfile.sentinel", "."])
+            self.runner.run([
+                "docker", "tag", "sentinel:latest", "sentinel-authorized:latest"])
             self.runner.run([
                 "docker", "build", "--network", "host",
                 "--build-arg", "SENTINEL_IMAGE=sentinel-authorized:latest",
@@ -1622,7 +1619,7 @@ class AutonomousDeploy:
             "bash", "scripts/sentinel-emergency-kill.sh",
             "--actor", self.cfg.actor,
             "--reason", "autonomous deploy fail-closed fence"],
-            capture=True, check=False)
+            capture=True, check=False, timeout=15)
         text = (result.stdout or "") + "\n" + (result.stderr or "")
         return result.returncode == 0 or "already engaged" in text.lower()
 
@@ -1649,10 +1646,10 @@ class AutonomousDeploy:
             raise
 
     def _base_cli(self, args: Sequence[str], *, capture: bool = False,
-                  check: bool = True) -> subprocess.CompletedProcess:
+                  check: bool = True, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
         return self.runner.run(self.base_compose + [
             "--profile", "cli", "run", "--rm", "-T", "sentinel"]
-            + list(args), capture=capture, check=check)
+            + list(args), capture=capture, check=check, timeout=timeout)
 
     def _authorized_compose(self) -> List[str]:
         return self.base_compose + ["-f", self.automation_overlay]
@@ -1666,19 +1663,35 @@ class AutonomousDeploy:
     def _status(self) -> Mapping:
         return _json_output(self._base_cli(["status"], capture=True), label="status")
 
-    def _automation_status(self) -> Mapping:
+    def _automation_status(self, *, timeout: Optional[float] = None) -> Mapping:
         return _json_output(
-            self._base_cli(["automation-status"], capture=True),
+            self._base_cli(["automation-status"], capture=True, timeout=timeout),
             label="automation-status")
 
-    def quiesce_backup_and_migrate(self) -> None:
+    def _quiesce_database(self) -> bool:
         self.phase("transition: fence and stop old automation")
         first_kill = self._try_emergency_kill()
         self._direct_stop_automation()
         self._direct_stop_shadow()
         self.phase("transition: start only behavioral PostgreSQL on preserved volume")
-        self.runner.run(self.base_compose + ["up", "-d", "sentinel-postgres"])
+        self.runner.run(self.base_compose + ["up", "-d", "--wait", "--wait-timeout",
+                                            str(self.cfg.health_timeout), "sentinel-postgres"])
+        if not first_kill:
+            first_kill = self._try_emergency_kill()
+        fence_code = (
+            "import json,os; from sentinel import deployment_fence; from sentinel.feed import store; "
+            "c=store.connect(os.environ['SENTINEL_DATABASE_URL'],connect_timeout=3,statement_timeout_ms=2000); "
+            "print(json.dumps(deployment_fence.require(c))); c.rollback(); c.close()")
+        proof = _json_output(self.runner.run(self.base_compose + [
+            "--profile", "cli", "run", "--rm", "-T", "--entrypoint", "python", "sentinel", "-c", fence_code],
+            capture=True, timeout=15), label="pre-migration global fence")
+        if proof.get("status") not in {"DURABLY_FENCED", "EMPTY_BEHAVIORAL_SCHEMA"}:
+            raise DeployRefused("pre-migration global fence was not established")
 
+        return first_kill
+
+    def quiesce_backup_and_migrate(self) -> None:
+        first_kill = self._quiesce_database()
         self.phase("durability: fresh pre-migration backup and physical replay")
         self.runner.run(["bash", "scripts/sentinel-base-backup.sh"])
         self.runner.run(["bash", "scripts/sentinel-backup-status.sh"])
@@ -1687,8 +1700,9 @@ class AutonomousDeploy:
 
         self.phase("schema: explicit migration while automation is stopped")
         code = (
-            "import os; from sentinel import schema; from sentinel.feed import store; "
+            "import os; from sentinel import schema,deployment_fence; from sentinel.feed import store; "
             "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
+            "deployment_fence.require(c); c.rollback(); "
             "schema.ensure_schema(c); store.migrate_schema(c); c.close(); "
             "print('schema migration PASS')")
         self.runner.run(self.base_compose + [
@@ -1698,7 +1712,7 @@ class AutonomousDeploy:
             raise DeployRefused(
                 "durable automation kill could not be confirmed after schema migration")
         if not first_kill:
-            print("  initial kill was unavailable; automation was stopped and durable kill is now confirmed")
+            print("  empty behavioral schema was proved before migration; durable kill is now confirmed")
         status = self._automation_status()
         if status.get("enabled"):
             self._base_cli([
@@ -2017,13 +2031,18 @@ class AutonomousDeploy:
         deadline = time.monotonic() + self.cfg.health_timeout
         last = None
         while time.monotonic() < deadline:
-            last = self._automation_status()
+            remaining = deadline - time.monotonic()
+            if remaining <= 0:
+                break
+            last = self._automation_status(timeout=remaining)
+            if time.monotonic() >= deadline:
+                break
             if (last.get("operational_ready") is True
                     and last.get("policy_state") == "LEADER_ACTIVE"):
                 return last
             if last.get("latest_cycle_state") == "BLOCKED" or last.get("latest_failure_code"):
                 raise DeployRefused("automation latched a failure while becoming operational")
-            time.sleep(3)
+            time.sleep(min(3, max(0, deadline - time.monotonic())))
         raise DeployRefused(
             "automation did not become operational before timeout; last policy=%r" %
             ((last or {}).get("policy_state"),))

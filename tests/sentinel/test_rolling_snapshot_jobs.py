@@ -65,7 +65,7 @@ def test_an_active_owner_excludes_a_second_worker(conn, pg, request_value):
     conn.commit()
     other = connect(pg.sync_dsn)
     try:
-        with pytest.raises(jobs.JobRefused, match="owned"):
+        with pytest.raises(jobs.JobWaiting, match="owned"):
             jobs.claim(other, job)
     finally:
         other.close()
@@ -115,7 +115,7 @@ def test_wait_releases_worker_and_resumes_same_stage(conn, request_value):
     jobs.wait(conn, lease, state="WAIT_SOURCE", reason="EXPORT_CREATING", retry_seconds=10)
     waiting = jobs.status(conn, job)
     assert waiting["state"] == "WAIT_SOURCE" and waiting["owner"] is None
-    with pytest.raises(jobs.JobRefused, match="waiting"):
+    with pytest.raises(jobs.JobWaiting, match="waiting"):
         jobs.claim(conn, job)
     with conn.cursor() as cur:
         cur.execute("UPDATE sentinel_snapshot_jobs SET next_retry=clock_timestamp()-interval '1 second' "

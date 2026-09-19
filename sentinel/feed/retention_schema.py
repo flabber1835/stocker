@@ -50,6 +50,13 @@ DDL = [
           ELSIF checkpoint->'checkpoint'->'snapshot'->>'candidate_id'=target::text THEN
             reasons:=array_append(reasons,'RESTART_CHECKPOINT');
           END IF;
+          IF checkpoint->'checkpoint'->>'session' IS NULL THEN
+            reasons:=array_append(reasons,'UNKNOWN_CHECKPOINT_SESSION');
+          ELSIF EXISTS(SELECT 1 FROM sentinel_operational_snapshots s
+              JOIN sentinel_corpus_publications p ON p.version=s.publication_version
+              WHERE s.candidate_id=target AND p.window_end>(checkpoint->'checkpoint'->>'session')::date) THEN
+            reasons:=array_append(reasons,'UNCONSUMED_RECOVERY_INPUT');
+          END IF;
         END IF;
       END IF;
       RETURN reasons;

@@ -195,7 +195,7 @@ _TARGET_CATALOG_SHA256 = {
 # column/type/null/default, constraints, indexes and triggers while ignoring
 # deployment-local OIDs and column order.
 _STAGE4_CATALOG_SHA256 = (
-    "475a0eced6176a0deb31aadf43a18d5b4a525786ee5dd38560386c86e84cfc40")
+    "5057d5abd499efdb1e7a6c3dcb04b3774077eaa5d18163c75da93b50263c56f7")
 
 # Corpus tables may legitimately be installed before behavioral schema (the
 # prepare CLI does exactly that).  They do not disqualify a database from being
@@ -254,6 +254,7 @@ _STAGE4_TABLES = frozenset({
     "sentinel_alert_outbox",
     "sentinel_alert_delivery_events",
     "sentinel_alert_dispatcher_health",
+    "sentinel_alert_health_cursor",
     "sentinel_notification_policy",
     "sentinel_web_push_subscriptions",
     "sentinel_web_push_fanouts",
@@ -270,6 +271,7 @@ _STAGE4_TABLES = frozenset({
 # it never tries to recreate them.  The core behavioral catalog continues to
 # receive the stronger closed semantic fingerprint in _validate_ledgered().
 _STAGE4_RUNTIME_REQUIRED_COLUMNS = {
+    "sentinel_alert_health_cursor": frozenset({"id", "active_identity", "occurrence"}),
     "sentinel_automation_control": frozenset({
         "authority_verdict", "authority_detail", "authority_checked_at"}),
     "sentinel_automation_cycles": frozenset({"historical_state_only"}),
@@ -1102,6 +1104,18 @@ DDL = (
     """CREATE INDEX IF NOT EXISTS idx_sentinel_alert_delivery_events
         ON sentinel_alert_delivery_events (alert_id,seq)""",
 
+    """DO $$ BEGIN
+        IF to_regclass('public.sentinel_alert_health_cursor') IS NULL THEN
+            IF EXISTS(SELECT 1 FROM sentinel_alert_outbox
+                WHERE idempotency_key LIKE 'automation-health-occurrence:%') THEN
+                RAISE EXCEPTION 'notification occurrence history has lost its cursor';
+            END IF;
+            CREATE TABLE sentinel_alert_health_cursor (
+                id INT PRIMARY KEY CHECK (id=1), active_identity TEXT,
+                occurrence BIGINT NOT NULL DEFAULT 0 CHECK (occurrence>=0));
+            INSERT INTO sentinel_alert_health_cursor(id) VALUES(1);
+        END IF;
+    END $$""",
     """CREATE TABLE IF NOT EXISTS sentinel_alert_dispatcher_health (
         dispatcher_id        TEXT PRIMARY KEY,
         started_at           TIMESTAMPTZ NOT NULL DEFAULT clock_timestamp(),
@@ -1914,7 +1928,7 @@ def _validate_stage4_runtime(cur, catalog) -> None:
             f"(observed {catalog_sha})")
     for table in (
             "sentinel_automation_control", "sentinel_automation_lease",
-            "sentinel_notification_policy"):
+            "sentinel_notification_policy", "sentinel_alert_health_cursor"):
         cur.execute(f"SELECT COUNT(*) FROM public.{table} WHERE id=1")
         if int(cur.fetchone()[0]) != 1:
             raise _operator_refusal(

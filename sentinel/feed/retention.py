@@ -98,6 +98,8 @@ def maintain(conn, *, batch_rows=BATCH_ROWS):
         result = dict(status="RETRY", reason=type(exc).__name__)
         log.warning("rolling maintenance deferred: %s", type(exc).__name__)
     try:
+        conn.execute("SET LOCAL lock_timeout='250ms'")
+        conn.execute("SET LOCAL statement_timeout='1s'")
         conn.execute("INSERT INTO sentinel_snapshot_maintenance(id,diagnostic) VALUES(TRUE,%s::jsonb) "
             "ON CONFLICT(id) DO UPDATE SET updated_at=clock_timestamp(),diagnostic=EXCLUDED.diagnostic",
             (canonical_json(result),))
@@ -112,7 +114,7 @@ def idle_pass(database_url):
     """Drain one batch during the broker-free service's existing idle wake."""
     conn = None
     try:
-        conn = store.connect(database_url)
+        conn = store.connect(database_url, connect_timeout=3, statement_timeout_ms=1000)
         available = conn.execute("SELECT to_regclass('sentinel_operational_snapshots')").fetchone()[0]
         if not available or not conn.execute('SELECT 1 FROM sentinel_operational_snapshots LIMIT 1').fetchone():
             return False

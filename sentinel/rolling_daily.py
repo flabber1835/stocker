@@ -25,38 +25,45 @@ def advance(conn, *, observation_id: str, starting_cash):
                     conn.commit()
                     return prior
                 initial._timing(conn, pub.window_end)
-                backup_runtime_authority.require(conn, operation="rolling daily continuation")
-                request = rolling_jobs.status(conn, binding["job_id"])["request"]
-                if request["strategy_sha256"] != digest(context["strategy"]):
-                    raise checkpoints.Refused("ACQUISITION_STRATEGY_CHANGED")
-                material, anchors, proof = rolling_continuity.prepare(
-                    conn, prior=prior.state, previous_binding=checkpoint.snapshot, publication=pub, binding=binding)
-                published = replace(initial._published(material, pub), signal_basis_anchors=anchors, history_proof=proof)
-                previous_row = observer._history()[0][-1]
-                result = observer.observe(shadow.FullyPublishedSession(published, pub.to_dict()))
-                row = observer._history()[0][-1]
-                initial_checkpoint = origin.read(conn)
-                updated = checkpoints.Checkpoint(
-                    observation_id=observation_id, session=result.session, starting_cash=context["starting_cash"],
-                    strategy_identity=context["strategy"], runtime_identity=context["runtime"],
-                    snapshot=binding, publication=pub.to_dict(), genesis_sha256=observer.genesis_sha256,
-                    record_sha256=result.record_sha256, state_sha256=result.state.state_hash,
-                    input_value=shadow._published_input_value(published), warmup_input_identity=checkpoint.warmup_input_identity,
-                    precommit_timing=initial._timing(conn, result.session), pitr=publication._publication_recovery_target(conn),
-                    origin_sha256=digest(initial_checkpoint.model_dump(by_alias=True)),
-                    history_anchor={"session": row["session"], "record_sha256": row["record_sha256"],
-                        "previous_record_sha256": row["previous_record_sha256"],
-                        "prior_state_sha256": row["prior_state_sha256"], "prior_data_version": prior.state.data_version,
-                        "prior_strategy_economics": previous_row["strategy_economics"]})
-                checkpoints.archive_input(conn, updated)
-                checkpoints.write(conn, updated, previous=checkpoint)
-                initial._timing(conn, result.session)
-                backup_runtime_authority.require(conn, operation="rolling daily checkpoint commit")
-                conn.commit()
-                return result
+                return commit_next(conn, checkpoint=checkpoint, observer=observer, prior=prior,
+                                   pub=pub, binding=binding, context=context)
     except BaseException:
         conn.rollback()
         raise
+
+
+def commit_next(conn, *, checkpoint, observer, prior, pub, binding, context,
+                checkpoint_type=checkpoints.Checkpoint, timing=initial._timing):
+    """Shared canonical transition; caller owns writer lock and publication pin."""
+    backup_runtime_authority.require(conn, operation="rolling daily continuation")
+    request = rolling_jobs.status(conn, binding["job_id"])["request"]
+    if request["strategy_sha256"] != digest(context["strategy"]):
+        raise checkpoints.Refused("ACQUISITION_STRATEGY_CHANGED")
+    material, anchors, proof = rolling_continuity.prepare(
+        conn, prior=prior.state, previous_binding=checkpoint.snapshot, publication=pub, binding=binding)
+    published = replace(initial._published(material, pub), signal_basis_anchors=anchors, history_proof=proof)
+    previous_row = observer._history()[0][-1]
+    result = observer.observe(shadow.FullyPublishedSession(published, pub.to_dict()))
+    row = observer._history()[0][-1]
+    initial_checkpoint = origin.read(conn)
+    updated = checkpoint_type(
+        observation_id=context["observation_id"], session=result.session, starting_cash=context["starting_cash"],
+        strategy_identity=context["strategy"], runtime_identity=context["runtime"],
+        snapshot=binding, publication=pub.to_dict(), genesis_sha256=observer.genesis_sha256,
+        record_sha256=result.record_sha256, state_sha256=result.state.state_hash,
+        input_value=shadow._published_input_value(published), warmup_input_identity=checkpoint.warmup_input_identity,
+        precommit_timing=timing(conn, result.session), pitr=publication._publication_recovery_target(conn),
+        origin_sha256=digest(initial_checkpoint.model_dump(by_alias=True)),
+        history_anchor={"session": row["session"], "record_sha256": row["record_sha256"],
+            "previous_record_sha256": row["previous_record_sha256"],
+            "prior_state_sha256": row["prior_state_sha256"], "prior_data_version": prior.state.data_version,
+            "prior_strategy_economics": previous_row["strategy_economics"]})
+    checkpoints.archive_input(conn, updated)
+    checkpoints.write(conn, updated, previous=checkpoint)
+    timing(conn, result.session)
+    backup_runtime_authority.require(conn, operation="rolling daily checkpoint commit")
+    conn.commit()
+    return result
 
 
 def resume(conn, *, observation_id: str, starting_cash):

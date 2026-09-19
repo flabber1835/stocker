@@ -1,13 +1,14 @@
 """Snapshot-native input material. No publication, shadow or trading authority."""
 from __future__ import annotations
 
-from dataclasses import dataclass
+from dataclasses import dataclass, field as dataclass_field
 from datetime import date
 
 from stock_strategy_shared.wealth_core.feed import SecurityMeta, VendorBar
 
 from sentinel.core.loader import CorpusWindow
 from sentinel.core.spinoffs import map_distributions
+from sentinel.core.session import FeedAnchor
 from sentinel.core.terminal import SPINOFF_ACTIONS, map_terminal_rows
 from sentinel.feed import (
     action_source, calendar, rolling_store, source_aliases, symbol_identity, tickers_authority,
@@ -40,6 +41,14 @@ class ColdStartInputs:
     benchmarks: tuple[CanonicalBenchmark, ...]
     terminal_events: tuple
     spinoff_distributions: tuple
+    feed_anchors: dict[str, FeedAnchor] = dataclass_field(default_factory=dict)
+
+
+def fresh_anchors(bars, meta, known):
+    """Only for proven inactive/fresh series, never retained economic state."""
+    return {bar.security_id: FeedAnchor(bar.security_id, bar.ticker,
+                meta[bar.security_id].issuer_key()[0] or f"S:{bar.security_id}", 1.0)
+            for bar in bars if bar.security_id not in known}
 
 
 class SnapshotReferences:
@@ -114,7 +123,9 @@ class SnapshotReferences:
             if ticker is None:
                 if active:
                     raise RollingInputsRefused("AMBIGUOUS_REFERENCE_SYMBOL: " + sid)
-                ticker = sorted(rows, key=lambda row: (
+                dated = [row for row in rows if not row.get("firstpricedate")
+                         or row["firstpricedate"] <= session]
+                ticker = sorted(dated or rows, key=lambda row: (
                     row.get("lastpricedate") or "", row["ticker"]))[-1]["ticker"]
             first = min((row["firstpricedate"] for row in rows if row.get("firstpricedate")), default=None)
             meta[sid] = SecurityMeta(security_id=sid, ticker=ticker, category=category,
@@ -174,9 +185,6 @@ def cold_start_inputs(conn, *, candidate_id: str, snapshot_id: str) -> ColdStart
     if sorted(by_session) != axis:
         raise RollingInputsRefused("COLD_START_PRICE_GAP")
     known = {bar.security_id for day in warm for bar in by_session[day]}
-    for bar in by_session[session]:
-        if bar.security_id not in known and meta[bar.security_id].first_session != session:
-            raise RollingInputsRefused("COLD_START_RETURNING_SECURITY_ANCHOR_REQUIRED")
     benchmark_axis = calendar.previous_sessions(session, 254)
     benchmarks = tuple(row for row in rolling_store.read_benchmarks(conn, candidate_id)
                        if str(row.session) >= benchmark_axis[0])
@@ -193,4 +201,4 @@ def cold_start_inputs(conn, *, candidate_id: str, snapshot_id: str) -> ColdStart
         snapshot_id, refs.manifest.reference_sha256, session, window,
         tuple(by_session[session]), meta, sectors, benchmarks,
         tuple(event for event in terminals.events if event.session == session),
-        refs.distributions(session=session))
+        refs.distributions(session=session), fresh_anchors(by_session[session], meta, known))

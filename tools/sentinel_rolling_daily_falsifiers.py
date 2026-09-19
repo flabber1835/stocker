@@ -21,11 +21,11 @@ MUTANTS = {
         "test_overlap_guard_distinguishes_economic_changes[raw-RAW_ECONOMICS]"),
     "signal_rebase": (
         "sentinel.core.rolling_continuity",
-        'if ratio <= 0 or factors.setdefault(left.security_id, ratio) != ratio:',
+        'if lower > upper:',
         'if False:', "test_overlap_guard_distinguishes_economic_changes[signal-NONUNIFORM_SIGNAL]"),
     "benchmark_rebase": (
         "sentinel.core.rolling_continuity",
-        'if ratio is None or ratio <= 0 or scales.setdefault(field, ratio) != ratio:',
+        'if lower > upper:',
         'if False:', "test_overlap_guard_distinguishes_economic_changes[spy-NONUNIFORM_BENCHMARK]"),
     "bil_raw": (
         "sentinel.core.rolling_continuity",
@@ -34,7 +34,7 @@ MUTANTS = {
         "test_overlap_guard_distinguishes_economic_changes[bil-BIL_RAW_ECONOMICS]"),
     "reference_metadata": (
         "sentinel.core.rolling_continuity",
-        'if meta.get(sid) != value or sectors.get(sid) != old_sectors[sid]:', 'if False:',
+        'if historical_meta.get(sid) != value or historical_sectors.get(sid) != old_sectors[sid]:', 'if False:',
         "test_historical_economic_changes_refuse_without_advancing[sector]"),
     "historical_actions": (
         "sentinel.core.rolling_continuity", 'if actions != old_actions:', 'if False:',
@@ -52,12 +52,12 @@ MUTANTS = {
         'if False:\n        raise Refused("DAILY_CHECKPOINT_CAS_CHANGED")',
         "test_stale_checkpoint_cannot_overwrite_current"),
     "final_deadline": (
-        "sentinel.rolling_daily", '                initial._timing(conn, result.session)\n',
-        '                pass\n', "test_final_write_rechecks_authority[deadline]"),
+        "sentinel.rolling_daily", '    timing(conn, result.session)\n',
+        '    pass\n', "test_final_write_rechecks_authority[deadline]"),
     "final_backup": (
         "sentinel.rolling_daily",
-        '                backup_runtime_authority.require(conn, operation="rolling daily checkpoint commit")',
-        '                pass', "test_final_write_rechecks_authority[backup]"),
+        '    backup_runtime_authority.require(conn, operation="rolling daily checkpoint commit")',
+        '    pass', "test_final_write_rechecks_authority[backup]"),
     "read_only_restart": (
         "sentinel.rolling_daily", 'SET TRANSACTION ISOLATION LEVEL REPEATABLE READ READ ONLY',
         'SET TRANSACTION ISOLATION LEVEL READ COMMITTED READ WRITE',

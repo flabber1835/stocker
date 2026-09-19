@@ -22,13 +22,14 @@ from datetime import datetime, timezone
 from pathlib import Path
 
 from sentinel.feed import calendar
+from sentinel import supervisor_io
 from sentinel.shadow_recovery import ShadowServiceConfig, service_health
 from sentinel.shadow_worker import (
     EXIT_AVAILABILITY, EXIT_REFUSED, EXIT_RETRY, EXIT_WAITING,
 )
 
 HEARTBEAT_FILE = Path("/tmp/sentinel-shadow-supervisor-heartbeat")
-LATCH_FILE = Path("/tmp/sentinel-shadow-supervisor-critical.json")
+LATCH_FILE = Path(os.environ.get("SENTINEL_STATE_DIR", "/var/lib/sentinel")) / "shadow-supervisor-critical.json"
 
 
 def _touch() -> None:
@@ -37,6 +38,10 @@ def _touch() -> None:
 
 def _enqueue_alert(*, idempotency_key: str, event_type: str,
                    severity: str, payload: dict) -> None:
+    supervisor_io.run(_write_alert, idempotency_key, event_type, severity, payload)
+
+
+def _write_alert(idempotency_key, event_type, severity, payload) -> None:
     """Best-effort durable projection; reporting cannot soften local state."""
     from sentinel.automation import outbox
     from sentinel.config import SentinelConfig
@@ -45,7 +50,7 @@ def _enqueue_alert(*, idempotency_key: str, event_type: str,
     database_url = SentinelConfig.from_env().database_url
     if not database_url:
         raise RuntimeError("database URL is absent")
-    conn = feed_store.connect(database_url)
+    conn = feed_store.connect(database_url, connect_timeout=1, statement_timeout_ms=750)
     try:
         outbox.enqueue(
             conn, idempotency_key=idempotency_key,
@@ -85,7 +90,7 @@ def _source_recovery_alert(*, now: datetime | None = None) -> None:
                     "see the dashboard for current evidence"),
             })
     except Exception as exc:                                  # noqa: BLE001
-        print(
+        supervisor_io.report(
             "WARNING: shadow source-recovery notification unavailable: "
             f"{type(exc).__name__}", file=sys.stderr, flush=True)
 
@@ -107,7 +112,7 @@ def _semantic_retry_alert(*, now: datetime | None = None) -> None:
                     "threshold; see the dashboard for current evidence"),
             })
     except Exception as exc:                                  # noqa: BLE001
-        print(
+        supervisor_io.report(
             "WARNING: shadow semantic-retry notification unavailable: "
             f"{type(exc).__name__}", file=sys.stderr, flush=True)
 
@@ -130,7 +135,19 @@ def _latch(reason: str, *, failures: int | None = None) -> None:
         "failures": failures,
         "latched_at_unix": time.time(),
     }
-    LATCH_FILE.write_text(json.dumps(payload, sort_keys=True), encoding="utf-8")
+    LATCH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        with LATCH_FILE.open("x", encoding="utf-8") as stream:
+            stream.write(json.dumps(payload, sort_keys=True))
+            stream.flush()
+            os.fsync(stream.fileno())
+        directory = os.open(LATCH_FILE.parent, os.O_RDONLY)
+        try:
+            os.fsync(directory)
+        finally:
+            os.close(directory)
+    except FileExistsError:
+        pass  # The original refusal remains the incident evidence.
     # The latch remains the local fail-closed authority.  This best-effort
     # projection gives the independent dispatcher one durable critical event
     # when PostgreSQL is still available; inability to report never clears or
@@ -147,10 +164,10 @@ def _latch(reason: str, *, failures: int | None = None) -> None:
             severity="CRITICAL",
             payload={"reason": str(reason), "failures": failures})
     except Exception as exc:                                  # noqa: BLE001
-        print(
+        supervisor_io.report(
             "CRITICAL: shadow latch notification unavailable: "
             f"{type(exc).__name__}", file=sys.stderr, flush=True)
-    print(
+    supervisor_io.report(
         "CRITICAL: shadow supervisor latched unhealthy: " + str(reason),
         file=sys.stderr, flush=True)
 
@@ -167,11 +184,11 @@ def _health(max_age_seconds: float, *, config=None) -> int:
     try:
         age = time.time() - HEARTBEAT_FILE.stat().st_mtime
     except OSError as exc:
-        print(f"REFUSED: shadow supervisor heartbeat absent: {exc}",
+        supervisor_io.report(f"REFUSED: shadow supervisor heartbeat absent: {exc}",
               file=sys.stderr)
         return 1
     if age < 0 or age > max_age_seconds:
-        print(
+        supervisor_io.report(
             f"REFUSED: shadow supervisor heartbeat stale ({age:.3f}s)",
             file=sys.stderr)
         return 1
@@ -180,14 +197,17 @@ def _health(max_age_seconds: float, *, config=None) -> int:
             detail = LATCH_FILE.read_text(encoding="utf-8")
         except OSError as exc:
             detail = f"unreadable critical latch: {exc}"
-        print(f"REFUSED: shadow supervisor critical latch: {detail}",
+        supervisor_io.report(f"REFUSED: shadow supervisor critical latch: {detail}",
               file=sys.stderr)
         return 1
     try:
         resolved = config if config is not None else ShadowServiceConfig.from_env()
-        service_health(resolved)
+        health = service_health(resolved)
+        if health.get("service_health") == "RECONSTRUCTION_PENDING":
+            supervisor_io.report("REFUSED: shadow reconstruction is pending", file=sys.stderr)
+            return 1
     except Exception as exc:  # structural corruption still fails health closed
-        print(
+        supervisor_io.report(
             "REFUSED: shadow frontier health failed: "
             f"{type(exc).__name__}: {exc}", file=sys.stderr)
         return 1
@@ -199,13 +219,13 @@ def run() -> int:
     deadline_seconds = float(os.environ.get(
         "SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS", "7200"))
     if deadline_seconds < 30 or deadline_seconds > 7200:
-        print("REFUSED: SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS must be in [30,7200]",
+        supervisor_io.report("REFUSED: SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS must be in [30,7200]",
               file=sys.stderr)
         return EXIT_REFUSED
     failure_threshold = int(os.environ.get(
         "SENTINEL_SHADOW_FAILURE_THRESHOLD", "3"))
     if failure_threshold < 1 or failure_threshold > 100:
-        print("REFUSED: SENTINEL_SHADOW_FAILURE_THRESHOLD must be in [1,100]",
+        supervisor_io.report("REFUSED: SENTINEL_SHADOW_FAILURE_THRESHOLD must be in [1,100]",
               file=sys.stderr)
         return EXIT_REFUSED
 
@@ -221,11 +241,9 @@ def run() -> int:
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    try:
-        LATCH_FILE.unlink(missing_ok=True)
-    except OSError:
-        pass
     _touch()
+    if LATCH_FILE.exists():
+        return _latched_wait(lambda: stopping)
     while not stopping:
         active = subprocess.Popen(
             [sys.executable, "-m", "sentinel.shadow_worker"],
@@ -235,7 +253,7 @@ def run() -> int:
         while not stopping and active.poll() is None:
             _touch()
             if time.monotonic() - started > deadline_seconds:
-                print(
+                supervisor_io.report(
                     "shadow supervisor terminating overdue advance after "
                     f"{deadline_seconds:.0f}s", file=sys.stderr, flush=True)
                 _terminate(active)

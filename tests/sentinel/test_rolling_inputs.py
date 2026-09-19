@@ -193,8 +193,11 @@ def test_returning_security_does_not_get_an_invented_first_observation(conn):
     def gap(bars, window):
         return [bar for bar in bars if bar.security_id != "1" or bar.session == window.end]
     key = candidate(conn, bar_change=gap)
-    with pytest.raises(inputs.RollingInputsRefused, match="RETURNING_SECURITY_ANCHOR_REQUIRED"):
-        load(conn, key)
+    material = load(conn, key)
+    assert all(bar.security_id != '1' for bars in material.warmup.bars_by_session.values()
+               for bar in bars)
+    assert [bar.security_id for bar in material.bars].count('1') == 1
+    assert material.feed_anchors['1'].prior_split_factor == 1
 
 
 def test_genuine_first_day_listing_remains_eligible_for_later_feature_formation(conn):

@@ -27,6 +27,10 @@ class JobRefused(RuntimeError):
     pass
 
 
+class JobWaiting(JobRefused):
+    """A valid active request is temporarily owned or not yet due for retry."""
+
+
 class PreparationRequest(Contract):
     window: PriceWindow
     expected_publication_version: int | None = Field(default=None, ge=1, strict=True)
@@ -126,6 +130,14 @@ def claim(conn, job_id: str, *, lease_seconds: int = 60) -> Lease:
             (owner, duration, job_id))
         row = cur.fetchone()
     if row is None:
+        state = conn.execute(
+            "SELECT state,deadline>clock_timestamp(),"
+            "(owner IS NOT NULL AND lease_until>clock_timestamp()) "
+            "OR next_retry>clock_timestamp() "
+            "OR EXISTS (SELECT 1 FROM sentinel_snapshot_comparisons p WHERE p.job_id=j.job_id) "
+            "FROM sentinel_snapshot_jobs j WHERE job_id=%s", (job_id,)).fetchone()
+        if state and state[0] not in TERMINAL and state[1] and state[2]:
+            raise JobWaiting("job is owned or waiting for its next permitted attempt")
         raise JobRefused("job is owned, waiting, expired or terminal")
     conn.execute("INSERT INTO sentinel_snapshot_workers(owner,job_id) VALUES(%s,%s)", (owner, job_id))
     return Lease(job_id, owner, int(row[0]))

@@ -2,7 +2,7 @@
 from __future__ import annotations
 
 from contextlib import closing
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field as dataclass_field
 from fractions import Fraction
 import hashlib
 from itertools import zip_longest
@@ -10,8 +10,9 @@ from datetime import date, timedelta
 from stock_strategy_shared.split_reconciliation import SPLIT_PRICE_QUANTUM
 
 from sentinel.core.history import RollingContinuityProof
-from sentinel.core.rolling_inputs import SnapshotReferences
+from sentinel.core.rolling_inputs import SnapshotReferences, fresh_anchors
 from sentinel.core.rolling_reader import RollingPriceReader
+from sentinel.core.session import _path_dependent_security_ids
 from sentinel.feed import calendar, rolling_store
 from sentinel.feed.rolling_contract import canonical_json, digest
 
@@ -128,6 +129,7 @@ class DailyInputs:
     benchmarks: tuple
     terminal_events: tuple
     spinoff_distributions: tuple
+    feed_anchors: dict = dataclass_field(default_factory=dict)
 
 
 def prepare(conn, *, prior, previous_binding, publication, binding):
@@ -147,6 +149,10 @@ def prepare(conn, *, prior, previous_binding, publication, binding):
     meta, sectors, reference_sha = _same_reference(previous_refs, refs, cursor)
     start, overlap_sha = _overlap(conn, old, current, refs, cursor)
     series = prior.feed.get("series", {})
+    protected = _path_dependent_security_ids(prior.wealth_core, prior.pending)
+    protected.update(prior.median5.get("selected", ()))
+    if missing := protected.difference(series):
+        raise RollingContinuityRefused("RETURNING_SECURITY_ANCHOR_REQUIRED: " + ",".join(sorted(missing)))
     anchors = {}
     for sid, value in series.items():
         anchor = value.get("signal_basis_anchor")
@@ -158,11 +164,10 @@ def prepare(conn, *, prior, previous_binding, publication, binding):
         if (bar.security_id not in meta
                 or refs.resolver.resolve(bar.ticker, session) != bar.security_id):
             raise RollingContinuityRefused("CURRENT_REFERENCE_IDENTITY_CHANGED")
-        if bar.security_id not in series and meta[bar.security_id].first_session != session:
-            raise RollingContinuityRefused("RETURNING_SECURITY_ANCHOR_REQUIRED: " + bar.security_id)
     terminals = refs.terminals(start=session, end=session)
     material = DailyInputs(session, prices.bars, meta, sectors, prices.benchmarks,
-                           tuple(terminals.events), refs.distributions(session=session))
+                           tuple(terminals.events), refs.distributions(session=session),
+                           fresh_anchors(prices.bars, meta, series))
     proof = RollingContinuityProof(
         prior_version=prior.data_version, publication_version=publication.version,
         prior_session=cursor, session=session, prior_state_sha256=prior.state_hash,

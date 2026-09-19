@@ -593,10 +593,15 @@ c.rollback(); c.close()
     def prepare_activate_start(self, certificate_sha256: str,
                                decision_session: str) -> Mapping:
         self.phase("plan: prepare and re-read one exact durable paper plan")
-        prepared = core._json_output(self._authorized_cli([
+        prepare_args = [
             "prepare-paper-plan", "--through", decision_session,
             "--warmup-sessions", "252", "--expect-account",
-            self.cfg.account_id], capture=True), label="prepared paper plan")
+            self.cfg.account_id]
+        if (self.reviewed_validation is not None
+                and self.reviewed_validation.mode == "dual"):
+            prepare_args.append("--reviewed-informational-dual")
+        prepared = core._json_output(self._authorized_cli(
+            prepare_args, capture=True), label="prepared paper plan")
         current = core._json_output(self._base_cli(
             ["current-paper-plan"], capture=True), label="current paper plan")
         prepared_plan = prepared.get("plan") or {}

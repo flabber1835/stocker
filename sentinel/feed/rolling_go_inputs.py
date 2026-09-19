@@ -50,6 +50,18 @@ def require_schemas(conn):
 
 def validate(conn, pub, *, now=None):
     """Verify selected content under the caller's schema-checked publication pin."""
+    instant = now or snapshots._now()
+    return _validate(conn, pub, target=snapshots.source_final_session(instant))
+
+
+def validate_reconstruction(conn, pub):
+    """Historical data readiness under actual authenticated availability evidence."""
+    from sentinel import rolling_reconstruction_evidence
+    rolling_reconstruction_evidence.require_dated(conn, pub)
+    return _validate(conn, pub, target=pub.window_end)
+
+
+def _validate(conn, pub, *, target):
     binding = snapshots._bound(conn, pub)
     _, strategy = production_strategy()
     request = rolling_jobs.status(conn, binding["job_id"])["request"]
@@ -60,8 +72,6 @@ def validate(conn, pub, *, now=None):
     material = cold_start_inputs(conn, candidate_id=binding["candidate_id"],
                                  snapshot_id=binding["snapshot_id"])
     report = Readiness()
-    instant = now or snapshots._now()
-    target = snapshots.source_final_session(instant)
     report.add("rolling source-final frontier", PASS if material.session == target else FAIL,
                f"snapshot {material.session}; source-final frontier {target}")
     report.add("rolling immutable input closure", PASS,

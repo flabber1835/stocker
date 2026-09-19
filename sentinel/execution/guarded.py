@@ -48,6 +48,14 @@ class BrokerAuthorityRefused(RuntimeError):
     """
 
 
+class BrokerAuthorityCheckFailed(BrokerAuthorityRefused):
+    """The check raised unexpectedly; its cause may be temporary unavailability.
+
+    This carries no authority. Only an outer reviewed dependency classifier may
+    choose retry; explicit identity/integrity/revocation refusals keep their type.
+    """
+
+
 class PreTransportAuthorityRefused(BrokerAuthorityRefused):
     """Fresh authority disappeared before the broker mutation was attempted.
 
@@ -277,7 +285,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         except BrokerAuthorityRefused:
             raise
         except Exception as exc:                              # noqa: BLE001
-            raise BrokerAuthorityRefused(
+            raise BrokerAuthorityCheckFailed(
                 f"{operation.value} before-read authority check failed: "
                 f"{type(exc).__name__}: {exc}") from exc
         result = await call()
@@ -288,7 +296,7 @@ class GuardedExecutionBroker(ExecutionBroker):
         except BrokerAuthorityRefused:
             raise
         except Exception as exc:                              # noqa: BLE001
-            raise BrokerAuthorityRefused(
+            raise BrokerAuthorityCheckFailed(
                 f"{operation.value} after-read authority check failed: "
                 f"{type(exc).__name__}: {exc}") from exc
         return result
@@ -500,6 +508,7 @@ class GuardedExecutionBroker(ExecutionBroker):
 __all__ = [
     "AfterRead", "AutomationExecutionGrant", "BeforeMutation", "BeforeRead",
     "BrokerAuthorityRefused", "BrokerOperation", "ExecutionBrokerGuard", "ExecutionGrant",
+    "BrokerAuthorityCheckFailed",
     "GuardedExecutionBroker", "ManualExecutionGrant",
     "PaperPreparationGrant",
     "PreTransportAuthorityRefused",

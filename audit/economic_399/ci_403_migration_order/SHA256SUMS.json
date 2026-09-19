@@ -1,0 +1,11 @@
+{
+  "files": {
+    "commands.json": "1729f3260f41e45c430784feedfdc8d569a6660c6103119d104b1f558a7e7468",
+    "README.md": "ff01a73946333b15d9a0713c66425d18b16737750a38888e267c8ac476faa9fe",
+    "results.zip": "92022a2f20436574b6eb6d3418305c8536f6399a7f0550d33b8610c8266d17c8"
+  },
+  "raw_logs": {
+    "ci-migration-order-green.log": "fdb5829fba13124dedbf44152eff84e1c29046c69587619d37100e6d2c8c8194",
+    "ci-migration-order-mutations.log": "60302dd47bab4b48f20c7fc288eed8ea9301a3ff83027649eea33efaec2e57c1"
+  }
+}
