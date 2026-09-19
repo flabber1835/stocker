@@ -15,16 +15,15 @@ from sentinel.config import SentinelConfig
 
 def _closed_preview_frontier(conn, *, now_et=None):
     """Return a visible frontier only when it is the latest closed session."""
-    from sentinel.feed import calendar, readiness
-    from sentinel.feed import store as feed_store
+    from sentinel.feed import calendar, readiness, readers
 
     observation_time = (now_et if now_et is not None else
                         datetime.now(ZoneInfo(calendar.EXCHANGE_TZ)))
-    result = readiness.check_readiness(
-        conn, today=observation_time.isoformat())
-    if not result.ready:
-        return result, None
-    frontier = feed_store.latest_visible_session(conn)
+    with readers.pinned(conn, commit=False) as pub:
+        result = readers.readiness(conn, today=observation_time.isoformat())
+        if not result.ready:
+            return result, None
+        frontier = readers.frontier(conn, pub)
     latest_closed = calendar.latest_closed_session(observation_time)
     if frontier != latest_closed:
         result.add(
@@ -42,7 +41,7 @@ def cmd_check_data(config: SentinelConfig, args) -> int:
     a feed wants the whole picture, and stopping at the first failure turns one
     diagnosis into several round trips.
     """
-    from sentinel.feed import readiness
+    from sentinel.feed import readiness, readers
     from sentinel.feed import store as feed_store
 
     if not config.database_url:
@@ -51,7 +50,7 @@ def cmd_check_data(config: SentinelConfig, args) -> int:
     conn = feed_store.connect(config.database_url)
     try:
         feed_store.require_feed_schema(conn)
-        result = readiness.check_readiness(conn, today=args.today)
+        result = readers.readiness(conn, today=args.today)
         # PERSIST WHAT WAS JUST COMPUTED. The panel used to run this check
         # itself, inside a page load, under the tightest of its three timeouts
         # — and gave up first during a seed, which is exactly when an operator

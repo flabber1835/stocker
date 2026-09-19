@@ -86,6 +86,7 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.feed.maintenance",
     "sentinel.feed.operational_coherence",
     "sentinel.feed.publication",
+    "sentinel.feed.readers",
     "sentinel.feed.operational_snapshot",
     "sentinel.feed.rolling_builder",
     "sentinel.feed.rolling_contract",

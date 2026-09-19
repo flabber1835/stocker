@@ -1,0 +1,30 @@
+{
+  "commands.json": {
+    "sha256": "5afdae261325df144362c629f27a7b1c44c4b31ac1b54a3487d623ad2116c039",
+    "bytes": 2336
+  },
+  "ownership.json": {
+    "sha256": "bb762f7b167a7918b26e161981cae1af60f3db30c8c3fc5f7646396f14e21806",
+    "bytes": 12707
+  },
+  "README.md": {
+    "sha256": "15308cb6120d548b2e9f3ec8fa935918f8885771a191aa4e794f477d75d0bd83",
+    "bytes": 6022
+  },
+  "results.zip": {
+    "sha256": "b2e77ab3ed24224c3373a1e7727a3c8f301394d9ca31296385b7ae291565b411",
+    "bytes": 19299
+  },
+  "run_local.py": {
+    "sha256": "0e655e463cc399a4e93c9fad4e64e41cf7aa89be2008450aeeab8f5eb6b8e315",
+    "bytes": 1593
+  },
+  "source-provenance.json": {
+    "sha256": "ff589e2f5c994c04e2cba13b8cc0d02250105aa8530fab22c2fca63d742da08b",
+    "bytes": 2645
+  },
+  "static.json": {
+    "sha256": "f0e59c08a93c3ebe2b2a4c70b1701befb586cbfcd3d22a990408e43478e9692d",
+    "bytes": 1652
+  }
+}

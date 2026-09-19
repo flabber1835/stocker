@@ -252,7 +252,7 @@ def test_float_warmup_evidence_and_comparison_are_canonical(tmp_path, capsys):
         "HISTORICAL_CAUSALITY_UNVERIFIED")
 
 
-def test_offline_issuer_signs_exact_retained_observation_evidence(
+def test_offline_issuer_refuses_legacy_warmup_without_selected_strategy_binding(
         conn, tmp_path):
     document = claims(conn)
     warmup = {
@@ -297,13 +297,11 @@ def test_offline_issuer_signs_exact_retained_observation_evidence(
         serialization.NoEncryption()))
     os.chmod(key, 0o600)
     output = tmp_path / "certificate.json"
-    digest = issue(
-        candidate=candidate, private_key_file=key,
-        key_id=KEY_ID, output=output)
-    assert digest == hashlib.sha256(output.read_bytes()).hexdigest()
-    verified = authority.verify_signed_certificate(
-        output.read_bytes(), now=NOW, trust_roots=ROOTS)
-    assert verified.authorization_mode == "PAPER_OBSERVATION_ONLY"
+    from tools.sentinel_certificate_issuer import IssuanceRefused
+    with pytest.raises(IssuanceRefused, match="current 252\\+1 warmup"):
+        issue(candidate=candidate, private_key_file=key,
+              key_id=KEY_ID, output=output)
+    assert not output.exists()
 
 
 def test_expiry_limit_expiry_and_signature_tamper_refuse(conn):

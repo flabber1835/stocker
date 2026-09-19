@@ -18,6 +18,12 @@ not required. Preserve and inventory failed-attempt records during setup.
 data probes. [Rolling shadow runtime](rolling-shadow-runtime.md) connects the
 broker-free service to signed post-commit authority, first startup and bounded
 daily continuation. NAS qualification and paper activation remain separate.
+[Rolling admission readers](rolling-admission-readers.md) connects current sealed
+inputs to readiness, selected-strategy observation warmup, signed admission and
+the public installer's probes. Cached panel readiness is bound to its generation.
+Stale rolling preparation and recurring maintenance remain distinct gates; do
+not refresh rolling data with legacy `feed-daily`.
+
 
 [Rolling paper inputs](rolling-paper-inputs.md) connects the paper gateway and
 automation to that verified shadow book and the bound snapshot's execution
