@@ -8,6 +8,7 @@ through the existing lease and recovery protocol.
 """
 from __future__ import annotations
 
+import math
 import os
 import signal
 import socket
@@ -164,7 +165,8 @@ def main() -> int:
         "SENTINEL_AUTOMATION_SUPERVISOR_POLL_SECONDS", "2"))
     startup_grace_seconds = float(os.environ.get(
         "SENTINEL_AUTOMATION_SUPERVISOR_STARTUP_GRACE_SECONDS", "20"))
-    if poll_seconds <= 0 or startup_grace_seconds < 0:
+    if (not math.isfinite(poll_seconds) or not math.isfinite(startup_grace_seconds)
+            or poll_seconds <= 0 or startup_grace_seconds < 0):
         supervisor_io.report("REFUSED: invalid automation supervisor timing", file=sys.stderr)
         return 2
 
