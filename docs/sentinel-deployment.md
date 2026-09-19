@@ -5,6 +5,9 @@ economic profile and outstanding certification gates. Local acceptance tests
 do not qualify the NAS or grant paper transport authority. Certification and
 first GO remain blocked pending the evidence recorded there.
 
+Host GO and backup helpers require Linux descriptor-associated exclusive flock
+evidence. See [ownership verification and qualification prerequisites](host-lock-ownership.md).
+
 [Automatic share-unit reconciliation](automatic-share-unit-reconciliation.md)
 supersedes the universal pre-open certificate requirement below. Ordinary paper
 execution uses current reconciliation and optional event evidence; known action
@@ -23,6 +26,12 @@ inputs to readiness, selected-strategy observation warmup, signed admission and
 the public installer's probes. Cached panel readiness is bound to its generation.
 Stale rolling preparation and recurring maintenance remain distinct gates; do
 not refresh rolling data with legacy `feed-daily`.
+
+[Runtime manifest admission](backup-manifest-runtime-bound.md) caps a selected
+physical-backup manifest at 8 MiB before JSON parsing. Measure retained manifest
+sizes before qualification; an oversized selected base fences mutation without
+falling back to an older base. Directory discovery and recurring maintenance
+remain separate open gates.
 
 
 [Rolling paper inputs](rolling-paper-inputs.md) connects the paper gateway and

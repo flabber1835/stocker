@@ -17,6 +17,8 @@ import subprocess
 import sys
 from typing import Mapping, Optional, Sequence
 
+from sentinel_lock_ownership import owns_exclusive_flock
+
 
 ROOT = Path(__file__).resolve().parents[1]
 LOCK_FD_ENV = "SENTINEL_BASE_BACKUP_LOCK_FD"
@@ -60,17 +62,7 @@ def lock_is_held(env=None) -> bool:
         return False
     if (inherited.st_dev, inherited.st_ino) != (target.st_dev, target.st_ino):
         return False
-    try:
-        with lock.open("a+", encoding="ascii") as probe:
-            try:
-                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                return True
-            else:
-                fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
-                return False
-    except OSError:
-        return False
+    return owns_exclusive_flock(fd)
 
 
 def _hold(command: Sequence[str]) -> int:

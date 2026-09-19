@@ -279,6 +279,31 @@ evidence package remains unchanged. See the [CI follow-up evidence](
 mutation and ownership commands on the combined source. Fresh CI remains a
 separate requirement; none of this closes the remaining certification gates.
 
+### Bounded backup manifest follow-up
+
+Reviewed from fetched main `65e261312ec219e014f062c0b6b374066db19d75`.
+The runtime manifest query parsed an unlimited file (**P2 resource defect**,
+`sentinel/backup_runtime_authority.py:182`). Its preliminary text-prefix
+presence check could also split a valid UTF-8 character and reject a complete
+base (**P2 availability defect**, `sentinel/backup_runtime_authority.py:118`).
+The presence probe now reads one binary byte. Selected manifests use a single
+bounded read of 8 MiB plus an overflow byte; oversized input is refused before
+decoding or JSON conversion. Exactly-at-limit complete input remains accepted.
+No fallback to an older base or proof-cache advancement follows refusal.
+
+See [design and NAS criteria](backup-manifest-runtime-bound.md) and
+[exact commands and retained evidence](../audit/economic_399/manifest_bound/README.md).
+The separate archive-integrity changes in [PR #406](https://github.com/flabber1835/stocker/pull/406)
+are not included in this branch's main base. Neither change establishes economic
+certification. The new 8 MiB manifest ceiling still requires qualification
+against deployed manifests and complete-caller resource limits.
+
+**Directory discovery remains locally unresolved**: `_latest_complete_base`
+still obtains a materialized directory listing. SQL LIMIT would not bound
+PostgreSQL's internal enumeration. A bounded publication index/reader and its
+producer ownership contract remain design/implementation work, along with
+recurring verified backups and proactive horizon/retention maintenance.
+
 ### Known remaining gates
 
 | Gate | Severity / category | Exact remaining work |
@@ -299,6 +324,42 @@ The authoritative provider references and their precise limits are retained in
 [the pre-NAS ledger](economic-audit-399-pre-nas.md#provider-and-implementation-gates).
 No new provider promise is inferred here. Issue #399 is closed on GitHub after
 the owner merged #402; that administrative state does not satisfy these gates.
+
+### Host lock ownership follow-up
+
+Review from main `65e261312ec219e014f062c0b6b374066db19d75` found a **P1
+serialization-integrity defect** in both host lock verifiers:
+`scripts/sentinel_backup_lock.py:50` and `scripts/sentinel_go_lock.py:26` proved
+contention at the expected inode, not ownership by the inherited descriptor.
+Both now require the same bounded, read-only Linux descriptor-ownership proof
+in `scripts/sentinel_lock_ownership.py:8`. Independent, shared and released
+descriptors refuse; verification cannot acquire, upgrade or release a lock.
+The kernel-owned descriptor remains accepted after the original parent exits.
+No historical economic discrepancy is attributed to this finding without
+deployed evidence.
+
+See [documented contract and NAS prerequisites](host-lock-ownership.md) and
+[retained commands, results and falsifiers](../audit/economic_399/host_lock_ownership/README.md).
+This fixes ownership verification within existing lock scopes. Backup locking
+is still scoped to the canonical target and host UID; GO locking is scoped to
+its checkout. Cross-UID/cross-host backup ownership and cross-checkout GO
+coordination are not established by these tests and must be resolved by the
+maintenance/deployment ownership contract. Do not claim global single ownership
+from a descriptor-level proof.
+
+Recurring maintenance, bounded directory discovery, horizon rollover/retention,
+filesystem-progress and other listed provider/data/NAS gates remain open.
+PRs #406 and #407 are separate changes; this follow-up does not supersede them.
+
+PR #408's initial head `43540abffff324a567e8cb2e8c8a3aa239a981a9` failed
+the operator image-build test lane: the inherited-owner process test passed
+`/work/scripts` to its child while CI stores the ownership helper under
+`/work/repo/scripts`. The test now honors `SENTINEL_REPO_ROOT`, matching the
+inspection-source contract. This is a test execution defect; no production
+ownership or economic assertion changed. The original local checkout layout
+missed this discrepancy. The separate [CI-layout evidence package](../audit/economic_399/host_lock_ci_layout/README.md)
+retains its reproduction and corrected validation; the earlier evidence is
+preserved. Exact-image GitHub CI remains required.
 
 ### Local execution record
 
