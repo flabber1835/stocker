@@ -22,6 +22,32 @@ implementation work, not merely NAS qualification.
 
 ## Decisions before implementation
 
+### Finite supervisor timing (A1/A17 startup validation)
+
+Review of main `8a9206c20f7fb2d224c1e3c044e9e0f3953eea5b` found a **P2
+configuration-validation defect**: shadow deadline range comparisons admit
+IEEE NaN, so elapsed-time comparisons never expire; automation poll/startup
+grace comparisons admit NaN or positive infinity, defeating normal stall
+supervision or causing a failure after worker launch. This does not establish
+that a deployed configuration or historical economic output was affected.
+
+Restore the existing bounded-supervision contract: all three environment
+timings must be finite before any worker starts. Preserve the shadow deadline
+range [30,7200], positive automation polling, and nonnegative startup grace
+(including zero). Invalid timings refuse startup, without creating a child,
+changing command identity or altering recovery policy. This clarification
+introduces no new timing limits or strategy behavior. Tests must exercise the
+public startup entrypoints, accept finite boundaries, and fail if any of the
+three finiteness checks is removed. Filesystem stalls and externally qualified
+resource limits remain separate open gates.
+
+Local evidence: [commands, pre-fix failures, regression and falsifiers](../audit/economic_399/supervisor_finite_timing/README.md).
+The public-entrypoint tests reproduced ten invalid admissions before the fix;
+101 targeted tests pass afterward and all three guard-removal mutants fail.
+The affected startup checks are `sentinel/shadow_supervisor.py:222` and
+`sentinel/automation_supervisor.py:168`. This finding is locally fixed, pending
+exact-head CI and owner merge. Step 1 and economic certification remain open.
+
 ### Streaming deployment deadlines (A24 follow-up after #403)
 
 The optional command timeout also applies to streaming commands, including a
@@ -331,6 +357,72 @@ The authoritative provider references and their precise limits are retained in
 No new provider promise is inferred here. Issue #399 is closed on GitHub after
 the owner merged #402; that administrative state does not satisfy these gates.
 
+### Bounded base selection follow-up
+
+On main `58c3e071ede06c176e1ed814fb1a7e35b13c33b2`, runtime default base
+selection still materialized and sorted the whole retained directory. This
+**P2 resource defect** is locally addressed by a cluster-scoped, atomically
+published selection record; it supersedes the foreground directory-discovery
+gap described above. See [design and rollout](backup-runtime-selection.md).
+`sentinel/backup_runtime_authority.py` now reads at most 257 selection bytes,
+refuses oversized/malformed/wrong-cluster input and validates the selected
+base through the unchanged manifest/WAL/content authority. Missing selection
+waits; there is no discovery fallback. A final reread precedes recording a
+successful proof, so selection loss/change cannot advance that observation.
+
+`scripts/sentinel-base-backup.sh` invokes the root-owned selection publisher
+after verified base promotion. A producer-call falsifier and actual shell/SQL
+acceptance connect publication to consumption. Existing media without a record
+requires a fresh verified backup through the updated command before ordinary
+runtime admission; explicit checkpoint validation remains independently usable.
+This rollout prerequisite is intentional and must not be bypassed with a
+hand-written record or a capability flag.
+
+The initial broader regression caught premature cache advancement after a
+failed final reread (four failure-injection cases). The code was corrected;
+those assertions were retained. The additive [evidence package](../audit/economic_399/bounded_base_selection/README.md)
+records failed attempts, final results, commands and source hashes.
+Final local regression: 291 passed; all seven guard/caller/producer falsifiers
+detected. Eight Python files parse, pyflakes is clean, and all 479 test modules
+have declared ownership. Exact-head CI, owner merge and NAS qualification remain
+required. Key code: `backup_runtime_authority.py:137`, `:475`, `:537`;
+`scripts/sentinel-base-backup.sh:202`; `scripts/sentinel-backup-publish-selection.sh:20`.
+
+Recurring scheduling, single-owner maintenance, proactive horizon rollover,
+retention, host status/cleanup enumeration, filesystem progress, full-universe
+resource measurements and provider/data/NAS gates remain open. This change
+does not prove historical economic output was affected or certify the system.
+
+### Combined backup selection, ownership and horizon review
+
+PR #410 now includes owner-merged #408 from verified main
+`8212a55335500b4bbb81853572019d9eb4443724`. Conflict resolution retains both
+contracts and includes both helpers in the actual shell-lifecycle fixture.
+No production algorithm or authority guard changed during this integration.
+The additive [retained evidence](../audit/economic_399/backup_selection_integration/README.md)
+records 291 backup and 55 lock/concurrency passes, all seven selection and six
+ownership falsifiers, and the source identities. Prior evidence is unchanged.
+
+**A5 / backup A6, P1 maintenance remains open, locally quantified.** The actual
+runtime interval code admits 64 16 MiB segments (1 GiB) on timeline 1 and refuses
+65 before enumeration; a 288-segment daily interval also refuses. PostgreSQL
+documents that timeout-switched archived files retain full segment length.
+With continuing activity and five-minute switches, the 64-segment scale is
+320 minutes; higher traffic or an already nonempty horizon shortens it. Daily
+base creation alone is insufficient. This is an arithmetic scenario, not a
+measurement of deployed traffic or a new acceptance policy. Required work is
+still proactive renewal with verified successor publication, restart-safe
+single ownership, bounded outage recovery and retention/restore qualification.
+
+**A1/resource measurement, partially local; NAS qualification open.** The
+existing isolated payload probe, limited to two CPUs and 2 GiB memory, completed
+three 1 GiB proofs in 2.5663 / 1.6848 / 1.6512 seconds, each with 128 hashes and
+2 GiB of payload reads. Container peak memory was 1,245,999,104 bytes. Sparse
+zero-filled fixture, PostgreSQL 17.11, payload phase only: this does not prove
+the full production caller meets its deadline or the accepted NAS memory limit.
+Real populated WAL, complete admission, concurrent workload, exact PG16 image,
+filesystem stalls and restart remain required. No economic return is inferred.
+
 ### Host lock ownership follow-up
 
 Review from main `65e261312ec219e014f062c0b6b374066db19d75` found a **P1
@@ -368,6 +460,30 @@ retains its reproduction and corrected validation; the earlier evidence is
 preserved. Exact-image GitHub CI remains required.
 
 ### Local execution record
+
+PR #410 CI follow-up (reviewed failing head `5fd72485c9bbe1e28a470ddbb9697f9ea7ba4aac`):
+two P2 test-producer integration defects blocked the internal-state and
+composition jobs. The physical fixture never published selection; the simulated
+post-seed producer left selection on its old WAL horizon. Both default-admission
+refusals reproduced locally. Correct the fixture producers according to the
+documented protocol, preserving real verification/archive gates and the
+stale/missing-selection refusals. Production code and economic oracles are
+unchanged in this follow-up. Key references: `tests/internal_state/physical.py:159`,
+`:163`; `tests/internal_state/test_physical.py:109`;
+`tests/production_composition/test_canonical_go_e2e_harness.py:238`.
+
+The additive [CI follow-up evidence](../audit/economic_399/backup_selection_ci/README.md)
+retains reproduction, positive acceptance and four detected publication/order
+falsifiers. Focused non-root tests: 27 passed; root physical tests: 7 passed.
+All ten selected lifecycle scenarios passed, including real populated restore
+and media repair in both simulated profiles, plus two deterministic seeds.
+Both affected owner suites: 655 passed and one unchanged foreign-owner test
+failed because the local image lacks `sudo`; GitHub Ubuntu provides that tool.
+This is an explicit local environment limitation, not a passing ownership claim.
+All 479 test modules remain owned. Fresh-head CI (including that ownership test
+and PG16 physical/GO stages), owner merge and NAS qualification remain required.
+Existing maintenance, provider, data and NAS-only gates remain open; neither
+fixture integration nor green CI establishes economic certification.
 
 The follow-up package records 239 relevant regression passes before the final
 lock-order correction, followed by 29 notification/attempt tests on that
