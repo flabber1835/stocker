@@ -187,8 +187,9 @@ def test_fixture_represents_the_complete_tri_cash_and_consolidation(monkeypatch)
         float(Decimal("1.435518") / Decimal("0.984560")))
 
 
+@pytest.mark.parametrize("publish_selection", [True, False], ids=["selected", "stale"])
 def test_bootstrapped_fixture_leaves_a_bounded_real_backup_authority(
-        monkeypatch, tmp_path):
+        monkeypatch, tmp_path, publish_selection):
     from sentinel import backup_runtime_authority as authority
     from tests.backup.lab import Database, Media, SEGMENT_SIZE, wal_name
 
@@ -234,11 +235,19 @@ def test_bootstrapped_fixture_leaves_a_bounded_real_backup_authority(
             (world.media.backup / "sentinel-recovery-marker").write_text(
                 world.media.metadata.replace("0/300040", "0/900040").replace(
                     wal_name(3), wal_name(9)))
+            if publish_selection:
+                world.media.selection.write_text(
+                    f"schema=sentinel.runtime-base/1\nsystem_identifier={world.system_id}\n"
+                    f"base_backup={world.media.backup.name}\n")
         return subprocess.CompletedProcess(argv, 0, stdout=output)
 
     monkeypatch.setattr(harness, "_run_host", run_host)
     harness._bootstrap_financial_fixture()
     assert seeded and analyzed and harness._FIXTURE_READY
+    if not publish_selection:
+        with pytest.raises(authority.BackupRuntimeRefused, match="integrity bytes"):
+            authority.require(world, operation="GO with stale pre-seed selection")
+        return
     proven = authority.require(world, operation="GO after fixture bootstrap")
     assert proven["wal_segments"] == 2
 

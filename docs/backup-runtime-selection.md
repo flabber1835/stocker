@@ -48,6 +48,16 @@ monotonic newest-base selection are not established: a selected older base
 must still prove the current complete restore chain and may hit resource bounds.
 Single-owner scheduling/retention remain separate open maintenance gates.
 
+The unprivileged internal-state laboratory models this producer after actual
+`pg_verifybackup` and archived recovery-marker confirmation. It atomically
+publishes the same selection format in its owned temporary cluster directory,
+with file and directory sync. This fixture does not establish production
+root:postgres ownership; the actual shell-publisher tests own that acceptance.
+Its missing-selection negative control must still refuse ordinary admission.
+The simulated composition producer must likewise select its new generation;
+leaving the old selection must retain the old recovery horizon and refuse when
+that horizon exceeds the existing integrity budget.
+
 ## Rollout and qualification
 
 Installations without a record refuse default runtime admission until the

@@ -337,6 +337,30 @@ does not prove historical economic output was affected or certify the system.
 
 ### Local execution record
 
+PR #410 CI follow-up (reviewed failing head `5fd72485c9bbe1e28a470ddbb9697f9ea7ba4aac`):
+two P2 test-producer integration defects blocked the internal-state and
+composition jobs. The physical fixture never published selection; the simulated
+post-seed producer left selection on its old WAL horizon. Both default-admission
+refusals reproduced locally. Correct the fixture producers according to the
+documented protocol, preserving real verification/archive gates and the
+stale/missing-selection refusals. Production code and economic oracles are
+unchanged in this follow-up. Key references: `tests/internal_state/physical.py:159`,
+`:163`; `tests/internal_state/test_physical.py:109`;
+`tests/production_composition/test_canonical_go_e2e_harness.py:238`.
+
+The additive [CI follow-up evidence](../audit/economic_399/backup_selection_ci/README.md)
+retains reproduction, positive acceptance and four detected publication/order
+falsifiers. Focused non-root tests: 27 passed; root physical tests: 7 passed.
+All ten selected lifecycle scenarios passed, including real populated restore
+and media repair in both simulated profiles, plus two deterministic seeds.
+Both affected owner suites: 655 passed and one unchanged foreign-owner test
+failed because the local image lacks `sudo`; GitHub Ubuntu provides that tool.
+This is an explicit local environment limitation, not a passing ownership claim.
+All 479 test modules remain owned. Fresh-head CI (including that ownership test
+and PG16 physical/GO stages), owner merge and NAS qualification remain required.
+Existing maintenance, provider, data and NAS-only gates remain open; neither
+fixture integration nor green CI establishes economic certification.
+
 The follow-up package records 239 relevant regression passes before the final
 lock-order correction, followed by 29 notification/attempt tests on that
 correction and 30 on the stale-rotation/re-enrollment guard. The final expanded

@@ -156,8 +156,34 @@ class PhysicalCluster:
                 stream.flush()
                 os.fsync(stream.fileno())
             self.own(path)
+        self._publish_selection(base, system_id)
         self.checkpoints[label] = {"base": base, "marker": marker, "system_id": system_id, "wal": wal}
         return self.checkpoints[label]
+
+    def _publish_selection(self, base, system_id):
+        """Model the verified producer in the laboratory's owned directory."""
+        selection = self.base_root / f".sentinel-runtime-base-{system_id}-v1"
+        payload = (f"schema=sentinel.runtime-base/1\nsystem_identifier={system_id}\n"
+                   f"base_backup={base.name}\n")
+        temporary = None
+        try:
+            with tempfile.NamedTemporaryFile(mode="w", encoding="ascii", newline="\n",
+                    dir=self.base_root, prefix=".selection-", delete=False) as stream:
+                temporary = Path(stream.name)
+                stream.write(payload)
+                self.own(temporary)
+                os.chmod(temporary, 0o640)
+                stream.flush()
+                os.fsync(stream.fileno())
+            os.replace(temporary, selection)
+            descriptor = os.open(self.base_root, os.O_RDONLY | os.O_DIRECTORY)
+            try:
+                os.fsync(descriptor)
+            finally:
+                os.close(descriptor)
+        finally:
+            if temporary is not None:
+                temporary.unlink(missing_ok=True)
 
     def restore(self, label):
         checkpoint = self.checkpoints[label]
