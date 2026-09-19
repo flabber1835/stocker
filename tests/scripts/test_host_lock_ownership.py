@@ -9,7 +9,10 @@ import sys
 
 import pytest
 
-SCRIPTS = Path(__file__).resolve().parents[2] / 'scripts'
+# The CI image keeps inspection scripts under /work/repo, separately from
+# /work/tests. Child processes must receive that same explicit source root.
+SCRIPTS = Path(os.environ.get('SENTINEL_REPO_ROOT',
+                             Path(__file__).resolve().parents[2])) / 'scripts'
 sys.path.insert(0, str(SCRIPTS))
 import sentinel_backup_lock as backup
 import sentinel_go_lock as go

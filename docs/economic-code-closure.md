@@ -300,6 +300,16 @@ Recurring maintenance, bounded directory discovery, horizon rollover/retention,
 filesystem-progress and other listed provider/data/NAS gates remain open.
 PRs #406 and #407 are separate changes; this follow-up does not supersede them.
 
+PR #408's initial head `43540abffff324a567e8cb2e8c8a3aa239a981a9` failed
+the operator image-build test lane: the inherited-owner process test passed
+`/work/scripts` to its child while CI stores the ownership helper under
+`/work/repo/scripts`. The test now honors `SENTINEL_REPO_ROOT`, matching the
+inspection-source contract. This is a test execution defect; no production
+ownership or economic assertion changed. The original local checkout layout
+missed this discrepancy. The separate [CI-layout evidence package](../audit/economic_399/host_lock_ci_layout/README.md)
+retains its reproduction and corrected validation; the earlier evidence is
+preserved. Exact-image GitHub CI remains required.
+
 ### Local execution record
 
 The follow-up package records 239 relevant regression passes before the final
