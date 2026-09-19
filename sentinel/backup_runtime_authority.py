@@ -4,7 +4,7 @@ The host provisioning scripts prove that the configured path is an independent
 durable target. Unattended services cannot trust a path string after a reboot:
 a missing external mount can expose the underlying local directory. When the
 reviewed production mode is enabled, ask PostgreSQL to prove the durable-target
-markers and a contiguous external WAL chain from the newest base backup's exact
+markers and a contiguous external WAL chain from the published base backup's exact
 manifest End-LSN through the archiver's latest successful segment.
 
 Each archived object carries an atomically published SHA-256 sidecar. Runtime
@@ -40,6 +40,7 @@ WAL_ROOT = "/sentinel-backup/wal"
 RUNTIME_MAX_VERIFIED_BYTES = 1024 * 1024 * 1024
 RUNTIME_MAX_ARCHIVE_OBJECTS = 1024
 RUNTIME_MAX_MANIFEST_BYTES = 8 * 1024 * 1024
+RUNTIME_MAX_SELECTION_BYTES = 256
 _BASE_NAME = re.compile(r"base-[0-9]{8}T[0-9]{6}Z\Z")
 _WAL_NAME = re.compile(r"[0-9A-F]{24}\Z")
 _RECOVERY_WAL = re.compile(r"^wal=([0-9A-F]{24})$", re.MULTILINE)
@@ -133,23 +134,30 @@ def _base_is_complete(conn, name: str, *, system_id: str) -> bool:
         and _metadata_fields(identity).get("system_identifier") == system_id)
 
 
-def _latest_complete_base(conn, *, system_id: str) -> str:
+def _published_base(conn, *, system_id: str) -> str:
+    path = f"{BASE_ROOT}/.sentinel-runtime-base-{system_id}-v1"
     with conn.cursor() as cur:
-        cur.execute("SELECT pg_ls_dir(%s)", (BASE_ROOT,))
-        names = [str(row[0]) for row in cur.fetchall()]
-    candidates = sorted(
-        (name for name in names if _BASE_NAME.fullmatch(name)), reverse=True)
-    for name in candidates:
-        if _base_is_complete(conn, name, system_id=system_id):
-            return name
-    raise BackupRuntimeUnavailable("no complete physical base backup is present")
+        cur.execute("SELECT pg_read_binary_file(%s,0,%s,true)",
+                    (path, RUNTIME_MAX_SELECTION_BYTES + 1))
+        row = cur.fetchone()
+    if row is None or row[0] is None:
+        raise BackupRuntimeUnavailable("no published runtime base selection; create a verified base backup")
+    payload = bytes(row[0])
+    if len(payload) > RUNTIME_MAX_SELECTION_BYTES:
+        raise BackupRuntimeRefused("runtime base selection exceeds byte bound")
+    pattern = (rb"schema=sentinel\.runtime-base/1\n" +
+               b"system_identifier=" + system_id.encode("ascii") +
+               rb"\nbase_backup=(base-[0-9]{8}T[0-9]{6}Z)\n")
+    match = re.fullmatch(pattern, payload)
+    if match is None:
+        raise BackupRuntimeRefused("runtime base selection has invalid format or cluster identity")
+    return match.group(1).decode("ascii")
 
 
 def _selected_base(conn, *, system_id: str,
                    base_backup: str | None) -> str:
-    if base_backup is None:
-        return _latest_complete_base(conn, system_id=system_id)
-    name = str(base_backup)
+    name = (_published_base(conn, system_id=system_id)
+            if base_backup is None else str(base_backup))
     if _BASE_NAME.fullmatch(name) is None:
         raise BackupRuntimeRefused(
             f"requested base backup name {name!r} is malformed")
@@ -305,6 +313,7 @@ done
 for p in \
   {shlex.quote(BASE_ROOT + '/' + MARKER)} \
   {shlex.quote(WAL_ROOT + '/' + MARKER)} \
+  {shlex.quote(BASE_ROOT + '/.sentinel-runtime-base-' + system_id + '-v1')} \
   {shlex.quote(base_path + '/backup_manifest')} \
   {shlex.quote(base_path + '/backup_label')} \
   {shlex.quote(base_path + '/sentinel-recovery-marker')} \
@@ -378,7 +387,8 @@ def _validate_archive_objects(
         conn, *, operation: str, system_id: str, base: str,
         wal_root: str, wal_objects: tuple[str, ...],
         history_object: str | None, segment_size: int,
-        start: str, end: str) -> tuple[dict[str, tuple], int, bool]:
+        start: str, end: str,
+        require_current_selection: bool = False) -> tuple[dict[str, tuple], int, bool]:
     objects = wal_objects + ((history_object,) if history_object else ())
     if len(objects) > RUNTIME_MAX_ARCHIVE_OBJECTS:
         raise BackupRuntimeRefused(
@@ -462,6 +472,9 @@ def _validate_archive_objects(
             raise BackupRuntimeRefused(
                 f"archived object {name} failed SHA-256 integrity validation")
 
+    if require_current_selection and _published_base(conn, system_id=system_id) != base:
+        raise BackupRuntimeUnavailable("runtime base selection changed during restore proof")
+
     _PROOF_CACHE[cache_key] = {
         "full_scrub_at": now,
         "objects": objects,
@@ -520,7 +533,8 @@ def _require(conn, *, operation: str,
     _metadata, hashed_objects, full_scrub = _validate_archive_objects(
         conn, operation=operation, system_id=system_id, base=base,
         wal_root=wal_root, wal_objects=expected, history_object=history,
-        segment_size=segment_size, start=start, end=end)
+        segment_size=segment_size, start=start, end=end,
+        require_current_selection=base_backup is None)
 
     return {
         "enabled": True,

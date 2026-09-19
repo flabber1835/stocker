@@ -5,6 +5,10 @@ economic profile and outstanding certification gates. Local acceptance tests
 do not qualify the NAS or grant paper transport authority. Certification and
 first GO remain blocked pending the evidence recorded there.
 
+Foreground backup selection requires a cluster-scoped record published by the
+updated verified backup command. Existing installations need a fresh verified
+base before runtime admission; see [bounded selection and rollout](backup-runtime-selection.md).
+
 Host GO and backup helpers require Linux descriptor-associated exclusive flock
 evidence. See [ownership verification and qualification prerequisites](host-lock-ownership.md).
 
@@ -1863,6 +1867,15 @@ drill after every schema/certification change and at least monthly. Retention is
 owned by the second target: keep at least seven daily and four weekly verified
 base backups plus all WAL needed from the oldest retained base. Never prune WAL
 until a newer base has passed both `pg_verifybackup` and the restore drill.
+
+Daily creation alone does not keep the runtime within its 1 GiB WAL proof
+ceiling. With 16 MiB segments, timeline 1 admits at most 64 segments; a later
+timeline's history consumes additional bytes. At the configured five-minute
+archive timeout, continuing database activity can exhaust that horizon in
+roughly five hours, and higher WAL traffic can do so sooner. This is a modeled
+cadence, not a measured NAS rate. Proactive verified renewal, restart-safe
+maintenance ownership and retention remain an open implementation gate. See
+the [combined review and local evidence](../audit/economic_399/backup_selection_integration/README.md).
 
 The supported backup overlay sets `SENTINEL_RUNTIME_BACKUP_AUTHORITY=REQUIRED_V1`
 for the CLI; unattended services, including standby leadership, carry the same
