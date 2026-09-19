@@ -78,7 +78,30 @@ last_segment=$((16#$last_segment_hex))
 first_index=$((start_log * segments_per_log + start_segment))
 last_index=$((last_log * segments_per_log + last_segment))
 [ "$last_index" -ge "$first_index" ] || refuse "archived WAL frontier precedes base recovery horizon"
-[ $((last_index - first_index)) -le 1000000 ] || refuse "backup WAL chain exceeds reviewed bound"
+runtime_horizon_exceeded() {
+  printf 'SENTINEL_BACKUP_CHAIN_REASON=RUNTIME_HORIZON_EXCEEDED\n'
+  exit 5
+}
+
+# Match foreground runtime ceilings before enumerating or hashing the interval.
+# A later timeline contributes both one object and its actual payload bytes.
+interval_count=$((last_index - first_index + 1))
+archive_objects="$interval_count"
+history=""
+history_bytes=0
+if [ "$start_timeline" -gt 1 ]; then
+  archive_objects=$((archive_objects + 1))
+  printf -v history '%08X.history' "$start_timeline"
+fi
+[ "$archive_objects" -le 1024 ] || runtime_horizon_exceeded
+if [ -n "$history" ]; then
+  history_path="$wal_root/$history"
+  [ -f "$history_path" ] && [ ! -L "$history_path" ] && [ -r "$history_path" ] ||
+    refuse "timeline history is missing, unreadable, or aliased"
+  history_bytes="$(stat -c %s "$history_path")"
+  [ "$history_bytes" -gt 0 ] || refuse "timeline history is empty"
+fi
+[ "$interval_count" -le $(((1073741824 - history_bytes) / wal_bytes)) ] || runtime_horizon_exceeded
 
 verify_checksum_object() {
   local path="$1" label="$2" expected_size="${3:-}"
@@ -117,9 +140,7 @@ while [ "$index" -le "$last_index" ]; do
 done
 [ "$marker_seen" -eq 1 ] || refuse "recovery marker WAL is outside the retained restore chain"
 
-history=""
-if [ "$start_timeline" -gt 1 ]; then
-  printf -v history '%08X.history' "$start_timeline"
+if [ -n "$history" ]; then
   verify_checksum_object "$wal_root/$history" "timeline history"
 fi
 

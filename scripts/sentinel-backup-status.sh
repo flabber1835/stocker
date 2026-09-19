@@ -174,9 +174,17 @@ ${COMPOSE[@]} exec -T sentinel-postgres \
 # Prove the same restore-horizon invariants as runtime authority while remaining
 # inside the private-media boundary. PostgreSQL parses its own manifest; the
 # postgres OS identity verifies every WAL byte against its durable sidecar.
-if ! CHAIN="$(${COMPOSE[@]} exec -T -u postgres sentinel-postgres \
+if CHAIN="$(${COMPOSE[@]} exec -T -u postgres sentinel-postgres \
     bash -s -- "$NAME" "$WAL_NAMESPACE" "$SYSTEM_ID" "$LAST_WAL" "$WAL_BYTES" \
     < scripts/sentinel-backup-verify-chain.sh)"; then
+  :
+else
+  chain_rc=$?
+  if [ "$chain_rc" -eq 5 ] && \
+      [ "$CHAIN" = 'SENTINEL_BACKUP_CHAIN_REASON=RUNTIME_HORIZON_EXCEEDED' ]; then
+    refuse "BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED" 4 \
+      "selected base exceeds the runtime restore-horizon budget; create a fresh verified base"
+  fi
   refuse "BASE_BACKUP_RECOVERY_EVIDENCE_INVALID" 4 \
     "complete base/WAL restore horizon failed validation"
 fi
