@@ -63,6 +63,42 @@ def _scalar(conn, statement: str) -> int:
     return int(row[0])
 
 
+def _rolling_closure(conn):
+    from sentinel import rolling_checkpoint, rolling_daily_checkpoint
+    from sentinel import rolling_initialization, rolling_runtime
+    from sentinel.feed import rolling_go_inputs, operational_snapshot, rolling_store
+    from sentinel.feed import action_history, publication
+
+    pub = rolling_go_inputs.current(conn)
+    initial = rolling_checkpoint.read(conn)
+    daily = rolling_daily_checkpoint.read(conn)
+    if not rolling_go_inputs.is_rolling(pub):
+        if initial is not None or daily is not None:
+            raise RestoreValidationRefused("rolling checkpoint without rolling publication")
+        return None
+    publication._validate_publication(conn, pub, allow_snapshot=True)
+    if publication.chain_gaps(conn):
+        raise RestoreValidationRefused("rolling publication chain gap")
+    snapshot = operational_snapshot._bound(conn, pub)
+    rolling_store.verify_content(conn, snapshot['candidate_id'])
+    row = conn.execute(
+        "SELECT basis,through FROM sentinel_action_coverage WHERE publication_version=%s",
+        (pub.version,)).fetchone()
+    action_history.verify_coverage_chain(conn, version=pub.version)
+    if row is not None:
+        action_history.records(conn, version=pub.version, start=row[0], end=row[1])
+    if initial is None:
+        if daily is not None:
+            raise RestoreValidationRefused("daily checkpoint without rolling origin")
+        if rolling_checkpoint.lineage_names(conn):
+            raise RestoreValidationRefused("strategy lineage without rolling origin")
+        return {"state_present": False, "publication_version": pub.version}
+    context = rolling_initialization._context(initial.observation_id, initial.starting_cash)
+    checkpoint, _, _, attested, _ = rolling_runtime._closure(conn, context)
+    return {"state_present": True, "publication_version": pub.version,
+            "session": checkpoint.session, "attested": attested is not None}
+
+
 def validate_restored_database(conn) -> dict:
     """Validate schemas and durable economic chains without writing a row."""
     _force_session_read_only(conn)
@@ -77,6 +113,7 @@ def validate_restored_database(conn) -> dict:
     control = automation_store.load_control(conn)
     latest = journal.latest_plan(conn)
     resumed = catchup.resume_state(conn)
+    rolling = _rolling_closure(conn)
     verifications = trial.load_verifications(conn)
 
     command_count = _scalar(conn, "SELECT COUNT(*) FROM sentinel_commands")
@@ -159,7 +196,8 @@ def validate_restored_database(conn) -> dict:
         "control_generation": control.generation,
         "current_plan_id": latest.plan_id if latest else None,
         "plan_count": len(plan_rows),
-        "restart_state_present": resumed is not None,
+        "restart_state_present": resumed is not None or bool(rolling and rolling['state_present']),
+        "rolling": rolling,
         "command_count": command_count,
         "terminal_checkpoint": (
             terminal_checkpoint.isoformat() if terminal_checkpoint else None),

@@ -31,6 +31,15 @@ def test_new_cash_events_follow_closed_poll_boundaries():
     oracles.broker_accounting(service.snapshot())
 
 
+def test_modeled_fill_capability_does_not_enable_production_authority():
+    from sentinel.execution.alpaca import AlpacaExecutionBroker
+    modeled = broker.adapter(broker.BrokerService('paper'))
+    production = AlpacaExecutionBroker(api_key='fixture', secret_key='fixture',
+        base_url=broker.PAPER_URL, resolve_security_id=lambda *_: None)
+    assert modeled.capabilities.recent_fill_history
+    assert not production.capabilities.recent_fill_history
+
+
 @pytest.mark.parametrize("profile", ["paper", "live_cash"])
 def test_selected_strategy_plan_broker_fills_and_cash_keep_shadow_history(profile):
     _, state = formed_state(7)

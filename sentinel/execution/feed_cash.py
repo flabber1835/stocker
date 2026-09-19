@@ -38,6 +38,45 @@ class SnapshotCashInputs:
                         "AND security_id=ANY(%s) ORDER BY security_id", (self.refs.candidate_id, wanted, held))
             return cur.fetchall()
 
+    def affected_equities(self, wanted, held):
+        """Complete source actions establish relevance before sparse pricing."""
+        item = self._retained(wanted)
+        sources = (item['sources'] if item is not None else
+                   [p for _, p, _ in self.refs.actions
+                    if calendar.session_on_or_after(p['date']) == wanted])
+        resolver = self.refs.resolver
+        held = set(held)
+        known = set()
+        held_symbols = set()
+        from sentinel.feed.universe import listings_from_rows
+        identity_rows = list(self.refs.tickers) + list(self.refs.projection.alias_rows)
+        if item is not None:
+            from sentinel.feed.universe import IdentityResolver
+            # These aliases already passed the publication's source policy.
+            # Reapplying today's projection would replace historical authority.
+            resolver = IdentityResolver(listings_from_rows(
+                (*item['identity_rows'], *item['identity_aliases'])))
+            identity_rows.extend((*item['identity_rows'], *item['identity_aliases']))
+        for listing in listings_from_rows(identity_rows):
+            if listing.permaticker in held:
+                known.add(listing.permaticker)
+                held_symbols.add(listing.ticker)
+        if known != held:
+            raise feed_inputs.ExecutionInputsRefused("ROLLING_DIVIDEND_HELD_IDENTITY_UNAVAILABLE")
+        affected = set()
+        for source in sources:
+            if source['action'].lower() not in DIVIDEND_ACTIONS or source['ticker'].upper() == 'BIL':
+                continue
+            sid = resolver.resolve(source['ticker'], wanted)
+            if sid is None:
+                if source['ticker'].upper() not in held_symbols:
+                    continue
+                raise feed_inputs.ExecutionInputsRefused(
+                    f"ROLLING_DIVIDEND_IDENTITY_UNAVAILABLE: {source['ticker']} on {wanted}")
+            if sid in held:
+                affected.add(sid)
+        return sorted(affected)
+
     def actions(self, wanted, tickers):
         item = self._retained(wanted)
         if item is not None:

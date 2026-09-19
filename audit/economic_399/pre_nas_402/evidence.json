@@ -1,0 +1,10 @@
+{
+  "file": "local-evidence.zip",
+  "sha256": "e22122f67b77de21a5be668392c817751b116356f359fc104c17ae1d9fbcc2e1",
+  "bytes": 6562483,
+  "entries": 167,
+  "reviewed_code_commit": "c1c4519c444c79ac6852968e415feca79b5f22bf",
+  "clean_physical_and_lifecycle_commit": "354a431a053886d2267438997d167ce79901d881",
+  "verified_base": "aff4461d9af6d4a7367018768fda18d948958b49",
+  "retained_source_commit": "ec9623070908b437222b2e1d963d3ceb8721f9bb"
+}

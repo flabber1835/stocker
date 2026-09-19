@@ -364,17 +364,17 @@ class TestTheAsymmetryWhenTheSETTLEFails:
 
 class TestOnlyReconciledFillsCanFundIncreases:
     @pytest.mark.parametrize(
-        ("fault", "terminal_state"),
+        ("fault", "expected_state"),
         [
             (FaultKind.REJECT, CS.REJECTED),
-            (FaultKind.NEVER_RECEIVED, CS.CANCELLED),
+            (FaultKind.NEVER_RECEIVED, CS.UNKNOWN),
         ],
         ids=["rejected", "unknown-never-landed"],
     )
     def test_a_reduction_without_a_fill_cannot_fund_a_buy(
-            self, conn, fault, terminal_state):
-        """Terminal does not mean FILLED. A rejected or never-landed sale is
-        no longer working, but it produced no proceeds."""
+            self, conn, fault, expected_state):
+        """A rejected sale has no proceeds; an absent sale remains uncertain.
+        Neither can fund a purchase."""
         b = broker(submit_faults=[fault])
         seed_held(conn, b, AAA, 50)
 
@@ -384,7 +384,7 @@ class TestOnlyReconciledFillsCanFundIncreases:
         assert [command.security_id for command in result.submitted] == ["SEC-AAA"]
         assert "SEC-BBB" in result.deferred
         reduction = journal.load_commands(conn, DEPLOY, plan_id="plan-1")[0]
-        assert reduction.state is terminal_state
+        assert reduction.state is expected_state
         assert reduction.filled_quantity == D(0)
 
     def test_an_UNKNOWN_reduction_is_resolved_again_between_phases(self, conn):

@@ -141,13 +141,14 @@ class TestP0SendPendingRecovery:
         assert [c.state for c in resolved] == [S.ACKNOWLEDGED]
         assert journal.load_commands(conn, DEPLOY)[0].state is S.ACKNOWLEDGED
 
-    def test_an_order_that_never_landed_resolves_to_cancelled(self, conn):
+    def test_absent_order_without_request_finality_remains_unknown(self, conn):
         b = broker()
         self._killed_mid_send(conn, b, landed=False)
 
         resolved = run(executor.resolve_outstanding(
             broker=b, conn=conn, deployment=DEPLOY))
-        assert [c.state for c in resolved] == [S.CANCELLED]
+        assert [command.state for command in resolved] == [S.UNKNOWN]
+        assert journal.load_commands(conn, DEPLOY)[0].state is S.UNKNOWN
 
     def test_reconciliation_resolves_it_too_not_only_the_boot_path(self, conn):
         b = broker()
@@ -187,7 +188,7 @@ class TestP0SendPendingRecovery:
 
         resolved = run(executor.resolve_outstanding(
             broker=b, conn=conn, deployment=DEPLOY))
-        assert resolved == (), "unresolved rather than wrongly cancelled"
+        assert [command.state for command in resolved] == [S.UNKNOWN]
         # It does NOT stay SEND_PENDING: the promotion to UNKNOWN is persisted
         # first, so the record now says the outcome is undetermined rather than
         # still claiming a send is in progress. Either way it keeps blocking,

@@ -413,16 +413,16 @@ the only quantity the ambiguity can corrupt.
 
 ### 3.3 Resolving UNKNOWN
 
-Only two things resolve it, both observations, never an assumption:
+Only positive, account-bound broker evidence resolves it:
 
 ```text
 the broker reports an order under our client_key  → adopt its state
-a complete observation shows no such order AND    → CANCELLED-equivalent:
-  no fill attributable to it                        the command never landed
 ```
 
-The second requires a *complete* observation (§5.2). An observation that admits
-it may be truncated cannot resolve an `UNKNOWN`.
+An exact-key 404, an empty complete snapshot, and elapsed local time do not
+prove that a timed-out request never landed. They leave UNKNOWN unchanged.
+A future never-accepted outcome requires a separately accepted provider
+request-finality contract; current adapters do not supply that authority.
 
 Positive account-bound evidence may resolve `UNKNOWN` to `CANCEL_PENDING`
 when the broker reports a cancellation already in progress. This records the
@@ -787,11 +787,9 @@ FILLED, CANCELLED or REJECTED. A known `ACKNOWLEDGED`, `PARTIALLY_FILLED` or
 client key before any transition. Positive terminal evidence is adopted. A
 missing or failed exact lookup leaves the command unresolved and blocks new
 overlapping work; terminal state is never inferred merely from open-order
-silence. `SEND_PENDING`/`UNKNOWN` retain their separately defined never-landed
-rule: exact key absence plus a complete open observation can prove that a POST
-whose receipt was never established did not land. Positive evidence already in
-the complete closed-recovery window is consulted first: an exact 404 can never
-erase a matching observed fill.
+silence. `SEND_PENDING`/`UNKNOWN` preserve uncertainty after exact-key absence
+and complete open observations. Positive evidence in the closed-recovery window
+is consulted first: an exact 404 can never erase a matching observed fill.
 
 Average fill price crosses the membrane as `Decimal` and is persisted on the
 durable command whenever fill progress is observed or a broker-only Sentinel
@@ -858,23 +856,29 @@ observation is coherent and reports nothing to do.
 **Stability rule for irreversible conclusions.** Even a consistent observation
 does not cover a third party acting between cycles. Any conclusion that cannot be
 walked back — account is flat, migration complete, an `UNKNOWN` resolved as
-never-landed — requires two consecutive agreeing complete observations separated
-by a reconciliation interval.
+never-landed — cannot be established by repeated absence. UNKNOWN requires
+affirmative provider finality evidence. Other stability checks require two
+consecutive agreeing complete observations separated by a reconciliation interval;
+that stability alone does not supply missing provider authority.
 
 ### 5.4 Activity SSE has separate economic and replay identities
 
 The current Alpaca Trading/Paper adapter does **not** advertise account-cash
-activity authority. Alpaca documents Activity SSE on its Broker API endpoint and
-authentication/account model, while this adapter is bound to the Trading/Paper
-API. Its SSE decoder remains a quarantined acceptance-harness candidate; method
+activity authority. Alpaca's [Trading SSE reference](https://docs.alpaca.markets/us/reference/subscribetoactivitiessse)
+documents the paper endpoint. Endpoint existence does not establish accepted
+account completeness or finality. Its SSE decoder remains a quarantined acceptance-harness candidate; method
 presence cannot make the production guard call it or earn the identity scheme.
 A reviewed, reachable, account-bound integration is required first.
 
 For Alpaca financial activities, `ref_id` is the durable idempotency key for the
 economic row and `event_id` is the durable replay cursor. `event_id` is persisted
 after a complete batch and supplied as `since_id` on reconnect. Timestamp
-`since`/`until` queries are permitted only to establish a bounded upper event
-cursor. Discovery always starts at the fixed 1970 business-time floor, before
+`since`/`until` queries establish a bounded snapshot and observed upper event
+cursor. The initial fill-interval candidate repeats that exact query and
+requires identical content. It carries unaccepted V2 semantics and explicitly
+denies fixed-frontier and late-publication finality. A lone `until_id` request
+violates the documented requirement for `since_id`; no synthetic genesis
+cursor is invented to satisfy it. Discovery always starts at the fixed 1970 business-time floor, before
 any possible Alpaca account activity; binding establishment and the stream's
 2026-02-11 availability date are not valid `at` lower bounds. Timestamp filters
 never authorize gap-free resumption because they filter business time (`at`)

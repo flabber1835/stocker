@@ -1019,7 +1019,7 @@ def test_fill_commit_crash_reconstructs_one_alert_per_partial_fill(db) -> None:
     assert dict(first.payload)["price"] == "189.25"
     assert dict(first.payload)["filled_at"]
     outbox.mark_delivered(
-        db, alert_id=first.alert_id, holder_id="fill-dispatcher")
+        db, alert_id=first.alert_id, holder_id="fill-dispatcher", attempt=first.attempt_count)
 
     _insert_fill(
         db, broker_order_id="order-1", fill_key="native-fill-2",
@@ -1028,7 +1028,7 @@ def test_fill_commit_crash_reconstructs_one_alert_per_partial_fill(db) -> None:
     assert second is not None
     assert second.idempotency_key == "fill:order-1:native-fill-2"
     outbox.mark_delivered(
-        db, alert_id=second.alert_id, holder_id="fill-dispatcher")
+        db, alert_id=second.alert_id, holder_id="fill-dispatcher", attempt=second.attempt_count)
 
     assert outbox.claim_next(db, holder_id="fill-dispatcher") is None
     with db.cursor() as cur:

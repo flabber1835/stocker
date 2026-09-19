@@ -116,11 +116,16 @@ class TestNeverReceived:
         b = SimulatedBroker().schedule_submit(F.NEVER_RECEIVED)
         assert run(send(b, command())).state is S.UNKNOWN
 
-    def test_resolution_against_a_COMPLETE_observation_declares_never_landed(self):
+    def test_absence_from_a_COMPLETE_observation_preserves_UNKNOWN(self):
         b = SimulatedBroker().schedule_submit(F.NEVER_RECEIVED)
         cmd = run(send(b, command()))
-        cmd = run(recovery.resolve_unknown(b, cmd, run(b.observe())))
-        assert cmd.state is S.CANCELLED and "never landed" in cmd.detail
+        original = cmd
+        for _ in range(3):
+            observation = run(b.observe())
+            assert observation.is_complete
+            cmd = run(recovery.resolve_unknown(b, cmd, observation))
+            assert cmd == original
+            assert cmd.state is S.UNKNOWN
 
     def test_a_TRUNCATED_observation_may_NOT_resolve_it(self):
         """A short read that happens not to contain our order is not evidence
@@ -129,15 +134,17 @@ class TestNeverReceived:
         b = SimulatedBroker().schedule_submit(F.NEVER_RECEIVED)
         cmd = run(send(b, command()))
         b.schedule_observe(F.TRUNCATED_ORDERS)
-        with pytest.raises(IncompleteObservation):
-            run(recovery.resolve_unknown(b, cmd, run(b.observe())))
+        observation = run(b.observe())
+        assert observation.completeness is Completeness.TRUNCATED
+        assert run(recovery.resolve_unknown(b, cmd, observation)) == cmd
 
-    def test_after_resolution_a_NEW_command_is_permitted(self):
+    def test_absent_reads_keep_the_security_blocked(self):
         b = SimulatedBroker().schedule_submit(F.NEVER_RECEIVED)
         cmd = run(send(b, command()))
         assert recovery.blocked_securities([cmd]) == {"SEC-AAA"}
         cmd = run(recovery.resolve_unknown(b, cmd, run(b.observe())))
-        assert recovery.blocked_securities([cmd]) == frozenset()
+        assert cmd.state is S.UNKNOWN
+        assert recovery.blocked_securities([cmd]) == {"SEC-AAA"}
 
 
 class TestOutage:

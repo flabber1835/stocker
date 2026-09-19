@@ -7,6 +7,12 @@ continuing the full-system universe replay. Base:
 
 ## Frozen authority
 
+[Economic audit remediation](economic-audit-399-remediation.md) specifies
+corrections to exact intended-budget and inclusive-stop boundaries and to
+serialized NAV precision. These deliberately correct numerical defects in the
+selected implementation; the frozen reference remains retained evidence and
+does not certify the corrected implementation's historical performance.
+
 The economic authority is the complete source at
 `f6ad7b543fbd20ffe363127d1120f4472caa9360`, path
 `research/wealth-core-v5-ex3-v6-ramp-removal-followup-v1/sources/compact_simplified_no_ramp.py`,
@@ -79,8 +85,8 @@ each signal close to that security's first positive close in the window; daily
 inputs bind it to the same-security positive predecessor supplied by the
 canonical loader. Predecessor identity, date and raw close remain exact, and a
 new series begins its own basis. SPY warmup similarly commits a dated ratio
-path. Ratios use exact rational arithmetic over the source's decimal spelling,
-with no tolerance or rounding. Uniform rebases may continue through the
+path. The rolling overlap proof intersects exact rational intervals at the
+source's published price precision. Uniform rebases may continue through the
 existing owned-signal-basis bridge; changed path shapes, raw prices, volume,
 actions, metadata, missing observations and anchor changes still refuse.
 The retained canonical feed and episode peaks keep their original numerical
@@ -90,8 +96,9 @@ commitments distinguish these semantics from earlier absolute-level hashes.
 Opening account projection consumes the canonical V5 whole-share calculation
 and its separate fill-time affordability cap. Due receivables settle in canonical
 ledger order, sales fund entries in slot order, and canonical cash arithmetic
-is shared with entry/exit accounting. These computations preserve the frozen
-float operation order, including whole-share boundaries. Resolved integer
+is shared with entry/exit accounting. Admission budgets and whole-share bounds
+use the corrected exact-decimal semantics in the audit remediation decision.
+Other canonical cash operations retain their ordered calculation. Resolved integer
 shares then enter Decimal account scaling and broker quantities. Projection
 evidence records the canonical cash progression; broker cash, fills and
 settlement retain their independent execution gates.

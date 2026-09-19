@@ -473,6 +473,11 @@ class AutomationService:
         to_state = (
             PHASE_POLICIES[phase].terminal_state if terminal
             else PHASE_POLICIES[phase].retry_state)
+        if phase == "EXECUTE":
+            # A callback can die after committing a send. No exception proves
+            # that the broker saw nothing; recover durable obligations first.
+            terminal = False
+            to_state = CycleState.RECONCILING
         if (recovery_transition and not terminal
                 and cycle.state is CycleState.RETRY_WAIT
                 and cycle.control_generation == permit.control_generation):

@@ -1,5 +1,10 @@
 # Certifying the Sentinel controller — what is proven, and what step 2 blocks on
 
+**Economic audit 399, 2026-09-18: certification remains BLOCKED.** The corrected
+terminal leadership policy changes source identity; earlier performance figures
+do not certify it. See [the acceptance ledger](economic-audit-399-remediation.md)
+for implementation evidence and the remaining provider, replay and NAS gates.
+
 **Selected integration, 2026-09-11:** the compact champion and its independent
 PR #352 research result are pinned in
 [production-compact-champion.md](production-compact-champion.md). PR #354 updates

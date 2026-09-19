@@ -265,14 +265,9 @@ async def resolve_unknown(broker: ExecutionBroker, command: Command,
             detail=("exact client-key lookup reported absence while the "
                     "account-bound observation contained the durable key"))
 
-    if command.broker_order_id:
-        return command
-
-    observation.require_complete(
-        f"resolving {command.client_key} as never-landed")
-    return command.transition(
-        S.CANCELLED,
-        detail="no order under this key in a COMPLETE observation — never landed")
+    # Even complete current reads are not request-finality evidence. The
+    # original request may be acknowledged or filled after this observation.
+    return command
 
 
 def confirm_cancellation(command: Command,

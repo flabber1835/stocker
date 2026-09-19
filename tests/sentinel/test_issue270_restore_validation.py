@@ -87,6 +87,9 @@ def test_restore_validator_reconstructs_every_durable_chain(monkeypatch):
         lambda _c: SimpleNamespace(plan_id="plan-current"))
     monkeypatch.setattr(
         restore_validation.catchup, "resume_state", lambda _c: {"version": 5})
+    # This orchestration test models the legacy corpus. Real rolling closure
+    # and tamper refusal are exercised in test_rolling_restore_integrity.py.
+    monkeypatch.setattr(restore_validation, "_rolling_closure", lambda _c: None)
     monkeypatch.setattr(
         restore_validation.trial, "load_verifications", lambda _c: [{}, {}])
     monkeypatch.setattr(
@@ -147,6 +150,7 @@ def test_restore_validator_rejects_commands_without_account(monkeypatch):
         restore_validation.journal, "latest_plan", lambda _c: None)
     monkeypatch.setattr(
         restore_validation.catchup, "resume_state", lambda _c: None)
+    monkeypatch.setattr(restore_validation, "_rolling_closure", lambda _c: None)
     monkeypatch.setattr(
         restore_validation.trial, "load_verifications", lambda _c: [])
 

@@ -29,13 +29,29 @@ def _economics(value, symbol):
             for kind in ("scalar", "unsupported", "unresolved")}
 
 
+def verify_coverage_chain(conn, *, version):
+    """Enumerate required history from publications, never from surviving rows."""
+    rows = conn.execute(
+        "SELECT p.version,p.evidence,c.payload,c.payload_sha256,c.basis,c.through "
+        "FROM sentinel_corpus_publications p LEFT JOIN sentinel_action_coverage c "
+        "ON c.publication_version=p.version WHERE p.version<=%s "
+        "AND p.evidence ? 'action_history' ORDER BY p.version", (version,)).fetchall()
+    for number, evidence, payload, sha, basis, through in rows:
+        if payload is None:
+            raise ValueError("RETAINED_ACTION_COVERAGE_MISSING: " + str(number))
+        if (digest(payload) != sha or evidence['action_history'] != sha
+                or payload['basis'] != str(basis) or payload['through'] != str(through)):
+            raise ValueError("RETAINED_ACTION_COVERAGE_CORRUPT: " + str(number))
+
+
 def records(conn, *, version, start, end):
+    verify_coverage_chain(conn, version=version)
     rows = conn.execute(
         "SELECT e.key,h.payload,h.payload_sha256,e.value,c.payload,c.payload_sha256,p.evidence "
         "FROM sentinel_action_coverage c JOIN sentinel_corpus_publications p ON p.version=c.publication_version "
         "CROSS JOIN LATERAL jsonb_each_text(c.payload->'added') e "
         "LEFT JOIN sentinel_action_history h ON h.session=e.key::date AND h.publication_version=c.publication_version "
-        "WHERE c.publication_version<=%s AND e.key::date>%s AND e.key::date<=%s ORDER BY e.key",
+        "WHERE c.publication_version<=%s AND e.key::date>%s AND e.key::date<=%s ORDER BY e.key,c.publication_version",
         (version, start, end)).fetchall()
     result = {}
     for day, payload, sha, expected, cover, cover_sha, publication in rows:
@@ -47,6 +63,7 @@ def records(conn, *, version, start, end):
 
 
 def coverage(conn, pub, *, start, end):
+    verify_coverage_chain(conn, version=pub.version)
     row = conn.execute("SELECT basis,through,payload,payload_sha256 FROM sentinel_action_coverage "
                        "WHERE publication_version=%s", (pub.version,)).fetchone()
     if row is None:

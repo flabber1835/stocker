@@ -11,6 +11,7 @@ from decimal import Decimal, InvalidOperation
 from typing import Mapping, Optional
 
 from sentinel.execution import broker_cash, executor, journal
+from sentinel.execution.numeric import decimal_text
 
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
@@ -50,7 +51,7 @@ def _observation_economics(observation: BrokerObservation) -> dict:
     positions = [{
         "security_id": item.instrument.security_id,
         "broker_id": item.instrument.broker_id,
-        "quantity": str(item.quantity),
+        "quantity": decimal_text(item.quantity),
     } for item in observation.positions]
     positions.sort(key=lambda item: (
         item["security_id"], item["broker_id"] or "", item["quantity"]))
@@ -61,11 +62,11 @@ def _observation_economics(observation: BrokerObservation) -> dict:
         "broker_id": item.instrument.broker_id,
         "side": item.side.value,
         "state": item.state.value,
-        "quantity": str(item.quantity),
-        "filled_quantity": str(item.filled_quantity),
+        "quantity": decimal_text(item.quantity),
+        "filled_quantity": decimal_text(item.filled_quantity),
         "filled_average_price": (
             None if item.filled_average_price is None
-            else str(item.filled_average_price)),
+            else decimal_text(item.filled_average_price)),
         "external_replacement": bool(item.external_replacement),
     } for item in observation.orders if item.is_working]
     orders.sort(key=lambda item: (
@@ -93,9 +94,9 @@ def _account_economics(snapshot: BrokerAccountSnapshot) -> dict:
     return {
         "broker": snapshot.identity.broker,
         "account_id": snapshot.identity.account_id,
-        "cash": str(snapshot.cash),
+        "cash": decimal_text(snapshot.cash),
         "multiplier": (None if snapshot.multiplier is None
-                       else str(snapshot.multiplier)),
+                       else decimal_text(snapshot.multiplier)),
         "status": snapshot.status,
         "trading_blocked": snapshot.trading_blocked,
         "account_blocked": snapshot.account_blocked,
@@ -116,11 +117,11 @@ def _account_endpoint_lag_is_live(
         "broker_order_id": command.broker_order_id,
         "side": command.side.value,
         "state": command.state.value,
-        "quantity": str(command.quantity),
-        "filled_quantity": str(command.filled_quantity),
+        "quantity": decimal_text(command.quantity),
+        "filled_quantity": decimal_text(command.filled_quantity),
         "filled_average_price": (
             None if command.filled_average_price is None
-            else str(command.filled_average_price)),
+            else decimal_text(command.filled_average_price)),
     } for command in journal.load_commands(
         conn, deployment, plan_id=plan.plan_id)]
     durable_commands.sort(key=lambda item: item["client_key"])
@@ -138,7 +139,7 @@ def _account_endpoint_lag_is_live(
         "deployment": deployment.to_dict(),
         "plan_id": plan.plan_id,
         "plan_fingerprint": plan.fingerprint(),
-        "expected_cash": str(expected_cash),
+        "expected_cash": decimal_text(expected_cash),
         "settled_book_sha256": _hash(settled_book_identity),
     }
     cursor = _ACCOUNT_ENDPOINT_LAG_PREFIX + _hash(identity)

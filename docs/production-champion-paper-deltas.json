@@ -2,8 +2,18 @@
   "automatic_share_unit_design": "docs/automatic-share-unit-reconciliation.md",
   "base": "4bba6875b07288cf6ebc6a149b926075b1e41c60",
   "definitions": {
+    "_account_economics": {
+      "generated_ast_sha256": "8fa8de73f3b6e9fc14aae1e49fcce7fef8569f0aeb5325411e7260f66e34c586",
+      "historical_ast_sha256": "0004c6e1b91da0713753c4a12037fb5bebcf6e57dc66f7da5efea10db884db22",
+      "module": "cash"
+    },
+    "_account_endpoint_lag_is_live": {
+      "generated_ast_sha256": "fb38fa9d3d2ef9f4300909388cae1d99deeba1ce7f4a0fffe5b006d253e14065",
+      "historical_ast_sha256": "034396dee2a94ac4181707002ffbe40595ef949f12bccc10f7cbc9f75b857e4f",
+      "module": "cash"
+    },
     "_action_lookup": {
-      "generated_ast_sha256": "91755cba287efbf956625e7f70b4e9da4d8c885d5a492641bf71e30dcc8077a0",
+      "generated_ast_sha256": "66e250c84a175a5f8d1d776649043da467d27aedbcc5261259b25c087ca6f926",
       "historical_ast_sha256": "f86c38ca7ff85cd507f0614652192bbe8324f011392c43568367951627c677ce",
       "module": "targets"
     },
@@ -37,6 +47,11 @@
       "historical_ast_sha256": "ed5c9e76c44538c7a46dbc1738001c632996e960a8e5b2dd889a7d80cf0ce023",
       "module": "preparation"
     },
+    "_informational_active_symbols": {
+      "generated_ast_sha256": "40752dd7a661317132596995792cf2ca3445eafcf83e1ea52de614f2f61272f0",
+      "historical_ast_sha256": "8e574deffd56baf5872d6b0956d328c6ac07f5136009df4c067c1fb3e099345d",
+      "module": "targets"
+    },
     "_instrument_map": {
       "generated_ast_sha256": "0b9dea5e89fb384d7e4c4ded284eb03ae3ada53ea875c8993e8c1976d5756131",
       "historical_ast_sha256": "901822d197c2e7745701f79b95096887b3dd3e3e02dead3160013fe356bbdc30",
@@ -51,6 +66,11 @@
       "generated_ast_sha256": "1ab9cdbc4e3b0941b74f48fa1f4863f309570dca76b97034da7a497fb9db4931",
       "historical_ast_sha256": "ca6ba67872aab988905382eda278340903befbd539c4fd23f817f9506320a7ef",
       "module": "preparation"
+    },
+    "_observation_economics": {
+      "generated_ast_sha256": "704d528815498d84fff694dab9f84bf3d09888c3db9b5effe6e89cf08ab9c96e",
+      "historical_ast_sha256": "89ba97c041bdbc87f66dc3e63f5dcd2e02cd2c42b0858b565cd68969b60d96be",
+      "module": "cash"
     },
     "_opening_prices_or_retry": {
       "generated_ast_sha256": "56ea66b7de160942479d188410090abfd4aac2f1e0a4900366afdab046190d06",
@@ -128,13 +148,14 @@
       "module": "preparation"
     },
     "recover_automated_paper_cycle": {
-      "generated_ast_sha256": "c4cf15579f9ffb06c620b9d1e9769bc847aa1e964a313301670bed6f3353c798",
+      "generated_ast_sha256": "bdc3996325ad50231e5b6fcfe19186786646823b2652461df0572e792ff35267",
       "historical_ast_sha256": "c7fbae974f57abc8d30a3c5601765bc81a37a526994f58674788bad86d945ccd",
       "module": "recovery"
     }
   },
   "design": "docs/production-compact-champion.md",
-  "economic_audit_design": "docs/economic-audit-remediation.md",
+  "economic_audit_design": "docs/economic-audit-399-remediation.md",
+  "prior_economic_audit_design": "docs/economic-audit-remediation.md",
   "regression_suites": [
     "tests/champion",
     "tests/v5/test_opening.py",

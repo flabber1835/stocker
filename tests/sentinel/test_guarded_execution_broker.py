@@ -447,7 +447,7 @@ def test_send_pending_refused_before_transport_remains_durable_and_recoverable(
 
     # Restart/recovery does not need to invent a new command identity.  Once
     # authority is available it promotes the persisted crash-window state,
-    # exact-looks up the same key, and resolves complete absence safely.
+    # exact-looks up the same key, and retains uncertainty after absent reads.
     recorder.authorized = True
     unknown = recovery.promote_to_unknown(durable)
     journal.save_command(conn, unknown, previous=durable.state)
@@ -455,6 +455,9 @@ def test_send_pending_refused_before_transport_remains_durable_and_recoverable(
     resolved = run(recovery.resolve_unknown(broker, unknown, observation))
     journal.save_command(conn, resolved, previous=unknown.state)
 
-    assert resolved.state is CommandState.CANCELLED
-    assert journal.load_commands(conn, DEPLOYMENT)[0].state is CommandState.CANCELLED
+    assert resolved.state is CommandState.UNKNOWN
+    retained = journal.load_commands(conn, DEPLOYMENT)[0]
+    assert retained.state is CommandState.UNKNOWN
+    assert retained.client_key == pending.client_key
+    assert recovery.blocked_securities([retained]) == {pending.security_id}
     assert not any(call.startswith("submit:") for call in inner.calls)

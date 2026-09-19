@@ -494,8 +494,21 @@ def claim_next(
         raise
 
 
+def renew_claim(conn, *, alert: AlertRecord, claim_seconds: int):
+    """Fence each bounded fan-out step by the still-live delivery attempt."""
+    with conn.cursor() as cur:
+        cur.execute(
+            "UPDATE sentinel_alert_outbox SET delivery_expires_at=clock_timestamp()"
+            " +(%s * INTERVAL '1 second') WHERE alert_id=%s AND state='DELIVERING'"
+            " AND delivery_holder=%s AND attempt_count=%s"
+            " AND delivery_expires_at>clock_timestamp() RETURNING alert_id",
+            (claim_seconds, alert.alert_id, alert.delivery_holder, alert.attempt_count))
+        if cur.fetchone() is None:
+            raise AutomationRefused('fan-out does not own the active delivery claim')
+
+
 def mark_delivered(
-        conn, *, alert_id: str, holder_id: str) -> AlertRecord:
+        conn, *, alert_id: str, holder_id: str, attempt: int) -> AlertRecord:
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -503,8 +516,9 @@ def mark_delivered(
                 " delivery_holder=NULL,delivery_expires_at=NULL,last_error=NULL,"
                 " delivered_at=clock_timestamp(),updated_at=clock_timestamp()"
                 " WHERE alert_id=%s AND state='DELIVERING'"
-                " AND delivery_holder=%s RETURNING attempt_count",
-                (alert_id, holder_id))
+                " AND delivery_holder=%s AND attempt_count=%s"
+                " AND delivery_expires_at>clock_timestamp() RETURNING attempt_count",
+                (alert_id, holder_id, attempt))
             row = cur.fetchone()
             if row is None:
                 raise AutomationRefused(
@@ -520,7 +534,7 @@ def mark_delivered(
 
 
 def mark_failed(
-        conn, *, alert_id: str, holder_id: str, error: str,
+        conn, *, alert_id: str, holder_id: str, attempt: int, error: str,
         retry_base_seconds: int = 30,
         retry_max_seconds: int = 900,
         retryable: bool = True) -> AlertRecord:
@@ -533,8 +547,9 @@ def mark_failed(
             cur.execute(
                 "SELECT attempt_count,max_attempts FROM sentinel_alert_outbox"
                 " WHERE alert_id=%s AND state='DELIVERING'"
-                " AND delivery_holder=%s FOR UPDATE",
-                (alert_id, holder_id))
+                " AND delivery_holder=%s AND attempt_count=%s"
+                " AND delivery_expires_at>clock_timestamp() FOR UPDATE",
+                (alert_id, holder_id, attempt))
             row = cur.fetchone()
             if row is None:
                 raise AutomationRefused(
@@ -617,13 +632,16 @@ async def dispatch_once(
     if alert is None:
         return DispatchResult(alert=None)
     try:
-        result = adapter.deliver(alert, alert.idempotency_key)
+        fenced = getattr(adapter, 'deliver_fenced', None)
+        result = (fenced(alert, alert.idempotency_key, claim_seconds=claim_seconds)
+                  if fenced is not None else adapter.deliver(alert, alert.idempotency_key))
         if inspect.isawaitable(result):
             await result
     except Exception as exc:                                  # noqa: BLE001
         retryable = getattr(exc, "retryable", True) is not False
         failed = mark_failed(
             conn, alert_id=alert.alert_id, holder_id=holder_id,
+            attempt=alert.attempt_count,
             error=f"{type(exc).__name__}: {exc}",
             retry_base_seconds=retry_base_seconds,
             retry_max_seconds=retry_max_seconds,
@@ -633,7 +651,8 @@ async def dispatch_once(
             dead_lettered=failed.state is AlertState.DEAD_LETTER,
             error=failed.last_error)
     delivered = mark_delivered(
-        conn, alert_id=alert.alert_id, holder_id=holder_id)
+        conn, alert_id=alert.alert_id, holder_id=holder_id,
+        attempt=alert.attempt_count)
     return DispatchResult(alert=delivered, delivered=True)
 
 

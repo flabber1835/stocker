@@ -135,17 +135,14 @@ class LiveSessionPlan:
                 "session": self.session,
                 "intents": [i.to_dict() for i in self.intents],
                 "blocked": self.blocked, "block_reason": self.block_reason,
-                "resolved_equity": (None if self.resolved_equity is None
-                                    else round(self.resolved_equity, 2)),
-                "estimated_equity": round(self.estimated_equity, 2),
+                "resolved_equity": self.resolved_equity,
+                "estimated_equity": self.estimated_equity,
                 "resolved_open_equity": (
                     None if self.resolved_open_equity is None
                     # This new field feeds multiplicative Core/BIL interval
                     # accounting. Preserve the canonical float rather than
                     # rounding away up to half a cent on every daily factor.
-                    # The older close evidence remains cents for compatibility;
-                    # its exact canonical close also lives in SessionState's
-                    # shadow_nav_history and is cross-checked by the observer.
+                    # Close evidence follows the same economic-precision rule.
                     else self.resolved_open_equity),
                 "open_unresolved_security_ids": list(
                     self.open_unresolved_security_ids),

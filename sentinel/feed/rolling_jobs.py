@@ -74,7 +74,8 @@ def enqueue(conn, request: PreparationRequest, *, budget_seconds: int) -> str:
                     "AND state NOT IN ('REFUSED','ABORTED','PUBLISHED')", (identity,))
         row = cur.fetchone()
         if row:
-            return str(row[0])
+            if not expire(conn, str(row[0])):
+                return str(row[0])
         job_id = str(uuid.uuid4())
         cur.execute(
             "INSERT INTO sentinel_snapshot_jobs "

@@ -693,6 +693,8 @@ class BrokerObservation:
     #: observation window. The reconciler binds Sentinel-owned rows to their
     #: immutable command key before journaling them atomically.
     fills: tuple = ()
+    #: Accepted producer supplied the complete native lifetime through this read.
+    fill_history_complete: bool = False
 
     def __post_init__(self) -> None:
         if self.observed_at.tzinfo is None:

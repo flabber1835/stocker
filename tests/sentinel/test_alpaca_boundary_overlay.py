@@ -481,7 +481,8 @@ def test_terminal_fill_recovery_replays_full_sse_lifetime_for_backfills():
         qty="1",
         price="100",
         net_amount="-100",
-        details={"execution_type": "fill", "order_id": "order-late"})
+        details={"execution_type": "fill", "order_id": "order-late",
+                 "asset_id": "asset-aapl", "side": "buy"})
     broker, http = adapter(routes={
         "/v2beta1/events/activities": Response(text=sse(late)),
     })

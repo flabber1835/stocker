@@ -305,9 +305,12 @@ class WebPushAlertAdapter:
             self, *, alert_id: str, sub_id: str, state: str,
             status_code: Optional[int], error: Optional[str],
             retire_subscription: bool = False,
-            retire_reason: Optional[str] = None) -> None:
+            retire_reason: Optional[str] = None, claim=None, claim_seconds=60) -> None:
         with closing(self._connection_factory()) as conn:
             try:
+                if claim is not None:
+                    from sentinel.automation.outbox import renew_claim
+                    renew_claim(conn, alert=claim, claim_seconds=claim_seconds)
                 with conn.cursor() as cur:
                     if retire_subscription:
                         cur.execute(
@@ -348,8 +351,15 @@ class WebPushAlertAdapter:
                     " WHERE alert_id=%s GROUP BY state", (alert_id,))
                 return {str(state): int(count) for state, count in cur.fetchall()}
 
-    def deliver(self, alert, idempotency_key: str) -> None:
+    def deliver_fenced(self, alert, idempotency_key: str, *, claim_seconds: int):
+        if claim_seconds <= self._timeout:
+            raise ValueError('alert claim must exceed one bounded push request')
+        return self.deliver(alert, idempotency_key, claim_seconds=claim_seconds, claimed=True)
+
+    def deliver(self, alert, idempotency_key: str, *, claim_seconds=60, claimed=False) -> None:
         del idempotency_key  # alert_id is the immutable notification tag
+        def record(**kwargs):
+            self._record(**kwargs, claim=alert if claimed else None, claim_seconds=claim_seconds)
         if (str(alert.severity).upper() == "INFO"
                 and alert.event_type != "PUSH_ENROLLMENT_TEST"):
             # Webhook-era informational rows may still exist in the durable
@@ -369,8 +379,13 @@ class WebPushAlertAdapter:
         failures: list[tuple[str, bool]] = []
         for sub_id, endpoint, p256dh, auth, retired_at in self._recipients(
                 alert.alert_id):
+            if claimed:
+                from sentinel.automation.outbox import renew_claim
+                with closing(self._connection_factory()) as conn:
+                    renew_claim(conn, alert=alert, claim_seconds=claim_seconds)
+                    conn.commit()
             if retired_at is not None:
-                self._record(
+                record(
                     alert_id=alert.alert_id, sub_id=str(sub_id),
                     state="RETIRED", status_code=None,
                     error="subscription retired before delivery")
@@ -385,31 +400,31 @@ class WebPushAlertAdapter:
                     raise ValueError("Web Push sender returned no HTTP status")
             except ValueError:
                 message = f"{sub_id}: invalid subscription evidence"
-                self._record(
+                record(
                     alert_id=alert.alert_id, sub_id=str(sub_id), state="RETIRED",
                     status_code=None, error=message, retire_subscription=True,
                     retire_reason="invalid subscription evidence")
                 continue
             except Exception as exc:                              # noqa: BLE001
                 message = f"{sub_id}: transport {type(exc).__name__}"
-                self._record(
+                record(
                     alert_id=alert.alert_id, sub_id=str(sub_id), state="PENDING",
                     status_code=None, error=message)
                 failures.append((message, True))
                 continue
             if 200 <= status < 300:
-                self._record(
+                record(
                     alert_id=alert.alert_id, sub_id=str(sub_id),
                     state="DELIVERED", status_code=status, error=None)
             elif status in {404, 410}:
-                self._record(
+                record(
                     alert_id=alert.alert_id, sub_id=str(sub_id), state="RETIRED",
                     status_code=status, error=f"push service HTTP {status}",
                     retire_subscription=True)
             else:
                 retryable = status in {408, 425, 429} or status >= 500
                 message = f"{sub_id}: push service HTTP {status}"
-                self._record(
+                record(
                     alert_id=alert.alert_id, sub_id=str(sub_id), state="PENDING",
                     status_code=status, error=message)
                 failures.append((message, retryable))

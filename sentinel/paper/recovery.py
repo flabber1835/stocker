@@ -208,6 +208,12 @@ async def recover_automated_paper_cycle(
                 _assert_deterministic_plan_id(candidate)
                 plan = candidate
 
+        if (dual_mode and plan is not None
+                and str(plan.decision_session) < str(feed_inputs.frontier(conn, current))):
+            # Positive broker facts about an old obligation remain learnable.
+            # Its old target is not reinterpreted under today's shadow authority.
+            plan = None
+
         dual_result = None
         if dual_mode and plan is not None:
             from sentinel import dual_reconciliation
@@ -260,8 +266,7 @@ async def recover_automated_paper_cycle(
                 raise PaperActivationRefused(
                     f"informational PAPER recovery is blocked: {exc}") from exc
 
-        actions = (_action_lookup(conn, state, clock().date())
-                   if state is not None else None)
+        actions = _action_lookup(conn, state, clock().date())
         authority = None
         target_projection = None
         target_actions = None

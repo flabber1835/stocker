@@ -1,5 +1,10 @@
 # Wealth Core v1 — certification manifest
 
+**Economic audit 399, 2026-09-18: certification remains BLOCKED.** The corrected
+V5 sizing profile and terminal leadership policy require new replay evidence.
+See [the finding and acceptance ledger](economic-audit-399-remediation.md).
+Historical performance metrics below do not certify this revision.
+
 **Selected integration, 2026-09-11:** production selects the compact champion's
 V5 twenty-slot book and opening dollar intents. Its source authority and
 verification gates are in

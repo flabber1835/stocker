@@ -85,7 +85,7 @@ class SnapshotReferences:
         for listing in listings_from_rows((*self.projection.rows, *self.projection.alias_rows)):
             self.listings.setdefault(listing.permaticker, []).append(listing)
 
-    def current_metadata(self):
+    def current_metadata(self, *, session=None):
         """Observed reference metadata; never a historical decision timeline."""
         grouped = {}
         for row in self.tickers:
@@ -101,7 +101,7 @@ class SnapshotReferences:
             category = unique("category")
             related = unique("relatedtickers", parse_related_tickers)
             sectors[sid] = unique("sector")
-            session = str(self.manifest.window.end)
+            session = str(session or self.manifest.window.end)
             active = {listing.ticker for listing in self.listings[sid] if listing.covers(session)}
             if sid in self.projection.chains:
                 ticker = self.resolver.ticker_for_security(sid, session)

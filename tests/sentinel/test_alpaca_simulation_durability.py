@@ -72,14 +72,14 @@ def test_unknown_restart_reconciles_broker_fill_and_durable_cash_once(conn, pg, 
     world.fill(next(iter(world.orders)), "4", "100")
     world.fill(next(iter(world.orders)), "6", "105")
     with store.connect(pg.sync_dsn) as resumed:
-        result = run(reconcile.reconcile(broker=world.adapter(), conn=resumed,
+        result = run(reconcile.reconcile(broker=world.adapter(modeled_fill_history=True), conn=resumed,
                      binding=None, deployment=DEPLOY))
         assert result.runtime_state is RuntimeState.RUNNING, result.detail
         loaded = journal.load_commands(resumed, DEPLOY)
         assert len(loaded) == 1
         assert (loaded[0].state, loaded[0].filled_quantity,
                 loaded[0].filled_average_price) == (S.FILLED, D(10), D(103))
-        again = run(reconcile.reconcile(broker=world.adapter(), conn=resumed,
+        again = run(reconcile.reconcile(broker=world.adapter(modeled_fill_history=True), conn=resumed,
                     binding=None, deployment=DEPLOY))
         assert again.runtime_state is RuntimeState.RUNNING, again.detail
     assert world.counts[("POST", "/v2/orders")] == 1
@@ -97,7 +97,7 @@ def test_crash_after_broker_acceptance_before_journal_ack_is_recovered(conn, pg,
     world.fill(next(iter(world.orders)))
     with store.connect(pg.sync_dsn) as resumed:
         assert journal.load_commands(resumed, DEPLOY)[0].state is S.SEND_PENDING
-        result = run(reconcile.reconcile(broker=world.adapter(), conn=resumed,
+        result = run(reconcile.reconcile(broker=world.adapter(modeled_fill_history=True), conn=resumed,
                      binding=None, deployment=DEPLOY))
         assert result.runtime_state is RuntimeState.RUNNING, result.detail
         assert journal.load_commands(resumed, DEPLOY)[0].state is S.FILLED
@@ -111,7 +111,7 @@ def test_corrupt_exact_response_cannot_mutate_unknown_journal(conn, world):
     for occurrence in (1, 3):  # open + closed, repeated
         world.reply("GET", "/v2/orders", [], occurrence=occurrence)
     world.reply("GET", "/v2/orders:by_client_order_id", {})
-    result = run(reconcile.reconcile(broker=world.adapter(), conn=conn,
+    result = run(reconcile.reconcile(broker=world.adapter(modeled_fill_history=True), conn=conn,
                  binding=None, deployment=DEPLOY))
     assert result.runtime_state is RuntimeState.BROKER_DEGRADED
     assert journal.load_commands(conn, DEPLOY)[0] == before
@@ -121,7 +121,7 @@ def test_corrupt_exact_response_cannot_mutate_unknown_journal(conn, world):
 def test_foreign_fill_is_reported_and_does_not_become_owned_history(conn, world):
     from test_alpaca_simulation_harness import submit
     world.fill(submit(world, key="human-order").broker_order_id)
-    result = run(reconcile.reconcile(broker=world.adapter(), conn=conn,
+    result = run(reconcile.reconcile(broker=world.adapter(modeled_fill_history=True), conn=conn,
                  binding=None, deployment=DEPLOY))
     assert result.runtime_state is RuntimeState.FOREIGN_ACTIVITY, result.detail
     assert not journal.load_commands(conn, DEPLOY)
