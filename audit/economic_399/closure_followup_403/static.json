@@ -1,0 +1,13 @@
+{
+  "syntax": [
+    "scripts/sentinel_autonomous_deploy.py",
+    "sentinel/panel/push_enrollment.py",
+    "sentinel/push_recipients.py",
+    "sentinel/schema.py",
+    "sentinel/web_push.py",
+    "tests/sentinel/test_autonomous_deploy.py",
+    "tests/sentinel/test_notification_recovery.py",
+    "tools/economic_audit_mutation_check.py"
+  ],
+  "introduced_pyflakes": {}
+}

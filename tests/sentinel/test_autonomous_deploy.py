@@ -4,6 +4,7 @@ import importlib.util
 import os
 from pathlib import Path
 import sys
+import time
 from types import SimpleNamespace
 
 import pytest
@@ -112,6 +113,46 @@ def test_runner_streamed_failure_still_refuses_with_child_output(tmp_path, capsy
 
     assert "streamed-failure" in capsys.readouterr().out
     assert "streamed-failure" in log.read_text(encoding="utf-8")
+
+
+@pytest.mark.parametrize("child", [
+    "import time; time.sleep(1.2)",
+    "import time; print('partial', end='', flush=True); time.sleep(1.2)",
+    "import os,time; os.close(1); os.close(2); time.sleep(1.2)",
+    "import os,time; child=os.fork(); time.sleep(1.2) if child==0 else None",
+])
+@pytest.mark.parametrize("check", [False, True])
+def test_streaming_deadline_covers_silent_partial_closed_and_inherited_pipe(
+        tmp_path, child, check):
+    runner = deploy.Runner(os.environ, tmp_path / "stream.log")
+    started = time.monotonic()
+    if check:
+        with pytest.raises(deploy.DeployRefused, match="deadline"):
+            runner.run([sys.executable, "-c", child], stream=True,
+                       timeout=.3, check=check)
+    else:
+        result = runner.run([sys.executable, "-c", child], stream=True,
+                            timeout=.3, check=check)
+        assert result.returncode == 124
+        if "partial" in child:
+            assert result.stdout == "partial"
+    assert time.monotonic() - started < 1
+    if "partial" in child:
+        assert "partial" in runner.log_path.read_text(encoding="utf-8")
+
+
+def test_stream_timeout_kills_descendant_before_its_late_side_effect(tmp_path):
+    marker = tmp_path / "descendant-survived"
+    runner = deploy.Runner(os.environ, tmp_path / "stream.log")
+    child = (
+        "import os,time,pathlib,sys; child=os.fork(); "
+        "time.sleep(.8) if child==0 else None; "
+        "pathlib.Path(sys.argv[1]).touch() if child==0 else None")
+    result = runner.run([sys.executable, "-c", child, str(marker)],
+                        stream=True, timeout=.3, check=False)
+    assert result.returncode == 124
+    time.sleep(.7)
+    assert not marker.exists()
 
 
 def test_full_deploy_suite_uses_live_streaming_without_weakening_skip_gate():

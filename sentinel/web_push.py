@@ -23,6 +23,8 @@ from cryptography.hazmat.primitives.asymmetric.utils import decode_dss_signature
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from cryptography.hazmat.primitives.kdf.hkdf import HKDF
 
+from sentinel import push_recipients
+
 
 MAX_PAYLOAD_BYTES = 3000
 RECORD_SIZE = 4096
@@ -246,6 +248,11 @@ class WebPushAlertAdapter:
         with closing(self._connection_factory()) as conn:
             try:
                 with conn.cursor() as cur:
+                    push_recipients.lock(cur)
+                    if target:
+                        resolved = push_recipients.resolve(cur, target, created_at=alert.created_at)
+                        if resolved is not None:
+                            target = resolved.subscription_id
                     cur.execute(
                         "INSERT INTO sentinel_web_push_fanouts"
                         " (alert_id,recipient_count,delivery_required)"
@@ -255,7 +262,7 @@ class WebPushAlertAdapter:
                         " LEFT JOIN sentinel_web_push_subscriptions s"
                         "   ON s.retired_at IS NULL"
                         "  AND (%s='' OR s.subscription_id=%s)"
-                        "  AND s.created_at<=%s"
+                        "  AND s.eligible_from<=%s"
                         "  AND %s >= p.web_push_activated_at"
                         " WHERE p.id=1"
                         " GROUP BY p.web_push_activated_at"
@@ -272,7 +279,7 @@ class WebPushAlertAdapter:
                             " FROM sentinel_web_push_subscriptions"
                             " WHERE retired_at IS NULL"
                             " AND (%s='' OR subscription_id=%s)"
-                            " AND created_at<=%s"
+                            " AND eligible_from<=%s"
                             " ORDER BY subscription_id",
                             (alert.alert_id, target, target,
                              alert.created_at))
@@ -293,25 +300,37 @@ class WebPushAlertAdapter:
         with closing(self._connection_factory()) as conn:
             with conn.cursor() as cur:
                 cur.execute(
-                    "SELECT d.subscription_id,s.endpoint,s.p256dh,s.auth,"
-                    " s.retired_at FROM sentinel_web_push_deliveries d"
-                    " JOIN sentinel_web_push_subscriptions s"
-                    "   ON s.subscription_id=d.subscription_id"
+                    "SELECT d.subscription_id FROM sentinel_web_push_deliveries d"
                     " WHERE d.alert_id=%s AND d.state='PENDING'"
                     " ORDER BY d.subscription_id", (alert_id,))
                 return list(cur.fetchall())
 
+    def _recipient(self, alert, sub_id):
+        with closing(self._connection_factory()) as conn:
+            with conn.cursor() as cur:
+                push_recipients.lock(cur)
+                value = push_recipients.resolve(cur, sub_id, created_at=alert.created_at)
+            conn.commit()
+            return value
+
     def _record(
             self, *, alert_id: str, sub_id: str, state: str,
             status_code: Optional[int], error: Optional[str],
+            recipient, created_at,
             retire_subscription: bool = False,
             retire_reason: Optional[str] = None, claim=None, claim_seconds=60) -> None:
         with closing(self._connection_factory()) as conn:
             try:
-                if claim is not None:
-                    from sentinel.automation.outbox import renew_claim
-                    renew_claim(conn, alert=claim, claim_seconds=claim_seconds)
                 with conn.cursor() as cur:
+                    push_recipients.lock(cur)
+                    if claim is not None:
+                        from sentinel.automation.outbox import renew_claim
+                        renew_claim(conn, alert=claim, claim_seconds=claim_seconds)
+                    current = push_recipients.resolve(cur, sub_id, created_at=created_at)
+                    if current != recipient:
+                        raise WebPushDeliveryFailure(
+                            "Web Push recipient changed during delivery", retryable=True)
+                    actual_id = recipient.subscription_id if recipient else None
                     if retire_subscription:
                         cur.execute(
                             "UPDATE sentinel_web_push_subscriptions"
@@ -319,7 +338,7 @@ class WebPushAlertAdapter:
                             " retire_reason=COALESCE(retire_reason,%s)"
                             " WHERE subscription_id=%s",
                             (retire_reason or f"push service HTTP {status_code}",
-                             sub_id))
+                             actual_id))
                     cur.execute(
                         "UPDATE sentinel_web_push_subscriptions SET"
                         " last_successful_push_at=CASE WHEN %s::text='DELIVERED'"
@@ -327,7 +346,7 @@ class WebPushAlertAdapter:
                         " last_failed_push_at=CASE WHEN %s::text IS NOT NULL"
                         "   THEN clock_timestamp() ELSE last_failed_push_at END"
                         " WHERE subscription_id=%s",
-                        (state, error, sub_id))
+                        (state, error, actual_id))
                     cur.execute(
                         "UPDATE sentinel_web_push_deliveries"
                         " SET state=%s,attempt_count=attempt_count+1,"
@@ -359,7 +378,8 @@ class WebPushAlertAdapter:
     def deliver(self, alert, idempotency_key: str, *, claim_seconds=60, claimed=False) -> None:
         del idempotency_key  # alert_id is the immutable notification tag
         def record(**kwargs):
-            self._record(**kwargs, claim=alert if claimed else None, claim_seconds=claim_seconds)
+            self._record(**kwargs, claim=alert if claimed else None, claim_seconds=claim_seconds,
+                         created_at=alert.created_at, recipient=recipient)
         if (str(alert.severity).upper() == "INFO"
                 and alert.event_type != "PUSH_ENROLLMENT_TEST"):
             # Webhook-era informational rows may still exist in the durable
@@ -377,14 +397,15 @@ class WebPushAlertAdapter:
                 "no active Web Push subscriptions", retryable=False)
         payload = notification_payload(alert)
         failures: list[tuple[str, bool]] = []
-        for sub_id, endpoint, p256dh, auth, retired_at in self._recipients(
+        for (sub_id,) in self._recipients(
                 alert.alert_id):
             if claimed:
                 from sentinel.automation.outbox import renew_claim
                 with closing(self._connection_factory()) as conn:
                     renew_claim(conn, alert=alert, claim_seconds=claim_seconds)
                     conn.commit()
-            if retired_at is not None:
+            recipient = self._recipient(alert, sub_id)
+            if recipient is None or recipient.retired_at is not None:
                 record(
                     alert_id=alert.alert_id, sub_id=str(sub_id),
                     state="RETIRED", status_code=None,
@@ -392,10 +413,10 @@ class WebPushAlertAdapter:
                 continue
             try:
                 body, headers = request_parts(
-                    endpoint=str(endpoint), p256dh=str(p256dh), auth=str(auth),
+                    endpoint=recipient.endpoint, p256dh=recipient.p256dh, auth=recipient.auth,
                     payload=payload, credentials=self._credentials)
                 status = self._sender(
-                    str(endpoint), body, headers, self._timeout)
+                    recipient.endpoint, body, headers, self._timeout)
                 if isinstance(status, bool) or not isinstance(status, int):
                     raise ValueError("Web Push sender returned no HTTP status")
             except ValueError:

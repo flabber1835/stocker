@@ -20,6 +20,7 @@ read-only, so the NAS host does not need the cryptography package.
 from __future__ import annotations
 
 import argparse
+import codecs
 import contextlib
 from datetime import datetime, timedelta, timezone
 from decimal import Decimal, InvalidOperation
@@ -29,7 +30,9 @@ import json
 import os
 from pathlib import Path
 import re
+import selectors
 import shlex
+import signal
 import subprocess
 import sys
 import time
@@ -1121,6 +1124,50 @@ class Runner:
         self.log_path = log_path
         log_path.parent.mkdir(parents=True, exist_ok=True)
 
+    def _stream(self, argv, *, cwd, timeout):
+        deadline = None if timeout is None else time.monotonic() + timeout
+        output = []
+        decoder = codecs.getincrementaldecoder("utf-8")(errors="replace")
+        process = subprocess.Popen(
+            argv, cwd=str(cwd), env=self.env, stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT, start_new_session=True)
+
+        def remaining():
+            if deadline is None:
+                return None
+            budget = deadline - time.monotonic()
+            if budget <= 0:
+                raise subprocess.TimeoutExpired(argv, timeout)
+            return budget
+
+        try:
+            assert process.stdout is not None
+            with selectors.DefaultSelector() as selector:
+                selector.register(process.stdout, selectors.EVENT_READ)
+                while True:
+                    if not selector.select(remaining()):
+                        raise subprocess.TimeoutExpired(argv, timeout)
+                    chunk = os.read(process.stdout.fileno(), 65536)
+                    decoded = decoder.decode(chunk, final=not chunk)
+                    output.append(decoded)
+                    print(decoded, end="", flush=True)
+                    if not chunk:
+                        break
+            returncode = process.wait(timeout=remaining())
+            return subprocess.CompletedProcess(
+                argv, returncode, stdout="".join(output), stderr="")
+        except BaseException as exc:
+            # The group can outlive the direct child while retaining its pipe.
+            with contextlib.suppress(ProcessLookupError):
+                os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            if isinstance(exc, subprocess.TimeoutExpired):
+                exc.output = "".join(output)
+            raise
+        finally:
+            if process.stdout is not None:
+                process.stdout.close()
+
     def run(self, argv: Sequence[str], *, check: bool = True,
             capture: bool = False, stream: bool = False,
             cwd: Path = ROOT, timeout: Optional[float] = None) -> subprocess.CompletedProcess:
@@ -1131,28 +1178,22 @@ class Runner:
             log.flush()
         try:
             if stream:
-                process = subprocess.Popen(
-                    argv, cwd=str(cwd), env=self.env,
-                    stdout=subprocess.PIPE, stderr=subprocess.STDOUT,
-                    text=True, bufsize=1)
-                output: List[str] = []
-                assert process.stdout is not None
-                for line in process.stdout:
-                    output.append(line)
-                    print(line, end="", flush=True)
-                returncode = process.wait()
-                completed = subprocess.CompletedProcess(
-                    argv, returncode, stdout="".join(output), stderr="")
+                completed = self._stream(argv, cwd=cwd, timeout=timeout)
             else:
                 completed = subprocess.run(
                     argv, cwd=str(cwd), env=self.env,
                     stdout=subprocess.PIPE if capture else None,
                     stderr=subprocess.PIPE if capture else None,
                     text=True, check=False, timeout=timeout)
-        except subprocess.TimeoutExpired:
+        except subprocess.TimeoutExpired as exc:
+            retained = exc.output or ""
+            if isinstance(retained, bytes):
+                retained = retained.decode("utf-8", errors="replace")
+            with self.log_path.open("a", encoding="utf-8") as log:
+                log.write(retained)
             if check:
                 raise DeployRefused("deployment command exceeded its deadline") from None
-            return subprocess.CompletedProcess(argv, 124, stdout="", stderr="")
+            return subprocess.CompletedProcess(argv, 124, stdout=retained, stderr="")
         except OSError as exc:
             raise DeployRefused("could not execute %s: %s" % (argv[0], exc)) from exc
         if capture or stream:

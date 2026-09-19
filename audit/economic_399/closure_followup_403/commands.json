@@ -1,0 +1,69 @@
+{
+  "base": "4dd5af636ed48d6c17d8a75af4209cbc23a17e48",
+  "runtime": {
+    "image": "sentinel-test:ci",
+    "local_image_id": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+    "python": "3.12.13",
+    "postgresql": "17.11",
+    "psycopg": "3.3.4",
+    "network": "none",
+    "repository_mount": "readonly",
+    "environment_overlay": "empty .env",
+    "environment": {
+      "SENTINEL_REPO_ROOT": "/repo",
+      "PYTHONPATH": "/repo:/repo/shared",
+      "PYTHONDONTWRITEBYTECODE": "1"
+    }
+  },
+  "pytest_common": [
+    "-q",
+    "--tb=short",
+    "--show-capture=no",
+    "-p",
+    "no:cacheprovider"
+  ],
+  "campaigns": {
+    "regression": [
+      "tests/sentinel/test_notification_recovery.py",
+      "tests/sentinel/test_web_push_attempt_fencing.py",
+      "tests/sentinel/test_operator_monitoring.py",
+      "tests/sentinel/test_schema_migrations.py",
+      "tests/sentinel/test_automation_outbox.py",
+      "tests/sentinel/test_alert_attempt_fencing.py",
+      "tests/sentinel/test_autonomous_deploy.py",
+      "tests/sentinel/test_autonomous_deploy_bootstrap.py",
+      "tests/sentinel/test_autonomous_deploy_driver.py",
+      "tests/sentinel/test_issue_165_feed_schema.py",
+      "tests/scripts/test_deployment_recovery.py",
+      "tests/host_python38/test_host_compat.py"
+    ],
+    "final-notifications": [
+      "tests/sentinel/test_notification_recovery.py",
+      "tests/sentinel/test_web_push_attempt_fencing.py"
+    ],
+    "deployment": [
+      "tests/sentinel/test_autonomous_deploy.py",
+      "tests/scripts/test_deployment_recovery.py"
+    ]
+  },
+  "mutations": [
+    "stream-deadline",
+    "stream-group",
+    "push-successor",
+    "push-eligibility",
+    "push-revision",
+    "push-capture",
+    "push-serialization",
+    "push-conflict",
+    "push-attempt",
+    "push-incarnation",
+    "push-removal",
+    "push-chain-interval"
+  ],
+  "static_commands": [
+    "Python ast.parse on changed Python files",
+    "pyflakes comparison against verified base, with .codex-tmp/lint-deps on sys.path",
+    "python tools/validate_test_responsibility.py --base 4dd5af636ed48d6c17d8a75af4209cbc23a17e48 --output .codex-tmp/economic-closure-followup-ownership.json",
+    "git diff --check"
+  ]
+}

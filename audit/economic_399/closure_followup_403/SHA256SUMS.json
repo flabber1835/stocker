@@ -1,0 +1,27 @@
+{
+  "files": {
+    "commands.json": "1faff5aad61b46629aaba736eebe772ded9d8cb49edf613dab3d9b2732b2cb87",
+    "ownership.json": "dc2ca89942926f83c63da371973cb79df77093d8d1dec8a6be789182e616592c",
+    "README.md": "62bbc0c0ade16a7a7c02577025d57c7a4da9d7ac70b85149f2a3eea04afcfa1a",
+    "results.zip": "7ba5111a8d730c5424166100a8b9ae895ee2a51284bae24bf16fde376ce7f5ad",
+    "run_local.py": "60267420c53a6d49451b6bc1a79fbac73a541ad1d18ecdb986749896b5f5dcec",
+    "source-provenance.json": "129d6f2c15524299490a1a4467f8f60e79ab1c4922b7e71b275b4062a5476ebc",
+    "static.json": "fae73cec77b465165828453be1618ad6f1c35698ee520855215964edab32e1b9"
+  },
+  "archive_members": {
+    "economic-closure-followup-conflict-mutant.log": "24ef51b3ea5d24aa06881458b212237581fa00147583a0093f1c617f1136264e",
+    "economic-closure-followup-deployment.log": "e27292fcda012d9cdda4d87fedb1044a65a80fe7f40449742a147e3b722a70f0",
+    "economic-closure-followup-extra-mutants.log": "fd1375ba4c998c8b4cad68e4002dd120379c77a7db8cc40bda957e4ee945ae44",
+    "economic-closure-followup-final-mutants.log": "3e1acb3a19680716a81918b729c157ad10520db1f33c01dddbea9851cc435d2c",
+    "economic-closure-followup-incarnation-mutant.log": "8de28456318dc6b3d090319dc2ad580b6ea89f6601cbc05eacbb9ed705d41b91",
+    "economic-closure-followup-incarnation-regression.log": "5fa835ee9ae8495fb5fb58fc48d1b256421271c0dc237a69ef366098c1173489",
+    "economic-closure-followup-lock-order.log": "18d63ed92c8d557db1ede3c2fe60b48c80d027cd267ff1f7773dc9e19373d50d",
+    "economic-closure-followup-mutations.log": "2226afa0261dc1786d4fc5369be24686ed1751e4c4136b90f1f3189334f5eccc",
+    "economic-closure-followup-notification-final.log": "45543b09f497be8f2e9803a5423ab04095b223a8a67d41d5997e79fa39d7b5d9",
+    "economic-closure-followup-notifications.log": "45d99f0d8f9135442a9fe443056091dcf75b0d87162208ae760311e6fa6607fb",
+    "economic-closure-followup-regression-final.log": "28b6fdf2d4108d12175ad4372dd4de415684d5e4f9b7f9923ac70e41ef79adc2",
+    "economic-closure-followup-release-regression.log": "bfe3012b77607a1fca951e281b16a392e08b8b9dce4201a99a2e0a0605858493",
+    "economic-closure-followup-removal-mutants.log": "4b883512fa49d478002c9945b152d5955c93f20cd65dab5a5372a45e9729666d",
+    "economic-closure-followup-schema.log": "0fce4c23e8d25d764876335961d57168c674e30a3dce40b399b92d67fd471ef2"
+  }
+}

@@ -1,0 +1,353 @@
+{
+  "added_incident_tests": [],
+  "alpaca_contract_instances": 58,
+  "alpaca_contracts": 14,
+  "alpaca_mutations": 9,
+  "base": "4dd5af636ed48d6c17d8a75af4209cbc23a17e48",
+  "ci_jobs": {
+    "alpaca.contracts": ".github/workflows/sentinel-safety.yml#certification-and-durability",
+    "alpaca.mutations": ".github/workflows/alpaca-simulation-harness.yml#alpaca",
+    "backup.reliability": ".github/workflows/backup-reliability.yml#media-and-recovery",
+    "core.infrastructure": ".github/workflows/internal-state-harness.yml#core-infrastructure",
+    "host-python38.compatibility": ".github/workflows/sentinel-safety.yml#host-python-38-compatibility",
+    "internal-state.campaign": ".github/workflows/internal-state-harness.yml#lifecycle",
+    "internal-state.contract": ".github/workflows/internal-state-harness.yml#contract",
+    "production-champion.regressions": ".github/workflows/sentinel-safety.yml#certification-and-durability",
+    "production-composition.authority": ".github/workflows/production-composition-harness.yml#composition",
+    "scripts.operator": ".github/workflows/sentinel-safety.yml#certification-and-durability",
+    "sentinel.complete": ".github/workflows/sentinel-safety.yml#certification-and-durability",
+    "sharadar.daily-replay": ".github/workflows/sentinel-safety.yml#certification-and-durability",
+    "wealth-core.prospective": ".github/workflows/sentinel-safety.yml#certification-and-durability"
+  },
+  "executions": {
+    "alpaca.contracts": {
+      "kind": "delegated",
+      "owner": "sentinel.complete",
+      "required_contracts": "alpaca"
+    },
+    "alpaca.mutations": {
+      "command": "python tools/alpaca_harness_mutations.py",
+      "kind": "command"
+    },
+    "backup.reliability": {
+      "kind": "pytest-junit"
+    },
+    "core.infrastructure": {
+      "kind": "pytest-junit"
+    },
+    "host-python38.compatibility": {
+      "kind": "unittest-discovery"
+    },
+    "internal-state.campaign": {
+      "command": "python tools/internal_state_harness.py",
+      "kind": "command"
+    },
+    "internal-state.contract": {
+      "kind": "pytest-junit"
+    },
+    "production-champion.regressions": {
+      "kind": "pytest-junit"
+    },
+    "production-composition.authority": {
+      "kind": "pytest-junit"
+    },
+    "scripts.operator": {
+      "kind": "pytest-junit"
+    },
+    "sentinel.complete": {
+      "kind": "pytest-junit"
+    },
+    "sharadar.daily-replay": {
+      "kind": "pytest-junit"
+    },
+    "wealth-core.prospective": {
+      "expected_xfails": [
+        "tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture",
+        "tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER",
+        "tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash"
+      ],
+      "kind": "pytest-junit"
+    }
+  },
+  "merge_authority": {
+    "alpaca_trigger": {
+      "complete": true,
+      "paths_filter": [
+        ".github/workflows/alpaca-simulation-harness.yml",
+        ".github/workflows/internal-state-harness.yml",
+        "pytest.ini",
+        "sentinel/binding.py",
+        "sentinel/config.py",
+        "sentinel/core/cashflow.py",
+        "sentinel/execution/**",
+        "sentinel/paper/**",
+        "sentinel/requirements.lock",
+        "sentinel/schema*",
+        "shared/**",
+        "tests/conftest.py",
+        "tests/internal_state/**",
+        "tests/requirements.lock",
+        "tests/sentinel/conftest.py",
+        "tests/sentinel/test_alpaca*",
+        "tests/sentinel/test_execution_state_machine_model.py",
+        "tests/sentinel/test_guarded_execution_broker.py",
+        "tests/sentinel/test_issue_183_alpaca_hardening.py",
+        "tests/sentinel/test_issue_209_alpaca_asset_id.py",
+        "tests/support/alpaca_simulator.py",
+        "tests/test-responsibility.json",
+        "tools/alpaca_harness.py",
+        "tools/alpaca_harness_mutations.py",
+        "tools/internal_state_harness.py",
+        "tools/sentinel_mutation_certify.py",
+        "tools/test_responsibility_lib.py"
+      ]
+    },
+    "carrier_contexts": [
+      "sentinel-exact-head",
+      "sentinel-synthetic-merge"
+    ],
+    "carrier_job": "certification-and-durability",
+    "diagnostic_triggers": [
+      "workflow_dispatch"
+    ],
+    "diagnostic_workflow": ".github/workflows/sharadar-daily-replay.yml",
+    "parallel_certification": {
+      "dependency_binding": "same-workflow-run-and-attempt",
+      "image_binding": "single-build-checksummed-bundle",
+      "replay_shards": 4,
+      "suite_lanes": [
+        "sentinel-main",
+        "sentinel-warmup",
+        "sentinel-automation",
+        "champion",
+        "operator",
+        "wealth-core",
+        "mutations"
+      ]
+    },
+    "protected_context_owners": {
+      "host-python-38-${{ matrix.scope }}": {
+        "job": "host-python-38-compatibility",
+        "workflow": ".github/workflows/sentinel-safety.yml"
+      },
+      "host-python-38-exact-head": {
+        "job": "host-python-38-compatibility",
+        "workflow": ".github/workflows/sentinel-safety.yml"
+      },
+      "host-python-38-synthetic-merge": {
+        "job": "host-python-38-compatibility",
+        "workflow": ".github/workflows/sentinel-safety.yml"
+      },
+      "sentinel-${{ matrix.scope }}": {
+        "job": "certification-and-durability",
+        "workflow": ".github/workflows/sentinel-safety.yml"
+      },
+      "sentinel-exact-head": {
+        "job": "certification-and-durability",
+        "workflow": ".github/workflows/sentinel-safety.yml"
+      },
+      "sentinel-synthetic-merge": {
+        "job": "certification-and-durability",
+        "workflow": ".github/workflows/sentinel-safety.yml"
+      }
+    },
+    "replay_authority": "same-workflow-required-dependencies",
+    "replay_owner": "sharadar.daily-replay",
+    "scope_proofs": {
+      "certification-and-durability": {
+        "command": "python tools/verify_ci_scope.py",
+        "exact_execution_condition": "${{ matrix.scope == 'exact-head' }}",
+        "synthetic_policy": "identical-tree-only"
+      },
+      "host-python-38-compatibility": {
+        "command": "python tools/verify_ci_scope.py",
+        "exact_execution_condition": "${{ matrix.scope == 'exact-head' }}",
+        "synthetic_policy": "identical-tree-only"
+      }
+    },
+    "temporal_binding": "replay bound to the same workflow run, attempt, source and images"
+  },
+  "owners": 13,
+  "resolved": {
+    "alpaca.contracts": [
+      "tests/sentinel/test_alpaca_activity_sse_accounting.py",
+      "tests/sentinel/test_alpaca_boundary_overlay.py",
+      "tests/sentinel/test_alpaca_certification_boundary.py",
+      "tests/sentinel/test_alpaca_execution_entrypoint.py",
+      "tests/sentinel/test_alpaca_postclose_candidates.py",
+      "tests/sentinel/test_alpaca_restart_day_fence.py",
+      "tests/sentinel/test_alpaca_simulation_cash.py",
+      "tests/sentinel/test_alpaca_simulation_durability.py",
+      "tests/sentinel/test_alpaca_simulation_harness.py",
+      "tests/sentinel/test_alpaca_simulation_review_regressions.py",
+      "tests/sentinel/test_alpaca_simulation_sessions.py",
+      "tests/sentinel/test_execution_state_machine_model.py",
+      "tests/sentinel/test_guarded_execution_broker.py",
+      "tests/sentinel/test_issue_183_alpaca_hardening.py",
+      "tests/sentinel/test_issue_209_alpaca_asset_id.py"
+    ],
+    "alpaca.mutations": [
+      "tools/alpaca_harness_mutations.py"
+    ],
+    "backup.reliability": [
+      "tests/backup"
+    ],
+    "core.infrastructure": [
+      "tests/broker",
+      "tests/postgres",
+      "tests/shared",
+      "tests/test_high_impact_filesystem_remediation.py",
+      "tests/test_postgres_shm.py"
+    ],
+    "host-python38.compatibility": [
+      "tests/host_python38"
+    ],
+    "internal-state.campaign": [
+      "tools/internal_state_harness.py"
+    ],
+    "internal-state.contract": [
+      "tests/internal_state"
+    ],
+    "production-champion.regressions": [
+      "tests/champion",
+      "tests/median5",
+      "tests/v5"
+    ],
+    "production-composition.authority": [
+      "tests/production_composition"
+    ],
+    "scripts.operator": [
+      "tests/scripts"
+    ],
+    "sentinel.complete": [
+      "tests/sentinel"
+    ],
+    "sharadar.daily-replay": [
+      "research/sharadar_replay/tests"
+    ],
+    "wealth-core.prospective": [
+      "tests/wealth_core"
+    ]
+  },
+  "schema": "stocker.test-responsibility-verdict/5",
+  "scope_bindings": {
+    "alpaca.contracts": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "protected-tree-reuse",
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ]
+    },
+    "alpaca.mutations": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "advisory-synthetic-once",
+      "scopes": [
+        "synthetic-merge"
+      ]
+    },
+    "backup.reliability": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "advisory-synthetic-once",
+      "scopes": [
+        "synthetic-merge"
+      ]
+    },
+    "core.infrastructure": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "advisory-synthetic-once",
+      "scopes": [
+        "synthetic-merge"
+      ]
+    },
+    "host-python38.compatibility": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "protected-tree-reuse",
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ]
+    },
+    "internal-state.campaign": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "advisory-synthetic-once",
+      "scopes": [
+        "synthetic-merge"
+      ]
+    },
+    "internal-state.contract": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "advisory-synthetic-once",
+      "scopes": [
+        "synthetic-merge"
+      ]
+    },
+    "production-champion.regressions": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "protected-tree-reuse",
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ]
+    },
+    "production-composition.authority": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "advisory-synthetic-once",
+      "scopes": [
+        "synthetic-merge"
+      ]
+    },
+    "scripts.operator": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "protected-tree-reuse",
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ]
+    },
+    "sentinel.complete": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "protected-tree-reuse",
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ]
+    },
+    "sharadar.daily-replay": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "protected-tree-reuse",
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ]
+    },
+    "wealth-core.prospective": {
+      "checkout_binding": "direct-ref",
+      "matrix": "${{ fromJSON(github.event_name == 'pull_request' && '[\"exact-head\",\"synthetic-merge\"]' || '[\"exact-head\"]') }}",
+      "policy": "protected-tree-reuse",
+      "scopes": [
+        "exact-head",
+        "synthetic-merge"
+      ]
+    }
+  },
+  "test_modules": 472,
+  "test_roots": [
+    "research/sharadar_replay/tests",
+    "tests"
+  ],
+  "unowned_tests": [],
+  "verdict": "PASS"
+}

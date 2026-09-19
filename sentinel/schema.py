@@ -195,7 +195,7 @@ _TARGET_CATALOG_SHA256 = {
 # column/type/null/default, constraints, indexes and triggers while ignoring
 # deployment-local OIDs and column order.
 _STAGE4_CATALOG_SHA256 = (
-    "5057d5abd499efdb1e7a6c3dcb04b3774077eaa5d18163c75da93b50263c56f7")
+    "9d80e0801cf8c8e98b739e337eab3d883f3aac3495e47766b3214423ff90b7c1")
 
 # Corpus tables may legitimately be installed before behavioral schema (the
 # prepare CLI does exactly that).  They do not disqualify a database from being
@@ -291,6 +291,7 @@ _STAGE4_RUNTIME_REQUIRED_COLUMNS = {
         "subscription_id", "endpoint", "p256dh", "auth", "user_agent",
         "created_at", "refreshed_at", "last_successful_push_at",
         "last_failed_push_at", "retired_at", "retire_reason",
+        "successor_id", "eligible_from",
     }),
     "sentinel_web_push_fanouts": frozenset({
         "alert_id", "recipient_count", "delivery_required", "initialized_at",
@@ -1162,6 +1163,16 @@ DDL = (
         ADD COLUMN IF NOT EXISTS last_successful_push_at TIMESTAMPTZ""",
     """ALTER TABLE sentinel_web_push_subscriptions
         ADD COLUMN IF NOT EXISTS last_failed_push_at TIMESTAMPTZ""",
+    """ALTER TABLE sentinel_web_push_subscriptions
+        ADD COLUMN IF NOT EXISTS successor_id TEXT REFERENCES
+        sentinel_web_push_subscriptions(subscription_id)""",
+    """ALTER TABLE sentinel_web_push_subscriptions
+        ADD COLUMN IF NOT EXISTS eligible_from TIMESTAMPTZ""",
+    """UPDATE sentinel_web_push_subscriptions SET eligible_from=created_at
+        WHERE eligible_from IS NULL""",
+    """ALTER TABLE sentinel_web_push_subscriptions
+        ALTER COLUMN eligible_from SET DEFAULT clock_timestamp(),
+        ALTER COLUMN eligible_from SET NOT NULL""",
     """CREATE INDEX IF NOT EXISTS idx_sentinel_web_push_active
         ON sentinel_web_push_subscriptions (refreshed_at,subscription_id)
         WHERE retired_at IS NULL""",
