@@ -7,6 +7,12 @@ economic/reference compatibility, provider capability acceptance, and deployed
 NAS qualification. None implies the others. Overall certification is BLOCKED
 until all required evidence has an explicit passing disposition.
 
+The subsequent [pre-NAS independent review and handoff](economic-audit-399-pre-nas.md)
+records the complete-PR review at `c1c4519c`, additional defects and falsifiers,
+physical restore and lifecycle results, retained replay evidence, and remaining
+provider/data/code/NAS gates. Its execution record supersedes the earlier local
+test counts below; historical attempts remain preserved.
+
 The NAS never passed GO. Preserve failed attempts; no operational book is
 migrated, no certificate is issued, and broker mutations are outside this work.
 

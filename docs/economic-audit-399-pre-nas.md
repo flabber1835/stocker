@@ -19,6 +19,12 @@ below are deterministic fixtures. Public provider documentation was read.
 | F19 diagnostic retention | P3 | Malformed quantity/price/execution-time parsing could refuse without retaining the raw event. It now uses the account-bound diagnostic path; no economic rows are written. | Invalid decimal, zero/negative economics and malformed time retain the offending field and no fills. |
 | C1/F6 candidate wire/evidence | P2 | The candidate sent `until_id` without required `since_id`. It now repeats a valid timestamp-bounded request and explicitly reports a repeated snapshot, not fixed-frontier replay or finality. Unaccepted semantics advance to V2; capability bits stay false. | Provider parameter-rule falsifier failed before the fix; changed/missing/late rows refuse, and repeated empty responses explicitly carry no finality. |
 
+Corrected source anchors at the reviewed code commit: C2
+`sentinel/controller/terminal_returns.py:8`; F19 durable union
+`sentinel/execution/fill_integrity.py:68`; F14 origin check
+`sentinel/restore_validation.py:93`; candidate bounded replay
+`sentinel/execution/alpaca.py:1897` and limited evidence labeling at line 2195.
+
 The first two new probes failed **7 cases** on the unfixed implementation; the
 missing-origin probe separately failed **1 case**. These red results are retained.
 The independent provider parameter-rule probe failed **1 additional case**.
@@ -55,13 +61,13 @@ where an apparently passing test would be insufficient.
 ### Provider and implementation gates
 
 * **C1/F6, P1 certification blocker:** `sentinel/paper/cash.py:188` and
-  `sentinel/execution/alpaca.py:1946`. Production financial activity remains
+  `sentinel/execution/alpaca.py:1938`. Production financial activity remains
   unaccepted. A deposit, fee or distribution cannot be inferred from an empty
   response or normalized away after cash grace. Require an account-bound,
   exhaustive cursor/replay contract, correction semantics, cash classification,
   and a separately evidenced fixed-close finality horizon. The generic cash
   fixtures explicitly supply this contract; the production adapter does not.
-* **F19, P2 accounting/capability blocker:** `sentinel/execution/alpaca.py:1715`
+* **F19, P2 accounting/capability blocker:** `sentinel/execution/alpaca.py:1724`
   and `sentinel/execution/fill_integrity.py:16`. Candidate history remains
   disabled. Corrections/busts require reviewed reversal/replacement accounting;
   the exact cumulative-average comparison deliberately refuses undocumented
@@ -209,6 +215,58 @@ remains open until every required gate has affirmative, reviewed evidence.
 
 ## Local execution record
 
-The final reviewed code commit, commands, runtime, results and evidence hashes
-are recorded with the completion of this review below. Test counts across
-campaigns overlap and must not be added as a unique coverage number.
+Reviewed code commit: `c1c4519c444c79ac6852968e415feca79b5f22bf`.
+Physical restore and six lifecycle scenarios used clean cloned commit
+`354a431a053886d2267438997d167ce79901d881`; the following code commit changes
+the unaccepted candidate SSE path and its tests, not those modeled scenarios.
+The final delivery commit additionally retains this report/evidence. No tests
+are represented as having run on a later code revision than they did.
+
+The original GitHub head `97a5fb45` finished all six workflows successfully:
+Sentinel safety, Alpaca simulation, operator browser, production composition,
+backup reliability and internal state. That result does not transfer to the
+new commits; GitHub must validate the final PR head independently.
+
+Runtime: Python 3.12.13, psycopg 3.3.4, isolated PostgreSQL 17.11, image
+`sentinel-test:ci` with local ID
+`sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146`.
+Every container used `--network none`, a read-only repository mount and an empty
+`.env` overlay. PostgreSQL ran in disposable container storage. PostgreSQL 16
+and the exact NAS image remain target qualification; these are not claimed by
+the local PostgreSQL 17 results.
+
+| Campaign / exact runner invocation inside the isolated container | Result |
+|---|---|
+| `python /evidence/run_campaign.py acceptance` | 116 passed, 1 fixture failure: the new empty-restore test inherited a DDL monkeypatch inside a read-only transaction. Restore the production schema guard in that test; rerun below passed all four restore cases. No production contract was relaxed. |
+| `python /evidence/run_campaign.py restore-push` | 5 passed: four restore cases plus HTTP-response takeover fencing. Together with the preceding run, all 117 acceptance cases pass; there was no single 117-green rerun. |
+| `python /evidence/run_campaign.py regression` | 375 passed, including ownership, journal/reconciliation, automation, restore and provider boundaries. |
+| `python /evidence/run_campaign.py strategy` | 339 passed: champion, median5, V5, changed economic boundaries and the relevant Wealth Core state machine. The full Wealth Core suite was not run. |
+| `python /evidence/run_campaign.py cash-crash` | 21 passed, STRICT_V1 and retained real SIGKILL transaction-boundary probes. Inputs explicitly model an accepted cash contract; no production producer is promoted. |
+| `python /evidence/run_campaign.py predecessor` | 4 passed across fresh-process strict predecessor and restore-upgrade fencing. |
+| `python /evidence/run_campaign.py sse-wire` | 88 passed; snapshot replay mutation killed. |
+| `python /evidence/replay_golden.py` | Both immutable-source replays captured; 6 independent reconciliation tests passed. |
+| `python /evidence/run_campaign.py golden-unmasked` | 3 expected failures with `--runxfail`, proving the obsolete reference still differs. These are unresolved reference gates, not green tests. |
+| `python /evidence/clean_replay.py physical` | 2 passed: actual base backup, WAL replay/promotion, before/after-retirement table fingerprints and rolling closure, on clean `354a431a`. |
+| `python /evidence/clean_replay.py lifecycle` | All 6 modeled PAPER/LIVE_CASH scenarios passed on clean `354a431a`: populated lifecycle, death after submit acceptance, and partial-fill/cancel race. `LIVE_CASH` here is a simulator profile, not a real account. |
+| `python tools/v5_mutation_check.py` / `python tools/champion_mutation_check.py` | 43 / 4 mutants killed. |
+| `python tools/economic_audit_mutation_check.py GUARD` | All 8 guards killed: `fills`, `coverage`, `attempt`, `durable-fills`, `terminal-split`, `restore-origin`, `push-attempt`, `snapshot-replay`. Passing baselines precede each mutation. |
+| `python /evidence/check_source.py` | All 80 PR-changed Python files compile; 0 introduced pyflakes findings against `97a5fb45` (104 existing findings). |
+| `python tools/validate_test_responsibility.py --base aff4461d9af6d4a7367018768fda18d948958b49` | PASS; 464 test modules, no unowned modules or added incident-named tests. |
+| `git diff --check` and `git diff aff4461d9af6d4a7367018768fda18d948958b49 HEAD --check` | Passed. |
+
+Counts overlap and must not be added into a unique coverage number. The earlier
+172-case focused pass and intentional red probes remain in the archive. Also
+retained are unsuccessful harness attempts: missing subprocess schema, a
+non-traversable temporary directory for PostgreSQL WAL archiving, and a missing
+test-only receipt key. Correcting those fixture conditions yielded the explicit
+passing reruns above. An initial terminal mutation exposed a cached test alias;
+the test now calls through the patched module and kills the mutation. The first
+push mutation baseline had a wrong SQL column in the new test; after correcting
+it, both the passing baseline and killed mutation were retained. None of these
+failed attempts is counted as acceptance evidence.
+
+The [evidence package and exact reproduction instructions](../audit/economic_399/pre_nas_402/README.md)
+retain command argument arrays, stdout, JUnit XML, replay captures, lifecycle
+reports/traces/provider transcripts, source provenance and per-file SHA256.
+Historical retained test inputs are tied to immutable audit commit
+`ec9623070908b437222b2e1d963d3ceb8721f9bb`. No old artifact was overwritten.
