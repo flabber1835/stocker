@@ -13,6 +13,35 @@ sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 
 def case(name):
+    if name in {'migration-stop', 'migration-replay', 'migration-feed-core', 'migration-feed-bootstrap'}:
+        import importlib
+        import os
+        import textwrap
+        import types
+        root = Path(os.environ.get('SENTINEL_REPO_ROOT') or Path(__file__).resolve().parents[1])
+        sys.path.insert(0, str(root / 'scripts'))
+        bootstrap = name == 'migration-feed-bootstrap'
+        module = importlib.import_module('sentinel_autonomous_deploy_bootstrap' if bootstrap
+                                         else 'sentinel_autonomous_deploy')
+        owner = module.BootstrapDeploy if bootstrap else module.AutonomousDeploy
+        attribute = '_quiesce_database' if name == 'migration-stop' else 'quiesce_backup_and_migrate'
+        old, new = {
+            'migration-stop': ('self._direct_stop_automation()', 'pass'),
+            'migration-replay': ('scripts/sentinel-restore-drill.sh', 'scripts/sentinel-backup-status.sh'),
+            'migration-feed-core': ('store.migrate_schema(c);', ''),
+            'migration-feed-bootstrap': ('store.migrate_schema(c);', ''),
+        }[name]
+        source = textwrap.dedent(inspect.getsource(getattr(owner, attribute)))
+        assert source.count(old) == 1, 'mutation seam disappeared'
+        namespace = dict(module.__dict__)
+        exec(compile(source.replace(old, new), module.__file__, 'exec'), namespace)
+        compiled = namespace[attribute]
+        mutant = types.FunctionType(compiled.__code__, module.__dict__, attribute, compiled.__defaults__)
+        mutant.__kwdefaults__ = compiled.__kwdefaults__
+        selection = ('test_bootstrap_autonomous_deploy_cannot_skip_feed_migration' if bootstrap else
+                     'test_core_autonomous_deploy_migrates_feed_only_after_quiesce_and_replay')
+        return owner, attribute, mutant, 'tests/sentinel/test_issue_165_feed_schema.py::' + selection
+
     from sentinel.automation import outbox
     from sentinel.execution import fill_integrity
     from sentinel.feed import action_history
@@ -201,7 +230,9 @@ def main():
                                             'retention-diagnostic', 'reconstruction-time', 'reconstruction-date',
                                             'reconstruction-authority', 'retention-schema', 'shadow-latch',
                                             'reconstruction-health', 'health-recurrence', 'dispatcher-deadline',
-                                            'deployment-global-fence', 'deploy-fence-order'))
+                                            'deployment-global-fence', 'deploy-fence-order',
+                                            'migration-stop', 'migration-replay',
+                                            'migration-feed-core', 'migration-feed-bootstrap'))
     name = parser.parse_args().mutation
     module, attribute, mutant, selection = case(name)
     args = [selection, '-q', '--tb=short', '--show-capture=no', '-p', 'no:cacheprovider']

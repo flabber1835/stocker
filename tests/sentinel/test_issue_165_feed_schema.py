@@ -2,10 +2,13 @@
 from __future__ import annotations
 
 import inspect
-from contextlib import nullcontext
+import importlib
+import io
+from contextlib import nullcontext, redirect_stdout
 import os
 from pathlib import Path
 import re
+from types import SimpleNamespace
 
 import pytest
 
@@ -218,40 +221,69 @@ def test_normal_cli_operations_never_name_the_feed_migration():
         assert "migrate_schema" not in inspect.getsource(function)
 
 
-def _migration_phase(script: str, next_method: str) -> str:
+def _migration_trace(monkeypatch, *, bootstrap=False):
+    """Execute both migration owners and their generated Python, without I/O."""
     root = Path(os.environ.get("SENTINEL_REPO_ROOT")
                 or Path(__file__).resolve().parents[2])
-    path = root / "scripts" / script
-    source = path.read_text(encoding="utf-8")
-    assert source.count("store.migrate_schema(c)") == 1
-    start = source.index("    def quiesce_backup_and_migrate(self) -> None:")
-    end = source.index(f"\n    def {next_method}", start)
-    return source[start:end]
+    monkeypatch.syspath_prepend(str(root / "scripts"))
+    module = importlib.import_module(
+        "sentinel_autonomous_deploy_bootstrap" if bootstrap else "sentinel_autonomous_deploy")
+    cls = module.BootstrapDeploy if bootstrap else module.AutonomousDeploy
+    obj = object.__new__(cls)
+    obj.cfg = SimpleNamespace(actor="fixture", health_timeout=30)
+    obj.phase = lambda _: None
+    obj.base_compose = ["simulated-compose"]
+    trace = []
+    obj._try_emergency_kill = lambda: trace.append("kill") or True
+    obj._direct_stop_automation = lambda: trace.append("stop automation")
+    obj._direct_stop_shadow = lambda: trace.append("stop shadow")
+    obj._automation_status = lambda: {"enabled": False, "kill_switch_engaged": True}
+    conn = SimpleNamespace(rollback=lambda: None, close=lambda: None)
+    monkeypatch.setenv("SENTINEL_DATABASE_URL", "postgresql://unused/fixture")
+    monkeypatch.setattr(feed_store, "connect", lambda *_a, **_k: conn)
+    monkeypatch.setattr(behavioral_schema, "ensure_schema", lambda _: trace.append("behavioral migration"))
+    monkeypatch.setattr(feed_store, "migrate_schema", lambda _: trace.append("feed migration"))
+    from sentinel import deployment_fence
+    monkeypatch.setattr(deployment_fence, "require",
+                        lambda _: trace.append("fence") or {"status": "DURABLY_FENCED"})
+
+    def invoke(argv, **_kwargs):
+        stdout = ""
+        if "-c" in argv:
+            # Execute the production-generated migration program, replacing
+            # only the external database operations with recording endpoints.
+            with redirect_stdout(io.StringIO()) as output:
+                exec(compile(argv[-1], "<deployment program>", "exec"), {})
+            stdout = output.getvalue()
+        elif "scripts/sentinel-base-backup.sh" in argv:
+            trace.append("base backup")
+            stdout = "verified_base_backup: /fixture/base\n"
+        elif "scripts/sentinel-backup-status.sh" in argv:
+            trace.append("backup verification")
+        elif "scripts/sentinel-restore-drill.sh" in argv:
+            assert "--physical-only" in argv
+            trace.append("physical replay")
+        else:
+            assert "up" in argv and "--wait" in argv and "sentinel-postgres" in argv
+            trace.append("postgres")
+        return SimpleNamespace(stdout=stdout, stderr="", returncode=0)
+
+    obj.runner = SimpleNamespace(run=invoke)
+    obj.quiesce_backup_and_migrate()
+    return trace
 
 
-def test_core_autonomous_deploy_migrates_feed_only_after_quiesce_and_replay():
-    phase = _migration_phase("sentinel_autonomous_deploy.py", "refresh_data(self)")
-
-    assert "self._direct_stop_automation()" in phase
-    assert "scripts/sentinel-restore-drill.sh" in phase
-    assert "--physical-only" in phase
-    assert "schema.ensure_schema(c); store.migrate_schema(c);" in phase
-    assert phase.index("self._direct_stop_automation()") < phase.index(
-        "store.migrate_schema(c)")
-    assert phase.index("scripts/sentinel-restore-drill.sh") < phase.index(
-        "store.migrate_schema(c)")
+def _require_migration_order(trace):
+    assert trace == [
+        "kill", "stop automation", "stop shadow", "postgres", "fence",
+        "base backup", "backup verification", "physical replay", "fence",
+        "behavioral migration", "feed migration", "kill",
+    ]
 
 
-def test_bootstrap_autonomous_deploy_cannot_skip_feed_migration():
-    phase = _migration_phase(
-        "sentinel_autonomous_deploy_bootstrap.py",
-        "persist_success(self, health: Mapping)")
+def test_core_autonomous_deploy_migrates_feed_only_after_quiesce_and_replay(monkeypatch):
+    _require_migration_order(_migration_trace(monkeypatch))
 
-    assert "self._direct_stop_automation()" in phase
-    assert "self._create_backup(restore_drill=False)" in phase
-    assert "--physical-only" in phase
-    assert "schema.ensure_schema(c); store.migrate_schema(c);" in phase
-    assert phase.index("self._direct_stop_automation()") < phase.index(
-        "store.migrate_schema(c)")
-    assert phase.index("self._create_backup(restore_drill=False)") < phase.index(
-        "store.migrate_schema(c)")
+
+def test_bootstrap_autonomous_deploy_cannot_skip_feed_migration(monkeypatch):
+    _require_migration_order(_migration_trace(monkeypatch, bootstrap=True))
