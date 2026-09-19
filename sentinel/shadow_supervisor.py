@@ -13,6 +13,7 @@ from __future__ import annotations
 import argparse
 import hashlib
 import json
+import math
 import os
 import signal
 import subprocess
@@ -218,7 +219,7 @@ def run() -> int:
     config = ShadowServiceConfig.from_env()
     deadline_seconds = float(os.environ.get(
         "SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS", "7200"))
-    if deadline_seconds < 30 or deadline_seconds > 7200:
+    if not math.isfinite(deadline_seconds) or deadline_seconds < 30 or deadline_seconds > 7200:
         supervisor_io.report("REFUSED: SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS must be in [30,7200]",
               file=sys.stderr)
         return EXIT_REFUSED
