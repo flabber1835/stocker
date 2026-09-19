@@ -607,3 +607,41 @@ resource review** also includes base-directory enumeration
 (`sentinel/backup_runtime_authority.py:131`) and full manifest parsing (`:175`).
 The pre-existing full-universe status and filesystem-progress gates remain open.
 No NAS or real broker account was accessed.
+
+### GO renewal after runtime horizon exhaustion
+
+Review on main `8212a55335500b4bbb81853572019d9eb4443724` found another connected
+**P1 availability/recovery defect within A5 / backup A6**: status admitted intact
+chains beyond the runtime payload ceiling, so GO reported a healthy backup and
+skipped the renewal that runtime admission required. The new negative acceptance
+tests reproduced two false-ready results and two missing early object refusals;
+the new GO reason was also refused by the old classifier (five expected failures).
+
+`scripts/sentinel-backup-verify-chain.sh:81` now counts the inclusive interval
+and timeline history against the existing 1,024-object/1 GiB ceilings before
+hashing. `scripts/sentinel-backup-status.sh:182` recognizes exhaustion only with
+the exact exit-code/token pair. `scripts/sentinel_go_backup_refresh.py:34`
+routes that reason into the existing certified single-refresh path. A successor
+must pass production creation and exact-path checks; retained old media remains
+intact. Bring-up uses the same classifier. There is no permission to treat the
+unhashed old chain as intact or to waive any successor integrity check.
+
+Local acceptance: **319 relevant regression passes**, plus **one real PostgreSQL
+shell/manifest test** admitting 64 segments and refusing 65. **All eight mutants
+detected**. The actual shell/GO path renews at a later WAL position, avoids a
+second renewal on a fresh invocation, and refuses failed creation or corrupted
+successor evidence. Six Python files parse/pyflakes clean; both changed shell
+scripts pass syntax; 480 test modules owned after integration of owner-merged
+#409/main `84582af2020a708ab076821693ffa4ea93ebed1c`. All eight changed production,
+test and runner files are unchanged by that merge; all 22 focused cases passed
+on the combined source. See [design](backup-horizon-renewal.md)
+and [retained commands, failures, provenance and NAS handoff](../audit/economic_399/backup_horizon_renewal/README.md).
+
+This closes exhausted-horizon GO classification/renewal, not unattended
+maintenance. Recurring proactive renewal, supported-scope single ownership,
+restart/outage scheduling, retention, host directory/manifest/read-race bounds
+and complete physical/NAS qualification remain open. The existing explicit
+restore drill can still examine older recovery points independently. Pending
+#410's bounded selection remains separate and must retain both contracts on
+integration. C1/F6, F19, C3 and authoritative replay/data gates are unchanged.
+No historical-return impact or economic certification is established.
