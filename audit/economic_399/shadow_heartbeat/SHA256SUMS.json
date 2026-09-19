@@ -1,0 +1,13 @@
+{
+  "base": "ec8351ff2f535885d5a1cefcbca9b9bb83498b5c",
+  "sha256": {
+    "audit/economic_399/shadow_heartbeat/README.md": "47317acce45da8809a06baf4be3f2a1b170ba263a197a98d06a6b1e26e1982d4",
+    "audit/economic_399/shadow_heartbeat/mutations.py": "b970ceb662215af57627e5992f3f941e7fe25459719a263a6f8ce2947ad73b53",
+    "audit/economic_399/shadow_heartbeat/results.zip": "878fb42b9c5996ad27cc553ec9a139344a66e36cb020fea0cef7710042fcb14e",
+    "audit/economic_399/shadow_heartbeat/run_local.py": "46abf9ce9517229cd992ba0ecf409632da4543eea152319540ba5f17e1bb7fec",
+    "docs/economic-code-closure.md": "434a47fa42ff91a75e329a76fc26aaddb59f4cd598399b59a7e253bbb4a0fe4e",
+    "docs/shadow-heartbeat-isolation.md": "2eb1b50eef79fa3c3bcc8c5fd5e74243df209b742df2f6ce3fa2ea399cb2a94c",
+    "sentinel/shadow_supervisor.py": "04c65a23d3d7ba5b05f588e9b231134455dabc1e5e2c9820f38283249321b6d7",
+    "tests/sentinel/test_shadow_heartbeat_isolation.py": "3a6b7094f7c3c664593e44de89b2372461b7222b051180b701437947b8b8760b"
+  }
+}
