@@ -20,6 +20,8 @@ raise SystemExit(subprocess.run([sys.executable,*sys.argv[1:]]).returncode)
         command = ['audit/economic_399/rolling_status/mutations.py']
     elif sys.argv[1:2] == ['go-mutants']:
         command = ['-m','tools.sentinel_rolling_go_falsifiers']
+    elif sys.argv[1:2] == ['consumer-mutants']:
+        command = ['audit/economic_399/rolling_status/report_consumers/mutations.py', *sys.argv[2:]]
     docker = ['docker','run','--rm','--network','none','--memory','4g','--cpus','2',
               '--mount',f'type=bind,source={root.as_posix()},target=/source,readonly',
               '--entrypoint','python','sentinel-test:ci','-u','-c',bootstrap,*command]

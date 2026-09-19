@@ -64,15 +64,15 @@ def validate_status(conn, pub, *, now=None):
     return binding, report
 
 
-def validate_reconstruction(conn, pub):
+def validate_reconstruction(conn, pub, *, summary_only=False):
     """Historical data readiness under actual authenticated availability evidence."""
     from sentinel import rolling_reconstruction_evidence
     rolling_reconstruction_evidence.require_dated(conn, pub)
-    return _validate(conn, pub, target=pub.window_end)
+    return _validate(conn, pub, target=pub.window_end, summary_only=summary_only)
 
 
-def _validate(conn, pub, *, target):
-    binding, material, report = _assess(conn, pub, target=target)
+def _validate(conn, pub, *, target, summary_only=False):
+    binding, material, report = _assess(conn, pub, target=target, summary_only=summary_only)
     if not report.ready:
         raise RollingGoRefused("ROLLING_INPUTS_NOT_READY: " + ", ".join(c.name for c in report.failures))
     return binding, material, report
@@ -81,7 +81,7 @@ def _validate(conn, pub, *, target):
 def assessment(conn, pub, *, now=None):
     """Report failed clauses without converting integrity failures to readiness."""
     instant = now or snapshots._now()
-    return _assess(conn, pub, target=snapshots.source_final_session(instant))[2]
+    return _assess(conn, pub, target=snapshots.source_final_session(instant), summary_only=True)[2]
 
 
 def _assess(conn, pub, *, target, summary_only=False):
@@ -129,7 +129,7 @@ def _assess(conn, pub, *, target, summary_only=False):
 def readiness(conn, *, now=None):
     """Call inside the caller's read-only transaction; never save a verdict."""
     with pinned(conn) as pub:
-        _, _, report = validate(conn, pub, now=now)
+        _, report = validate_status(conn, pub, now=now)
         return report
 
 
@@ -152,7 +152,7 @@ def _prepare(conn, *, target_session, budget_seconds=3600):
         pub = current(conn)
         if is_rolling(pub) and pub.window_end == target_session:
             with snapshots.pinned(conn, commit=False) as (held, _):
-                binding, _, _ = validate(conn, held)
+                binding, _ = validate_status(conn, held)
             conn.commit()
             return {"schema": SCHEMA, "status": "ALREADY_CURRENT", **binding}
         _, strategy = production_strategy()
@@ -162,7 +162,7 @@ def _prepare(conn, *, target_session, budget_seconds=3600):
         conn.commit()
         binding = snapshots.prepare(conn, job)
         with snapshots.pinned(conn, commit=False) as (held, _):
-            checked, _, _ = validate(conn, held)
+            checked, _ = validate_status(conn, held)
             if checked != binding or held.window_end != target_session:
                 raise RollingGoRefused("ROLLING_PREPARATION_PUBLICATION_CHANGED")
         conn.commit()

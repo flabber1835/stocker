@@ -110,7 +110,7 @@ def advance(conn, *, through, observation_id, starting_cash):
             with snapshots.pinned(conn, commit=False) as (pub, _binding):
                 if through != pub.window_end:
                     raise Refused("ROLLING_RUNTIME_TARGET_CHANGED")
-                inputs.validate(conn, pub)
+                inputs.validate_status(conn, pub)
                 if origin.read(conn) is None:
                     candidate = initial.initialize(conn, observation_id=observation_id, starting_cash=starting_cash)
                 else:

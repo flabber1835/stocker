@@ -113,8 +113,11 @@ def test_readiness_checks_canonical_current_inputs(conn, published, monkeypatch,
         return replace(material, meta={sid: replace(meta, related_tickers=()) for sid, meta in material.meta.items()})
     monkeypatch.setattr(inputs, "cold_start_inputs", changed)
     _read_only(conn)
-    with pytest.raises(inputs.RollingGoRefused, match="NOT_READY"):
-        inputs.readiness(conn)
+    # Exercise material-returning validation explicitly; report-only entrypoints
+    # now use the compact reader and have their own real-publication acceptance.
+    with inputs.pinned(conn) as pub:
+        with pytest.raises(inputs.RollingGoRefused, match="NOT_READY"):
+            inputs.validate(conn, pub)
 
 
 def test_strategy_request_is_bound_to_current_source(conn, published, monkeypatch):
