@@ -45,13 +45,14 @@ def _timeline_two(world):
     return history
 
 
-def test_repeated_mutation_checks_reuse_unchanged_full_scrub(world):
+def test_every_mutation_repeats_complete_content_proof(world):
     first = authority.require(world, operation="first mutation")
     second = authority.require(world, operation="second mutation")
     assert first["integrity_full_scrub"] is True
-    assert first["integrity_objects_hashed"] == 4
-    assert second["integrity_full_scrub"] is False
-    assert second["integrity_objects_hashed"] == 0
+    assert first["integrity_objects_hashed"] == 8
+    assert second["integrity_full_scrub"] is True
+    assert second["integrity_objects_hashed"] == 8
+    assert first["integrity_read_passes"] == second["integrity_read_passes"] == 2
 
 
 def test_changed_object_is_rehashed_between_full_scrubs(world):
@@ -64,18 +65,18 @@ def test_changed_object_is_rehashed_between_full_scrubs(world):
         authority.require(world, operation="second mutation")
 
 
-def test_full_scrub_is_renewed_on_bounded_interval(world, monkeypatch):
+def test_content_proof_does_not_depend_on_scrub_age(world, monkeypatch):
     ticks = [100.0]
     monkeypatch.setattr(authority.time, "monotonic", lambda: ticks[0])
     first = authority.require(world, operation="first mutation")
     ticks[0] += 1
     cached = authority.require(world, operation="cached mutation")
-    ticks[0] += authority.RUNTIME_FULL_SCRUB_MAX_AGE_SECONDS + 1
+    ticks[0] += 301
     renewed = authority.require(world, operation="renewed mutation")
     assert first["integrity_full_scrub"] is True
-    assert cached["integrity_objects_hashed"] == 0
+    assert cached["integrity_objects_hashed"] == 8
     assert renewed["integrity_full_scrub"] is True
-    assert renewed["integrity_objects_hashed"] == 4
+    assert renewed["integrity_objects_hashed"] == 8
 
 
 def test_runtime_integrity_budget_is_fail_closed(world, monkeypatch):

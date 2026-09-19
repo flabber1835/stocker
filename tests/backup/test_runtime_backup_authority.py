@@ -283,9 +283,13 @@ def test_runtime_reads_only_required_horizon(world):
         (world.media.namespace / wal_name(index)).mkdir()
     result = authority.require(world, operation="bounded restore proof")
     assert result["wal_segments"] == 4
-    query, params = world.statements[-1]
-    assert "unnest" in query
-    assert params[-1] == [wal_name(index) for index in range(2, 6)]
+    queries = [(query, params) for query, params in world.statements
+               if query.startswith("SELECT name,")]
+    assert queries
+    for query, params in queries:
+        assert "unnest" in query
+        names = params[1] if "pg_read_binary_file" in query else params[-1]
+        assert names == [wal_name(index) for index in range(2, 6)]
 
 
 @pytest.mark.parametrize("boundary", [feed_store.corpus_write_lock, journal.writer_lock])

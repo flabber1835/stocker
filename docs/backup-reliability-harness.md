@@ -116,13 +116,13 @@ The runtime proves only the archive objects required by the selected base-to-fro
 restore horizon. Older retained generations and later concurrently arriving objects
 are outside that decision.
 
-A complete SHA-256 byte scrub occurs on first use and at least every 300 seconds.
-Between complete scrubs, each mutation check re-reads every required object's size,
-mtime, ctime, sidecar contents and sidecar timestamps, and re-hashes every new or
-metadata-changed object. The cache is scoped to the PostgreSQL target, system
-identifier, selected base, restore start and WAL geometry. A recreated database,
-new base, changed frontier object, changed metadata or expired scrub interval cannot
-inherit an unrelated proof.
+Every mutation check performs fresh complete SHA-256 checks in two bounded passes.
+Their digests must agree with each other and the retained sidecars. Metadata and
+alias checks follow both passes. PostgreSQL's second-resolution file timestamps
+cannot establish unchanged bytes between checks; the earlier five-minute reuse
+policy is withdrawn. A target/base-scoped prior observation can detect a regressing
+frontier but cannot authorize skipping content reads. See the discovered defect,
+tradeoff and falsifiers in [backup proof resource bounds](backup-proof-resource-bounds.md).
 
 The runtime additionally executes a filesystem-identity probe under PostgreSQL's OS
 identity on every check. Required base/WAL directories must not be symlinks; durable-
@@ -131,7 +131,8 @@ must be non-symlink single-link files. Runtime and operator status therefore sha
 the same alias/hardlink acceptance contract.
 
 Synchronous mutation-path proof is bounded to 1,024 required archive objects and
-1 GiB of archive bytes. Exceeding either bound is a permanent fail-closed condition
+1 GiB of distinct archive bytes (at most 2 GiB read across the two passes).
+Exceeding either horizon bound is a permanent fail-closed condition
 with an instruction to create a fresh base backup. This caps restart/full-scrub cost
 and prevents an arbitrarily old base from turning a broker mutation into an
 unbounded historical scan.
@@ -147,8 +148,8 @@ A base whose manifest names timeline 2 or later is accepted only when the matchi
 `<timeline>.history` object and checksum are present and valid. Runtime authority,
 operator status and the standalone Python chain verifier enforce the same rule.
 
-`tests/backup/test_pr344_final_seams.py` falsifies history loss, repair, aliasing,
-bounded proof cost, incremental revalidation and forced periodic full scrubs.
+`tests/backup/test_runtime_backup_integrity.py` falsifies history loss, repair, aliasing,
+bounded proof cost and full content revalidation at every mutation boundary.
 `scripts/test-backup-timeline-promotion.sh` performs the real PostgreSQL sequence:
 base on timeline 1 -> archive recovery -> promotion -> timeline-history archival ->
 timeline-2 WAL archival -> fresh verified timeline-2 base.
@@ -219,9 +220,9 @@ recovery, authority, operator-script, Python-3.8 host and mutation-test coverage
 - Missing mutation wiring: canonical feed/plan/order gateways and common writer locks
   now require complete runtime backup authority.
 - Full-size WAL corruption: archive objects carry SHA-256 evidence and runtime
-  periodically re-scrubs bytes while revalidating metadata on every mutation gate.
-- Unbounded broker-path hashing: proof reuse is metadata-bound and time-bounded, with
-  hard byte/object ceilings and forced full-scrub renewal.
+  scrubs bytes while revalidating metadata on every mutation gate.
+- Unbounded broker-path hashing: early object/byte ceilings and fixed read lengths
+  bound both complete passes; actual worst-case latency remains a qualification gate.
 - Runtime/operator alias mismatch: both now refuse symlinks and hardlinks for required
   recovery objects.
 - Missing middle WAL in status: status walks the complete selected base-to-frontier
