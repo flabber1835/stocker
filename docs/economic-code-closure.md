@@ -306,6 +306,38 @@ recurring verified backups and proactive horizon/retention maintenance.
 
 ### Known remaining gates
 
+F19 partial-native-notional follow-up, reviewed on main
+`8212a55335500b4bbb81853572019d9eb4443724`: **P2 consumer integrity defect**.
+`sentinel/execution/fill_integrity.py:49` compared gross notional only when
+native shares equalled the order's cumulative filled quantity. A partial set
+could exhaust/exceed the whole order's notional, be journaled and emitted as
+normal fill alerts while reconciliation returned RUNNING. The same gap crossed
+restart when individually plausible responses formed an impossible durable
+union. This is not evidence of affected deployed returns; the production native
+history capability remains disabled.
+
+The consumer now requires strictly positive residual notional whenever reported
+cumulative fills still contain missing native shares. Exact rational products
+preserve the boundary regardless of ambient Decimal precision. Full-history
+equality, immutable IDs and all existing provider refusals remain unchanged.
+The [additive evidence and NAS handoff](../audit/economic_399/partial_fill_notional/README.md)
+retain the failed reproduction, real parser/reconciliation/PostgreSQL tests,
+durable-union restart/recovery and four falsifiers. The independent oracle asks
+whether the missing positive-price shares could account for the remaining cost;
+valid recovery retains exactly ten shares/$1,000 and three distinct alerts.
+Final local validation: 250 relevant tests passed and all four falsifiers were
+detected. Five Python files parse with no pyflakes findings; 479 test modules
+have declared ownership. The separate focused run passed 35 tests; these counts
+overlap. Exact source hashes and raw results are retained in the evidence package.
+
+Locally fixed: this partial-notional consumer invariant. Still unresolved:
+F19 native producer authority, rounding semantics and correction/bust accounting;
+C1/F6 cash producer completeness/fixed-close finality; C3 predecessor completeness
+and ownership preimages. Historical broad-universe replay remains data-dependent,
+and NAS/image/filesystem/device qualification remains unexecuted. The table below
+retains those distinctions; neither these tests nor provider documentation grants
+economic certification.
+
 | Gate | Severity / category | Exact remaining work |
 |---|---|---|
 | C1/F6 | P1, provider contract plus producer implementation | `sentinel/paper/cash.py:188`, `sentinel/execution/alpaca.py:1938`: accepted account-bound exhaustive cash history, correction/classification rules and fixed-close finality are still absent. Empty/repeated snapshots cannot establish completeness. Preserve disabled production acceptance. |
@@ -607,3 +639,74 @@ resource review** also includes base-directory enumeration
 (`sentinel/backup_runtime_authority.py:131`) and full manifest parsing (`:175`).
 The pre-existing full-universe status and filesystem-progress gates remain open.
 No NAS or real broker account was accessed.
+
+### GO renewal after runtime horizon exhaustion
+
+Review on main `8212a55335500b4bbb81853572019d9eb4443724` found another connected
+**P1 availability/recovery defect within A5 / backup A6**: status admitted intact
+chains beyond the runtime payload ceiling, so GO reported a healthy backup and
+skipped the renewal that runtime admission required. The new negative acceptance
+tests reproduced two false-ready results and two missing early object refusals;
+the new GO reason was also refused by the old classifier (five expected failures).
+
+`scripts/sentinel-backup-verify-chain.sh:81` now counts the inclusive interval
+and timeline history against the existing 1,024-object/1 GiB ceilings before
+hashing. `scripts/sentinel-backup-status.sh:182` recognizes exhaustion only with
+the exact exit-code/token pair. `scripts/sentinel_go_backup_refresh.py:34`
+routes that reason into the existing certified single-refresh path. A successor
+must pass production creation and exact-path checks; retained old media remains
+intact. Bring-up uses the same classifier. There is no permission to treat the
+unhashed old chain as intact or to waive any successor integrity check.
+
+Local acceptance: **319 relevant regression passes**, plus **one real PostgreSQL
+shell/manifest test** admitting 64 segments and refusing 65. **All eight mutants
+detected**. The actual shell/GO path renews at a later WAL position, avoids a
+second renewal on a fresh invocation, and refuses failed creation or corrupted
+successor evidence. Six Python files parse/pyflakes clean; both changed shell
+scripts pass syntax; 480 test modules owned after integration of owner-merged
+#409/main `84582af2020a708ab076821693ffa4ea93ebed1c`. All eight changed production,
+test and runner files are unchanged by that merge; all 22 focused cases passed
+on the combined source. See [design](backup-horizon-renewal.md)
+and [retained commands, failures, provenance and NAS handoff](../audit/economic_399/backup_horizon_renewal/README.md).
+
+This closes exhausted-horizon GO classification/renewal, not unattended
+maintenance. Recurring proactive renewal, supported-scope single ownership,
+restart/outage scheduling, retention, host directory/manifest/read-race bounds
+and complete physical/NAS qualification remain open. The existing explicit
+restore drill can still examine older recovery points independently. Pending
+#410's bounded selection remains separate and must retain both contracts on
+integration. C1/F6, F19, C3 and authoritative replay/data gates are unchanged.
+No historical-return impact or economic certification is established.
+
+### Recurring proactive backup maintenance and retention
+
+Implemented as Step 1 work, initially based on main
+`84582af2020a708ab076821693ffa4ea93ebed1c`, incorporating #410 and #412.
+The owner merged #410 during implementation; current-main integration and
+reviewed source identities are retained in the
+[maintenance evidence](../audit/economic_399/recurring_maintenance/README.md).
+
+| Claim / finding | Disposition | Production path and limits |
+|---|---|---|
+| A5 / backup A6 recurring renewal and retention were absent | P1 implementation gap addressed locally | `scripts/sentinel-backup-maintenance.sh` enters `scripts/sentinel_backup_maintenance.py`: 12-hour / 256 MiB current-WAL triggers, exact successor status, full restore, durable identity-bound receipt, then offline retention. Single ticks and an optional single-owner loop are provided. Scheduler installation is a NAS prerequisite. |
+| A worker could outlive its host client's lock | P1 lifecycle gap addressed for the documented one-host/one-account scope | Actual producer, restore and retention workers hold the same persistent media flock. Restore holds it continuously from copy through PostgreSQL shutdown. Worker deadlines, journal recovery and labeled disposable-resource reclamation handle interruption. NAS flock behavior remains unqualified. |
+| Archive-end timing could auto-promote the restore before its recovery-state check | P2 restore availability defect fixed locally | `scripts/sentinel-restore-worker.sh` pauses at the recorded target LSN; `scripts/sentinel-restore-drill.sh` requires pause and marker replay, then explicitly promotes. Pinned PG16 positive acceptance and removal falsifier exercise actual PostgreSQL. |
+| Equal timestamps could conceal a same-size `.env` rewrite | P2 input-consistency defect fixed locally | `scripts/sentinel_env.py:read_bytes` now requires two bounded complete byte observations to agree, preserving metadata/alias/type checks. A deterministic same-timestamp rewrite falsifier detects removal of the byte guard. |
+| Safe deletion of obsolete bases and WAL | Locally verified under explicit scope | `sentinel/backup_retention.py` keeps selected/recent/daily/weekly bases; journals deletion before quarantine; revalidates protected identities after interruption; computes WAL floor from every retained Start-LSN. Boundary segments, timeline histories, other timelines and unknown names are preserved. Mixed timelines retain all WAL. |
+
+Local results: 361 backup/GO/ownership regression passes; 930 final maintenance,
+restore-contract and environment checks; 873 environment checks on actual host
+Python 3.8.15 (overlapping cases); 15 code falsifiers plus the PG16 target
+falsifier detected. Private PostgreSQL-owned 0700 WAL directories are exercised
+through the actual worker CLI: missing capability refuses before base deletion;
+the reviewed offline worker capability succeeds without weakening media modes.
+Final receipt/semantic and provenance details are in the retained record.
+
+**Still open:** NAS scheduling/reboot/alert delivery, the one-host/one-account
+operational prerequisite, real target flock/rename/fsync guarantees, full-volume
+capacity and throughput, populated exact-image restores, corpus-dependent
+historical deltas and full-universe/callback resource qualification. C1/F6 cash
+producer completeness/finality, native F19 provider authority and C3 predecessor
+incarnation evidence are unchanged. No broker capability flag, golden economic
+result or certification status was loosened. Step 1 and economic certification
+are not marked complete.

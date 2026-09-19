@@ -40,6 +40,8 @@ cleanup_staging() {
   if [ "$STAGING_CREATED" -eq 1 ]; then
     ${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
       staging="$1"
+      . /usr/local/libexec/sentinel-backup-media-lock.sh
+      sentinel_media_lock /sentinel-backup/base exclusive
       case "$staging" in .base-*.part-*) ;; *) exit 2;; esac
       rm -rf -- "/sentinel-backup/base/$staging"
       sync -f /sentinel-backup/base
@@ -62,12 +64,6 @@ pitr_source_row() {
     "SELECT pg_snapshot_xmax(pg_current_snapshot())::text || '|' ||
             substring(pg_walfile_name(pg_current_wal_lsn()) from 1 for 8)"
 }
-
-${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
-  find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d \
-    -name ".base-*.part-*" -exec rm -rf -- {} +
-  sync -f /sentinel-backup/base
-'
 
 MODE="$(${COMPOSE[@]} exec -T sentinel-postgres \
   psql -U sentinel -d sentinel -Atc "SHOW archive_mode")"
@@ -96,8 +92,14 @@ EOF
 PITR_EPOCH_BEFORE="$(xid_epoch "$PITR_XID8_BEFORE")"
 
 STAGING_CREATED=1
-${COMPOSE[@]} exec -T sentinel-postgres sh -ceu '
+${COMPOSE[@]} exec -T sentinel-postgres timeout --kill-after=30s 600 sh -ceu '
   staging="$1" final="$2"
+  . /usr/local/libexec/sentinel-backup-media-lock.sh
+  sentinel_media_lock /sentinel-backup/base exclusive
+  # An orphaned pg_basebackup keeps fd 9. Never clean its stage until it exits.
+  find /sentinel-backup/base -mindepth 1 -maxdepth 1 -type d \
+    -name ".base-*.part-*" -exec rm -rf -- {} +
+  sync -f /sentinel-backup/base
   test ! -e "/sentinel-backup/base/$staging"
   test ! -e "/sentinel-backup/base/$final"
   export PGPASSWORD="$POSTGRES_PASSWORD"

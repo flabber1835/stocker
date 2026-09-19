@@ -18,7 +18,8 @@ from decimal import Decimal, ROUND_FLOOR, ROUND_HALF_UP
 ROOT = Path(os.environ["BACKUP_LAB_ROOT"])
 MEDIA = ROOT / "media"
 SYSTEM_ID = "7377777777777777777"
-WAL = "000000010000000000000003"
+WAL = os.environ.get("BACKUP_LAB_CHECKPOINT_WAL", "000000010000000000000003")
+CHECKPOINT_LSN = os.environ.get("BACKUP_LAB_CHECKPOINT_LSN", "0/03000040")
 args = sys.argv[1:]
 name = Path(sys.argv[0]).name
 
@@ -70,7 +71,7 @@ def sql():
         return event("evidence-insert", lambda: 0)
     elif "pg_current_wal_lsn()::text" in query:
         marker = re.search(r"SELECT '([^|]+)\|'", query).group(1)
-        print(f"{marker}|0/03000040|{WAL}")
+        print(f"{marker}|{CHECKPOINT_LSN}|{WAL}")
     elif "pg_switch_wal" in query:
         print("0/04000000")
     elif "j->'WAL-Ranges'" in query:
@@ -88,7 +89,7 @@ def basebackup():
     data = path / "relation-data"
     data.write_bytes(b"complete-base-backup-data")
     manifest = {
-        "WAL-Ranges": [{"Timeline": 1, "End-LSN": "0/03000040"}],
+        "WAL-Ranges": [{"Timeline": 1, "End-LSN": CHECKPOINT_LSN}],
         "Synthetic-Data-SHA256": hashlib.sha256(data.read_bytes()).hexdigest(),
     }
     (path / "backup_manifest").write_text(json.dumps(manifest, sort_keys=True))
@@ -111,7 +112,8 @@ def verify():
 
 
 def shell(command):
-    mapped = [part.replace("/sentinel-backup", str(MEDIA)) for part in command]
+    mapped = [re.sub(r"/sentinel-backup(?=/|[\"'\s]|$)", str(MEDIA), part)
+              .replace("/usr/local/libexec", str(ROOT / "repo/scripts")) for part in command]
     return subprocess.call(mapped)
 
 
@@ -189,12 +191,32 @@ def docker():
         if args[0] == "volume":
             (ROOT / "volumes" / args[-1]).mkdir(parents=True)
         return 0
+    if args[:2] in (["volume", "inspect"], ["container", "inspect"]):
+        return 1  # Disposable fixture names are absent before creation.
     if args[:2] in (["volume", "rm"], ["network", "rm"], ["rm", "-f"]):
         return event("cleanup", lambda: 0)
     if args[:1] == ["run"]:
         assert "--network" in args
         if "-d" in args:
-            return event("restore-start", lambda: 79)
+            if args[-1] != "/restore-worker":
+                raise AssertionError("unexpected detached worker")
+            source = (ROOT / "repo/scripts/sentinel-restore-worker.sh").read_text()
+            mappings = {}
+            for i, arg in enumerate(args):
+                if arg == "-v":
+                    origin, destination, *mode = args[i + 1].split(":")
+                    if not origin.startswith("/"):
+                        origin = str(ROOT / "volumes" / origin)
+                    mappings[destination] = origin
+            for destination, origin in sorted(mappings.items(), key=lambda item: -len(item[0])):
+                source = source.replace(destination, origin)
+            source = re.sub(r"^\s*chown .*", "", source, flags=re.MULTILINE)
+            env = dict(os.environ)
+            for i, arg in enumerate(args):
+                if arg == "-e":
+                    key, value = args[i + 1].split("=", 1)
+                    env[key] = value
+            return event("restore-copy", lambda: subprocess.call(["sh", "-ceu", source], env=env))
         command = args[args.index("-ceu"):]
         source = command[1]
         mappings = {}
@@ -222,6 +244,8 @@ elif name == "pg_basebackup":
     sys.exit(event("base-copy", basebackup))
 elif name == "pg_verifybackup":
     sys.exit(event("base-verify", verify))
+elif name == "docker-entrypoint.sh":
+    sys.exit(event("restore-start", lambda: 79))
 elif name == "date":
     if args == ["+%s"]:
         count_file = ROOT / "clock-reads"

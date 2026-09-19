@@ -1,0 +1,13 @@
+{
+  "hash_domain": "Git LF bytes; delivered head is the containing PR commit",
+  "sources": {
+    "audit/economic_399/partial_fill_notional/run_local.py": "fc6013276204d759465414a469976dc35eca651023988393ad9c4447d59e216b",
+    "docs/economic-audit-399-remediation.md": "7b83f9b664a73a2705ea5b8f2bc3c86f5c701720e8c549015651e7d84acf6f5e",
+    "docs/economic-code-closure.md": "5a7569139dac0e257a4986d4630308fe86b53a25552f7f6476fb295b72c75f9e",
+    "sentinel/execution/fill_integrity.py": "6746346f3330723fd247ccd5cc0b18ce54a933372bb53d6b71ffc94f1482b3e8",
+    "tests/sentinel/test_native_fill_acceptance.py": "847e9a1478c180b29080b2086f1a0661a627bb8af96c77fd682c394bbd982c12",
+    "tests/sentinel/test_native_fill_progression.py": "a1bd9e3edb65c578908cccbc0db24f286e328518731e59bb8c61ae937b36270b",
+    "tools/sentinel_partial_fill_falsifiers.py": "6b9c9b11e8f1cb44aebabce2138872fd3b7b544b082a3588f82d4252a11194a1"
+  },
+  "verified_base": "8212a55335500b4bbb81853572019d9eb4443724"
+}

@@ -7,6 +7,13 @@ economic/reference compatibility, provider capability acceptance, and deployed
 NAS qualification. None implies the others. Overall certification is BLOCKED
 until all required evidence has an explicit passing disposition.
 
+The [recurring maintenance implementation](backup-recurring-maintenance.md) and
+[updated Step 1 ledger](economic-code-closure.md#recurring-proactive-backup-maintenance-and-retention)
+now distinguish locally implemented backup renewal/retention from the still-open
+NAS scheduler, filesystem, capacity and populated-restore qualification. This
+does not change provider capability, historical replay or economic certification
+dispositions below.
+
 The subsequent [pre-NAS independent review and handoff](economic-audit-399-pre-nas.md)
 records the complete-PR review at `c1c4519c`, additional defects and falsifiers,
 physical restore and lifecycle results, retained replay evidence, and remaining
@@ -97,6 +104,16 @@ Validate the immutable union against the exact order's cumulative quantity and
 notional; complete lifetime history must include all previously retained IDs.
 Retain contradictions as diagnostics and publish no normal fills or watermark.
 This strengthens local consumers without accepting provider completeness.
+
+The same notional invariant applies before native history is complete. Every
+accepted fill has positive quantity and price, so a proper subset of an order's
+cumulative filled quantity must leave strictly positive gross notional for the
+missing shares. A subset whose gross equals or exceeds the entire cumulative
+order gross is contradictory, even when its share count is below the reported
+filled quantity. Compare exact rational products for the incoming set and its
+durable union before observation/fill/alert publication. Keep full-history exact
+equality and all provider capability/finality refusals unchanged; this adds no
+average-price rounding tolerance or correction/bust accounting authority.
 
 Restore must distinguish an uninitialized rolling publication from missing
 origin evidence. Surviving strategy lineage without its origin is corrupt,

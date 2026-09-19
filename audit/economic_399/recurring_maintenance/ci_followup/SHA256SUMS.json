@@ -1,0 +1,7 @@
+{
+  "audit/economic_399/recurring_maintenance/ci_followup/README.md": "070558236c24b12aeaa02aa99d4d264cab299941e7b7ca31809caadbe6bf0a7f",
+  "audit/economic_399/recurring_maintenance/ci_followup/raw-log-SHA256SUMS.json": "48dced3babca952115c8bb3d7cf16d4a8682beb2c213e5504a6dd97461221fe0",
+  "audit/economic_399/recurring_maintenance/ci_followup/raw-logs.zip": "bdb8af11596de7e971391b6d3e708d1a37c21e69f93351335fa1ebc3e7f9816d",
+  "tests/backup/test_recurring_maintenance.py": "a8041ac7ba82c07c5841225fc27f1798d03c4c4efbf19287cf175f2a559a67b8",
+  "tools/sentinel_maintenance_falsifiers.py": "fe556fc08ceff864f73b1f1e35468b59704cc019585555a0758b761e0cac22df"
+}

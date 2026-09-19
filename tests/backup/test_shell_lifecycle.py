@@ -5,6 +5,7 @@ import json
 import os
 from pathlib import Path
 import shutil
+import shlex
 import subprocess
 import sys
 
@@ -39,6 +40,7 @@ class ShellLab:
                      "sentinel_backup_lock.py", "sentinel_lock_ownership.py",
                      "sentinel-backup-metadata-access.sh",
                      "sentinel-backup-publish-selection.sh",
+                     "sentinel-backup-media-lock.sh", "sentinel-restore-worker.sh",
                      "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh",
                      "sentinel-env.sh", "sentinel_env.py"):
             shutil.copy2(ROOT / "scripts" / name, self.scripts / name)
@@ -49,7 +51,7 @@ class ShellLab:
         bin_path.mkdir()
         adapter = Path(__file__).with_name("command_adapter.py").read_text()
         adapter = adapter.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1)
-        for command in ("docker", "psql", "pg_basebackup", "pg_verifybackup", "date", "sleep", "id", "chown", "stat"):
+        for command in ("docker", "psql", "pg_basebackup", "pg_verifybackup", "date", "sleep", "id", "chown", "stat", "docker-entrypoint.sh"):
             path = bin_path / command
             path.write_text(adapter)
             path.chmod(0o755)
@@ -72,6 +74,189 @@ class ShellLab:
     def events(self):
         return [json.loads(line)["stage"] for line in
                 (self.root / "events.jsonl").read_text().splitlines()]
+
+
+def _runtime_horizon_lab(tmp_path, count, timeline=1):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    base = lab.base / 'base-20260910T120000Z'
+    manifest_path = base / 'backup_manifest'
+    manifest = json.loads(manifest_path.read_text())
+    manifest['WAL-Ranges'][-1]['Timeline'] = timeline
+    manifest_path.write_text(json.dumps(manifest))
+    os.utime(manifest_path, (1789041600, 1789041600))
+    marker = base / 'sentinel-recovery-marker'
+    marker.write_text(marker.read_text().replace(wal_name(3), wal_name(3, timeline)))
+    checksum = hashlib.sha256(b'\0' * (16 * 1024 * 1024)).hexdigest()
+    for index in range(3, 3 + count):
+        path = lab.namespace / wal_name(index, timeline)
+        with path.open('wb') as stream:
+            stream.truncate(16 * 1024 * 1024)
+        path.with_name(path.name + '.sha256').write_text('sha256=' + checksum + '\n')
+    if timeline > 1:
+        history = lab.namespace / f'{timeline:08X}.history'
+        history.write_bytes(b'1\t0/03000000\tlocal geometry fixture\n')
+        _write_checksum(history)
+    lab.env['BACKUP_LAB_FRONTIER'] = wal_name(2 + count, timeline)
+    return lab, base
+
+
+@pytest.mark.parametrize('count,timeline,ready', [
+    (64, 1, True), (65, 1, False), (63, 2, True), (64, 2, False),
+])
+def test_status_runtime_horizon_matches_independent_payload_budget(tmp_path, count, timeline, ready):
+    from sentinel import backup_runtime_authority
+    assert backup_runtime_authority.RUNTIME_MAX_VERIFIED_BYTES == 1024 ** 3
+    assert backup_runtime_authority.RUNTIME_MAX_ARCHIVE_OBJECTS == 1024
+    lab, base = _runtime_horizon_lab(tmp_path, count, timeline)
+    # Independent accounting: actual retained history is part of the byte sum.
+    history_bytes = ((lab.namespace / f'{timeline:08X}.history').stat().st_size
+                     if timeline > 1 else 0)
+    assert (count * 16 * 1024 * 1024 + history_bytes <= 1024 ** 3) is ready
+    result = subprocess.run(['bash', str(lab.scripts / 'sentinel-backup-status.sh'),
+        '--backup', str(base)], env=lab.env, capture_output=True, text=True, timeout=120)
+    assert (result.returncode == 0) is ready, (result.stdout, result.stderr)
+    assert ('backup_ready:true' in result.stdout) is ready
+    if not ready:
+        assert result.returncode == 4
+        assert 'SENTINEL_BACKUP_STATUS_REASON=BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED' in result.stderr
+        assert 'wal_chain_ready:true' not in result.stdout
+
+
+@pytest.mark.parametrize('timeline,count', [(1, 1025), (2, 1024)])
+def test_status_chain_object_bound_precedes_payload_reads(tmp_path, timeline, count):
+    lab, base = _runtime_horizon_lab(tmp_path, 1, timeline)
+    manifest = json.loads((base / 'backup_manifest').read_text())
+    manifest['WAL-Ranges'][-1]['End-LSN'] = '0/0'
+    (base / 'backup_manifest').write_text(json.dumps(manifest))
+    # One-byte geometry isolates the object ceiling; it is not a real PG cluster.
+    # Later objects are absent, so a late guard gives a missing-file error.
+    end = f'{timeline:08X}00000000{count - 1:08X}'
+    script = (lab.scripts / 'sentinel-backup-verify-chain.sh').read_text()
+    script = script.replace('/sentinel-backup', str(lab.media))
+    result = subprocess.run(['bash', '-s', '--', base.name, 'cluster-' + str(SYSTEM_ID),
+        str(SYSTEM_ID), end, '1'], input=script, env=lab.env,
+        capture_output=True, text=True, timeout=20)
+    assert result.returncode == 5, (result.stdout, result.stderr)
+    assert result.stdout.strip() == 'SENTINEL_BACKUP_CHAIN_REASON=RUNTIME_HORIZON_EXCEEDED'
+
+
+def test_runtime_horizon_shell_uses_actual_postgres_manifest():
+    import psycopg
+    from tests.support.postgres import _EphemeralPostgres, _find_pg_bin
+
+    server = _EphemeralPostgres()
+    try:
+        server.start()
+        with psycopg.connect(server.sync_dsn, autocommit=True) as conn:
+            conn.execute('CREATE ROLE sentinel WITH LOGIN SUPERUSER')
+            conn.execute('CREATE DATABASE sentinel')
+        lab, base = _runtime_horizon_lab(Path(server.datadir) / 'horizon-fixture', 65)
+        # The real server must read this test-owned manifest. Production UID
+        # grants and physical restore are owned by the separate physical harness.
+        for directory in (lab.root, lab.media, lab.base, base):
+            directory.chmod(0o711)
+        (base / 'backup_manifest').chmod(0o644)
+        source = (ROOT / 'scripts/sentinel-backup-verify-chain.sh').read_text()
+        source = source.replace('/sentinel-backup', str(lab.media))
+        env = {**os.environ, 'PGHOST': '127.0.0.1', 'PGPORT': str(server.port),
+               'PATH': str(Path(_find_pg_bin('psql')).parent) + ':' + os.environ['PATH']}
+        for end, code in [('000000010000000000000042', 0),
+                          ('000000010000000000000043', 5)]:
+            result = subprocess.run(['bash', '-s', '--', base.name,
+                'cluster-' + str(SYSTEM_ID), str(SYSTEM_ID), end, str(16 * 1024 * 1024)],
+                input=source, env=env, capture_output=True, text=True, timeout=120)
+            assert result.returncode == code, (result.stdout, result.stderr)
+            if code == 0:
+                assert 'wal_chain_ready:true' in result.stdout and 'segments=64' in result.stdout
+            else:
+                assert result.stdout.strip() == 'SENTINEL_BACKUP_CHAIN_REASON=RUNTIME_HORIZON_EXCEEDED'
+    finally:
+        server.stop()
+
+
+@pytest.mark.parametrize('fault', ['none', 'verify', 'post-check'])
+def test_go_runtime_horizon_renews_exact_successor_or_refuses(tmp_path, monkeypatch, fault):
+    from scripts import sentinel_go_backup_refresh as refresh
+
+    lab, base = _runtime_horizon_lab(tmp_path, 65)
+    old = base.with_name('base-20260909T120000Z')
+    base.rename(old)
+    retained = (old / 'backup_manifest').read_bytes()
+    checkpoint = lab.namespace / '000000010000000000000044'
+    with checkpoint.open('wb') as stream:
+        stream.truncate(16 * 1024 * 1024)
+    _write_checksum(checkpoint)
+    commit, token = 'a' * 40, 'b' * 64
+    monkeypatch.setitem(refresh.phase._PHASE, 'certified', True)
+    monkeypatch.setattr(refresh.go_lock, 'lifecycle_lock_is_held', lambda env=None: True)
+    monkeypatch.setattr(refresh.go_lock, 'current_run_token', lambda env=None: token)
+    calls = []
+
+    class Runner:
+        def run(self, argv, *, env=None):
+            calls.append(tuple(argv))
+            if argv[0] == 'git':
+                # Separate existing process tests own checkout/certification gates.
+                out = commit + '\n' if argv[1] == 'rev-parse' else ''
+                return subprocess.CompletedProcess(argv, 0, out, '')
+            assert not any(key.startswith(('ALPACA_', 'APCA_')) for key in env)
+            assert argv[0] == 'bash'
+            if argv[1] == 'scripts/sentinel-base-backup.sh':
+                lab.env.update(BACKUP_LAB_CHECKPOINT_WAL=checkpoint.name,
+                    BACKUP_LAB_CHECKPOINT_LSN='0/44000040',
+                    BACKUP_LAB_FRONTIER=checkpoint.name)
+                if fault == 'verify':
+                    lab.env['BACKUP_LAB_FAULT'] = 'base-verify:before'
+            if len(argv) > 2:
+                assert argv[2:] == ['--backup', str(base)]
+                if fault == 'post-check':
+                    checkpoint.with_name(checkpoint.name + '.sha256').unlink()
+            completed = subprocess.run(['bash', str(lab.repo / argv[1]), *argv[2:]],
+                env=lab.env, capture_output=True, text=True, timeout=120)
+            if argv[1] == 'scripts/sentinel-base-backup.sh' and completed.returncode == 0:
+                os.utime(base / 'backup_manifest', (1789041600, 1789041600))
+            return completed
+
+    env = {**lab.env, 'ALPACA_API_KEY': 'synthetic-not-a-credential',
+           refresh.go_lock.RUN_TOKEN_ENV: token}
+    if fault == 'none':
+        result = refresh.ensure_recent_verified_base_backup(Runner(), env=env, commit=commit)
+        assert result.refreshed and result.post_refresh_exact_path_verified
+        assert result.reason_code == 'BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED'
+        assert result.backup_path == str(base)
+        # Repeat from a fresh runner: the new intact horizon needs no renewal.
+        again = refresh.ensure_recent_verified_base_backup(Runner(), env=env, commit=commit)
+        assert not again.refreshed
+    else:
+        with pytest.raises(refresh.BackupRefreshRefused) as exc:
+            refresh.ensure_recent_verified_base_backup(Runner(), env=env, commit=commit)
+        expected = ('BASE_BACKUP_REFRESH_FAILED' if fault == 'verify'
+                    else 'BASE_BACKUP_RECOVERY_EVIDENCE_INVALID')
+        assert exc.value.reason_code == expected
+    assert calls.count(('bash', 'scripts/sentinel-base-backup.sh')) == 1
+    if fault != 'verify':
+        assert ('bash', 'scripts/sentinel-backup-status.sh', '--backup', str(base)) in calls
+    assert (old / 'backup_manifest').read_bytes() == retained
+    assert (lab.namespace / '000000010000000000000043').is_file()
+
+
+@pytest.mark.parametrize('exit_code,output', [
+    (5, ''), (4, 'SENTINEL_BACKUP_CHAIN_REASON=RUNTIME_HORIZON_EXCEEDED\n'),
+    (5, 'SENTINEL_BACKUP_CHAIN_REASON=RUNTIME_HORIZON_EXCEEDED\nextra\n'),
+], ids=['missing-token', 'wrong-exit', 'extra-output'])
+def test_status_horizon_classification_requires_exact_code_and_output(tmp_path, exit_code, output):
+    lab = ShellLab(tmp_path)
+    assert lab.run().returncode == 0
+    base = lab.base / 'base-20260910T120000Z'
+    os.utime(base / 'backup_manifest', (1789041600, 1789041600))
+    # A failed dependency's exit status alone is not a renewal decision.
+    checker = lab.scripts / 'sentinel-backup-verify-chain.sh'
+    checker.write_text('printf %s ' + shlex.quote(output) + '\nexit ' + str(exit_code) + '\n')
+    result = lab.run('sentinel-backup-status.sh', '--backup', str(base))
+    assert result.returncode == 4
+    assert 'SENTINEL_BACKUP_STATUS_REASON=BASE_BACKUP_RECOVERY_EVIDENCE_INVALID' in result.stderr
+    assert 'SENTINEL_BACKUP_STATUS_REASON=BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED' not in result.stderr
 
 
 def test_base_before_application_schema_defers_only_display_evidence(tmp_path):
