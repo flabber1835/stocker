@@ -280,6 +280,38 @@ recurring verified backups and proactive horizon/retention maintenance.
 
 ### Known remaining gates
 
+F19 partial-native-notional follow-up, reviewed on main
+`8212a55335500b4bbb81853572019d9eb4443724`: **P2 consumer integrity defect**.
+`sentinel/execution/fill_integrity.py:49` compared gross notional only when
+native shares equalled the order's cumulative filled quantity. A partial set
+could exhaust/exceed the whole order's notional, be journaled and emitted as
+normal fill alerts while reconciliation returned RUNNING. The same gap crossed
+restart when individually plausible responses formed an impossible durable
+union. This is not evidence of affected deployed returns; the production native
+history capability remains disabled.
+
+The consumer now requires strictly positive residual notional whenever reported
+cumulative fills still contain missing native shares. Exact rational products
+preserve the boundary regardless of ambient Decimal precision. Full-history
+equality, immutable IDs and all existing provider refusals remain unchanged.
+The [additive evidence and NAS handoff](../audit/economic_399/partial_fill_notional/README.md)
+retain the failed reproduction, real parser/reconciliation/PostgreSQL tests,
+durable-union restart/recovery and four falsifiers. The independent oracle asks
+whether the missing positive-price shares could account for the remaining cost;
+valid recovery retains exactly ten shares/$1,000 and three distinct alerts.
+Final local validation: 250 relevant tests passed and all four falsifiers were
+detected. Five Python files parse with no pyflakes findings; 479 test modules
+have declared ownership. The separate focused run passed 35 tests; these counts
+overlap. Exact source hashes and raw results are retained in the evidence package.
+
+Locally fixed: this partial-notional consumer invariant. Still unresolved:
+F19 native producer authority, rounding semantics and correction/bust accounting;
+C1/F6 cash producer completeness/fixed-close finality; C3 predecessor completeness
+and ownership preimages. Historical broad-universe replay remains data-dependent,
+and NAS/image/filesystem/device qualification remains unexecuted. The table below
+retains those distinctions; neither these tests nor provider documentation grants
+economic certification.
+
 | Gate | Severity / category | Exact remaining work |
 |---|---|---|
 | C1/F6 | P1, provider contract plus producer implementation | `sentinel/paper/cash.py:188`, `sentinel/execution/alpaca.py:1938`: accepted account-bound exhaustive cash history, correction/classification rules and fixed-close finality are still absent. Empty/repeated snapshots cannot establish completeness. Preserve disabled production acceptance. |

@@ -49,8 +49,10 @@ def validate(observation, orders):
             raise ValueError('native fill quantity exceeds cumulative order fills')
     for key, quantity in totals.items():
         order = orders[key]
+        expected = Fraction(order.filled_quantity) * Fraction(order.filled_average_price)
+        if quantity < Fraction(order.filled_quantity) and gross[key] >= expected:
+            raise ValueError('native partial fill gross leaves no positive notional for missing fills')
         if quantity == Fraction(order.filled_quantity):
-            expected = quantity * Fraction(order.filled_average_price)
             if gross[key] != expected:
                 raise ValueError('native fill gross notional contradicts cumulative order')
     if observation.fill_history_complete:
