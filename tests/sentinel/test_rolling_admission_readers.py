@@ -81,8 +81,10 @@ def test_warmup_is_the_selected_canonical_production_transition(conn, published)
 def test_signed_rolling_candidate_installs_and_activates_with_reobserved_inputs(
         conn, published, tmp_path):
     from tools.sentinel_observation_authority import issue
-    _bind(conn)
     warmup = observation.current_warmup_evidence(conn, starting_cash=100000)
+    with pytest.raises(binding.AccountNotBound):
+        _candidate(conn, warmup)
+    _bind(conn)
     candidate = _candidate(conn, warmup)
     metadata = candidate["claims"]["bindings"]["current_metadata_snapshot"]
     assert metadata["snapshot_date"] == "2026-09-15"  # provider refresh, not decision date

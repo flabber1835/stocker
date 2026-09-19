@@ -240,6 +240,19 @@ contains the separate A6/A24 fixes and has six passing CI workflows on
 reader branch or the NAS. Detailed commands, source hashes and failure traces
 are retained in the reader evidence package linked in A21.
 
+PR #405 CI on `4d758ad993e96043c160f0421bb97881e87e1019` found one
+obsolete acceptance fixture: the empty-account test expected a candidate from
+warmup `/1` containing only a schema label. The new `/2` guard correctly refused
+it (1 failed, 5,023 passed in that lane). The correction retains that input as
+a rejection test and moves the positive before/after-binding assertion into
+the real sealed-input warmup, signing and activation test. No production guard
+or economic expectation is relaxed. The owner-merged #404 base
+`3c4fb030b3ad06bc8996771479b2d68b71cb17e6` is incorporated; the original
+evidence package remains unchanged. See the [CI follow-up evidence](
+../audit/economic_399/rolling_admission_ci_405/README.md) for the exact regression,
+mutation and ownership commands on the combined source. Fresh CI remains a
+separate requirement; none of this closes the remaining certification gates.
+
 ### Known remaining gates
 
 | Gate | Severity / category | Exact remaining work |
