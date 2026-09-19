@@ -1,0 +1,15 @@
+{
+  "base": "65e261312ec219e014f062c0b6b374066db19d75",
+  "python_files_parsed": 8,
+  "pyflakes_findings": 0,
+  "source_sha256_git_lf": {
+    "audit/economic_399/host_lock_ownership/run_local.py": "7e71b1827649872322490dd7f3483e285bcc7e829eb05fa9bd423848bc8280fc",
+    "scripts/sentinel_backup_lock.py": "f73e5ecace4430207c74263338889719fadb0da92ca424e05c9bd2d2f9d8cb32",
+    "scripts/sentinel_go_lock.py": "ce8053722899c5445254d36801a7f545516186d9c739758116a454bcada09f3d",
+    "scripts/sentinel_lock_ownership.py": "a82f7310b21f3dcee5a3e56fdc83e74d5ab39bdbee7a37ac2bff0f1f1f3da7fb",
+    "tests/backup/test_shell_lifecycle.py": "10ce456e342145e0a0bc3fb73a0e19bf1b215145b4bc57519ca0683deb0d3db7",
+    "tests/host_python38/test_lock_ownership.py": "3f2c3cdcc4df08aeb6fb0fa8c30c8c55c36c0ba5dbbdf6c334a0c0ed51252d4c",
+    "tests/scripts/test_host_lock_ownership.py": "736f37865aa6340677751b53aad3b2b09b86aeba1f8a128c43d204d3eeb8842d",
+    "tools/sentinel_host_lock_falsifiers.py": "90290daba766e6c20ccde65697191d5e608bcc763ad0056a82395ff0928d9f3d"
+  }
+}
