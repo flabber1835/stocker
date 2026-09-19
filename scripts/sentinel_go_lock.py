@@ -9,6 +9,8 @@ import secrets
 import subprocess
 import sys
 
+from sentinel_lock_ownership import owns_exclusive_flock
+
 ROOT = Path(__file__).resolve().parents[1]
 LOCK = ROOT / "artifacts" / "sentinel" / "go-validation" / "go-validation.lock"
 LOCK_FD_ENV = "SENTINEL_GO_LOCK_FD"
@@ -27,9 +29,8 @@ def lifecycle_lock_is_held(env=None) -> bool:
     The shell marker alone is not authority: an unsupported direct Python call
     could set an environment variable.  The supported lock parent passes its
     actually locked descriptor into the child.  We verify that descriptor names
-    the exact lock inode, then open the lock path independently and require the
-    second non-blocking exclusive flock to conflict.  If it succeeds, no other
-    open description currently owns the lifecycle lock and mutation must refuse.
+    the exact lock inode, then require Linux descriptor-associated evidence of
+    an exclusive whole-file flock. Contention alone does not identify its owner.
     """
     values = os.environ if env is None else env
     if str(values.get(LOCK_HELD_ENV) or "") != "1":
@@ -42,17 +43,7 @@ def lifecycle_lock_is_held(env=None) -> bool:
         return False
     if (inherited.st_dev, inherited.st_ino) != (target.st_dev, target.st_ino):
         return False
-    try:
-        with LOCK.open("a+", encoding="ascii") as probe:
-            try:
-                fcntl.flock(probe.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
-            except BlockingIOError:
-                return True
-            else:
-                fcntl.flock(probe.fileno(), fcntl.LOCK_UN)
-                return False
-    except OSError:
-        return False
+    return owns_exclusive_flock(fd)
 
 
 def current_run_token(env=None) -> str | None:

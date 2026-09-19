@@ -5,6 +5,9 @@ economic profile and outstanding certification gates. Local acceptance tests
 do not qualify the NAS or grant paper transport authority. Certification and
 first GO remain blocked pending the evidence recorded there.
 
+Host GO and backup helpers require Linux descriptor-associated exclusive flock
+evidence. See [ownership verification and qualification prerequisites](host-lock-ownership.md).
+
 [Automatic share-unit reconciliation](automatic-share-unit-reconciliation.md)
 supersedes the universal pre-open certificate requirement below. Ordinary paper
 execution uses current reconciliation and optional event evidence; known action
