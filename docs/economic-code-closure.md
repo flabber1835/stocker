@@ -22,6 +22,32 @@ implementation work, not merely NAS qualification.
 
 ## Decisions before implementation
 
+### Finite supervisor timing (A1/A17 startup validation)
+
+Review of main `8a9206c20f7fb2d224c1e3c044e9e0f3953eea5b` found a **P2
+configuration-validation defect**: shadow deadline range comparisons admit
+IEEE NaN, so elapsed-time comparisons never expire; automation poll/startup
+grace comparisons admit NaN or positive infinity, defeating normal stall
+supervision or causing a failure after worker launch. This does not establish
+that a deployed configuration or historical economic output was affected.
+
+Restore the existing bounded-supervision contract: all three environment
+timings must be finite before any worker starts. Preserve the shadow deadline
+range [30,7200], positive automation polling, and nonnegative startup grace
+(including zero). Invalid timings refuse startup, without creating a child,
+changing command identity or altering recovery policy. This clarification
+introduces no new timing limits or strategy behavior. Tests must exercise the
+public startup entrypoints, accept finite boundaries, and fail if any of the
+three finiteness checks is removed. Filesystem stalls and externally qualified
+resource limits remain separate open gates.
+
+Local evidence: [commands, pre-fix failures, regression and falsifiers](../audit/economic_399/supervisor_finite_timing/README.md).
+The public-entrypoint tests reproduced ten invalid admissions before the fix;
+101 targeted tests pass afterward and all three guard-removal mutants fail.
+The affected startup checks are `sentinel/shadow_supervisor.py:222` and
+`sentinel/automation_supervisor.py:168`. This finding is locally fixed, pending
+exact-head CI and owner merge. Step 1 and economic certification remain open.
+
 ### Streaming deployment deadlines (A24 follow-up after #403)
 
 The optional command timeout also applies to streaming commands, including a
