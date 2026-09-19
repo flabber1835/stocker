@@ -55,6 +55,8 @@ def _current(conn, checkpoint, pub, *, now=None):
 
 
 def _result(result, value):
+    if isinstance(value, authority.ReconstructionReceipt):
+        raise Refused("RECONSTRUCTION_IS_NOT_PROSPECTIVE_AUTHORITY")
     return replace(result, shadow_verdict=shadow.SHADOW_GO, verification=shadow.VERIFIED,
                    runtime_authority_sha256=digest(value.model_dump(by_alias=True)),
                    live_frontier=result.session, verification_scope=authority.SCOPE)
@@ -74,13 +76,16 @@ def classify(conn, *, observation_id, starting_cash, structural_only=False, cloc
                 return {"status": "NOT_STARTED"}
             checkpoint, _, result, attested, _ = _closure(conn, context)
             if attested is None:
+                if structural_only:
+                    return {"status": "RECONSTRUCTION_REQUIRED", "latest_session": checkpoint.session}
                 _current(conn, checkpoint, pub, now=clock() if clock else None)
                 timing = initial._timing(conn, checkpoint.session)
                 return {"status": "RECOVERY_REQUIRED", "recovery_kind": "TRAILING_CANDIDATE",
                         "recovery_session": checkpoint.session, "execution_session": timing["execution_session"],
                         "recovery_cutoff_at": timing["execution_open_at"]}
             if structural_only:
-                return {"status": "ATTESTED_STRUCTURAL", "latest_session": checkpoint.session}
+                status = "RECONSTRUCTED_STRUCTURAL" if isinstance(attested, authority.ReconstructionReceipt) else "ATTESTED_STRUCTURAL"
+                return {"status": status, "latest_session": checkpoint.session}
             _current(conn, checkpoint, pub, now=clock() if clock else None)
             return {"status": "VERIFIED", "result": _result(result, attested)}
     finally:
@@ -156,10 +161,21 @@ def advance(conn, *, through, observation_id, starting_cash):
 def service_advance(conn, *, through, observation_id, starting_cash):
     """Acquire only after checking the previous runtime authority and adjacency."""
     classified = classify(conn, observation_id=observation_id, starting_cash=starting_cash, structural_only=True)
-    if classified["status"] == "ATTESTED_STRUCTURAL":
+    if classified["status"] in {"ATTESTED_STRUCTURAL", "RECONSTRUCTED_STRUCTURAL", "RECONSTRUCTION_REQUIRED"}:
         previous = classified["latest_session"]
+        next_step = previous if classified["status"] == "RECONSTRUCTION_REQUIRED" else calendar.next_session(previous)
+        opened, _ = calendar.session_window(calendar.next_session(next_step))
+        expired = initial._now(conn) >= opened
+        conn.rollback()
+        if next_step <= through and expired:
+            from sentinel import rolling_recovery
+            return rolling_recovery.advance_one(conn, through=through,
+                observation_id=observation_id, starting_cash=starting_cash)
+        if classified["status"] == "RECONSTRUCTED_STRUCTURAL" and previous == through:
+            from sentinel.rolling_reconstruction_evidence import InputsUnavailable
+            raise InputsUnavailable("NEXT_FRESH_SESSION_REQUIRED:" + next_step)
         if previous != through:
-            if calendar.next_session(previous) != through:
+            if next_step != through:
                 raise Refused("ROLLING_RUNTIME_SESSION_GAP")
             initial._timing(conn, through)
             conn.rollback()

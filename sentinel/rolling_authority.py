@@ -37,6 +37,12 @@ class Authority(Contract):
     pitr: dict
 
 
+class ReconstructionReceipt(Authority):
+    schema_id: Literal["sentinel.rolling-reconstruction-receipt/1"] = Field(
+        default="sentinel.rolling-reconstruction-receipt/1", alias="schema")
+    scope: Literal["ROLLING_RECONSTRUCTION_ONLY"] = "ROLLING_RECONSTRUCTION_ONLY"
+
+
 def prefix(observation_id):
     return PREFIX + shadow._observation_id(observation_id) + ":"
 
@@ -46,7 +52,7 @@ def name(observation_id, session):
 
 
 def signature(payload):
-    return publication._receipt_hmac({"purpose": SCHEMA, "authority": payload})
+    return publication._receipt_hmac({"purpose": payload.get("schema", SCHEMA), "authority": payload})
 
 
 def latest(conn, observation_id):
@@ -61,17 +67,26 @@ def latest(conn, observation_id):
         payload = raw["authority"]
         if not hmac.compare_digest(str(raw["hmac_sha256"]), signature(payload)):
             raise Refused("ROLLING_AUTHORITY_AUTHENTICATION_FAILED")
-        value = Authority.model_validate(payload)
+        model = (ReconstructionReceipt if payload.get("schema") ==
+                 "sentinel.rolling-reconstruction-receipt/1" else Authority)
+        value = model.model_validate(payload)
         if (value.model_dump(by_alias=True) != payload or value.observation_id != observation_id
                 or str(session) != value.session or cursor != name(observation_id, value.session)):
             raise Refused("ROLLING_AUTHORITY_IDENTITY_CHANGED")
-        shadow._timing_proof(value.timing, decision_session=value.session, committed=True,
-                             where="rolling runtime post-commit timing")
+        if isinstance(value, ReconstructionReceipt):
+            from sentinel import rolling_reconstruction_evidence as evidence
+            evidence.validate_timing(value.timing, value.session)
+        else:
+            shadow._timing_proof(value.timing, decision_session=value.session, committed=True,
+                                 where="rolling runtime post-commit timing")
         values.append(value)
     return values
 
 
 def require_binding(authority, checkpoint):
+    from sentinel.rolling_daily_checkpoint import ReconstructionCheckpoint
+    if isinstance(checkpoint, ReconstructionCheckpoint) and not isinstance(authority, ReconstructionReceipt):
+        raise Refused("RECONSTRUCTION_CANNOT_GRANT_PROSPECTIVE_AUTHORITY")
     if (authority.checkpoint_sha256 != digest(checkpoint.model_dump(by_alias=True))
             or authority.record_sha256 != checkpoint.record_sha256
             or authority.state_sha256 != checkpoint.state_sha256

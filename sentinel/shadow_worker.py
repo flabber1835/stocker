@@ -6,6 +6,7 @@ import sys
 
 from sentinel import backup_guard, shadow_runtime
 from sentinel.feed import sharadar
+from sentinel.dependency_availability import database_unavailable
 from sentinel.shadow_recovery import (
     ShadowServiceConfig,
     ShadowServiceRefused,
@@ -53,15 +54,18 @@ def _backup_availability(exc: BaseException) -> bool:
 
 
 def _availability_failure(exc: BaseException) -> bool:
+    from sentinel.feed.rolling_jobs import JobWaiting
     current: BaseException | None = exc
     seen = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
+        if database_unavailable(current) or isinstance(current, JobWaiting):
+            return True
         if _backup_availability(current):
             return True
         if _sharadar_availability(current):
             return True
-        current = current.__cause__ or current.__context__
+        current = current.__cause__ if isinstance(current, ShadowServiceRetry) else None
     return False
 
 
@@ -90,6 +94,11 @@ def main() -> int:
     except (ShadowServiceRefused, shadow_runtime.ShadowRuntimeRefused) as exc:
         print(f"REFUSED: {exc}", file=sys.stderr, flush=True)
         return EXIT_REFUSED
+    except Exception as exc:
+        if not _availability_failure(exc):
+            raise
+        print(f"AVAILABILITY: {exc}", file=sys.stderr, flush=True)
+        return EXIT_AVAILABILITY
 
 
 if __name__ == "__main__":  # pragma: no cover

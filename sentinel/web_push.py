@@ -429,7 +429,7 @@ class WebPushAlertAdapter:
                     status_code=status, error=message)
                 failures.append((message, retryable))
         if failures:
-            retryable = all(item[1] for item in failures)
+            retryable = any(item[1] for item in failures)
             raise WebPushDeliveryFailure(
                 f"{len(failures)} Web Push recipient(s) failed",
                 retryable=retryable)

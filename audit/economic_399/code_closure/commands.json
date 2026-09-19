@@ -1,0 +1,62 @@
+{
+  "runtime": {
+    "image": "sentinel-test:ci",
+    "local_image_id": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+    "python": "3.12.13",
+    "postgresql": "17.11",
+    "psycopg": "3.3.4",
+    "network": "none",
+    "repository_mount": "readonly",
+    "environment_overlay": "empty .env",
+    "environment": {
+      "SENTINEL_REPO_ROOT": "/repo",
+      "PYTHONPATH": "/repo:/repo/shared",
+      "PYTHONDONTWRITEBYTECODE": "1"
+    }
+  },
+  "pytest_common": ["-q", "--tb=short", "--show-capture=no", "-p", "no:cacheprovider"],
+  "campaigns": {
+    "notification-fence-green": [
+      "tests/sentinel/test_notification_recovery.py",
+      "tests/sentinel/test_operator_monitoring.py",
+      "tests/sentinel/test_alert_attempt_fencing.py",
+      "tests/sentinel/test_schema_migrations.py",
+      "tests/sentinel/test_alert_supervisor.py",
+      "tests/sentinel/test_deployment_fence.py",
+      "tests/scripts/test_deployment_recovery.py"
+    ],
+    "deployment-regression-final": [
+      "tests/sentinel/test_autonomous_deploy.py",
+      "tests/sentinel/test_autonomous_deploy_bootstrap.py",
+      "tests/sentinel/test_autonomous_deploy_driver.py",
+      "tests/sentinel/test_automation_deployment.py",
+      "tests/host_python38/test_host_compat.py"
+    ],
+    "continuation-restore-regression": [
+      "tests/sentinel/test_rolling_daily.py",
+      "tests/sentinel/test_rolling_recovery.py::test_interrupted_book_matches_continuous_production_run[True]",
+      "tests/sentinel/test_rolling_recovery.py::test_unconsumed_snapshot_sql_guard_has_a_real_removal_falsifier",
+      "tests/sentinel/test_rolling_retention_runtime.py",
+      "tests/sentinel/test_rolling_restore_integrity.py"
+    ],
+    "recovery-source-final": [
+      "tests/sentinel/test_dependency_recovery.py",
+      "tests/sentinel/test_supervisor_dependency_bounds.py",
+      "tests/sentinel/test_returning_identity.py",
+      "tests/sentinel/test_rolling_inputs.py",
+      "tests/sentinel/test_rolling_snapshot_jobs.py",
+      "tests/sentinel/test_automation_outbox.py"
+    ]
+  },
+  "mutations": [
+    "callback-marker", "inactive-anchor", "dated-return", "alert-duration",
+    "mixed-recipient", "waiting-claim", "database-transient", "panel-thread",
+    "integrity-alert", "deploy-timeout", "deploy-late", "retention-diagnostic",
+    "reconstruction-time", "reconstruction-date", "reconstruction-authority",
+    "retention-schema", "shadow-latch", "reconstruction-health",
+    "health-recurrence", "dispatcher-deadline", "deployment-global-fence",
+    "deploy-fence-order"
+  ],
+  "rolling_falsifiers": ["python", "-u", "-m", "tools.sentinel_rolling_daily_falsifiers"],
+  "ownership": ["python", "tools/validate_test_responsibility.py", "--base", "748d54e12a4cdb4b5403c56feb8d6b68e47d0104"]
+}

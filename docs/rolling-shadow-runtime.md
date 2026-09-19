@@ -34,7 +34,9 @@ A crash after candidate commit preserves an unattested candidate. Retry may
 attest that exact checkpoint only while its exact publication is still current
 and the next open is future; it must not advance another session or rerun the
 transition. Lost authority-commit acknowledgement returns the existing signed
-authority. An expired candidate refuses and is retained for investigation.
+authority. An expired candidate follows the distinct reconstruction contract in
+[missed-session recovery](rolling-missed-session-recovery.md), preserving state
+without claiming timely authority.
 
 ## Current verification and service routing
 
@@ -49,7 +51,9 @@ current performance readiness. It must not reload expired origin prices.
 The existing service classifies fresh, attested and recoverable-candidate states.
 It initializes only the reviewed genesis publication. It prepares exactly the
 next source-final snapshot only after authenticating existing runtime authority;
-same-session polls verify without acquisition. Gaps and missed cutoffs refuse.
+same-session polls verify without acquisition. Gaps and missed cutoffs use
+[preserved-state recovery](rolling-missed-session-recovery.md) only with dated
+retained inputs; missing evidence remains a named waiting dependency.
 Recovery runs before acquisition. Neither a new genesis nor retrospective
 performance is manufactured. Service configuration continues to reject broker
 credentials and require the reviewed source/configuration/publication digests.

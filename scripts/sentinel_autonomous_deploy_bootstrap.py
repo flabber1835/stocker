@@ -330,12 +330,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
         return backup
 
     def quiesce_backup_and_migrate(self) -> None:
-        self.phase("transition: fence and stop old automation")
-        first_kill = self._try_emergency_kill()
-        self._direct_stop_automation()
-        self._direct_stop_shadow()
-        self.phase("transition: start only behavioral PostgreSQL on preserved volume")
-        self.runner.run(self.base_compose + ["up", "-d", "sentinel-postgres"])
+        first_kill = self._quiesce_database()
 
         self.phase("durability: fresh pre-migration backup and physical replay")
         pre_backup = self._create_backup(restore_drill=False)
@@ -345,8 +340,9 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
 
         self.phase("schema: explicit migration while automation is stopped")
         code = (
-            "import os; from sentinel import schema; from sentinel.feed import store; "
+            "import os; from sentinel import schema,deployment_fence; from sentinel.feed import store; "
             "c=store.connect(os.environ['SENTINEL_DATABASE_URL']); "
+            "deployment_fence.require(c); c.rollback(); "
             "schema.ensure_schema(c); store.migrate_schema(c); c.close(); "
             "print('schema migration PASS')")
         self.runner.run(self.base_compose + [
@@ -356,7 +352,7 @@ class BootstrapDeploy(hardened.AutonomousDeploy):
             raise core.DeployRefused(
                 "durable automation kill could not be confirmed after schema migration")
         if not first_kill:
-            print("  initial kill was unavailable; automation was stopped and durable kill is now confirmed")
+            print("  empty behavioral schema was proved before migration; durable kill is now confirmed")
         status_value = self._automation_status()
         if status_value.get("enabled"):
             self._base_cli([

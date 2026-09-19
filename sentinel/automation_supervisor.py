@@ -21,6 +21,7 @@ from pathlib import Path
 from sentinel.automation_runtime import config_from_env
 from sentinel.config import SentinelConfig
 from sentinel.feed import store as feed_store
+from sentinel import supervisor_io
 
 HOLDER_FILE = Path("/tmp/sentinel-automation-holder-id")
 
@@ -29,6 +30,7 @@ HOLDER_FILE = Path("/tmp/sentinel-automation-holder-id")
 class CallbackWatch:
     state: str | None = None
     observed_at: float | None = None
+    invocation: object = None
 
 
 def _session_process_groups(session_id: int) -> set[int]:
@@ -65,13 +67,17 @@ def _terminate(child: subprocess.Popen, *, grace_seconds: float = 0.0) -> None:
 def _callback_deadline_expired(
         watch: CallbackWatch, *, state: str | None, now_monotonic: float,
         deadline_seconds: float,
-        state_age_seconds: float | None = None) -> bool:
+        state_age_seconds: float | None = None,
+        invocation=None) -> bool:
     if not state or not state.endswith("_CALLBACK"):
         watch.state = None
         watch.observed_at = None
+        watch.invocation = None
         return False
-    if watch.state != state or watch.observed_at is None:
+    if (watch.state != state or watch.observed_at is None
+            or invocation is not None and watch.invocation != invocation):
         watch.state = state
+        watch.invocation = invocation
         watch.observed_at = now_monotonic - max(0.0, state_age_seconds or 0.0)
         return now_monotonic - watch.observed_at > deadline_seconds
     return now_monotonic - watch.observed_at > deadline_seconds
@@ -108,7 +114,11 @@ def _instance_stalled(*, heartbeat_age_seconds: float | None,
 
 
 def _snapshot(database_url: str, holder_id: str):
-    conn = feed_store.connect(database_url)
+    return supervisor_io.run(_read_snapshot, database_url, holder_id)
+
+
+def _read_snapshot(database_url: str, holder_id: str):
+    conn = feed_store.connect(database_url, connect_timeout=1, statement_timeout_ms=750)
     try:
         with conn.cursor() as cur:
             cur.execute(
@@ -118,11 +128,11 @@ def _snapshot(database_url: str, holder_id: str):
             row = cur.fetchone()
         conn.rollback()
         if row is None:
-            return None, None
+            return None, None, None
         state, heartbeat_at, database_now = row
         age = ((database_now - heartbeat_at).total_seconds()
                if heartbeat_at is not None else None)
-        return state, age
+        return state, age, heartbeat_at
     finally:
         conn.close()
 
@@ -147,7 +157,7 @@ def _spawn(
 def main() -> int:
     sentinel_config = SentinelConfig.from_env()
     if not sentinel_config.database_url:
-        print("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
+        supervisor_io.report("REFUSED: SENTINEL_DATABASE_URL is unset", file=sys.stderr)
         return 2
     automation_config = config_from_env()
     poll_seconds = float(os.environ.get(
@@ -155,7 +165,7 @@ def main() -> int:
     startup_grace_seconds = float(os.environ.get(
         "SENTINEL_AUTOMATION_SUPERVISOR_STARTUP_GRACE_SECONDS", "20"))
     if poll_seconds <= 0 or startup_grace_seconds < 0:
-        print("REFUSED: invalid automation supervisor timing", file=sys.stderr)
+        supervisor_io.report("REFUSED: invalid automation supervisor timing", file=sys.stderr)
         return 2
 
     stopping = False
@@ -185,20 +195,22 @@ def main() -> int:
                 break
             now_mono = time.monotonic()
             try:
-                state, heartbeat_age = _snapshot(
+                state, heartbeat_age, invocation = _snapshot(
                     sentinel_config.database_url, holder_id)
+                now_mono = time.monotonic()
                 database_unreadable_since = None
             except Exception as exc:  # noqa: BLE001
+                now_mono = time.monotonic()
                 if database_unreadable_since is None:
                     database_unreadable_since = now_mono
-                print(f"automation supervisor health read failed: {exc}",
+                supervisor_io.report(f"automation supervisor health read failed: {exc}",
                       file=sys.stderr)
                 if _callback_deadline_expired_during_database_loss(
                         watch, now_monotonic=now_mono,
                         database_unreadable_since=database_unreadable_since,
                         deadline_seconds=(
                             automation_config.callback_deadline_seconds)):
-                    print(
+                    supervisor_io.report(
                         f"automation supervisor terminating worker {holder_id}: "
                         "database authority was unobservable for the hard "
                         f"{automation_config.callback_deadline_seconds}s "
@@ -212,8 +224,8 @@ def main() -> int:
             if _callback_deadline_expired(
                     watch, state=state, now_monotonic=now_mono,
                     deadline_seconds=automation_config.callback_deadline_seconds,
-                    state_age_seconds=heartbeat_age):
-                print(
+                    state_age_seconds=heartbeat_age, invocation=invocation):
+                supervisor_io.report(
                     f"automation supervisor terminating worker {holder_id}: "
                     f"{state} exceeded "
                     f"{automation_config.callback_deadline_seconds}s deadline",
@@ -229,7 +241,7 @@ def main() -> int:
                     state=state):
                 age_detail = ("missing" if heartbeat_age is None
                               else f"{heartbeat_age:.3f}s")
-                print(
+                supervisor_io.report(
                     f"automation supervisor terminating stalled worker "
                     f"{holder_id}: heartbeat age {age_detail}; lease "
                     f"{automation_config.lease_seconds}s",

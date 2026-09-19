@@ -132,8 +132,8 @@ def test_retry_backoff_dead_letter_and_ack_are_durable(conn) -> None:
     dead = outbox.mark_failed(
         conn, alert_id=alert.alert_id, holder_id="alerter",
         attempt=second.attempt_count,
-        error="still unavailable", retry_base_seconds=10,
-        retry_max_seconds=60)
+        error="credentials explicitly rejected", retry_base_seconds=10,
+        retry_max_seconds=60, retryable=False)
     assert dead.state is AlertState.DEAD_LETTER
 
     acknowledged = outbox.acknowledge(
@@ -174,7 +174,7 @@ def test_expired_delivery_claim_is_recovered_with_same_idempotency_key(conn) -> 
     assert recovered.delivery_holder == "replacement"
 
 
-def test_repeated_crash_after_claim_dead_letters_at_max_attempts(conn) -> None:
+def test_repeated_crash_after_claim_remains_recoverable(conn) -> None:
     alert = outbox.enqueue(
         conn, idempotency_key="crash-after-every-claim",
         event_type="AUTOMATION_BLOCKED", severity="CRITICAL", payload={},
@@ -200,19 +200,18 @@ def test_repeated_crash_after_claim_dead_letters_at_max_attempts(conn) -> None:
             " WHERE alert_id=%s", (alert.alert_id,))
     conn.commit()
 
-    assert outbox.claim_next(
-        conn, holder_id="must-not-receive-third", claim_seconds=30) is None
-    exhausted = outbox.load_alert(conn, alert.alert_id)
-    assert exhausted.state is AlertState.DEAD_LETTER
-    assert exhausted.attempt_count == 2
-    assert exhausted.delivery_holder is None
-    assert exhausted.last_error == "delivery claim expired at maximum attempts"
+    recovered = outbox.claim_next(
+        conn, holder_id="third", claim_seconds=30)
+    assert recovered.state is AlertState.DELIVERING
+    assert recovered.attempt_count == 3
+    assert recovered.delivery_holder == "third"
+    assert recovered.idempotency_key == alert.idempotency_key
     with conn.cursor() as cur:
         cur.execute(
             "SELECT action FROM sentinel_alert_delivery_events"
             " WHERE alert_id=%s ORDER BY seq", (alert.alert_id,))
         assert [row[0] for row in cur.fetchall()] == [
-            "CLAIMED", "RETRY_SCHEDULED", "CLAIMED", "DEAD_LETTERED"]
+            "CLAIMED", "RETRY_SCHEDULED", "CLAIMED", "RETRY_SCHEDULED", "CLAIMED"]
 
 
 def test_concurrent_claimers_receive_distinct_alerts(conn, pg) -> None:
@@ -278,7 +277,8 @@ async def test_dispatch_failure_is_committed_not_lost(conn) -> None:
     result = await outbox.dispatch_once(
         conn, adapter=BrokenAdapter(), holder_id="alert-worker")
 
-    assert result.dead_lettered
+    assert not result.dead_lettered
+    assert result.alert.state is AlertState.PENDING
     assert "TimeoutError" in result.error
 
 

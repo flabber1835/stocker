@@ -133,8 +133,8 @@ def _enqueue_health_incident(conn, *, health, max_attempts: int):
 
     BLOCKED/terminal cycle and kill events already have immutable identities.
     Reusing those identities avoids waking the operator twice for one incident.
-    Scheduler/authority failures without such an event get one stable health
-    identity for the current generation and cycle.
+    Scheduler/authority failures without such an event get a durable occurrence
+    that is rearmed only by an observed recovery or changed incident identity.
     """
     cycle_state = str(health.latest_cycle_state or "").upper()
     if (health.policy_state == "BLOCKED" and health.latest_cycle_id
@@ -156,10 +156,18 @@ def _enqueue_health_incident(conn, *, health, max_attempts: int):
         health.policy_state, health.control_generation,
         health.latest_cycle_id, health.latest_cycle_state,
         health.broker_outcome_unresolved)
+    key = outbox._json({"identity": identity})
+    row = conn.execute("SELECT active_identity,occurrence FROM sentinel_alert_health_cursor WHERE id=1 FOR UPDATE").fetchone()
+    if row is None:
+        raise AutomationRefused("notification health cursor is missing; explicit migration required")
+    occurrence = int(row[1])
+    if row[0] != key:
+        occurrence += 1
+        conn.execute("UPDATE sentinel_alert_health_cursor SET active_identity=%s,occurrence=%s WHERE id=1",
+                     (key, occurrence))
     return outbox.enqueue(
         conn,
-        idempotency_key=(
-            "automation-health:" + ":".join(str(part) for part in identity)),
+        idempotency_key=f"automation-health-occurrence:{occurrence}",
         event_type="AUTOMATION_OPERATIONAL_RED",
         severity="CRITICAL",
         payload={
@@ -170,6 +178,36 @@ def _enqueue_health_incident(conn, *, health, max_attempts: int):
             "broker_outcome_unresolved": health.broker_outcome_unresolved,
         },
         max_attempts=max_attempts)
+
+
+def _observe_health(conn, *, health, max_attempts):
+    """Durable occurrence and outbox insertion share the enqueue commit."""
+    try:
+        if _active_incident(health):
+            return _enqueue_health_incident(conn, health=health, max_attempts=max_attempts)
+        if health.healthy:
+            result = conn.execute("UPDATE sentinel_alert_health_cursor SET active_identity=NULL WHERE id=1")
+            if result.rowcount != 1:
+                raise AutomationRefused("notification health cursor is missing; explicit migration required")
+            conn.commit()
+        else:
+            conn.rollback()  # Unknown observations cannot rearm an incident.
+        return None
+    except BaseException:
+        conn.rollback()
+        raise
+
+
+def _active_incident(health):
+    if health.policy_state in {
+            'CORRUPT', 'UNCERTIFIABLE_OBSERVATIONS',
+            'KILLED_BROKER_OUTCOME_UNRESOLVED',
+            'DISABLED_BROKER_OUTCOME_UNRESOLVED'}:
+        return True
+    return bool(health.enabled and not health.kill_switch_engaged
+                and health.policy_state in {
+                    'SCHEDULER_STALLED', 'SCHEDULER_OVERDUE', 'WAITING_FOR_LEADER',
+                    'AUTHORITY_FAILED', 'AUTHORITY_INVALID', 'BLOCKED'})
 
 
 async def run() -> int:
@@ -246,15 +284,8 @@ async def run() -> int:
     database_incident_bucket: int | None = None
     database_incident_detail: str | None = None
     database_incident_reported = False
-    last_health_key: tuple | None = None
     last_probe_at: float | None = None
     registered = False
-    externally_critical = {
-        "SCHEDULER_STALLED", "SCHEDULER_OVERDUE", "WAITING_FOR_LEADER",
-        "AUTHORITY_FAILED", "AUTHORITY_INVALID", "BLOCKED",
-        "KILLED_BROKER_OUTCOME_UNRESOLVED",
-        "DISABLED_BROKER_OUTCOME_UNRESOLVED",
-    }
 
     def report_database_failure(*, detail: str) -> None:
         nonlocal database_incident_bucket
@@ -278,12 +309,14 @@ async def run() -> int:
             database_incident_reported = True
 
     while not stopped.is_set():
+        from sentinel.alert_supervisor import progress
+        progress()
         conn = None
         result = None
         try:
             # Database failures are isolated to database-backed operations. A
             # later webhook failure must never enter this classification path.
-            conn = feed_store.connect(config.database_url)
+            conn = feed_store.connect(config.database_url, connect_timeout=3, statement_timeout_ms=2000)
             if registered:
                 alert_health.heartbeat(conn, dispatcher_id=dispatcher_id)
             else:
@@ -299,27 +332,7 @@ async def run() -> int:
             continue
 
         try:
-            active_incident = bool(
-                health.policy_state in externally_critical
-                and ((health.enabled and not health.kill_switch_engaged)
-                     or health.policy_state in {
-                         "KILLED_BROKER_OUTCOME_UNRESOLVED",
-                         "DISABLED_BROKER_OUTCOME_UNRESOLVED",
-                     }))
-            if active_incident:
-                health_key = (
-                    health.policy_state, health.control_generation,
-                    health.latest_cycle_id, health.latest_cycle_state,
-                    health.broker_outcome_unresolved)
-                if health_key != last_health_key:
-                    try:
-                        _enqueue_health_incident(
-                            conn, health=health,
-                            max_attempts=automation.alert_max_attempts)
-                    except AutomationRefused as exc:
-                        conn.rollback()
-                        _report_transport_failure(exc)
-                    last_health_key = health_key
+            _observe_health(conn, health=health, max_attempts=automation.alert_max_attempts)
             result = await outbox.dispatch_once(
                 conn, adapter=adapter, holder_id=holder,
                 claim_seconds=automation.alert_claim_seconds,
@@ -389,7 +402,12 @@ async def run() -> int:
 
 
 def main() -> int:
-    return asyncio.run(run())
+    if sys.argv[1:] == ['--worker']:
+        if 'SENTINEL_ALERT_PROGRESS_FD' not in os.environ:
+            raise ValueError('alert worker requires its supervisor progress pipe')
+        return asyncio.run(run())
+    from sentinel.alert_supervisor import main as supervise
+    return supervise()
 
 
 if __name__ == "__main__":  # pragma: no cover

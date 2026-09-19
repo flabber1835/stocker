@@ -193,7 +193,17 @@ def classify_dependency_failure(
         exc: BaseException) -> AutomationRefused | None:
     """Map reviewed dependency failures; leave programming defects unknown."""
     from sentinel.backup_guard import BackupConfigurationRefused, BackupUnavailable
+    from sentinel.dependency_availability import database_unavailable
+    from sentinel.execution.guarded import BrokerAuthorityCheckFailed, PreTransportAuthorityRefused
 
+    if isinstance(exc, (BrokerAuthorityCheckFailed, PreTransportAuthorityRefused)):
+        # Only wrappers identifying a failed check preserve a temporary cause.
+        # Never peel arbitrary integrity/refusal chains to find permission.
+        if exc.__cause__ is not None and exc.__cause__ is not exc:
+            mapped = classify_dependency_failure(exc.__cause__)
+            if isinstance(mapped, TransientInfrastructureFailure):
+                return mapped
+        return None
     if isinstance(exc, AutomationRefused):
         return exc
     if isinstance(exc, BackupConfigurationRefused):
@@ -226,15 +236,11 @@ def classify_dependency_failure(
         return PermanentOperationalRefusal(detail)
 
     sqlstate = str(getattr(exc, "sqlstate", "") or "")
-    module = type(exc).__module__.lower()
     name = type(exc).__name__
     if sqlstate.startswith("28") or sqlstate == "42501":
         return PermanentOperationalRefusal(
             f"PostgreSQL authority/configuration refusal {sqlstate}: {exc}")
-    if (sqlstate.startswith(("08", "40", "53"))
-            or sqlstate in {"55P03", "57P01", "57P02", "57P03"}
-            or module.startswith(("psycopg", "psycopg2"))
-            and name in {"OperationalError", "InterfaceError"}):
+    if database_unavailable(exc):
         return TransientInfrastructureFailure(
             f"PostgreSQL transient failure {sqlstate or name}: {exc}")
     if isinstance(exc, (TimeoutError, ConnectionError)):
@@ -882,6 +888,9 @@ class ProductionAutomation:
                 raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
                     paper.PaperActivationRefused) as exc:
+                mapped = classify_dependency_failure(exc)
+                if isinstance(mapped, TransientInfrastructureFailure):
+                    raise mapped from exc
                 raise NonRetryableCallbackRefused(
                     f"automation preparation refused: {exc}") from exc
             dual_reconciliation = self._require_dual_plan_shadow_match(
@@ -955,6 +964,9 @@ class ProductionAutomation:
                 raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
                     paper.PaperActivationRefused) as exc:
+                mapped = classify_dependency_failure(exc)
+                if isinstance(mapped, TransientInfrastructureFailure):
+                    raise mapped from exc
                 raise NonRetryableCallbackRefused(
                     f"automation recovery refused: {exc}") from exc
             deployment = DeploymentIdentity(
@@ -1193,6 +1205,9 @@ class ProductionAutomation:
                 raise TransientInfrastructureFailure(str(exc)) from exc
             except (AuthorityRefused, BrokerAuthorityRefused,
                     paper.PaperActivationRefused) as exc:
+                mapped = classify_dependency_failure(exc)
+                if isinstance(mapped, TransientInfrastructureFailure):
+                    raise mapped from exc
                 raise NonRetryableCallbackRefused(
                     f"automation execution refused: {exc}") from exc
             final_reconciliation = result.session.reconciliation

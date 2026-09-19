@@ -95,8 +95,13 @@ def _rolling_closure(conn):
         return {"state_present": False, "publication_version": pub.version}
     context = rolling_initialization._context(initial.observation_id, initial.starting_cash)
     checkpoint, _, _, attested, _ = rolling_runtime._closure(conn, context)
-    return {"state_present": True, "publication_version": pub.version,
-            "session": checkpoint.session, "attested": attested is not None}
+    from sentinel.rolling_authority import ReconstructionReceipt
+    result = {"state_present": True, "publication_version": pub.version,
+              "session": checkpoint.session,
+              "attested": attested is not None and not isinstance(attested, ReconstructionReceipt)}
+    if isinstance(attested, ReconstructionReceipt):
+        result["reconstructed"] = True
+    return result
 
 
 def validate_restored_database(conn) -> dict:

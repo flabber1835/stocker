@@ -1,6 +1,19 @@
 """Catalog witnesses for retained evidence and controlled retirement."""
 from sentinel.feed import rolling_catalog, rolling_job_catalog
 
+
+def require_recovery_pin(cur):
+    """A stale pin function can destroy the only remaining recovery inputs."""
+    from sentinel.feed.retention_schema import DDL
+    from sentinel.feed.runtime_schema import _refuse
+    statement = next(sql for sql in DDL if sql.startswith(
+        "CREATE OR REPLACE FUNCTION sentinel_snapshot_pins("))
+    expected = statement.split("$$")[1]
+    cur.execute("SELECT prosrc FROM pg_proc WHERE oid=to_regprocedure('public.sentinel_snapshot_pins(uuid)')")
+    row = cur.fetchone()
+    if row is None or " ".join(row[0].split()) != " ".join(expected.split()):
+        raise _refuse("snapshot recovery pin function has changed semantics")
+
 COLUMNS = {
     "sentinel_action_history": {
         "session": ("date", True), "publication_version": ("bigint", True),

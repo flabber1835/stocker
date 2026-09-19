@@ -271,7 +271,7 @@ def test_actual_shadow_service_initializes_and_acquires_next_snapshot(conn, publ
     assert data["calls"] == calls
 
 
-def test_production_worker_gap_refuses_without_legacy_catchup(conn, published, monkeypatch):
+def test_production_worker_gap_waits_without_legacy_catchup(conn, published, monkeypatch):
     advance(conn)
     class Borrowed:
         def __getattr__(self, name):
@@ -283,11 +283,11 @@ def test_production_worker_gap_refuses_without_legacy_catchup(conn, published, m
     monkeypatch.setattr(shadow_recovery, "_roll_and_advance",
         lambda *_a, **_k: attempts.append("legacy recovery"))
     monkeypatch.setattr(calendar, "latest_closed_session", lambda now=None: "2026-09-16")
+    monkeypatch.setattr(initial, "_now", lambda conn: NOW + timedelta(days=2))
     config = shadow_service.ShadowServiceConfig("fixture", OBS, Decimal("100000"),
         shadow_runtime.SHADOW_PUBLICATION_TIMING_POLICY, 300)
-    with pytest.raises(shadow_service.ShadowServiceRefused, match="SESSION_GAP"):
+    with pytest.raises(shadow_service.ShadowServiceWaiting, match="MISSING_DATED_PUBLICATION:2026-09-15"):
         shadow_recovery.advance_once(config, now=NOW + timedelta(days=2))
     assert attempts == []
     assert daily_cp.read(conn) is None
-    with pytest.raises(shadow_service.ShadowServiceRefused, match="more than one"):
-        shadow_recovery.service_health(config, now=NOW + timedelta(days=2))
+    assert shadow_recovery.service_health(config, now=NOW + timedelta(days=2))["service_health"] == "RECONSTRUCTION_PENDING"
