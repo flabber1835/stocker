@@ -23,7 +23,15 @@ python audit/economic_399/recurring_maintenance/run_local.py mutations
 # all 15 mutants KILLED
 ```
 
-Counts overlap earlier campaigns. Raw logs and current changed-source hashes
-are retained beside this file. The earlier results.zip and its source hashes
+Counts overlap earlier campaigns. Raw logs are retained byte-for-byte in
+`raw-logs.zip`; `raw-log-SHA256SUMS.json` binds each archive member to the original
+committed bytes. Current changed-source and package hashes remain beside this
+file. The earlier results.zip and its source hashes
 remain unchanged historical evidence. NAS/provider/certification gates remain
 open. This repairs validation portability, not an economic calculation defect.
+
+The subsequent operator job (run 35467141288, job 105962065156) passed its
+tests but failed `git diff --check HEAD^ HEAD` because the loose raw logs
+contained CRLF and trailing spaces. Archive packaging preserves those exact
+bytes without weakening the whitespace check or rewriting evidence. Validate
+both `git diff --check HEAD^ HEAD` and the complete PR diff before delivery.

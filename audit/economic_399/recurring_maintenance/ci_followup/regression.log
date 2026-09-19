@@ -1,8 +1,0 @@
-["docker", "run", "--rm", "--network", "none", "--mount", "type=bind,source=C:/GitHub/stocker/.codex-tmp/backup-maintenance-worktree,target=/source,readonly", "--entrypoint", "python", "sentinel-test:ci", "-u", "-c", "import os,shutil,subprocess,sys\nshutil.copytree('/source','/tmp/repo',ignore=shutil.ignore_patterns('.git','.env','__pycache__'))\nos.chdir('/tmp/repo')\nos.environ.update(PYTHONPATH='/tmp/repo:/tmp/repo/shared:/tmp/repo/scripts',SENTINEL_REPO_ROOT='/tmp/repo',PYTHONDONTWRITEBYTECODE='1')\nraise SystemExit(subprocess.run([sys.executable,*sys.argv[1:]]).returncode)\n", "-m", "pytest", "tests/backup", "tests/sentinel/test_backup_contract.py", "tests/sentinel/test_backup_owner_contract.py", "tests/sentinel/test_backup_orchestration_hardening.py", "tests/sentinel/test_go_backup_refresh.py", "tests/scripts/test_sentinel_backup_visibility.py", "-q", "-ra", "--tb=short", "-p", "no:cacheprovider"]
-........................................................................ [ 19%]
-........................................................................ [ 38%]
-........................................................................ [ 58%]
-........................................................................ [ 77%]
-........................................................................ [ 97%]
-...........                                                              [100%]
-371 passed in 260.39s (0:04:20)
