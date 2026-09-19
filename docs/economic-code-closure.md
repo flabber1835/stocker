@@ -639,3 +639,30 @@ resource review** also includes base-directory enumeration
 (`sentinel/backup_runtime_authority.py:131`) and full manifest parsing (`:175`).
 The pre-existing full-universe status and filesystem-progress gates remain open.
 No NAS or real broker account was accessed.
+
+### Compact rolling status input review (A12/A1)
+
+Reviewed from current main `e3dfb033d25ed68e5e1f6d2386285afabc62e801`
+(owner-merged #411). **P2, locally fixed:** the read-only status path discarded
+its input material only after retaining 252 sessions for every security. A
+5,000-security / 300-session synthetic input-phase probe measured 778,904 KiB
+Python peak RSS, above the panel's 512 MiB limit. This is evidence of excessive
+allocation, not evidence of a deployed OOM or an incorrect historical return.
+
+`rolling_runtime._current` now uses compact readiness counts, with the same
+complete sealed-content hashes, dated security mapping, action checks, source
+clock, publication pin and readiness thresholds. The strategy materialization
+API and economic state are preserved. Independent SQL counts, production status
+tripwires and guard-removal failures accompany the existing runtime regressions.
+The compact input phase measured 130,592 KiB peak RSS on the same synthetic scale;
+it still took 28.70 seconds. Source identity changes require the existing reviewed
+continuation boundary; prior certificates and golden artifacts are not rewritten.
+
+**Open P2:** complete status/checkpoint and reference/action-history memory,
+full-hash scan latency, concurrent panel requests and target resource limits.
+The input-phase measurement does not close these gates. Proactive maintenance
+and heartbeat supervision are tracked separately in pending #413 and #414.
+Provider cash/fill/predecessor guarantees, authoritative historical economic
+deltas and NAS qualification remain open. Step 1 and certification are not
+complete. See [design](rolling-status-resource-bounds.md) and
+[commands, retained evidence and qualification procedure](../audit/economic_399/rolling_status/README.md).
