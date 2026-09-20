@@ -20,6 +20,79 @@ from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # n
 __all__ = ['ready', 'issuer_source', 'published', 'operational_source', 'conn', 'pg', 'source']
 
 
+@pytest.mark.parametrize('length', [0, 1, 255, 256, 257, 512, 513, 1301])
+def test_batched_json_matches_independent_standard_encoder(length):
+    from sentinel.core.session import _canonical_chunks, _hash, _validate_json
+    values = [None, True, False, -0.0, 1e-300, 1e300, -2**64, 2**64,
+              '\U0001f642\n"\\\ud800', 'x'*65, [2, 1], {'z': 3, 'a': 2}]
+    value = {'z': [values[i % len(values)] for i in range(length)],
+             'a': tuple(range(length)), 'numeric_keys': {2: 'b', 1: 'a'}}
+    expected = json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    assert ''.join(_canonical_chunks(value)) == expected
+    expected_hash = hashlib.sha256(expected.encode('ascii')).hexdigest()
+    assert _hash(value) == shadow._sha256(value) == expected_hash
+    _validate_json(value)
+
+
+def test_batched_json_fuzz_and_final_element_commitment():
+    import random
+    from sentinel.core.session import _canonical_chunks, _hash
+    rng = random.Random(399)
+    def generate(depth):
+        if depth == 0:
+            return rng.choice([None, False, rng.uniform(-1e40, 1e40), rng.randrange(-2**80, 2**80),
+                               ''.join(chr(rng.randrange(0x110000)) for _ in range(10))])
+        children = [generate(depth-1) for _ in range(rng.randrange(6))]
+        return children if rng.randrange(2) else {str(i): v for i, v in enumerate(children)}
+    for _ in range(100):
+        value = generate(4)
+        assert ''.join(_canonical_chunks(value)) == json.dumps(
+            value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    series = list(range(1301))
+    original = _hash(series)
+    series[-1] = -999
+    assert _hash(series) != original
+
+
+@pytest.mark.parametrize('invalid', [float('nan'), float('inf'), -float('inf'), object(),
+                                    {1: 'a', 'z': 'b'}, {('invalid',): 1}])
+def test_batched_json_rejects_invalid_value_in_last_batch(invalid):
+    from sentinel.core.session import _canonical_chunks, _hash, _validate_json
+    value = {'array': [0]*512 + [invalid]}
+    with pytest.raises((TypeError, ValueError)):
+        json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    for operation in (lambda v: list(_canonical_chunks(v)), _hash, _validate_json):
+        with pytest.raises((TypeError, ValueError)):
+            operation(value)
+    with pytest.raises(shadow.ShadowObservationRefused):
+        shadow._sha256(value)
+
+
+def test_batched_json_refuses_cycles_but_allows_shared_children():
+    from sentinel.core.session import _canonical_chunks
+    child = [1, 2]
+    assert ''.join(_canonical_chunks([child, child])) == '[[1,2],[1,2]]'
+    child.append({'parent': child})
+    with pytest.raises(ValueError, match='Circular reference'):
+        list(_canonical_chunks(child))
+
+
+def test_batched_json_never_encodes_a_whole_large_array(monkeypatch):
+    from sentinel.core.session import _canonical_chunks
+    original = json.JSONEncoder.encode
+    sizes = []
+    def encode(self, value):
+        if isinstance(value, (list, tuple)):
+            sizes.append(len(value))
+            assert len(value) <= 256
+        return original(self, value)
+    monkeypatch.setattr(json.JSONEncoder, 'encode', encode)
+    chunks = list(_canonical_chunks({'prices': [1.25]*10001}))
+    assert json.loads(''.join(chunks)) == {'prices': [1.25]*10001}
+    assert max(map(len, chunks)) <= 256*5
+    assert len(sizes) >= 40 and sum(sizes) == 10001
+
+
 def assert_original_serialization(state):
     from sentinel.core import session
     namespace = dict(vars(session), asdict=asdict)

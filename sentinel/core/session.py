@@ -55,15 +55,74 @@ _PLAN_EVIDENCE_FIELDS = (
     "open_unresolved_security_ids", "hashes", "warnings")
 
 
+def _canonical_chunks(value):
+    """Strict canonical JSON, with bounded C-encoder batches for feed arrays.
+
+    Every spelling still comes from the standard encoder. Container traversal
+    avoids constructing a full encoded checkpoint or yielding each price through
+    all its ancestors. Markers are local to this traversal, never a verdict cache.
+    """
+    encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"), allow_nan=False)
+    active = set()
+
+    def small_scalar(item):
+        kind = type(item)
+        return (item is None or kind in (bool, float)
+                or kind is int and item.bit_length() <= 64
+                or kind is str and len(item) <= 64)
+
+    def walk(item):
+        if type(item) not in (dict, list, tuple):
+            yield from encoder.iterencode(item)
+            return
+        marker = id(item)
+        if marker in active:
+            raise ValueError("Circular reference detected")
+        active.add(marker)
+        try:
+            if type(item) is dict:
+                if not all(isinstance(key, str) for key in item):
+                    # Preserve the standard encoder's numeric-key and mixed-key
+                    # behavior; production state uses string keys throughout.
+                    yield from encoder.iterencode(item)
+                    return
+                yield "{"
+                for index, key in enumerate(sorted(item)):
+                    if index:
+                        yield ","
+                    yield encoder.encode(key)
+                    yield ":"
+                    yield from walk(item[key])
+                yield "}"
+            else:
+                yield "["
+                for start in range(0, len(item), 256):
+                    batch = item[start:start + 256]
+                    if start:
+                        yield ","
+                    if all(small_scalar(element) for element in batch):
+                        yield encoder.encode(batch)[1:-1]
+                    else:
+                        for index, element in enumerate(batch):
+                            if index:
+                                yield ","
+                            yield from walk(element)
+                yield "]"
+        finally:
+            active.remove(marker)
+
+    yield from walk(value)
+
+
 def _hash(value) -> str:
     digest = hashlib.sha256()
-    for chunk in json.JSONEncoder(sort_keys=True, separators=(",", ":"), allow_nan=False).iterencode(value):
+    for chunk in _canonical_chunks(value):
         digest.update(chunk.encode())
     return digest.hexdigest()
 
 
 def _validate_json(value) -> None:
-    for _ in json.JSONEncoder(sort_keys=True, allow_nan=False).iterencode(value):
+    for _ in _canonical_chunks(value):
         pass
 
 

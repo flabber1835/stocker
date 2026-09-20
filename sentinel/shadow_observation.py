@@ -34,6 +34,7 @@ from sentinel.controller.machine import Controller
 from sentinel.core.kernel import advance_session as advance_state
 from sentinel.core.production import (
     DefensiveBar, PublishedSession, SessionState, load_published_session)
+from sentinel.core.session import _canonical_chunks
 from sentinel.feed import calendar
 
 
@@ -117,8 +118,7 @@ def _canonical_value(value: Any) -> Any:
 def _sha256(value: Any) -> str:
     digest = hashlib.sha256()
     try:
-        encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"), allow_nan=False)
-        for chunk in encoder.iterencode(value):
+        for chunk in _canonical_chunks(value):
             digest.update(chunk.encode("ascii"))
     except (TypeError, ValueError) as exc:
         raise ShadowObservationRefused(
