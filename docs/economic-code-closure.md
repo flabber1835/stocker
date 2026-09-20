@@ -766,6 +766,7 @@ not replace those consumers' economic inputs or warmup identity. Pending #413
 implements recurring maintenance; pending #414 addresses heartbeat supervision.
 Their CI/integration and independent filesystem/host qualification remain distinct.
 No required provider/data/NAS gate is closed by these resource fixes.
+<<<<<<< HEAD
 
 ### Complete public status and HTTP concurrency review
 
@@ -801,3 +802,5 @@ unchanged; Stage 1 and economic certification remain incomplete.
 
 See the [design](full-status-resource-review.md) and
 [retained measurements, exact commands and NAS handoff](../audit/economic_399/full_status/README.md).
+=======
+>>>>>>> origin/main
