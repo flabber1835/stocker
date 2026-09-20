@@ -3,7 +3,7 @@ from __future__ import annotations
 
 from datetime import timedelta
 from decimal import Decimal as D
-from unittest.mock import MagicMock
+import json
 
 import pytest
 
@@ -11,7 +11,8 @@ from sentinel.execution import broker_cash, recovery
 from sentinel.execution.contract import Completeness
 from sentinel.execution.states import CommandState as S, blocks_overlapping
 from tests.support.alpaca_simulator import AlpacaSimulator, EPOCH, Profile
-from test_alpaca_simulation_harness import command, run, submit
+from test_alpaca_simulation_harness import DEPLOY, command, run, submit
+from tests.sentinel.test_alpaca_simulation_durability import conn, pg  # noqa: F401
 from tools import sentinel_mutation_certify
 
 
@@ -124,23 +125,28 @@ def test_pytest_setup_errors_cannot_count_as_mutant_kill(tmp_path):
 @pytest.mark.parametrize("financial_sse", [False, True], ids=["legacy-rest", "sse"])
 @pytest.mark.parametrize("advance_seconds", [0, 60], ids=["same-time", "later"])
 def test_old_zero_cursor_replays_owned_interval(
-        monkeypatch, financial_sse, advance_seconds):
+        conn, financial_sse, advance_seconds):
     established = EPOCH - timedelta(days=1)
     activity_at = EPOCH - timedelta(hours=1)
     activity = broker_cash.BrokerCashActivity(
         activity_id="old-zero-split", activity_type="SPLIT",
         activity_date=activity_at.date(), net_amount=D(0), raw={})
     prior = broker_cash.CashActivityState(
-        broker="alpaca", account_id="old-zero-account", processed_through=EPOCH,
+        broker="alpaca", account_id=DEPLOY.broker_account_id, processed_through=EPOCH,
         last_activity_id=activity.activity_id, balance_total=D(0),
         last_event_id="event-100" if financial_sse else None,
         activity_identity_scheme=(
             broker_cash.ACTIVITY_IDENTITY_SCHEME if financial_sse else None))
-    monkeypatch.setattr(broker_cash, "load_activity_state", lambda *a, **kw: prior)
-    monkeypatch.setattr(
-        broker_cash, "_binding_established_at", lambda *a, **kw: established)
-    conn = MagicMock()
-    conn.cursor.return_value.__enter__.return_value.fetchone.return_value = (D(0), False)
+    payload = dict(kind='broker-cash-activity/v3' if financial_sse else 'broker-cash-activity/v2',
+                   broker=prior.broker, account_id=prior.account_id,
+                   processed_through=EPOCH.isoformat(), last_activity_id=activity.activity_id,
+                   last_event_id=prior.last_event_id, balance_total='0')
+    if financial_sse:
+        payload['activity_identity_scheme'] = prior.activity_identity_scheme
+    conn.execute('INSERT INTO sentinel_processed_sessions (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)',
+                 (broker_cash._activity_cursor_name(prior.broker, prior.account_id),
+                  EPOCH.date(), json.dumps(payload)))
+    conn.commit()
     calls = []
 
     class BoundedReplay:
@@ -166,7 +172,9 @@ def test_old_zero_cursor_replays_owned_interval(
     assert state.last_event_id == prior.last_event_id
     assert state.activity_identity_scheme == prior.activity_identity_scheme
 
-    monkeypatch.setattr(broker_cash, "load_activity_state", lambda *a, **kw: state)
+    conn.commit()
+    assert broker_cash.load_activity_state(conn, broker=prior.broker, account_id=prior.account_id) == state
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_processed_sessions WHERE cursor_name LIKE 'broker-cash-zero:v1:%'").fetchone()[0] == 1
     next_upper = upper + timedelta(seconds=60)
     run(broker_cash.ingest_account_cash(
         conn, broker_adapter=adapter, broker="alpaca", account_id=prior.account_id,
