@@ -182,7 +182,8 @@ jobs:
     name: sentinel-suite-${{ matrix.lane }}
     needs: [runtime-build]
     runs-on: ubuntu-latest
-    timeout-minutes: 45
+    # Main runs both complete partitions serially; other lanes retain 45 minutes.
+    timeout-minutes: ${{ matrix.lane == 'sentinel-main' && 75 || 45 }}
     strategy:
       fail-fast: false
       matrix:

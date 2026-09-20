@@ -1,0 +1,8 @@
+{
+  "archive_sha256": "88f4fdd6ed4a7ed01a54ef1f443f3dad416c93dcba2ee798d3c033ee48690e64",
+  "archive_bytes": 163180,
+  "members": {
+    "main-job.log": "c3a218b9ca1401e26b3db455b34c0638935d52558d2d509c03a3afad34959fd7",
+    "main-job.json": "59aed03586ca0d8fb86dcaee3f8a3721388d29d09953af13361143a383915dcc"
+  }
+}
