@@ -11,7 +11,9 @@ def main():
 shutil.copytree('/source','/tmp/repo',ignore=shutil.ignore_patterns('.git','.env','__pycache__'))
 os.chdir('/tmp/repo')
 os.environ.update(PYTHONPATH='/tmp/repo:/tmp/repo/shared:/tmp/repo/scripts',SENTINEL_REPO_ROOT='/tmp/repo',PYTHONDONTWRITEBYTECODE='1')
-raise SystemExit(subprocess.run([sys.executable,'audit/economic_399/local_closeout/campaign.py',*sys.argv[1:]]).returncode)
+script = 'storage_mutations.py' if sys.argv[1:2] == ['storage'] else 'campaign.py'
+args = sys.argv[2:] if sys.argv[1:2] == ['storage'] else sys.argv[1:]
+raise SystemExit(subprocess.run([sys.executable,'audit/economic_399/local_closeout/'+script,*args]).returncode)
 '''
     command = ['docker', 'run', '--rm', '--network', 'none', '--memory', '4g',
                '--cpus', '2', '--mount',

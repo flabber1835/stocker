@@ -969,15 +969,16 @@ class PostgresShadowObservationStore:
         with self.conn.cursor() as cur:
             self._compact_decoder(cur)
             cur.execute(
-                "SELECT session,CASE WHEN jsonb_typeof(state#>%s)='object' THEN state#-%s ELSE state END,"
+                "SELECT session,CASE WHEN jsonb_typeof(state#>%s)='object' AND NOT state ? %s THEN state#-%s ELSE state END,"
                 " jsonb_typeof(state#>%s)='object' FROM sentinel_processed_sessions WHERE cursor_name=%s",
-                (path, path, path, name))
+                (path, observation_storage.STORAGE_KEY, path, path, name))
             row = cur.fetchone()
         if row is None:
             return None
         session, value, split = row
+        compressed = isinstance(value, dict) and observation_storage.STORAGE_KEY in value
         value = self._owned_mapping(value, where=name)
-        if split:
+        if split and not compressed:
             series = value[state_field]["feed"]["series"] = {}
             with self.conn.cursor(name="shadow_status_" + uuid4().hex) as cur:
                 cur.itersize = 32
@@ -990,12 +991,16 @@ class PostgresShadowObservationStore:
         return session, value
 
     @staticmethod
-    def _owned_mapping(value, *, where):
+    def _owned_mapping(value, *, where, exact_numbers=False):
         # A JSONB decoder owns this fresh object; there is no store-side alias.
         # Other observation stores still use the defensive canonical round trip.
         if not isinstance(value, dict):
             raise ShadowObservationRefused(f"{where} is not an object")
-        return value
+        try:
+            return observation_storage.decode(value, loads=_compact_json_decoder(
+                number_type=Decimal if exact_numbers else float))
+        except (ValueError, TypeError, KeyError, ArithmeticError) as exc:
+            raise ShadowObservationRefused(f'{where}: invalid observation storage: {exc}') from exc
 
     def matches_genesis(self, expected: Mapping[str, Any]) -> bool | None:
         """One coherent full-value comparison, with exact stored JSON decimals."""
@@ -1006,7 +1011,8 @@ class PostgresShadowObservationStore:
                 (self._genesis_name,))
             row = cur.fetchone()
         return None if row is None else (str(row[0]) == expected["first_session"]
-            and observation_storage.exact_value_equal(row[1], expected))
+            and observation_storage.exact_value_equal(self._owned_mapping(
+                row[1], where=self._genesis_name, exact_numbers=True), expected))
 
     def append_genesis(self, genesis: Mapping[str, Any]) -> None:
         candidate = _as_mapping(genesis, where="shadow observation genesis")
@@ -1028,7 +1034,7 @@ class PostgresShadowObservationStore:
                 raise ShadowObservationRefused(
                     "shadow observation genesis did not become durable")
             stored = self._owned_mapping(
-                row[1], where=f"shadow observation row {self._genesis_name}")
+                row[1], where=f"shadow observation row {self._genesis_name}", exact_numbers=True)
             if str(row[0]) != session or not observation_storage.exact_value_equal(stored, candidate):
                 raise ShadowObservationRefused(
                     "shadow observation genesis was already committed with "
@@ -1105,7 +1111,7 @@ class PostgresShadowObservationStore:
         if row is None:
             raise ShadowObservationRefused(
                 "shadow observation append did not become durable")
-        stored = self._owned_mapping(row[1], where=f"shadow observation row {name}")
+        stored = self._owned_mapping(row[1], where=f"shadow observation row {name}", exact_numbers=True)
         if str(row[0]) != session or not observation_storage.exact_value_equal(stored, candidate):
             raise ShadowObservationRefused(
                 f"shadow observation session {session} was already committed "

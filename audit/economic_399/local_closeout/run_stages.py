@@ -41,6 +41,7 @@ raise SystemExit(subprocess.run([sys.executable,'-u','audit/economic_399/local_c
                           'memory': value['HostConfig']['Memory'], 'cpus': value['HostConfig']['NanoCpus']}), flush=True)
     pg_log = (args.evidence/'postgres.log').open('w')
     pg = subprocess.Popen(command('postgres', '1g', '1.5'), stdout=pg_log, stderr=subprocess.STDOUT)
+    failures = []
     try:
         deadline = time.monotonic()+120
         while not (args.evidence/'database.json').exists():
@@ -59,7 +60,13 @@ raise SystemExit(subprocess.run([sys.executable,'-u','audit/economic_399/local_c
                 subprocess.run(['docker', 'exec', pg_name, 'python', '-c',
                     "from pathlib import Path; [(print(p),print(Path('/sys/fs/cgroup',p).read_text())) for p in ('memory.peak','memory.events','memory.stat','cpu.stat')]"],
                     stdout=log, stderr=subprocess.STDOUT, check=True)
-            assert result.returncode == 0, (stage, result.returncode)
+            if result.returncode:
+                failures.append((stage, result.returncode))
+                # A failed read-only request cannot earn a pass, but should not
+                # prevent collecting the independent next-session measurements.
+                if stage not in ('status', 'http', 'advanced_status', 'advanced_http'):
+                    raise AssertionError(failures)
+        assert not failures, failures
     finally:
         (args.evidence/'stop').touch()
         try:

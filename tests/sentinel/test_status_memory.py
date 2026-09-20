@@ -20,6 +20,22 @@ from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # n
 __all__ = ['ready', 'issuer_source', 'published', 'operational_source', 'conn', 'pg', 'source']
 
 
+def independently_unpacked(value):
+    """Standard-library inverse for the physical format, never the store decoder."""
+    import base64
+    import zlib
+    metadata = value.pop('_sentinel_series_storage', None)
+    if metadata is not None:
+        series = {}
+        for group in metadata['groups']:
+            raw = zlib.decompress(base64.b64decode(group['data']))
+            assert len(raw) == group['bytes']
+            assert hashlib.sha256(raw).hexdigest() == group['sha256']
+            series.update(json.loads(raw))
+        value[metadata['field']]['feed']['series'] = series
+    return value
+
+
 @pytest.mark.parametrize('length', [0, 1, 255, 256, 257, 512, 513, 1301])
 def test_batched_json_matches_independent_standard_encoder(length):
     from sentinel.core.session import _canonical_chunks, _hash, _validate_json
@@ -113,7 +129,7 @@ def test_database_batched_insert_preserves_complete_value_and_rollback(conn, gen
     append = store.append_genesis if genesis else store.append
     name = store._genesis_name if genesis else store._name('2026-09-14')
     append(candidate)
-    assert conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0] == expected
+    assert independently_unpacked(conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0]) == expected
     assert not conn.execute("SELECT 1 FROM pg_class WHERE relnamespace=pg_my_temp_schema() AND relname LIKE 'shadow_insert_%'").fetchall()
     append(candidate)
     changed = deepcopy(candidate)
@@ -124,7 +140,7 @@ def test_database_batched_insert_preserves_complete_value_and_rollback(conn, gen
     assert conn.execute('SELECT count(*) FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0] == 0
     append(candidate)
     conn.commit()
-    assert conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0] == expected
+    assert independently_unpacked(conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0]) == expected
 
 
 def test_database_batched_insert_refuses_missing_last_series(conn, monkeypatch):

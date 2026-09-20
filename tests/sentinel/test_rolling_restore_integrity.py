@@ -52,11 +52,27 @@ def test_uninitialized_rolling_publication_is_a_valid_empty_restore(conn, ready,
 
 
 @pytest.fixture
-def restore_ready(operational_source, request):
+def restore_ready(operational_source, request, monkeypatch):
     operational_source['TICKERS'][0]['relatedtickers'] = 'AAA BBB'
+    width = getattr(request, 'param', 25)
+    if width > 25:
+        from sentinel.feed import operational_snapshot
+        original = operational_snapshot.prepare
+        def expanded(*args, **kwargs):
+            data = operational_source
+            if len(data['TICKERS']) == 25:
+                template = data['TICKERS'][0]
+                prices = [row for row in data['SEP'] if row['ticker'] == 'AAA']
+                for index in range(26, width + 1):
+                    symbol = f'WIDE{index}'
+                    data['TICKERS'].append({**template, 'ticker': symbol, 'permaticker': str(index)})
+                    data['SEP'].extend({**row, 'ticker': symbol} for row in prices)
+            return original(*args, **kwargs)
+        monkeypatch.setattr(operational_snapshot, 'prepare', expanded)
     return request.getfixturevalue('ready')
 
 
+@pytest.mark.parametrize('restore_ready', [25, 129], indirect=True, ids=['inline', 'compressed'])
 def test_populated_physical_restore_preserves_book_and_advances_next_session(
         conn, restore_ready, operational_source, monkeypatch):
     """Copy real PG pages, verify them, boot independently, then resume production."""

@@ -7,6 +7,10 @@ Base independently fetched 2026-09-20:
 `1b49f3dcb47229f002cff043b9136947879c8d05`, and #424
 `9093cbedb4f5a5703c838a02c9d3587075eae19f`, subsequently integrated with its
 CI fixture repair `451993a2ef705daf4b31ad4611642a01a953f067`. Delivery remains PR-only.
+The owner subsequently merged #421 as `e4c9b1439962af3353e7f0c0ec3d84aee1f0aeb7`.
+That freshly fetched main and #424's `86f174b17020915205429f4f00b75b9fb9a3a434`
+are integrated. The latter's 58 real-PostgreSQL cash tests pass; its old CI
+synthetic-merge refusal was an advertised-base race, retained separately.
 No NAS or real broker contact; no owner merges performed by the agent.
 
 ## L02-S1: exact share scaling (design before implementation)
@@ -113,6 +117,58 @@ finality or predecessor completeness. Before cash is used, the production cash
 ingestor separately checks cursor/ledger agreement; the retained deletion tests
 prove partial cursor/ledger restores refuse. A physical backup contains both.
 
+## L09 write-resource repair decision (before implementation)
+
+The separately capped 8,408-series storage probe reproduces initialization's
+backend OOM in the SQL statement that concatenates every pair at one tree depth.
+The balanced tree bounds operand size but the single INSERT/SELECT statement
+does not bound all intermediate executor allocations across its pairs.
+
+First keep the same temporary table, tree and final atomic JSONB row, but execute
+one pair per SQL statement. Releasing each statement's executor memory must not
+depend on the number of other pairs. No durable schema or transaction boundary
+changes; no commit, partial observation, skipped series or changed commitment.
+Check exact stored JSONB equality, odd final pairs, rollback/conflicts and
+sub-float precision corruption, then repeat the isolated 8,408-series probe at
+the same service caps. Treat this as a candidate repair until that measurement
+passes; if a single pair or final row still exceeds the cap, retain that failure
+and revisit storage rather than raising a limit.
+
+The one-pair-per-statement candidate also OOM-killed the backend in 31.5 seconds
+on the independent storage probe. Retain that failed candidate's immutable source
+and logs; it does not establish the claimed bound. A single expanded JSONB pair
+is itself too large at this cardinality.
+
+Revised storage decision: retain one atomic append-only cursor row, but represent
+large `feed.series` values in a versioned storage envelope of independently
+compressed canonical-JSON groups. The logical record, genesis/state/record
+hashes, public store API and ownership/commit boundaries remain unchanged.
+Each group binds its uncompressed length, SHA-256 and series count; the envelope
+binds the field and total count. Refuse unknown shapes, nonempty inline series,
+missing/duplicated groups or series, invalid compression/checksum/length/count,
+and oversized decompression (16 MiB per group). The encoder refuses a group over
+that bound; normal 128-series groups are substantially smaller. Decode each
+group with the existing request-local scalar pool, including exact Decimal
+comparison mode. Reject the reserved envelope key in caller-owned logical input.
+
+Legacy inline rows remain readable without migration. New large rows use the
+envelope; small rows keep their existing representation. All genesis, ordinary
+record, streamed status and equality/retry readers must reconstruct and verify
+the complete logical value. No extra table, orphan chunk namespace, skipped
+history or cross-request verdict cache is introduced. PostgreSQL parses only
+bounded headers and opaque compressed strings, avoiding expansion of millions
+of numeric nodes in a single SQL value construction. Verify canonical equality
+against independent standard-library decoding, legacy/new restart, final-series
+tamper and transaction rollback before repeating full resource acceptance.
+
+Candidate acceptance: the independent storage-only 8,408-series probe passes
+in 42.17 seconds, with PostgreSQL peak 323,059,712 bytes and no OOM events.
+The 112-test storage/status/static-ownership/physical-restore selection passes,
+including 25-series inline and 129-series compressed populated restores.
+Nineteen positive controls pass and all eight deliberately broken storage
+variants are detected. This does not yet close L09: the complete separately
+capped publication/initialization/status/HTTP/next-session campaign is running.
+
 ## Current finding-to-caller cross-check
 
 Paths below are relative to `sentinel/`. The finding index retains all original
@@ -151,6 +207,23 @@ BIL open/close and the full SFP price domains required by rolling publication**.
 The archives also do not contain the production publication/coverage receipts.
 The known provisional engine run does not establish that missing contract: it
 stopped after 34 measured sessions on unresolved held terminal economics.
+
+A separate local Git search also found original Sharadar archives at
+`research/backtester` commit `e088bfd26c695309e259cfc44ab1e8982d6f858d`.
+The four SFP parts reconstruct the exact Phase-1 source hash
+`8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c`.
+They contain `open`, `close`, `closeadj`, `closeunadj`, volume and update dates;
+SPY spans 1997-12-31 through 2026-08-03 and BIL starts 2007-05-30.
+Raw SEP, full ACTIONS fields and TICKERS are present too. All 21,939 SEP TICKERS
+identities pass the current structural and metadata checks. Reproduce with
+`python audit/economic_399/local_closeout/input_inventory.py --scratch ../stage-one-raw-source`.
+The retained `raw-input-inventory.json` distinguishes these raw archives from
+both derived PIT packages. Therefore **raw SFP price availability is not the
+remaining blocker**. These files do not establish the export refresh bracket,
+complete API/CSV reference agreement or authenticated production publication
+and coverage receipts required by `rolling_source.SharadarSource` and
+`operational_source.OperationalCapture`. Git provenance alone cannot substitute
+for those authority claims. No provider request or receipt fabrication occurred.
 
 To qualify a real 300-session production window, supply the corresponding
 authenticated SEP, dated TICKERS/alias and ACTIONS history, raw/adjusted SFP
