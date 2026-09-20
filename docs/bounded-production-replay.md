@@ -1,5 +1,42 @@
 # Bounded production economic replay
 
+## January-start resumable experiment (2026-09-20)
+
+The owner supersedes the July fresh-account scenario for the next run: initialize
+USD 100,000 cash on 2006-01-03, feed all subsequent sessions to the unchanged
+production kernel, and let the book form naturally. Start measuring performance
+at the 2006-07-31 close without resetting holdings, cash or controller memory.
+No 2005 stock observations are prefed into this scenario. Earlier SPY factors
+from the retained source supply the production regime's dated lookback only.
+This aligns the account start with the research run; classification, production
+fixes and terminal valuation policies remain explicitly different.
+
+Run for 1,800 wall-clock seconds from worker start, including input verification
+and any pauses for online action research. A transition and final checkpoint may
+finish after the deadline; do not start a new session once it expires. On each
+blocking action, preserve the last successful state and wait for a source-backed
+supplement, rather than converting an estimated NAV into a return. Supplemental
+terms must identify the security, evidence URLs, consideration, original event
+date and session by which evidence is available. They cannot amend an already
+processed session. If evidence requires a retrospective change, restart from an
+earlier checkpoint rather than silently rewriting the existing path.
+
+Checkpoint the production envelope, feed, book, pending orders, controller,
+scalar economics, metadata, factor state, measurement statistics and applied
+supplements. Bind source/data/reference identities and a content hash; write
+through a temporary file and atomically publish a pointer. Checkpoint at bounded
+intervals, on refusal and on stop. Resume validates all bindings and continues at
+the next session. A resume is a separately authorized execution budget; it never
+extends the current 30-minute deadline implicitly.
+
+Status reports contain the last successfully simulated date, measurement-period
+multiple and annualized return, drawdown, and the reference return at that same
+date. Both use actual elapsed days / 365.2425 for comparison with the retained
+research convention. Before the measurement date, CAGR is unavailable. A short
+prefix is labeled provisional and its annualized rate is not a twenty-year
+forecast. Original reference: 22.323600023175572% CAGR and 56.265349336558316x.
+No reference decisions are replay inputs. Preserve all original run artifacts.
+
 Owner authorization, 2026-09-20: reuse the corrected historical inputs, add
 source-backed RSAS terms, run a ten-minute pilot, and continue the same book
 through twenty years only if the measured projection fits two hours. Stop at
