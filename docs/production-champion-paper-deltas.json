@@ -1,4 +1,5 @@
 {
+  "autonomous_paper_design": "docs/autonomous-paper-readiness.md",
   "automatic_share_unit_design": "docs/automatic-share-unit-reconciliation.md",
   "base": "4bba6875b07288cf6ebc6a149b926075b1e41c60",
   "definitions": {
@@ -143,7 +144,7 @@
       "module": "preparation"
     },
     "prepare_paper_plan": {
-      "generated_ast_sha256": "2fe6f89af96638a087f3b43cf6ada76d407d8a2ad1529021e1007f1b7a988a25",
+      "generated_ast_sha256": "d799d311ca7ba231d5d1fab85dea138d38e1a1afe1d80197659e9be970b129e5",
       "historical_ast_sha256": "f2acd68a6fab6564615e9ba84c40481e27476291f631a7011923c6a7fbba30bf",
       "module": "preparation"
     },
@@ -167,6 +168,7 @@
     "tests/sentinel/test_issue209_simplified_ldrc_runtime.py",
     "tests/sentinel/test_automation_runtime.py",
     "tests/sentinel/test_paper_performance_quarantine.py",
+    "tests/sentinel/test_paper_reporting_continuity.py",
     "tests/sentinel/test_paper_package_architecture.py",
     "tests/sentinel/test_rolling_paper_inputs.py",
     "tests/sentinel/test_automatic_share_units.py",

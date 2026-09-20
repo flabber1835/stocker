@@ -28,6 +28,13 @@ ordinary backup lock between attempts. Prefer scheduled single ticks when DSM
 should notify on nonzero job completion; a long-running loop requires separate
 log/health monitoring and must not be treated as healthy merely because it lives.
 
+Each tick now runs under the process/output bounds recorded in
+[autonomous paper readiness](autonomous-paper-readiness.md). The default outer
+deadline is 3600 seconds; `--timeout-seconds` can lower it for a qualified host
+budget. Cancellation kills the tick's private process group. Missing or invalid
+runtime selection returns failure even if directory discovery would find a
+complete backup; the verified producer is required to establish selection.
+
 The existing per-target host lock serializes ticks, manual backup and manual
 restore across checkouts under that account. In addition, actual Docker
 workers hold a persistent filesystem flock: producer and retention exclusive,

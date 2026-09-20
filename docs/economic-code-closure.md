@@ -1,5 +1,14 @@
 # Economic certification: remaining code closure
 
+Forward-paper update: [autonomous paper readiness](autonomous-paper-readiness.md)
+integrates main's recurring backup renewal and restore-gated retention with
+bounded process execution, exact selected-generation verification, and durable
+supervisor refusal fencing. It also applies the owner's informational-reporting
+policy without relaxing current cash/order safety. The historical ledger below
+is preserved. Scheduler installation, observed retention, target resource/restore
+qualification and unsupported economic capabilities remain separate obligations;
+this update does not close full economic certification.
+
 Base: `748d54e12a4cdb4b5403c56feb8d6b68e47d0104`, the verified merge of
 PR #402. This is step 1 of the owner's certification sequence: eliminate known
 implementation defects and exercise recovery locally before the independent
@@ -801,6 +810,7 @@ unchanged; Stage 1 and economic certification remain incomplete.
 
 See the [design](full-status-resource-review.md) and
 [retained measurements, exact commands and NAS handoff](../audit/economic_399/full_status/README.md).
+<<<<<<< HEAD
 
 ### Single-request status memory remediation
 
@@ -854,3 +864,5 @@ the status fix closes or that this setup peak alone proves defective. Production
 source changes require the existing reviewed continuation boundary. Stage 1 and
 economic certification remain incomplete. See the
 [complete commands, evidence scope, findings and NAS handoff](../audit/economic_399/status_memory/README.md).
+=======
+>>>>>>> origin/main

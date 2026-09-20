@@ -44,3 +44,35 @@ Tests must hold a real routed request while every other full-build route is
 called, show that only one build starts, keep health responsive, and prove that
 success and failure both release admission. Removing acquisition, release or
 the deployment worker selection must fail the respective falsifier.
+<<<<<<< HEAD
+=======
+
+## CI layout correction
+
+PR #417's Sentinel main lane failed only
+`test_deployed_panel_cannot_multiply_workers` (5,145 other tests passed).
+The test derived `/work` from its own path, but the certified test image stores
+Compose under `/work/repo` and already exposes that location through
+`SENTINEL_REPO_ROOT`. The test now follows that existing convention with the
+normal checkout path as fallback. Worker-count and 512 MiB assertions remain
+unchanged; no runtime or CI gate is relaxed.
+
+Integrated verified main `e255a78aaf4f89d25fc634864aafd2656c6cd176`; retained
+both ledger sections when resolving the documentation-only conflict. The
+original measurements and source hashes above remain tied to their original
+reviewed commits.
+
+Local verification used offline `sentinel-test:ci` containers:
+
+- CI filesystem layout, with reviewed test, panel app and Compose bind mounts:
+  `python -m pytest tests/sentinel/test_panel_concurrency.py -q --tb=short -p no:cacheprovider`
+  — 13 passed. The original test reproduced the exact `/work/docker-compose.sentinel.yml`
+  missing-file failure. Removing `--workers 1` in a disposable Compose copy then
+  failed the corrected test at its worker assertion.
+- Read-only checkout, with empty `SENTINEL_REPO_ROOT` and no `.env` file:
+  `python -m pytest tests/sentinel/test_panel_concurrency.py tests/sentinel/test_panel.py tests/sentinel/test_operator_monitoring.py -q --tb=short -p no:cacheprovider`
+  — 160 passed in 41.65 seconds. Both runs retain the existing Starlette/httpx
+  deprecation warning.
+- `git diff --check` passed. Full GitHub checks rerun after publication; local
+  targeted acceptance is not a claim that the complete CI run has passed.
+>>>>>>> origin/main

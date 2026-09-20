@@ -346,6 +346,64 @@ def test_successor_identity_mismatch_refuses_before_status_or_retention(boundary
                    for call in boundary.calls)
 
 
+@pytest.mark.parametrize('interrupted', [False, True])
+def test_promoted_backup_without_runtime_selection_cannot_be_healthy(
+        tmp_path, boundary, interrupted, capsys, monkeypatch):
+    from test_shell_lifecycle import ShellLab
+    lab = ShellLab(tmp_path)
+    # Extend the shell fixture's minimal manifest with the start LSN required
+    # by the retention worker; this remains synthetic media, not restore proof.
+    adapter = tmp_path / 'bin' / 'pg_basebackup'
+    adapter.write_text(adapter.read_text().replace(
+        '"Timeline": 1, "End-LSN": CHECKPOINT_LSN',
+        '"Timeline": 1, "Start-LSN": "0/1000000", "End-LSN": CHECKPOINT_LSN'))
+    if interrupted:
+        lab.env['BACKUP_LAB_FAULT'] = 'selection-publish:before'
+    initial = lab.run()
+    assert (initial.returncode != 0) is interrupted
+    base = lab.base / 'base-20260910T120000Z'
+    os.utime(base / 'backup_manifest', (1789041600, 1789041600))
+    lab.env.pop('BACKUP_LAB_FAULT', None)
+    # Reproduce the audit's misleading discovery result using the real shell.
+    status = lab.run('sentinel-backup-status.sh')
+    assert status.returncode == 0, status.stdout + status.stderr
+    for part in ('base', 'wal'):
+        (lab.media / part / retention.MARKER).write_text(retention.MARKER[1:] + '\n')
+    disk = retention.Media(lab.media, SYSTEM)
+    boundary.name = base.name
+    boundary.restored = True
+    def runner(command, **kwargs):
+        if 'observe' in command:
+            # Use the canonical worker's actual selection read, not a fabricated
+            # successful observation. Other external services remain fixtures.
+            with retention.media_lock(disk.base):
+                item = disk.selected()
+            item['timestamp'] = NOW  # Control fixture age; selection bytes are real.
+            return json.dumps(item)
+        return boundary(command, **kwargs)
+    if interrupted:
+        with pytest.raises(FileNotFoundError):
+            coordinator.tick(str(lab.media), runner)
+        real_tick = coordinator.tick
+        monkeypatch.setattr(coordinator, 'tick', lambda root: real_tick(root, runner))
+        monkeypatch.setattr(coordinator, 'lock_is_held', lambda: True)
+        monkeypatch.setenv('SENTINEL_BASE_BACKUP_LOCK_ROOT', str(lab.media))
+        assert coordinator.main([]) == 4
+        assert 'maintenance_ready' not in capsys.readouterr().out
+        assert not any('retain' in call or 'scripts/sentinel-restore-drill.sh' in call
+                       for call in boundary.calls)
+    else:
+        # A valid selection makes it through observation to exact-path status.
+        # Stop at that external boundary rather than claim a physical restore.
+        def stop_at_status(command, **kwargs):
+            if 'scripts/sentinel-backup-status.sh' in command:
+                assert command[-1] == str(base)
+                raise coordinator.Refused('reached exact selected status')
+            return runner(command, **kwargs)
+        with pytest.raises(coordinator.Refused, match='reached exact selected status'):
+            coordinator.tick(str(lab.media), stop_at_status)
+
+
 def test_reaper_keeps_active_recent_foreign_and_unlabeled_resources():
     old = "sentinel-restore-drill-20260918T120000Z-42-" + "a" * 32
     recent = "sentinel-restore-drill-20260919T113000Z-42-" + "b" * 32

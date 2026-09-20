@@ -94,6 +94,10 @@ def test_heartbeat_fault_never_leaves_an_unsupervised_worker(tmp_path, mode):
             assert 'error' in evidence
             assert 'heartbeat write failure' in evidence.get('message', '') or 'wall-clock' in evidence.get('message', '')
         assert (tmp_path / 'heartbeat').exists() == (mode == 'cleanup_stall')
+        # A heartbeat exception disposes of the child without guessing its
+        # outcome; the merged restart guard must survive that exceptional exit.
+        assert (tmp_path / 'shadow-supervisor-pending.json').exists() == (
+            mode in {'error', 'stall', 'terminal'})
         if mode == 'terminal':
             latch = json.loads((tmp_path / 'absent-latch').read_text())
             assert latch['reason'] == 'shadow worker reported terminal integrity refusal'
