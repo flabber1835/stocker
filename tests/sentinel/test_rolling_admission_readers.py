@@ -4,6 +4,7 @@ from copy import deepcopy
 from datetime import datetime, timezone
 from io import StringIO
 import json
+import os
 from pathlib import Path
 import subprocess
 from types import SimpleNamespace
@@ -256,10 +257,13 @@ def test_integrity_refusal_never_dispatches_to_a_different_reader(monkeypatch):
 
 
 def test_generated_installer_programs_read_real_rolling_publication(conn, published, monkeypatch):
-    monkeypatch.syspath_prepend(str(Path(__file__).resolve().parents[2] / "scripts"))
+    root = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
+    monkeypatch.syspath_prepend(str(root / "scripts"))
     import sentinel_autonomous_deploy as deploy
     import sentinel_autonomous_deploy_driver as driver
     import sentinel_autonomous_deploy_install_entry as install
+    for module in (deploy, driver, install):
+        assert Path(module.__file__).resolve() == (root / "scripts" / (module.__name__ + ".py")).resolve()
     monkeypatch.setenv("SENTINEL_DATABASE_URL", conn.info.dsn)
     conn.commit()
 

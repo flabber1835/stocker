@@ -3,7 +3,8 @@ from contextlib import contextmanager
 from dataclasses import replace
 from datetime import datetime, timezone
 import json
-import sys
+import os
+from pathlib import Path
 
 import pytest
 
@@ -16,6 +17,7 @@ from tests.sentinel.test_operational_snapshot import operational_source  # noqa:
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # noqa: F401
 
 TARGET = "2026-09-14"
+ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 
 
 @pytest.fixture
@@ -161,10 +163,10 @@ def test_database_health_refuses_a_missing_publication_pin(conn, published, monk
 
 
 def test_supported_go_preparation_and_readiness_payloads_use_rolling(conn, published, monkeypatch, capsys):
-    from pathlib import Path
     from sentinel.feed import store
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
     import sentinel_go_24x7_entry as entry
+    assert Path(entry.__file__).resolve() == (ROOT / "scripts/sentinel_go_24x7_entry.py").resolve()
     from sentinel import backup_guard
     backup_calls = []
     monkeypatch.setattr(backup_guard, "require_writes_permitted",
@@ -205,7 +207,7 @@ def test_snapshot_parity_uses_canonical_warmup_without_creating_a_book(conn, pub
     assert all(report["proof"]["checks"].values())
     assert conn.execute("SELECT COUNT(*) FROM sentinel_processed_sessions").fetchone()[0] == 0
     conn.rollback()
-    from pathlib import Path
-    sys.path.insert(0, str(Path(__file__).resolve().parents[2] / "scripts"))
+    monkeypatch.syspath_prepend(str(ROOT / "scripts"))
     import sentinel_go_validate as host
+    assert Path(host.__file__).resolve() == (ROOT / "scripts/sentinel_go_validate.py").resolve()
     assert host._operational_parity_report_valid(report, commit=commit, starting_cash="100000")
