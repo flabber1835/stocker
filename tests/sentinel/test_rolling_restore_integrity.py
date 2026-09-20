@@ -49,3 +49,73 @@ def test_uninitialized_rolling_publication_is_a_valid_empty_restore(conn, ready,
         assert report['rolling'] == {'state_present': False, 'publication_version': ready['data_version']}
         assert not report['restart_state_present']
         assert report['transaction_read_only']
+
+
+@pytest.fixture
+def restore_ready(operational_source, request):
+    operational_source['TICKERS'][0]['relatedtickers'] = 'AAA BBB'
+    return request.getfixturevalue('ready')
+
+
+def test_populated_physical_restore_preserves_book_and_advances_next_session(
+        conn, restore_ready, operational_source, monkeypatch):
+    """Copy real PG pages, verify them, boot independently, then resume production."""
+    from copy import deepcopy
+    import os
+    from pathlib import Path
+    import shutil
+    from sentinel.feed import runtime_schema, store
+    from sentinel import rolling_runtime
+    from tests.support.postgres import (
+        _EphemeralPostgres, _find_pg_bin, _run, _as_pg_user)
+    from tests.sentinel.test_rolling_daily import refresh, resume
+    from tests.sentinel.test_rolling_initialization import OBS
+    monkeypatch.setattr(restore_validation.feed_store, 'require_feed_schema', runtime_schema.require_feed_schema)
+    rolling_runtime.advance(conn, through='2026-09-14', observation_id=OBS, starting_cash=100_000)
+    refresh(conn, operational_source, monkeypatch)
+    second = rolling_runtime.advance(conn, through='2026-09-15', observation_id=OBS, starting_cash=100_000)
+    book = deepcopy(second.state.wealth_core)
+    assert book['episodes'] and 0 < book['cash'] < 100_000
+    conn.commit()
+
+    restored_pg = _EphemeralPostgres()
+    try:
+        if os.geteuid() == 0:
+            shutil.chown(restored_pg.datadir, user='postgres', group='postgres')
+        backup = _run(_as_pg_user([
+            _find_pg_bin('pg_basebackup'), '-d', conn.info.dsn,
+            '-D', restored_pg.datadir, '-X', 'stream', '-c', 'fast']))
+        assert backup.returncode == 0, backup.stderr
+        verified = _run(_as_pg_user([
+            _find_pg_bin('pg_verifybackup'), restored_pg.datadir]))
+        assert verified.returncode == 0, verified.stderr
+        boot = _run(_as_pg_user([
+            _find_pg_bin('pg_ctl'), '-D', restored_pg.datadir,
+            '-o', f'-p {restored_pg.port} -h 127.0.0.1 -k {restored_pg.datadir}',
+            '-l', str(Path(restored_pg.datadir)/'restored.log'), '-w', 'start']))
+        assert boot.returncode == 0, boot.stderr
+        restored_pg._started = True
+        dsn = restored_pg.sync_dsn.rsplit('/', 1)[0] + '/' + conn.info.dbname
+        with store.connect(dsn) as restored:
+            report = restore_validation.validate_restored_database(restored)
+            assert report['transaction_read_only'] and report['restart_state_present']
+            assert report['rolling']['session'] == second.session
+        # A fresh writable runtime connection advances only the restored cluster.
+        with store.connect(dsn) as restored:
+            assert resume(restored).state.wealth_core == book
+            refresh(restored, operational_source, monkeypatch)
+            third = rolling_runtime.advance(restored, through='2026-09-16', observation_id=OBS, starting_cash=100_000)
+            assert third.session == '2026-09-16'
+            # This tape repeats yesterday's raw marks, with no actions or exit
+            # triggers. The held shares and cash must not change on restart.
+            assert third.state.wealth_core['cash'] == book['cash']
+            old_shares = {slot: (e['security_id'], e['current_shares']) for slot, e in book['episodes'].items()}
+            new_shares = {slot: (e['security_id'], e['current_shares']) for slot, e in third.state.wealth_core['episodes'].items()}
+            assert new_shares == old_shares
+            restored.commit()
+        with store.connect(dsn) as reopened:
+            assert resume(reopened).state.state_hash == third.state.state_hash
+        # The original database was not advanced through the restored handle.
+        assert resume(conn).state.state_hash == second.state.state_hash
+    finally:
+        restored_pg.stop()

@@ -13,6 +13,12 @@ def exact_decimal(value: Fraction) -> Decimal:
         return Decimal(value.numerator) / Decimal(value.denominator)
 
 
+def display_decimal(value: Fraction) -> Decimal:
+    """Stable diagnostic rendering of a ratio; never use it to floor shares."""
+    with localcontext(Context(prec=28)):
+        return Decimal(value.numerator) / Decimal(value.denominator)
+
+
 def decimal_text(value) -> str:
     number = Decimal(str(value))
     if not number.is_finite():

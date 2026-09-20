@@ -11,7 +11,8 @@ import importlib
 import json
 from dataclasses import dataclass, field, replace
 from datetime import date
-from decimal import Decimal, InvalidOperation, ROUND_DOWN
+from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 from pathlib import Path
 from typing import Mapping
 
@@ -27,6 +28,7 @@ from sentinel.controller.concordance import (
     IDENTITY_OVERLAY_FIELD, is_concordance_identity)
 from sentinel.core.session import SessionState
 from sentinel.execution.commands import committed_quantity
+from sentinel.execution.numeric import display_decimal, exact_decimal
 from sentinel.execution.plan import ExecutionPlan, OpeningIntent
 from sentinel.execution.projection import Projection, desired_basket, project
 from sentinel.feed import calendar
@@ -71,6 +73,7 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.execution.target_reprojection",
     "sentinel.execution.opening_prices",
     "sentinel.execution.opening_sizing",
+    "sentinel.execution.numeric",
     "sentinel.feed.action_source",
     "sentinel.feed.actions",
     "sentinel.feed.actions_map",
@@ -344,9 +347,9 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
         if not quantity.is_finite() or quantity < 0:
             raise ValueError(
                 f"episode {slot_id} has invalid long-only shares {quantity}")
-        shares[security_id] = shares.get(security_id, Decimal(0)) + quantity
-        held_shares[security_id] = (
-            held_shares.get(security_id, Decimal(0)) + quantity)
+        shares[security_id] = exact_decimal(Fraction(shares.get(security_id, 0)) + Fraction(quantity))
+        held_shares[security_id] = exact_decimal(
+            Fraction(held_shares.get(security_id, 0)) + Fraction(quantity))
         _record_ticker(tickers, security_id, episode.ticker)
 
     for raw in canonical.pending:
@@ -368,13 +371,13 @@ def shadow_target(state: SessionState | Mapping) -> ShadowTarget:
                 pending_opens.setdefault(security_id, []).append(quantity)
             signed = quantity
         elif pending.operation is Operation.CLOSE_POSITION:
-            signed = -quantity
+            signed = quantity.copy_negate()
             pending_closes.setdefault(security_id, []).append(quantity)
         else:
             raise ValueError(
                 f"pending operation {pending.operation.value!r} is not a "
                 "share-level open or close")
-        shares[security_id] = shares.get(security_id, Decimal(0)) + signed
+        shares[security_id] = exact_decimal(Fraction(shares.get(security_id, 0)) + Fraction(signed))
         _record_ticker(tickers, security_id, pending.ticker)
 
     negative = {security_id: quantity
@@ -453,7 +456,13 @@ def _decision_mark(security_id: str, current_marks: Mapping[str, Decimal],
 
 def _shadow_weights(canonical: SessionState, target: ShadowTarget,
                     current_marks: Mapping[str, Decimal]) -> dict[str, Decimal]:
-    equity = _shadow_equity(canonical)
+    equity = Fraction(_shadow_equity(canonical))
+    return {sid: display_decimal(Fraction(value) / equity)
+            for sid, value in _shadow_notionals(canonical, target, current_marks).items()}
+
+
+def _shadow_notionals(canonical: SessionState, target: ShadowTarget,
+                      current_marks: Mapping[str, Decimal]) -> dict[str, Decimal]:
     stale_marks = _canonical_stale_marks(canonical)
     weights: dict[str, Decimal] = {}
     for security_id, quantity in target.shares.items():
@@ -462,7 +471,7 @@ def _shadow_weights(canonical: SessionState, target: ShadowTarget,
         # exists. Projection names it unpriced; the share-space cap below can
         # still authorize a reduction without inventing a price.
         weights[security_id] = (
-            quantity * mark / equity if mark is not None else Decimal(0))
+            exact_decimal(Fraction(quantity) * Fraction(mark)) if mark is not None else Decimal(0))
     return weights
 
 
@@ -490,7 +499,7 @@ def _decision_close_nav(
     if not cash.is_finite():
         raise ValueError(f"broker account cash must be finite, got {cash}")
     stale_marks = _canonical_stale_marks(canonical)
-    nav = cash
+    nav = Fraction(cash)
     unpriced: list[str] = []
     for security_id, quantity in observation.positions_by_security().items():
         quantity = _decimal(
@@ -503,12 +512,12 @@ def _decision_close_nav(
         if mark is None:
             unpriced.append(security_id)
             continue
-        nav += quantity * mark
-    if not nav.is_finite() or nav < 0:
+        nav += Fraction(quantity) * Fraction(mark)
+    if nav < 0:
         raise ValueError(
             f"known decision-close-valued broker NAV must be non-negative and "
             f"finite, got {nav}")
-    return nav, tuple(sorted(unpriced))
+    return exact_decimal(nav), tuple(sorted(unpriced))
 
 
 def _cap_unpriced_increases(
@@ -538,7 +547,7 @@ def _cap_unpriced_increases(
             label=f"held quantity for {security_id}")
         committed = committed_quantity(
             observation.working_orders_for(security_id))
-        current = held + committed
+        current = exact_decimal(Fraction(held) + Fraction(committed))
         if not current.is_finite() or current < 0:
             raise ValueError(
                 f"unpriced {security_id!r} has invalid held plus committed "
@@ -552,9 +561,9 @@ def _cap_unpriced_increases(
             defensive_quantity = current
             continue
 
-        scaled = (
-            target.shares[security_id] * exposure * nav / shadow_equity / lot
-        ).to_integral_value(rounding=ROUND_DOWN) * lot
+        scaled = exact_decimal((
+            Fraction(target.shares[security_id]) * Fraction(exposure) * Fraction(nav)
+            // (Fraction(shadow_equity) * Fraction(lot))) * Fraction(lot))
         desired = min(current, scaled)
         if desired > 0:
             quantities[security_id] = desired
@@ -621,18 +630,18 @@ def build_execution_plan(
             "use a separately certified CONTROLLER rollout")
     exposure = (Decimal(1) if rollout.mode is RolloutMode.PINNED_1_00
                 else controller_exposure)
-    defensive_weight = Decimal(1) - exposure
+    defensive_weight = exact_decimal(Fraction(1) - Fraction(exposure))
     current_marks = _current_marks(marks)
     target = shadow_target(canonical)
     shadow_equity = _shadow_equity(canonical)
     nav, nav_unpriced = _decision_close_nav(
         canonical, account_snapshot, observation, current_marks)
-    weights = _shadow_weights(canonical, target, current_marks)
+    weights = _shadow_notionals(canonical, target, current_marks)
 
     sized = project(
         shadow_weights=weights, exposure=exposure, nav=nav,
         marks=current_marks, defensive_security=defensive_security,
-        defensive_weight=defensive_weight)
+        defensive_weight=defensive_weight, weight_denominator=shadow_equity)
     if nav_unpriced:
         sized = replace(
             sized,
