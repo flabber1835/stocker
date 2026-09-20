@@ -11,6 +11,10 @@ the measured source. Reviewed integrated source/tests:
 `ffbf82b127784c145d697078ad1e8c03b70a0c46`; the four production files changed by
 this cost review remain byte-identical to the measured implementation. The new
 main's paper-reporting changes have separate integration coverage below.
+Owner-merged #417 subsequently advanced main to
+`67b6301e3b0f1c35dc41eb45367e96a449dd6e76`. It and the refreshed #418 dependency
+were integrated at `4812aa4beeecc29034a559c1ac0276ae9bff9ce6`; production, tests,
+scripts and Compose are unchanged from the tested integrated source above.
 The isolated serialization optimization was `cb8de1c466b7c1efb7ad8f3f5159a5b0ce7cd7b7`.
 No NAS or broker account was accessed. Economic certification remains open.
 

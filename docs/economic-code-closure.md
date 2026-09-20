@@ -873,6 +873,12 @@ checkout. Reviewed integrated source/tests:
 production dependencies and #418's CI-only test-location fix. The four cost-review
 production files are byte-identical across the measured and integrated commits;
 the complete broad resource run does not silently claim the later source identity.
+Final integration includes owner-merged #417/main
+`67b6301e3b0f1c35dc41eb45367e96a449dd6e76`, at review checkpoint
+`4812aa4beeecc29034a559c1ac0276ae9bff9ce6`; no production or test bytes changed
+from the tested integrated source. All eight 5,000-security stages complete;
+the actual transition peaks at 2,088,160 KiB under 4 GiB, with independent
+Decimal NAV error 1.120E-11 dollars. Publication plus transition takes 965.00 s.
 
 | Finding | Disposition | Evidence and remaining boundary |
 | --- | --- | --- |

@@ -91,6 +91,14 @@ error briefly left markers in the merge commit; the immediate follow-up removed
 them and passed `git diff --check`. Verified PR #418 head
 `e3e5eeedb235162f74229a63ca30b176c52ca95c` targets main
 `67b6301e3b0f1c35dc41eb45367e96a449dd6e76`; CI reruns on that exact head.
+The delivery branch integrates that head at
+`4812aa4beeecc29034a559c1ac0276ae9bff9ce6`. Comparing its production, test,
+script and Compose paths to the tested `ffbf82b1` source yields no differences;
+only the inherited review documentation changes. Final syntax validation parses
+**22 changed Python files relative to the now-merged #417 main** (the earlier
+26-file count used the earlier base). The focused lint command and complete-PR
+`git diff origin/main --check` pass. Previous status-memory/full-status audit
+directories and golden CSVs remain byte-for-byte unchanged.
 
 ```sh
 python audit/economic_399/rolling_status/run_local.py test tests/sentinel/test_status_memory.py tests/sentinel/test_production_state.py tests/sentinel/test_canonical_session_kernel.py tests/sentinel/test_issue_252_253_session_envelope.py
