@@ -12,9 +12,10 @@ shutil.copytree('/source','/tmp/repo',ignore=shutil.ignore_patterns('.git','.env
 os.chdir('/tmp/repo')
 os.environ.update(PYTHONPATH='/tmp/repo:/tmp/repo/shared:/tmp/repo/scripts',SENTINEL_REPO_ROOT='/tmp/repo',PYTHONDONTWRITEBYTECODE='1')
 mode = sys.argv[1:2]
-script = {'storage': 'storage_mutations.py', 'read': 'read_mutations.py'}.get(
+script = {'storage': 'storage_mutations.py', 'read': 'read_mutations.py',
+          'oracle': 'oracle_mutation.py'}.get(
     mode[0] if mode else '', 'campaign.py')
-args = sys.argv[2:] if mode in (['storage'], ['read']) else sys.argv[1:]
+args = sys.argv[2:] if mode in (['storage'], ['read'], ['oracle']) else sys.argv[1:]
 raise SystemExit(subprocess.run([sys.executable,'audit/economic_399/local_closeout/'+script,*args]).returncode)
 '''
     command = ['docker', 'run', '--rm', '--network', 'none', '--memory', '4g',

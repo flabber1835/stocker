@@ -127,7 +127,7 @@ def main():
                 (EVIDENCE/(session+'.json')).write_text(json.dumps(value))
                 probe.emit(args.stage, **value)
                 if args.stage == 'advance' and args.universe >= 20:
-                    from audit.economic_399.status_memory import economic_oracle
+                    from audit.economic_399.local_closeout import economic_oracle
                     (EVIDENCE/'fixture.json').write_text(json.dumps({'dsn': dsn, **value}))
                     economic_oracle.main()
             else:

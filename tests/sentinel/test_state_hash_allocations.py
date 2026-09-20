@@ -1,6 +1,8 @@
 """Independent canonical bytes, mutation sensitivity and allocation budget."""
 import hashlib
 import json
+import subprocess
+import sys
 import tracemalloc
 
 import pytest
@@ -27,7 +29,7 @@ def independent_hash(value):
                                     allow_nan=False).encode('ascii')).hexdigest()
 
 
-def test_state_hash_has_no_universe_sized_feed_array_copy():
+def _assert_hash_allocation():
     state = wide_state()
     expected = independent_hash(state.to_dict())
     tracemalloc.start()
@@ -41,6 +43,15 @@ def test_state_hash_has_no_universe_sized_feed_array_copy():
     state.feed['series']['999']['signal_closes'][-1] = 2.25
     assert state.state_hash != expected
     assert state.state_hash == independent_hash(state.to_dict())
+
+
+def test_state_hash_has_no_universe_sized_feed_array_copy():
+    # tracemalloc measures the entire interpreter, including other tests' live
+    # threads and tracing state. Keep the exact same budget in a fresh process.
+    result = subprocess.run([sys.executable, '-c',
+        'from tests.sentinel.test_state_hash_allocations import _assert_hash_allocation; '
+        '_assert_hash_allocation()'], capture_output=True, text=True, timeout=120)
+    assert result.returncode == 0, result.stdout + result.stderr
 
 
 @pytest.mark.parametrize('length', [260, 300])

@@ -62,3 +62,40 @@ provider-only blocker and not an economic return measurement.
 
 Required CI, the resource repair, final evidence reconciliation, authoritative
 production-window admission, provider/policy E1-E4 and NAS N1 remain unresolved.
+
+## Storage and read follow-up
+
+The paragraph above describes the retained initial failure, not the current
+implementation disposition. The compressed storage repair passes PostgreSQL
+16.14 and 17.11 storage checks, populated physical restore and complete 8,408-name
+initialization. Full panel reads then exposed a second memory defect; private
+canonical views address its duplicate feed arrays. The final full capped rerun
+remains required. See [exact follow-up commands/results](followup-commands.md).
+
+`storage-followup-evidence.zip` retains 60 unedited log/source/manifest members;
+`storage-followup-SHA256SUMS.json` binds each member's bytes and SHA-256.
+`followup-source-provenance.json` binds the reviewed production source at
+`5d309d5c869b5c80a057f037f774491fabd0484f` (last production edit `449c69a5`).
+This archive preserves the unsuccessful pairwise SQL candidate, successful
+compressed probes, the read allocation diagnostic showing the panel budget excess,
+actual before/after mutation failures, PostgreSQL 16 evidence and the CI anchor
+failure artifact. The allocation diagnostic itself exits successfully; its
+531,144 KiB peak explains why the real 512 MiB processes failed and is not a
+qualifying pass. Full resource campaign logs are retained separately after
+completion. The prior `initial-evidence.zip` and all golden artifacts are intact.
+
+Both derived PIT packages and the original raw Sharadar archives have now been
+identified separately. `raw-input-inventory.json` proves the reconstructed SFP
+source hash and records the available raw columns/date coverage and positive
+TICKERS structural check. It does not invent the missing production acquisition
+bracket, reference agreement, dated admission or publication/coverage receipts.
+The current finding map is complete; L09 remeasurement, delivery/CI, external
+authority/budget and NAS qualification are not converted to passes by it.
+
+`oracle-ci-followup-evidence.zip` and its member SHA manifest retain six unedited
+logs: CI's shared-process allocation failure, the isolated five-control/four-mutant
+success, two populated published-price accounting controls, the invented-cash
+falsifier, syntax and clean targeted Pyflakes output. The accounting oracle uses
+published source prices rather than the strategy's retained marks. Forty-two
+changed Python sources parse. The restored-copy mutant allocates 11,445,814 bytes
+and still fails the unchanged 4 MiB threshold in its fresh interpreter.

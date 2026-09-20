@@ -123,6 +123,8 @@ def test_populated_physical_restore_preserves_book_and_advances_next_session(
     rolling_runtime.advance(conn, through='2026-09-14', observation_id=OBS, starting_cash=100_000)
     refresh(conn, operational_source, monkeypatch)
     second = rolling_runtime.advance(conn, through='2026-09-15', observation_id=OBS, starting_cash=100_000)
+    from audit.economic_399.local_closeout import economic_oracle
+    assert economic_oracle.check(conn, observation_id=OBS, session=second.session)['positions'] == 20
     book = deepcopy(second.state.wealth_core)
     assert book['episodes'] and 0 < book['cash'] < 100_000
     conn.commit()
@@ -168,3 +170,24 @@ def test_populated_physical_restore_preserves_book_and_advances_next_session(
         assert resume(conn).state.state_hash == second.state.state_hash
     finally:
         restored_pg.stop()
+
+
+def test_published_price_oracle_refuses_a_dollar_of_invented_cash(conn, restore_ready,
+                                                               operational_source, monkeypatch):
+    from decimal import Decimal
+    from audit.economic_399.local_closeout import economic_oracle
+    from sentinel import rolling_runtime, shadow_observation
+    from tests.sentinel.test_rolling_daily import refresh
+    from tests.sentinel.test_rolling_initialization import OBS
+    rolling_runtime.advance(conn, through='2026-09-14', observation_id=OBS, starting_cash=100_000)
+    refresh(conn, operational_source, monkeypatch)
+    result = rolling_runtime.advance(conn, through='2026-09-15', observation_id=OBS, starting_cash=100_000)
+    report = economic_oracle.check(conn, observation_id=OBS, session=result.session)
+    assert Decimal(report['fees_10bps']) > 0
+    assert abs(Decimal(report['expected_nav']) + Decimal(report['fees_10bps']) - 100000) < Decimal('1e-8')
+    store = shadow_observation.PostgresShadowObservationStore(conn, observation_id=OBS)
+    conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{state,wealth_core,cash}',"
+                 "to_jsonb((state#>>'{state,wealth_core,cash}')::numeric+1)) WHERE cursor_name=%s",
+                 (store._name(result.session),))
+    with pytest.raises(AssertionError, match='cash mismatch'):
+        economic_oracle.check(conn, observation_id=OBS, session=result.session)

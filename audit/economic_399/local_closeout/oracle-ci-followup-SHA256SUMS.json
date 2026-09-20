@@ -1,0 +1,26 @@
+{
+  "local-ci425-main-failure.log": {
+    "bytes": 899263,
+    "sha256": "4f9e4f1f93e8cedabf75c3d9e418b05e10caf95d571f39e3cae5e8ed8ed7a7bc"
+  },
+  "local-read-isolated-mutants.log": {
+    "bytes": 6973,
+    "sha256": "31f4b145520a1abebc9a93d3f013fa859ad38fa6db9f1ce14b895c4a918b8454"
+  },
+  "local-published-price-oracle.log": {
+    "bytes": 936,
+    "sha256": "00e0ac52d1c79e7ae07ad1cfaf428be0308e8e57713fb505115db0bb1b4cb793"
+  },
+  "local-published-price-oracle-mutant.log": {
+    "bytes": 7589,
+    "sha256": "1291db7918f61517985d1538301939ad55de0d044ccf140202a5ecf5f8c02220"
+  },
+  "local-final-syntax.log": {
+    "bytes": 34,
+    "sha256": "de9839684a012fe23e2c3089898f16a44088907ac15b88212a6bf4382a1f1214"
+  },
+  "local-followup-pyflakes.log": {
+    "bytes": 0,
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+}

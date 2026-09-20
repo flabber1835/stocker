@@ -79,3 +79,29 @@ CI run 35531327152/job 106133309207 reported zero source-anchor matches for two
 economic mutants after exact arithmetic replaced their expressions. The updated
 anchors inject identical sign errors and the original tests detect both. No
 test was removed or weakened. Required fresh-head CI remains a separate gate.
+
+```sh
+python audit/economic_399/rolling_status/run_local.py test tests/sentinel/test_rolling_restore_integrity.py::test_populated_physical_restore_preserves_book_and_advances_next_session
+# Published-price accounting oracle: 2 passed, 95.76 s (25 inline / 129 compressed).
+
+python audit/economic_399/local_closeout/run_local.py oracle
+# Positive accounting control: 1 passed, 18.79 s; removed cash guard detected.
+# A retained cash balance increased by $1 must fail the independent source-price oracle.
+```
+
+The intermediate full campaign's production advancement completed, but its old
+audit reader queried inline feed prices, which compressed storage no longer
+exposes in that physical location. That campaign fails; it is not an accounting
+pass. The replacement audit oracle reads published snapshot open/close prices
+directly and independently computes position cost, fees, cash and NAV. Neither
+the production calculation nor the numerical tolerances changed.
+
+The final campaign's coordinator was resumed after its origin status stage,
+preserving the isolated database and all service caps. The original and resumed
+source manifests prove all 406 production files identical; only three audit files
+changed. Exact commands and container identities are in the resource archive.
+No failed stage was skipped or relabeled as passing.
+
+CI allocation follow-up: `python audit/economic_399/local_closeout/run_local.py read`
+passes five controls and detects all four mutants with a fresh-process allocation
+check. The original 4 MiB threshold remains; the restored-copy mutant fails it.

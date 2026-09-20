@@ -160,6 +160,10 @@ bounded headers and opaque compressed strings, avoiding expansion of millions
 of numeric nodes in a single SQL value construction. Verify canonical equality
 against independent standard-library decoding, legacy/new restart, final-series
 tamper and transaction rollback before repeating full resource acceptance.
+Rollback qualification must pair a restored database with a compatible decoder
+and reviewed source identity: an older image cannot interpret newly compressed
+rows. This is an explicit storage-version boundary, not permission to bypass
+source continuation or rewrite immutable observations.
 
 Candidate acceptance: the independent storage-only 8,408-series probe passes
 in 42.17 seconds, with PostgreSQL peak 323,059,712 bytes and no OOM events.
@@ -205,6 +209,23 @@ The cached production PostgreSQL 16.14 image also passes 49 targeted storage
 cases and the 8,408-series storage diagnostic in 50.66 seconds. Its database
 peak is 300,748,800 bytes with zero OOM/reclaim-limit events. This complements
 PG17 structural and full-pipeline measurements; it does not qualify the NAS.
+
+The intermediate campaign also exposed an audit-reader defect after successful
+production advancement: its accounting probe queried the former inline feed
+price location. The replacement independent oracle reads the published snapshot's
+open/close prices, then calculates twenty whole-share positions' notional, 10 bp
+fees, cash and NAV. Both populated physical restores (25 inline / 129 compressed)
+pass; a deliberate $1 cash invention fails, and removing that cash guard is
+detected. The old campaign remains failed. During the final campaign, only the
+host coordinator was resumed to use this corrected audit reader; the retained
+database, service caps and all 406 production file bytes remain identical.
+
+CI run 35532202153/job 106135398245 passed 5,000 tests but failed the allocation
+test: process-wide tracing peaked at 19,706,514 bytes. The narrow local run had
+passed. Allocation measurement now runs in a fresh interpreter so unrelated
+suite threads/tracing cannot contribute. The same 4 MiB bound, independent hash
+oracle and tail-mutation assertions remain; restoring the production array copy
+must still fail. This is test isolation, not permission to raise the panel cap.
 
 ## Current finding-to-caller cross-check
 
