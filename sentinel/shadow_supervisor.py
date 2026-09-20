@@ -37,12 +37,47 @@ def _touch() -> None:
     supervisor_io.run(_write_heartbeat)
 
 
-def _write_heartbeat() -> None:
+def _write_heartbeat():
     HEARTBEAT_FILE.touch(exist_ok=True)
 
 
-def _remove_heartbeat() -> None:
-    HEARTBEAT_FILE.unlink(missing_ok=True)
+def _latch_exists():
+    return LATCH_FILE.exists() or _pending_file().exists()
+
+
+def _pending_file():
+    return LATCH_FILE.with_name('shadow-supervisor-pending.json')
+
+
+def _arm_worker():
+    # A positive, durable acknowledgement is required before launching work.
+    # Never reuse an existing marker from an unacknowledged prior attempt.
+    _write_marker(_pending_file(), {
+        'schema': 'sentinel.shadow-supervisor-pending/1',
+        'started_at_unix': time.time(),
+    })
+
+
+def _clear_worker():
+    _pending_file().unlink()
+    _sync_state_directory()
+
+
+def _sync_state_directory():
+    directory = os.open(LATCH_FILE.parent, os.O_RDONLY)
+    try:
+        os.fsync(directory)
+    finally:
+        os.close(directory)
+
+
+def _write_marker(path, payload):
+    path.parent.mkdir(parents=True, exist_ok=True)
+    with path.open('x', encoding='utf-8') as stream:
+        stream.write(json.dumps(payload, sort_keys=True))
+        stream.flush()
+        os.fsync(stream.fileno())
+    _sync_state_directory()
 
 
 def _enqueue_alert(*, idempotency_key: str, event_type: str,
@@ -137,26 +172,36 @@ def _terminate(child: subprocess.Popen, *, grace_seconds: float = 5.0) -> None:
         child.wait(timeout=max(1.0, grace_seconds))
 
 
-def _latch(reason: str, *, failures: int | None = None) -> None:
+def _latch(reason: str, *, failures: int | None = None):
     payload = {
         "schema": "sentinel.shadow-supervisor-critical/1",
         "reason": str(reason),
         "failures": failures,
         "latched_at_unix": time.time(),
     }
-    LATCH_FILE.parent.mkdir(parents=True, exist_ok=True)
+    pending = _try_persist_latch(payload)
+    _report_latch(reason, failures=failures)
+    return pending
+
+
+def _try_persist_latch(payload):
     try:
-        with LATCH_FILE.open("x", encoding="utf-8") as stream:
-            stream.write(json.dumps(payload, sort_keys=True))
-            stream.flush()
-            os.fsync(stream.fileno())
-        directory = os.open(LATCH_FILE.parent, os.O_RDONLY)
-        try:
-            os.fsync(directory)
-        finally:
-            os.close(directory)
+        supervisor_io.run(_persist_latch, payload, timeout=2)
+    except Exception as exc:
+        supervisor_io.report('CRITICAL: shadow latch persistence unavailable; '
+                             'worker remains fenced: ' + type(exc).__name__)
+        return payload
+    return None
+
+
+def _persist_latch(payload):
+    try:
+        _write_marker(LATCH_FILE, payload)
     except FileExistsError:
         pass  # The original refusal remains the incident evidence.
+
+
+def _report_latch(reason, *, failures=None):
     # The latch remains the local fail-closed authority.  This best-effort
     # projection gives the independent dispatcher one durable critical event
     # when PostgreSQL is still available; inability to report never clears or
@@ -181,8 +226,10 @@ def _latch(reason: str, *, failures: int | None = None) -> None:
         file=sys.stderr, flush=True)
 
 
-def _latched_wait(stopping) -> int:
+def _latched_wait(stopping, pending=None) -> int:
     while not stopping():
+        if pending is not None:
+            pending = _try_persist_latch(pending)
         _touch()
         time.sleep(1.0)
     return 0
@@ -190,6 +237,14 @@ def _latched_wait(stopping) -> int:
 
 def _health(max_age_seconds: float, *, config=None) -> int:
     """Require supervisor liveness plus a safe shadow recovery state."""
+    try:
+        return supervisor_io.run(_health_snapshot, max_age_seconds, config, timeout=3)
+    except Exception as exc:
+        supervisor_io.report(f"REFUSED: shadow health dependency unavailable: {type(exc).__name__}")
+        return 1
+
+
+def _health_snapshot(max_age_seconds, config):
     try:
         age = time.time() - HEARTBEAT_FILE.stat().st_mtime
     except OSError as exc:
@@ -201,11 +256,12 @@ def _health(max_age_seconds: float, *, config=None) -> int:
             f"REFUSED: shadow supervisor heartbeat stale ({age:.3f}s)",
             file=sys.stderr)
         return 1
-    if LATCH_FILE.exists():
+    if _latch_exists():
         try:
-            detail = LATCH_FILE.read_text(encoding="utf-8")
+            with LATCH_FILE.open(encoding="utf-8") as stream:
+                detail = stream.read(4096)
         except OSError as exc:
-            detail = f"unreadable critical latch: {exc}"
+            detail = f"critical latch or unacknowledged worker outcome: {exc}"
         supervisor_io.report(f"REFUSED: shadow supervisor critical latch: {detail}",
               file=sys.stderr)
         return 1
@@ -240,24 +296,39 @@ def run() -> int:
 
     stopping = False
     active: subprocess.Popen | None = None
+    terminated = False
     consecutive_failures = 0
 
     def stop(_signum=None, _frame=None):
-        nonlocal stopping
+        nonlocal stopping, terminated
         stopping = True
-        if active is not None:
+        if active is not None and active.poll() is None:
+            terminated = True
             _terminate(active)
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
     try:
         _touch()
-        if LATCH_FILE.exists():
+        try:
+            latched = supervisor_io.run(_latch_exists)
+        except Exception as exc:
+            supervisor_io.report(f"REFUSED: shadow latch state unavailable: {type(exc).__name__}")
+            return EXIT_REFUSED
+        if latched:
             return _latched_wait(lambda: stopping)
         while not stopping:
+            try:
+                supervisor_io.run(_arm_worker, timeout=2)
+            except Exception as exc:
+                supervisor_io.report('REFUSED: shadow worker could not be durably armed: '
+                                     + type(exc).__name__)
+                return EXIT_REFUSED
             active = subprocess.Popen(
                 [sys.executable, "-m", "sentinel.shadow_worker"],
                 stdin=subprocess.DEVNULL)
+            if stopping:
+                stop()  # A signal during arming/spawn must also terminate this child.
             started = time.monotonic()
             timed_out = False
             while not stopping and active.poll() is None:
@@ -270,17 +341,21 @@ def run() -> int:
                     timed_out = True
                     break
                 time.sleep(1.0)
-            if stopping:
-                break
-            code = 124 if timed_out else int(active.poll() or 0)
+            code = active.poll()
+            if (timed_out or terminated) and code in {-signal.SIGTERM, -signal.SIGKILL}:
+                code = 124
+            else:
+                # A natural terminal refusal can race our termination request.
+                # Only an observed signal termination earns the retryable outcome.
+                code = int(code) if code is not None else -1
             active = None
             if code == EXIT_REFUSED:
-                _latch("shadow worker reported terminal integrity refusal")
-                return _latched_wait(lambda: stopping)
+                pending = _latch("shadow worker reported terminal integrity refusal")
+                return _latched_wait(lambda: stopping, pending)
             if code not in {
                     0, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY, 124}:
-                _latch(f"shadow worker exited unexpectedly with {code}")
-                return _latched_wait(lambda: stopping)
+                pending = _latch(f"shadow worker exited unexpectedly with {code}")
+                return _latched_wait(lambda: stopping, pending)
 
             if code == EXIT_RETRY:
                 # A typed non-availability retry represents a local semantic failure
@@ -290,20 +365,26 @@ def run() -> int:
                 # alone cannot permanently poison an otherwise valid deployment.
                 consecutive_failures += 1
                 if consecutive_failures >= failure_threshold:
-                    _latch(
+                    pending = _latch(
                         "shadow publisher exceeded bounded semantic retry threshold",
                         failures=consecutive_failures)
-                    return _latched_wait(lambda: stopping)
+                    return _latched_wait(lambda: stopping, pending)
                 _semantic_retry_alert()
             elif code in {EXIT_WAITING, EXIT_AVAILABILITY}:
                 _source_recovery_alert()
                 consecutive_failures = 0
             else:
-                # SUCCESS and a bounded hard timeout are responsive states. The
-                # latter may repeat while a multi-hour/multi-day resumable catch-up
-                # advances durable checkpoints. Financial health stays red until
-                # convergence.
+                # Successful work and supervised deadlines remain restartable.
                 consecutive_failures = 0
+
+            try:
+                supervisor_io.run(_clear_worker, timeout=2)
+            except Exception as exc:
+                supervisor_io.report('REFUSED: shadow worker acknowledgement unavailable: '
+                                     + type(exc).__name__)
+                return EXIT_REFUSED
+            if stopping:
+                break
 
             _touch()
             deadline = time.monotonic() + config.poll_seconds
@@ -319,6 +400,10 @@ def run() -> int:
         except Exception:
             pass
     return 0
+
+
+def _remove_heartbeat():
+    HEARTBEAT_FILE.unlink(missing_ok=True)
 
 
 def main(argv=None) -> int:

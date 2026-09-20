@@ -1,5 +1,12 @@
 # Sentinel — the execution and recovery contract
 
+[Forward paper reporting](autonomous-paper-readiness.md) records the owner's
+approved separation between current execution safety and historical performance.
+The rolling informational mirror may defer entitlements when native fill detail
+is incomplete. It records the gap, invents no cash adjustment and still refuses
+contradictory native evidence, unresolved commands or unexplained current cash.
+The strict historical certification path is unchanged.
+
 [Automatic share-unit reconciliation](automatic-share-unit-reconciliation.md)
 supersedes the universal affirmative pre-open certificate and global material-
 action refusal below. Missing optional evidence does not block ordinary paper
