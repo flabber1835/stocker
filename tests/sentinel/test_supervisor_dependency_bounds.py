@@ -108,10 +108,11 @@ def test_filesystem_heartbeat_stall_cannot_hold_the_worker_deadline(monkeypatch)
     original = supervisor_io.run
     monkeypatch.setattr(supervisor_io, 'run', lambda function, *args, **kwargs:
                         original(function, *args, timeout=.1))
-    monkeypatch.setattr(shadow, '_touch_file', lambda: time.sleep(20))
+    monkeypatch.setattr(shadow, '_write_heartbeat', lambda: time.sleep(20))
     monkeypatch.setattr(supervisor_io, 'report', lambda *a, **k: None)
     started = time.monotonic()
-    shadow._touch()
+    with pytest.raises(TimeoutError, match='wall-clock'):
+        shadow._touch()
     assert time.monotonic() - started < 2
 
 

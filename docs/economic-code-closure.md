@@ -355,7 +355,7 @@ economic certification.
 | A21 | P1 admission / P2 visibility, **locally fixed; NAS qualification pending** | `sentinel/feed/readers.py:57`, `sentinel/observation_authority.py:86`, `:187`, `:202`, `:338`, `sentinel/cli/authority.py:65`, `scripts/sentinel_autonomous_deploy_driver.py:384`: authenticated rolling publication/readiness/reference inputs now reach the observation CLI, signed installation/activation identities and generated installer programs. Warmup `/2` runs the selected canonical production strategy; the offline issuer rejects legacy or rehashed strategy/corpus mismatches rather than accepting counts alone. A publication pin spans readiness/warmup/claims; mismatched generation or strategy refuses. Panel readiness is generation-bound. See [design, limitations and NAS handoff](rolling-admission-readers.md) and [retained local evidence](../audit/economic_399/rolling_admission_403/README.md). Stale rolling renewal remains part of the separate open maintenance lifecycle. |
 | A5 original / backup duplicate A6 | P1, **open maintenance implementation** | `docker-compose.sentinel-backup.yml:1`, `sentinel/backup_runtime_authority.py:42`: daily verified backup scheduling and proactive horizon rollover remain absent. A single-owner restart-safe maintenance lifecycle, bounded outage recovery and accelerated WAL/retention qualification are still required. This change does not add that service or weaken its guard. |
 | A6 endpoint replacement | P2, **locally fixed after #403; device qualification pending** | `sentinel/panel/push_enrollment.py:127`, `sentinel/push_recipients.py:23`, `sentinel/web_push.py:316`: durable successors preserve pending obligations before/after capture. Current recipient revision and outbox attempt fence late results; explicit removal/re-enrollment cannot inherit old alerts. Policy-row serialization and consistent policy-to-outbox lock order exclude rotation during result commit. Real PostgreSQL tests cover endpoint/key rotation during HTTP, restart, delivered peers, targeted enrollment tests and conflicting-device refusal. |
-| A12 / A1 residual | P2/P1, code/resource limits | `sentinel/rolling_runtime.py:95` still validates full current inputs during status. `sentinel/shadow_supervisor.py:35` and `:138`, `sentinel/automation_supervisor.py:150` still depend on local filesystem progress. A tiny universe and killable SQL do not establish full-universe latency or resilience to a wedged state filesystem. Qualify independent external health and resource limits; any required bounded-reader/cache or filesystem-isolation implementation remains code work. |
+| A12 / A1 residual | P2/P1, partially fixed locally; resource qualification open | `sentinel/rolling_runtime.py:95` still validates full current inputs during status. Shadow heartbeat writes/removal now use bounded observers; exceptional exit disposes of the active worker and a known terminal exit is latched before the next heartbeat (`sentinel/shadow_supervisor.py:36`, `:277`, `:313`). See [design and limitations](shadow-heartbeat-isolation.md) and [retained acceptance](../audit/economic_399/shadow_heartbeat/README.md). Startup latch checks, durable latch writes and automation holder publication still depend on filesystem progress. Full-universe latency, kernel-uninterruptible I/O, independent external health and any resulting bounded-reader/filesystem changes remain gates. |
 | A14 / A16 | P1/P2, provider/economic policy | Recent SIP entitlement admission and held-spinoff continuation need accepted provider evidence and reviewed economic handling. Do not infer permission from a synthetic fixture or force continuation past an unsupported event. See the retained #400 dispositions. |
 | A24 residual | P2, **locally fixed after #403** | `scripts/sentinel_autonomous_deploy.py:1127`: streaming uses one monotonic pipe/process deadline, kills its private process group, reaps the child, retains partial output and returns 124 or refuses. Actual subprocess tests cover silence, partial lines, closed/inherited stdout and a descendant's prevented late write. Host filesystem/output-device stalls remain the separate A1/resource qualification. |
 | Full historical replay | Data-dependent, with an import/replay adapter still required | Supply the complete 20-year PIT corpus and warmup: SEP, SPY/BIL SFP, dated TICKERS/issuer/alias/exchange history, ACTIONS and terminal/spinoff terms, completeness/availability evidence, manifests and normalization versions. The user's corpus exists elsewhere; it was not accessed on the NAS. Retained operational publications cover only sessions actually published before their next open. A whole feed outage needs separately authenticated historical input; this recovery implementation does not backdate today's metadata. |
@@ -719,3 +719,59 @@ producer completeness/finality, native F19 provider authority and C3 predecessor
 incarnation evidence are unchanged. No broker capability flag, golden economic
 result or certification status was loosened. Step 1 and economic certification
 are not marked complete.
+
+### Compact rolling status input review (A12/A1)
+
+Reviewed from current main `e3dfb033d25ed68e5e1f6d2386285afabc62e801`
+(owner-merged #411). **P2, locally fixed:** the read-only status path discarded
+its input material only after retaining 252 sessions for every security. A
+5,000-security / 300-session synthetic input-phase probe measured 778,904 KiB
+Python peak RSS, above the panel's 512 MiB limit. This is evidence of excessive
+allocation, not evidence of a deployed OOM or an incorrect historical return.
+
+`rolling_runtime._current` now uses compact readiness counts, with the same
+complete sealed-content hashes, dated security mapping, action checks, source
+clock, publication pin and readiness thresholds. The strategy materialization
+API and economic state are preserved. Independent SQL counts, production status
+tripwires and guard-removal failures accompany the existing runtime regressions.
+The compact input phase measured 130,592 KiB peak RSS on the same synthetic scale;
+it still took 28.70 seconds. Source identity changes require the existing reviewed
+continuation boundary; prior certificates and golden artifacts are not rewritten.
+
+**Open P2:** complete status/checkpoint and reference/action-history memory,
+full-hash scan latency, concurrent panel requests and target resource limits.
+The input-phase measurement does not close these gates. Proactive maintenance
+and heartbeat supervision are tracked separately in pending #413 and #414.
+Provider cash/fill/predecessor guarantees, authoritative historical economic
+deltas and NAS qualification remain open. Step 1 and certification are not
+complete. See [design](rolling-status-resource-bounds.md) and
+[commands, retained evidence and qualification procedure](../audit/economic_399/rolling_status/README.md).
+
+### Report-only caller closure and current resource inventory
+
+Further tracing of #415 found nine remaining calls that discarded a materialized
+warmup: operational assessment, strict readiness, execution readiness, already-
+current acquisition, newly published acquisition, its inner operational validation,
+runtime admission before an idempotent retry, and both historical recovery gates.
+These now use compact assessment
+without changing their failed-clause/refusal semantics, publication/owner checks,
+source identity or DATA_ONLY scope. Six production-entrypoint tests reproduced
+the allocation before the fix; the first-publication case covers both inner and
+outer checks. Historical recovery has additional fresh-step and trailing-candidate
+acceptance that preserves reconstruction-only authority and original state identity.
+See the [additive evidence](../audit/economic_399/rolling_status/report_consumers/README.md).
+
+The earlier backup directory/manifest implementation-gap descriptions are
+historical: current main `e3dfb033d25ed68e5e1f6d2386285afabc62e801` includes
+bounded selection (257 bytes including overflow) and bounded manifest reads
+(8 MiB plus overflow), with no discovery fallback. Their previously retained
+acceptance remains valid; deployed capacity/latency qualification remains open.
+They must not be counted again as unimplemented fixes.
+
+The remaining local resource review is the complete status/checkpoint and
+reference/action load, concurrency and full-scan latency, plus actual material
+consumers in strategy warmup/database-health certification. Compact counts do
+not replace those consumers' economic inputs or warmup identity. Pending #413
+implements recurring maintenance; pending #414 addresses heartbeat supervision.
+Their CI/integration and independent filesystem/host qualification remain distinct.
+No required provider/data/NAS gate is closed by these resource fixes.

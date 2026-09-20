@@ -154,12 +154,7 @@ class SnapshotReferences:
                                  resolve_with_reason=self.resolver.resolve_with_reason)
 
 
-def cold_start_inputs(conn, *, candidate_id: str, snapshot_id: str) -> ColdStartInputs:
-    """Load bounded prospective material from one fully verified generation.
-
-    No legacy corpus query, checkpoint requirement, fallback or database write.
-    Full content verification is a preparation/restore operation, not a status poll.
-    """
+def _snapshot_context(conn, candidate_id, snapshot_id):
     refs = SnapshotReferences(conn, candidate_id=candidate_id, snapshot_id=snapshot_id)
     rolling_store.verify_content(conn, candidate_id)
     session = str(refs.manifest.window.end)
@@ -168,28 +163,44 @@ def cold_start_inputs(conn, *, candidate_id: str, snapshot_id: str) -> ColdStart
     if len(warm) != PREFERRED_SESSIONS or not set(axis).issubset(map(str, refs.manifest.window.sessions)):
         raise RollingInputsRefused("COLD_START_WINDOW_UNAVAILABLE")
     meta, sectors = refs.current_metadata()
-    by_session = {}
+    return refs, session, axis, warm, meta, sectors
+
+
+def _mapped_bars(conn, candidate_id, refs, meta, first):
     for row in rolling_store.read_bars(conn, candidate_id):
         day = str(row.session)
-        if day < warm[0]:
+        if day < first:
             continue
         if (row.security_id not in meta
                 or refs.resolver.resolve(row.ticker, day) != row.security_id):
             raise RollingInputsRefused("SNAPSHOT_BAR_REFERENCE_MISMATCH")
-        by_session.setdefault(day, []).append(VendorBar(
+        yield VendorBar(
             session=day, security_id=row.security_id, ticker=row.ticker,
             raw_close=row.close_unadjusted, raw_open=row.open_unadjusted,
             volume=row.volume, split_ratio=row.split_ratio,
             dividend_per_share=row.dividend_per_share,
-            tradeable=bool(row.close_unadjusted and row.volume), signal_close=row.close_signal))
-    if sorted(by_session) != axis:
-        raise RollingInputsRefused("COLD_START_PRICE_GAP")
-    known = {bar.security_id for day in warm for bar in by_session[day]}
+            tradeable=bool(row.close_unadjusted and row.volume), signal_close=row.close_signal)
+
+
+def _benchmarks(conn, candidate_id, session):
     benchmark_axis = calendar.previous_sessions(session, 254)
     benchmarks = tuple(row for row in rolling_store.read_benchmarks(conn, candidate_id)
                        if str(row.session) >= benchmark_axis[0])
     if [str(row.session) for row in benchmarks] != benchmark_axis:
         raise RollingInputsRefused("COLD_START_BENCHMARK_GAP")
+    return benchmarks
+
+
+def cold_start_inputs(conn, *, candidate_id: str, snapshot_id: str) -> ColdStartInputs:
+    """Materialize verified strategy inputs; compact status uses readiness_inputs."""
+    refs, session, axis, warm, meta, sectors = _snapshot_context(conn, candidate_id, snapshot_id)
+    by_session = {}
+    for bar in _mapped_bars(conn, candidate_id, refs, meta, warm[0]):
+        by_session.setdefault(bar.session, []).append(bar)
+    if sorted(by_session) != axis:
+        raise RollingInputsRefused("COLD_START_PRICE_GAP")
+    known = {bar.security_id for day in warm for bar in by_session[day]}
+    benchmarks = _benchmarks(conn, candidate_id, session)
     window = CorpusWindow(warm, {day: by_session[day] for day in warm}, meta)
     window.median5_spy_closes = {str(row.session): row.spy_total_return for row in benchmarks
                                 if str(row.session) in warm}
@@ -202,3 +213,52 @@ def cold_start_inputs(conn, *, candidate_id: str, snapshot_id: str) -> ColdStart
         tuple(by_session[session]), meta, sectors, benchmarks,
         tuple(event for event in terminals.events if event.session == session),
         refs.distributions(session=session), fresh_anchors(by_session[session], meta, known))
+
+
+READINESS_DOMAINS = ("signal_close", "raw_close", "raw_open", "volume")
+
+
+@dataclass
+class ReadinessInputs:
+    """Read-only counts, never a strategy input or persisted authority."""
+    session: str
+    warmup_sessions: list[str]
+    benchmarks: tuple[CanonicalBenchmark, ...]
+    related_issuers: bool
+    counts: dict[str, int] = dataclass_field(default_factory=dict)
+    frontier_positive: dict[str, int] = dataclass_field(
+        default_factory=lambda: dict.fromkeys(READINESS_DOMAINS, 0))
+    warmup_positive: dict[str, int] = dataclass_field(
+        default_factory=lambda: dict.fromkeys(READINESS_DOMAINS, 0))
+
+    def observe(self, bar):
+        self.counts[bar.session] = self.counts.get(bar.session, 0) + 1
+        positive = self.frontier_positive if bar.session == self.session else self.warmup_positive
+        for name in READINESS_DOMAINS:
+            value = getattr(bar, name)
+            positive[name] += value is not None and value > 0
+
+
+def summarize_readiness(material):
+    summary = ReadinessInputs(material.session, material.warmup.sessions,
+                              material.benchmarks, any(m.related_tickers for m in material.meta.values()))
+    for day in material.warmup.sessions:
+        for bar in material.warmup.bars_by_session[day]:
+            summary.observe(bar)
+    for bar in material.bars:
+        summary.observe(bar)
+    return summary
+
+
+def readiness_inputs(conn, *, candidate_id: str, snapshot_id: str) -> ReadinessInputs:
+    refs, session, axis, warm, meta, _sectors = _snapshot_context(conn, candidate_id, snapshot_id)
+    summary = ReadinessInputs(session, warm, _benchmarks(conn, candidate_id, session),
+                              any(m.related_tickers for m in meta.values()))
+    for bar in _mapped_bars(conn, candidate_id, refs, meta, warm[0]):
+        summary.observe(bar)
+    if sorted(summary.counts) != axis:
+        raise RollingInputsRefused("COLD_START_PRICE_GAP")
+    # Counts are insufficient evidence for dated action/reference closure.
+    refs.terminals(start=warm[0], end=session)
+    refs.distributions(session=session)
+    return summary

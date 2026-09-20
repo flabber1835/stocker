@@ -22,13 +22,13 @@ MUTANTS = {
         "sentinel.feed.rolling_go_inputs", "PASS if share >= MIN_FRONTIER_DOMAIN_COVERAGE else FAIL", "PASS",
         "test_readiness_checks_canonical_current_inputs[domain]"),
     "current_population": (
-        "sentinel.feed.rolling_go_inputs", "PASS if bars and len(bars) >= baseline * MIN_FRONTIER_POPULATION_RATIO else FAIL", "PASS",
+        "sentinel.feed.rolling_go_inputs", "PASS if frontier and frontier >= baseline * MIN_FRONTIER_POPULATION_RATIO else FAIL", "PASS",
         "test_readiness_checks_canonical_current_inputs[population]"),
     "warmup_domains": (
         "sentinel.feed.rolling_go_inputs", "PASS if share >= .9 else FAIL", "PASS",
         "test_readiness_checks_canonical_current_inputs[warmup]"),
     "issuer_evidence": (
-        "sentinel.feed.rolling_go_inputs", "PASS if related else FAIL", "PASS",
+        "sentinel.feed.rolling_go_inputs", "PASS if summary.related_issuers else FAIL", "PASS",
         "test_readiness_checks_canonical_current_inputs[issuer]"),
     "bil_domains": (
         "sentinel.feed.rolling_go_inputs", "PASS if defensive_complete else FAIL", "PASS",

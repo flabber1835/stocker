@@ -34,7 +34,7 @@ CASES = {
         "tests/sentinel/test_rolling_paper_inputs.py::"
         "test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow[alpaca-True]"),
     "heartbeat-bound": ("sentinel.shadow_supervisor", "_touch",
-        "supervisor_io.run(_touch_file)", "_touch_file()",
+        "supervisor_io.run(_write_heartbeat)", "_write_heartbeat()",
         SUPERVISOR + "test_filesystem_heartbeat_stall_cannot_hold_the_worker_deadline"),
     "health-bound": ("sentinel.shadow_supervisor", "_health",
         "supervisor_io.run(_health_snapshot, max_age_seconds, config, timeout=3)",

@@ -1,7 +1,8 @@
 # Autonomous Alpaca paper readiness
 
 This implementation starts from `e3dfb033d25ed68e5e1f6d2386285afabc62e801`.
-It integrates main `29cdd7727ba2adea27672830c538d76a2218943e` (PR #413), including PR #412.
+It integrates main `e255a78aaf4f89d25fc634864aafd2656c6cd176` (PR #415),
+including the backup and heartbeat safeguards from PRs #413 and #414.
 The objective is a deployed forward paper trader. Historical performance,
 provider acceptance and NAS qualification remain separate claims. Admission
 already uses the selected strategy and rolling readers from PR #405.
@@ -81,8 +82,12 @@ ownership still require their separately accepted source/protocol handling.
 ## Supervisor filesystem bounds
 
 Run heartbeat/holder writes, latch reads and latch persistence in the existing
-killable dependency observer. A failed heartbeat write leaves health stale but
-cannot delay terminating an overdue active worker. Startup cannot spawn a worker
+killable dependency observer. Integration with main `e255a78a` preserves PR #414's
+heartbeat-failure containment: propagate a failed heartbeat and terminate/reap
+the active worker in a finally boundary before bounded heartbeat cleanup. Persist
+a known terminal refusal before attempting another heartbeat. Retain this PR's
+durable pending marker on exceptional exits so an unacknowledged outcome cannot
+silently restart. Startup cannot spawn a worker
 without reading latch state; unknown state refuses. Latch persistence remains
 exclusive and fsynced. Bound the health command's complete structural read in a
 child and return only its small verdict. No cached health result supplies runtime
@@ -195,3 +200,26 @@ passed (485 test modules, no unowned or new incident-named tests). The host
 environment tests here ran under Python 3.12; target interpreter/NAS execution
 and provider qualification remain separate deployment checks. No broker orders,
 NAS changes or merge were performed.
+
+## Main integration after PRs #414 and #415
+
+Resolved the supervisor conflict against verified main
+`e255a78aaf4f89d25fc634864aafd2656c6cd176`. Preserve main's bounded heartbeat
+failure propagation, terminal-refusal ordering and unconditional active-worker
+cleanup together with this PR's durable pending marker, bounded latch reads and
+persistence, and termination-race classification. Exceptional heartbeat exits
+retain the pending marker; normal supervised shutdown clears it.
+
+On the integrated source, offline with the same read-only/empty-env test setup:
+
+```text
+python -m pytest tests/sentinel/test_supervisor_dependency_bounds.py tests/sentinel/test_shadow_heartbeat_isolation.py tests/sentinel/test_automation_p1_continuity.py tests/sentinel/test_rolling_paper_inputs.py::test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow -q --tb=short --show-capture=no -p no:cacheprovider
+43 passed in 167.69s
+```
+
+In a disposable source copy,
+`python audit/economic_399/shadow_heartbeat/mutations.py` passed all four
+baselines and detected `touch_boundary`, `exception_cleanup`, `refusal_order`
+and `cleanup_boundary`. The `worker-arm`, `pending-health` and `latch-timeout`
+cases of `python tools/paper_readiness_mutation_check.py CASE` also passed their
+baselines and detected all three mutants. `git diff --check` passed.

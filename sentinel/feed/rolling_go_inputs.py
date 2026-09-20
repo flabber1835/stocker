@@ -5,7 +5,7 @@ from contextlib import contextmanager
 from statistics import median
 
 from sentinel import rolling_checkpoint, schema
-from sentinel.core.rolling_inputs import cold_start_inputs
+from sentinel.core.rolling_inputs import cold_start_inputs, readiness_inputs, summarize_readiness
 from sentinel.feed import calendar, operational_snapshot as snapshots, publication
 from sentinel.feed import rolling_jobs, runtime_schema
 from sentinel.feed.rolling_contract import digest
@@ -54,15 +54,25 @@ def validate(conn, pub, *, now=None):
     return _validate(conn, pub, target=snapshots.source_final_session(instant))
 
 
-def validate_reconstruction(conn, pub):
+def validate_status(conn, pub, *, now=None):
+    """Same readiness contract, with counts instead of retained strategy bars."""
+    instant = now or snapshots._now()
+    binding, _summary, report = _assess(conn, pub,
+        target=snapshots.source_final_session(instant), summary_only=True)
+    if not report.ready:
+        raise RollingGoRefused("ROLLING_INPUTS_NOT_READY: " + ", ".join(c.name for c in report.failures))
+    return binding, report
+
+
+def validate_reconstruction(conn, pub, *, summary_only=False):
     """Historical data readiness under actual authenticated availability evidence."""
     from sentinel import rolling_reconstruction_evidence
     rolling_reconstruction_evidence.require_dated(conn, pub)
-    return _validate(conn, pub, target=pub.window_end)
+    return _validate(conn, pub, target=pub.window_end, summary_only=summary_only)
 
 
-def _validate(conn, pub, *, target):
-    binding, material, report = _assess(conn, pub, target=target)
+def _validate(conn, pub, *, target, summary_only=False):
+    binding, material, report = _assess(conn, pub, target=target, summary_only=summary_only)
     if not report.ready:
         raise RollingGoRefused("ROLLING_INPUTS_NOT_READY: " + ", ".join(c.name for c in report.failures))
     return binding, material, report
@@ -71,10 +81,10 @@ def _validate(conn, pub, *, target):
 def assessment(conn, pub, *, now=None):
     """Report failed clauses without converting integrity failures to readiness."""
     instant = now or snapshots._now()
-    return _assess(conn, pub, target=snapshots.source_final_session(instant))[2]
+    return _assess(conn, pub, target=snapshots.source_final_session(instant), summary_only=True)[2]
 
 
-def _assess(conn, pub, *, target):
+def _assess(conn, pub, *, target, summary_only=False):
     binding = snapshots._bound(conn, pub)
     _, strategy = production_strategy()
     request = rolling_jobs.status(conn, binding["job_id"])["request"]
@@ -82,8 +92,9 @@ def _assess(conn, pub, *, target):
         raise RollingGoRefused("ROLLING_ACQUISITION_STRATEGY_CHANGED")
     if publication.chain_gaps(conn):
         raise RollingGoRefused("ROLLING_PUBLICATION_CHAIN_GAP")
-    material = cold_start_inputs(conn, candidate_id=binding["candidate_id"],
-                                 snapshot_id=binding["snapshot_id"])
+    reader = readiness_inputs if summary_only else cold_start_inputs
+    material = reader(conn, candidate_id=binding["candidate_id"], snapshot_id=binding["snapshot_id"])
+    summary = material if summary_only else summarize_readiness(material)
     report = Readiness()
     report.add("rolling source-final frontier", PASS if material.session == target else FAIL,
                f"snapshot {material.session}; source-final frontier {target}")
@@ -95,28 +106,22 @@ def _assess(conn, pub, *, target):
         for name in ("bil_open_signal", "bil_close_signal", "bil_close_adjusted", "bil_close_unadjusted"))
     report.add("rolling current BIL domains", PASS if defensive_complete else FAIL,
                "current and preceding defensive price domains")
-    bars = list(material.bars)
-    prior_counts = [len(material.warmup.bars_by_session[day]) for day in material.warmup.sessions[-20:]]
+    frontier = summary.counts.get(summary.session, 0)
+    prior_counts = [summary.counts[day] for day in summary.warmup_sessions[-20:]]
     baseline = median(prior_counts)
-    report.add("rolling frontier population", PASS if bars and len(bars) >= baseline * MIN_FRONTIER_POPULATION_RATIO else FAIL,
+    report.add("rolling frontier population", PASS if frontier and frontier >= baseline * MIN_FRONTIER_POPULATION_RATIO else FAIL,
                "current cross-section compared with the preceding 20 sessions",
-               {"frontier": len(bars), "recent_median": baseline})
+               {"frontier": frontier, "recent_median": baseline})
     for name in ("signal_close", "raw_close", "raw_open", "volume"):
-        covered = sum(getattr(bar, name) is not None and getattr(bar, name) > 0 for bar in bars)
-        share = covered / len(bars) if bars else 0
+        share = summary.frontier_positive[name] / frontier if frontier else 0
         report.add("rolling frontier " + name, PASS if share >= MIN_FRONTIER_DOMAIN_COVERAGE else FAIL,
                    "positive canonical domain coverage", share)
     for name in ("signal_close", "raw_close", "raw_open", "volume"):
-        total = present = 0
-        for day in material.warmup.sessions:
-            for bar in material.warmup.bars_by_session[day]:
-                total += 1
-                present += getattr(bar, name) is not None and getattr(bar, name) > 0
-        share = present / total if total else 0
+        total = sum(summary.counts[day] for day in summary.warmup_sessions)
+        share = summary.warmup_positive[name] / total if total else 0
         report.add("rolling warmup " + name, PASS if share >= .9 else FAIL,
                    "positive canonical domain coverage over the complete warmup", share)
-    related = any(meta.related_tickers for meta in material.meta.values())
-    report.add("rolling issuer references", PASS if related else FAIL,
+    report.add("rolling issuer references", PASS if summary.related_issuers else FAIL,
                "current reference bundle includes related-ticker issuer evidence")
     return binding, material, report
 
@@ -124,7 +129,7 @@ def _assess(conn, pub, *, target):
 def readiness(conn, *, now=None):
     """Call inside the caller's read-only transaction; never save a verdict."""
     with pinned(conn) as pub:
-        _, _, report = validate(conn, pub, now=now)
+        _, report = validate_status(conn, pub, now=now)
         return report
 
 
@@ -147,7 +152,7 @@ def _prepare(conn, *, target_session, budget_seconds=3600):
         pub = current(conn)
         if is_rolling(pub) and pub.window_end == target_session:
             with snapshots.pinned(conn, commit=False) as (held, _):
-                binding, _, _ = validate(conn, held)
+                binding, _ = validate_status(conn, held)
             conn.commit()
             return {"schema": SCHEMA, "status": "ALREADY_CURRENT", **binding}
         _, strategy = production_strategy()
@@ -157,7 +162,7 @@ def _prepare(conn, *, target_session, budget_seconds=3600):
         conn.commit()
         binding = snapshots.prepare(conn, job)
         with snapshots.pinned(conn, commit=False) as (held, _):
-            checked, _, _ = validate(conn, held)
+            checked, _ = validate_status(conn, held)
             if checked != binding or held.window_end != target_session:
                 raise RollingGoRefused("ROLLING_PREPARATION_PUBLICATION_CHANGED")
         conn.commit()

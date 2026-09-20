@@ -34,15 +34,10 @@ LATCH_FILE = Path(os.environ.get("SENTINEL_STATE_DIR", "/var/lib/sentinel")) / "
 
 
 def _touch() -> None:
-    try:
-        supervisor_io.run(_touch_file)
-    except Exception as exc:
-        # A stale health file is visible externally. Continue enforcing the
-        # active worker's monotonic deadline even when this filesystem stalls.
-        supervisor_io.report(f"shadow heartbeat unavailable: {type(exc).__name__}")
+    supervisor_io.run(_write_heartbeat)
 
 
-def _touch_file():
+def _write_heartbeat():
     HEARTBEAT_FILE.touch(exist_ok=True)
 
 
@@ -313,92 +308,97 @@ def run() -> int:
 
     signal.signal(signal.SIGTERM, stop)
     signal.signal(signal.SIGINT, stop)
-    _touch()
     try:
-        latched = supervisor_io.run(_latch_exists)
-    except Exception as exc:
-        supervisor_io.report(f"REFUSED: shadow latch state unavailable: {type(exc).__name__}")
-        return EXIT_REFUSED
-    if latched:
-        return _latched_wait(lambda: stopping)
-    while not stopping:
-        try:
-            supervisor_io.run(_arm_worker, timeout=2)
-        except Exception as exc:
-            supervisor_io.report('REFUSED: shadow worker could not be durably armed: '
-                                 + type(exc).__name__)
-            return EXIT_REFUSED
-        active = subprocess.Popen(
-            [sys.executable, "-m", "sentinel.shadow_worker"],
-            stdin=subprocess.DEVNULL)
-        if stopping:
-            stop()  # A signal during arming/spawn must also terminate this child.
-        started = time.monotonic()
-        timed_out = False
-        while not stopping and active.poll() is None:
-            _touch()
-            if time.monotonic() - started > deadline_seconds:
-                supervisor_io.report(
-                    "shadow supervisor terminating overdue advance after "
-                    f"{deadline_seconds:.0f}s", file=sys.stderr, flush=True)
-                _terminate(active)
-                timed_out = True
-                break
-            time.sleep(1.0)
-        code = active.poll()
-        if (timed_out or terminated) and code in {-signal.SIGTERM, -signal.SIGKILL}:
-            code = 124
-        else:
-            # A natural terminal refusal can race our termination request.
-            # Only an observed signal termination earns the retryable outcome.
-            code = int(code) if code is not None else -1
-        active = None
         _touch()
-        if code == EXIT_REFUSED:
-            pending = _latch("shadow worker reported terminal integrity refusal")
-            return _latched_wait(lambda: stopping, pending)
-        if code not in {
-                0, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY, 124}:
-            pending = _latch(f"shadow worker exited unexpectedly with {code}")
-            return _latched_wait(lambda: stopping, pending)
-
-        if code == EXIT_RETRY:
-            # A typed non-availability retry represents a local semantic failure
-            # and remains bounded. A hard timeout is different: the child was
-            # forcibly stopped at a known process boundary and the canonical
-            # ingest/catch-up paths are restart-convergent, so timeout duration
-            # alone cannot permanently poison an otherwise valid deployment.
-            consecutive_failures += 1
-            if consecutive_failures >= failure_threshold:
-                pending = _latch(
-                    "shadow publisher exceeded bounded semantic retry threshold",
-                    failures=consecutive_failures)
-                return _latched_wait(lambda: stopping, pending)
-            _semantic_retry_alert()
-        elif code in {EXIT_WAITING, EXIT_AVAILABILITY}:
-            _source_recovery_alert()
-            consecutive_failures = 0
-        else:
-            # Successful work and supervised deadlines remain restartable.
-            consecutive_failures = 0
-
         try:
-            supervisor_io.run(_clear_worker, timeout=2)
+            latched = supervisor_io.run(_latch_exists)
         except Exception as exc:
-            supervisor_io.report('REFUSED: shadow worker acknowledgement unavailable: '
-                                 + type(exc).__name__)
+            supervisor_io.report(f"REFUSED: shadow latch state unavailable: {type(exc).__name__}")
             return EXIT_REFUSED
-        if stopping:
-            break
+        if latched:
+            return _latched_wait(lambda: stopping)
+        while not stopping:
+            try:
+                supervisor_io.run(_arm_worker, timeout=2)
+            except Exception as exc:
+                supervisor_io.report('REFUSED: shadow worker could not be durably armed: '
+                                     + type(exc).__name__)
+                return EXIT_REFUSED
+            active = subprocess.Popen(
+                [sys.executable, "-m", "sentinel.shadow_worker"],
+                stdin=subprocess.DEVNULL)
+            if stopping:
+                stop()  # A signal during arming/spawn must also terminate this child.
+            started = time.monotonic()
+            timed_out = False
+            while not stopping and active.poll() is None:
+                _touch()
+                if time.monotonic() - started > deadline_seconds:
+                    supervisor_io.report(
+                        "shadow supervisor terminating overdue advance after "
+                        f"{deadline_seconds:.0f}s", file=sys.stderr, flush=True)
+                    _terminate(active)
+                    timed_out = True
+                    break
+                time.sleep(1.0)
+            code = active.poll()
+            if (timed_out or terminated) and code in {-signal.SIGTERM, -signal.SIGKILL}:
+                code = 124
+            else:
+                # A natural terminal refusal can race our termination request.
+                # Only an observed signal termination earns the retryable outcome.
+                code = int(code) if code is not None else -1
+            active = None
+            if code == EXIT_REFUSED:
+                pending = _latch("shadow worker reported terminal integrity refusal")
+                return _latched_wait(lambda: stopping, pending)
+            if code not in {
+                    0, EXIT_WAITING, EXIT_RETRY, EXIT_AVAILABILITY, 124}:
+                pending = _latch(f"shadow worker exited unexpectedly with {code}")
+                return _latched_wait(lambda: stopping, pending)
 
-        deadline = time.monotonic() + config.poll_seconds
-        while not stopping and time.monotonic() < deadline:
+            if code == EXIT_RETRY:
+                # A typed non-availability retry represents a local semantic failure
+                # and remains bounded. A hard timeout is different: the child was
+                # forcibly stopped at a known process boundary and the canonical
+                # ingest/catch-up paths are restart-convergent, so timeout duration
+                # alone cannot permanently poison an otherwise valid deployment.
+                consecutive_failures += 1
+                if consecutive_failures >= failure_threshold:
+                    pending = _latch(
+                        "shadow publisher exceeded bounded semantic retry threshold",
+                        failures=consecutive_failures)
+                    return _latched_wait(lambda: stopping, pending)
+                _semantic_retry_alert()
+            elif code in {EXIT_WAITING, EXIT_AVAILABILITY}:
+                _source_recovery_alert()
+                consecutive_failures = 0
+            else:
+                # Successful work and supervised deadlines remain restartable.
+                consecutive_failures = 0
+
+            try:
+                supervisor_io.run(_clear_worker, timeout=2)
+            except Exception as exc:
+                supervisor_io.report('REFUSED: shadow worker acknowledgement unavailable: '
+                                     + type(exc).__name__)
+                return EXIT_REFUSED
+            if stopping:
+                break
+
             _touch()
-            time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
-    try:
-        supervisor_io.run(_remove_heartbeat)
-    except Exception:
-        pass
+            deadline = time.monotonic() + config.poll_seconds
+            while not stopping and time.monotonic() < deadline:
+                _touch()
+                time.sleep(min(1.0, max(0.0, deadline - time.monotonic())))
+    finally:
+        # Dispose of the active worker before any best-effort filesystem cleanup.
+        if active is not None:
+            _terminate(active)
+        try:
+            supervisor_io.run(_remove_heartbeat)
+        except Exception:
+            pass
     return 0
 
 
