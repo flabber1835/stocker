@@ -10,7 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass, field
+from copy import deepcopy
+from dataclasses import dataclass, field, fields
 from typing import Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.feed import (
@@ -55,9 +56,15 @@ _PLAN_EVIDENCE_FIELDS = (
 
 
 def _hash(value) -> str:
-    blob = json.dumps(
-        value, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    return hashlib.sha256(blob.encode()).hexdigest()
+    digest = hashlib.sha256()
+    for chunk in json.JSONEncoder(sort_keys=True, separators=(",", ":"), allow_nan=False).iterencode(value):
+        digest.update(chunk.encode())
+    return digest.hexdigest()
+
+
+def _validate_json(value) -> None:
+    for _ in json.JSONEncoder(sort_keys=True, allow_nan=False).iterencode(value):
+        pass
 
 
 def _path_dependent_security_ids(wealth_core: Mapping,
@@ -328,7 +335,9 @@ class SessionState:
         elif self.concordance_witness_origin is not None:
             raise ValueError(
                 "non-Concordance state carries Concordance witness provenance")
-        raw = asdict(self)
+        raw = {item.name: deepcopy(getattr(self, item.name))
+               for item in fields(self) if item.name != "feed"}
+        raw["feed"] = self.feed
         if self.median5 is None:
             if median5_controller.enabled(self.strategy_identity):
                 raise ValueError("Median-5 controller state is required")
@@ -359,11 +368,13 @@ class SessionState:
         protected = _path_dependent_security_ids(
             raw["wealth_core"], raw["pending"])
         raw["feed"] = _bounded_feed_dict(raw["feed"], protected)
+        for security_id, series in raw["feed"]["series"].items():
+            raw["feed"]["series"][security_id] = deepcopy(series)
         raw["last_known"] = _bounded_last_known(raw["last_known"], protected)
         raw["last_evidence"] = _bounded_evidence(raw["last_evidence"])
         raw["controller"] = validate_controller_state(raw["controller"])
         raw["version"] = ENVELOPE_VERSION
-        json.dumps(raw, sort_keys=True, allow_nan=False)
+        _validate_json(raw)
         return raw
 
     @classmethod
@@ -397,7 +408,7 @@ class SessionState:
         migrated["controller"] = validate_controller_state(
             migrated.get("controller") or {})
         migrated["version"] = ENVELOPE_VERSION
-        json.dumps(migrated, sort_keys=True, allow_nan=False)
+        _validate_json(migrated)
         state = cls(**migrated)
         from sentinel.controller.ex3_v6 import enabled as v5_enabled
         for raw_order in state.pending:
