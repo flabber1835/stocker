@@ -57,3 +57,21 @@ and the four conflict-resolved files are byte-identical to pre-merge #419 head
 The original exit-137 root cause remains unproven. Only a successful new GitHub
 run establishes this CI campaign's completion; local results do not do so.
 No NAS, broker, strategy, golden fixture or runtime resource limit was changed.
+
+## Workflow assertion follow-up
+
+Run `35492495339` at `86b2680f19d48e026a38d09d893b15a95ffddeda`
+completed the general partition, exposing three stale workflow assertions in
+`test_adversarial_certification_tools.py` and `test_operational_surface.py`.
+They still required a single main JUnit invocation, quiet verbosity, or a
+per-command tee instead of the new combined shell group. This is an assertion
+update to the already documented partition contract; no workflow or production
+code changes. Both actual JUnit inputs, the combined output, verbose summaries,
+and pipefail-protected log group remain checked. The existing executable shell
+acceptance separately proves exact module coverage and failure propagation.
+
+Validation (offline local PostgreSQL test image, current source copied inside):
+`python audit/economic_399/rolling_status/run_local.py test tests/sentinel/test_adversarial_certification_tools.py tests/sentinel/test_operational_surface.py tests/scripts/test_sentinel_ci_parallel_evidence.py tests/scripts/test_test_responsibility.py`
+passes **128 tests in 3.73 seconds**. `git diff --check` passes. The rolling
+partition was not reached after the failed general partition; only new green
+GitHub CI can establish completion of the entire campaign.
