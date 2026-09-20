@@ -1,5 +1,9 @@
 # Economic certification: remaining code closure
 
+Current remaining-work index: [the ten-item Stage 1 closeout checklist](stage-one-closeout-checklist.md).
+Use its IDs and pass conditions for progress reports; the chronological record
+below preserves earlier findings and their later dispositions.
+
 Forward-paper update: [autonomous paper readiness](autonomous-paper-readiness.md)
 integrates main's recurring backup renewal and restore-gated retention with
 bounded process execution, exact selected-generation verification, and durable
