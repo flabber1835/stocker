@@ -151,7 +151,12 @@ scope is discovered, explicitly record the new gate and its completion impact.
 
 - [ ] **L09 — Qualify the locally available real-size workload.**
   **Now:** BLOCKED INPUT/BUDGET; locally feasible code review, repairs, tests and
-  measurements are complete. Both demonstrated write/read OOM defects are repaired.
+  measurements are complete, including the [PG16 pressure investigation](postgres-local-pressure.md).
+  Continuous local sampling reproduced file-cache reclaim, with 256.30 MiB peak
+  sampled non-file-cache usage, no OOM and 0.68 s of stalls over 727 s. No additional
+  PostgreSQL code defect was reproduced; total-memory headroom remains TIGHT and
+  target latency/concurrency remains unqualified. Both demonstrated write/read
+  OOM defects are repaired.
   All eight 8,408-security synthetic stages complete under unchanged service caps,
   including two status reads at each frontier, full HTTP, next-session advancement
   and the independent published-price cash/NAV oracle. No OOM occurs. PostgreSQL

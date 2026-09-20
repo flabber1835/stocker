@@ -1,5 +1,11 @@
 # Remaining Stage 1 local review
 
+The subsequent [local PostgreSQL pressure investigation](postgres-local-pressure.md)
+profiles the production PG16 image continuously. It reproduces cache reclaim,
+with 256.30 MiB peak sampled non-file-cache memory and no OOM; no additional
+PostgreSQL implementation defect is reproduced. Total-memory headroom remains
+TIGHT; deployed latency, concurrency and real-input qualification remain open.
+
 Base independently fetched 2026-09-20:
 `eaae66f9e6626306f8b233fd723d25b278e13351`. Local integration includes #421
 `02549411267955c697bacea076fde7e240e1c841`, #422
