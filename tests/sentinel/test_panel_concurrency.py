@@ -2,6 +2,7 @@
 from concurrent.futures import ThreadPoolExecutor, TimeoutError
 from datetime import datetime, timezone
 import importlib
+import os
 from pathlib import Path
 from threading import Event
 
@@ -74,7 +75,7 @@ def test_failed_build_releases_admission(monkeypatch, route):
 
 
 def test_deployed_panel_cannot_multiply_workers():
-    root = Path(__file__).resolve().parents[2]
+    root = Path(os.environ.get('SENTINEL_REPO_ROOT') or Path(__file__).resolve().parents[2])
     service = yaml.safe_load((root/'docker-compose.sentinel.yml').read_text())['services']['sentinel-panel']
     command = service['command']
     assert '--workers' in command
