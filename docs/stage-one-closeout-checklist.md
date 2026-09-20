@@ -33,8 +33,10 @@ scope is discovered, explicitly record the new gate and its completion impact.
 ## The ten items
 
 - [ ] **L01 — Integrate the reviewed fixes and pass required CI.**
-  **Now:** INTEGRATION PENDING. The owner merged #419; current main is
-  `eaae66f9e6626306f8b233fd723d25b278e13351`. #421, #423 and #424 remain open.
+  **Now:** INTEGRATION PENDING. The owner merged #419 and #421; fetched main is
+  `e4c9b1439962af3353e7f0c0ec3d84aee1f0aeb7`. #422, #423 and #424 are integrated
+  into [#425](https://github.com/flabber1835/stocker/pull/425), which carries the
+  remaining reviewed fixes. Required current-head CI and owner merges remain.
   **Done when:** the reviewed changes are owner-merged through PRs, any overlap is resolved,
   and required CI passes on the resulting reviewed source. Validate affected
   integration seams, including the split test-image imports; do not count a
@@ -65,7 +67,8 @@ scope is discovered, explicitly record the new gate and its completion impact.
   L03-Z1 allowed zero-valued native cash identities to bypass replay checks;
   retained zero evidence now prevents revisions from inventing external capital
   or silently retaining changed deposits. Combined CI/merge remains L01 and
-  numeric #421 integration remains L02. Scope C1/F6/F8/F19 in `execution/alpaca.py`,
+  #421/#424 integration now also passes 58 real-PostgreSQL cash tests at
+  `6042debb`; #424 delivery is `86f174b1`. Scope C1/F6/F8/F19 in `execution/alpaca.py`,
   `broker_cash.py`, `fill_integrity.py`, journal, paper cash and performance.
   **Done when:** account/native identity, timestamps, cumulative quantity/notional,
   duplicate/overlap replay, partial-to-complete progression, corrections/busts,
@@ -147,10 +150,12 @@ scope is discovered, explicitly record the new gate and its completion impact.
   NAS scheduler and filesystem guarantees remain external evidence.
 
 - [ ] **L09 — Qualify the locally available real-size workload.**
-  **Now:** OPEN CODE/TEST: the 8,408-security probe OOM-killed a PostgreSQL backend
-  at its unchanged 1 GiB cap while assembling the initial observation JSONB.
-  A separate storage-only probe reproduces it. Repair/revalidation is required;
-  this is not a provider-only gate. #419 qualifies a 5,000-security synthetic scope; retained PIT
+  **Now:** OPEN CODE/TEST: compressed observation storage fixes the reproduced
+  1 GiB PostgreSQL write OOM (PG16 and PG17 storage passes, complete initialization
+  passes). The full 8,408-security campaign then exposed a 512 MiB panel read OOM.
+  A canonical-copy repair has 141 targeted passes and detected allocation/ownership
+  falsifiers; complete capped remeasurement is running. This remains local work,
+  not a provider-only gate. #419 qualifies a 5,000-security synthetic scope; retained PIT
   inventory reaches 8,408 rows/day and 2,474,682 rows in a 300-session window.
   **Done when:** identify and admit a representative authoritative bounded window,
   including its required reference/action history; measure initialization,
@@ -162,10 +167,13 @@ scope is discovered, explicitly record the new gate and its completion impact.
   exact manifest/field/date and procedure entries. This is bounded resource
   qualification, **not** the deferred 20-year return backtest.
 
-- [ ] **L10 — Publish the final finding-to-evidence reconciliation.**
-  **Now:** all 22 economic finding IDs and all 27 autonomy labels (including
-  three reused labels) have an explicit owner in the finding index. L04 has its
-  final caller/evidence map; the other items' final reconciliation remains OPEN.
+- [x] **L10 — Publish the final finding-to-evidence reconciliation.**
+  **Now:** LOCAL PASS for the [finding-to-caller/evidence reconciliation](stage-one-local-closeout.md#current-finding-to-caller-cross-check).
+  All F1–F19/C1–C3 and all 27 autonomy labels, including three reused labels,
+  have explicit production, persistence/restart and acceptance dispositions.
+  The named L09 resource defect remains open; E1–E4/N1/B1 are separately retained.
+  Historical source differences are inventoried rather than reported as reruns.
+  This closes the mapping/review item, not L01 delivery or L09 qualification.
   **Done when:** every F1–F19/C1–C3 and relevant #400 finding has a disposition
   linked to L02–L09, current production caller, persistence/restart path and
   acceptance/falsifier or named external blocker. Reconcile duplicated A4/A5/A6

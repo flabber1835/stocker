@@ -81,7 +81,11 @@ def test_public_status_checks_final_compressed_series_after_valid_storage_rehash
     import zlib
     from sentinel import rolling_runtime, shadow_observation
     from tests.sentinel.test_rolling_initialization import OBS
-    rolling_runtime.advance(conn, through='2026-09-14', observation_id=OBS, starting_cash=100_000)
+    expected = rolling_runtime.advance(conn, through='2026-09-14', observation_id=OBS, starting_cash=100_000)
+    conn.commit()
+    accepted = rolling_runtime.status(conn, observation_id=OBS, starting_cash=100_000)
+    assert accepted.state.state_hash == expected.state.state_hash
+    conn.rollback()
     store = shadow_observation.PostgresShadowObservationStore(conn, observation_id=OBS)
     name = store._genesis_name if field == 'initial_state' else store._name('2026-09-14')
     value = conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0]
@@ -96,7 +100,8 @@ def test_public_status_checks_final_compressed_series_after_valid_storage_rehash
     conn.commit()
     # Storage length/checksum/count remain valid. Public verification must
     # inspect the changed final series against the economic commitments.
-    with pytest.raises(shadow_observation.ShadowObservationRefused):
+    with pytest.raises(shadow_observation.ShadowObservationRefused,
+                       match='genesis changed|observation record changed'):
         rolling_runtime.status(conn, observation_id=OBS, starting_cash=100_000)
 
 
