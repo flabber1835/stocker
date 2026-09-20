@@ -1,0 +1,13 @@
+{
+  "files": {
+    "audit/economic_399/cash_precision/ci-equivalence.log": {
+      "bytes": 897,
+      "sha256": "687c3d91425a9fe7eebc5a7dec957dbdda933a901f30392533753d352e8d5f56"
+    },
+    "docs/production-champion-paper-deltas.json": {
+      "bytes": 9608,
+      "sha256": "65c21c108ed0ee72e2ff56aa8c355658b7c9a39a42fc7e6aad3bdfb62c613983"
+    }
+  },
+  "reviewed_production_head": "8eb53b16da40149837ac2d5c37989399556c5127"
+}

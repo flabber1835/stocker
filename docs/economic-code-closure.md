@@ -9,6 +9,29 @@ is preserved. Scheduler installation, observed retention, target resource/restor
 qualification and unsupported economic capabilities remain separate obligations;
 this update does not close full economic certification.
 
+Stage 1 cash-consumer review on main
+`daa43caf995779bfa7e67195785520744021cb45`: **P2, locally fixed** —
+`sentinel/paper/cash.py:232` used ambient Decimal arithmetic for cumulative
+fill cash and activity deltas. Rounding could admit a mismatch just beyond the
+existing $1 tolerance, or change the durable grace identity after a precision
+change. Exact arithmetic now preserves the comparison and grace identity across
+restart. Independent decimal/integer oracles, 133 focused regression cases,
+20 final focused cases and four detected guard mutants establish this bounded
+claim. These overlapping test counts are not whole-code coverage. See
+[commands, retained evidence and remaining gates](../audit/economic_399/cash_precision/README.md).
+C1/F6/F19/C3 provider guarantees, real-workload resource/latency evidence and NAS
+qualification remain open. The full historical backtest remains deferred Stage 2.
+
+The adjacent producer/reporting review also reproduced **P2 precision defects**:
+`sentinel/execution/broker_cash.py:413` could retain a rounded cursor inconsistent
+with PostgreSQL's exact native-row sum, causing subsequent restart refusal;
+`sentinel/core/cashflow.py:187`/`:223` could round capital/P&L or label a residual
+just outside tolerance as MARKET. Exact accumulation and attribution now share
+`sentinel/execution/numeric.py:6`. Existing inconsistent cursors still refuse;
+provider identity/finality is unchanged. Native HTTP simulation, persisted SQL
+oracles, new-event/duplicate replay and reporting controls are retained in the
+same [cash precision evidence](../audit/economic_399/cash_precision/README.md#producer-and-reporting-follow-up).
+
 Base: `748d54e12a4cdb4b5403c56feb8d6b68e47d0104`, the verified merge of
 PR #402. This is step 1 of the owner's certification sequence: eliminate known
 implementation defects and exercise recovery locally before the independent

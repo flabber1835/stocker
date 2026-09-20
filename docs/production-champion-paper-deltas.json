@@ -1,6 +1,6 @@
 {
-  "autonomous_paper_design": "docs/autonomous-paper-readiness.md",
   "automatic_share_unit_design": "docs/automatic-share-unit-reconciliation.md",
+  "autonomous_paper_design": "docs/autonomous-paper-readiness.md",
   "base": "4bba6875b07288cf6ebc6a149b926075b1e41c60",
   "definitions": {
     "_account_economics": {
@@ -22,6 +22,14 @@
       "generated_ast_sha256": "43faa648b30b30e8185adcda266aeb69b276ffef62fd078dafc76b17ad15705a",
       "historical_ast_sha256": "a28e490e18eda175562816e5047a9cefad6996a968758d0c97b85eefba71d8ab",
       "module": "validation"
+    },
+    "_cash_authority_or_refuse": {
+      "acceptance": "audit/economic_399/cash_precision/README.md",
+      "design": "docs/sentinel-execution-contract.md",
+      "generated_ast_sha256": "99feac810d791b5870b1d7f7d83514df2f2bbd49520aa75ffe8d0884f91cef9f",
+      "historical_ast_sha256": "c6ba9a412b1eef9da63b19cea444dbd28794ea378c28fa926f6352059f8fe980",
+      "module": "cash",
+      "reason": "PR #421 exact Fraction cash/notional accumulation and one-dollar comparison; exact Decimal conversion preserves grace identity across ambient precision contexts."
     },
     "_clean_or_refuse": {
       "generated_ast_sha256": "ac177ed6938e7a9755eeb9f7a50a8ebda2e595851154cc9507d72698a6f0038a",
