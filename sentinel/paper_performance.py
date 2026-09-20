@@ -113,7 +113,8 @@ def record_and_project(conn, verification: Mapping) -> dict:
     return project(verification, marker)
 
 
-def scan_entitlements(conn, *, binding: Mapping, through: date, account) -> dict | None:
+def scan_entitlements(conn, *, binding: Mapping, through: date, account,
+                      informational_only: bool = False) -> dict | None:
     """Detect missed-cycle entitlements from account-bound dated fill evidence.
 
     Called by PAPER preparation under the published corpus pin, before account
@@ -134,7 +135,22 @@ def scan_entitlements(conn, *, binding: Mapping, through: date, account) -> dict
     if marker is not None:
         return marker
     from sentinel.execution.fill_integrity import require_durable_coverage
-    require_durable_coverage(conn, binding)
+    if informational_only:
+        complete = require_durable_coverage(conn, binding, allow_incomplete=True)
+        if not complete:
+            from sentinel.trial import _insert_immutable
+            gap = {
+                "schema": "sentinel.paper-entitlement-reporting-gap/1",
+                "account": _account(binding), "session": through.isoformat(),
+                "performance_valid": False, "reason": "NATIVE_FILL_COVERAGE_PENDING",
+                "synthetic_adjustment": None,
+            }
+            gap["evidence_sha256"] = _hash(gap)
+            _insert_immutable(conn, name="paper-entitlement-gap:v1:" + _hash(_account(binding))
+                              + ":" + through.isoformat(), session=through, state=gap)
+            return None
+    else:
+        require_durable_coverage(conn, binding)
     with conn.cursor() as cur:
         cur.execute(
             "SELECT c.security_id,c.side,f.quantity,f.filled_at"

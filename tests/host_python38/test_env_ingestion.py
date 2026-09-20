@@ -623,13 +623,16 @@ class EnvHarness(unittest.TestCase):
     def maintenance_repo(self):
         process = self.shell_repo()
         for name in MAINTENANCE_LAUNCHERS + (
-                "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh"):
+                "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh",
+                "sentinel-backup-maintenance-entry.sh", "sentinel_maintenance_process.py"):
             shutil.copyfile(ROOT / "scripts" / name, self.root / "scripts" / name)
         (self.root / "scripts/sentinel-backup-lib.sh").write_text(
             'sentinel_backup_root() { echo backup >> effects; printf "%s\\n" "$SENTINEL_BACKUP_DIR"; }\n')
         (self.root / "scripts/sentinel_backup_lock.py").write_text(
             "import os,sys\n"
-            "if sys.argv[1] == 'hold': os.execvp(sys.argv[2],sys.argv[2:])\n")
+            "LOCK_FD_ENV='SENTINEL_BASE_BACKUP_LOCK_FD'\n"
+            "def lock_is_held(*args): return False\n"
+            "if __name__ == '__main__' and sys.argv[1] == 'hold': os.execvp(sys.argv[2],sys.argv[2:])\n")
         (self.root / "scripts/sentinel_backup_maintenance.py").write_text(
             "import subprocess\nraise SystemExit(subprocess.run(['docker','info']).returncode)\n")
         docker = self.root / "bin/docker"

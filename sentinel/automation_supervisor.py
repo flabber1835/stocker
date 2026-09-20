@@ -148,11 +148,19 @@ def _spawn(
         ) -> subprocess.Popen:
     env = os.environ.copy()
     env["SENTINEL_AUTOMATION_HOLDER_ID"] = holder_id
-    HOLDER_FILE.write_text(holder_id, encoding="utf-8")
+    supervisor_io.run(_write_holder, holder_id)
     return subprocess.Popen(
         list(command or (
             sys.executable, "-m", "sentinel.automation_worker")),
         stdin=subprocess.DEVNULL, env=env, start_new_session=True)
+
+
+def _write_holder(holder_id):
+    HOLDER_FILE.write_text(holder_id, encoding="utf-8")
+
+
+def _remove_holder():
+    HOLDER_FILE.unlink(missing_ok=True)
 
 
 def main() -> int:
@@ -259,8 +267,8 @@ def main() -> int:
     if child is not None:
         _terminate(child)
     try:
-        HOLDER_FILE.unlink(missing_ok=True)
-    except OSError:
+        supervisor_io.run(_remove_holder)
+    except Exception:
         pass
     return 0
 

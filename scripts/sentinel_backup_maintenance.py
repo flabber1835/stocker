@@ -8,12 +8,12 @@ from datetime import datetime, timezone
 import os
 from pathlib import Path
 import re
-import signal
 import subprocess
 import sys
 import time
 
-from sentinel_backup_lock import lock_is_held, LOCK_FD_ENV, _lock_path
+from sentinel_backup_lock import lock_is_held, _lock_path
+from sentinel_maintenance_process import run_bounded
 
 
 ROOT = Path(__file__).resolve().parents[1]
@@ -30,27 +30,13 @@ class Refused(RuntimeError):
 
 
 def run(command, *, timeout=120, stdin=None):
-    fd = int(os.environ[LOCK_FD_ENV])
-    process = subprocess.Popen(command, cwd=str(ROOT), text=True,
-                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
-                               stderr=subprocess.PIPE, start_new_session=True,
-                               pass_fds=(fd,))
-    try:
-        output, error = process.communicate(stdin, timeout=timeout)
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGTERM)
-        try:
-            process.communicate(timeout=15)
-        except subprocess.TimeoutExpired:
-            os.killpg(process.pid, signal.SIGKILL)
-            process.communicate()
-        raise Refused("maintenance command deadline exceeded: " + command[0])
-    if process.returncode:
+    result = run_bounded(command, timeout=timeout, stdin=stdin, private_group=False)
+    if result.returncode:
         # Child output is retained by the scheduler; no environment/credentials.
-        print(output, end="")
-        print(error, end="", file=sys.stderr)
+        print(result.stdout, end="")
+        print(result.stderr, end="", file=sys.stderr)
         raise Refused("maintenance command failed: " + command[0])
-    return output.strip()
+    return result.stdout.strip()
 
 
 def sql(query, runner=run):

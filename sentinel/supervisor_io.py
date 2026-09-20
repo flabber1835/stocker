@@ -6,6 +6,8 @@ import os
 import signal
 import sys
 
+_UNREAPED = []
+
 
 def _call(channel, function, args):
     try:
@@ -24,6 +26,14 @@ def run(function, *args, timeout=1.0):
     before we read its pipe, so an incomplete IPC frame cannot block the parent.
     No connection is created in the parent or shared with the supervised worker.
     """
+    # SIGKILL cannot immediately reap uninterruptible kernel I/O. Do not grow
+    # an unbounded population of observers on a failed filesystem.
+    for prior in list(_UNREAPED):
+        if prior.is_alive():
+            raise TimeoutError('prior supervisor dependency observer is not reaped')
+        prior.join(timeout=0)
+        prior.close()
+        _UNREAPED.remove(prior)
     context = multiprocessing.get_context('fork')
     receiver, sender = context.Pipe(duplex=False)
     process = context.Process(target=_call, args=(sender, function, args))
@@ -50,6 +60,8 @@ def run(function, *args, timeout=1.0):
                 process.join(timeout=1)
             if not process.is_alive():
                 process.close()
+            else:
+                _UNREAPED.append(process)
 
 
 def _stderr(message):
