@@ -124,6 +124,7 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.paper_performance",
     "sentinel.regime.spy",
     "sentinel.shadow_observation",
+    "sentinel.observation_storage",
     "sentinel.shadow_runtime",
     "sentinel.rolling_checkpoint",
     "sentinel.rolling_initialization",

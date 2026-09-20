@@ -1,0 +1,47 @@
+{
+  "9bececa241052c43851f5da586499a6ae3a8039f": {
+    "audit/economic_399/full_status/probe.py": "9cb3cc6ea558720c572be2d70babc7ba15a340be37b183734e4044d6452acdee",
+    "audit/economic_399/status_cost/call_profile.py": "cef4eaf616be30c038bac3b514f3982b7393ffc9ee47913ac7d37d2932250b97",
+    "audit/economic_399/status_cost/mutations.py": "79333e66322099f032f0cbbc3220c657df88e64e0dc57dacc06bb64ea925b27f",
+    "audit/economic_399/status_cost/run_stages.py": "94c4db09ecf5250206cc23714c135c34b0362bccf713f38120753e815a970200",
+    "audit/economic_399/status_cost/stages.py": "66856d3fa5d0ce194fde411e76d27432f945f6aa9936f821b774d7c6b0c0762a",
+    "audit/economic_399/status_cost/storage_mutations.py": "ff3f386a3022a49e42a8d1f5fc7c7f528691eb7ed27a8a3acdb70f28a4dc810c",
+    "audit/economic_399/status_memory/economic_oracle.py": "a43c54f4397f69167c8da8563c2cab22ef9fa6f5e9ba3822e6065e02526543e5",
+    "sentinel/core/decision.py": "0775dd742d34ac673edfbbe20652b55aac4793e1c23bf1d9bfe330af5a9dbd44",
+    "sentinel/core/session.py": "1f200a18b98f54cd1a85893c53b03fe57a1a715fe7a3f9a5fa67a0ee496e7fc1",
+    "sentinel/observation_storage.py": "64b860fd67b17b25c78c1e2ee24a962ce31d7d1660d673cb9e2b95eb6555c694",
+    "sentinel/paper_performance.py": "7f594f6b813de5149973528527ae1ba89ed086e3a0167b1543abf082340ad87f",
+    "sentinel/shadow_observation.py": "d0827f14fb91784f35cf130e4fecf703bc09d0f99270b01632264f367a484d4f",
+    "tests/sentinel/test_panel_concurrency.py": "f0425895f6aceed4ec4e2bb8a9fc3d016e677cf147bb33cc4b84949f41a1e868",
+    "tests/sentinel/test_status_memory.py": "53be5e8e85b86cbe9f8495f1def057f219e9ef2972c2db99d68c1cdfdc1830bc"
+  },
+  "df64828b11c56fd6cb1a3c44c26fd09d46e82dbf": {
+    "audit/economic_399/status_cost/pit_inventory.py": "625f71004e04bbc1888ce79a5b1f12730e4b5039986aeeb579a36772ec12b422"
+  },
+  "e088bfd26c695309e259cfc44ab1e8982d6f858d": {
+    ".github/workflows/backtester-production-strict-pit-20y.yml": "1b85727ececf1e0ad143dff7f8d44086e660f09af35ecac80f638786290ecb52",
+    "backtester/STRICT_PIT_CERTIFICATION_RUNBOOK.md": "cd928cb81d783c4a948046344587cec97aac42eef79de66e6dac5aae8380b893",
+    "backtester/canonical_pit_dataset.py": "eac7df46aa3151b03508be2f10af69da22dc4d4ca8947768bdbabd56e9cf24ab",
+    "backtester/canonical_pit_package.py": "de14ee7831354cc42a08ecd3594b152477020fe0a3165ebb6d9d56f5ff894e6b",
+    "backtester/data/canonical-pit-20y.json": "c9a674a5446bdfce6ca4df4c89d61b2079f1e0272f2b5892d8fd8799be10e623",
+    "backtester/data/production-chain-generation.json": "fe8ea3ce9c8746df3fc671b8c4c71d97e4a136b948a58faad1672afd7142d786",
+    "backtester/run_production_current_main_strict_pit_20y.py": "b527afa54b3bb66dd84c6576092a9fedf8beb35b0b19df565f2c8637d47f2a49"
+  },
+  "ffbf82b127784c145d697078ad1e8c03b70a0c46": {
+    "audit/economic_399/full_status/probe.py": "9cb3cc6ea558720c572be2d70babc7ba15a340be37b183734e4044d6452acdee",
+    "audit/economic_399/status_cost/call_profile.py": "cef4eaf616be30c038bac3b514f3982b7393ffc9ee47913ac7d37d2932250b97",
+    "audit/economic_399/status_cost/mutations.py": "79333e66322099f032f0cbbc3220c657df88e64e0dc57dacc06bb64ea925b27f",
+    "audit/economic_399/status_cost/postgres16.py": "c111de999a6d765c2f1bf9841c26a0f32e8533f2b025f5d4cb608a04e2bd059a",
+    "audit/economic_399/status_cost/run_stages.py": "94c4db09ecf5250206cc23714c135c34b0362bccf713f38120753e815a970200",
+    "audit/economic_399/status_cost/stages.py": "66856d3fa5d0ce194fde411e76d27432f945f6aa9936f821b774d7c6b0c0762a",
+    "audit/economic_399/status_cost/storage_mutations.py": "cef5a6365a9645b662bec4dda2659526a678a92cd414d8aba18c86138729272d",
+    "audit/economic_399/status_memory/economic_oracle.py": "a43c54f4397f69167c8da8563c2cab22ef9fa6f5e9ba3822e6065e02526543e5",
+    "sentinel/core/decision.py": "0775dd742d34ac673edfbbe20652b55aac4793e1c23bf1d9bfe330af5a9dbd44",
+    "sentinel/core/session.py": "1f200a18b98f54cd1a85893c53b03fe57a1a715fe7a3f9a5fa67a0ee496e7fc1",
+    "sentinel/observation_storage.py": "64b860fd67b17b25c78c1e2ee24a962ce31d7d1660d673cb9e2b95eb6555c694",
+    "sentinel/paper_performance.py": "975a86c3663e60f7e3c37d338ada9401946753d67586baaa31b123db8d8d8fd8",
+    "sentinel/shadow_observation.py": "d0827f14fb91784f35cf130e4fecf703bc09d0f99270b01632264f367a484d4f",
+    "tests/sentinel/test_panel_concurrency.py": "f2092f68e43a0f8007f0cc0f778295d77f5a0b874540eb1f417c342e66b24ba0",
+    "tests/sentinel/test_status_memory.py": "3a651a3cd18dc1e0e5b14e504e555d223e0879260e4965f87a656588d5e1a38c"
+  }
+}

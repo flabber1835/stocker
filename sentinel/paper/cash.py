@@ -7,11 +7,12 @@ import json
 from datetime import date, datetime, timedelta
 
 from decimal import Decimal, InvalidOperation
+from fractions import Fraction
 
 from typing import Mapping, Optional
 
 from sentinel.execution import broker_cash, executor, journal
-from sentinel.execution.numeric import decimal_text
+from sentinel.execution.numeric import decimal_text, exact_decimal as _cash_decimal
 
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
@@ -45,6 +46,7 @@ ACCOUNT_ENDPOINT_LAG_GRACE = timedelta(seconds=120)
 _ACCOUNT_ENDPOINT_LAG_SCHEMA = "sentinel.broker-account-lag/1"
 
 _ACCOUNT_ENDPOINT_LAG_PREFIX = "broker-account-lag:v1:"
+
 
 def _observation_economics(observation: BrokerObservation) -> dict:
     """Canonical broker book facts, excluding transport timestamps."""
@@ -219,7 +221,7 @@ def _cash_authority_or_refuse(
     event may authorize the *next* decision to use the fresh balance, but never
     rewrites a same-session plan or an execution already in flight.
     """
-    expected_without_activity = plan.account_cash
+    expected_without_activity = Fraction(plan.account_cash)
     for command in journal.load_commands(
             conn, deployment, plan_id=plan.plan_id):
         if command.filled_quantity == 0:
@@ -229,11 +231,11 @@ def _cash_authority_or_refuse(
                 f"cannot reconcile account cash for filled command "
                 f"{command.client_key}: its durable broker fill has no "
                 "average price")
-        notional = command.filled_quantity * command.filled_average_price
+        notional = Fraction(command.filled_quantity) * Fraction(command.filled_average_price)
         expected_without_activity += (
             notional if command.side.value == "SELL" else -notional)
 
-    activity_delta = Decimal(0)
+    activity_delta = Fraction(0)
     activity_identity_changed = False
     if activity_state is not None:
         if (activity_state.broker != plan.broker
@@ -257,7 +259,7 @@ def _cash_authority_or_refuse(
             raise PaperActivationRefused(
                 "broker cash activity state does not carry the same accepted "
                 "activity identity scheme as the authoritative plan baseline")
-        activity_delta = activity_state.balance_total - baseline.balance_total
+        activity_delta = Fraction(activity_state.balance_total) - Fraction(baseline.balance_total)
         if not baseline.activity_identity_authoritative:
             if not permit_new_activity:
                 raise PaperActivationRefused(
@@ -269,8 +271,9 @@ def _cash_authority_or_refuse(
             activity_identity_changed = (
                 activity_state.last_activity_id != baseline.last_activity_id)
 
-    expected = expected_without_activity + activity_delta
-    if abs(account.cash - expected) > Decimal("1.00"):
+    exact_expected = expected_without_activity + activity_delta
+    expected = _cash_decimal(exact_expected)
+    if abs(Fraction(account.cash) - exact_expected) > 1:
         if (endpoint_lag_observed_at is not None
                 and _account_endpoint_lag_is_live(
                     conn, plan=plan, deployment=deployment,
@@ -291,7 +294,7 @@ def _cash_authority_or_refuse(
             and not permit_new_activity:
         raise PaperActivationRefused(
             "broker-native cash activity changed after plan "
-            f"{plan.plan_id} was prepared (net={activity_delta}, "
+            f"{plan.plan_id} was prepared (net={_cash_decimal(activity_delta)}, "
             f"last_activity_id={activity_state.last_activity_id!r}). The "
             "event set is durably explained, but this immutable plan will not "
             "be re-sized or netted in place; prepare the next closed decision "

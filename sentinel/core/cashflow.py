@@ -59,7 +59,10 @@ from dataclasses import dataclass
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
+from fractions import Fraction
 from typing import Optional
+
+from sentinel.execution.numeric import exact_decimal
 
 #: How far a NAV move may miss the explanation before it is UNEXPLAINED.
 #: Cents, not percent: a proportional tolerance on a large account silently
@@ -127,7 +130,7 @@ class NavReconciliation:
 
     @property
     def move(self) -> Decimal:
-        return self.observed_nav - self.previous_nav
+        return exact_decimal(Fraction(self.observed_nav) - Fraction(self.previous_nav))
 
     def to_dict(self) -> dict:
         return {"session": self.session.isoformat(),
@@ -183,8 +186,8 @@ def flows_between(conn, start, end) -> list:
 
 def net_external(conn, start, end) -> Decimal:
     """Signed investor-capital flow. Internal broker cash remains strategy P&L."""
-    return sum((f.amount for f in flows_between(conn, start, end)
-                if f.is_external), Decimal(0))
+    return exact_decimal(sum((Fraction(f.amount) for f in flows_between(conn, start, end)
+                              if f.is_external), Fraction(0)))
 
 
 def strategy_pl(conn, *, start, end, opening_nav: Decimal,
@@ -199,7 +202,8 @@ def strategy_pl(conn, *, start, end, opening_nav: Decimal,
     half that is unambiguous. See docs/sentinel-architecture.md before anyone
     quotes a percentage — CLAUDE.md's rule about a headline number applies.
     """
-    return (closing_nav - opening_nav) - net_external(conn, start, end)
+    return exact_decimal(Fraction(closing_nav) - Fraction(opening_nav)
+                         - Fraction(net_external(conn, start, end)))
 
 
 def reconcile_nav(conn, *, session, previous_nav: Decimal,
@@ -216,9 +220,10 @@ def reconcile_nav(conn, *, session, previous_nav: Decimal,
     """
     d = _d(session)
     external = net_external(conn, d, d)
-    residual = (observed_nav - previous_nav) - marked_pl - external
+    residual = exact_decimal(Fraction(observed_nav) - Fraction(previous_nav)
+                             - Fraction(marked_pl) - Fraction(external))
 
-    if abs(residual) > tolerance:
+    if abs(Fraction(residual)) > Fraction(tolerance):
         attribution = Attribution.UNEXPLAINED
     elif external != 0:
         attribution = Attribution.DECLARED
