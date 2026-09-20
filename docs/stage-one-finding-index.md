@@ -28,9 +28,9 @@ source references, original acceptance and provider dispositions for these rows.
 | F3 | Current-session rename continuity | L05 |
 | F4 | Interrupted preparation-job recovery | L08 |
 | F5 | Recovery after callback death or terminal execution refusal | L04 |
-| F6 | Complete/final cash authority | L03 / E1 |
+| F6 | Complete/final cash authority | L03 LOCAL PASS (#424); E1 open |
 | F7 | UNKNOWN is not finalized by absent reads | L04 |
-| F8 | Capability checks reach nested activity producers | L03 |
+| F8 | Capability checks reach nested activity producers | L03 LOCAL PASS (#424) |
 | F9 | NAV precision through serialization | L02 |
 | F10 | Inclusive stop boundary | L02 |
 | F11 | Canonical numeric economic identity | L02; recovery consumer in L04 |
@@ -41,8 +41,8 @@ source references, original acceptance and provider dispositions for these rows.
 | F16 | Scoped entitlement price/ownership requirements | L05; fill authority in L03 |
 | F17 | Original obligations after shadow advancement | L04 |
 | F18 | Planless/adopted command action units | L04; source/action coverage in L05 |
-| F19 | Native fill identity, completeness and cumulative notional | L03 / E2 |
-| C1 | Accepted cash producer authority and finality | L03 / E1 |
+| F19 | Native fill identity, completeness and cumulative notional | L03 LOCAL PASS (#424); E2 open |
+| C1 | Accepted cash producer authority and finality | L03 LOCAL PASS (#424); E1 open |
 | C2 | Terminal-return economics and schema/version identity | L02 |
 | C3 | Predecessor-incarnation recovery completeness | L04 refusal boundary / E3 |
 

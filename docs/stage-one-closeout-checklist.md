@@ -33,7 +33,8 @@ scope is discovered, explicitly record the new gate and its completion impact.
 ## The ten items
 
 - [ ] **L01 — Integrate the reviewed fixes and pass required CI.**
-  **Now:** INTEGRATION PENDING, #419, #421 and the L04 acceptance PR #423 are open.
+  **Now:** INTEGRATION PENDING. The owner merged #419; current main is
+  `eaae66f9e6626306f8b233fd723d25b278e13351`. #421, #423 and #424 remain open.
   **Done when:** the reviewed changes are owner-merged through PRs, any overlap is resolved,
   and required CI passes on the resulting reviewed source. Validate affected
   integration seams, including the split test-image imports; do not count a
@@ -50,9 +51,18 @@ scope is discovered, explicitly record the new gate and its completion impact.
   Reuse the retained sizing/terminal evidence and #421's 237-test/eight-mutant
   campaign where its source remains applicable. No new golden pins.
 
-- [ ] **L03 — Close cash and native-fill consumer coverage.**
-  **Now:** consumer fixes have local acceptance; final producer-to-consumer
-  cross-check pending. Scope C1/F6/F8/F19 in `execution/alpaca.py`,
+- [x] **L03 — Close cash and native-fill consumer coverage.**
+  **Now:** LOCAL PASS on current main `eaae66f9` plus
+  [#424](https://github.com/flabber1835/stocker/pull/424), reviewed code commit
+  `a92aeaa86425fc9a79492482cf4e8fd010cd5c9c`, delivery head
+  `9093cbedb4f5a5703c838a02c9d3587075eae19f`.
+  The [caller/persistence map and evidence](https://github.com/flabber1835/stocker/blob/9093cbedb4f5a5703c838a02c9d3587075eae19f/docs/stage-one-cash-fill-closeout.md)
+  records 248 targeted regression passes, three capability-boundary passes,
+  12 overlapping positive controls and five detected mutants. New P2 defect
+  L03-Z1 allowed zero-valued native cash identities to bypass replay checks;
+  retained zero evidence now prevents revisions from inventing external capital
+  or silently retaining changed deposits. Combined CI/merge remains L01 and
+  numeric #421 integration remains L02. Scope C1/F6/F8/F19 in `execution/alpaca.py`,
   `broker_cash.py`, `fill_integrity.py`, journal, paper cash and performance.
   **Done when:** account/native identity, timestamps, cumulative quantity/notional,
   duplicate/overlap replay, partial-to-complete progression, corrections/busts,
@@ -176,6 +186,7 @@ that all possible bugs have been proven absent.
 - [#419 resource/CI follow-ups](https://github.com/flabber1835/stocker/pull/419)
 - [#421 cash precision fixes and retained evidence](https://github.com/flabber1835/stocker/pull/421)
 - [#423 L04 compound recovery acceptance and review](https://github.com/flabber1835/stocker/pull/423)
+- [#424 L03 cash/fill review and zero-identity repair](https://github.com/flabber1835/stocker/pull/424)
 
 2026-09-20 CI follow-up: #421's sole main-lane failure was the missing documented
 cash precision delta in the package equivalence manifest (5,233 other tests
