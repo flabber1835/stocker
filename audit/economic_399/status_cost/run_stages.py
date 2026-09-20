@@ -12,6 +12,8 @@ def main():
     parser.add_argument('--source', type=Path, default=Path(__file__).resolve().parents[3])
     parser.add_argument('--evidence', type=Path, required=True)
     parser.add_argument('--universe', type=int, default=5000)
+    parser.add_argument('--stages', nargs='+', default=['publish', 'initialize', 'status', 'http',
+                        'next_publish', 'advance', 'advanced_status', 'advanced_http'])
     args = parser.parse_args()
     args.evidence.mkdir(parents=True, exist_ok=False)
     prefix = 'sentinel-cost-' + uuid4().hex[:8]
@@ -45,7 +47,7 @@ raise SystemExit(subprocess.run([sys.executable,'-u','audit/economic_399/status_
             if pg.poll() is not None or time.monotonic() > deadline:
                 raise RuntimeError('isolated PostgreSQL startup failed')
             time.sleep(.5)
-        for stage in ('publish', 'initialize', 'status', 'http', 'next_publish', 'advance', 'advanced_status', 'advanced_http'):
+        for stage in args.stages:
             memory, cpus = ('512m', '.5') if 'status' in stage or 'http' in stage else ('4g', '2')
             cmd = command(stage, memory, cpus)
             print(json.dumps(cmd), flush=True)
@@ -53,11 +55,11 @@ raise SystemExit(subprocess.run([sys.executable,'-u','audit/economic_399/status_
                 result = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT)
             inspect(prefix+'-'+stage)
             subprocess.run(['docker', 'rm', prefix+'-'+stage], check=True)
-            assert result.returncode == 0, (stage, result.returncode)
             with (args.evidence/(stage+'-postgres-memory.log')).open('w') as log:
                 subprocess.run(['docker', 'exec', pg_name, 'python', '-c',
-                    "from pathlib import Path; print(Path('/sys/fs/cgroup/memory.peak').read_text()); print(Path('/sys/fs/cgroup/memory.events').read_text())"],
+                    "from pathlib import Path; [(print(p),print(Path('/sys/fs/cgroup',p).read_text())) for p in ('memory.peak','memory.events','memory.stat','cpu.stat')]"],
                     stdout=log, stderr=subprocess.STDOUT, check=True)
+            assert result.returncode == 0, (stage, result.returncode)
     finally:
         (args.evidence/'stop').touch()
         try:

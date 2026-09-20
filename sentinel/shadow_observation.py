@@ -36,6 +36,7 @@ from sentinel.core.production import (
     DefensiveBar, PublishedSession, SessionState, load_published_session)
 from sentinel.core.session import _canonical_chunks
 from sentinel.feed import calendar
+from sentinel import observation_storage
 
 
 SHADOW_GO = "SHADOW_GO"
@@ -858,18 +859,18 @@ class ShadowObservationResult:
         }
 
 
-def _compact_json_decoder():
+def _compact_json_decoder(*, number_type=float):
     """Standard JSON values with bounded, cursor-local immutable scalar reuse."""
     @lru_cache(maxsize=4096)
     def short_float(token):
-        return float(token)
+        return number_type(token)
 
     @lru_cache(maxsize=4096)
     def short_string(token):
         return token
 
     def number(token):
-        return short_float(token) if len(token) <= 64 else float(token)
+        return short_float(token) if len(token) <= 64 else number_type(token)
 
     def object_hook(value):
         for key, item in value.items():
@@ -888,20 +889,22 @@ def _compact_json_loads(encoded):
     return _compact_json_decoder()(encoded)
 
 
-@lru_cache(maxsize=1)
-def _compact_loader_classes():
+@lru_cache(maxsize=2)
+def _compact_loader_classes(exact_numbers=False):
     # Psycopg caches registered classes globally. Only instances may own pools.
     from psycopg.types.json import JsonbBinaryLoader, JsonbLoader
 
     class CompactJsonbLoader(JsonbLoader):
         def __init__(self, oid, context=None):
             super().__init__(oid, context)
-            self.loads = _compact_json_decoder()
+            self.loads = (_compact_json_decoder(number_type=Decimal) if exact_numbers
+                          else _compact_json_decoder())
 
     class CompactJsonbBinaryLoader(JsonbBinaryLoader):
         def __init__(self, oid, context=None):
             super().__init__(oid, context)
-            self.loads = _compact_json_decoder()
+            self.loads = (_compact_json_decoder(number_type=Decimal) if exact_numbers
+                          else _compact_json_decoder())
 
     return CompactJsonbLoader, CompactJsonbBinaryLoader
 
@@ -954,10 +957,10 @@ class PostgresShadowObservationStore:
         return genesis
 
     @staticmethod
-    def _compact_decoder(cursor):
+    def _compact_decoder(cursor, *, exact_numbers=False):
         # Cursor-local only. Protocol test cursors do not have driver adapters.
         if hasattr(cursor, "adapters"):
-            for loader in _compact_loader_classes():
+            for loader in _compact_loader_classes(exact_numbers):
                 cursor.adapters.register_loader("jsonb", loader)
 
     def _streamed_row(self, name, state_field):
@@ -995,14 +998,15 @@ class PostgresShadowObservationStore:
         return value
 
     def matches_genesis(self, expected: Mapping[str, Any]) -> bool | None:
-        """Compare the complete retained payload without a second decoded copy."""
+        """One coherent full-value comparison, with exact stored JSON decimals."""
         with self.conn.cursor() as cur:
+            self._compact_decoder(cur, exact_numbers=True)
             cur.execute(
-                "SELECT session::text=%s AND state=%s::jsonb"
-                " FROM sentinel_processed_sessions WHERE cursor_name=%s",
-                (expected["first_session"], _canonical_json(expected), self._genesis_name))
+                "SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s",
+                (self._genesis_name,))
             row = cur.fetchone()
-        return None if row is None else bool(row[0])
+        return None if row is None else (str(row[0]) == expected["first_session"]
+            and observation_storage.exact_value_equal(row[1], expected))
 
     def append_genesis(self, genesis: Mapping[str, Any]) -> None:
         candidate = _as_mapping(genesis, where="shadow observation genesis")
@@ -1011,14 +1015,11 @@ class PostgresShadowObservationStore:
                 "shadow observation store cannot seed another observation id")
         session = _xnys_session(
             candidate.get("first_session"), where="shadow first session")
-        encoded = _canonical_json(candidate)
         try:
+            observation_storage.insert(self.conn, name=self._genesis_name, session=session,
+                                       candidate=candidate, state_field="initial_state")
             with self.conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO sentinel_processed_sessions"
-                    " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
-                    " ON CONFLICT (cursor_name) DO NOTHING",
-                    (self._genesis_name, session, encoded))
+                self._compact_decoder(cur, exact_numbers=True)
                 cur.execute(
                     "SELECT session,state FROM sentinel_processed_sessions"
                     " WHERE cursor_name=%s", (self._genesis_name,))
@@ -1026,9 +1027,9 @@ class PostgresShadowObservationStore:
             if row is None:
                 raise ShadowObservationRefused(
                     "shadow observation genesis did not become durable")
-            stored = _as_mapping(
+            stored = self._owned_mapping(
                 row[1], where=f"shadow observation row {self._genesis_name}")
-            if str(row[0]) != session or stored != candidate:
+            if str(row[0]) != session or not observation_storage.exact_value_equal(stored, candidate):
                 raise ShadowObservationRefused(
                     "shadow observation genesis was already committed with "
                     "different evidence")
@@ -1093,13 +1094,10 @@ class PostgresShadowObservationStore:
         session = _xnys_session(
             candidate.get("session"), where="shadow observation append session")
         name = self._name(session)
-        encoded = _canonical_json(candidate)
+        observation_storage.insert(self.conn, name=name, session=session,
+                                   candidate=candidate, state_field="state")
         with self.conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO sentinel_processed_sessions"
-                " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
-                " ON CONFLICT (cursor_name) DO NOTHING",
-                (name, session, encoded))
+            self._compact_decoder(cur, exact_numbers=True)
             cur.execute(
                 "SELECT session,state FROM sentinel_processed_sessions"
                 " WHERE cursor_name=%s", (name,))
@@ -1107,8 +1105,8 @@ class PostgresShadowObservationStore:
         if row is None:
             raise ShadowObservationRefused(
                 "shadow observation append did not become durable")
-        stored = _as_mapping(row[1], where=f"shadow observation row {name}")
-        if str(row[0]) != session or stored != candidate:
+        stored = self._owned_mapping(row[1], where=f"shadow observation row {name}")
+        if str(row[0]) != session or not observation_storage.exact_value_equal(stored, candidate):
             raise ShadowObservationRefused(
                 f"shadow observation session {session} was already committed "
                 "with different evidence")

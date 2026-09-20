@@ -77,20 +77,115 @@ def test_batched_json_refuses_cycles_but_allows_shared_children():
         list(_canonical_chunks(child))
 
 
-def test_batched_json_never_encodes_a_whole_large_array(monkeypatch):
+def test_batched_json_never_encodes_a_whole_large_array():
+    import tracemalloc
     from sentinel.core.session import _canonical_chunks
-    original = json.JSONEncoder.encode
-    sizes = []
-    def encode(self, value):
-        if isinstance(value, (list, tuple)):
-            sizes.append(len(value))
-            assert len(value) <= 256
-        return original(self, value)
-    monkeypatch.setattr(json.JSONEncoder, 'encode', encode)
-    chunks = list(_canonical_chunks({'prices': [1.25]*10001}))
-    assert json.loads(''.join(chunks)) == {'prices': [1.25]*10001}
-    assert max(map(len, chunks)) <= 256*5
-    assert len(sizes) >= 40 and sum(sizes) == 10001
+    value = {'prices': [1.25]*100001}
+    expected = hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
+                                        allow_nan=False).encode()).hexdigest()
+    digest = hashlib.sha256()
+    tracemalloc.start()
+    try:
+        for chunk in _canonical_chunks(value):
+            digest.update(chunk.encode('ascii'))
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert digest.hexdigest() == expected
+    # Incremental scratch space, measured after the caller-owned input exists.
+    # This budget is independent of batch size or number of encoder calls.
+    assert peak < 256*1024, f'encoded array allocated {peak} bytes of scratch space'
+
+
+@pytest.mark.parametrize('genesis', [False, True])
+@pytest.mark.parametrize('size', [0, 1, 128, 129, 513])
+def test_database_batched_insert_preserves_complete_value_and_rollback(conn, genesis, size):
+    from sentinel import schema
+    schema.ensure_schema(conn)
+    store = shadow.PostgresShadowObservationStore(conn, observation_id='bounded-write', commit_genesis=False)
+    field = 'initial_state' if genesis else 'state'
+    candidate = {'observation_id': 'bounded-write', 'first_session': '2026-09-14', 'session': '2026-09-14',
+                 'unrelated': {'unicode': '\u00e9', 'fields': [False, None, 1.25]},
+                 field: {'feed': {'series': {str(i): {'prices': [i, 1.25, None], 'label': 'a\\"\n'}
+                                            for i in range(size)}, 'other': ['kept']},
+                         'wealth_core': {'cash': 1985.80372}}}
+    expected = json.loads(json.dumps(candidate, allow_nan=False))
+    append = store.append_genesis if genesis else store.append
+    name = store._genesis_name if genesis else store._name('2026-09-14')
+    append(candidate)
+    assert conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0] == expected
+    assert not conn.execute("SELECT 1 FROM pg_class WHERE relnamespace=pg_my_temp_schema() AND relname LIKE 'shadow_insert_%'").fetchall()
+    append(candidate)
+    changed = deepcopy(candidate)
+    changed['unrelated']['fields'][-1] = 999
+    with pytest.raises(shadow.ShadowObservationRefused, match='different evidence'):
+        append(changed)
+    conn.rollback()
+    assert conn.execute('SELECT count(*) FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0] == 0
+    append(candidate)
+    conn.commit()
+    assert conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0] == expected
+
+
+def test_database_batched_insert_refuses_missing_last_series(conn, monkeypatch):
+    from sentinel import observation_storage, schema
+    schema.ensure_schema(conn)
+    store = shadow.PostgresShadowObservationStore(conn, observation_id='bounded-write')
+    candidate = {'observation_id': 'bounded-write', 'session': '2026-09-14',
+                 'state': {'feed': {'series': {str(i): {'prices': [i]} for i in range(257)}}}}
+    insert = observation_storage.insert
+    def corrupt(conn, **kwargs):
+        changed = deepcopy(kwargs['candidate'])
+        del changed['state']['feed']['series']['256']
+        insert(conn, **{**kwargs, 'candidate': changed})
+    monkeypatch.setattr(observation_storage, 'insert', corrupt)
+    with pytest.raises(shadow.ShadowObservationRefused, match='different evidence'):
+        store.append(candidate)
+    conn.rollback()
+    assert store.records() == []
+
+
+def test_observation_storage_is_part_of_economic_source_identity(tmp_path, monkeypatch):
+    from sentinel import observation_storage
+    from sentinel.core import decision
+    before = decision.data_semantics_source_identity()['sha256']
+    changed = tmp_path/'observation_storage.py'
+    changed.write_bytes(Path(observation_storage.__file__).read_bytes() + b'\n# simulated implementation edit\n')
+    monkeypatch.setattr(observation_storage, '__file__', str(changed))
+    assert decision.data_semantics_source_identity()['sha256'] != before
+
+
+@pytest.mark.parametrize('stored,expected', [
+    ('1.00000000000000001', 1.0), ('0.100000000000000001', .1), ('0.1', .1),
+    ('1', 1.0), ('true', 1), ('0', False), ('null', None),
+    ('{"v":[1.00000000000000001]}', {'v': [1.0]}),
+    ('{"v":[1.0,null,true]}', {'v': [1, None, True]}),
+    ('{"v":[]}', {'v': {}}), ('{}', {'extra': None})])
+def test_exact_json_comparison_matches_postgresql_numeric_and_type_oracle(conn, stored, expected):
+    from decimal import Decimal
+    from sentinel.observation_storage import exact_value_equal
+    sql_equal = conn.execute('SELECT %s::jsonb=%s::jsonb', (stored, json.dumps(expected))).fetchone()[0]
+    actual = json.loads(stored, parse_float=Decimal)
+    assert exact_value_equal(actual, expected) is sql_equal
+
+
+@pytest.mark.parametrize('genesis', [False, True])
+def test_database_retry_refuses_sub_float_precision_corruption(conn, genesis):
+    from sentinel import schema
+    schema.ensure_schema(conn)
+    store = shadow.PostgresShadowObservationStore(conn, observation_id='precise-write', commit_genesis=False)
+    candidate = {'observation_id': 'precise-write', 'first_session': '2026-09-14', 'session': '2026-09-14',
+                 'price': 1.0, 'genesis_sha256': 'a'*64}
+    append = store.append_genesis if genesis else store.append
+    name = store._genesis_name if genesis else store._name('2026-09-14')
+    append(candidate)
+    conn.commit()
+    conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{price}','1.00000000000000001') WHERE cursor_name=%s", (name,))
+    conn.commit()
+    if genesis:
+        assert store.matches_genesis(candidate) is False
+    with pytest.raises(shadow.ShadowObservationRefused, match='different evidence'):
+        append(candidate)
 
 
 def assert_original_serialization(state):

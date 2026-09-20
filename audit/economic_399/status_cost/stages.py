@@ -43,7 +43,7 @@ def context(mp, session):
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('stage', choices=['postgres', 'publish', 'next_publish', 'initialize', 'advance',
-                                        'status', 'advanced_status', 'http', 'advanced_http'])
+                                        'status', 'advanced_status', 'http', 'advanced_http', 'storage'])
     parser.add_argument('--universe', type=int, default=5000)
     args = parser.parse_args()
     assert 2 <= args.universe <= 5000
@@ -57,6 +57,11 @@ def main():
             probe.emit('postgres', peak=Path('/sys/fs/cgroup/memory.peak').read_text(),
                        events=Path('/sys/fs/cgroup/memory.events').read_text())
         finally:
+            server_log = Path(pg.datadir)/'server.log'
+            if server_log.exists():
+                (EVIDENCE/'postgres-server.log').write_bytes(server_log.read_bytes())
+            for metric in ('memory.stat', 'memory.events', 'memory.peak', 'cpu.stat'):
+                (EVIDENCE/('postgres-'+metric)).write_text(Path('/sys/fs/cgroup', metric).read_text())
             pg.stop()
         return
     dsn = json.loads((EVIDENCE/'database.json').read_text())['dsn']
@@ -65,7 +70,29 @@ def main():
     started = time.monotonic()
     with pytest.MonkeyPatch.context() as mp, probe.store.connect(dsn) as conn:
         context(mp, session)
-        if args.stage in ('publish', 'next_publish'):
+        if args.stage == 'storage':
+            # Wide JSON storage diagnostic only, not a strategy-state fixture.
+            from sentinel import shadow_observation
+            from sentinel.feed.rolling_contract import PriceWindow
+            probe.schema.ensure_schema(conn)
+            axis = [str(day) for day in PriceWindow.through(session).sessions][-260:]
+            series = {str(i): {'security_id': str(i), 'ticker': f'S{i:05}', 'issuer_id': str(i),
+                      'split_factor': 1.0, 'sessions': list(axis), 'session_indices': list(range(260)),
+                      'signal_closes': [50+j*.2+i*.003 for j in range(260)],
+                      'raw_closes': [(50+j*.2+i*.003)*2 for j in range(260)],
+                      'volumes': [1000000.0]*260} for i in range(args.universe)}
+            value = {'observation_id': 'wide-json', 'first_session': session, 'session': session,
+                     'state': {'feed': {'series': series}, 'wealth_core': {'cash': 100000}}}
+            store = shadow_observation.PostgresShadowObservationStore(conn, observation_id='wide-json', commit_genesis=False)
+            genesis = {**value, 'initial_state': value['state']}
+            del genesis['state']
+            store.append_genesis(genesis)
+            assert store.matches_genesis(genesis) is True
+            store.append(value)
+            conn.commit()
+            assert store.records() == [value]
+            probe.emit('storage_value_equal', universe=args.universe, scope='SQL_STORAGE_DIAGNOSTIC_ONLY')
+        elif args.stage in ('publish', 'next_publish'):
             data = synthetic_data(mp, args.universe)
             context(mp, session)
             if args.stage == 'publish':
