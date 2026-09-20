@@ -4,11 +4,76 @@ from copy import deepcopy
 import json
 from pathlib import Path
 import shutil
+import os
+import subprocess
+import sys
+import xml.etree.ElementTree as ET
 
 import pytest
 import yaml
 
 from tools import sentinel_ci_parallel_evidence as evidence
+
+
+@pytest.mark.parametrize("failed_group", [0, 1, 2])
+def test_main_container_partition_preserves_modules_and_propagates_failure(tmp_path, failed_group):
+    root = Path(__file__).resolve().parents[2]
+    workflow = yaml.safe_load((root / ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))
+    step = next(s for s in workflow["jobs"]["parallel-certification"]["steps"]
+                if s.get("if") == "${{ matrix.lane == 'sentinel-main' }}")
+    # Execute the actual workflow shell with a Docker stand-in. Each module has
+    # one independent testcase so lost, duplicated or unselected modules surface.
+    modules = {p.name for p in (root / "tests/sentinel").glob("test_*.py")}
+    modules |= {"test_future_ordinary.py", "test_rolling_future.py"}
+    tests = tmp_path / "tests/sentinel"
+    tests.mkdir(parents=True)
+    for name in modules:
+        (tests / name).touch()
+    tools = tmp_path / "tools"
+    tools.mkdir()
+    shutil.copyfile(root / "tools/merge_junit.py", tools / "merge_junit.py")
+    output = tmp_path / "evidence"
+    output.mkdir()
+    binaries = tmp_path / "bin"
+    binaries.mkdir()
+    docker = binaries / "docker"
+    docker.write_text(f"#!{sys.executable}\n" + '''import fnmatch, os, sys
+from pathlib import Path
+import xml.etree.ElementTree as ET
+args = sys.argv[1:]
+counter = Path('calls')
+group = int(counter.read_text()) + 1 if counter.exists() else 1
+counter.write_text(str(group))
+if group == int(os.environ['FAILED_GROUP']):
+    raise SystemExit(7)
+selected = sorted(Path('tests/sentinel').glob('test_*.py')) if 'tests/sentinel' in args else [Path(a) for a in args if a.startswith('tests/sentinel/')]
+ignores = [a.split('=', 1)[1] for a in args if a.startswith(('--ignore=', '--ignore-glob='))]
+selected = [p for p in selected if not any(fnmatch.fnmatch(p.as_posix(), pattern) for pattern in ignores)]
+suite = ET.Element('testsuite')
+for p in selected:
+    ET.SubElement(suite, 'testcase', classname=p.stem, name='owned_case')
+target = next(a.split('=', 1)[1] for a in args if a.startswith('--junitxml='))
+ET.ElementTree(suite).write(target)
+''', encoding="utf-8")
+    docker.chmod(0o755)
+    command = step["run"].replace("/evidence/", str(output) + "/").replace("/tmp/sentinel-lane-evidence", str(output))
+    result = subprocess.run(["bash", "-c", command], cwd=tmp_path, capture_output=True, text=True,
+        env={**os.environ, "PATH": str(binaries) + os.pathsep + os.environ["PATH"],
+             "FAILED_GROUP": str(failed_group)})
+    if failed_group:
+        assert result.returncode == 7, result.stdout + result.stderr
+        assert int((tmp_path / "calls").read_text()) == failed_group
+        assert not (output / "sentinel-main.xml").exists()
+    else:
+        assert result.returncode == 0, result.stdout + result.stderr
+        assert int((tmp_path / "calls").read_text()) == 2
+        excluded = {"test_source_seed_warmup.py", "test_automation_composition.py",
+            "test_automation_worker_source_recovery.py", "test_automation_service.py",
+            "test_issue_201_automation_financial_grade.py", "test_automation_p1_continuity.py",
+            "test_automation_safety_seams.py", "test_automation_process_contracts.py"}
+        cases = list(ET.parse(output / "sentinel-main.xml").iter("testcase"))
+        assert {c.get("classname") + ".py" for c in cases} == modules - excluded
+        assert len(cases) == len(modules - excluded)
 
 
 def test_warmup_lane_streams_progress_without_raising_its_deadline():

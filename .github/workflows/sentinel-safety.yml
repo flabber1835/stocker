@@ -226,11 +226,22 @@ jobs:
           for path in "${automation_files[@]}"; do
             ignore_args+=("--ignore=${path}")
           done
-          docker run --rm --network none \
-            -v /tmp/sentinel-lane-evidence:/evidence \
-            sentinel-test:ci tests/sentinel "${ignore_args[@]}" -q -ra \
-            --junitxml=/evidence/sentinel-main.xml \
-            2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
+          rolling_files=(tests/sentinel/test_rolling_*.py)
+          {
+            docker run --rm --network none \
+              -v /tmp/sentinel-lane-evidence:/evidence \
+              sentinel-test:ci tests/sentinel "${ignore_args[@]}" \
+              '--ignore-glob=tests/sentinel/test_rolling_*.py' -vv -ra \
+              --junitxml=/evidence/sentinel-main-general.xml
+            docker run --rm --network none \
+              -v /tmp/sentinel-lane-evidence:/evidence \
+              sentinel-test:ci "${rolling_files[@]}" -vv -ra \
+              --junitxml=/evidence/sentinel-main-rolling.xml
+            python tools/merge_junit.py \
+              --output /tmp/sentinel-lane-evidence/sentinel-main.xml \
+              /tmp/sentinel-lane-evidence/sentinel-main-general.xml \
+              /tmp/sentinel-lane-evidence/sentinel-main-rolling.xml
+          } 2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
 
       - name: Run the complete million-row warmup module with one shared fixture
         if: ${{ matrix.lane == 'sentinel-warmup' }}
