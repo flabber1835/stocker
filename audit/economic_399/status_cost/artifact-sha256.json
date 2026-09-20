@@ -1,0 +1,66 @@
+{
+  "audit/economic_399/status_cost/README.md": {
+    "bytes": 17622,
+    "sha256": "9c37687503e9dd65b74a054fe25665c32a857a93ac78de542f52781b7d63f416"
+  },
+  "audit/economic_399/status_cost/call_profile.py": {
+    "bytes": 2413,
+    "sha256": "cef4eaf616be30c038bac3b514f3982b7393ffc9ee47913ac7d37d2932250b97"
+  },
+  "audit/economic_399/status_cost/commands.md": {
+    "bytes": 11650,
+    "sha256": "8be4502dea3b17368ccd34bca1d300d14d9c10a1efe7c5aad9be5c91c3b84b13"
+  },
+  "audit/economic_399/status_cost/measurements.json": {
+    "bytes": 98266,
+    "sha256": "a0114fbb84f37e143fdccc56b57e35e1c52ebe8b0cb30ca78d9a38c58a6220f6"
+  },
+  "audit/economic_399/status_cost/mutations.py": {
+    "bytes": 2032,
+    "sha256": "79333e66322099f032f0cbbc3220c657df88e64e0dc57dacc06bb64ea925b27f"
+  },
+  "audit/economic_399/status_cost/pit_inventory.py": {
+    "bytes": 4940,
+    "sha256": "625f71004e04bbc1888ce79a5b1f12730e4b5039986aeeb579a36772ec12b422"
+  },
+  "audit/economic_399/status_cost/postgres16.py": {
+    "bytes": 3748,
+    "sha256": "c111de999a6d765c2f1bf9841c26a0f32e8533f2b025f5d4cb608a04e2bd059a"
+  },
+  "audit/economic_399/status_cost/raw-log-sha256.json": {
+    "bytes": 38705,
+    "sha256": "e6b7c246559a3adce498452de57d8201a531ce587361f1701459dd5dab642241"
+  },
+  "audit/economic_399/status_cost/raw-logs.zip": {
+    "bytes": 1367054,
+    "sha256": "9248dc7c3a62d3202591022acb0571f31ea7664991def7f2628c70ba12d86528"
+  },
+  "audit/economic_399/status_cost/run_stages.py": {
+    "bytes": 4177,
+    "sha256": "94c4db09ecf5250206cc23714c135c34b0362bccf713f38120753e815a970200"
+  },
+  "audit/economic_399/status_cost/source-sha256.json": {
+    "bytes": 4488,
+    "sha256": "e8028e69fbc783b21634a0c04d5364374d33172cc37fa401598de973bedd873a"
+  },
+  "audit/economic_399/status_cost/stages.py": {
+    "bytes": 10553,
+    "sha256": "66856d3fa5d0ce194fde411e76d27432f945f6aa9936f821b774d7c6b0c0762a"
+  },
+  "audit/economic_399/status_cost/storage_mutations.py": {
+    "bytes": 3307,
+    "sha256": "cef5a6365a9645b662bec4dda2659526a678a92cd414d8aba18c86138729272d"
+  },
+  "docs/economic-code-closure.md": {
+    "bytes": 71423,
+    "sha256": "fbb945ab3e6368ecd5f61ad6e1f880c1cf8db30ccdc68644585d1a661105c321"
+  },
+  "docs/sentinel-deployment.md": {
+    "bytes": 126542,
+    "sha256": "766cf39e9e513536dcbc36b3df15794aff613c5b3134754c06101f942dbd5c1a"
+  },
+  "docs/status-runtime-cost.md": {
+    "bytes": 5836,
+    "sha256": "6352a78391da68ecef146f04f3b065990eebeb5770da70e4bf90abce034ee0eb"
+  }
+}

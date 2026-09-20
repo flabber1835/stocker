@@ -1,0 +1,3155 @@
+{
+  "classifications": {
+    "status-cost-isolated-100": "FAILED_PROBE_MECHANICS_NOT_ACCEPTANCE",
+    "status-cost-isolated-100-v2": "SMOKE_ONLY_BEFORE_STORAGE_FIX",
+    "status-cost-isolated-5000": "REAL_POSTGRES_OOM_DURING_INITIALIZATION",
+    "status-cost-isolated-5000-final": "COMPLETE_SYNTHETIC_PIPELINE_PG17",
+    "status-cost-main-integration-100": "CURRENT_MAIN_SMOKE_NOT_BREADTH_QUALIFICATION",
+    "status-cost-pg16": "EXACT_STORAGE_DIAGNOSTIC_AND_30_TESTS_PG16",
+    "status-cost-storage-5000": "DIAGNOSTIC_ONLY_REJECTED_LOSSY_FLOAT_COMPARISON",
+    "status-cost-storage-5000-exact": "EXACT_STORAGE_DIAGNOSTIC_PG17",
+    "status-cost-storage-5000-final": "REAL_POSTGRES_OOM_DURING_OLD_GENESIS_EQUALITY"
+  },
+  "delivery_integrated_main": "67b6301e3b0f1c35dc41eb45367e96a449dd6e76",
+  "delivery_review_checkpoint": "4812aa4beeecc29034a559c1ac0276ae9bff9ce6",
+  "initial_verified_main": "e255a78aaf4f89d25fc634864aafd2656c6cd176",
+  "integrated_delivery_source_commit": "ffbf82b127784c145d697078ad1e8c03b70a0c46",
+  "integrated_verified_main": "8bf86ed8ca1e9fa2a6cbb9ac1588c8bcda8712bb",
+  "measured_production_commit": "9bececa241052c43851f5da586499a6ae3a8039f",
+  "observations": {
+    "status-cost-isolated-100-v2.log": [
+      {
+        "container": "sentinel-cost-028bfa9d-publish",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:04:33.770589731Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:04:22.108072859Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-028bfa9d-initialize",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:04:49.662117269Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:04:34.772953572Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-028bfa9d-status",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:05:06.741884812Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:04:50.670527529Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-028bfa9d-http",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:05:19.075614987Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:05:07.746377383Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-028bfa9d-next_publish",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:05:31.492832434Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:05:20.130572727Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-028bfa9d-advance",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:05:51.458275466Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:05:32.533071045Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-028bfa9d-advanced_status",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:06:08.236747679Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:05:52.440973922Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-028bfa9d-advanced_http",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:06:21.124388115Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:06:09.315270848Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-028bfa9d-postgres",
+        "cpus": 1500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 1073741824,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:06:23.011280162Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:04:16.573480627Z",
+          "Status": "exited"
+        }
+      }
+    ],
+    "status-cost-isolated-100-v2/advance.log": [
+      {
+        "authority_sha256": "33a918773723bfeaa63a7adcb8ebd833112853b6b5a97d1e4a1d6fe6a95bafc5",
+        "cash": 3241.057719999987,
+        "episodes": 20,
+        "nav": "99903.33772",
+        "phase": "advance",
+        "session": "2026-09-15",
+        "state_sha256": "2267b7c6e01a804982b30bc50da9a45f8c7d4f0aabc34d7884bdedd9b574a319",
+        "subject": "10253f9b3c8d1371fcfe5b68498667cf6227dee1ef601c086a0d604b06ab9717"
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "147312640",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 173056,
+        "seconds": 16.12836056301603,
+        "stage": "advance",
+        "vm_hwm_kib": 173056,
+        "vm_rss_kib": 161028
+      }
+    ],
+    "status-cost-isolated-100-v2/advanced_http.log": [
+      {
+        "overall": "fail",
+        "phase": "complete_http",
+        "rusage_maxrss_kib": 155348,
+        "seconds": 6.1416038909810595,
+        "shadow": {
+          "as_of": null,
+          "color": "green",
+          "detail": "sole strategy-performance authority \u00b7 canonical Wealth Core plus accepted Sharadar inputs \u00b7 independent of Alpaca PAPER accounting",
+          "future": false,
+          "key": "shadow_verification",
+          "label": "Certified shadow strategy",
+          "recovery": null,
+          "required_current": false,
+          "stale": false,
+          "status": "ok",
+          "valid_until": null,
+          "value": "SHADOW VERIFIED THROUGH 2026-09-15"
+        },
+        "vm_hwm_kib": 155348,
+        "vm_rss_kib": 154424
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "130142208",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 155348,
+        "seconds": 8.43172016995959,
+        "stage": "advanced_http",
+        "vm_hwm_kib": 155348,
+        "vm_rss_kib": 154424
+      }
+    ],
+    "status-cost-isolated-100-v2/advanced_status.log": [
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 122756,
+        "vm_hwm_kib": 122756,
+        "vm_rss_kib": 122756
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 132996,
+        "seconds": 1.6029566240031272,
+        "vm_hwm_kib": 132996,
+        "vm_rss_kib": 132996
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 136964,
+        "seconds": 0.6094807299668901,
+        "vm_hwm_kib": 136964,
+        "vm_rss_kib": 136964
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 137988,
+        "seconds": 1.9809000640525483,
+        "vm_hwm_kib": 137988,
+        "vm_rss_kib": 136056
+      },
+      {
+        "authority_sha256": "33a918773723bfeaa63a7adcb8ebd833112853b6b5a97d1e4a1d6fe6a95bafc5",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 137988,
+        "seconds": 5.385403731954284,
+        "state_sha256": "2267b7c6e01a804982b30bc50da9a45f8c7d4f0aabc34d7884bdedd9b574a319",
+        "strategy_nav": "99903.33772",
+        "vm_hwm_kib": 137988,
+        "vm_rss_kib": 136056
+      },
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 137988,
+        "vm_hwm_kib": 137988,
+        "vm_rss_kib": 136056
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 137988,
+        "seconds": 1.641488995985128,
+        "vm_hwm_kib": 137988,
+        "vm_rss_kib": 136056
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 137988,
+        "seconds": 0.6488497799728066,
+        "vm_hwm_kib": 137988,
+        "vm_rss_kib": 136388
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 138052,
+        "seconds": 2.100767524971161,
+        "vm_hwm_kib": 138052,
+        "vm_rss_kib": 138052
+      },
+      {
+        "authority_sha256": "33a918773723bfeaa63a7adcb8ebd833112853b6b5a97d1e4a1d6fe6a95bafc5",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 138052,
+        "seconds": 4.993774086993653,
+        "state_sha256": "2267b7c6e01a804982b30bc50da9a45f8c7d4f0aabc34d7884bdedd9b574a319",
+        "strategy_nav": "99903.33772",
+        "vm_hwm_kib": 138052,
+        "vm_rss_kib": 138052
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "111321088",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 138052,
+        "seconds": 12.839533356949687,
+        "stage": "advanced_status",
+        "vm_hwm_kib": 138052,
+        "vm_rss_kib": 138052
+      }
+    ],
+    "status-cost-isolated-100-v2/http.log": [
+      {
+        "overall": "fail",
+        "phase": "complete_http",
+        "rusage_maxrss_kib": 155740,
+        "seconds": 5.867912738991436,
+        "shadow": {
+          "as_of": null,
+          "color": "green",
+          "detail": "sole strategy-performance authority \u00b7 canonical Wealth Core plus accepted Sharadar inputs \u00b7 independent of Alpaca PAPER accounting",
+          "future": false,
+          "key": "shadow_verification",
+          "label": "Certified shadow strategy",
+          "recovery": null,
+          "required_current": false,
+          "stale": false,
+          "status": "ok",
+          "valid_until": null,
+          "value": "SHADOW VERIFIED THROUGH 2026-09-14"
+        },
+        "vm_hwm_kib": 155740,
+        "vm_rss_kib": 154816
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "134303744",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 155740,
+        "seconds": 8.158904373995028,
+        "stage": "http",
+        "vm_hwm_kib": 155740,
+        "vm_rss_kib": 154816
+      }
+    ],
+    "status-cost-isolated-100-v2/initialize.log": [
+      {
+        "authority_sha256": "196078fe9e06721123ad3c596fe743403bda3f4f373f49510f3c7a8c48bfa89c",
+        "cash": 100000.0,
+        "episodes": 0,
+        "nav": "100000",
+        "phase": "initialize",
+        "session": "2026-09-14",
+        "state_sha256": "e5ee03e55e9ae05533012229448921c5de8d232a68e9bbb996ecd55d3c54a107",
+        "subject": "10253f9b3c8d1371fcfe5b68498667cf6227dee1ef601c086a0d604b06ab9717"
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "146276352",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 171596,
+        "seconds": 12.089056616998278,
+        "stage": "initialize",
+        "vm_hwm_kib": 171596,
+        "vm_rss_kib": 156696
+      }
+    ],
+    "status-cost-isolated-100-v2/next_publish.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "147066880",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 164680,
+        "seconds": 8.511604625033215,
+        "stage": "next_publish",
+        "vm_hwm_kib": 164680,
+        "vm_rss_kib": 163816
+      }
+    ],
+    "status-cost-isolated-100-v2/postgres.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "215871488\n",
+        "phase": "postgres"
+      }
+    ],
+    "status-cost-isolated-100-v2/publish.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "146460672",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 164932,
+        "seconds": 8.773136358999182,
+        "stage": "publish",
+        "vm_hwm_kib": 164932,
+        "vm_rss_kib": 162016
+      }
+    ],
+    "status-cost-isolated-100-v2/status.log": [
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 123420,
+        "vm_hwm_kib": 123420,
+        "vm_rss_kib": 123420
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 133532,
+        "seconds": 1.8194389989948831,
+        "vm_hwm_kib": 133532,
+        "vm_rss_kib": 133532
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 137500,
+        "seconds": 0.6431905219797045,
+        "vm_hwm_kib": 137500,
+        "vm_rss_kib": 136572
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 138492,
+        "seconds": 1.986683733004611,
+        "vm_hwm_kib": 138492,
+        "vm_rss_kib": 135572
+      },
+      {
+        "authority_sha256": "196078fe9e06721123ad3c596fe743403bda3f4f373f49510f3c7a8c48bfa89c",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 138492,
+        "seconds": 5.611410345998593,
+        "state_sha256": "e5ee03e55e9ae05533012229448921c5de8d232a68e9bbb996ecd55d3c54a107",
+        "strategy_nav": "100000",
+        "vm_hwm_kib": 138492,
+        "vm_rss_kib": 135572
+      },
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 138492,
+        "vm_hwm_kib": 138492,
+        "vm_rss_kib": 135572
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 138492,
+        "seconds": 1.79221070301719,
+        "vm_hwm_kib": 138492,
+        "vm_rss_kib": 135572
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 138492,
+        "seconds": 0.5870752509799786,
+        "vm_hwm_kib": 138492,
+        "vm_rss_kib": 137000
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 138664,
+        "seconds": 1.9673129040165804,
+        "vm_hwm_kib": 138664,
+        "vm_rss_kib": 138664
+      },
+      {
+        "authority_sha256": "196078fe9e06721123ad3c596fe743403bda3f4f373f49510f3c7a8c48bfa89c",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 138664,
+        "seconds": 4.976265182020143,
+        "state_sha256": "e5ee03e55e9ae05533012229448921c5de8d232a68e9bbb996ecd55d3c54a107",
+        "strategy_nav": "100000",
+        "vm_hwm_kib": 138664,
+        "vm_rss_kib": 138664
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "112246784",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 138664,
+        "seconds": 13.046171154011972,
+        "stage": "status",
+        "vm_hwm_kib": 138664,
+        "vm_rss_kib": 138664
+      }
+    ],
+    "status-cost-isolated-100.log": [
+      {
+        "container": "sentinel-cost-27310b63-publish",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:02:11.571395626Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:01:45.598159374Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-27310b63-initialize",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:02:40.188561085Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:02:13.144760891Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-27310b63-status",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:03:12.299964144Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:02:42.141271296Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-27310b63-next_publish",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 1,
+          "FinishedAt": "2026-09-20T02:03:33.397164295Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:03:13.551091883Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-27310b63-postgres",
+        "cpus": 1500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 1073741824,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:03:35.562210119Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:01:24.587395883Z",
+          "Status": "exited"
+        }
+      }
+    ],
+    "status-cost-isolated-100/initialize.log": [
+      {
+        "authority_sha256": "338b946e0f24be70e6649e9e1ffca47de57d43f12c714a20506e5a1caa3f6fcb",
+        "cash": 100000.0,
+        "episodes": 0,
+        "nav": "100000",
+        "phase": "initialize",
+        "session": "2026-09-14",
+        "state_sha256": "e5ee03e55e9ae05533012229448921c5de8d232a68e9bbb996ecd55d3c54a107"
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "1190526976",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 171444,
+        "seconds": 7.929588193015661,
+        "stage": "initialize",
+        "vm_hwm_kib": 171444,
+        "vm_rss_kib": 154636
+      }
+    ],
+    "status-cost-isolated-100/postgres.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 1923\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "1074683904\n",
+        "phase": "postgres"
+      }
+    ],
+    "status-cost-isolated-100/publish.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "1191268352",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 164756,
+        "seconds": 7.445885723980609,
+        "stage": "publish",
+        "vm_hwm_kib": 164756,
+        "vm_rss_kib": 161892
+      }
+    ],
+    "status-cost-isolated-100/status.log": [
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 123616,
+        "vm_hwm_kib": 123616,
+        "vm_rss_kib": 123616
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 133728,
+        "seconds": 1.9141886429861188,
+        "vm_hwm_kib": 133728,
+        "vm_rss_kib": 133728
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 137824,
+        "seconds": 0.6969874509959482,
+        "vm_hwm_kib": 137824,
+        "vm_rss_kib": 136820
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 138740,
+        "seconds": 1.1552471269969828,
+        "vm_hwm_kib": 138740,
+        "vm_rss_kib": 136812
+      },
+      {
+        "authority_sha256": "338b946e0f24be70e6649e9e1ffca47de57d43f12c714a20506e5a1caa3f6fcb",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 138740,
+        "seconds": 3.5748267600429244,
+        "state_sha256": "e5ee03e55e9ae05533012229448921c5de8d232a68e9bbb996ecd55d3c54a107",
+        "strategy_nav": "100000",
+        "vm_hwm_kib": 138740,
+        "vm_rss_kib": 136812
+      },
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 138740,
+        "vm_hwm_kib": 138740,
+        "vm_rss_kib": 136812
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 138740,
+        "seconds": 1.9163026770111173,
+        "vm_hwm_kib": 138740,
+        "vm_rss_kib": 136812
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 138740,
+        "seconds": 0.704570739006158,
+        "vm_hwm_kib": 138740,
+        "vm_rss_kib": 137168
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 138832,
+        "seconds": 1.114524062955752,
+        "vm_hwm_kib": 138832,
+        "vm_rss_kib": 138832
+      },
+      {
+        "authority_sha256": "338b946e0f24be70e6649e9e1ffca47de57d43f12c714a20506e5a1caa3f6fcb",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 138832,
+        "seconds": 3.3453818680136465,
+        "state_sha256": "e5ee03e55e9ae05533012229448921c5de8d232a68e9bbb996ecd55d3c54a107",
+        "strategy_nav": "100000",
+        "vm_hwm_kib": 138832,
+        "vm_rss_kib": 138832
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 2503\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "537112576",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 138832,
+        "seconds": 9.513020141981542,
+        "stage": "status",
+        "vm_hwm_kib": 138832,
+        "vm_rss_kib": 138832
+      }
+    ],
+    "status-cost-isolated-5000-final.log": [
+      {
+        "container": "sentinel-cost-92f22f4c-publish",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:46:10.886385103Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:40:00.422992857Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-92f22f4c-initialize",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:53:22.364353593Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:46:11.981597634Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-92f22f4c-status",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:59:19.917884916Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:53:23.482016602Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-92f22f4c-http",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:02:18.037459104Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:59:20.934294548Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-92f22f4c-next_publish",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:08:04.212737904Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:02:19.129296098Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-92f22f4c-advance",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:18:32.16706431Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:08:05.280821961Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-92f22f4c-advanced_status",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:23:58.145104755Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:18:33.211492185Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-92f22f4c-advanced_http",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:26:28.680403151Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:23:59.189859398Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-92f22f4c-postgres",
+        "cpus": 1500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 1073741824,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:26:30.811389035Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:39:54.914823065Z",
+          "Status": "exited"
+        }
+      }
+    ],
+    "status-cost-isolated-5000-final/advance.log": [
+      {
+        "authority_sha256": "c0b89abaf977dc0cbf40ace7b497fbcacf1ec4ae761d2dea365ae776341ca064",
+        "cash": 1985.80372000001,
+        "episodes": 20,
+        "nav": "99902.08372000002",
+        "phase": "advance",
+        "session": "2026-09-15",
+        "state_sha256": "d76989d72b3a1a72343a2c591112cd65305dd1fe18ac8b04b86bab15eb252d98",
+        "subject": "9513ba6e7336f5728f2971c78ddc3b7097ed1c09f8ad68047a3666bec8858be0"
+      },
+      {
+        "cash_error": "1E-11",
+        "expected_cash": "1985.803720",
+        "expected_nav": "99902.08372000000880",
+        "fees_10bps": "97.916280",
+        "mark_pnl": "8.80E-12",
+        "nav_error": "1.120E-11",
+        "notional": "97916.280",
+        "positions": 20,
+        "retained_cash": "1985.80372000001",
+        "retained_nav": "99902.08372000002",
+        "scope": "SYNTHETIC_ACCOUNTING_ONLY"
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "2110590976",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 2088160,
+        "seconds": 623.6323483900051,
+        "stage": "advance",
+        "vm_hwm_kib": 2088160,
+        "vm_rss_kib": 1204160
+      }
+    ],
+    "status-cost-isolated-5000-final/advanced_http.log": [
+      {
+        "overall": "fail",
+        "phase": "complete_http",
+        "rusage_maxrss_kib": 428352,
+        "seconds": 143.77456004801206,
+        "shadow": {
+          "as_of": null,
+          "color": "green",
+          "detail": "sole strategy-performance authority \u00b7 canonical Wealth Core plus accepted Sharadar inputs \u00b7 independent of Alpaca PAPER accounting",
+          "future": false,
+          "key": "shadow_verification",
+          "label": "Certified shadow strategy",
+          "recovery": null,
+          "required_current": false,
+          "stale": false,
+          "status": "ok",
+          "valid_until": null,
+          "value": "SHADOW VERIFIED THROUGH 2026-09-15"
+        },
+        "vm_hwm_kib": 428352,
+        "vm_rss_kib": 392308
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "408760320",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 428352,
+        "seconds": 145.88709851098247,
+        "stage": "advanced_http",
+        "vm_hwm_kib": 428352,
+        "vm_rss_kib": 391280
+      }
+    ],
+    "status-cost-isolated-5000-final/advanced_status.log": [
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 130920,
+        "vm_hwm_kib": 130920,
+        "vm_rss_kib": 127628
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 411100,
+        "seconds": 75.69105982396286,
+        "vm_hwm_kib": 411100,
+        "vm_rss_kib": 408236
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 411100,
+        "seconds": 31.700571534980554,
+        "vm_hwm_kib": 411100,
+        "vm_rss_kib": 407148
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 411100,
+        "seconds": 52.202877283038106,
+        "vm_hwm_kib": 411100,
+        "vm_rss_kib": 408172
+      },
+      {
+        "authority_sha256": "c0b89abaf977dc0cbf40ace7b497fbcacf1ec4ae761d2dea365ae776341ca064",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 411100,
+        "seconds": 139.89600502798567,
+        "state_sha256": "d76989d72b3a1a72343a2c591112cd65305dd1fe18ac8b04b86bab15eb252d98",
+        "strategy_nav": "99902.08372000002",
+        "vm_hwm_kib": 411100,
+        "vm_rss_kib": 399056
+      },
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 411100,
+        "vm_hwm_kib": 411100,
+        "vm_rss_kib": 391916
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 411368,
+        "seconds": 75.81837449601153,
+        "vm_hwm_kib": 411368,
+        "vm_rss_kib": 411368
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 411368,
+        "seconds": 31.76114813698223,
+        "vm_hwm_kib": 411368,
+        "vm_rss_kib": 411368
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 411368,
+        "seconds": 52.57287119695684,
+        "vm_hwm_kib": 411368,
+        "vm_rss_kib": 411368
+      },
+      {
+        "authority_sha256": "c0b89abaf977dc0cbf40ace7b497fbcacf1ec4ae761d2dea365ae776341ca064",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 411368,
+        "seconds": 139.6532945240033,
+        "state_sha256": "d76989d72b3a1a72343a2c591112cd65305dd1fe18ac8b04b86bab15eb252d98",
+        "strategy_nav": "99902.08372000002",
+        "vm_hwm_kib": 411368,
+        "vm_rss_kib": 410396
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "391159808",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 411368,
+        "seconds": 321.40579656598857,
+        "stage": "advanced_status",
+        "vm_hwm_kib": 411368,
+        "vm_rss_kib": 403112
+      }
+    ],
+    "status-cost-isolated-5000-final/http.log": [
+      {
+        "overall": "fail",
+        "phase": "complete_http",
+        "rusage_maxrss_kib": 414616,
+        "seconds": 170.92408831301145,
+        "shadow": {
+          "as_of": null,
+          "color": "green",
+          "detail": "sole strategy-performance authority \u00b7 canonical Wealth Core plus accepted Sharadar inputs \u00b7 independent of Alpaca PAPER accounting",
+          "future": false,
+          "key": "shadow_verification",
+          "label": "Certified shadow strategy",
+          "recovery": null,
+          "required_current": false,
+          "stale": false,
+          "status": "ok",
+          "valid_until": null,
+          "value": "SHADOW VERIFIED THROUGH 2026-09-14"
+        },
+        "vm_hwm_kib": 414616,
+        "vm_rss_kib": 352440
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "393756672",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 414616,
+        "seconds": 173.24664022400975,
+        "stage": "http",
+        "vm_hwm_kib": 414616,
+        "vm_rss_kib": 351348
+      }
+    ],
+    "status-cost-isolated-5000-final/initialize.log": [
+      {
+        "authority_sha256": "2a5e65ed9ca13abeb70f8458c7c1ac212da4ff542110e0d8173bc7e7ea1b7e69",
+        "cash": 100000.0,
+        "episodes": 0,
+        "nav": "100000",
+        "phase": "initialize",
+        "session": "2026-09-14",
+        "state_sha256": "7cce83926461a13eec47361a39c923fb253f2209679735b05b3f01f834735543",
+        "subject": "9513ba6e7336f5728f2971c78ddc3b7097ed1c09f8ad68047a3666bec8858be0"
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "2115444736",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 2093012,
+        "seconds": 426.9116998440004,
+        "stage": "initialize",
+        "vm_hwm_kib": 2093012,
+        "vm_rss_kib": 800420
+      }
+    ],
+    "status-cost-isolated-5000-final/next_publish.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "1402474496",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 1398792,
+        "seconds": 341.37072358099977,
+        "stage": "next_publish",
+        "vm_hwm_kib": 1398792,
+        "vm_rss_kib": 830784
+      }
+    ],
+    "status-cost-isolated-5000-final/postgres.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 21202\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "1074302976\n",
+        "phase": "postgres"
+      }
+    ],
+    "status-cost-isolated-5000-final/publish.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "1403539456",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 1399808,
+        "seconds": 367.1517020959873,
+        "stage": "publish",
+        "vm_hwm_kib": 1399808,
+        "vm_rss_kib": 851676
+      }
+    ],
+    "status-cost-isolated-5000-final/status.log": [
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 130132,
+        "vm_hwm_kib": 130132,
+        "vm_rss_kib": 127988
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 396456,
+        "seconds": 87.72270684700925,
+        "vm_hwm_kib": 396456,
+        "vm_rss_kib": 348408
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 396456,
+        "seconds": 33.44921416102443,
+        "vm_hwm_kib": 396456,
+        "vm_rss_kib": 350324
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 396456,
+        "seconds": 53.71505781903397,
+        "vm_hwm_kib": 396456,
+        "vm_rss_kib": 351352
+      },
+      {
+        "authority_sha256": "2a5e65ed9ca13abeb70f8458c7c1ac212da4ff542110e0d8173bc7e7ea1b7e69",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 396456,
+        "seconds": 153.1458146069781,
+        "state_sha256": "7cce83926461a13eec47361a39c923fb253f2209679735b05b3f01f834735543",
+        "strategy_nav": "100000",
+        "vm_hwm_kib": 396456,
+        "vm_rss_kib": 345304
+      },
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 396456,
+        "vm_hwm_kib": 396456,
+        "vm_rss_kib": 337552
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 398308,
+        "seconds": 89.19318567798473,
+        "vm_hwm_kib": 398308,
+        "vm_rss_kib": 348688
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 398308,
+        "seconds": 37.332485799037386,
+        "vm_hwm_kib": 398308,
+        "vm_rss_kib": 352036
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 398308,
+        "seconds": 58.304145629983395,
+        "vm_hwm_kib": 398308,
+        "vm_rss_kib": 352936
+      },
+      {
+        "authority_sha256": "2a5e65ed9ca13abeb70f8458c7c1ac212da4ff542110e0d8173bc7e7ea1b7e69",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 398308,
+        "seconds": 158.38142871897435,
+        "state_sha256": "7cce83926461a13eec47361a39c923fb253f2209679735b05b3f01f834735543",
+        "strategy_nav": "100000",
+        "vm_hwm_kib": 398308,
+        "vm_rss_kib": 350920
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "376975360",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 398308,
+        "seconds": 352.7299579519895,
+        "stage": "status",
+        "vm_hwm_kib": 398308,
+        "vm_rss_kib": 344796
+      }
+    ],
+    "status-cost-isolated-5000.log": [
+      {
+        "container": "sentinel-cost-1a1805d8-publish",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:13:20.915641095Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:07:22.432857956Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-1a1805d8-initialize",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 1,
+          "FinishedAt": "2026-09-20T02:17:30.85199801Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:13:22.008058757Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-1a1805d8-postgres",
+        "cpus": 1500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 1073741824,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:17:31.818623511Z",
+          "OOMKilled": true,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:07:16.939898869Z",
+          "Status": "exited"
+        }
+      }
+    ],
+    "status-cost-isolated-5000/postgres.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 6824\noom 1\noom_kill 1\noom_group_kill 0\n",
+        "peak": "1074253824\n",
+        "phase": "postgres"
+      }
+    ],
+    "status-cost-isolated-5000/publish.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "1404796928",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 1400676,
+        "seconds": 355.40465003898134,
+        "stage": "publish",
+        "vm_hwm_kib": 1400676,
+        "vm_rss_kib": 827996
+      }
+    ],
+    "status-cost-main-integration-100.log": [
+      {
+        "container": "sentinel-cost-da86a5b3-publish",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:00:21.287092175Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:00:08.110706513Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-da86a5b3-initialize",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:00:39.585996644Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:00:22.369516614Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-da86a5b3-status",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:00:58.955343506Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:00:40.708483416Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-da86a5b3-http",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:01:12.669915172Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:01:00.042182752Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-da86a5b3-next_publish",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:01:26.767355762Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:01:13.760069541Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-da86a5b3-advance",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:01:49.83935707Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:01:27.826496059Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-da86a5b3-advanced_status",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:02:09.506285103Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:01:50.88383776Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-da86a5b3-advanced_http",
+        "cpus": 500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 536870912,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:02:23.37413987Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:02:10.551342364Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-da86a5b3-postgres",
+        "cpus": 1500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 1073741824,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T03:02:25.206128597Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T03:00:01.37103552Z",
+          "Status": "exited"
+        }
+      }
+    ],
+    "status-cost-main-integration-100/advance.log": [
+      {
+        "authority_sha256": "cc36a5d977ddea8a7d95cd352ea6edbb704e6b9e860e6e8410a1ef181ca83433",
+        "cash": 3241.057719999987,
+        "episodes": 20,
+        "nav": "99903.33772",
+        "phase": "advance",
+        "session": "2026-09-15",
+        "state_sha256": "e750a7fd7e14dd20ef2a09dd4fed0d248294425554ab467e4a179f10197c1411",
+        "subject": "50d433c50ca92846c6450ee04b26601653c42f8abacdeb624bd1fdf040e36f13"
+      },
+      {
+        "cash_error": "-1.3E-11",
+        "expected_cash": "3241.057720",
+        "expected_nav": "99903.33772000001210",
+        "fees_10bps": "96.662280",
+        "mark_pnl": "1.210E-11",
+        "nav_error": "-1.210E-11",
+        "notional": "96662.280",
+        "positions": 20,
+        "retained_cash": "3241.057719999987",
+        "retained_nav": "99903.33772",
+        "scope": "SYNTHETIC_ACCOUNTING_ONLY"
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "144019456",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 170608,
+        "seconds": 18.51214126002742,
+        "stage": "advance",
+        "vm_hwm_kib": 170608,
+        "vm_rss_kib": 162516
+      }
+    ],
+    "status-cost-main-integration-100/advanced_http.log": [
+      {
+        "overall": "fail",
+        "phase": "complete_http",
+        "rusage_maxrss_kib": 155852,
+        "seconds": 6.472284028015565,
+        "shadow": {
+          "as_of": null,
+          "color": "green",
+          "detail": "sole strategy-performance authority \u00b7 canonical Wealth Core plus accepted Sharadar inputs \u00b7 independent of Alpaca PAPER accounting",
+          "future": false,
+          "key": "shadow_verification",
+          "label": "Certified shadow strategy",
+          "recovery": null,
+          "required_current": false,
+          "stale": false,
+          "status": "ok",
+          "valid_until": null,
+          "value": "SHADOW VERIFIED THROUGH 2026-09-15"
+        },
+        "vm_hwm_kib": 155852,
+        "vm_rss_kib": 154860
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "128548864",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 155852,
+        "seconds": 8.71943951700814,
+        "stage": "advanced_http",
+        "vm_hwm_kib": 155852,
+        "vm_rss_kib": 154860
+      }
+    ],
+    "status-cost-main-integration-100/advanced_status.log": [
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 123352,
+        "vm_hwm_kib": 123352,
+        "vm_rss_kib": 123352
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 133464,
+        "seconds": 1.7351837549940683,
+        "vm_hwm_kib": 133464,
+        "vm_rss_kib": 133464
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 137432,
+        "seconds": 0.7586792500223964,
+        "vm_hwm_kib": 137432,
+        "vm_rss_kib": 136496
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 137432,
+        "seconds": 2.5599123620195314,
+        "vm_hwm_kib": 137432,
+        "vm_rss_kib": 136508
+      },
+      {
+        "authority_sha256": "cc36a5d977ddea8a7d95cd352ea6edbb704e6b9e860e6e8410a1ef181ca83433",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 137432,
+        "seconds": 6.291414592007641,
+        "state_sha256": "e750a7fd7e14dd20ef2a09dd4fed0d248294425554ab467e4a179f10197c1411",
+        "strategy_nav": "99903.33772",
+        "vm_hwm_kib": 137432,
+        "vm_rss_kib": 136508
+      },
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 137432,
+        "vm_hwm_kib": 137432,
+        "vm_rss_kib": 136508
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 137432,
+        "seconds": 2.037741820968222,
+        "vm_hwm_kib": 137432,
+        "vm_rss_kib": 136508
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 137788,
+        "seconds": 0.7838644710136577,
+        "vm_hwm_kib": 137788,
+        "vm_rss_kib": 136796
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 138588,
+        "seconds": 2.4647951269871555,
+        "vm_hwm_kib": 138588,
+        "vm_rss_kib": 138588
+      },
+      {
+        "authority_sha256": "cc36a5d977ddea8a7d95cd352ea6edbb704e6b9e860e6e8410a1ef181ca83433",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 138588,
+        "seconds": 5.817658054002095,
+        "state_sha256": "e750a7fd7e14dd20ef2a09dd4fed0d248294425554ab467e4a179f10197c1411",
+        "strategy_nav": "99903.33772",
+        "vm_hwm_kib": 138588,
+        "vm_rss_kib": 138588
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "110870528",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 138588,
+        "seconds": 14.709676184982527,
+        "stage": "advanced_status",
+        "vm_hwm_kib": 138588,
+        "vm_rss_kib": 138588
+      }
+    ],
+    "status-cost-main-integration-100/http.log": [
+      {
+        "overall": "fail",
+        "phase": "complete_http",
+        "rusage_maxrss_kib": 155576,
+        "seconds": 6.453504106029868,
+        "shadow": {
+          "as_of": null,
+          "color": "green",
+          "detail": "sole strategy-performance authority \u00b7 canonical Wealth Core plus accepted Sharadar inputs \u00b7 independent of Alpaca PAPER accounting",
+          "future": false,
+          "key": "shadow_verification",
+          "label": "Certified shadow strategy",
+          "recovery": null,
+          "required_current": false,
+          "stale": false,
+          "status": "ok",
+          "valid_until": null,
+          "value": "SHADOW VERIFIED THROUGH 2026-09-14"
+        },
+        "vm_hwm_kib": 155576,
+        "vm_rss_kib": 153632
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "128798720",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 155576,
+        "seconds": 8.737920382991433,
+        "stage": "http",
+        "vm_hwm_kib": 155576,
+        "vm_rss_kib": 153632
+      }
+    ],
+    "status-cost-main-integration-100/initialize.log": [
+      {
+        "authority_sha256": "56f28cf86fe3666feefc905ccc62ecd4884b18f2d44bac13b9696fece5592618",
+        "cash": 100000.0,
+        "episodes": 0,
+        "nav": "100000",
+        "phase": "initialize",
+        "session": "2026-09-14",
+        "state_sha256": "35e4121482f62a4469ecf4d998087759ff8b00de78b2c23894a120068b0826fb",
+        "subject": "50d433c50ca92846c6450ee04b26601653c42f8abacdeb624bd1fdf040e36f13"
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "142225408",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 169136,
+        "seconds": 13.858471181010827,
+        "stage": "initialize",
+        "vm_hwm_kib": 169136,
+        "vm_rss_kib": 155140
+      }
+    ],
+    "status-cost-main-integration-100/next_publish.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "145793024",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 164688,
+        "seconds": 9.589460811985191,
+        "stage": "next_publish",
+        "vm_hwm_kib": 164688,
+        "vm_rss_kib": 163840
+      }
+    ],
+    "status-cost-main-integration-100/postgres.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "212480000\n",
+        "phase": "postgres"
+      }
+    ],
+    "status-cost-main-integration-100/publish.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "145186816",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 164440,
+        "seconds": 9.637709187984001,
+        "stage": "publish",
+        "vm_hwm_kib": 164440,
+        "vm_rss_kib": 161436
+      }
+    ],
+    "status-cost-main-integration-100/status.log": [
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 123312,
+        "vm_hwm_kib": 123312,
+        "vm_rss_kib": 123312
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 133168,
+        "seconds": 2.015174861997366,
+        "vm_hwm_kib": 133168,
+        "vm_rss_kib": 133168
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 137136,
+        "seconds": 0.7226362639921717,
+        "vm_hwm_kib": 137136,
+        "vm_rss_kib": 136208
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 138128,
+        "seconds": 2.20234406698728,
+        "vm_hwm_kib": 138128,
+        "vm_rss_kib": 135208
+      },
+      {
+        "authority_sha256": "56f28cf86fe3666feefc905ccc62ecd4884b18f2d44bac13b9696fece5592618",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 138128,
+        "seconds": 6.209173488023225,
+        "state_sha256": "35e4121482f62a4469ecf4d998087759ff8b00de78b2c23894a120068b0826fb",
+        "strategy_nav": "100000",
+        "vm_hwm_kib": 138128,
+        "vm_rss_kib": 135208
+      },
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 138128,
+        "vm_hwm_kib": 138128,
+        "vm_rss_kib": 135208
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 138128,
+        "seconds": 1.984955177991651,
+        "vm_hwm_kib": 138128,
+        "vm_rss_kib": 135208
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 138128,
+        "seconds": 0.7275984559673816,
+        "vm_hwm_kib": 138128,
+        "vm_rss_kib": 137512
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 138208,
+        "seconds": 2.2299338749726303,
+        "vm_hwm_kib": 138208,
+        "vm_rss_kib": 137312
+      },
+      {
+        "authority_sha256": "56f28cf86fe3666feefc905ccc62ecd4884b18f2d44bac13b9696fece5592618",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 138208,
+        "seconds": 5.588412652024999,
+        "state_sha256": "35e4121482f62a4469ecf4d998087759ff8b00de78b2c23894a120068b0826fb",
+        "strategy_nav": "100000",
+        "vm_hwm_kib": 138208,
+        "vm_rss_kib": 137312
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "111304704",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 138208,
+        "seconds": 14.415430970024318,
+        "stage": "status",
+        "vm_hwm_kib": 138208,
+        "vm_rss_kib": 137312
+      }
+    ],
+    "status-cost-pg16/storage.log": [
+      {
+        "phase": "storage_value_equal",
+        "scope": "SQL_STORAGE_DIAGNOSTIC_ONLY",
+        "universe": 5000
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "1129058304",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 1139252,
+        "seconds": 63.38266148196999,
+        "stage": "storage",
+        "vm_hwm_kib": 1139252,
+        "vm_rss_kib": 361160
+      }
+    ],
+    "status-cost-pit-inventory.log": [
+      {
+        "bytes": 5322055,
+        "member": "actions.csv.gz",
+        "rows": 253076,
+        "seconds": 1.202999999979511,
+        "sha256": "ec6f1d96c0beed8bf4baba45a55cc56a881f001d27456b9630471d69e2d46139"
+      },
+      {
+        "bytes": 105909,
+        "member": "benchmark.csv.gz",
+        "rows": 5176,
+        "seconds": 1.202999999979511,
+        "sha256": "87244b4a1b3be19402aa761105018d49f00ebb11ed141990968a15b6d1bbe1f7"
+      },
+      {
+        "bytes": 60570,
+        "member": "cash.csv.gz",
+        "rows": 5176,
+        "seconds": 1.202999999979511,
+        "sha256": "744b6119894d45e5b467ec7bf3dd7b2e39d7b2d227c1ad62509d133c25d6f81e"
+      },
+      {
+        "bytes": 871122,
+        "member": "metadata-timeline.csv.gz",
+        "rows": 31869,
+        "seconds": 1.2650000000139698,
+        "sha256": "0f4e7747de0d9c5947c6123225c8870356b9bc8386b63f5ff284bbe635b1775a"
+      },
+      {
+        "bytes": 72571833,
+        "member": "observations-2006.csv.gz",
+        "rows": 1588668,
+        "seconds": 6.625,
+        "sha256": "e968961ff526d30db088a751bacd787c3937815150b96932c01933e5b900ff6e"
+      },
+      {
+        "bytes": 71806406,
+        "member": "observations-2007.csv.gz",
+        "rows": 1562442,
+        "seconds": 11.89000000001397,
+        "sha256": "1d5a5e5c44e6dc131ab0ed4376d35aee5d6b44344220438d4a83c3c5794a95cf"
+      },
+      {
+        "bytes": 70442032,
+        "member": "observations-2008.csv.gz",
+        "rows": 1539720,
+        "seconds": 17.07799999997951,
+        "sha256": "2b1450148e6110ebcbefa1d1165dcb5bcdc0c2831ba72d9143e2809a617b8f60"
+      },
+      {
+        "bytes": 67200527,
+        "member": "observations-2009.csv.gz",
+        "rows": 1465006,
+        "seconds": 22.125,
+        "sha256": "bb294d41b8739365e635ef25654beeb74d409f578f33537c1c99450cc97e7783"
+      },
+      {
+        "bytes": 66454231,
+        "member": "observations-2010.csv.gz",
+        "rows": 1427043,
+        "seconds": 26.95299999997951,
+        "sha256": "372489cddda964fae6bab25e85d72829b07f6e1f88a3ffc9da9091d0da5c3038"
+      },
+      {
+        "bytes": 65285875,
+        "member": "observations-2011.csv.gz",
+        "rows": 1395224,
+        "seconds": 32.0,
+        "sha256": "deddc04d2a756da73002bb7705ae902f6b0742de2907ed847a82c2208f8223af"
+      },
+      {
+        "bytes": 63061717,
+        "member": "observations-2012.csv.gz",
+        "rows": 1351874,
+        "seconds": 36.64000000001397,
+        "sha256": "3421b47576a096be88470be6b1f4b018f2b223de0ffde2e5389b41cccfb0ae0b"
+      },
+      {
+        "bytes": 62996678,
+        "member": "observations-2013.csv.gz",
+        "rows": 1342988,
+        "seconds": 41.31199999997625,
+        "sha256": "734d0d6cb15b7a704d8605daceb74ee5bba2d4ec28943b6ede3a994b5ce2348e"
+      },
+      {
+        "bytes": 66019265,
+        "member": "observations-2014.csv.gz",
+        "rows": 1396589,
+        "seconds": 46.03100000001723,
+        "sha256": "fdfa7f50a45e8371bc7d49e909cd4618c4498b78349341b6d3e492b4e3cb26d6"
+      },
+      {
+        "bytes": 70616536,
+        "member": "observations-2015.csv.gz",
+        "rows": 1490075,
+        "seconds": 51.09299999999348,
+        "sha256": "df01a18b8372a101e66ef8c3d620d82a134e7c2e82141125fa184f2fc956028e"
+      },
+      {
+        "bytes": 69019632,
+        "member": "observations-2016.csv.gz",
+        "rows": 1455380,
+        "seconds": 55.98399999999674,
+        "sha256": "38089f886164634e6e346dd0c9b30ba573c587edc5e461f132efd56b17ae2c55"
+      },
+      {
+        "bytes": 67839538,
+        "member": "observations-2017.csv.gz",
+        "rows": 1432362,
+        "seconds": 61.14000000001397,
+        "sha256": "52dd9ddcabe4c28a0a830a8c4d91d09a0aadf5a42cfa881b84cc9be4007e7079"
+      },
+      {
+        "bytes": 68810029,
+        "member": "observations-2018.csv.gz",
+        "rows": 1444181,
+        "seconds": 66.0,
+        "sha256": "c3d55651950bbe18ca172a7c430e674ba9d2b5fda898342170a3fcf21d7d4021"
+      },
+      {
+        "bytes": 70473519,
+        "member": "observations-2019.csv.gz",
+        "rows": 1477344,
+        "seconds": 71.15600000001723,
+        "sha256": "2a411083d8dc57a2146ee969c2989053250a7e5d48a056c1843f6a3951bd9902"
+      },
+      {
+        "bytes": 73761132,
+        "member": "observations-2020.csv.gz",
+        "rows": 1541141,
+        "seconds": 76.34299999999348,
+        "sha256": "e48717756e73613bbb3a88dbe2a0574d3a36611003dd3b010e82dc63681acfc0"
+      },
+      {
+        "bytes": 90276502,
+        "member": "observations-2021.csv.gz",
+        "rows": 1898353,
+        "seconds": 82.85899999999674,
+        "sha256": "a15fd9b0129ab77ae58db0a047f7eea1e036de3da30ecc18592b1c954b58be94"
+      },
+      {
+        "bytes": 97434296,
+        "member": "observations-2022.csv.gz",
+        "rows": 2080223,
+        "seconds": 90.0,
+        "sha256": "fc22a736cf7e575547befcbbc46b7bf9888bcd53bb412b27138fd68811f6b506"
+      },
+      {
+        "bytes": 86262414,
+        "member": "observations-2023.csv.gz",
+        "rows": 1834182,
+        "seconds": 96.56199999997625,
+        "sha256": "32c0361f07483afc3c73f15e40f6a63db82a8ea985a24d60a9c7dfa334ffacd7"
+      },
+      {
+        "bytes": 77787659,
+        "member": "observations-2024.csv.gz",
+        "rows": 1647175,
+        "seconds": 102.15600000001723,
+        "sha256": "e3f9c1e087f2e043e21ff67536ba14f252f0e59da3d6ec99951e6f94e66f83ed"
+      },
+      {
+        "bytes": 72475530,
+        "member": "observations-2025.csv.gz",
+        "rows": 1546125,
+        "seconds": 107.375,
+        "sha256": "da5fb74c1dd904559be1997d3c2415b0cd3c8911bc4cf7311198c201616d8164"
+      },
+      {
+        "bytes": 41811488,
+        "member": "observations-2026.csv.gz",
+        "rows": 904798,
+        "seconds": 110.40600000001723,
+        "sha256": "c2b3d29edc090f09a7722ecfc18d11f6aa6ecaccd9879b190597782b7145759b"
+      },
+      {
+        "bytes": 445607,
+        "member": "session-hashes.csv",
+        "rows": 5176,
+        "seconds": 110.40600000001723,
+        "sha256": "b6792ccc259dd3c6f2717c28d41920fc8d17eb6e2ce48d135667639a51816853"
+      },
+      {
+        "bytes": 228915,
+        "member": "terminal-events.csv.gz",
+        "rows": 10652,
+        "seconds": 110.42099999997299,
+        "sha256": "848704cf6710820a4912366a5cb0bb0d16ec989a63f79aad4487da2f57d90fa6"
+      },
+      {
+        "archive_sha256": "4d0aa14b65c308f232e0a6d9896f797a49c109f6b423f2877964030729c293d7",
+        "counts": {
+          "action_rows": 253076,
+          "incomplete_terminal_terms": 10650,
+          "metadata_timeline_rows": 31869,
+          "observation_rows": 31820893,
+          "security_count": 16957,
+          "session_count": 5176,
+          "terminal_rows": 10652,
+          "unknown_issuer_securities_at_end": 6803,
+          "unknown_security_type_observations": 9302460,
+          "unresolved_corporate_actions": 0
+        },
+        "dataset_hash": "7ceaaf4f88a3cd038df8fed328a52cf138251fad36ab32cf4a7af8c26c2266b2",
+        "first_observed_session": "2006-01-03",
+        "headers": {
+          "actions.csv.gz": [
+            "effective_session",
+            "security_id",
+            "ticker",
+            "action",
+            "vendor_value",
+            "canonical_value",
+            "disposition",
+            "sep_derived_value",
+            "known_by",
+            "authority",
+            "evidence_hash"
+          ],
+          "benchmark.csv.gz": [
+            "session",
+            "ticker",
+            "close_to_close_factor",
+            "level"
+          ],
+          "cash.csv.gz": [
+            "session",
+            "gap_factor",
+            "intraday_factor",
+            "close_to_close_factor",
+            "source"
+          ],
+          "metadata-timeline.csv.gz": [
+            "effective_session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_first_session",
+            "metadata_admitted"
+          ],
+          "observations-2006.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2007.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2008.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2009.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2010.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2011.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2012.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2013.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2014.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2015.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2016.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2017.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2018.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2019.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2020.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2021.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2022.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2023.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2024.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2025.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "observations-2026.csv.gz": [
+            "session",
+            "security_id",
+            "ticker",
+            "issuer_id",
+            "issuer_source",
+            "security_type",
+            "security_type_source",
+            "security_type_eligible",
+            "sic",
+            "ff12",
+            "sector_source",
+            "listing_active",
+            "listing_first_session",
+            "exchange",
+            "exchange_authoritative",
+            "raw_open",
+            "raw_close",
+            "signal_close",
+            "reported_volume",
+            "raw_compatible_volume",
+            "split_ratio",
+            "dividend_per_share",
+            "tradeable",
+            "metadata_admitted",
+            "identity_source"
+          ],
+          "session-hashes.csv": [
+            "session",
+            "observation_rows",
+            "action_rows",
+            "terminal_rows",
+            "input_sha256"
+          ],
+          "terminal-events.csv.gz": [
+            "effective_session",
+            "security_id",
+            "ticker",
+            "kind",
+            "disposition",
+            "cash_per_share",
+            "delivered_security_id",
+            "delivered_ticker",
+            "delivered_issuer_id",
+            "exchange_ratio",
+            "cash_in_lieu_price_per_delivered_share",
+            "reference",
+            "authority",
+            "evidence_hash"
+          ]
+        },
+        "last_observed_session": "2026-07-31",
+        "max_observation_rows_in_300_observed_sessions": 2474682,
+        "max_observed_rows_per_session": 8408,
+        "member_rows_verified": {
+          "actions.csv.gz": 253076,
+          "benchmark.csv.gz": 5176,
+          "cash.csv.gz": 5176,
+          "metadata-timeline.csv.gz": 31869,
+          "observations-2006.csv.gz": 1588668,
+          "observations-2007.csv.gz": 1562442,
+          "observations-2008.csv.gz": 1539720,
+          "observations-2009.csv.gz": 1465006,
+          "observations-2010.csv.gz": 1427043,
+          "observations-2011.csv.gz": 1395224,
+          "observations-2012.csv.gz": 1351874,
+          "observations-2013.csv.gz": 1342988,
+          "observations-2014.csv.gz": 1396589,
+          "observations-2015.csv.gz": 1490075,
+          "observations-2016.csv.gz": 1455380,
+          "observations-2017.csv.gz": 1432362,
+          "observations-2018.csv.gz": 1444181,
+          "observations-2019.csv.gz": 1477344,
+          "observations-2020.csv.gz": 1541141,
+          "observations-2021.csv.gz": 1898353,
+          "observations-2022.csv.gz": 2080223,
+          "observations-2023.csv.gz": 1834182,
+          "observations-2024.csv.gz": 1647175,
+          "observations-2025.csv.gz": 1546125,
+          "observations-2026.csv.gz": 904798,
+          "session-hashes.csv": 5176,
+          "terminal-events.csv.gz": 10652
+        },
+        "observed_session_count": 5176,
+        "schema": "backtester.canonical-pit-dataset/1",
+        "scope": "ARTIFACT_INTEGRITY_AND_WORKLOAD_ONLY_NOT_ECONOMIC_CERTIFICATION",
+        "seconds": 110.42099999997299,
+        "window": {
+          "end": "2026-07-31",
+          "measurement_start": "2006-07-31",
+          "warmup_start": "2006-01-03"
+        }
+      }
+    ],
+    "status-cost-profile-after.log": [
+      {
+        "phase": "publication",
+        "rows": 30000,
+        "seconds": 16.973744882969186,
+        "universe": 100
+      },
+      {
+        "phase": "initialization",
+        "rusage_maxrss_kib": 190564,
+        "seconds": 14.855799581040628,
+        "state_sha256": "e5ee03e55e9ae05533012229448921c5de8d232a68e9bbb996ecd55d3c54a107",
+        "vm_hwm_kib": 190564,
+        "vm_rss_kib": 180256
+      },
+      {
+        "phase": "build",
+        "profiled_seconds": 33.65475871798117,
+        "rusage_maxrss_kib": 190564,
+        "vm_hwm_kib": 190564,
+        "vm_rss_kib": 180256
+      },
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 190564,
+        "vm_hwm_kib": 190564,
+        "vm_rss_kib": 180256
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 190564,
+        "seconds": 2.6212063229759224,
+        "vm_hwm_kib": 190564,
+        "vm_rss_kib": 180256
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 190564,
+        "seconds": 0.6205084330285899,
+        "vm_hwm_kib": 190564,
+        "vm_rss_kib": 180256
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 190564,
+        "seconds": 1.005955611995887,
+        "vm_hwm_kib": 190564,
+        "vm_rss_kib": 180256
+      },
+      {
+        "authority_sha256": "74734bbecef510840491802483f652a5942ad5290402d6940b2c255326a4ffee",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 190564,
+        "seconds": 3.7285657970351167,
+        "state_sha256": "e5ee03e55e9ae05533012229448921c5de8d232a68e9bbb996ecd55d3c54a107",
+        "strategy_nav": "100000",
+        "vm_hwm_kib": 190564,
+        "vm_rss_kib": 180256
+      },
+      {
+        "phase": "origin_status",
+        "profiled_seconds": 4.412117890024092,
+        "rusage_maxrss_kib": 190564,
+        "vm_hwm_kib": 190564,
+        "vm_rss_kib": 180256
+      },
+      {
+        "phase": "next_publication",
+        "profiled_seconds": 17.128769460017793,
+        "rusage_maxrss_kib": 190564,
+        "vm_hwm_kib": 190564,
+        "vm_rss_kib": 180256
+      },
+      {
+        "phase": "next_transition",
+        "profiled_seconds": 26.677315443987027,
+        "rusage_maxrss_kib": 190564,
+        "vm_hwm_kib": 190564,
+        "vm_rss_kib": 189672
+      },
+      {
+        "episodes": 20,
+        "phase": "advanced",
+        "state_sha256": "2267b7c6e01a804982b30bc50da9a45f8c7d4f0aabc34d7884bdedd9b574a319",
+        "strategy_nav": "99903.33772"
+      },
+      {
+        "phase": "advanced_status",
+        "profiled_seconds": 3.4549747179844417,
+        "rusage_maxrss_kib": 190564,
+        "vm_hwm_kib": 190564,
+        "vm_rss_kib": 188756
+      }
+    ],
+    "status-cost-profile-baseline-v2.log": [
+      {
+        "phase": "publication",
+        "rows": 30000,
+        "seconds": 16.663719877018593,
+        "universe": 100
+      },
+      {
+        "phase": "initialization",
+        "rusage_maxrss_kib": 190504,
+        "seconds": 22.850239564024378,
+        "state_sha256": "584fbac86f97d4f6430a5509defee769db7c2a00be24cd73e83f7e67ff2c88c2",
+        "vm_hwm_kib": 190504,
+        "vm_rss_kib": 183104
+      },
+      {
+        "phase": "build",
+        "profiled_seconds": 42.28420043300139,
+        "rusage_maxrss_kib": 190504,
+        "vm_hwm_kib": 190504,
+        "vm_rss_kib": 178644
+      },
+      {
+        "phase": "child_start",
+        "pid": 7,
+        "rusage_maxrss_kib": 190504,
+        "vm_hwm_kib": 190504,
+        "vm_rss_kib": 178644
+      },
+      {
+        "phase": "_closure",
+        "pid": 7,
+        "rusage_maxrss_kib": 190504,
+        "seconds": 4.954000920988619,
+        "vm_hwm_kib": 190504,
+        "vm_rss_kib": 178644
+      },
+      {
+        "phase": "_snapshot_context",
+        "pid": 7,
+        "rusage_maxrss_kib": 190504,
+        "seconds": 0.6364405560307205,
+        "vm_hwm_kib": 190504,
+        "vm_rss_kib": 178644
+      },
+      {
+        "phase": "_current",
+        "pid": 7,
+        "rusage_maxrss_kib": 190504,
+        "seconds": 1.0639488989836536,
+        "vm_hwm_kib": 190504,
+        "vm_rss_kib": 178644
+      },
+      {
+        "authority_sha256": "48dda83528cf09d46dff09173b91b4fdb8a1c47b06aae44ce7d7f87871ada44e",
+        "phase": "complete_status",
+        "pid": 7,
+        "rusage_maxrss_kib": 190504,
+        "seconds": 6.1238313249778,
+        "state_sha256": "584fbac86f97d4f6430a5509defee769db7c2a00be24cd73e83f7e67ff2c88c2",
+        "strategy_nav": "100000",
+        "vm_hwm_kib": 190504,
+        "vm_rss_kib": 178644
+      },
+      {
+        "phase": "origin_status",
+        "profiled_seconds": 7.321648142009508,
+        "rusage_maxrss_kib": 190504,
+        "vm_hwm_kib": 190504,
+        "vm_rss_kib": 178644
+      },
+      {
+        "phase": "next_publication",
+        "profiled_seconds": 16.672882194048725,
+        "rusage_maxrss_kib": 190504,
+        "vm_hwm_kib": 190504,
+        "vm_rss_kib": 178644
+      },
+      {
+        "phase": "next_transition",
+        "profiled_seconds": 42.3897263550316,
+        "rusage_maxrss_kib": 190504,
+        "vm_hwm_kib": 190504,
+        "vm_rss_kib": 188992
+      },
+      {
+        "episodes": 20,
+        "phase": "advanced",
+        "state_sha256": "8c3ee6c0415fe0dd66f8106b004ad068425d1b61428378ca2b4280616dbe25cb",
+        "strategy_nav": "99903.33772"
+      },
+      {
+        "phase": "advanced_status",
+        "profiled_seconds": 5.518956148007419,
+        "rusage_maxrss_kib": 190504,
+        "vm_hwm_kib": 190504,
+        "vm_rss_kib": 188992
+      }
+    ],
+    "status-cost-storage-5000-exact.log": [
+      {
+        "container": "sentinel-cost-a2d5d0b6-storage",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:38:36.846255833Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:37:35.636707607Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-a2d5d0b6-postgres",
+        "cpus": 1500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 1073741824,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:38:38.389726934Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:37:29.68156166Z",
+          "Status": "exited"
+        }
+      }
+    ],
+    "status-cost-storage-5000-exact/postgres.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 812\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "1073741824\n",
+        "phase": "postgres"
+      }
+    ],
+    "status-cost-storage-5000-exact/storage.log": [
+      {
+        "phase": "storage_value_equal",
+        "scope": "SQL_STORAGE_DIAGNOSTIC_ONLY",
+        "universe": 5000
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "1137156096",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 1139096,
+        "seconds": 58.001086093019694,
+        "stage": "storage",
+        "vm_hwm_kib": 1139096,
+        "vm_rss_kib": 359152
+      }
+    ],
+    "status-cost-storage-5000-final.log": [
+      {
+        "container": "sentinel-cost-227171ec-storage",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 1,
+          "FinishedAt": "2026-09-20T02:32:54.685798487Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:32:25.923867327Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-227171ec-postgres",
+        "cpus": 1500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 1073741824,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:32:56.512746163Z",
+          "OOMKilled": true,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:32:19.886200821Z",
+          "Status": "exited"
+        }
+      }
+    ],
+    "status-cost-storage-5000-final/postgres.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 1254\noom 1\noom_kill 1\noom_group_kill 0\n",
+        "peak": "1073741824\n",
+        "phase": "postgres"
+      }
+    ],
+    "status-cost-storage-5000.log": [
+      {
+        "container": "sentinel-cost-820dddd2-storage",
+        "cpus": 2000000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 4294967296,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:29:24.404096267Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:28:32.862700173Z",
+          "Status": "exited"
+        }
+      },
+      {
+        "container": "sentinel-cost-820dddd2-postgres",
+        "cpus": 1500000000,
+        "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+        "memory": 1073741824,
+        "state": {
+          "Dead": false,
+          "Error": "",
+          "ExitCode": 0,
+          "FinishedAt": "2026-09-20T02:29:25.6247074Z",
+          "OOMKilled": false,
+          "Paused": false,
+          "Pid": 0,
+          "Restarting": false,
+          "Running": false,
+          "StartedAt": "2026-09-20T02:28:26.868571567Z",
+          "Status": "exited"
+        }
+      }
+    ],
+    "status-cost-storage-5000/postgres.log": [
+      {
+        "events": "low 0\nhigh 0\nmax 812\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "1073741824\n",
+        "phase": "postgres"
+      }
+    ],
+    "status-cost-storage-5000/storage.log": [
+      {
+        "phase": "storage_value_equal",
+        "scope": "SQL_STORAGE_DIAGNOSTIC_ONLY",
+        "universe": 5000
+      },
+      {
+        "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n",
+        "peak": "928727040",
+        "phase": "stage_complete",
+        "rusage_maxrss_kib": 934452,
+        "seconds": 48.49413856299361,
+        "stage": "storage",
+        "vm_hwm_kib": 934452,
+        "vm_rss_kib": 324476
+      }
+    ]
+  },
+  "scope": "SYNTHETIC_RESOURCE_AND_ACCOUNTING_ONLY"
+}

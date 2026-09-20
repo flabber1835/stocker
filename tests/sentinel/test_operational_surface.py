@@ -90,7 +90,9 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "SENTINEL_IMAGE=sentinel:ci" in workflow
     assert workflow.count('--build-arg SOURCE_GIT_SHA="${TESTED_SHA}"') == 2
     assert 'TESTED_SHA="$(git rev-parse HEAD)"' in workflow
-    assert 'tests/sentinel "${ignore_args[@]}" -q -ra' in workflow
+    assert 'tests/sentinel "${ignore_args[@]}"' in workflow
+    assert "'--ignore-glob=tests/sentinel/test_rolling_*.py' -vv -ra" in workflow
+    assert 'sentinel-test:ci "${rolling_files[@]}" -vv -ra' in workflow
     automation_files = (
         "tests/sentinel/test_automation_service.py",
         "tests/sentinel/test_issue_201_automation_financial_grade.py",
@@ -275,7 +277,7 @@ def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
     # Check the actual pipeline's arguments across shell continuations. JUnit
     # output belongs to the same pytest invocation as its retained text log.
     commands = workflow.replace("\\\n", "")
-    for junit in ("sentinel-main.xml", "sentinel-warmup.xml", "sentinel-automation.xml",
+    for junit in ("sentinel-warmup.xml", "sentinel-automation.xml",
                   "scripts.xml", "wealth-core.xml"):
         pipeline = re.search(
             rf"docker run\b[^\n]+--junitxml=/evidence/{re.escape(junit)}[^\n]+"
@@ -291,6 +293,17 @@ def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
         run = _step_run(step)
         if run and "| tee" in run:
             assert run.splitlines()[0] == "set -euo pipefail"
+        if run and "sentinel-main-general.xml" in run:
+            # Both fresh containers write into one pipefail-protected log group.
+            assert "{\n" in run
+            assert "} 2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt" in run
+            for part in ("general", "rolling"):
+                invocation = re.search(
+                    rf"docker run\b[^\n]+--junitxml=/evidence/sentinel-main-{part}.xml",
+                    run.replace("\\\n", ""))
+                assert invocation, part
+                arguments = shlex.split(invocation.group())
+                assert "-vv" in arguments and "-ra" in arguments
             assert "set +e" not in run
     assert "--owner wealth-core.prospective" in workflow
 
