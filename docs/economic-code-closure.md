@@ -22,6 +22,16 @@ claim. These overlapping test counts are not whole-code coverage. See
 C1/F6/F19/C3 provider guarantees, real-workload resource/latency evidence and NAS
 qualification remain open. The full historical backtest remains deferred Stage 2.
 
+The adjacent producer/reporting review also reproduced **P2 precision defects**:
+`sentinel/execution/broker_cash.py:413` could retain a rounded cursor inconsistent
+with PostgreSQL's exact native-row sum, causing subsequent restart refusal;
+`sentinel/core/cashflow.py:187`/`:223` could round capital/P&L or label a residual
+just outside tolerance as MARKET. Exact accumulation and attribution now share
+`sentinel/execution/numeric.py:6`. Existing inconsistent cursors still refuse;
+provider identity/finality is unchanged. Native HTTP simulation, persisted SQL
+oracles, new-event/duplicate replay and reporting controls are retained in the
+same [cash precision evidence](../audit/economic_399/cash_precision/README.md#producer-and-reporting-follow-up).
+
 Base: `748d54e12a4cdb4b5403c56feb8d6b68e47d0104`, the verified merge of
 PR #402. This is step 1 of the owner's certification sequence: eliminate known
 implementation defects and exercise recovery locally before the independent

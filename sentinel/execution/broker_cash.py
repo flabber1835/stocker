@@ -22,9 +22,11 @@ import json
 from dataclasses import dataclass
 from datetime import date, datetime, timedelta, timezone
 from decimal import Decimal
+from fractions import Fraction
 from typing import Mapping, Optional
 
 from sentinel.execution.contract import Completeness
+from sentinel.execution.numeric import exact_decimal
 
 
 FLOW_PREFIX = "broker-cash:v1:"
@@ -408,10 +410,10 @@ async def ingest_account_cash(
         # resumption authority; ``after`` remains a bounded bootstrap input.
         after = (established if (financial_sse and prior.last_event_id is None) else
                  max(established, prior.processed_through - ACTIVITY_OVERLAP))
-        running_total = prior.balance_total
+        running_total = Fraction(prior.balance_total)
     else:
         after = established
-        running_total = Decimal(0)
+        running_total = Fraction(0)
         # A cursor without its event ledger would be a partial restore.  The
         # inverse is equally ambiguous: retained reserved rows with no cursor
         # cannot establish which page boundary had actually been processed.
@@ -471,7 +473,7 @@ async def ingest_account_cash(
             conn, broker=broker, account_id=account_id,
             activity=activity)
         if inserted:
-            running_total += activity.net_amount
+            running_total += Fraction(activity.net_amount)
             last_id = activity.activity_id
     if batch.last_activity_id is not None:
         if batch.activities and batch.last_activity_id != batch.activities[-1].activity_id:
@@ -489,9 +491,10 @@ async def ingest_account_cash(
                 "broker cash activity event cursor regressed")
         last_event_id = batch.last_event_id
 
+    balance_total = exact_decimal(running_total)
     state = CashActivityState(
         broker=broker, account_id=account_id, processed_through=upper,
-        last_activity_id=last_id, balance_total=running_total,
+        last_activity_id=last_id, balance_total=balance_total,
         last_event_id=last_event_id,
         activity_identity_scheme=(
             ACTIVITY_IDENTITY_SCHEME if financial_sse else None))
@@ -503,7 +506,7 @@ async def ingest_account_cash(
         "processed_through": upper.isoformat(),
         "last_activity_id": last_id,
         "last_event_id": last_event_id,
-        "balance_total": str(running_total),
+        "balance_total": str(balance_total),
     }
     if financial_sse:
         payload["activity_identity_scheme"] = ACTIVITY_IDENTITY_SCHEME
@@ -628,7 +631,7 @@ def activity_delta_for_plan(
             or baseline.account_id != activity_state.account_id):
         raise BrokerCashAuthorityRefused(
             f"plan {plan_id} cash baseline belongs to another broker account")
-    return activity_state.balance_total - baseline.balance_total
+    return exact_decimal(Fraction(activity_state.balance_total) - Fraction(baseline.balance_total))
 
 
 __all__ = [

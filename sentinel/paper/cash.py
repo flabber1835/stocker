@@ -6,13 +6,13 @@ import json
 
 from datetime import date, datetime, timedelta
 
-from decimal import Context, Decimal, Inexact, InvalidOperation, localcontext
+from decimal import Decimal, InvalidOperation
 from fractions import Fraction
 
 from typing import Mapping, Optional
 
 from sentinel.execution import broker_cash, executor, journal
-from sentinel.execution.numeric import decimal_text
+from sentinel.execution.numeric import decimal_text, exact_decimal as _cash_decimal
 
 from sentinel.execution.contract import (
     BrokerAccountIdentity,
@@ -46,16 +46,6 @@ ACCOUNT_ENDPOINT_LAG_GRACE = timedelta(seconds=120)
 _ACCOUNT_ENDPOINT_LAG_SCHEMA = "sentinel.broker-account-lag/1"
 
 _ACCOUNT_ENDPOINT_LAG_PREFIX = "broker-account-lag:v1:"
-
-
-def _cash_decimal(value: Fraction) -> Decimal:
-    """Exactly render a sum/product of finite decimals, independently of context."""
-    # Its reduced denominator contains only factors 2 and 5. Its bit length
-    # bounds the terminating decimal scale; numerator digits plus that scale
-    # bounds the required precision. Refuse any unexpected inexact conversion.
-    precision = len(str(abs(value.numerator))) + value.denominator.bit_length()
-    with localcontext(Context(prec=precision, traps=[Inexact])):
-        return Decimal(value.numerator) / Decimal(value.denominator)
 
 
 def _observation_economics(observation: BrokerObservation) -> dict:

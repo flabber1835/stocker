@@ -84,3 +84,60 @@ and measured real-universe capacity/latency. Pass only with matching identity,
 successful recovery and no unexplained economic differences. Synthetic local
 tests do not substitute for those observations. No NAS or broker was contacted.
 The full historical backtest and economic deltas remain deferred Stage 2 work.
+
+## Producer and reporting follow-up
+
+Continuation of PR #421 from reviewed commit
+`37832b986103cd603955b263daa002b6bb43f13f`, with main independently refetched
+and unchanged at `daa43caf995779bfa7e67195785520744021cb45`.
+The original logs and `sha256.json` above remain evidence for that original
+commit; they are not repinned to the follow-up source.
+
+**P2 producer defect:** `sentinel/execution/broker_cash.py:413`/`:494` formerly
+accumulated Decimal rows at ambient precision. A $1,000 deposit, $0.01 dividend
+and fee of 10^-30 produced a rounded cursor even though PostgreSQL stored each
+input exactly. The existing restart integrity check correctly refuses such a
+cursor. Accumulate accepted native rows exactly before retaining the Decimal
+total. An already inconsistent cursor still refuses; no repair or recomputed
+baseline is authorized by this fix.
+
+**P2 reporting defects:** `sentinel/core/cashflow.py:187`/`:193` could round
+external capital and lose small genuine P/L during NAV subtraction. At `:223`,
+a residual of $1 plus 10^-30 was persisted as MARKET instead of UNEXPLAINED.
+Exact capital totals, P/L, NAV movement and residual comparisons now preserve
+the declared economic identity. Existing policy still clears residuals *within*
+the $1 tolerance. No evidence establishes material historical/deployed impact.
+
+The conversion helper is shared in `sentinel/execution/numeric.py:6`; the paper
+consumer retains its previously tested behavior. All design decisions were
+recorded before implementation in the execution contract. No parallel shadow
+book or broker-to-strategy input was introduced.
+
+Seven added cases failed on the previous implementation (retained
+`producer-before.log`). The native producer cases exercise the actual candidate
+Alpaca parser through offline HTTP simulation in both paper and modeled cash
+profiles, using a separately constructed 100-digit oracle and PostgreSQL SUM.
+They reopen the database, reread duplicates, then accept a new event and verify
+four rows with the exact total. No fill capability is enabled; the candidate's
+activity identity scheme remains `None`. These tests prove local arithmetic
+and persistence, not provider completeness or production cash-source approval.
+
+The final command and results are retained in `producer-final.log`; its source
+and evidence hashes are in `producer-sha256.json`. The container layout/limits
+are as above, with `ALPACA_HARNESS_REQUIRE_POSTGRES=1` to refuse missing PostgreSQL.
+Execute this sequence in the disposable Linux source copy:
+
+```sh
+python -m pytest tests/sentinel/test_alpaca_simulation_durability.py tests/sentinel/test_cash_grace_identity.py tests/sentinel/test_issue_183_alpaca_hardening.py tests/sentinel/test_catchup.py tests/sentinel/test_paper_close_nav_gate.py tests/sentinel/test_paper_activation.py tests/sentinel/test_alpaca_execution_entrypoint.py -q --tb=short -ra -p no:cacheprovider
+python audit/economic_399/cash_precision/mutations.py
+python audit/economic_399/cash_precision/producer_mutations.py
+```
+
+The added falsifiers break cursor rendering, external-capital rendering, P/L
+subtraction and residual classification, independently of the four original
+consumer/grace mutations. Final results: **237 passed in 72.74 seconds** and
+**8/8 mutants detected**, each by its intended assertion. All eight Python
+files pass AST parsing. The changed producer/reporting/helper/test scripts pass
+pyflakes; paper cash retains only its eleven pre-existing unused imports.
+`git diff --check` passes. Ownership still covers 491 modules with zero unowned.
+The provider, real-workload, Stage 2 and NAS boundaries above remain unchanged.
