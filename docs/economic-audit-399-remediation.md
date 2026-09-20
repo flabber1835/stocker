@@ -7,6 +7,13 @@ economic/reference compatibility, provider capability acceptance, and deployed
 NAS qualification. None implies the others. Overall certification is BLOCKED
 until all required evidence has an explicit passing disposition.
 
+The [recurring maintenance implementation](backup-recurring-maintenance.md) and
+[updated Step 1 ledger](economic-code-closure.md#recurring-proactive-backup-maintenance-and-retention)
+now distinguish locally implemented backup renewal/retention from the still-open
+NAS scheduler, filesystem, capacity and populated-restore qualification. This
+does not change provider capability, historical replay or economic certification
+dispositions below.
+
 The subsequent [pre-NAS independent review and handoff](economic-audit-399-pre-nas.md)
 records the complete-PR review at `c1c4519c`, additional defects and falsifiers,
 physical restore and lifecycle results, retained replay evidence, and remaining

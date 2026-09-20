@@ -16,7 +16,13 @@ One leading UTF-8 BOM is accepted. LF, CRLF, mixed LF/CRLF and a final line with
 no newline are accepted. Bare CR, invalid UTF-8, NUL, control/format characters,
 Unicode line separators, malformed keys, incomplete assignments, unclosed quotes,
 trailing quoted garbage and every duplicate assignment are errors. File identity,
-size and timestamps must remain stable across a bounded read.
+size and timestamps must remain stable across two bounded complete byte reads,
+and both byte sequences must agree. Timestamp equality alone does not establish
+unchanged contents: the recurring-maintenance integration exposed an in-place,
+same-size rewrite within the filesystem's timestamp resolution. The second
+read uses the same descriptor, rewound to zero; each pass remains capped at
+1 MiB plus one overflow byte. This preserves literal parsing and refuses a
+concurrent rewrite before any launcher exports configuration or performs work.
 
 Keys use ASCII shell identifier syntax. Leading/trailing ASCII spaces and tabs,
 blank lines, full-line comments and `export` prefixes are supported. An unquoted

@@ -49,49 +49,63 @@ CASES = {
     "unknown-latch": ("sentinel.shadow_supervisor", "run",
         "latched = supervisor_io.run(_latch_exists)", "latched = False",
         SUPERVISOR + "test_unknown_shadow_latch_cannot_start_worker"),
-    "backup-age": ("sentinel_backup_maintenance", "reason_for_renewal",
-        "if age >= RENEW_AGE_HOURS * 3600:", "if False:",
-        BACKUP + "test_renew_before_runtime_age_and_byte_limits"),
-    "backup-wal": ("sentinel_backup_maintenance", "reason_for_renewal",
-        "if segments >= RENEW_WAL_OBJECTS or segments * size >= RENEW_WAL_BYTES:", "if False:",
-        BACKUP + "test_renew_before_runtime_age_and_byte_limits"),
-    "backup-integrity": ("sentinel_backup_maintenance", "reason_for_renewal",
-        "and reasons[0] in REPAIRABLE", "",
-        BACKUP + "test_malformed_or_contradictory_status_never_creates_a_backup"),
-    "backup-group": ("sentinel_backup_maintenance", "run_bounded",
+    "worker-arm": ("sentinel.shadow_supervisor", "run",
+        "supervisor_io.run(_arm_worker, timeout=2)", "pass",
+        SUPERVISOR + "test_terminal_refusal_survives_latch_timeout_and_restart"),
+    "pending-health": ("sentinel.shadow_supervisor", "_latch_exists",
+        " or _pending_file().exists()", "",
+        SUPERVISOR + "test_terminal_refusal_survives_latch_timeout_and_restart"),
+    "latch-timeout": ("sentinel.shadow_supervisor", "_latch",
+        "pending = _try_persist_latch(payload)",
+        "supervisor_io.run(_persist_latch, payload, timeout=2); pending = None",
+        SUPERVISOR + "test_terminal_refusal_survives_latch_timeout_and_restart"),
+    "backup-age": ("sentinel_backup_maintenance", "renewal_due",
+        "age >= RENEW_SECONDS", "False",
+        "tests/backup/test_recurring_maintenance.py::test_production_tick_renews_verifies_restores_then_retains_and_restarts"),
+    "backup-wal": ("sentinel_backup_maintenance", "renewal_due",
+        "footprint >= RENEW_BYTES", "False",
+        "tests/backup/test_recurring_maintenance.py::test_proactive_wal_boundary_is_independent_of_age"),
+    "backup-group": ("sentinel_maintenance_process", "run_bounded",
         "os.killpg(process.pid, signal.SIGKILL)", "process.kill()",
         BACKUP + "test_timeout_kills_descendant_before_late_write"),
-    "backup-deadline": ("sentinel_backup_maintenance", "run_bounded",
+    "backup-deadline": ("sentinel_maintenance_process", "run_bounded",
         "if remaining <= 0:", "if False:",
         BACKUP + "test_timeout_kills_descendant_before_late_write"),
-    "backup-output": ("sentinel_backup_maintenance", "run_bounded",
-        "elif len(output) + len(chunk) > MAX_OUTPUT:", "elif False:",
+    "backup-output": ("sentinel_maintenance_process", "run_bounded",
+        "elif len(output) + len(errors) + len(chunk) > MAX_OUTPUT:", "elif False:",
         BACKUP + "test_output_is_bounded"),
-    "backup-log": ("sentinel_backup_maintenance", "emit_result",
-        'child.communicate(result.stdout.encode("utf-8"), timeout=1)',
-        'child.communicate(result.stdout.encode("utf-8"))',
+    "backup-log": ("sentinel_maintenance_process", "emit_result",
+        'child.communicate(json.dumps([result.stdout, result.stderr]).encode("utf-8"), timeout=1)',
+        'child.communicate(json.dumps([result.stdout, result.stderr]).encode("utf-8"))',
         BACKUP + "test_full_scheduler_log_cannot_block_completion"),
-    "exact-backup": ("sentinel_backup_maintenance", "maintain",
-        '["bash", "scripts/sentinel-backup-status.sh", "--backup", str(path)]',
-        '["bash", "scripts/sentinel-backup-status.sh"]',
-        BACKUP + "test_renewal_requires_exact_new_generation_and_recomputes_on_restart"),
+    "exact-backup": ("sentinel_backup_maintenance", "tick",
+        'if paths[0] != root + "/base/" + selected["name"]:', 'if False:',
+        "tests/backup/test_recurring_maintenance.py::test_successor_identity_mismatch_refuses_before_status_or_retention"),
 }
 
 
 def case(name):
-    if name == "backup-exhaustion":
-        module = importlib.import_module("sentinel_backup_maintenance")
-        return module, "REPAIRABLE", module.REPAIRABLE - {"BASE_BACKUP_RUNTIME_HORIZON_EXCEEDED"}, (
-            BACKUP + "test_exhausted_horizon_after_outage_renews_and_preserves_old_media")
+    if name == "backup-selection":
+        from sentinel import backup_retention as retention
+        original = retention.Media.selected
+        def discover(self):
+            try:
+                return original(self)
+            except FileNotFoundError:
+                name = max(p.name for p in self.base.iterdir() if p.is_dir())
+                return retention.metadata(self.base, name, self.system_id)
+        return retention.Media, 'selected', discover, (
+            'tests/backup/test_recurring_maintenance.py::'
+            'test_promoted_backup_without_runtime_selection_cannot_be_healthy')
     if name == "container-copy-lock":
         from test_shell_lifecycle import ShellLab
         original = ShellLab.__init__
         def unlocked(self, *args, **kwargs):
             original(self, *args, **kwargs)
-            path = self.scripts / "sentinel-base-backup.sh"
+            path = self.scripts / "sentinel-backup-media-lock.sh"
             source = path.read_text()
-            assert source.count("flock -n 9 || exit 4") == 2
-            path.write_text(source.replace("flock -n 9 || exit 4", ":"))
+            assert source.count("flock -x -n 9 || return 4") == 1
+            path.write_text(source.replace("flock -x -n 9 || return 4", ":"))
         return ShellLab, "__init__", unlocked, BACKUP + "test_orphaned_container_copy_fences_staging_cleanup"
     module_name, attribute, old, new, selection = CASES[name]
     module = importlib.import_module(module_name)
@@ -108,7 +122,7 @@ def case(name):
 
 def main():
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument("mutation", choices=[*CASES, "container-copy-lock", "backup-exhaustion"])
+    parser.add_argument("mutation", choices=[*CASES, "container-copy-lock", "backup-selection"])
     name = parser.parse_args().mutation
     owner, attribute, mutant, selection = case(name)
     args = [selection, "-q", "--tb=short", "--show-capture=no", "-p", "no:cacheprovider"]

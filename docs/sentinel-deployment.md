@@ -3,8 +3,10 @@
 [GO backup horizon renewal](backup-horizon-renewal.md) makes an exhausted
 runtime archive-proof budget repairable through the existing certified fresh
 backup path. It preserves old recovery points and requires exact successor
-verification. Recurring proactive maintenance is implemented by the host task
-below; installation and NAS qualification remain deployment requirements.
+verification. [Recurring maintenance and retention](backup-recurring-maintenance.md)
+now have a host scheduler entry point, proactive renewal and restore-gated
+deletion with restart recovery. Scheduler installation, measured throughput,
+filesystem locking and populated restore evidence remain NAS qualification gates.
 
 [Economic audit 399](economic-audit-399-remediation.md) records the corrected
 economic profile and outstanding certification gates. Local acceptance tests
@@ -41,14 +43,14 @@ daily continuation. NAS qualification and paper activation remain separate.
 [Rolling admission readers](rolling-admission-readers.md) connects current sealed
 inputs to readiness, selected-strategy observation warmup, signed admission and
 the public installer's probes. Cached panel readiness is bound to its generation.
-Stale rolling preparation and recurring maintenance remain distinct gates; do
+Stale rolling preparation and deployed maintenance qualification remain distinct gates; do
 not refresh rolling data with legacy `feed-daily`.
 
 [Runtime manifest admission](backup-manifest-runtime-bound.md) caps a selected
 physical-backup manifest at 8 MiB before JSON parsing. Measure retained manifest
 sizes before qualification; an oversized selected base fences mutation without
-falling back to an older base. Runtime selection uses the bounded record above;
-recurring renewal uses the host maintenance task below.
+falling back to an older base. Bounded runtime selection and recurring maintenance
+are implemented; their deployed resource and filesystem qualification remains open.
 
 
 [Rolling paper inputs](rolling-paper-inputs.md) connects the paper gateway and
@@ -1875,31 +1877,31 @@ a retry can mistake for a complete segment. A mismatched or partial final file
 is a hard archive failure and PostgreSQL retains the source WAL for operator
 repair.
 
-Run `bash scripts/sentinel-backup-maintenance.sh` every five minutes and at host
+Run `bash scripts/sentinel-backup-maintenance.sh` every minute and at host
 startup using the NAS task scheduler, under the same host identity/environment
 as the verified producer. Use the absolute checkout path as the working
 directory; configure failure notifications and retain its exit status and logs.
-Run the command once before enabling automation and verify `HEALTHY` or
-`RENEWED`. The default total work deadline is 900 seconds; adjust
+Run the command once before enabling automation and verify `maintenance_ready`
+with successful restore-gated retention. The default total work deadline is 3600 seconds; adjust
 `--timeout-seconds` only within the measured NAS budget (maximum 3600).
 Overlapping invocations refuse under the physical-backup lock; they cannot
 duplicate a generation or clean a live in-container copy's staging directory.
 
-Run a restore drill after every schema/certification change and at least monthly. Retention is
-owned by the second target: keep at least seven daily and four weekly verified
-base backups plus all WAL needed from the oldest retained base. Never prune WAL
-until a newer base has passed both `pg_verifybackup` and the restore drill.
+The coordinator requires a full semantic restore receipt for each selected
+generation and image before retention. Its policy preserves recent bases,
+seven daily and four weekly representatives plus the WAL required by every
+retained base. See [recurring maintenance](backup-recurring-maintenance.md).
 
 Daily creation alone does not keep the runtime within its 1 GiB WAL proof
 ceiling. With 16 MiB segments, timeline 1 admits at most 64 segments; a later
 timeline's history consumes additional bytes. At the configured five-minute
 archive timeout, continuing database activity can exhaust that horizon in
 roughly five hours, and higher WAL traffic can do so sooner. This is a modeled
-cadence, not a measured NAS rate. The maintenance task renews at 24 hours or half
-the runtime WAL byte/object ceilings, whichever comes first, and verifies the
-exact new generation. It recomputes obligations after restart and does not
-delete retained recovery evidence. NAS cadence/capacity qualification and the
-second target's retention policy remain deployment requirements. See
+cadence, not a measured NAS rate. The maintenance task renews at 12 hours,
+256 MiB of inclusive primary WAL footprint, or a later timeline, and verifies
+the exact selected generation. Missing runtime selection refuses even when a
+complete unselected directory exists. NAS cadence/capacity qualification and
+observed retention remain deployment requirements. See
 the [combined review and local evidence](../audit/economic_399/backup_selection_integration/README.md).
 
 The supported backup overlay sets `SENTINEL_RUNTIME_BACKUP_AUTHORITY=REQUIRED_V1`

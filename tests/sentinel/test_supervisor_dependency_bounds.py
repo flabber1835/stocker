@@ -3,6 +3,7 @@ import multiprocessing
 import os
 import time
 import sys
+from types import SimpleNamespace
 
 import pytest
 
@@ -160,3 +161,159 @@ def test_unknown_shadow_latch_cannot_start_worker(monkeypatch):
     started = time.monotonic()
     assert shadow.run() == shadow.EXIT_REFUSED
     assert time.monotonic() - started < 2
+
+
+@pytest.mark.parametrize('delay_before_create', [False, True])
+@pytest.mark.parametrize('exit_code', [2, 42, 11])
+def test_terminal_refusal_survives_latch_timeout_and_restart(
+        tmp_path, monkeypatch, delay_before_create, exit_code):
+    from sentinel import shadow_supervisor as shadow
+    assert {shadow.EXIT_REFUSED, shadow.EXIT_RETRY} == {2, 11}
+    latch = tmp_path / 'shadow-supervisor-critical.json'
+    monkeypatch.setattr(shadow, 'LATCH_FILE', latch)
+    monkeypatch.setattr(shadow, 'HEARTBEAT_FILE', tmp_path / 'heartbeat')
+    monkeypatch.setattr(shadow.ShadowServiceConfig, 'from_env',
+                        lambda: SimpleNamespace(poll_seconds=0))
+    monkeypatch.setenv('SENTINEL_SHADOW_FAILURE_THRESHOLD', '1')
+    monkeypatch.setattr(shadow, '_touch', lambda: None)
+    reports = []
+    monkeypatch.setattr(shadow, '_report_latch', lambda *a, **k: reports.append(a))
+    monkeypatch.setattr(shadow, '_latched_wait', lambda *a: 91)
+    monkeypatch.setattr(shadow.signal, 'signal', lambda *a: None)
+    monkeypatch.setattr(supervisor_io, 'report', lambda *a, **k: None)
+    persisted, observed = shadow._persist_latch, supervisor_io.run
+    def slow_write(payload):
+        if delay_before_create:
+            time.sleep(.3)
+        persisted(payload)
+    monkeypatch.setattr(shadow, '_persist_latch', slow_write)
+    def bounded(function, *args, **kwargs):
+        if function is slow_write:
+            kwargs['timeout'] = .05
+        return observed(function, *args, **kwargs)
+    monkeypatch.setattr(supervisor_io, 'run', bounded)
+    starts = []
+    def spawn(*a, **k):
+        assert shadow._pending_file().exists(), 'worker launched without durable guard'
+        starts.append(True)
+        return SimpleNamespace(poll=lambda: exit_code)
+    monkeypatch.setattr(shadow.subprocess, 'Popen', spawn)
+    assert shadow.run() == 91
+    assert reports, 'persistence timeout swallowed the critical report'
+    assert latch.exists() is not delay_before_create
+    assert shadow._pending_file().exists()
+    shadow.HEARTBEAT_FILE.touch()
+    monkeypatch.setattr(shadow, 'service_health', lambda _: {'service_health': 'HEALTHY'})
+    assert shadow._health(30, config=object()) == 1
+    monkeypatch.setattr(shadow, '_persist_latch', persisted)
+    assert shadow.run() == 91
+    assert len(starts) == 1
+
+
+def test_worker_arming_timeout_never_launches(tmp_path, monkeypatch):
+    from sentinel import shadow_supervisor as shadow
+    monkeypatch.setattr(shadow, 'LATCH_FILE', tmp_path / 'critical.json')
+    monkeypatch.setattr(shadow.ShadowServiceConfig, 'from_env', lambda: object())
+    monkeypatch.setattr(shadow.signal, 'signal', lambda *a: None)
+    monkeypatch.setattr(shadow, '_touch', lambda: None)
+    monkeypatch.setattr(shadow, '_arm_worker', lambda: time.sleep(.3))
+    observed = supervisor_io.run
+    monkeypatch.setattr(supervisor_io, 'run', lambda f, *a, **k: observed(f, *a, timeout=.05))
+    monkeypatch.setattr(supervisor_io, 'report', lambda *a, **k: None)
+    monkeypatch.setattr(shadow.subprocess, 'Popen', lambda *a, **k: pytest.fail('worker launched'))
+    assert shadow.run() == shadow.EXIT_REFUSED
+
+
+@pytest.mark.parametrize('first_code', [0, 10, 11, 12])
+def test_recoverable_worker_outcome_clears_guard_before_next_attempt(tmp_path, monkeypatch, first_code):
+    from sentinel import shadow_supervisor as shadow
+    assert first_code in {0, shadow.EXIT_RETRY, shadow.EXIT_WAITING, shadow.EXIT_AVAILABILITY}
+    monkeypatch.setattr(shadow, 'LATCH_FILE', tmp_path / 'critical.json')
+    monkeypatch.setattr(shadow.ShadowServiceConfig, 'from_env',
+                        lambda: SimpleNamespace(poll_seconds=0))
+    monkeypatch.setattr(shadow.signal, 'signal', lambda *a: None)
+    for name in ('_touch', '_source_recovery_alert', '_semantic_retry_alert', '_report_latch'):
+        monkeypatch.setattr(shadow, name, lambda *a, **k: None)
+    monkeypatch.setattr(shadow, '_latched_wait', lambda *a: 91)
+    starts = []
+    def spawn(*a, **k):
+        starts.append(True)
+        assert len(starts) <= 2
+        return SimpleNamespace(poll=lambda: first_code if len(starts) == 1 else shadow.EXIT_REFUSED)
+    monkeypatch.setattr(shadow.subprocess, 'Popen', spawn)
+    assert shadow.run() == 91
+    assert len(starts) == 2  # Exclusive re-arming also proves the first guard was cleared.
+
+
+def test_latched_wait_retries_failed_persistence_without_worker(tmp_path, monkeypatch):
+    from sentinel import shadow_supervisor as shadow
+    monkeypatch.setattr(shadow, 'LATCH_FILE', tmp_path / 'critical.json')
+    shadow._arm_worker()
+    monkeypatch.setattr(shadow, '_touch', lambda: None)
+    monkeypatch.setattr(shadow.time, 'sleep', lambda _: None)
+    monkeypatch.setattr(shadow.subprocess, 'Popen', lambda *a, **k: pytest.fail('worker launched'))
+    assert shadow._latched_wait(lambda: shadow.LATCH_FILE.exists(), {'reason': 'refusal'}) == 0
+    assert shadow._pending_file().exists()
+
+
+def test_semantic_retry_threshold_survives_normal_guard_clear(tmp_path, monkeypatch):
+    from sentinel import shadow_supervisor as shadow
+    monkeypatch.setattr(shadow, 'LATCH_FILE', tmp_path / 'critical.json')
+    monkeypatch.setattr(shadow.ShadowServiceConfig, 'from_env',
+                        lambda: SimpleNamespace(poll_seconds=0))
+    monkeypatch.setenv('SENTINEL_SHADOW_FAILURE_THRESHOLD', '3')
+    monkeypatch.setattr(shadow.signal, 'signal', lambda *a: None)
+    for name in ('_touch', '_semantic_retry_alert', '_report_latch'):
+        monkeypatch.setattr(shadow, name, lambda *a, **k: None)
+    monkeypatch.setattr(shadow, '_latched_wait', lambda *a: 91)
+    starts = []
+    def spawn(*a, **k):
+        starts.append(True)
+        assert len(starts) <= 3, 'semantic failure budget reset'
+        return SimpleNamespace(poll=lambda: shadow.EXIT_RETRY)
+    monkeypatch.setattr(shadow.subprocess, 'Popen', spawn)
+    assert shadow.run() == 91
+    assert len(starts) == 3
+    assert shadow._pending_file().exists()
+
+
+@pytest.mark.parametrize('stop_by_signal', [False, True])
+@pytest.mark.parametrize('refusal_races_termination', [False, True])
+def test_supervised_termination_acknowledges_worker_and_allows_restart(
+        tmp_path, monkeypatch, stop_by_signal, refusal_races_termination):
+    from sentinel import shadow_supervisor as shadow
+    monkeypatch.setattr(shadow, 'LATCH_FILE', tmp_path / 'critical.json')
+    monkeypatch.setattr(shadow.ShadowServiceConfig, 'from_env',
+                        lambda: SimpleNamespace(poll_seconds=0))
+    monkeypatch.setenv('SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS', '30')
+    handlers, starts = {}, []
+    monkeypatch.setattr(shadow.signal, 'signal', lambda sig, fn: handlers.update({sig: fn}))
+    monkeypatch.setattr(shadow, '_touch', lambda: None)
+    monkeypatch.setattr(shadow, '_report_latch', lambda *a, **k: None)
+    monkeypatch.setattr(shadow, '_latched_wait', lambda *a: 91)
+    monkeypatch.setattr(supervisor_io, 'report', lambda *a, **k: None)
+    clock = iter([0, 31, 31, 31])
+    monkeypatch.setattr(shadow, 'time', SimpleNamespace(
+        time=time.time, monotonic=lambda: next(clock, 31), sleep=time.sleep))
+    class Child:
+        code = None
+        def poll(self): return self.code
+        def terminate(self): self.code = shadow.EXIT_REFUSED if refusal_races_termination else -15
+        def wait(self, **kwargs): return self.code
+    def spawn(*a, **k):
+        if starts:
+            # A second launch proves exclusive arming after a deadline worked.
+            handlers[shadow.signal.SIGTERM]()
+            return SimpleNamespace(poll=lambda: 0)
+        starts.append(True)
+        return Child()
+    monkeypatch.setattr(shadow.subprocess, 'Popen', spawn)
+    if stop_by_signal:
+        # Stop on the next supervisor heartbeat, after assigning active child.
+        def heartbeat():
+            if starts:
+                handlers[shadow.signal.SIGTERM]()
+        monkeypatch.setattr(shadow, '_touch', heartbeat)
+    assert shadow.run() == (91 if refusal_races_termination else 0)
+    assert shadow._pending_file().exists() is refusal_races_termination
+    assert shadow.LATCH_FILE.exists() is refusal_races_termination

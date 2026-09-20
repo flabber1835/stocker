@@ -58,6 +58,7 @@ BASE = {
 }
 MAINTENANCE_LAUNCHERS = (
     "sentinel-base-backup.sh", "sentinel-backup-status.sh", "sentinel-restore-drill.sh",
+    "sentinel-backup-maintenance.sh",
     "sentinel-automation-compose.sh", "sentinel-authorized-cli.sh",
 )
 VALID = {
@@ -257,6 +258,28 @@ class EnvHarness(unittest.TestCase):
                     self.path.write_bytes(updated)
                 return data
             with mock.patch.object(env.os, "read", side_effect=read):
+                with self.assertRaisesRegex(env.EnvRefused, "FILE_CHANGED"):
+                    env.load(self.path)
+
+    def test_same_timestamp_rewrite_requires_two_matching_byte_observations(self):
+        original = self.write()
+        replacement = original.replace(b"synthetic", b"different")
+        self.assertEqual(len(original), len(replacement))
+        self.assertNotEqual(original, replacement)
+        identity, real_read = env._identity, env.os.read
+        # Independently model a filesystem returning identical timestamps.
+        def coarse(entry):
+            return identity(entry)[:4] + (100, 100)
+        with mock.patch.object(env, "_identity", side_effect=coarse):
+            self.assertEqual(env.load(self.path), BASE)
+            changed = []
+            def mutate(fd, size):
+                data = real_read(fd, size)
+                if not changed:
+                    changed.append(True)
+                    self.path.write_bytes(replacement)
+                return data
+            with mock.patch.object(env.os, "read", side_effect=mutate):
                 with self.assertRaisesRegex(env.EnvRefused, "FILE_CHANGED"):
                     env.load(self.path)
 
@@ -600,11 +623,18 @@ class EnvHarness(unittest.TestCase):
     def maintenance_repo(self):
         process = self.shell_repo()
         for name in MAINTENANCE_LAUNCHERS + (
-                "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh"):
+                "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh",
+                "sentinel-backup-maintenance-entry.sh", "sentinel_maintenance_process.py"):
             shutil.copyfile(ROOT / "scripts" / name, self.root / "scripts" / name)
         (self.root / "scripts/sentinel-backup-lib.sh").write_text(
             'sentinel_backup_root() { echo backup >> effects; printf "%s\\n" "$SENTINEL_BACKUP_DIR"; }\n')
-        (self.root / "scripts/sentinel_backup_lock.py").write_text("pass\n")
+        (self.root / "scripts/sentinel_backup_lock.py").write_text(
+            "import os,sys\n"
+            "LOCK_FD_ENV='SENTINEL_BASE_BACKUP_LOCK_FD'\n"
+            "def lock_is_held(*args): return False\n"
+            "if __name__ == '__main__' and sys.argv[1] == 'hold': os.execvp(sys.argv[2],sys.argv[2:])\n")
+        (self.root / "scripts/sentinel_backup_maintenance.py").write_text(
+            "import subprocess\nraise SystemExit(subprocess.run(['docker','info']).returncode)\n")
         docker = self.root / "bin/docker"
         docker.write_text(docker.read_text() + "raise SystemExit(93)\n")
         authority = self.root / "authority"

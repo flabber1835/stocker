@@ -112,7 +112,8 @@ def verify():
 
 
 def shell(command):
-    mapped = [part.replace("/sentinel-backup", str(MEDIA)) for part in command]
+    mapped = [re.sub(r"/sentinel-backup(?=/|[\"'\s]|$)", str(MEDIA), part)
+              .replace("/usr/local/libexec", str(ROOT / "repo/scripts")) for part in command]
     return subprocess.call(mapped)
 
 
@@ -190,12 +191,32 @@ def docker():
         if args[0] == "volume":
             (ROOT / "volumes" / args[-1]).mkdir(parents=True)
         return 0
+    if args[:2] in (["volume", "inspect"], ["container", "inspect"]):
+        return 1  # Disposable fixture names are absent before creation.
     if args[:2] in (["volume", "rm"], ["network", "rm"], ["rm", "-f"]):
         return event("cleanup", lambda: 0)
     if args[:1] == ["run"]:
         assert "--network" in args
         if "-d" in args:
-            return event("restore-start", lambda: 79)
+            if args[-1] != "/restore-worker":
+                raise AssertionError("unexpected detached worker")
+            source = (ROOT / "repo/scripts/sentinel-restore-worker.sh").read_text()
+            mappings = {}
+            for i, arg in enumerate(args):
+                if arg == "-v":
+                    origin, destination, *mode = args[i + 1].split(":")
+                    if not origin.startswith("/"):
+                        origin = str(ROOT / "volumes" / origin)
+                    mappings[destination] = origin
+            for destination, origin in sorted(mappings.items(), key=lambda item: -len(item[0])):
+                source = source.replace(destination, origin)
+            source = re.sub(r"^\s*chown .*", "", source, flags=re.MULTILINE)
+            env = dict(os.environ)
+            for i, arg in enumerate(args):
+                if arg == "-e":
+                    key, value = args[i + 1].split("=", 1)
+                    env[key] = value
+            return event("restore-copy", lambda: subprocess.call(["sh", "-ceu", source], env=env))
         command = args[args.index("-ceu"):]
         source = command[1]
         mappings = {}
@@ -223,6 +244,8 @@ elif name == "pg_basebackup":
     sys.exit(event("base-copy", basebackup))
 elif name == "pg_verifybackup":
     sys.exit(event("base-verify", verify))
+elif name == "docker-entrypoint.sh":
+    sys.exit(event("restore-start", lambda: 79))
 elif name == "date":
     if args == ["+%s"]:
         count_file = ROOT / "clock-reads"

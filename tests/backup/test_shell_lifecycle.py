@@ -40,6 +40,7 @@ class ShellLab:
                      "sentinel_backup_lock.py", "sentinel_lock_ownership.py",
                      "sentinel-backup-metadata-access.sh",
                      "sentinel-backup-publish-selection.sh",
+                     "sentinel-backup-media-lock.sh", "sentinel-restore-worker.sh",
                      "sentinel-backup-archive-identity.sh", "sentinel-archive-wal.sh",
                      "sentinel-env.sh", "sentinel_env.py"):
             shutil.copy2(ROOT / "scripts" / name, self.scripts / name)
@@ -50,7 +51,7 @@ class ShellLab:
         bin_path.mkdir()
         adapter = Path(__file__).with_name("command_adapter.py").read_text()
         adapter = adapter.replace("#!/usr/bin/env python3", f"#!{sys.executable}", 1)
-        for command in ("docker", "psql", "pg_basebackup", "pg_verifybackup", "date", "sleep", "id", "chown", "stat"):
+        for command in ("docker", "psql", "pg_basebackup", "pg_verifybackup", "date", "sleep", "id", "chown", "stat", "docker-entrypoint.sh"):
             path = bin_path / command
             path.write_text(adapter)
             path.chmod(0o755)
