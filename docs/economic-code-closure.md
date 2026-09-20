@@ -810,7 +810,6 @@ unchanged; Stage 1 and economic certification remain incomplete.
 
 See the [design](full-status-resource-review.md) and
 [retained measurements, exact commands and NAS handoff](../audit/economic_399/full_status/README.md).
-<<<<<<< HEAD
 
 ### Single-request status memory remediation
 
@@ -864,5 +863,3 @@ the status fix closes or that this setup peak alone proves defective. Production
 source changes require the existing reviewed continuation boundary. Stage 1 and
 economic certification remain incomplete. See the
 [complete commands, evidence scope, findings and NAS handoff](../audit/economic_399/status_memory/README.md).
-=======
->>>>>>> origin/main

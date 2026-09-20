@@ -44,8 +44,6 @@ Tests must hold a real routed request while every other full-build route is
 called, show that only one build starts, keep health responsive, and prove that
 success and failure both release admission. Removing acquisition, release or
 the deployment worker selection must fail the respective falsifier.
-<<<<<<< HEAD
-=======
 
 ## CI layout correction
 
@@ -75,4 +73,3 @@ Local verification used offline `sentinel-test:ci` containers:
   deprecation warning.
 - `git diff --check` passed. Full GitHub checks rerun after publication; local
   targeted acceptance is not a claim that the complete CI run has passed.
->>>>>>> origin/main
