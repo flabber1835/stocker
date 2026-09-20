@@ -19,3 +19,7 @@ python audit/economic_399/rolling_status/run_local.py test tests/sentinel/test_a
 
 Syntax parsing passed. Exact logs and their hashes are retained beside this file.
 Required GitHub CI must rerun. Provider and NAS gates remain unresolved.
+
+## Integration with merged #421
+
+Run 35529655970, job 106128025877 refused because the synthetic merge first parent differed from the event advertised base after main advanced. The fixture and economic tests did not cause this failure. Merge current main `e4c9b1439962af3353e7f0c0ec3d84aee1f0aeb7` without changing either guard. The same targeted command above passes **58 tests in 23.96 seconds** at integration commit `6042debb`. Exact CI and local output are retained in `main-integration-evidence.zip`. Required CI must rerun against this updated branch.
