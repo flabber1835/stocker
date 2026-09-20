@@ -1,0 +1,55 @@
+name: Retrieve pinned historical inputs for provisional replay
+on:
+  push:
+    branches: [codex/current-production-20y]
+    paths: [.github/workflows/provisional-20y-inputs.yml]
+  workflow_dispatch:
+permissions:
+  contents: read
+  packages: read
+jobs:
+  retrieve:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 30
+    steps:
+      - name: Copy the immutable canonical dataset without executing its image
+        shell: bash
+        env:
+          GHCR_TOKEN: ${{ github.token }}
+        run: |
+          set -euo pipefail
+          package=ghcr.io/flabber1835/stocker-canonical-pit@sha256:f05e40d9e1bff53ae50507719b5f589fb01b6184c79eceef800ddc2548f6209c
+          echo "$GHCR_TOKEN" | docker login ghcr.io -u "$GITHUB_ACTOR" --password-stdin
+          docker pull "$package"
+          cid=$(docker create "$package" /bin/true)
+          trap 'docker rm -f "$cid" >/dev/null 2>&1 || true' EXIT
+          mkdir canonical-pit
+          docker cp "$cid:/canonical-pit/." canonical-pit/
+          python - <<'PY'
+          import hashlib, json
+          from pathlib import Path
+          root = Path('canonical-pit')
+          manifest_bytes = (root / 'manifest.json').read_bytes()
+          assert hashlib.sha256(manifest_bytes).hexdigest() == 'cfa94043084c1cbd83230b5a7225baa45b526797db4581c192561e0fb82ab5b0'
+          m = json.loads(manifest_bytes)
+          assert m['status'] == 'PASS'
+          assert m['schema'] == 'backtester.canonical-pit-dataset/2'
+          digest = hashlib.sha256()
+          for name, row in sorted(m['members'].items()):
+              assert Path(name).name == name
+              p = root / name
+              with p.open('rb') as stream:
+                  observed = hashlib.file_digest(stream, 'sha256').hexdigest()
+              assert observed == row['sha256'] and p.stat().st_size == row['bytes'], name
+              digest.update(f"{name}\0{observed}\0{row['bytes']}\n".encode())
+          assert digest.hexdigest() == m['dataset_hash'] == '5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993'
+          print('Pinned manifest and every dataset member verified')
+          PY
+      - name: Retain verified bytes for authenticated local replay
+        uses: actions/upload-artifact@ea165f8d65b6e75b540449e92b4886f43607fa02
+        with:
+          name: canonical-pit-5bdc6b39-${{ github.run_id }}
+          path: canonical-pit/
+          compression-level: 0
+          retention-days: 3
+          if-no-files-found: error

@@ -28,6 +28,7 @@ COPY tools/ /work/tools/
 # CI authority plus the shared provider simulator used by feed integration tests.
 COPY .github/workflows/ /work/.github/workflows/
 COPY research/sharadar_replay/ /work/research/sharadar_replay/
+COPY research/provisional_20y/ /work/research/provisional_20y/
 COPY scripts/sentinel_feed_gate.py /work/scripts/sentinel_feed_gate.py
 COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py
