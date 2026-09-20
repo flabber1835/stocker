@@ -14,6 +14,7 @@ def main():
     parser.add_argument('--evidence', type=Path, required=True)
     parser.add_argument('--universe', type=int, default=5000)
     parser.add_argument('--attach-prefix', help='Resume this retained isolated test database after coordinator exit')
+    parser.add_argument('--resume-reason', default='Resume the existing isolated test database after coordinator exit.')
     parser.add_argument('--stages', nargs='+', default=['publish', 'initialize', 'status', 'http',
                         'next_publish', 'advance', 'advanced_status', 'advanced_http'])
     args = parser.parse_args()
@@ -50,9 +51,14 @@ raise SystemExit(subprocess.run([sys.executable,'-u','audit/economic_399/local_c
         assert retained['HostConfig']['NanoCpus'] == 1500000000
         assert retained['Image'] == 'sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146'
         assert (args.evidence/'database.json').exists() and not (args.evidence/'stop').exists()
-        (args.evidence/'coordinator-resume.json').write_bytes((json.dumps({
+        resume = args.evidence/'coordinator-resume.json'
+        suffix = 2
+        while resume.exists():
+            resume = args.evidence/f'coordinator-resume-{suffix}.json'
+            suffix += 1
+        resume.write_bytes((json.dumps({
             'prefix': prefix, 'source': args.source.as_posix(), 'stages': args.stages,
-            'reason': 'Reader-only accounting oracle update; production bytes unchanged.'}, indent=2)+'\n').encode())
+            'reason': args.resume_reason}, indent=2)+'\n').encode())
     else:
         pg_log = (args.evidence/'postgres.log').open('w')
         pg = subprocess.Popen(command('postgres', '1g', '1.5'), stdout=pg_log, stderr=subprocess.STDOUT)
@@ -76,6 +82,11 @@ raise SystemExit(subprocess.run([sys.executable,'-u','audit/economic_399/local_c
                 assert live['HostConfig']['NanoCpus'] == (500000000 if cpus == '.5' else 2000000000)
                 code = int(subprocess.check_output(['docker', 'wait', prefix+'-'+stage], text=True).strip())
                 result = subprocess.CompletedProcess(cmd, code)
+                # A lost host client can leave its log incomplete while Docker
+                # continues the stage. Preserve both sources without overwriting.
+                with (args.evidence/(stage+'-adopted-container.log')).open('wb') as log:
+                    subprocess.run(['docker', 'logs', prefix+'-'+stage], stdout=log,
+                                   stderr=subprocess.STDOUT, check=True)
             else:
                 with (args.evidence/(stage+'.log')).open('w') as log:
                     result = subprocess.run(cmd, stdout=log, stderr=subprocess.STDOUT)

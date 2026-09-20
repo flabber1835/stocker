@@ -12,6 +12,11 @@ That freshly fetched main and #424's `86f174b17020915205429f4f00b75b9fb9a3a434`
 are integrated. The latter's 58 real-PostgreSQL cash tests pass; its old CI
 synthetic-merge refusal was an advertised-base race, retained separately.
 No NAS or real broker contact; no owner merges performed by the agent.
+The owner also merged #422 as `db65f4d0b8786266350eba2df6fc0848a3925313`;
+integration head `e77c8285c94772a07c0900bc443ac64b6134be64` includes it, preserving
+the subsequently completed checklist dispositions. #423's new `7e1d841c` head
+contains only merges of that same main history; its reviewed recovery changes
+remain the already integrated `1b49f3dc`. #424 at `86f174b1` has all CI checks green.
 
 ## L02-S1: exact share scaling (design before implementation)
 
@@ -170,8 +175,8 @@ in 42.17 seconds, with PostgreSQL peak 323,059,712 bytes and no OOM events.
 The 112-test storage/status/static-ownership/physical-restore selection passes,
 including 25-series inline and 129-series compressed populated restores.
 Nineteen positive controls pass and all eight deliberately broken storage
-variants are detected. This does not yet close L09: the complete separately
-capped publication/initialization/status/HTTP/next-session campaign is running.
+variants are detected. At this intermediate checkpoint the full separately
+capped campaign was still required; its final results are recorded below.
 
 The full campaign subsequently passes initialization (659.77 s, runtime peak
 3,106,545,664 bytes, zero OOM), but both 512 MiB status and HTTP processes OOM.
@@ -227,6 +232,41 @@ suite threads/tracing cannot contribute. The same 4 MiB bound, independent hash
 oracle and tail-mutation assertions remain; restoring the production array copy
 must still fail. This is test isolation, not permission to raise the panel cap.
 
+The repaired full-size next-session advancement passes in 999.57 seconds, with
+runtime cgroup peak 3,106,816,000 bytes and zero memory-limit/OOM events. Its
+independent published-price oracle finds twenty whole-share positions costing
+$98,816.520, entry fees $98.816520, expected cash $1,084.663480 and NAV
+$99,901.18348000000066. Retained cash differs by $7.4e-12 and NAV by -$6.6e-13,
+within the unchanged $1e-8 fixture tolerance. The effectively zero market P&L
+($6.6e-13) comes from the fixture's floating-point price strings. The reduction
+from $100,000 is entry cost, not alpha loss or unexplained cash leakage.
+
+Retained NAV, cash and occupied-slot count match the intermediate compressed
+campaign's values. That older campaign still fails overall because its panel
+OOMed and its audit reader failed; identical totals do not retroactively validate
+it. The two campaigns use fresh source/publication/genesis identities, so their
+state/authority hashes are not repinned to match. Each final read must reproduce
+its own committed hashes. This bounded economic comparison is not a historical
+portfolio/decision-equivalence or twenty-year return claim.
+
+After the host tool session ended during advancement, its detached container
+completed with exit zero. A second coordinator resumption adopts that exact
+completed container, retains its complete Docker output separately from the
+interrupted client log, and continues advanced reads against the same database.
+Both resumption records and commands are retained. No production source, input,
+service cap, committed result or failed stage is replaced by the resumption.
+
+Capacity interpretation: PostgreSQL's advancement snapshot records `max=51868`,
+`oom=oom_kill=oom_group_kill=0` and peak 1,074,294,784 bytes against the enforced
+1,073,741,824-byte limit. This is **completed with memory pressure, not qualified
+headroom**. Linux documents that `memory.events:max` counts attempted limit
+crossings which can trigger successful reclaim, and that `memory.max` can be
+temporarily exceeded ([kernel cgroup-v2 contract](https://docs.kernel.org/admin-guide/cgroup-v2.html#memory-interface-files)).
+The 552,960-byte transient excess and all counters remain visible; the audit
+report must not assert zero pressure or infer acceptable latency/capacity margin
+from successful completion. Final cumulative counters may be higher. No cap,
+PostgreSQL configuration, numerical oracle or production guard was relaxed.
+
 ## Current finding-to-caller cross-check
 
 Paths below are relative to `sentinel/`. The finding index retains all original
@@ -246,7 +286,7 @@ existing requirement map; it does not replace historical evidence.
 | A5 WAL/A6 backups/A23/A26/A27 | host scheduler -> `scripts/sentinel_maintenance_process.py` -> owned coordinator/worker -> verified successor -> restore receipt -> retention journal/WAL floor; installer durable fence before migration | Worker and parent locks, bounded process groups and exact selected-base/cluster/image/LSN receipt identity gate deletion. Journal resumes after interruption; mixed timelines are preserved. Independent retention generation counts, worker-death and crash tests retained. Current recurring-retention/fence tests pass. Scheduler installation/filesystem guarantees remain N1. |
 | F5/F7/F17/C3; A8 | Original immutable plan/command -> executor send journal -> paper recovery after later shadow -> takeover epoch gate | #423's compound SIGKILL/late-fill and nonempty predecessor controls; current integration revalidation includes actual process death. E3 stays unresolved. |
 | F6/F8/F19/C1 | Account-bound adapter -> cash/fill identity validation -> one journal transaction -> cash authority/performance | #421 exact arithmetic and #424 zero-identity witnesses compose locally. #424's stale pagination mock is replaced by real PostgreSQL. Corrections/busts or incomplete authority refuse; empty responses do not grant finality. E1/E2 stay unresolved. |
-| A12 | Full status HTTP/readers and runtime initialization/daily advancement with PostgreSQL separately capped | L09 reproduced a PostgreSQL OOM at 8,408 synthetic securities during `observation_storage.insert` pairwise JSONB assembly. One backend was killed; initialization refused. This is a P2 local implementation gap, not an external-data disposition. Repair and repeated resource acceptance remain required. |
+| A12 | Full status HTTP/readers and runtime initialization/daily advancement with PostgreSQL separately capped | The P2 write and panel-copy OOM defects are repaired. All eight full-size synthetic stages complete with exact economic/hash checks and zero OOM. PostgreSQL limit/reclaim pressure is retained, not called headroom acceptance. L09 real-input, latency and target-capacity qualification remain blocked; no generic local review/test backlog remains. |
 
 Retained source bindings are compared by `audit/economic_399/local_closeout/prior_sources.py`.
 Unchanged source supports reusing the named component evidence; changed dependencies
@@ -319,3 +359,69 @@ intent/cash/holdings, authentic publication/action closure, reproducible next
 state, no duplicate submission, and deliberate missing/corrupt dependency refusal.
 Any authority gap, unexplained economic delta, OOM or failed required gate keeps
 certification blocked. No NAS or real broker activity is authorized by this work.
+
+## Remaining gates with source anchors
+
+Severity describes certification impact, not a newly demonstrated deployed loss.
+Source line references below refer to production bytes at `449c69a5` (unchanged
+through integration `e77c8285`). Existing source-bound component evidence and the
+new complete finding map are retained above.
+
+Resolved local defect anchors at that same production revision:
+
+| Finding | Severity | Reviewed repair |
+| --- | --- | --- |
+| L02-S1 | P2 | `sentinel/execution/projection.py:97`, `opening_sizing.py:215`, `sentinel/core/decision.py:502`: exact share floor, notional and decision NAV; no prematurely rounded allocation ratio. |
+| L02-S2 | P2 | `sentinel/execution/commands.py:138`, `:159`, `:229`; `contract.py:575`: exact unfilled quantities, committed sums and reconciliation delta. |
+| L05-S1 | P2 | `sentinel/execution/target_reprojection.py:368`: exact surviving-entry ratio and increment divisibility before Decimal rendering. |
+| L03-Z1 (integrated #424) | P2 | `sentinel/execution/broker_cash.py:378` and `alpaca.py:1938`: retain zero-valued native identities and refuse contradictory replay atomically. |
+| L09 write/read memory | P2 | `sentinel/observation_storage.py:31`, `:63`, `:107`; `sentinel/core/session.py:384`, `:532`; `sentinel/shadow_observation.py`: verified compressed physical storage and private, synchronous canonical views preserve full logical validation without universe-sized redundant copies. |
+
+| Gate | Severity / kind | Exact boundary and next evidence |
+| --- | --- | --- |
+| E1, C1/F6 | P1 certification blocker; provider authority and future witness integration | `sentinel/execution/broker_cash.py:144` deliberately returns false for close finality. Obtain an accepted account/plan/session-bound complete cash interval and close witness, then separately review its durable producer/consumer integration. Empty activity responses and balances cannot replace it. |
+| E2, F19 | P2 provider/accounting blocker | `sentinel/execution/alpaca.py:1962`, `:2110`, `:2234` refuse corrections/busts; `sentinel/execution/fill_integrity.py:52` checks cumulative notional exactly. Accepted provider rounding, complete event publication and reversal semantics are absent. Reversal support requires those semantics and a separate reviewed implementation; current refusal is the supported safe behavior. |
+| E3, C3 | P1 restored-account blocker | `sentinel/execution/recovered_order_policy.py:75` fences predecessor recovery. Supply exhaustive account/interval history plus durable command preimages and an accepted recovery protocol; a matching prefix or ordinary pagination cannot cross the fence. |
+| E4 | P2 input/policy blocker | `sentinel/core/spinoffs.py:29` refuses unsupported held distributions; `sentinel/paper_performance.py:116` requires owner-scoped entitlement evidence. Supply exact terms/permissions and explicitly accept support or continued refusal. No invented child shares or cash. |
+| L09 real window / latency | P2 qualification blocker | `sentinel/feed/rolling_source.py:86` and `sentinel/feed/operational_source.py` require admitted reference/input authority. Raw Git archives are present; production acquisition/admission receipts and an accepted latency budget are not. Follow the window procedure above; synthetic scale does not prove real-history authority. |
+| N1 | Required deployed qualification | Run the linked exact-image scheduler, locking, WAL/restore, notification and resource handoffs only after separate NAS authorization. Local Docker evidence cannot establish host or device behavior. |
+| B1 | Deferred Stage 2 / historical impact | Run authoritative day-by-day replay and explain old/new decisions, costs, holdings and terminal events. No twenty-year CAGR/multiple or historical certification is inferred from the flat-price local oracle. |
+
+L01 remains delivery/required-CI/owner-merge work. None of these gates is waived
+by locally green tests, and local review is not proof that every possible defect
+has been eliminated.
+
+## Final full-size synthetic measurements
+
+The eight stages complete; PostgreSQL is **completed with pressure**. Source
+binding: all 406 production files equal reviewed integration `e77c8285`.
+This is bounded local acceptance, not real-input, latency, headroom or NAS
+qualification. CPU/memory/swap limits were unchanged throughout.
+
+| Stage | Seconds | Peak cgroup MiB | Configured MiB |
+| --- | ---: | ---: | ---: |
+| publish | 669.36 | 2113.75 | 4096 |
+| initialize | 625.18 | 2950.59 | 4096 |
+| status | 499.55 | 440.56 | 512 |
+| http | 218.26 | 424.01 | 512 |
+| next_publish | 597.81 | 2118.13 | 4096 |
+| advance | 999.57 | 2962.89 | 4096 |
+| advanced_status | 460.77 | 460.34 | 512 |
+| advanced_http | 208.96 | 436.75 | 512 |
+| postgres | whole campaign | 1024.53 | 1024 |
+
+Status stage time includes two requests and setup. Individual origin reads
+take 222.45/224.28 s, advanced reads 205.68/204.28 s. HTTP requests take
+215.85/206.42 s; both return 200 with verified shadow state. Overall panel
+status remains `fail` because this account-free fixture lacks operational
+authorities; no overall trading-readiness pass is claimed. Final PostgreSQL
+`max=52181`, all OOM counters zero, transient peak excess 552,960 bytes.
+Panel/runtime processes have zero limit/OOM events. Two reads in one process
+do not prove unlimited lifetime. The state-release/ownership controls supply
+separate local evidence; target workload and budget qualification remain open.
+
+Exact structured metrics, hashes and limits are retained in
+[`resource-results.json`](../audit/economic_399/local_closeout/resource-results.json).
+The source manifests, unedited failures and successful stage logs are retained
+with member hashes in the final resource archive. Original golden and initial
+evidence bytes are unchanged.

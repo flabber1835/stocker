@@ -105,3 +105,23 @@ No failed stage was skipped or relabeled as passing.
 CI allocation follow-up: `python audit/economic_399/local_closeout/run_local.py read`
 passes five controls and detects all four mutants with a fresh-process allocation
 check. The original 4 MiB threshold remains; the restored-copy mutant fails it.
+
+```sh
+python audit/economic_399/local_closeout/run_stages.py --source ../stage-one-resource-oracle-source --evidence ../stage-one-resource-read-8408 --universe 8408 --attach-prefix sentinel-cost-01272566 --stages status http next_publish advance advanced_status advanced_http
+# First resumption: corrected audit oracle, identical production bytes.
+
+python audit/economic_399/local_closeout/run_stages.py --source ../stage-one-resource-oracle-source --evidence ../stage-one-resource-read-8408 --universe 8408 --attach-prefix sentinel-cost-01272566 --resume-reason 'Host tool session ended during advancement; adopt its completed container and retained output, then finish the same database and source campaign.' --stages advance advanced_status advanced_http
+# Second resumption after host session loss; completed advance adopted, not rerun.
+# Full Docker output and original client output are retained separately.
+```
+
+Final report command:
+
+```sh
+python audit/economic_399/local_closeout/resource_report.py --evidence ../stage-one-resource-read-8408 --source ../stage-one-resource-oracle-source --output audit/economic_399/local_closeout/resource-results.json
+# Eight stages COMPLETED; PostgreSQL COMPLETED_WITH_PRESSURE; zero OOM.
+# 406 production file bindings verified, unchanged from reviewed e77c8285.
+```
+
+Final syntax: 43 changed Python sources parse. Final new audit helpers pass
+Pyflakes; `git diff --check` passes. The exact logs are in `resource-evidence.zip`.

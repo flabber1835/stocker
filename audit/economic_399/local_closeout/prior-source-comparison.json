@@ -218,8 +218,6 @@
       "audit/economic_399/recovery_closeout/campaign.py",
       "audit/economic_399/recovery_closeout/run_local.py",
       "audit/economic_399/recovery_closeout/source-and-artifact-sha256.json",
-      "docs/economic-audit-399-remediation.md",
-      "docs/economic-code-closure.md",
       "docs/production-champion-paper-deltas.json",
       "docs/sentinel-execution-contract.md",
       "docs/stage-one-cash-fill-closeout.md",
@@ -253,6 +251,8 @@
       "audit/economic_399/local_closeout/run_local.py",
       "audit/economic_399/local_closeout/run_stages.py",
       "audit/economic_399/local_closeout/stages.py",
+      "docs/economic-audit-399-remediation.md",
+      "docs/economic-code-closure.md",
       "docs/stage-one-closeout-checklist.md",
       "docs/stage-one-local-closeout.md",
       "tests/sentinel/test_rolling_restore_integrity.py"

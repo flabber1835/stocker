@@ -33,8 +33,8 @@ scope is discovered, explicitly record the new gate and its completion impact.
 ## The ten items
 
 - [ ] **L01 — Integrate the reviewed fixes and pass required CI.**
-  **Now:** INTEGRATION PENDING. The owner merged #419 and #421; fetched main is
-  `e4c9b1439962af3353e7f0c0ec3d84aee1f0aeb7`. #422, #423 and #424 are integrated
+  **Now:** INTEGRATION PENDING. The owner merged #419, #421 and #422; fetched main is
+  `db65f4d0b8786266350eba2df6fc0848a3925313`. #422, #423 and #424 are integrated
   into [#425](https://github.com/flabber1835/stocker/pull/425), which carries the
   remaining reviewed fixes. Required current-head CI and owner merges remain.
   **Done when:** the reviewed changes are owner-merged through PRs, any overlap is resolved,
@@ -150,13 +150,18 @@ scope is discovered, explicitly record the new gate and its completion impact.
   NAS scheduler and filesystem guarantees remain external evidence.
 
 - [ ] **L09 — Qualify the locally available real-size workload.**
-  **Now:** OPEN CODE/TEST: compressed observation storage fixes the reproduced
-  1 GiB PostgreSQL write OOM (PG16 and PG17 storage passes, complete initialization
-  passes). The full 8,408-security campaign then exposed a 512 MiB panel read OOM.
-  A canonical-copy repair has 141 targeted passes and detected allocation/ownership
-  falsifiers; complete capped remeasurement is running. This remains local work,
-  not a provider-only gate. #419 qualifies a 5,000-security synthetic scope; retained PIT
-  inventory reaches 8,408 rows/day and 2,474,682 rows in a 300-session window.
+  **Now:** BLOCKED INPUT/BUDGET; locally feasible code review, repairs, tests and
+  measurements are complete. Both demonstrated write/read OOM defects are repaired.
+  All eight 8,408-security synthetic stages complete under unchanged service caps,
+  including two status reads at each frontier, full HTTP, next-session advancement
+  and the independent published-price cash/NAV oracle. No OOM occurs. PostgreSQL
+  records 52,181 limit/reclaim events and a 552,960-byte transient peak excess;
+  headroom is **not qualified**. Keep its raw counters and the 204–224-second read
+  timings visible. See [final scope, results and remaining gates](stage-one-local-closeout.md).
+  Raw historical archives are present, but accepted production acquisition/admission
+  evidence and an explicit latency/headroom budget are absent. Qualify those with
+  a representative admitted window and the target host; no synthetic authority
+  promotion. Retained PIT inventory reaches 8,408 rows/day and 2,474,682 rows/window.
   **Done when:** identify and admit a representative authoritative bounded window,
   including its required reference/action history; measure initialization,
   advancement, advanced status/full HTTP and restart at configured service caps.
@@ -171,7 +176,8 @@ scope is discovered, explicitly record the new gate and its completion impact.
   **Now:** LOCAL PASS for the [finding-to-caller/evidence reconciliation](stage-one-local-closeout.md#current-finding-to-caller-cross-check).
   All F1–F19/C1–C3 and all 27 autonomy labels, including three reused labels,
   have explicit production, persistence/restart and acceptance dispositions.
-  The named L09 resource defect remains open; E1–E4/N1/B1 are separately retained.
+  L09's demonstrated defects are repaired; its input/budget/headroom qualification
+  and E1–E4/N1/B1 remain explicitly unresolved.
   Historical source differences are inventoried rather than reported as reruns.
   This closes the mapping/review item, not L01 delivery or L09 qualification.
   **Done when:** every F1–F19/C1–C3 and relevant #400 finding has a disposition
