@@ -1612,10 +1612,15 @@ what they are:
 
 ```text
 sentinel-postgres   mem_limit 1g    cpus 1.5   shm_size 1gb
-sentinel            mem_limit 2g    cpus 2.0
+sentinel            mem_limit 4g    cpus 2.0
 sentinel-automation mem_limit 2g    cpus 1.0   profile: automation
 sentinel-panel      mem_limit 512m  cpus 0.5
 ```
+
+The runtime's 4 GiB ceiling is the existing #235 Compose correction; the former
+2 GiB value in this table was stale. See [local cost measurements](status-runtime-cost.md)
+for separately capped synthetic runtime/database/panel probes. Those probes do
+not replace the NAS's exact-image, retained-corpus and filesystem qualification.
 
 "Later" is finding #15. It needs a Docker daemon and the seeded corpus, so it
 runs on the NAS and nowhere else. Run it with `scripts/sentinel-measure.sh`

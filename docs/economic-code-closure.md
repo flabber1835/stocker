@@ -858,8 +858,42 @@ full-scan latency, provider C1/F6/F19/C3, authoritative historical economic delt
 and NAS-only deployment/restore evidence. The fixture setup process reaches
 **2.82 GiB**, including retained synthetic producer data; this is not an isolated
 production-runtime measurement. Material-consuming initialization/certification
-under its own 2 GiB limit remains a P2 local resource-review item, not something
+under its configured 4 GiB limit remains a P2 local resource-review item, not something
 the status fix closes or that this setup peak alone proves defective. Production
 source changes require the existing reviewed continuation boundary. Stage 1 and
 economic certification remain incomplete. See the
 [complete commands, evidence scope, findings and NAS handoff](../audit/economic_399/status_memory/README.md).
+
+### Separately capped runtime and PostgreSQL cost review
+
+Measured production `9bececa241052c43851f5da586499a6ae3a8039f`, then integrated
+owner-merged #416/main `8bf86ed8ca1e9fa2a6cbb9ac1588c8bcda8712bb` in a separate
+checkout. Reviewed integrated source/tests:
+`ffbf82b127784c145d697078ad1e8c03b70a0c46`. This includes unchanged #417/#418
+production dependencies and #418's CI-only test-location fix. The four cost-review
+production files are byte-identical across the measured and integrated commits;
+the complete broad resource run does not silently claim the later source identity.
+
+| Finding | Disposition | Evidence and remaining boundary |
+| --- | --- | --- |
+| P2: separately capped PostgreSQL OOM during large shadow persistence | Implementation fixed; local synthetic storage acceptance | `sentinel/observation_storage.py:31` parses bounded groups, assembles native JSONB transactionally and inserts one complete immutable row. The failed INSERT and subsequent old SQL-equality OOM are retained. PG17 and pinned PG16.14 complete the 5,000-series storage diagnostic under 1 GiB, with no OOM. Cache reaches the ceiling; this does not prove spare capacity or populated-restore qualification. |
+| P2: whole-JSONB genesis equality duplicates the database parse | Implementation fixed; exact comparison acceptance | `sentinel/shadow_observation.py:1000` reads one coherent complete value, decodes exact decimals and compares every field/type via `sentinel/observation_storage.py:14`. Genesis/session retries reject sub-float-precision corruption. Independent PostgreSQL numeric/type equality, rollback, odd/final batches, immutable conflicts and decoder-lifetime controls pass. |
+| P2: expensive scalar-by-scalar canonical serialization | Locally reduced; latency gate remains OPEN | `sentinel/core/session.py:58` batches at most 256 small scalars with standard strict JSON spelling. Independent hashes, malformed inputs, cycles, final-element changes and a measured scratch-allocation falsifier preserve the contract. Profiled 100-security transition improves 42.39 to 26.68 seconds without changing NAV. This is not a full-scale SLO claim. |
+| Runtime material-consumer memory | Separately measured synthetic scope | Initialization uses 2,093,012 KiB VmHWM under the existing 4 GiB runtime cap. Its input producer and 1 GiB database are separate processes/services. The prior 2 GiB handoff/table was documentation drift from #235; no service limit was increased. Real retained reference/action targets remain required. |
+| P2: full-scan status latency and real retained history | OPEN, local engineering plus workload-dependent acceptance | At configured 0.5 CPU, origin status takes 153.15/158.38 seconds; full HTTP takes 170.92 seconds. `sentinel/rolling_runtime.py:48` and `sentinel/shadow_runtime.py:793` still perform full content/authority verification. No accepted latency budget or authoritative retained-history workload is supplied. Synthetic completion cannot close this gate. |
+| Authoritative historical economic replay | Located input; admission/integration OPEN | User-identified `research/backtester` supplies the retained schema-1 broad PIT artifact: 31,820,893 rows, 16,957 securities and 5,176 sessions, downloaded and integrity-scanned locally. Current replay requires schema 2 plus a metadata pointer absent from its named branch and pins older production blobs. Resolve these explicit version/adapter gaps; do not substitute another dataset or weaken admission. Largest observed session has 8,408 rows and a 300-session window has 2,474,682 rows, beyond the synthetic resource scope. No twenty-year multiple is claimed. |
+| C1/F6, F19, C3 and deployed qualification | Unchanged OPEN | Provider cash/fill completeness, correction/bust semantics and predecessor ownership/finality remain separate from storage performance. #416 informational paper reporting does not certify those histories. NAS exact-image/runtime, filesystem/backup/restore, scheduling and capacity evidence are still required. |
+
+Validation: **397** final-production integration regressions; **161** focused
+storage/identity tests (overlapping); **4** expanded decoder-lifetime cases;
+**11** removed/broken-guard controls detected after passing baselines; **30**
+pinned-PG16 SQL/decoder cases. Following the main merge, **163** targeted tests
+and the complete 100-security origin/advanced/HTTP smoke campaign pass; its
+advanced NAV remains **99903.33772**, with independent Decimal accounting.
+There are **491** owned test modules and zero unowned. Existing #418 CI's sole
+Compose-location test failure was fixed and its 13 relocated tests pass.
+No golden repin, xfail, provider capability enablement or broker/NAS access.
+
+Stage 1 and economic certification remain incomplete. See the
+[retained results, exact commands, economic explanation and NAS handoff](../audit/economic_399/status_cost/README.md)
+and [design decisions recorded before implementation](status-runtime-cost.md).
