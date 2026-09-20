@@ -225,6 +225,12 @@ def test_zero_value_legacy_cursor_without_cash_row_is_accepted(conn, world, idle
             "SELECT COUNT(*) FROM sentinel_cash_flows WHERE flow_id LIKE %s",
             (f"{broker_cash.FLOW_PREFIX}alpaca:{DEPLOY.broker_account_id}:%",))
         assert int(cur.fetchone()[0]) == 0
+        cur.execute(
+            "SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s",
+            (f"broker-cash-zero:v1:alpaca:{DEPLOY.broker_account_id}:{activity.activity_id}",))
+        retained = cur.fetchone()
+        assert retained[0] == activity.activity_date
+        assert retained[1]["kind"] == "broker-cash-zero/v1"
 
 
 def test_cash_cursor_total_detects_nonlast_ledger_loss(conn, world):

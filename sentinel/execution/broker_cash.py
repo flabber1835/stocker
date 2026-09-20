@@ -4,10 +4,11 @@ Issue #183 deliberately reuses two already-authoritative stores rather than
 creating a runtime table that the behavioral-schema fingerprint does not know
 about:
 
-* ``sentinel_cash_flows`` retains every recognized broker-native cash activity;
+* ``sentinel_cash_flows`` retains recognized nonzero broker-native cash activities;
   a reserved flow-id/detail encoding distinguishes external capital from
   internal strategy cash without changing the table's physical schema.
-* ``sentinel_processed_sessions`` is a keyed durable cursor store.  Its existing
+* ``sentinel_processed_sessions`` also retains zero-valued native identities and
+  is a keyed durable cursor store. Its existing
   Wealth Core row remains ``catchup``; namespaced broker/activity and plan
   baseline rows keep their own validated JSON state and cannot collide with it.
 
@@ -312,13 +313,41 @@ def _binding_established_at(conn, *, broker: str, account_id: str) -> datetime:
 def _insert_activity(conn, *, broker: str, account_id: str,
                      activity: BrokerCashActivity) -> bool:
     """Insert once; a replay under the native id must be byte-economic equal."""
-    if activity.net_amount == 0:
-        return False
     flow_id = broker_flow_id(
         broker=broker, account_id=account_id,
         activity_id=activity.activity_id)
     detail = _detail(activity)
+    zero_name = f"broker-cash-zero:v1:{broker}:{account_id}:{activity.activity_id}"
+    zero_payload = {"kind": "broker-cash-zero/v1", "detail": detail}
     with conn.cursor() as cur:
+        # A zero amount is not a cash flow, but its native identity must survive
+        # restart. Both stores share the caller's writer lock and transaction.
+        cur.execute(
+            "SELECT session,state FROM sentinel_processed_sessions"
+            " WHERE cursor_name=%s", (zero_name,))
+        zero = cur.fetchone()
+        if zero is not None:
+            if (activity.net_amount != 0
+                    or str(zero[0]) != activity.activity_date.isoformat()
+                    or _read_json_state(zero[1], where=zero_name) != zero_payload):
+                raise BrokerCashAuthorityRefused(
+                    f"broker activity id {activity.activity_id!r} changed economics "
+                    "from retained zero evidence")
+            return False
+        if activity.net_amount == 0:
+            cur.execute(
+                "SELECT session,amount,detail FROM sentinel_cash_flows"
+                " WHERE flow_id=%s", (flow_id,))
+            if cur.fetchone() is not None:
+                raise BrokerCashAuthorityRefused(
+                    f"broker activity id {activity.activity_id!r} changed economics "
+                    "from a retained cash flow to zero")
+            cur.execute(
+                "INSERT INTO sentinel_processed_sessions"
+                " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)",
+                (zero_name, activity.activity_date.isoformat(),
+                 json.dumps(zero_payload, sort_keys=True)))
+            return False
         cur.execute(
             "INSERT INTO sentinel_cash_flows"
             " (flow_id,session,amount,detail) VALUES (%s,%s,%s,%s)"

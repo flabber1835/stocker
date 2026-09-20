@@ -147,19 +147,81 @@ def test_cash_replay_across_restart_deduplicates_and_excludes_external_capital(c
                 decision_session=EPOCH.date(), activity_state=again)
 
 
-def test_cash_correction_rolls_back_new_rows_and_preserves_cursor(conn, world):
-    world.cash_event("CSD", "1000", adversarial=True)
+@pytest.mark.parametrize("original,revised", [
+    ("1000", "1001"), ("1000", "0"), ("0", "1000")])
+def test_cash_correction_rolls_back_new_rows_and_preserves_cursor(
+        conn, pg, world, original, revised):
+    world.cash_event("CSD", original, adversarial=True)
     initial = ingest(conn, world)
+    zero_before = conn.execute(
+        "SELECT cursor_name,session,state FROM sentinel_processed_sessions"
+        " WHERE cursor_name LIKE 'broker-cash-zero:%' ORDER BY cursor_name").fetchall()
     world.advance(60)
     world.cash_event("CSW", "-100", adversarial=True)
-    # A vendor silently revises a stable native identity.
-    world.events[0]["net_amount"] = "1001"
-    with pytest.raises(broker_cash.BrokerCashAuthorityRefused, match="changed economics"):
-        ingest(conn, world)
-    conn.rollback()
+    world.cash_event("FEE", "0", adversarial=True)
+    # A vendor republishes changed economics under the same native identity.
+    # Publish it after the new withdrawal so refusal must also roll back the
+    # preceding insert, not just avoid writing the contradictory row itself.
+    revision = world.events.pop(0)
+    revision["net_amount"] = revised
+    revision["event_id"] = "00000000000000000000000004"
+    world.events.append(revision)
+    with store.connect(pg.sync_dsn) as restarted:
+        with pytest.raises(broker_cash.BrokerCashAuthorityRefused, match="changed economics"):
+            ingest(restarted, world)
+        restarted.rollback()
     assert broker_cash.load_activity_state(conn, broker="alpaca",
               account_id=DEPLOY.broker_account_id) == initial
-    assert len(cashflow.flows_between(conn, EPOCH.date(), EPOCH.date())) == 1
+    assert len(cashflow.flows_between(conn, EPOCH.date(), EPOCH.date())) == (1 if D(original) else 0)
+    assert conn.execute(
+        "SELECT cursor_name,session,state FROM sentinel_processed_sessions"
+        " WHERE cursor_name LIKE 'broker-cash-zero:%' ORDER BY cursor_name").fetchall() == zero_before
+
+
+def test_zero_cash_identity_survives_restart_without_inventing_return(conn, pg, world):
+    deposit = world.cash_event("CSD", "0", adversarial=True)
+    fee = world.cash_event("FEE", "0", adversarial=True)
+    first = ingest(conn, world)
+    # Independent economic oracle: no holdings, no cash movement, unchanged NAV.
+    assert first.balance_total == 0
+    assert first.last_activity_id is None
+    world.advance(60)
+    with store.connect(pg.sync_dsn) as restarted:
+        again = ingest(restarted, world)
+        rows = restarted.execute(
+            "SELECT cursor_name,session,state FROM sentinel_processed_sessions"
+            " WHERE cursor_name LIKE 'broker-cash-zero:%'").fetchall()
+        assert {row[0] for row in rows} == {
+            f"broker-cash-zero:v1:alpaca:{DEPLOY.broker_account_id}:{event['ref_id']}"
+            for event in (deposit, fee)}
+        assert len(rows) == 2
+        assert all(row[1] == EPOCH.date() for row in rows)
+        assert all(row[2]["kind"] == "broker-cash-zero/v1" for row in rows)
+        assert cashflow.flows_between(restarted, EPOCH.date(), EPOCH.date()) == []
+        assert again.balance_total == 0
+        assert again.last_activity_id == first.last_activity_id
+        assert cashflow.net_external(restarted, EPOCH.date(), EPOCH.date()) == 0
+        assert cashflow.strategy_pl(restarted, start=EPOCH.date(), end=EPOCH.date(),
+                                   opening_nav=D(100000), closing_nav=D(100000)) == 0
+        assert again.activity_identity_scheme is None
+    assert world.cash == D(100000)
+    assert all(method == "GET" for method, _ in world.counts)
+
+
+@pytest.mark.parametrize("field,value", [
+    ("activity_type", "DIV"), ("settle_date", "2026-09-10")])
+def test_zero_cash_identity_cannot_change_classification_or_session(
+        conn, pg, world, field, value):
+    event = world.cash_event("CSD", "0", adversarial=True)
+    initial = ingest(conn, world)
+    world.advance(60)
+    event[field] = value
+    with store.connect(pg.sync_dsn) as restarted:
+        with pytest.raises(broker_cash.BrokerCashAuthorityRefused, match="changed economics"):
+            ingest(restarted, world)
+        restarted.rollback()
+    assert broker_cash.load_activity_state(
+        conn, broker="alpaca", account_id=DEPLOY.broker_account_id) == initial
 
 
 @pytest.mark.parametrize("missing", ["cursor", "ledger"])

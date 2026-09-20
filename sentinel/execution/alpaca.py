@@ -2018,8 +2018,6 @@ class FinancialGradeAlpacaExecutionBroker(CurrentAlpaca):
                 raw_amount,
                 where=f"Activity SSE {event.get('event_id')} net_amount",
                 allow_negative=True)
-            if amount == 0:
-                continue
             # The common-envelope validator above has already established
             # that this is the broker's required exact settlement date.
             # Execution time is not a substitute: changing which session

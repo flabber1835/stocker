@@ -571,19 +571,21 @@ def test_non_alpaca_sse_flag_cannot_mint_the_alpaca_identity_scheme():
     assert conn.cursors == {}
 
 
-def test_replayed_native_activity_id_cannot_change_economics():
+@pytest.mark.parametrize("original,revised", [
+    ("100", "101"), ("100", "0"), ("0", "100")])
+def test_replayed_native_activity_id_cannot_change_economics(original, revised):
     conn = MemoryConnection()
     through = datetime(2026, 8, 18, 18, tzinfo=UTC)
     run(broker_cash.ingest_account_cash(
         conn, broker_adapter=CashActivityBroker([
-            cash_activity("deposit-1", "CSD", "100")]),
+            cash_activity("deposit-1", "CSD", original)]),
         broker="alpaca", account_id="PA-1", through=through))
 
     with pytest.raises(
             broker_cash.BrokerCashAuthorityRefused, match="changed economics"):
         run(broker_cash.ingest_account_cash(
             conn, broker_adapter=CashActivityBroker([
-                cash_activity("deposit-1", "CSD", "101")]),
+                cash_activity("deposit-1", "CSD", revised)]),
             broker="alpaca", account_id="PA-1",
             through=through + timedelta(hours=1)))
 

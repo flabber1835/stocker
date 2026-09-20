@@ -911,6 +911,27 @@ fill ledger already moves plan cash; booking both would count the same trade
 twice. A correction or bust remains a refusal until the prior native fill can
 be reversed.
 
+Recognized cash activities with an explicit zero `net_amount` retain their
+native identity, settlement session and classification as namespaced
+`broker-cash-zero/v1` evidence in `sentinel_processed_sessions`, in the same
+transaction as cash rows and their cursor. The cash ledger keeps its nonzero
+amount constraint. Zero contributes nothing
+to cash or returns; it is still evidence whose later replay must match. Dropping
+it would hide a nonzero-to-zero revision or allow a zero-to-nonzero revision to
+be booked as a new event. The candidate SSE decoder must pass these rows to the
+durable consumer. Before accepting any activity, the consumer checks retained
+zero evidence; before retaining a zero, it checks the nonzero cash ledger.
+Changing amount, classification or settlement session under the same native
+identity refuses the whole batch. Events without cash amounts and ordinary
+trade fills retain their existing routing rules. A legacy zero-valued last
+activity with no ledger row can be repaired only by the existing complete
+replay; that replay now retains zero evidence and clears the legacy last-id as
+before. Cash cursors continue to name nonzero ledger witnesses. Rolling backup
+and restore must preserve these processed-session rows along with cash and
+cursor state. Previously discarded
+identities outside retained replay evidence cannot be reconstructed by this
+change, and it does not establish provider completeness or close finality.
+
 An append-only event cursor proves only what has been published so far. Activity
 SSE exposes no accepted fixed close interval or finality watermark. No global
 scheme allow-list can promote old plan baselines into close authority: a future
