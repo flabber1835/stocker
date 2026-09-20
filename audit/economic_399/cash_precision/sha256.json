@@ -1,0 +1,7 @@
+{
+  "sentinel/paper/cash.py": "a001a897fb0b7b12ec10fdf9f1db902f68b30aa410859b1bf48791a191060307",
+  "tests/sentinel/test_cash_grace_identity.py": "ded3b13762f0e8fcc41521d1154c6a6264f1b9b5bcba37526b7277cb1d233b70",
+  "audit/economic_399/cash_precision/mutations.py": "987b5437ab2994d2718b8128865186c165b3f177bcb616e67bef7d9a91dc08b7",
+  "audit/economic_399/cash_precision/regression.log": "3039aff7977964947a21aa6a9568a5940948fdc1fac5f57365811cfd3d1f6c49",
+  "audit/economic_399/cash_precision/mutations.log": "3aacaf328b946a25f7b9ee1a2f24bcd3a1214188981ea3998febab1c44a76d0e"
+}

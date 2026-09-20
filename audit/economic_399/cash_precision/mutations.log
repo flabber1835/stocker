@@ -1,0 +1,52 @@
+....................                                                     [100%]
+20 passed in 9.60s
+rounded-comparison exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_default_precision_cannot_admit_cash_just_outside_tolerance ________
+tests/sentinel/test_cash_grace_identity.py:161: in test_default_precision_cannot_admit_cash_just_outside_tolerance
+    with pytest.raises(PaperActivationRefused, match='not explained'):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'sentinel.paper.model.PaperActivationRefused'>
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_cash_grace_identity.py::test_default_precision_cannot_admit_cash_just_outside_tolerance
+1 failed in 3.56s
+
+rounded-fill-product exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_default_precision_cannot_admit_cash_just_outside_tolerance ________
+tests/sentinel/test_cash_grace_identity.py:161: in test_default_precision_cannot_admit_cash_just_outside_tolerance
+    with pytest.raises(PaperActivationRefused, match='not explained'):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'sentinel.paper.model.PaperActivationRefused'>
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_cash_grace_identity.py::test_default_precision_cannot_admit_cash_just_outside_tolerance
+1 failed in 3.57s
+
+missing-activity-delta exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_activity_delta_cannot_round_cash_into_tolerance _____________
+tests/sentinel/test_cash_grace_identity.py:177: in test_activity_delta_cannot_round_cash_into_tolerance
+    with pytest.raises(PaperActivationRefused, match='not explained'):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'sentinel.paper.model.PaperActivationRefused'>
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_cash_grace_identity.py::test_activity_delta_cannot_round_cash_into_tolerance
+1 failed in 3.61s
+
+rounded-grace-identity exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_changed_decimal_context_cannot_renew_cash_grace _____________
+tests/sentinel/test_cash_grace_identity.py:195: in test_changed_decimal_context_cannot_renew_cash_grace
+    assert not isinstance(caught.value, PaperRetryableRefused)
+E   AssertionError: assert not True
+E    +  where True = isinstance(PaperRetryableRefused('account cash endpoint is not yet coherent with the stable order/position bracket; no mutation is permitted during the bounded 120s re-observation window'), PaperRetryableRefused)
+E    +    where PaperRetryableRefused('account cash endpoint is not yet coherent with the stable order/position bracket; no mutation is permitted during the bounded 120s re-observation window') = <ExceptionInfo PaperRetryableRefused('account cash endpoint is not yet coherent with the stable order/position bracket; no mutation is permitted during the bounded 120s re-observation window') tblen=3>.value
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_cash_grace_identity.py::test_changed_decimal_context_cannot_renew_cash_grace
+1 failed in 3.49s
+
+4/4 cash authority mutants detected

@@ -804,6 +804,15 @@ order is adopted after restore. Cash reconciliation reads that durable value;
 it does not require a terminal order to remain in every future broker response.
 This is what makes restart cash authority bounded independently of account age.
 
+Cash reconciliation must compare the exact plan cash plus signed cumulative
+fill notionals and the exact native-activity baseline delta against the existing
+absolute $1 tolerance. Ambient Decimal precision must not change this admission
+decision or the expected-cash identity of the non-renewable endpoint-lag grace.
+Use rational arithmetic for these finite-decimal sums/products and comparisons;
+convert the terminating result back to Decimal exactly for durable grace identity
+and diagnostics. This changes neither the tolerance nor provider finality,
+activity ownership, or the prohibition on resizing an immutable plan.
+
 Historical orders are resolved by permanent identity at their own submission
 session, not at today's session. That timestamp is also persisted as the
 durable command boundary when a stale restore adopts a broker-only Sentinel
