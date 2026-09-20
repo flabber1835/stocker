@@ -141,3 +141,32 @@ files pass AST parsing. The changed producer/reporting/helper/test scripts pass
 pyflakes; paper cash retains only its eleven pre-existing unused imports.
 `git diff --check` passes. Ownership still covers 491 modules with zero unowned.
 The provider, real-workload, Stage 2 and NAS boundaries above remain unchanged.
+# PR #421 CI equivalence follow-up
+
+At source `8eb53b16da40149837ac2d5c37989399556c5127`, CI run
+[35521228662](https://github.com/flabber1835/stocker/actions/runs/35521228662)
+finished its main lane with **5,233 passed and one failed**:
+`test_paper_package_architecture.py::test_equivalence_manifest_covers_every_canonical_definition`.
+The reviewed `_cash_authority_or_refuse` precision correction had not been entered
+in the existing post-decomposition change manifest.
+
+`docs/production-champion-paper-deltas.json` now records that one documented AST
+delta, preserves its original historical AST digest, and links the execution
+contract and independent economic acceptance in this package. The original
+`paper-lifecycle-equivalence.json` and all economic golden artifacts remain
+unchanged. Production arithmetic and capability settings are unchanged by this
+follow-up; this is accounting for the already-reviewed semantic change, not
+asserting that old and new cash calculations are equivalent.
+
+Exact targeted command, using the same offline Docker/isolated PostgreSQL runner:
+
+```sh
+python audit/economic_399/rolling_status/run_local.py test tests/sentinel/test_paper_package_architecture.py tests/sentinel/test_cash_grace_identity.py
+```
+
+Result: **28 passed in 12.19 seconds**. This includes the complete package
+architecture module and the 20 exact cash/grace acceptance cases; these overlap
+the earlier 237-test campaign. `git diff --check` and JSON parsing passed.
+`ci-equivalence.log` retains the literal runner/pytest argv and output;
+`ci-equivalence-sha256.json` binds it and the changed manifest. Required GitHub
+CI must pass on the follow-up head before merge.
