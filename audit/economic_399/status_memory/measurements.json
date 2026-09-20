@@ -1,0 +1,331 @@
+{
+  "origin-repeated": [
+    {
+      "phase": "child_start",
+      "pid": 1,
+      "vm_hwm_kib": 56844,
+      "vm_rss_kib": 56844,
+      "rusage_maxrss_kib": 56844
+    },
+    {
+      "phase": "_closure",
+      "pid": 1,
+      "seconds": 64.15714851999655,
+      "vm_hwm_kib": 401888,
+      "vm_rss_kib": 349608,
+      "rusage_maxrss_kib": 401888
+    },
+    {
+      "phase": "_snapshot_context",
+      "pid": 1,
+      "seconds": 19.132572993985377,
+      "vm_hwm_kib": 401888,
+      "vm_rss_kib": 354752,
+      "rusage_maxrss_kib": 401888
+    },
+    {
+      "phase": "_current",
+      "pid": 1,
+      "seconds": 32.30349997698795,
+      "vm_hwm_kib": 401888,
+      "vm_rss_kib": 353812,
+      "rusage_maxrss_kib": 401888
+    },
+    {
+      "phase": "complete_status",
+      "pid": 1,
+      "seconds": 98.6949788419879,
+      "vm_hwm_kib": 401888,
+      "vm_rss_kib": 349716,
+      "rusage_maxrss_kib": 401888,
+      "state_sha256": "b6ad3fb504424fa74dc6f59c2460e46c034fba5ba45d253f5a8ef7b4f9bfc97e",
+      "authority_sha256": "f62a6ccd47c1419b3e61722b0e93c31fe11fc16a833c1c3790d914ff24f4d2ad",
+      "strategy_nav": "100000"
+    },
+    {
+      "phase": "child_start",
+      "pid": 1,
+      "vm_hwm_kib": 401888,
+      "vm_rss_kib": 344988,
+      "rusage_maxrss_kib": 401888
+    },
+    {
+      "phase": "_closure",
+      "pid": 1,
+      "seconds": 59.9716899379855,
+      "vm_hwm_kib": 401888,
+      "vm_rss_kib": 347892,
+      "rusage_maxrss_kib": 401888
+    },
+    {
+      "phase": "_snapshot_context",
+      "pid": 1,
+      "seconds": 20.638292298011947,
+      "vm_hwm_kib": 401888,
+      "vm_rss_kib": 352244,
+      "rusage_maxrss_kib": 401888
+    },
+    {
+      "phase": "_current",
+      "pid": 1,
+      "seconds": 34.56215692701517,
+      "vm_hwm_kib": 401888,
+      "vm_rss_kib": 351252,
+      "rusage_maxrss_kib": 401888
+    },
+    {
+      "phase": "complete_status",
+      "pid": 1,
+      "seconds": 95.75052402104484,
+      "vm_hwm_kib": 401888,
+      "vm_rss_kib": 348228,
+      "rusage_maxrss_kib": 401888,
+      "state_sha256": "b6ad3fb504424fa74dc6f59c2460e46c034fba5ba45d253f5a8ef7b4f9bfc97e",
+      "authority_sha256": "f62a6ccd47c1419b3e61722b0e93c31fe11fc16a833c1c3790d914ff24f4d2ad",
+      "strategy_nav": "100000"
+    },
+    {
+      "phase": "cgroup",
+      "peak": "380280832",
+      "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n"
+    },
+    {
+      "docker_state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-20T01:12:38.54890314Z",
+        "FinishedAt": "2026-09-20T01:16:23.889273286Z"
+      },
+      "limits_and_image": "536870912 536870912 sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146"
+    }
+  ],
+  "origin-http-final": [
+    {
+      "phase": "complete_http",
+      "seconds": 92.85317615797976,
+      "shadow": {
+        "key": "shadow_verification",
+        "label": "Certified shadow strategy",
+        "value": "SHADOW VERIFIED THROUGH 2026-09-14",
+        "status": "ok",
+        "detail": "sole strategy-performance authority \u00b7 canonical Wealth Core plus accepted Sharadar inputs \u00b7 independent of Alpaca PAPER accounting",
+        "as_of": null,
+        "stale": false,
+        "future": false,
+        "required_current": false,
+        "valid_until": null,
+        "recovery": null,
+        "color": "green"
+      },
+      "overall": "fail",
+      "vm_hwm_kib": 423884,
+      "vm_rss_kib": 376916,
+      "rusage_maxrss_kib": 423884
+    },
+    {
+      "phase": "cgroup",
+      "peak": "397017088",
+      "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n"
+    },
+    {
+      "docker_state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-20T01:15:21.786719789Z",
+        "FinishedAt": "2026-09-20T01:16:58.171188853Z"
+      },
+      "limits_and_image": "536870912 536870912 sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146"
+    }
+  ],
+  "resource-mutant": [
+    {
+      "phase": "child_start",
+      "pid": 1,
+      "vm_hwm_kib": 56784,
+      "vm_rss_kib": 56784,
+      "rusage_maxrss_kib": 56784
+    },
+    {
+      "docker_state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": true,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 137,
+        "Error": "",
+        "StartedAt": "2026-09-20T01:15:36.2094136Z",
+        "FinishedAt": "2026-09-20T01:16:03.841482268Z"
+      },
+      "limits_and_image": "536870912 536870912 sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146"
+    }
+  ],
+  "advanced-repeated-final": [
+    {
+      "phase": "child_start",
+      "pid": 1,
+      "vm_hwm_kib": 56724,
+      "vm_rss_kib": 56724,
+      "rusage_maxrss_kib": 56724
+    },
+    {
+      "phase": "_closure",
+      "pid": 1,
+      "seconds": 56.08724808302941,
+      "vm_hwm_kib": 419848,
+      "vm_rss_kib": 366600,
+      "rusage_maxrss_kib": 419848
+    },
+    {
+      "phase": "_snapshot_context",
+      "pid": 1,
+      "seconds": 18.834840867028106,
+      "vm_hwm_kib": 419848,
+      "vm_rss_kib": 366600,
+      "rusage_maxrss_kib": 419848
+    },
+    {
+      "phase": "_current",
+      "pid": 1,
+      "seconds": 31.87829406495439,
+      "vm_hwm_kib": 419848,
+      "vm_rss_kib": 366600,
+      "rusage_maxrss_kib": 419848
+    },
+    {
+      "phase": "complete_status",
+      "pid": 1,
+      "seconds": 89.86623655603034,
+      "vm_hwm_kib": 419848,
+      "vm_rss_kib": 359468,
+      "rusage_maxrss_kib": 419848,
+      "state_sha256": "bf49cb9b3466d1aa0abaf4adb6eabaed9e7e3be23d0c8c2f9fcd5b84bffafb61",
+      "authority_sha256": "c11ea5fd74c497cf0e55fdeaa553a225ea52c3746b239f0cbd87586916d4b488",
+      "strategy_nav": "99902.08372000002"
+    },
+    {
+      "phase": "child_start",
+      "pid": 1,
+      "vm_hwm_kib": 419848,
+      "vm_rss_kib": 351308,
+      "rusage_maxrss_kib": 419848
+    },
+    {
+      "phase": "_closure",
+      "pid": 1,
+      "seconds": 48.88112606399227,
+      "vm_hwm_kib": 419848,
+      "vm_rss_kib": 366964,
+      "rusage_maxrss_kib": 419848
+    },
+    {
+      "phase": "_snapshot_context",
+      "pid": 1,
+      "seconds": 17.55691924097482,
+      "vm_hwm_kib": 419848,
+      "vm_rss_kib": 366964,
+      "rusage_maxrss_kib": 419848
+    },
+    {
+      "phase": "_current",
+      "pid": 1,
+      "seconds": 29.49375298799714,
+      "vm_hwm_kib": 419848,
+      "vm_rss_kib": 366964,
+      "rusage_maxrss_kib": 419848
+    },
+    {
+      "phase": "complete_status",
+      "pid": 1,
+      "seconds": 79.54748085595202,
+      "vm_hwm_kib": 419848,
+      "vm_rss_kib": 365944,
+      "rusage_maxrss_kib": 419848,
+      "state_sha256": "bf49cb9b3466d1aa0abaf4adb6eabaed9e7e3be23d0c8c2f9fcd5b84bffafb61",
+      "authority_sha256": "c11ea5fd74c497cf0e55fdeaa553a225ea52c3746b239f0cbd87586916d4b488",
+      "strategy_nav": "99902.08372000002"
+    },
+    {
+      "phase": "cgroup",
+      "peak": "390377472",
+      "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n"
+    },
+    {
+      "docker_state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-20T01:37:05.347892068Z",
+        "FinishedAt": "2026-09-20T01:40:22.354292785Z"
+      },
+      "limits_and_image": "536870912 536870912 sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146"
+    }
+  ],
+  "advanced-http-final": [
+    {
+      "phase": "complete_http",
+      "seconds": 91.08944646298187,
+      "shadow": {
+        "key": "shadow_verification",
+        "label": "Certified shadow strategy",
+        "value": "SHADOW VERIFIED THROUGH 2026-09-15",
+        "status": "ok",
+        "detail": "sole strategy-performance authority \u00b7 canonical Wealth Core plus accepted Sharadar inputs \u00b7 independent of Alpaca PAPER accounting",
+        "as_of": null,
+        "stale": false,
+        "future": false,
+        "required_current": false,
+        "valid_until": null,
+        "recovery": null,
+        "color": "green"
+      },
+      "overall": "fail",
+      "vm_hwm_kib": 437184,
+      "vm_rss_kib": 370304,
+      "rusage_maxrss_kib": 437184
+    },
+    {
+      "phase": "cgroup",
+      "peak": "410624000",
+      "events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0\n"
+    },
+    {
+      "docker_state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-20T01:37:18.452630765Z",
+        "FinishedAt": "2026-09-20T01:38:53.266872703Z"
+      },
+      "limits_and_image": "536870912 536870912 sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146"
+    }
+  ]
+}

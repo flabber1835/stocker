@@ -29,6 +29,7 @@ def dated_fixture(mp,subject=None):
     session=v.get('session','2026-09-14')
     now=datetime.fromisoformat(session).replace(tzinfo=timezone.utc)+timedelta(days=1,hours=4)
     mp.setattr(probe.op.calendar,'latest_closed_session',lambda now=None:session)
+    mp.setattr(probe.op,'_now',lambda:now)
     mp.setattr(probe.initial,'_now',lambda conn:now)
 probe.fixture_context=dated_fixture
 '''
@@ -87,7 +88,7 @@ with probe.pytest.MonkeyPatch.context() as mp:
     assert response.status_code==200,response.text
     result=response.json()
     row=next(row for row in result['rows'] if row['key']=='shadow_verification')
-    assert row['status']=='OK',row
+    assert row['status']=='ok',row
     probe.emit('complete_http',seconds=time.monotonic()-started,shadow=row,
                overall=result['overall'],**probe.memory())
 '''

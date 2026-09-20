@@ -1,0 +1,202 @@
+{
+  "status-memory-acceptance-evidence/advanced.json": {
+    "sha256": "4a3019801d95acf013ff93dd0202fdfbad25d1466e65e5d2b05dffefb0a53b8b",
+    "bytes": 303
+  },
+  "status-memory-acceptance-evidence/fixture.json": {
+    "sha256": "4a3019801d95acf013ff93dd0202fdfbad25d1466e65e5d2b05dffefb0a53b8b",
+    "bytes": 303
+  },
+  "status-memory-acceptance-evidence/origin.json": {
+    "sha256": "dd8f635542b4ab9b3bc9b57fa5ade159f2c9fbe22930c6ca3501e681dec455c1",
+    "bytes": 303
+  },
+  "status-memory-acceptance-fixture.log": {
+    "sha256": "abd8bd23ae1f1903fed15149acff374126d9b990e1667611f24e976d4f7cce40",
+    "bytes": 333927
+  },
+  "status-memory-acceptance-second.log": {
+    "sha256": "1bd02d0c92609319d7222e013b025fdbe3b1c1fccd7178b54969df69fbab6667",
+    "bytes": 878
+  },
+  "status-memory-acceptance.log": {
+    "sha256": "20d2fdf5832ef91e2efaaecf2303f627a06561a3812659ea0edfdcf890920f60",
+    "bytes": 4557
+  },
+  "status-memory-advanced-http-final.log": {
+    "sha256": "d343d34e129bdddafd182f5fca09b7bd75b3fc12fc139038f715a0272c136cce",
+    "bytes": 3694
+  },
+  "status-memory-advanced-http.log": {
+    "sha256": "69f69f72cc6c396b693ef3bc445a0b5dc0ec340f3755648e2f0a562876a02ef0",
+    "bytes": 3458
+  },
+  "status-memory-advanced-repeated-final.log": {
+    "sha256": "fcbbbbbcdf27d6278e73bea740769c139b52c414391dc506c4bebadc73710a2b",
+    "bytes": 3740
+  },
+  "status-memory-advanced-repeated.log": {
+    "sha256": "2c8b1bcb7e1718f267cdc4b16bb5899b5225d1c272aebc8a28551a8de32ece54",
+    "bytes": 4393
+  },
+  "status-memory-artifact-static.log": {
+    "sha256": "e298821f4ceb6cf2d814cb15ed80ae316ca9322a5c7d7cd408151c8b07d2a2a8",
+    "bytes": 102
+  },
+  "status-memory-canonical-tests.log": {
+    "sha256": "f23853896da60841885a792f7448513b7d6a1c5c7b55904711f7702f31e4b84e",
+    "bytes": 1062
+  },
+  "status-memory-connected-regression.log": {
+    "sha256": "204f38759d5ea07709957000a7f886b98fe591573b7547a360896ce6c599bb9d",
+    "bytes": 1145
+  },
+  "status-memory-diagnostic-1.log": {
+    "sha256": "5ac6148ce0480222597fcf799717871a123beff6ad7b0baf0ca7024fec1c79c0",
+    "bytes": 2123
+  },
+  "status-memory-diagnostic-2.log": {
+    "sha256": "a467781b5477d9a13f6e4b709075abb63d4d9b093a82b2cf44965b35c0587e6c",
+    "bytes": 4067
+  },
+  "status-memory-diagnostic-detail-2.log": {
+    "sha256": "d50a554857a5dca5f3c7066d5468ef5540ff0cf81ef9b2f59e2a09ff095aa622",
+    "bytes": 6832
+  },
+  "status-memory-diagnostic-detail.log": {
+    "sha256": "7b4ff601ec2577e052c1027feb7daf89f5b24ae5a746edd58a5c997fa841e569",
+    "bytes": 3964
+  },
+  "status-memory-economic-oracle-accounting.log": {
+    "sha256": "7e65ddbfa4218e9d83222528f2d8a11a91eae38e6f49009f994225a8ed8e3a6c",
+    "bytes": 328
+  },
+  "status-memory-economic-oracle-final.log": {
+    "sha256": "7d9405312c8b42d52633def4d439084fd334b87268470a1c7e226b5bd4a07742",
+    "bytes": 348
+  },
+  "status-memory-economic-oracle.log": {
+    "sha256": "fbe2595cc766d4ae6167af636749b7d043c5776df916fc9638fcc256b485e393",
+    "bytes": 392
+  },
+  "status-memory-evidence/fixture.json": {
+    "sha256": "240e28a5feb11a67d1abea6ebd65f7a7c61a47d63f41780a98e5da546b2bc0e9",
+    "bytes": 278
+  },
+  "status-memory-final-canonical.log": {
+    "sha256": "43be6b90875cade6e34973784b266a7ee90ae14c6d2f2d9a6d3bc2822bf00d11",
+    "bytes": 2281
+  },
+  "status-memory-final-evidence/fixture.json": {
+    "sha256": "35829cf7800cf70f13d70124be41960512ccbf4a52636363c60accb5a46cd6f3",
+    "bytes": 303
+  },
+  "status-memory-final-fixture.log": {
+    "sha256": "d02eca99c69afa253c415818e774fa1b4796cee21220c00d4a40aa2d729f8998",
+    "bytes": 167818
+  },
+  "status-memory-final-mutations.log": {
+    "sha256": "e62addebbf150a27c3b38a83920110ebd2ff6164ae3be7bfbf76b1259fbe5146",
+    "bytes": 39115
+  },
+  "status-memory-final-ownership.json": {
+    "sha256": "0c0a693334c619d825e170ecb3a09d359358e3fc538d438ba35eebab8b05681d",
+    "bytes": 13031
+  },
+  "status-memory-final-regression.log": {
+    "sha256": "b866f6da23d334b1c685fbe88857b40e38189ef39376f776736b83f1f257a33a",
+    "bytes": 1223
+  },
+  "status-memory-first-tests.log": {
+    "sha256": "0292fd110f59b46d01c002c5305e4fac698ed96308c9efd92f1f259bcc5f1358",
+    "bytes": 924
+  },
+  "status-memory-fixed-lifecycle.log": {
+    "sha256": "68b9b066172c13a13141b0620fd5871363a88d6692305b50b949a5dc6331b512",
+    "bytes": 1062
+  },
+  "status-memory-fixture-source.log": {
+    "sha256": "fdb59a0aa53d740582268c6ade036e20687fef17a16f4f37b88a069de4043c3c",
+    "bytes": 527
+  },
+  "status-memory-fixture.log": {
+    "sha256": "41a2e1efc334ed849473252859e19c4e6f14417362552f4cc346c60771eeb900",
+    "bytes": 166489
+  },
+  "status-memory-lifecycle-mutant.log": {
+    "sha256": "5a1218641b594a0b88a71b7ab10792605a8b3c88d994aa368cdae78520a7a02e",
+    "bytes": 946
+  },
+  "status-memory-loader-canonical.log": {
+    "sha256": "83496437b4ffc5c21ccf745d20d898e4f41a56e4fac891b29851c664638535b5",
+    "bytes": 993
+  },
+  "status-memory-mutations.log": {
+    "sha256": "66cc270abef3d210f2c9a056691c1c74787493816f5dde8de8712a17f3c2ac54",
+    "bytes": 20272
+  },
+  "status-memory-origin-http-final.log": {
+    "sha256": "1e0e3e46bc9eefa3349e7d68fe7d7ed55532569b54bb556588cd2425a7fa738b",
+    "bytes": 3650
+  },
+  "status-memory-origin-http.log": {
+    "sha256": "e5679af347d67553d18c882d9828b4c84d7ee36301008124c580d49fbb662bae",
+    "bytes": 3459
+  },
+  "status-memory-origin-repeated.log": {
+    "sha256": "5826fd363f4baa81f78a718178321929e8bf7c9d4af32d5291d2e122435a25ad",
+    "bytes": 3672
+  },
+  "status-memory-ownership.log": {
+    "sha256": "0c0a693334c619d825e170ecb3a09d359358e3fc538d438ba35eebab8b05681d",
+    "bytes": 13031
+  },
+  "status-memory-pinned-diagnostic.log": {
+    "sha256": "f0e9d3f8bd145eed2960f19f004b20d9227921dbd9178321090abdaf2c3ee6af",
+    "bytes": 5724
+  },
+  "status-memory-pooled-diagnostic.log": {
+    "sha256": "6b23f9e391c668649a77fa437929f75a0168bad0c1db56160bf53ff7072e4eaa",
+    "bytes": 6831
+  },
+  "status-memory-reader-first.log": {
+    "sha256": "df435a6afee625a3335a8dad56d7405b8078c52682621ef6388ac27d62a3e5db",
+    "bytes": 3400
+  },
+  "status-memory-regression.log": {
+    "sha256": "e70762ef22ec3014563e5b2f5affa1445be82bf2e5692e07496757f945d675a0",
+    "bytes": 18420
+  },
+  "status-memory-release-mutations.log": {
+    "sha256": "126d648404bd2716fa9d835cea035a5e08a8a2a3efa4f46cb18863a444aedfae",
+    "bytes": 31240
+  },
+  "status-memory-release-regression.log": {
+    "sha256": "faa31ed9b09a5ac26ea70668ac1a4ea01437ab075481100ad4b02e36aefd2a77",
+    "bytes": 1829
+  },
+  "status-memory-resource-mutant.log": {
+    "sha256": "0299fbc0f6f22158c4bd3fd553e974eb057b05d5a4fc94ab691eaa776564ce59",
+    "bytes": 2287
+  },
+  "status-memory-second-regression.log": {
+    "sha256": "6f02629ebc04132c6045d68c2e50970abf44b2a2ee1c506f3c721af293b628fd",
+    "bytes": 5182
+  },
+  "status-memory-static-final.log": {
+    "sha256": "4a1a6c3b54e686a4dee2982b177a9c6c34067c2b31b9cd54b68167be35a958ad",
+    "bytes": 184
+  },
+  "status-memory-static-source.log": {
+    "sha256": "d4d32a556ff0cc9eb462231f03c5ec99a8a907ecbf30fbd26974c658e27d2701",
+    "bytes": 320
+  },
+  "status-memory-streamed-diagnostic.log": {
+    "sha256": "0dadb3e52806e9c7f1a4fe97e4761af7c3b5a794e741e826fd5f3c0a69666b3f",
+    "bytes": 6832
+  },
+  "status-memory-streamed-row-diagnostic.log": {
+    "sha256": "e4d81c6d043a98b4aaccefd1677c2ef6c19c3de24d9b6806e8293aec42366fa6",
+    "bytes": 6832
+  }
+}
