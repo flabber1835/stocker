@@ -148,21 +148,27 @@ def read_bytes(path: Path, *, required: bool = False) -> bytes:
         opened = os.fstat(fd)
         if _identity(opened) != _identity(before):
             _fail("FILE_CHANGED_DURING_READ")
-        chunks = []
-        size = 0
-        while size <= MAX_BYTES:
-            block = os.read(fd, min(65536, MAX_BYTES + 1 - size))
-            if not block:
-                break
-            chunks.append(block)
-            size += len(block)
-        if size > MAX_BYTES:
-            _fail("FILE_TOO_LARGE")
-        if (_identity(os.fstat(fd)) != _identity(before)
-                or _identity(path.lstat()) != _identity(before)
-                or size != before.st_size):
+        observations = []
+        for _ in range(2):
+            os.lseek(fd, 0, os.SEEK_SET)
+            chunks = []
+            size = 0
+            while size <= MAX_BYTES:
+                block = os.read(fd, min(65536, MAX_BYTES + 1 - size))
+                if not block:
+                    break
+                chunks.append(block)
+                size += len(block)
+            if size > MAX_BYTES:
+                _fail("FILE_TOO_LARGE")
+            if (_identity(os.fstat(fd)) != _identity(before)
+                    or _identity(path.lstat()) != _identity(before)
+                    or size != before.st_size):
+                _fail("FILE_CHANGED_DURING_READ")
+            observations.append(b"".join(chunks))
+        if observations[0] != observations[1]:
             _fail("FILE_CHANGED_DURING_READ")
-        return b"".join(chunks)
+        return observations[0]
     except OSError:
         _fail("UNREADABLE_FILE_OR_CHANGED")
     finally:

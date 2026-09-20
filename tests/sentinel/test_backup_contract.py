@@ -256,8 +256,10 @@ def test_base_backup_is_physical_streamed_and_verified_before_promotion():
 
 def test_restore_drill_is_isolated_and_cleans_only_its_unique_objects():
     text = _read("scripts/sentinel-restore-drill.sh")
-    assert text.count("--network none") >= 1
-    assert 'docker network create --internal "$NETWORK"' in text
+    # Copy and recovery now share one locked worker on the isolated network.
+    assert '--network "$NETWORK"' in text
+    assert 'docker network create --internal --label sentinel.restore-drill=v1 "$NETWORK"' in text
+    assert 'sh /restore-worker' in text
     assert 'WAL_SOURCE="$BACKUP_ROOT/wal/cluster-$SYSTEM_ID"' in text
     assert 'WAL_SOURCE="$BACKUP_ROOT/wal"' in text
     assert '-v "$WAL_SOURCE:/archive:ro"' in text

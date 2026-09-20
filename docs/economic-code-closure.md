@@ -346,7 +346,7 @@ economic certification.
 | A21 | P1 admission / P2 visibility, **locally fixed; NAS qualification pending** | `sentinel/feed/readers.py:57`, `sentinel/observation_authority.py:86`, `:187`, `:202`, `:338`, `sentinel/cli/authority.py:65`, `scripts/sentinel_autonomous_deploy_driver.py:384`: authenticated rolling publication/readiness/reference inputs now reach the observation CLI, signed installation/activation identities and generated installer programs. Warmup `/2` runs the selected canonical production strategy; the offline issuer rejects legacy or rehashed strategy/corpus mismatches rather than accepting counts alone. A publication pin spans readiness/warmup/claims; mismatched generation or strategy refuses. Panel readiness is generation-bound. See [design, limitations and NAS handoff](rolling-admission-readers.md) and [retained local evidence](../audit/economic_399/rolling_admission_403/README.md). Stale rolling renewal remains part of the separate open maintenance lifecycle. |
 | A5 original / backup duplicate A6 | P1, **open maintenance implementation** | `docker-compose.sentinel-backup.yml:1`, `sentinel/backup_runtime_authority.py:42`: daily verified backup scheduling and proactive horizon rollover remain absent. A single-owner restart-safe maintenance lifecycle, bounded outage recovery and accelerated WAL/retention qualification are still required. This change does not add that service or weaken its guard. |
 | A6 endpoint replacement | P2, **locally fixed after #403; device qualification pending** | `sentinel/panel/push_enrollment.py:127`, `sentinel/push_recipients.py:23`, `sentinel/web_push.py:316`: durable successors preserve pending obligations before/after capture. Current recipient revision and outbox attempt fence late results; explicit removal/re-enrollment cannot inherit old alerts. Policy-row serialization and consistent policy-to-outbox lock order exclude rotation during result commit. Real PostgreSQL tests cover endpoint/key rotation during HTTP, restart, delivered peers, targeted enrollment tests and conflicting-device refusal. |
-| A12 / A1 residual | P2/P1, code/resource limits | `sentinel/rolling_runtime.py:95` still validates full current inputs during status. `sentinel/shadow_supervisor.py:35` and `:138`, `sentinel/automation_supervisor.py:150` still depend on local filesystem progress. A tiny universe and killable SQL do not establish full-universe latency or resilience to a wedged state filesystem. Qualify independent external health and resource limits; any required bounded-reader/cache or filesystem-isolation implementation remains code work. |
+| A12 / A1 residual | P2/P1, partially fixed locally; resource qualification open | `sentinel/rolling_runtime.py:95` still validates full current inputs during status. Shadow heartbeat writes/removal now use bounded observers; exceptional exit disposes of the active worker and a known terminal exit is latched before the next heartbeat (`sentinel/shadow_supervisor.py:36`, `:277`, `:313`). See [design and limitations](shadow-heartbeat-isolation.md) and [retained acceptance](../audit/economic_399/shadow_heartbeat/README.md). Startup latch checks, durable latch writes and automation holder publication still depend on filesystem progress. Full-universe latency, kernel-uninterruptible I/O, independent external health and any resulting bounded-reader/filesystem changes remain gates. |
 | A14 / A16 | P1/P2, provider/economic policy | Recent SIP entitlement admission and held-spinoff continuation need accepted provider evidence and reviewed economic handling. Do not infer permission from a synthetic fixture or force continuation past an unsupported event. See the retained #400 dispositions. |
 | A24 residual | P2, **locally fixed after #403** | `scripts/sentinel_autonomous_deploy.py:1127`: streaming uses one monotonic pipe/process deadline, kills its private process group, reaps the child, retains partial output and returns 124 or refuses. Actual subprocess tests cover silence, partial lines, closed/inherited stdout and a descendant's prevented late write. Host filesystem/output-device stalls remain the separate A1/resource qualification. |
 | Full historical replay | Data-dependent, with an import/replay adapter still required | Supply the complete 20-year PIT corpus and warmup: SEP, SPY/BIL SFP, dated TICKERS/issuer/alias/exchange history, ACTIONS and terminal/spinoff terms, completeness/availability evidence, manifests and normalization versions. The user's corpus exists elsewhere; it was not accessed on the NAS. Retained operational publications cover only sessions actually published before their next open. A whole feed outage needs separately authenticated historical input; this recovery implementation does not backdate today's metadata. |
@@ -639,6 +639,77 @@ resource review** also includes base-directory enumeration
 (`sentinel/backup_runtime_authority.py:131`) and full manifest parsing (`:175`).
 The pre-existing full-universe status and filesystem-progress gates remain open.
 No NAS or real broker account was accessed.
+
+### GO renewal after runtime horizon exhaustion
+
+Review on main `8212a55335500b4bbb81853572019d9eb4443724` found another connected
+**P1 availability/recovery defect within A5 / backup A6**: status admitted intact
+chains beyond the runtime payload ceiling, so GO reported a healthy backup and
+skipped the renewal that runtime admission required. The new negative acceptance
+tests reproduced two false-ready results and two missing early object refusals;
+the new GO reason was also refused by the old classifier (five expected failures).
+
+`scripts/sentinel-backup-verify-chain.sh:81` now counts the inclusive interval
+and timeline history against the existing 1,024-object/1 GiB ceilings before
+hashing. `scripts/sentinel-backup-status.sh:182` recognizes exhaustion only with
+the exact exit-code/token pair. `scripts/sentinel_go_backup_refresh.py:34`
+routes that reason into the existing certified single-refresh path. A successor
+must pass production creation and exact-path checks; retained old media remains
+intact. Bring-up uses the same classifier. There is no permission to treat the
+unhashed old chain as intact or to waive any successor integrity check.
+
+Local acceptance: **319 relevant regression passes**, plus **one real PostgreSQL
+shell/manifest test** admitting 64 segments and refusing 65. **All eight mutants
+detected**. The actual shell/GO path renews at a later WAL position, avoids a
+second renewal on a fresh invocation, and refuses failed creation or corrupted
+successor evidence. Six Python files parse/pyflakes clean; both changed shell
+scripts pass syntax; 480 test modules owned after integration of owner-merged
+#409/main `84582af2020a708ab076821693ffa4ea93ebed1c`. All eight changed production,
+test and runner files are unchanged by that merge; all 22 focused cases passed
+on the combined source. See [design](backup-horizon-renewal.md)
+and [retained commands, failures, provenance and NAS handoff](../audit/economic_399/backup_horizon_renewal/README.md).
+
+This closes exhausted-horizon GO classification/renewal, not unattended
+maintenance. Recurring proactive renewal, supported-scope single ownership,
+restart/outage scheduling, retention, host directory/manifest/read-race bounds
+and complete physical/NAS qualification remain open. The existing explicit
+restore drill can still examine older recovery points independently. Pending
+#410's bounded selection remains separate and must retain both contracts on
+integration. C1/F6, F19, C3 and authoritative replay/data gates are unchanged.
+No historical-return impact or economic certification is established.
+
+### Recurring proactive backup maintenance and retention
+
+Implemented as Step 1 work, initially based on main
+`84582af2020a708ab076821693ffa4ea93ebed1c`, incorporating #410 and #412.
+The owner merged #410 during implementation; current-main integration and
+reviewed source identities are retained in the
+[maintenance evidence](../audit/economic_399/recurring_maintenance/README.md).
+
+| Claim / finding | Disposition | Production path and limits |
+|---|---|---|
+| A5 / backup A6 recurring renewal and retention were absent | P1 implementation gap addressed locally | `scripts/sentinel-backup-maintenance.sh` enters `scripts/sentinel_backup_maintenance.py`: 12-hour / 256 MiB current-WAL triggers, exact successor status, full restore, durable identity-bound receipt, then offline retention. Single ticks and an optional single-owner loop are provided. Scheduler installation is a NAS prerequisite. |
+| A worker could outlive its host client's lock | P1 lifecycle gap addressed for the documented one-host/one-account scope | Actual producer, restore and retention workers hold the same persistent media flock. Restore holds it continuously from copy through PostgreSQL shutdown. Worker deadlines, journal recovery and labeled disposable-resource reclamation handle interruption. NAS flock behavior remains unqualified. |
+| Archive-end timing could auto-promote the restore before its recovery-state check | P2 restore availability defect fixed locally | `scripts/sentinel-restore-worker.sh` pauses at the recorded target LSN; `scripts/sentinel-restore-drill.sh` requires pause and marker replay, then explicitly promotes. Pinned PG16 positive acceptance and removal falsifier exercise actual PostgreSQL. |
+| Equal timestamps could conceal a same-size `.env` rewrite | P2 input-consistency defect fixed locally | `scripts/sentinel_env.py:read_bytes` now requires two bounded complete byte observations to agree, preserving metadata/alias/type checks. A deterministic same-timestamp rewrite falsifier detects removal of the byte guard. |
+| Safe deletion of obsolete bases and WAL | Locally verified under explicit scope | `sentinel/backup_retention.py` keeps selected/recent/daily/weekly bases; journals deletion before quarantine; revalidates protected identities after interruption; computes WAL floor from every retained Start-LSN. Boundary segments, timeline histories, other timelines and unknown names are preserved. Mixed timelines retain all WAL. |
+
+Local results: 361 backup/GO/ownership regression passes; 930 final maintenance,
+restore-contract and environment checks; 873 environment checks on actual host
+Python 3.8.15 (overlapping cases); 15 code falsifiers plus the PG16 target
+falsifier detected. Private PostgreSQL-owned 0700 WAL directories are exercised
+through the actual worker CLI: missing capability refuses before base deletion;
+the reviewed offline worker capability succeeds without weakening media modes.
+Final receipt/semantic and provenance details are in the retained record.
+
+**Still open:** NAS scheduling/reboot/alert delivery, the one-host/one-account
+operational prerequisite, real target flock/rename/fsync guarantees, full-volume
+capacity and throughput, populated exact-image restores, corpus-dependent
+historical deltas and full-universe/callback resource qualification. C1/F6 cash
+producer completeness/finality, native F19 provider authority and C3 predecessor
+incarnation evidence are unchanged. No broker capability flag, golden economic
+result or certification status was loosened. Step 1 and economic certification
+are not marked complete.
 
 ### Compact rolling status input review (A12/A1)
 
