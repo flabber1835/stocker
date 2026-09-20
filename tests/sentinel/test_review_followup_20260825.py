@@ -144,7 +144,12 @@ def test_shadow_retry_threshold_latches_instead_of_exit_restart_loop(
             return shadow_supervisor.EXIT_RETRY
 
     monkeypatch.setattr(shadow_supervisor.subprocess, "Popen", lambda *a, **k: Child())
-    monkeypatch.setattr(shadow_supervisor, "_latched_wait", lambda stopping: 91)
+    def latched_wait(stopping, pending=None):
+        assert callable(stopping)
+        assert pending is None  # The real latch write completed; no retry is owed.
+        return 91
+
+    monkeypatch.setattr(shadow_supervisor, "_latched_wait", latched_wait)
     assert shadow_supervisor.run() == 91
     assert latch.exists()
     assert "bounded semantic retry threshold" in latch.read_text(encoding="utf-8")

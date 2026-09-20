@@ -223,3 +223,24 @@ baselines and detected `touch_boundary`, `exception_cleanup`, `refusal_order`
 and `cleanup_boundary`. The `worker-arm`, `pending-health` and `latch-timeout`
 cases of `python tools/paper_readiness_mutation_check.py CASE` also passed their
 baselines and detected all three mutants. `git diff --check` passed.
+
+## CI test-double follow-up
+
+The Sentinel main lane at `5a736396` passed 5,168 tests and failed one older
+retry-threshold test: its `_latched_wait` stub accepted only the former single
+argument. Updated the stub to accept the optional persistence-retry payload and
+assert that it is absent after the real latch write succeeds. Existing durable
+file and threshold-reason assertions remain; production code is unchanged.
+
+The original TypeError was reproduced with the reviewed supervisor and test
+mounted into the CI image's `/app` and `/work` layout. After correction:
+
+```text
+python -m pytest tests/sentinel/test_review_followup_20260825.py -q --tb=short -p no:cacheprovider
+15 passed in 1.78s (CI layout)
+python -m pytest tests/sentinel/test_review_followup_20260825.py tests/sentinel/test_supervisor_dependency_bounds.py tests/sentinel/test_shadow_heartbeat_isolation.py tests/sentinel/test_supervisor_timing_admission.py -q --tb=short -p no:cacheprovider
+74 passed in 33.37s (offline read-only checkout)
+```
+
+`git diff --check` passed. Full GitHub checks restart on the corrected head;
+targeted local results do not certify the complete CI run.
