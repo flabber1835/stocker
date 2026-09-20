@@ -1,0 +1,118 @@
+........................................................................ [ 30%]
+........................................................................ [ 60%]
+........................................................................ [ 91%]
+.....................                                                    [100%]
+237 passed in 72.74s (0:01:12)
+rounded-comparison exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_default_precision_cannot_admit_cash_just_outside_tolerance ________
+tests/sentinel/test_cash_grace_identity.py:161: in test_default_precision_cannot_admit_cash_just_outside_tolerance
+    with pytest.raises(PaperActivationRefused, match='not explained'):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'sentinel.paper.model.PaperActivationRefused'>
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_cash_grace_identity.py::test_default_precision_cannot_admit_cash_just_outside_tolerance
+1 failed in 3.58s
+
+rounded-fill-product exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_default_precision_cannot_admit_cash_just_outside_tolerance ________
+tests/sentinel/test_cash_grace_identity.py:161: in test_default_precision_cannot_admit_cash_just_outside_tolerance
+    with pytest.raises(PaperActivationRefused, match='not explained'):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'sentinel.paper.model.PaperActivationRefused'>
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_cash_grace_identity.py::test_default_precision_cannot_admit_cash_just_outside_tolerance
+1 failed in 3.53s
+
+missing-activity-delta exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_activity_delta_cannot_round_cash_into_tolerance _____________
+tests/sentinel/test_cash_grace_identity.py:177: in test_activity_delta_cannot_round_cash_into_tolerance
+    with pytest.raises(PaperActivationRefused, match='not explained'):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'sentinel.paper.model.PaperActivationRefused'>
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_cash_grace_identity.py::test_activity_delta_cannot_round_cash_into_tolerance
+1 failed in 3.54s
+
+rounded-grace-identity exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_changed_decimal_context_cannot_renew_cash_grace _____________
+tests/sentinel/test_cash_grace_identity.py:195: in test_changed_decimal_context_cannot_renew_cash_grace
+    assert not isinstance(caught.value, PaperRetryableRefused)
+E   AssertionError: assert not True
+E    +  where True = isinstance(PaperRetryableRefused('account cash endpoint is not yet coherent with the stable order/position bracket; no mutation is permitted during the bounded 120s re-observation window'), PaperRetryableRefused)
+E    +    where PaperRetryableRefused('account cash endpoint is not yet coherent with the stable order/position bracket; no mutation is permitted during the bounded 120s re-observation window') = <ExceptionInfo PaperRetryableRefused('account cash endpoint is not yet coherent with the stable order/position bracket; no mutation is permitted during the bounded 120s re-observation window') tblen=3>.value
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_cash_grace_identity.py::test_changed_decimal_context_cannot_renew_cash_grace
+1 failed in 3.54s
+
+4/4 cash authority mutants detected
+rounded-cursor exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_native_cash_accumulation_matches_sql_and_survives_restart[paper-28] ___
+tests/sentinel/test_alpaca_simulation_durability.py:85: in test_native_cash_accumulation_matches_sql_and_survives_restart
+    assert first.balance_total == sql_total == expected
+E   AssertionError: assert Decimal('1000.010000000000000000000000') == Decimal('1000.009999999999999999999999999999')
+E    +  where Decimal('1000.010000000000000000000000') = CashActivityState(broker='alpaca', account_id='SIM-ALPACA-1', processed_through=datetime.datetime(2026, 9, 9, 14, 0, t...al=Decimal('1000.010000000000000000000000'), last_event_id='00000000000000000000000003', activity_identity_scheme=None).balance_total
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_alpaca_simulation_durability.py::test_native_cash_accumulation_matches_sql_and_survives_restart[paper-28]
+1 failed in 3.36s
+
+rounded-external-capital exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_external_capital_and_reported_pl_keep_small_internal_income[28] _____
+tests/sentinel/test_alpaca_simulation_durability.py:120: in test_external_capital_and_reported_pl_keep_small_internal_income
+    assert cashflow.net_external(restarted, EPOCH.date(), EPOCH.date()) == external
+E   AssertionError: assert Decimal('1000.000000000000000000000000') == Decimal('1000.000000000000000000000000000001')
+E    +  where Decimal('1000.000000000000000000000000') = <function net_external at 0x7f0150a6ba60>(<psycopg.Connection [INTRANS] (host=127.0.0.1 port=38995 user=postgres database=stocker_test) at 0x7f014f011910>, datetime.date(2026, 9, 9), datetime.date(2026, 9, 9))
+E    +    where <function net_external at 0x7f0150a6ba60> = cashflow.net_external
+E    +    and   datetime.date(2026, 9, 9) = <built-in method date of datetime.datetime object at 0x7f014f4c2100>()
+E    +      where <built-in method date of datetime.datetime object at 0x7f014f4c2100> = datetime.datetime(2026, 9, 9, 14, 0, tzinfo=datetime.timezone.utc).date
+E    +    and   datetime.date(2026, 9, 9) = <built-in method date of datetime.datetime object at 0x7f014f4c2100>()
+E    +      where <built-in method date of datetime.datetime object at 0x7f014f4c2100> = datetime.datetime(2026, 9, 9, 14, 0, tzinfo=datetime.timezone.utc).date
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_alpaca_simulation_durability.py::test_external_capital_and_reported_pl_keep_small_internal_income[28]
+1 failed in 3.39s
+
+rounded-pl-subtraction exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_external_capital_and_reported_pl_keep_small_internal_income[28] _____
+tests/sentinel/test_alpaca_simulation_durability.py:121: in test_external_capital_and_reported_pl_keep_small_internal_income
+    assert cashflow.strategy_pl(restarted, start=EPOCH.date(), end=EPOCH.date(),
+E   AssertionError: assert Decimal('0.000399999999999999999999999999') == Decimal('0.0004')
+E    +  where Decimal('0.000399999999999999999999999999') = <function strategy_pl at 0x7a304193bb00>(<psycopg.Connection [INTRANS] (host=127.0.0.1 port=50289 user=postgres database=stocker_test) at 0x7a303fb65520>, start=datetime.date(2026, 9, 9), end=datetime.date(2026, 9, 9), opening_nav=Decimal('100000'), closing_nav=Decimal('101000.000400000000000000000000000001'))
+E    +    where <function strategy_pl at 0x7a304193bb00> = cashflow.strategy_pl
+E    +    and   datetime.date(2026, 9, 9) = <built-in method date of datetime.datetime object at 0x7a3042623900>()
+E    +      where <built-in method date of datetime.datetime object at 0x7a3042623900> = datetime.datetime(2026, 9, 9, 14, 0, tzinfo=datetime.timezone.utc).date
+E    +    and   datetime.date(2026, 9, 9) = <built-in method date of datetime.datetime object at 0x7a3042623900>()
+E    +      where <built-in method date of datetime.datetime object at 0x7a3042623900> = datetime.datetime(2026, 9, 9, 14, 0, tzinfo=datetime.timezone.utc).date
+E    +    and   Decimal('100000') = D(100000)
+E    +  and   Decimal('0.0004') = D('0.0004')
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_alpaca_simulation_durability.py::test_external_capital_and_reported_pl_keep_small_internal_income[28]
+1 failed in 3.33s
+
+rounded-residual-comparison exit 1
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_nav_residual_just_outside_tolerance_stays_unexplained_after_restart ___
+tests/sentinel/test_alpaca_simulation_durability.py:131: in test_nav_residual_just_outside_tolerance_stays_unexplained_after_restart
+    assert result.attribution is cashflow.Attribution.UNEXPLAINED
+E   AssertionError: assert <Attribution.MARKET: 'MARKET'> is <Attribution.UNEXPLAINED: 'UNEXPLAINED'>
+E    +  where <Attribution.MARKET: 'MARKET'> = NavReconciliation(session=datetime.date(2026, 9, 9), previous_nav=Decimal('100000'), observed_nav=Decimal('100001.0000...), marked_pl=Decimal('0'), external=Decimal('0'), unexplained=Decimal('0'), attribution=<Attribution.MARKET: 'MARKET'>).attribution
+E    +  and   <Attribution.UNEXPLAINED: 'UNEXPLAINED'> = <enum 'Attribution'>.UNEXPLAINED
+E    +    where <enum 'Attribution'> = cashflow.Attribution
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_alpaca_simulation_durability.py::test_nav_residual_just_outside_tolerance_stays_unexplained_after_restart
+1 failed in 3.33s
+
+4/4 producer/reporting mutants detected
