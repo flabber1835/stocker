@@ -1,5 +1,6 @@
 """Atomic full-value PostgreSQL write falsifiers in a disposable source copy."""
 from pathlib import Path
+import argparse
 import subprocess
 import sys
 
@@ -22,8 +23,17 @@ def main():
             'test_database_batched_insert_preserves_complete_value_and_rollback[129-False]', 2),
         'source-identity': ('sentinel/core/decision.py', '    "sentinel.observation_storage",\n', '',
             'test_observation_storage_is_part_of_economic_source_identity', 1),
+        'decimal-decoder-lifetime': ('sentinel/shadow_observation.py',
+            '                          else _compact_json_decoder())',
+            '                          else _compact_json_decoder())\n            type(self)._retained = self.loads',
+            'test_cursor_decoder_cache_is_released_and_connection_unchanged[True-False]', 2),
     }
+    parser = argparse.ArgumentParser(description=__doc__)
+    parser.add_argument('--case', choices=cases)
+    selected = parser.parse_args().case
     for name, (path, old, new, test, count) in cases.items():
+        if selected and name != selected:
+            continue
         command = [sys.executable, '-m', 'pytest', 'tests/sentinel/test_status_memory.py::'+test,
                    '-q', '--tb=short', '-p', 'no:cacheprovider']
         baseline = subprocess.run(command, capture_output=True, text=True, timeout=120)

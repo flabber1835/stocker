@@ -338,19 +338,20 @@ def test_compact_decoder_keeps_more_than_cache_capacity_and_long_scalars():
 
 
 @pytest.mark.parametrize('binary', [False, True])
-def test_cursor_decoder_cache_is_released_and_connection_unchanged(conn, monkeypatch, binary):
+@pytest.mark.parametrize('exact_numbers', [False, True])
+def test_cursor_decoder_cache_is_released_and_connection_unchanged(conn, monkeypatch, binary, exact_numbers):
     from psycopg.pq import Format
     original = conn.adapters.get_loader(3802, Format.BINARY if binary else Format.TEXT)
     factory = shadow._compact_json_decoder
     decoders = []
-    def tracked():
-        decoder = factory()
+    def tracked(**kwargs):
+        decoder = factory(**kwargs)
         decoders.append(weakref.ref(decoder))
         return decoder
     monkeypatch.setattr(shadow, '_compact_json_decoder', tracked)
     for _ in range(3):
         with conn.cursor(binary=binary) as cur:
-            shadow.PostgresShadowObservationStore._compact_decoder(cur)
+            shadow.PostgresShadowObservationStore._compact_decoder(cur, exact_numbers=exact_numbers)
             cur.execute("SELECT '{\"values\":[1000000.25,1000000.25]}'::jsonb")
             value = cur.fetchone()[0]
             assert value == {'values': [1000000.25, 1000000.25]}
