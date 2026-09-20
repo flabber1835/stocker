@@ -75,3 +75,62 @@ Validation (offline local PostgreSQL test image, current source copied inside):
 passes **128 tests in 3.73 seconds**. `git diff --check` passes. The rolling
 partition was not reached after the failed general partition; only new green
 GitHub CI can establish completion of the entire campaign.
+
+## Fresh rolling-container import follow-up
+
+Run `35520455438`, job `106103999586`, at
+`06aa33187d3a1e6b7a09a032f680aad7b7202485` passed all **4,919** general
+tests and **334** rolling tests. Three rolling cases failed with
+`ModuleNotFoundError`: generated installer programs, GO preparation/readiness,
+and operational parity's host validator. They located scripts relative to
+`/work/tests`, but the certified test image intentionally stores those host
+scripts under `/work/repo/scripts`. Previous combined collection had incidentally
+added that directory to the process import path; the fresh container exposed
+the dependency. No economic assertion failed in this run.
+
+The two affected test modules now use the existing `SENTINEL_REPO_ROOT`
+inspection contract, prepend only its scripts directory through `monkeypatch`,
+and assert each imported host module's actual file identity. The repository root
+stays off PYTHONPATH; production imports remain `/app/sentinel`. No production,
+workflow, resource limit, test selection, or golden artifact changes.
+
+The three original failures were reproduced locally in a fresh split-layout
+container (**3 failed in 15.88s**, each at its missing host-script import).
+After the fix, both complete affected modules plus image-layout acceptance pass:
+
+```text
+python -m pytest tests/sentinel/test_rolling_admission_readers.py tests/sentinel/test_rolling_go_inputs.py tests/sentinel/test_image_layout.py -q --tb=short -ra -p no:cacheprovider
+72 passed in 92.65s
+```
+
+To reproduce the local layout, run the existing `sentinel-test:ci` image with
+`--rm --network none --memory 4g --cpus 2`, mount the reviewed source read-only
+at `/source`, and use this Python bootstrap via `--entrypoint python -u -c`:
+
+```python
+import os, shutil, subprocess, sys
+shutil.copytree('/source', '/work/repo', dirs_exist_ok=True,
+                ignore=shutil.ignore_patterns('.git', '.env', '__pycache__'))
+for source, target in [('tests', '/work/tests'), ('tools', '/work/tools'),
+                       ('sentinel', '/app/sentinel')]:
+    shutil.copytree('/work/repo/' + source, target, dirs_exist_ok=True)
+os.chdir('/work')
+os.environ.update(PYTHONPATH='/work:/app', SENTINEL_REPO_ROOT='/work/repo',
+                  SENTINEL_IN_IMAGE='1', PYTHONDONTWRITEBYTECODE='1')
+probe = ('import sentinel,sys; assert sentinel.__file__.startswith("/app/"); '
+         'assert "/work/repo" not in sys.path; '
+         'assert "/work/repo/scripts" not in sys.path')
+subprocess.run([sys.executable, '-c', probe], check=True)
+raise SystemExit(subprocess.run([sys.executable, '-m', 'pytest',
+    'tests/sentinel/test_rolling_admission_readers.py',
+    'tests/sentinel/test_rolling_go_inputs.py',
+    'tests/sentinel/test_image_layout.py', '-q', '--tb=short', '-ra',
+    '-p', 'no:cacheprovider']).returncode)
+```
+
+This is a current-source layout reproduction using the local dependency image,
+not a claim that the whole exact-head CI image was rebuilt locally. The earlier
+`run_local.py` convenience harness adds the scripts path and therefore cannot
+falsify this particular import defect. AST and diff checks pass; pyflakes has
+only the same existing pytest-fixture diagnostics as the base. Ownership passes
+with 491 modules and zero unowned. Full GitHub CI must still pass before merge.
