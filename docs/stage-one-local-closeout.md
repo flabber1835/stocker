@@ -169,6 +169,43 @@ Nineteen positive controls pass and all eight deliberately broken storage
 variants are detected. This does not yet close L09: the complete separately
 capped publication/initialization/status/HTTP/next-session campaign is running.
 
+The full campaign subsequently passes initialization (659.77 s, runtime peak
+3,106,545,664 bytes, zero OOM), but both 512 MiB status and HTTP processes OOM.
+Retain those failures. A separately labeled 1 GiB, read-only allocation diagnostic
+shows genesis decoding at 351,892 KiB, canonical construction at 423,624 KiB,
+and hashing at 531,144 KiB before adding the full panel's larger imports.
+Canonical feed-array copies, not missing provider authority, are the next local
+defect. The larger diagnostic cap is not acceptance.
+
+Read-allocation decision before implementation: keep public state serialization
+and ordinary construction detached. Add a private canonical view which borrows
+already bounded feed arrays only for synchronous hashing or the existing
+single-use, repeatable-read, read-only status verifier. All fields still undergo
+the same canonical validation, trimming and commitment checks; trimming creates
+new arrays when needed. No verdict/hash cache, abbreviated record, ignored tail,
+or new public mutable alias is allowed. Status owns its freshly decoded database
+value and releases genesis before reading the current record. Ordinary writer,
+kernel and exported-dictionary paths retain their copying contract. Compare
+canonical bytes with an independent JSON encoder, test output ownership and
+tail tampering, and falsify the allocation bound by restoring the copies.
+
+The allocation/state/status/restore/ownership selection passes 141 tests.
+Five positive controls pass and four read/CI mutants are detected: restoring
+the hash's full copy breaches the 4 MiB allocation budget at 11,444,118 bytes;
+exporting borrowed arrays breaks public ownership; reversed working-order and
+cash-residual signs fail the existing economic oracles. The latter two CI
+mutants needed updated textual anchors after exact arithmetic was introduced
+(run 35531327152, job 106133309207 reports zero matches, not surviving bugs).
+Two public-status cases additionally reject a changed last compressed series
+even after its physical length/checksum are coherently recomputed.
+The final capped campaign uses a fresh immutable source copy and fresh database;
+no old strategy/source identity is silently relabeled for the new implementation.
+
+The cached production PostgreSQL 16.14 image also passes 49 targeted storage
+cases and the 8,408-series storage diagnostic in 50.66 seconds. Its database
+peak is 300,748,800 bytes with zero OOM/reclaim-limit events. This complements
+PG17 structural and full-pipeline measurements; it does not qualify the NAS.
+
 ## Current finding-to-caller cross-check
 
 Paths below are relative to `sentinel/`. The finding index retains all original

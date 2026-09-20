@@ -72,6 +72,34 @@ def restore_ready(operational_source, request, monkeypatch):
     return request.getfixturevalue('ready')
 
 
+@pytest.mark.parametrize('restore_ready', [129], indirect=True)
+@pytest.mark.parametrize('field', ['initial_state', 'state'])
+def test_public_status_checks_final_compressed_series_after_valid_storage_rehash(
+        conn, restore_ready, field):
+    import base64
+    import hashlib
+    import zlib
+    from sentinel import rolling_runtime, shadow_observation
+    from tests.sentinel.test_rolling_initialization import OBS
+    rolling_runtime.advance(conn, through='2026-09-14', observation_id=OBS, starting_cash=100_000)
+    store = shadow_observation.PostgresShadowObservationStore(conn, observation_id=OBS)
+    name = store._genesis_name if field == 'initial_state' else store._name('2026-09-14')
+    value = conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0]
+    group = value['_sentinel_series_storage']['groups'][-1]
+    batch = json.loads(zlib.decompress(base64.b64decode(group['data'])))
+    batch[sorted(batch)[-1]]['signal_closes'][0] = 999.125
+    raw = json.dumps(batch, sort_keys=True, separators=(',', ':')).encode('ascii')
+    group.update(bytes=len(raw), sha256=hashlib.sha256(raw).hexdigest(),
+                 data=base64.b64encode(zlib.compress(raw)).decode('ascii'))
+    conn.execute('UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s',
+                 (json.dumps(value), name))
+    conn.commit()
+    # Storage length/checksum/count remain valid. Public verification must
+    # inspect the changed final series against the economic commitments.
+    with pytest.raises(shadow_observation.ShadowObservationRefused):
+        rolling_runtime.status(conn, observation_id=OBS, starting_cash=100_000)
+
+
 @pytest.mark.parametrize('restore_ready', [25, 129], indirect=True, ids=['inline', 'compressed'])
 def test_populated_physical_restore_preserves_book_and_advances_next_session(
         conn, restore_ready, operational_source, monkeypatch):

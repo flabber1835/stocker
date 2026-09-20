@@ -11,8 +11,10 @@ def main():
 shutil.copytree('/source','/tmp/repo',ignore=shutil.ignore_patterns('.git','.env','__pycache__'))
 os.chdir('/tmp/repo')
 os.environ.update(PYTHONPATH='/tmp/repo:/tmp/repo/shared:/tmp/repo/scripts',SENTINEL_REPO_ROOT='/tmp/repo',PYTHONDONTWRITEBYTECODE='1')
-script = 'storage_mutations.py' if sys.argv[1:2] == ['storage'] else 'campaign.py'
-args = sys.argv[2:] if sys.argv[1:2] == ['storage'] else sys.argv[1:]
+mode = sys.argv[1:2]
+script = {'storage': 'storage_mutations.py', 'read': 'read_mutations.py'}.get(
+    mode[0] if mode else '', 'campaign.py')
+args = sys.argv[2:] if mode in (['storage'], ['read']) else sys.argv[1:]
 raise SystemExit(subprocess.run([sys.executable,'audit/economic_399/local_closeout/'+script,*args]).returncode)
 '''
     command = ['docker', 'run', '--rm', '--network', 'none', '--memory', '4g',

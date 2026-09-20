@@ -1245,7 +1245,8 @@ class ShadowObserver:
             state_value = (initial_state.to_dict()
                            if isinstance(initial_state, SessionState)
                            else initial_state)
-            self.initial_state = SessionState.from_dict(state_value)
+            self.initial_state = SessionState.from_dict(
+                state_value, _copy_feed=_retained_genesis is None)
         except (TypeError, ValueError) as exc:
             raise ShadowObservationRefused(
                 "initial shadow state is not a canonical SessionState") from exc
@@ -1283,7 +1284,8 @@ class ShadowObserver:
             **{key: value for key, value in self.spec.items()
                if key != "schema"},
             "spec_sha256": self.spec_sha256,
-            "initial_state": self.initial_state.to_dict(),
+            "initial_state": (self.initial_state.to_dict() if _retained_genesis is None
+                              else self.initial_state._canonical_mapping(_copy_feed=False)),
             "warmup_input_identity": self.warmup_input_identity,
         }
         genesis["genesis_sha256"] = _sha256(genesis)
@@ -1399,7 +1401,7 @@ class ShadowObserver:
 
     def _genesis_state_hash(self) -> str:
         try:
-            # __init__ emitted this through the canonical, validated to_dict().
+            # __init__ emitted this through the complete canonical validator.
             return _sha256(self.genesis_record["initial_state"])
         except (TypeError, ValueError) as exc:
             raise ShadowObservationRefused(
@@ -1702,7 +1704,8 @@ class ShadowObserver:
                       prior_state_sha256: str) -> SessionState:
         state_raw = raw.get("state")
         try:
-            state = SessionState.from_dict(state_raw)
+            state = SessionState.from_dict(
+                state_raw, _copy_feed=not getattr(self, "_pinned_status_genesis", False))
         except (TypeError, ValueError) as exc:
             raise ShadowObservationRefused(
                 f"shadow state for {expected_session} is incoherent") from exc
