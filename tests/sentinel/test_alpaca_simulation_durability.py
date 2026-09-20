@@ -65,6 +65,75 @@ def ingest(conn, world):
     return state
 
 
+@pytest.mark.parametrize('precision', [6, 28])
+def test_native_cash_accumulation_matches_sql_and_survives_restart(conn, pg, world, precision):
+    from decimal import localcontext
+
+    # Construct native input and an independent oracle before restricting the
+    # consumer context. No simulated fill-history capability is enabled.
+    with localcontext() as context:
+        context.prec = 100
+        world.cash_event('CSD', '1000', adversarial=True)
+        world.cash_event('DIV', '0.01', adversarial=True)
+        world.cash_event('FEE', '-0.000000000000000000000000000001', adversarial=True)
+        expected = D('1000') + D('0.01') - D('1e-30')
+    with localcontext() as context:
+        context.prec = precision
+        first = ingest(conn, world)
+    sql_total, row_count = conn.execute(
+        'SELECT SUM(amount),COUNT(*) FROM sentinel_cash_flows').fetchone()
+    assert first.balance_total == sql_total == expected
+    assert row_count == 3
+    assert first.activity_identity_scheme is None
+    world.advance(60)
+    with store.connect(pg.sync_dsn) as restarted:
+        # The real parser rereads the overlap; immutable rows count once.
+        again = ingest(restarted, world)
+        assert again.balance_total == expected
+        assert restarted.execute('SELECT COUNT(*) FROM sentinel_cash_flows').fetchone()[0] == 3
+    world.advance(60)
+    with localcontext() as context:
+        context.prec = 100
+        world.cash_event('INT', '0.000000000000000000000000000001', adversarial=True)
+    with store.connect(pg.sync_dsn) as restarted, localcontext() as context:
+        context.prec = precision
+        advanced = ingest(restarted, world)
+        assert advanced.balance_total == D('1000.01')
+        assert restarted.execute('SELECT SUM(amount),COUNT(*) FROM sentinel_cash_flows').fetchone() == (D('1000.01'), 4)
+    assert all(method == 'GET' for method, _ in world.counts)
+
+
+@pytest.mark.parametrize('precision', [6, 28])
+def test_external_capital_and_reported_pl_keep_small_internal_income(conn, pg, precision):
+    from decimal import localcontext
+
+    cashflow.record(conn, session=EPOCH.date(), amount=D(1000),
+                    detail='independent deposit', flow_id='deposit-a')
+    cashflow.record(conn, session=EPOCH.date(), amount=D('1e-30'),
+                    detail='independent deposit', flow_id='deposit-b')
+    with localcontext() as context:
+        context.prec = 100
+        external = D(1000) + D('1e-30')
+        closing = D(100000) + external + D('0.0004')
+    with store.connect(pg.sync_dsn) as restarted, localcontext() as context:
+        context.prec = precision
+        assert cashflow.net_external(restarted, EPOCH.date(), EPOCH.date()) == external
+        assert cashflow.strategy_pl(restarted, start=EPOCH.date(), end=EPOCH.date(),
+            opening_nav=D(100000), closing_nav=closing) == D('0.0004')
+
+
+def test_nav_residual_just_outside_tolerance_stays_unexplained_after_restart(conn, pg):
+    observed = D('100001.000000000000000000000000000001')
+    # Scaled-integer oracle: unexplained amount is 1 + 10^-30, not 1.
+    expected = D('1.000000000000000000000000000001')
+    result = cashflow.reconcile_nav(conn, session=EPOCH.date(), previous_nav=D(100000),
+                                   observed_nav=observed, marked_pl=D(0))
+    assert result.attribution is cashflow.Attribution.UNEXPLAINED
+    assert result.unexplained == result.move == expected
+    with store.connect(pg.sync_dsn) as restarted:
+        assert cashflow.latest_reconciliation(restarted) == result
+
+
 def test_unknown_restart_reconciles_broker_fill_and_durable_cash_once(conn, pg, world):
     world.timeout(after_effect=True)
     sent = run(executor._persist_and_send(conn, world.adapter(), command()))

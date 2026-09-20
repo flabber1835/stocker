@@ -1,0 +1,59 @@
+["docker", "run", "--rm", "--network", "none", "--memory", "4g", "--cpus", "2", "--mount", "type=bind,source=C:/GitHub/stocker/.codex-tmp/cash-authority-precision-worktree,target=/source,readonly", "--entrypoint", "python", "sentinel-test:ci", "-u", "-c", "import os,shutil,subprocess,sys\nshutil.copytree('/source','/tmp/repo',ignore=shutil.ignore_patterns('.git','.env','__pycache__'))\nos.chdir('/tmp/repo')\nos.environ.update(PYTHONPATH='/tmp/repo:/tmp/repo/shared:/tmp/repo/scripts',SENTINEL_REPO_ROOT='/tmp/repo',PYTHONDONTWRITEBYTECODE='1')\nraise SystemExit(subprocess.run([sys.executable,*sys.argv[1:]]).returncode)\n", "-m", "pytest", "tests/sentinel/test_alpaca_simulation_durability.py", "-k", "accumulation_matches or reported_pl_keep or residual_just", "-q", "-ra", "--tb=short", "-p", "no:cacheprovider"]
+FFFFFFF                                                                  [100%]
+=================================== FAILURES ===================================
+___ test_native_cash_accumulation_matches_sql_and_survives_restart[paper-6] ____
+tests/sentinel/test_alpaca_simulation_durability.py:85: in test_native_cash_accumulation_matches_sql_and_survives_restart
+    assert first.balance_total == sql_total == expected
+E   AssertionError: assert Decimal('1000.01') == Decimal('1000.009999999999999999999999999999')
+E    +  where Decimal('1000.01') = CashActivityState(broker='alpaca', account_id='SIM-ALPACA-1', processed_through=datetime.datetime(2026, 9, 9, 14, 0, t...00000003', balance_total=Decimal('1000.01'), last_event_id='00000000000000000000000003', activity_identity_scheme=None).balance_total
+___ test_native_cash_accumulation_matches_sql_and_survives_restart[paper-28] ___
+tests/sentinel/test_alpaca_simulation_durability.py:85: in test_native_cash_accumulation_matches_sql_and_survives_restart
+    assert first.balance_total == sql_total == expected
+E   AssertionError: assert Decimal('1000.010000000000000000000000') == Decimal('1000.009999999999999999999999999999')
+E    +  where Decimal('1000.010000000000000000000000') = CashActivityState(broker='alpaca', account_id='SIM-ALPACA-1', processed_through=datetime.datetime(2026, 9, 9, 14, 0, t...al=Decimal('1000.010000000000000000000000'), last_event_id='00000000000000000000000003', activity_identity_scheme=None).balance_total
+_ test_native_cash_accumulation_matches_sql_and_survives_restart[live_cash-6] __
+tests/sentinel/test_alpaca_simulation_durability.py:85: in test_native_cash_accumulation_matches_sql_and_survives_restart
+    assert first.balance_total == sql_total == expected
+E   AssertionError: assert Decimal('1000.01') == Decimal('1000.009999999999999999999999999999')
+E    +  where Decimal('1000.01') = CashActivityState(broker='alpaca', account_id='SIM-ALPACA-1', processed_through=datetime.datetime(2026, 9, 9, 14, 0, t...00000003', balance_total=Decimal('1000.01'), last_event_id='00000000000000000000000003', activity_identity_scheme=None).balance_total
+_ test_native_cash_accumulation_matches_sql_and_survives_restart[live_cash-28] _
+tests/sentinel/test_alpaca_simulation_durability.py:85: in test_native_cash_accumulation_matches_sql_and_survives_restart
+    assert first.balance_total == sql_total == expected
+E   AssertionError: assert Decimal('1000.010000000000000000000000') == Decimal('1000.009999999999999999999999999999')
+E    +  where Decimal('1000.010000000000000000000000') = CashActivityState(broker='alpaca', account_id='SIM-ALPACA-1', processed_through=datetime.datetime(2026, 9, 9, 14, 0, t...al=Decimal('1000.010000000000000000000000'), last_event_id='00000000000000000000000003', activity_identity_scheme=None).balance_total
+_____ test_external_capital_and_reported_pl_keep_small_internal_income[6] ______
+tests/sentinel/test_alpaca_simulation_durability.py:111: in test_external_capital_and_reported_pl_keep_small_internal_income
+    assert cashflow.net_external(restarted, EPOCH.date(), EPOCH.date()) == external
+E   AssertionError: assert Decimal('1000.00') == Decimal('1000.000000000000000000000000000001')
+E    +  where Decimal('1000.00') = <function net_external at 0x7578fb860f40>(<psycopg.Connection [INTRANS] (host=127.0.0.1 port=37575 user=postgres database=stocker_test) at 0x7578f897fd40>, datetime.date(2026, 9, 9), datetime.date(2026, 9, 9))
+E    +    where <function net_external at 0x7578fb860f40> = cashflow.net_external
+E    +    and   datetime.date(2026, 9, 9) = <built-in method date of datetime.datetime object at 0x7578fa34d8f0>()
+E    +      where <built-in method date of datetime.datetime object at 0x7578fa34d8f0> = datetime.datetime(2026, 9, 9, 14, 0, tzinfo=datetime.timezone.utc).date
+E    +    and   datetime.date(2026, 9, 9) = <built-in method date of datetime.datetime object at 0x7578fa34d8f0>()
+E    +      where <built-in method date of datetime.datetime object at 0x7578fa34d8f0> = datetime.datetime(2026, 9, 9, 14, 0, tzinfo=datetime.timezone.utc).date
+_____ test_external_capital_and_reported_pl_keep_small_internal_income[28] _____
+tests/sentinel/test_alpaca_simulation_durability.py:111: in test_external_capital_and_reported_pl_keep_small_internal_income
+    assert cashflow.net_external(restarted, EPOCH.date(), EPOCH.date()) == external
+E   AssertionError: assert Decimal('1000.000000000000000000000000') == Decimal('1000.000000000000000000000000000001')
+E    +  where Decimal('1000.000000000000000000000000') = <function net_external at 0x7578fb860f40>(<psycopg.Connection [INTRANS] (host=127.0.0.1 port=37575 user=postgres database=stocker_test) at 0x7578f897cc50>, datetime.date(2026, 9, 9), datetime.date(2026, 9, 9))
+E    +    where <function net_external at 0x7578fb860f40> = cashflow.net_external
+E    +    and   datetime.date(2026, 9, 9) = <built-in method date of datetime.datetime object at 0x7578fa34d8f0>()
+E    +      where <built-in method date of datetime.datetime object at 0x7578fa34d8f0> = datetime.datetime(2026, 9, 9, 14, 0, tzinfo=datetime.timezone.utc).date
+E    +    and   datetime.date(2026, 9, 9) = <built-in method date of datetime.datetime object at 0x7578fa34d8f0>()
+E    +      where <built-in method date of datetime.datetime object at 0x7578fa34d8f0> = datetime.datetime(2026, 9, 9, 14, 0, tzinfo=datetime.timezone.utc).date
+___ test_nav_residual_just_outside_tolerance_stays_unexplained_after_restart ___
+tests/sentinel/test_alpaca_simulation_durability.py:122: in test_nav_residual_just_outside_tolerance_stays_unexplained_after_restart
+    assert result.attribution is cashflow.Attribution.UNEXPLAINED
+E   AssertionError: assert <Attribution.MARKET: 'MARKET'> is <Attribution.UNEXPLAINED: 'UNEXPLAINED'>
+E    +  where <Attribution.MARKET: 'MARKET'> = NavReconciliation(session=datetime.date(2026, 9, 9), previous_nav=Decimal('100000'), observed_nav=Decimal('100001.0000...), marked_pl=Decimal('0'), external=Decimal('0'), unexplained=Decimal('0'), attribution=<Attribution.MARKET: 'MARKET'>).attribution
+E    +  and   <Attribution.UNEXPLAINED: 'UNEXPLAINED'> = <enum 'Attribution'>.UNEXPLAINED
+E    +    where <enum 'Attribution'> = cashflow.Attribution
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_alpaca_simulation_durability.py::test_native_cash_accumulation_matches_sql_and_survives_restart[paper-6]
+FAILED tests/sentinel/test_alpaca_simulation_durability.py::test_native_cash_accumulation_matches_sql_and_survives_restart[paper-28]
+FAILED tests/sentinel/test_alpaca_simulation_durability.py::test_native_cash_accumulation_matches_sql_and_survives_restart[live_cash-6]
+FAILED tests/sentinel/test_alpaca_simulation_durability.py::test_native_cash_accumulation_matches_sql_and_survives_restart[live_cash-28]
+FAILED tests/sentinel/test_alpaca_simulation_durability.py::test_external_capital_and_reported_pl_keep_small_internal_income[6]
+FAILED tests/sentinel/test_alpaca_simulation_durability.py::test_external_capital_and_reported_pl_keep_small_internal_income[28]
+FAILED tests/sentinel/test_alpaca_simulation_durability.py::test_nav_residual_just_outside_tolerance_stays_unexplained_after_restart
+7 failed, 22 deselected in 5.07s

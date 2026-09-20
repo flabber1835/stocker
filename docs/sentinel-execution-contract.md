@@ -804,6 +804,26 @@ order is adopted after restore. Cash reconciliation reads that durable value;
 it does not require a terminal order to remain in every future broker response.
 This is what makes restart cash authority bounded independently of account age.
 
+Cash reconciliation must compare the exact plan cash plus signed cumulative
+fill notionals and the exact native-activity baseline delta against the existing
+absolute $1 tolerance. Ambient Decimal precision must not change this admission
+decision or the expected-cash identity of the non-renewable endpoint-lag grace.
+Use rational arithmetic for these finite-decimal sums/products and comparisons;
+convert the terminating result back to Decimal exactly for durable grace identity
+and diagnostics. This changes neither the tolerance nor provider finality,
+activity ownership, or the prohibition on resizing an immutable plan.
+
+The same exactness extends upstream to the cash-activity cursor and downstream
+to external-capital/P&L attribution. Cursor accumulation must equal PostgreSQL's
+exact sum of accepted native rows across batches, duplicate replays and restart;
+an already inconsistent retained cursor still refuses, rather than being repaired
+from a balance. Keep the pure terminating-rational conversion in
+`sentinel/execution/numeric.py` for these execution cash consumers. NAV residual
+classification must compare exact values to the existing absolute tolerance;
+internal dividends/fees remain P&L and external deposits/withdrawals remain capital.
+This does not grant provider completeness, fixed-close finality, or new authority
+to the candidate cash adapter, and it does not alter Wealth Core's shadow book.
+
 Historical orders are resolved by permanent identity at their own submission
 session, not at today's session. That timestamp is also persisted as the
 durable command boundary when a stale restore adopts a broker-only Sentinel
