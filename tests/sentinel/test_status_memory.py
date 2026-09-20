@@ -20,6 +20,174 @@ from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # n
 __all__ = ['ready', 'issuer_source', 'published', 'operational_source', 'conn', 'pg', 'source']
 
 
+@pytest.mark.parametrize('length', [0, 1, 255, 256, 257, 512, 513, 1301])
+def test_batched_json_matches_independent_standard_encoder(length):
+    from sentinel.core.session import _canonical_chunks, _hash, _validate_json
+    values = [None, True, False, -0.0, 1e-300, 1e300, -2**64, 2**64,
+              '\U0001f642\n"\\\ud800', 'x'*65, [2, 1], {'z': 3, 'a': 2}]
+    value = {'z': [values[i % len(values)] for i in range(length)],
+             'a': tuple(range(length)), 'numeric_keys': {2: 'b', 1: 'a'}}
+    expected = json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    assert ''.join(_canonical_chunks(value)) == expected
+    expected_hash = hashlib.sha256(expected.encode('ascii')).hexdigest()
+    assert _hash(value) == shadow._sha256(value) == expected_hash
+    _validate_json(value)
+
+
+def test_batched_json_fuzz_and_final_element_commitment():
+    import random
+    from sentinel.core.session import _canonical_chunks, _hash
+    rng = random.Random(399)
+    def generate(depth):
+        if depth == 0:
+            return rng.choice([None, False, rng.uniform(-1e40, 1e40), rng.randrange(-2**80, 2**80),
+                               ''.join(chr(rng.randrange(0x110000)) for _ in range(10))])
+        children = [generate(depth-1) for _ in range(rng.randrange(6))]
+        return children if rng.randrange(2) else {str(i): v for i, v in enumerate(children)}
+    for _ in range(100):
+        value = generate(4)
+        assert ''.join(_canonical_chunks(value)) == json.dumps(
+            value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    series = list(range(1301))
+    original = _hash(series)
+    series[-1] = -999
+    assert _hash(series) != original
+
+
+@pytest.mark.parametrize('invalid', [float('nan'), float('inf'), -float('inf'), object(),
+                                    {1: 'a', 'z': 'b'}, {('invalid',): 1}])
+def test_batched_json_rejects_invalid_value_in_last_batch(invalid):
+    from sentinel.core.session import _canonical_chunks, _hash, _validate_json
+    value = {'array': [0]*512 + [invalid]}
+    with pytest.raises((TypeError, ValueError)):
+        json.dumps(value, sort_keys=True, separators=(',', ':'), allow_nan=False)
+    for operation in (lambda v: list(_canonical_chunks(v)), _hash, _validate_json):
+        with pytest.raises((TypeError, ValueError)):
+            operation(value)
+    with pytest.raises(shadow.ShadowObservationRefused):
+        shadow._sha256(value)
+
+
+def test_batched_json_refuses_cycles_but_allows_shared_children():
+    from sentinel.core.session import _canonical_chunks
+    child = [1, 2]
+    assert ''.join(_canonical_chunks([child, child])) == '[[1,2],[1,2]]'
+    child.append({'parent': child})
+    with pytest.raises(ValueError, match='Circular reference'):
+        list(_canonical_chunks(child))
+
+
+def test_batched_json_never_encodes_a_whole_large_array():
+    import tracemalloc
+    from sentinel.core.session import _canonical_chunks
+    value = {'prices': [1.25]*100001}
+    expected = hashlib.sha256(json.dumps(value, sort_keys=True, separators=(',', ':'),
+                                        allow_nan=False).encode()).hexdigest()
+    digest = hashlib.sha256()
+    tracemalloc.start()
+    try:
+        for chunk in _canonical_chunks(value):
+            digest.update(chunk.encode('ascii'))
+        _, peak = tracemalloc.get_traced_memory()
+    finally:
+        tracemalloc.stop()
+    assert digest.hexdigest() == expected
+    # Incremental scratch space, measured after the caller-owned input exists.
+    # This budget is independent of batch size or number of encoder calls.
+    assert peak < 256*1024, f'encoded array allocated {peak} bytes of scratch space'
+
+
+@pytest.mark.parametrize('genesis', [False, True])
+@pytest.mark.parametrize('size', [0, 1, 128, 129, 513])
+def test_database_batched_insert_preserves_complete_value_and_rollback(conn, genesis, size):
+    from sentinel import schema
+    schema.ensure_schema(conn)
+    store = shadow.PostgresShadowObservationStore(conn, observation_id='bounded-write', commit_genesis=False)
+    field = 'initial_state' if genesis else 'state'
+    candidate = {'observation_id': 'bounded-write', 'first_session': '2026-09-14', 'session': '2026-09-14',
+                 'unrelated': {'unicode': '\u00e9', 'fields': [False, None, 1.25]},
+                 field: {'feed': {'series': {str(i): {'prices': [i, 1.25, None], 'label': 'a\\"\n'}
+                                            for i in range(size)}, 'other': ['kept']},
+                         'wealth_core': {'cash': 1985.80372}}}
+    expected = json.loads(json.dumps(candidate, allow_nan=False))
+    append = store.append_genesis if genesis else store.append
+    name = store._genesis_name if genesis else store._name('2026-09-14')
+    append(candidate)
+    assert conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0] == expected
+    assert not conn.execute("SELECT 1 FROM pg_class WHERE relnamespace=pg_my_temp_schema() AND relname LIKE 'shadow_insert_%'").fetchall()
+    append(candidate)
+    changed = deepcopy(candidate)
+    changed['unrelated']['fields'][-1] = 999
+    with pytest.raises(shadow.ShadowObservationRefused, match='different evidence'):
+        append(changed)
+    conn.rollback()
+    assert conn.execute('SELECT count(*) FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0] == 0
+    append(candidate)
+    conn.commit()
+    assert conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s', (name,)).fetchone()[0] == expected
+
+
+def test_database_batched_insert_refuses_missing_last_series(conn, monkeypatch):
+    from sentinel import observation_storage, schema
+    schema.ensure_schema(conn)
+    store = shadow.PostgresShadowObservationStore(conn, observation_id='bounded-write')
+    candidate = {'observation_id': 'bounded-write', 'session': '2026-09-14',
+                 'state': {'feed': {'series': {str(i): {'prices': [i]} for i in range(257)}}}}
+    insert = observation_storage.insert
+    def corrupt(conn, **kwargs):
+        changed = deepcopy(kwargs['candidate'])
+        del changed['state']['feed']['series']['256']
+        insert(conn, **{**kwargs, 'candidate': changed})
+    monkeypatch.setattr(observation_storage, 'insert', corrupt)
+    with pytest.raises(shadow.ShadowObservationRefused, match='different evidence'):
+        store.append(candidate)
+    conn.rollback()
+    assert store.records() == []
+
+
+def test_observation_storage_is_part_of_economic_source_identity(tmp_path, monkeypatch):
+    from sentinel import observation_storage
+    from sentinel.core import decision
+    before = decision.data_semantics_source_identity()['sha256']
+    changed = tmp_path/'observation_storage.py'
+    changed.write_bytes(Path(observation_storage.__file__).read_bytes() + b'\n# simulated implementation edit\n')
+    monkeypatch.setattr(observation_storage, '__file__', str(changed))
+    assert decision.data_semantics_source_identity()['sha256'] != before
+
+
+@pytest.mark.parametrize('stored,expected', [
+    ('1.00000000000000001', 1.0), ('0.100000000000000001', .1), ('0.1', .1),
+    ('1', 1.0), ('true', 1), ('0', False), ('null', None),
+    ('{"v":[1.00000000000000001]}', {'v': [1.0]}),
+    ('{"v":[1.0,null,true]}', {'v': [1, None, True]}),
+    ('{"v":[]}', {'v': {}}), ('{}', {'extra': None})])
+def test_exact_json_comparison_matches_postgresql_numeric_and_type_oracle(conn, stored, expected):
+    from decimal import Decimal
+    from sentinel.observation_storage import exact_value_equal
+    sql_equal = conn.execute('SELECT %s::jsonb=%s::jsonb', (stored, json.dumps(expected))).fetchone()[0]
+    actual = json.loads(stored, parse_float=Decimal)
+    assert exact_value_equal(actual, expected) is sql_equal
+
+
+@pytest.mark.parametrize('genesis', [False, True])
+def test_database_retry_refuses_sub_float_precision_corruption(conn, genesis):
+    from sentinel import schema
+    schema.ensure_schema(conn)
+    store = shadow.PostgresShadowObservationStore(conn, observation_id='precise-write', commit_genesis=False)
+    candidate = {'observation_id': 'precise-write', 'first_session': '2026-09-14', 'session': '2026-09-14',
+                 'price': 1.0, 'genesis_sha256': 'a'*64}
+    append = store.append_genesis if genesis else store.append
+    name = store._genesis_name if genesis else store._name('2026-09-14')
+    append(candidate)
+    conn.commit()
+    conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{price}','1.00000000000000001') WHERE cursor_name=%s", (name,))
+    conn.commit()
+    if genesis:
+        assert store.matches_genesis(candidate) is False
+    with pytest.raises(shadow.ShadowObservationRefused, match='different evidence'):
+        append(candidate)
+
+
 def assert_original_serialization(state):
     from sentinel.core import session
     namespace = dict(vars(session), asdict=asdict)
@@ -170,19 +338,20 @@ def test_compact_decoder_keeps_more_than_cache_capacity_and_long_scalars():
 
 
 @pytest.mark.parametrize('binary', [False, True])
-def test_cursor_decoder_cache_is_released_and_connection_unchanged(conn, monkeypatch, binary):
+@pytest.mark.parametrize('exact_numbers', [False, True])
+def test_cursor_decoder_cache_is_released_and_connection_unchanged(conn, monkeypatch, binary, exact_numbers):
     from psycopg.pq import Format
     original = conn.adapters.get_loader(3802, Format.BINARY if binary else Format.TEXT)
     factory = shadow._compact_json_decoder
     decoders = []
-    def tracked():
-        decoder = factory()
+    def tracked(**kwargs):
+        decoder = factory(**kwargs)
         decoders.append(weakref.ref(decoder))
         return decoder
     monkeypatch.setattr(shadow, '_compact_json_decoder', tracked)
     for _ in range(3):
         with conn.cursor(binary=binary) as cur:
-            shadow.PostgresShadowObservationStore._compact_decoder(cur)
+            shadow.PostgresShadowObservationStore._compact_decoder(cur, exact_numbers=exact_numbers)
             cur.execute("SELECT '{\"values\":[1000000.25,1000000.25]}'::jsonb")
             value = cur.fetchone()[0]
             assert value == {'values': [1000000.25, 1000000.25]}
