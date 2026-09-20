@@ -1,0 +1,9 @@
+{
+  "budget-differences.json": "4fa3c66e8959564ce0887b93ec89586c15181059b77624df7e2b686017094a92",
+  "decisions.jsonl": "74869595d728c112958beb6d8698bbc6db96f8e80bddc4e77831bfdb36e72dc5",
+  "exposure-transitions.json": "8f35b751fb72eb472e59930718c74dbb5b7571abda5be97dc89645db2321168f",
+  "mismatches.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570",
+  "opening-quantities.json": "38ce8caaf638181d971d206fe2269601f172977acef7ebbae359ed661646355a",
+  "result.json": "4228ce7b36d6593e6ca7ea6f35375bd3c2ed1d2bd03d19ee807c0ad6ea5468dc",
+  "sizing-mismatches.json": "37517e5f3dc66819f61f5a7bb8ace1921282415f10551d2defa5c3eb0985b570"
+}

@@ -1,0 +1,39 @@
+{
+  "comparator_falsifier_detected": true,
+  "comparison_mismatches": 0,
+  "elapsed_seconds": 5.221170968026854,
+  "exposure_transitions": 23,
+  "first_date": "2006-07-31",
+  "last_date": "2026-07-31",
+  "measured_sessions": 5032,
+  "observations": 5176,
+  "production_revision": "daa43caf995779bfa7e67195785520744021cb45",
+  "reference_metrics": {
+    "cagr": 0.22323600023175572,
+    "end": "2026-07-31",
+    "ending_multiple": 56.26534933655832,
+    "max_drawdown": -0.2652803738241426,
+    "sessions": 5032,
+    "sharpe_daily_252": 1.154056575089081,
+    "start": "2006-07-31"
+  },
+  "reference_run": "34544522249",
+  "restart_checkpoints": 17,
+  "restart_mismatches": 0,
+  "scope": "Current controller, admissions and sizing on retained inputs; no ranking, upstream-input, return or full-system parity claim",
+  "sizing": {
+    "admission_cases": 40687,
+    "budget_numeric_differences": 142,
+    "decision_mismatches": 0,
+    "independent_opening_bounds": "PASS",
+    "largest_budget_difference": 1.4551915228366852e-11,
+    "opening_cases": 416,
+    "oversized_quantity_falsifier": "PASS"
+  },
+  "source_hashes": {
+    "decisions": "cda954a33aa4e16d72a8124219ae9eb7f526f003d0c8b4f5dbb88c69e498caeb",
+    "observations": "87b54e24c1c1267f788cadd8d5043e426b4c4354b757a498a3c3a13b3afe7def",
+    "script": "5f75aede1b682a9b9aab79874da96c75b976beaa1c4b991e6bc4b223eb24f7db"
+  },
+  "status": "PASS_CONDITIONAL_DECISION_SMOKE"
+}

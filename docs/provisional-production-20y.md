@@ -1,5 +1,37 @@
 # Provisional current-production twenty-year backtest
 
+## Bounded decision smoke comparison, 2026-09-19
+
+The owner requested a quick smoke comparison instead of further historical
+data repair. Reuse the retained PR #352 result and independently recorded
+observations from run 34544522249, artifact 10179195109. Verify its checksums
+and the production source binding. Drive the current production native and
+recovery controllers from the recorded observation inputs, starting from fresh
+controller state and preserving all subsequent state. Compare dated native
+targets, recovery targets/reasons, effective exposure and severe signals to
+the retained decisions. Expected decisions must never become transition inputs.
+Replay controller JSON restoration every 300 sessions and compare that path too.
+Report dated exposure changes and explicit comparison failures; do not repair
+inputs or change production to obtain agreement. This small controller replay
+can cover the full tape without rerunning universe selection.
+
+This verifies controller decisions conditional on the old observed Core path.
+It does not recompute stock selection, sizing, stops, corporate-action accounting,
+breadth or leadership inputs. The old run used the reviewed-18 classification
+overlay and an already invested July 2006 book, while the provisional current
+engine run uses a fresh July account and leaves unknown classifications excluded.
+Comparing those two stock-decision tapes directly would confound changed inputs,
+initial state and implementation. No stock-decision parity or current production
+CAGR is inferred from this smoke test. Keep the larger replay deferred.
+
+Also replay the canonical V5 admission and opening-quantity functions against
+the retained dated candidate, equity, cash, intent and opening-price records.
+Compare admission/skip outcomes and whole-share quantities, recording exact
+budget differences separately from changed decisions. These are conditional
+checks of each recorded case, not a reconstruction of candidate ranking or the
+subsequent book. Verify opening quantities with independent high-precision
+cost bounds and an intentionally oversized-quantity falsifier.
+
 Owner request, 2026-09-19: prioritize a twenty-year CAGR and ending-capital
 multiple; defer completion of Stage 1. This is Stage 2 work. No NAS or real
 broker access is authorized or required. Base verification used authenticated
