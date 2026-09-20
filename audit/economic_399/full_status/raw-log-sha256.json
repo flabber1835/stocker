@@ -1,0 +1,42 @@
+{
+  "full-status-smoke.log": {
+    "sha256": "5a04cc43146c44d8a4b10634aee535d56037dab026dd3c21effde40e67efd10e",
+    "bytes": 6920
+  },
+  "full-status-scale.log": {
+    "sha256": "1991175b10068075e88bea1739ff242494759e70207301852546ee2b39d2b147",
+    "bytes": 168986
+  },
+  "full-status-live-memory.log": {
+    "sha256": "e9ad688c0dda86366f40ee77e881e2c7c51571a3f93d764c95e42001d70712cd",
+    "bytes": 86
+  },
+  "full-status-concurrency-before.log": {
+    "sha256": "a80f5a170dc84ea7b25d6760179c12ff8d2219a0fd544631c1b1443a1161eb48",
+    "bytes": 8867
+  },
+  "full-status-concurrency-final.log": {
+    "sha256": "c4c8f8938228b329694cdbb82d842b736a8803bf4f0c9744c7e9398697f6e475",
+    "bytes": 1562
+  },
+  "full-status-concurrency-mutants.log": {
+    "sha256": "8654c360ba56dc31fba5ed5c902ef393861ebded62bdc89f0d992976a2b9c2ae",
+    "bytes": 8734
+  },
+  "full-status-static.log": {
+    "sha256": "3d3efa1d6bca1bf9eb9bca90271bcc6ddc6295ab71cdcd97f6e149a4d8b91a5e",
+    "bytes": 41
+  },
+  "full-status-ownership.log": {
+    "sha256": "6839267b09efdd31ce0c5eed17ddcd54c20918f579bd183b8caafa47d27be303",
+    "bytes": 13031
+  },
+  "full-status-ownership.json": {
+    "sha256": "6839267b09efdd31ce0c5eed17ddcd54c20918f579bd183b8caafa47d27be303",
+    "bytes": 13031
+  },
+  "full-status-worker-config.log": {
+    "sha256": "e07bcc478ba7fe3cc7959c2a993374f75b2e70ee5173e4faa717a811dfb606f2",
+    "bytes": 48
+  }
+}

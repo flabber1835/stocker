@@ -35,7 +35,7 @@ def readiness(conn, *, today):
     pub = require_current(conn)
     if is_rolling(pub):
         from datetime import datetime
-        return rolling_go_inputs.validate(conn, pub, now=datetime.fromisoformat(today))[2]
+        return rolling_go_inputs.validate_status(conn, pub, now=datetime.fromisoformat(today))[1]
     return legacy_readiness.check_readiness(conn, today=today)
 
 
