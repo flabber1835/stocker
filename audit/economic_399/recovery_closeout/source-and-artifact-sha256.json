@@ -1,0 +1,100 @@
+{
+  "archive_entries": {
+    "base-strict-test.py": {
+      "bytes": 2731,
+      "sha256": "a1abe44bdfa880add2d54cad8ef9fa7ebda6f5aea6be2cc2fd698391b6e2d37c"
+    },
+    "recovery-closeout-campaign.log": {
+      "bytes": 12436,
+      "sha256": "c2a59303b10634ea1005aa1811dc1bbe7f0e8ce6d51bcf6644675cd4964cc411"
+    },
+    "recovery-closeout-mutants-final.log": {
+      "bytes": 4456,
+      "sha256": "0e1bddadbd54647476a69774fff605973a789deca5fa66a230c0c8f5259cb0a0"
+    },
+    "recovery-closeout-mutants-final2.log": {
+      "bytes": 11214,
+      "sha256": "ca2e6c4311f0b26918848a8fbf69b838813692d6f873174b8c11b000f9266089"
+    },
+    "recovery-compound-first.log": {
+      "bytes": 22966,
+      "sha256": "9dc8f8d5241cbce8f905b278c9e431ff0c51334024fcf62f97f0366d7746eb06"
+    },
+    "recovery-compound-second.log": {
+      "bytes": 5342,
+      "sha256": "9d2e9b222eeb9dae7c348b4402e838ad11139565d3cb828fb37b872a8a758b66"
+    }
+  },
+  "files": {
+    "audit/economic_399/recovery_closeout/campaign.py": {
+      "bytes": 5798,
+      "sha256": "8786873df1319cc6acecf0657887e187d6b89e2ccee1ae741e351a6e1f573c7a"
+    },
+    "audit/economic_399/recovery_closeout/raw-logs.zip": {
+      "bytes": 12002,
+      "sha256": "5a0adc76589ce4ec24bb66b5900934ed7ed2e128e52c937e2ae3d610688ab898"
+    },
+    "audit/economic_399/recovery_closeout/run_local.py": {
+      "bytes": 1074,
+      "sha256": "81e1ed24778be4d4b3e65219c5170bf8d3daaa9213d37c91e2789154c2021db0"
+    },
+    "sentinel/automation/service.py": {
+      "bytes": 76024,
+      "sha256": "cb5c43d8db46634e7be86059fc818ee15c17614f7cab8c908fe35462528d2790"
+    },
+    "sentinel/automation/store.py": {
+      "bytes": 48190,
+      "sha256": "92f66c071546d4d83fc8dff201f908908ae7b8d0ae6151b0fdfc18a74ed63ccb"
+    },
+    "sentinel/automation_resilience.py": {
+      "bytes": 5285,
+      "sha256": "f5a5e7ce395b494e48fde85bab01995b4e3be1d12454508aae4084d8491731a6"
+    },
+    "sentinel/automation_runtime.py": {
+      "bytes": 79366,
+      "sha256": "d7a5f31662bb78c2971be20eed69433ab146aaf4485b77848a7225bc48d2d04b"
+    },
+    "sentinel/execution/alpaca.py": {
+      "bytes": 125817,
+      "sha256": "3d1f846de935ec84dcf09a7d46998fc8fc5602905c1d03c0d36e576f1da9a30c"
+    },
+    "sentinel/execution/executor.py": {
+      "bytes": 43837,
+      "sha256": "1bd8ec8e3ce344101e3894486e4df8e1fc3f26896788e077dac0bf7642c17024"
+    },
+    "sentinel/execution/journal.py": {
+      "bytes": 63878,
+      "sha256": "30b6c07af931ac906b45b45690c7e28a8ad9b51fea9e33a3acfbe0b2a07718c3"
+    },
+    "sentinel/execution/reconcile.py": {
+      "bytes": 82229,
+      "sha256": "c52c92fc143b390e78ebf2d0b9b5e24ca70d58822c16fa40e93caa5e0e34548f"
+    },
+    "sentinel/execution/recovered_order_policy.py": {
+      "bytes": 4268,
+      "sha256": "b7cc54ea3b7d4a04c8ad7869aaac6218f3b9e0d521e7af36c18c666a2a271c18"
+    },
+    "sentinel/execution/recovery.py": {
+      "bytes": 14800,
+      "sha256": "cc1c4b27f10d62e61f521b2dac86e56399e9c5b4f46e3e1d995aada9435c935b"
+    },
+    "sentinel/paper/recovery.py": {
+      "bytes": 17173,
+      "sha256": "94f92db0e47c9ca1db21decdd894bbb3f502e8da9c06a6b2b5444032bd018539"
+    },
+    "sentinel/paper/targets.py": {
+      "bytes": 22112,
+      "sha256": "d64337a7a5d512846aed76535f2954a579569a9abd4316f646f01c7f4933701f"
+    },
+    "tests/sentinel/test_historical_recovery_process_death.py": {
+      "bytes": 9885,
+      "sha256": "6e61118cbaaf2fd515e00b9a0f49cc2e3b38f72d2d4e868fe1cf3b084454e385"
+    },
+    "tests/sentinel/test_strict_recovery_predecessor.py": {
+      "bytes": 4121,
+      "sha256": "e744127c9fa1438fa257af905cb4a9f3fb6eb77f445421de01e0473bd2d7722d"
+    }
+  },
+  "reviewed_production_base": "daa43caf995779bfa7e67195785520744021cb45",
+  "source_note": "Production paths hashed from committed base bytes; final added/changed tests and runners from normalized working bytes. No production changes."
+}
