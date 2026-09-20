@@ -37,7 +37,7 @@ def advance_one(conn, *, through, observation_id, starting_cash):
                 result = prior
             else:
                 pub, binding = evidence.select(conn, session=session, previous_version=prior.state.data_version)
-                inputs.validate_reconstruction(conn, pub)
+                inputs.validate_reconstruction(conn, pub, summary_only=True)
                 result = daily.commit_next(
                     conn, checkpoint=checkpoint, observer=observer, prior=prior, pub=pub, binding=binding,
                     context=context, checkpoint_type=checkpoints.ReconstructionCheckpoint, timing=evidence.timing)
@@ -46,7 +46,7 @@ def advance_one(conn, *, through, observation_id, starting_cash):
             checkpoint, _, restored, attested, previous = runtime._closure(conn, context)
             if attested is not None:
                 return result_with_receipt(restored, attested)
-            _, _, report = inputs.validate_reconstruction(conn, pub)
+            _, _, report = inputs.validate_reconstruction(conn, pub, summary_only=True)
             backup_runtime_authority.require(conn, operation="rolling reconstruction receipt")
             value = authority.ReconstructionReceipt(
                 observation_id=observation_id, session=session,

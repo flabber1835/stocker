@@ -710,3 +710,59 @@ producer completeness/finality, native F19 provider authority and C3 predecessor
 incarnation evidence are unchanged. No broker capability flag, golden economic
 result or certification status was loosened. Step 1 and economic certification
 are not marked complete.
+
+### Compact rolling status input review (A12/A1)
+
+Reviewed from current main `e3dfb033d25ed68e5e1f6d2386285afabc62e801`
+(owner-merged #411). **P2, locally fixed:** the read-only status path discarded
+its input material only after retaining 252 sessions for every security. A
+5,000-security / 300-session synthetic input-phase probe measured 778,904 KiB
+Python peak RSS, above the panel's 512 MiB limit. This is evidence of excessive
+allocation, not evidence of a deployed OOM or an incorrect historical return.
+
+`rolling_runtime._current` now uses compact readiness counts, with the same
+complete sealed-content hashes, dated security mapping, action checks, source
+clock, publication pin and readiness thresholds. The strategy materialization
+API and economic state are preserved. Independent SQL counts, production status
+tripwires and guard-removal failures accompany the existing runtime regressions.
+The compact input phase measured 130,592 KiB peak RSS on the same synthetic scale;
+it still took 28.70 seconds. Source identity changes require the existing reviewed
+continuation boundary; prior certificates and golden artifacts are not rewritten.
+
+**Open P2:** complete status/checkpoint and reference/action-history memory,
+full-hash scan latency, concurrent panel requests and target resource limits.
+The input-phase measurement does not close these gates. Proactive maintenance
+and heartbeat supervision are tracked separately in pending #413 and #414.
+Provider cash/fill/predecessor guarantees, authoritative historical economic
+deltas and NAS qualification remain open. Step 1 and certification are not
+complete. See [design](rolling-status-resource-bounds.md) and
+[commands, retained evidence and qualification procedure](../audit/economic_399/rolling_status/README.md).
+
+### Report-only caller closure and current resource inventory
+
+Further tracing of #415 found nine remaining calls that discarded a materialized
+warmup: operational assessment, strict readiness, execution readiness, already-
+current acquisition, newly published acquisition, its inner operational validation,
+runtime admission before an idempotent retry, and both historical recovery gates.
+These now use compact assessment
+without changing their failed-clause/refusal semantics, publication/owner checks,
+source identity or DATA_ONLY scope. Six production-entrypoint tests reproduced
+the allocation before the fix; the first-publication case covers both inner and
+outer checks. Historical recovery has additional fresh-step and trailing-candidate
+acceptance that preserves reconstruction-only authority and original state identity.
+See the [additive evidence](../audit/economic_399/rolling_status/report_consumers/README.md).
+
+The earlier backup directory/manifest implementation-gap descriptions are
+historical: current main `e3dfb033d25ed68e5e1f6d2386285afabc62e801` includes
+bounded selection (257 bytes including overflow) and bounded manifest reads
+(8 MiB plus overflow), with no discovery fallback. Their previously retained
+acceptance remains valid; deployed capacity/latency qualification remains open.
+They must not be counted again as unimplemented fixes.
+
+The remaining local resource review is the complete status/checkpoint and
+reference/action load, concurrency and full-scan latency, plus actual material
+consumers in strategy warmup/database-health certification. Compact counts do
+not replace those consumers' economic inputs or warmup identity. Pending #413
+implements recurring maintenance; pending #414 addresses heartbeat supervision.
+Their CI/integration and independent filesystem/host qualification remain distinct.
+No required provider/data/NAS gate is closed by these resource fixes.

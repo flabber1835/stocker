@@ -1,0 +1,15 @@
+{
+  "rolling-consumers-before.log": "760a8b59eff9c57e20f93d31e540b0b55a66c3acf1f61d88f9e8959ab3a547ac",
+  "rolling-consumers-final-mutants.log": "0ae798c8d561dd2a4f685fc7ee081687e3f7ea3f4efb6f74dbf27d24c5788977",
+  "rolling-consumers-final-ownership.log": "a2fac0d74e35ec14b847de96a65c4aa2afbe29506acc12a6054bdaa8c952253d",
+  "rolling-consumers-final-static.log": "a11a7f7b389dbd6a6e1feeddc9b9a11de9f86899579b2fe701d481430007a0bb",
+  "rolling-consumers-final.log": "197edf0ea4a71a648f8fa0187f3ee25ded8a9762930f8d8a424d638276f05212",
+  "rolling-consumers-go-mutants.log": "69b9599d0ffd34909484c36dcd8eba55592cb587496aff68c877e479ad643e33",
+  "rolling-consumers-mutants.log": "a5480c961df483f8fe6cb8a64c296522d5f91b2e89dafa8fd2027b44e6b637c5",
+  "rolling-consumers-ownership.log": "88ba3557f2e0bbb4782d2aa61da76e22cf1e8b6c749caac7355f77b062400cf0",
+  "rolling-consumers-recovery-mutants.log": "f9779cf160d627b814a973100b1eb6e467c34f04ab6c7e92218eb688196469fb",
+  "rolling-consumers-recovery.log": "fbd65fc325778982cd5fbfb16ae22c43283d2db1e425f693181e91e9b20fa440",
+  "rolling-consumers-regression.log": "27d59df03b8a0fc097b26c4af7cf251be8db4ae2541bbc67a7f1efcc4542cbb2",
+  "rolling-consumers-static-check.log": "665b18632f9340a9c2b72ff352a426ab45a177b18401f5182e22ef182884eda0",
+  "rolling-consumers-static.log": "aa1301508ec483093848287bf5dc989176dd867c275346f8fc6bbf3b9378337e"
+}
