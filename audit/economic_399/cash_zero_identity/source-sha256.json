@@ -1,0 +1,50 @@
+{
+  "reviewed_code_commit": "a92aeaa86425fc9a79492482cf4e8fd010cd5c9c",
+  "base": "eaae66f9e6626306f8b233fd723d25b278e13351",
+  "files": {
+    "audit/economic_399/cash_zero_identity/README.md": {
+      "sha256": "25ca71b3dbba31dfc27e28c8196d466e1694a757f8e70e207a95312878b05d90",
+      "bytes": 4312
+    },
+    "audit/economic_399/cash_zero_identity/campaign.py": {
+      "sha256": "907b5ac58919acd52b3f7cbec47bf910aaadad71d82be71a3e9d6e1a152ffb4f",
+      "bytes": 2656
+    },
+    "audit/economic_399/cash_zero_identity/run_local.py": {
+      "sha256": "7a3f7bd80c8cc295c5e4f457c398c9f2b88142f62f742cc2c1a247829f884b94",
+      "bytes": 1050
+    },
+    "docs/economic-audit-399-remediation.md": {
+      "sha256": "2a6724914ba441fd65f205ae30a729dfe8c42375014e1aecea578a4b9922c1df",
+      "bytes": 25961
+    },
+    "docs/sentinel-execution-contract.md": {
+      "sha256": "b144038bb32c0d83048ebe0f73c7a2e1a47a1cfc5325d60d379a9794b3796d11",
+      "bytes": 119163
+    },
+    "docs/stage-one-cash-fill-closeout.md": {
+      "sha256": "21bc8b09283a48e6ae2300be15992a449df116c9591d63f5c90015f51087c45d",
+      "bytes": 8838
+    },
+    "sentinel/execution/alpaca.py": {
+      "sha256": "47de42be8c10834d93b8dd49497d037a6675cf473b9f9e25c3bd267d60ecdcad",
+      "bytes": 125764
+    },
+    "sentinel/execution/broker_cash.py": {
+      "sha256": "8f6d4c57d0ae9bd2894089155ffcaa212c04e6b4e60441e09669ebe717bc7885",
+      "bytes": 31730
+    },
+    "tests/sentinel/test_alpaca_execution_entrypoint.py": {
+      "sha256": "ab1e98ff04af477078c6a358a245fc0d1b6a3334ed21b664b4df9bfdcf1b0f5c",
+      "bytes": 9250
+    },
+    "tests/sentinel/test_alpaca_simulation_durability.py": {
+      "sha256": "ba5342cb102e21a91367fb5786d4a49af3f384191b1754a2e3d845d781112712",
+      "bytes": 13364
+    },
+    "tests/sentinel/test_issue_183_alpaca_hardening.py": {
+      "sha256": "f02ccab1cd5e214493af4086dd788853fca4befedc5268fa262e051cf1727c7c",
+      "bytes": 24437
+    }
+  }
+}

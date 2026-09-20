@@ -1,0 +1,14 @@
+{
+  "source-sha256.json": {
+    "sha256": "9ea5c83a953c5aaf65137052bd0fb2035b2a7a5edbc60a265ae8b45cdec5f2ae",
+    "bytes": 1949
+  },
+  "raw-logs.zip": {
+    "sha256": "9fff7b5e5dfb895171f83a61dc80bfe4b98b7bd3619268588dd4b3e0f79db5d8",
+    "bytes": 14907
+  },
+  "raw-log-sha256.json": {
+    "sha256": "51ef040532a3ba8504a727d846f913713b0c17f86a9458a960a01f8ac3aa232b",
+    "bytes": 1585
+  }
+}

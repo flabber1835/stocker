@@ -1,0 +1,46 @@
+{
+  "before-zero-identity.log": {
+    "sha256": "e8033f8d589d0caf5c8b6264ff2f9c8d442b127334c5fe8ea598d5b776fc040b",
+    "bytes": 5044
+  },
+  "ownership-zero-identity.json": {
+    "sha256": "85fbc05d9d0170d527ce1005b38ba5544fc5f2e07e1a48be925cf97b33dfbb05",
+    "bytes": 13060
+  },
+  "ownership-zero-identity.log": {
+    "sha256": "85fbc05d9d0170d527ce1005b38ba5544fc5f2e07e1a48be925cf97b33dfbb05",
+    "bytes": 13060
+  },
+  "static-zero-identity.log": {
+    "sha256": "bc04d70e22b0674f6647cb0ac6b6a4bfd540f1b8b8eb783172d653464620206a",
+    "bytes": 68
+  },
+  "zero-identity-capability.log": {
+    "sha256": "d6ede794ba8926a6590a7ab0c3f67c4c091faa9bdedef6ff28e4965124e9089e",
+    "bytes": 848
+  },
+  "zero-identity-ledger-constraint-controls.log": {
+    "sha256": "975c82bd82c0bdd26bebb193c83e6a7100b05f11b737967c229e9d6941ac6a93",
+    "bytes": 11564
+  },
+  "zero-identity-ledger-constraint.log": {
+    "sha256": "ca36e4090f327e94a53fdf8e1631cfeefb3c8615211efb44241c468b6349c497",
+    "bytes": 18600
+  },
+  "zero-identity-mutations-initial.log": {
+    "sha256": "16cf20386f5ef3f95225dad37e94b83d4d2919bce02a743ef235bb3f0357bdba",
+    "bytes": 11764
+  },
+  "zero-identity-mutations.log": {
+    "sha256": "c6577a081fef86d46f196f0b7576d412076f9821cda58661b7cc09eaabaff501",
+    "bytes": 20838
+  },
+  "zero-identity-regression-initial.log": {
+    "sha256": "751e31343e54a5450acb7d4562daa63b164d9463270ad45002abfbf8e3d4d4b2",
+    "bytes": 1503
+  },
+  "zero-identity-regression.log": {
+    "sha256": "6381f6e047c728f3e8542855ed6b894dda1eaadc0dd3298b91b0da7b67a778d5",
+    "bytes": 1503
+  }
+}
