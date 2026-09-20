@@ -1,0 +1,57 @@
+{
+  "status": "REFUSED",
+  "session": "2006-10-06",
+  "completed_sessions": 48,
+  "last_completed_session": "2006-10-05",
+  "elapsed_seconds": 336.27872683794703,
+  "error_type": "ShadowObservationRefused",
+  "error": "unresolved or blocked Wealth Core equity cannot feed verified Core+BIL strategy performance",
+  "twenty_year_cagr": null,
+  "twenty_year_multiple": null,
+  "production_revision": "624395dd04c48af7de3a8930cfd586ca2cc81245",
+  "harness_commit": "e0b029369c9dcdf63ee76f5443bc880158a67545",
+  "warmup_seconds": 144.13899572996888,
+  "blocking_tickers": [
+    "TRZ",
+    "MVK"
+  ],
+  "blocking_terminal_inputs": [
+    {
+      "effective_session": "2006-10-05",
+      "security_id": "1002169751086026237",
+      "ticker": "TRZ",
+      "kind": "CASH_MERGER",
+      "disposition": "PIT_ACTION_INCOMPLETE:MISSING_CASH_PER_SHARE",
+      "cash_per_share": "",
+      "delivered_security_id": "",
+      "delivered_ticker": "",
+      "delivered_issuer_id": "",
+      "exchange_ratio": "",
+      "cash_in_lieu_price_per_delivered_share": "",
+      "reference": "actions/acquisitionby deal_value_musd=4562.7",
+      "authority": "PIT_ACTIONS",
+      "evidence_hash": ""
+    },
+    {
+      "effective_session": "2006-10-05",
+      "security_id": "758056061571092910",
+      "ticker": "MVK",
+      "kind": "CASH_MERGER",
+      "disposition": "PIT_ACTION_INCOMPLETE:MISSING_CASH_PER_SHARE",
+      "cash_per_share": "",
+      "delivered_security_id": "",
+      "delivered_ticker": "",
+      "delivered_issuer_id": "",
+      "exchange_ratio": "",
+      "cash_in_lieu_price_per_delivered_share": "",
+      "reference": "actions/acquisitionby deal_value_musd=2400.9",
+      "authority": "PIT_ACTIONS",
+      "evidence_hash": ""
+    }
+  ],
+  "rsas_corrected_session_passed": "2006-09-18",
+  "rough_full_runtime_seconds": 20286.787473549677,
+  "runtime_estimate_note": "Short-prefix estimate includes failing transition; not a completed ten-minute timing sample. No full-run guarantee.",
+  "full_replay_launched": false,
+  "certification_complete": false
+}

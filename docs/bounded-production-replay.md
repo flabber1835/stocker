@@ -62,3 +62,23 @@ return. A completed result remains provisional economic-engine evidence, not
 full-service or deployment certification. Core fills and costs are those of
 the pinned production engine; defensive cash factors retain dataset provenance,
 including the Treasury-rate proxy before BIL existed.
+
+## Observed pilot result
+
+The pilot stopped on 2006-10-06 after 48 completed sessions and 336.28 seconds.
+The sourced RSAS terms cleared the previous 2006-09-18 refusal. TRZ (173 shares)
+and MVK (78 shares) then became unresolvable: both retained 2006-10-05 merger
+rows lack per-share consideration. The vendor values are aggregate deal sizes,
+not settlement prices. Production's refusal at
+`sentinel/shadow_observation.py:1518` was preserved. No further research or
+full replay was launched, and no twenty-year CAGR or multiple was produced.
+
+Warmup/input verification took 144.14 seconds. This short prefix projects roughly
+5.6 hours for 5,032 measured sessions on the tested local runtime, before the
+20% planning margin. The data refusal happened before the ten-minute timing
+decision, so this is an indicative speed estimate, not a completed timing pilot.
+Running on this host within two hours is not supported by that measurement.
+
+See [retained commands and evidence](../audit/economic_399/bounded_replay/README.md).
+Local harness checks passed; full historical economic validation remains blocked
+by settlement inputs and has not established production/reference parity.
