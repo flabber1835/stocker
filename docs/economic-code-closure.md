@@ -241,7 +241,7 @@ these acceptance tests is not a claim that no other economic defect exists.
 
 | Finding | Locally established behavior and production path | Evidence |
 |---|---|---|
-| A2, P1 | `shadow_service.advance_once` → `rolling_runtime.service_advance` → `rolling_recovery.advance_one` preserves the canonical book and advances one missed session using retained dated inputs. Separate reconstruction receipts cannot grant prospective authority. Restart recovers committed candidates/receipts exactly once. | Continuous versus interrupted PostgreSQL clones with actual holdings, a stop shock, pending exits, cooldowns and a subsequent fresh session; equal full canonical state, unchanged genesis/capital and zero execution rows. Full restore validation reports reconstruction without attestation. |
+| A2, P1 | `shadow_service.advance_once` â†’ `rolling_runtime.service_advance` â†’ `rolling_recovery.advance_one` preserves the canonical book and advances one missed session using retained dated inputs. Separate reconstruction receipts cannot grant prospective authority. Restart recovers committed candidates/receipts exactly once. | Continuous versus interrupted PostgreSQL clones with actual holdings, a stop shock, pending exits, cooldowns and a subsequent fresh session; equal full canonical state, unchanged genesis/capital and zero execution rows. Full restore validation reports reconstruction without attestation. |
 | A3/A4/A11/A13/A20, P1/P2 | Typed dependency failures propagate through worker, preparation, guarded authority checks and backup cleanup. Explicit revocation/integrity remains terminal. Live leases/retry deadlines wait without replacing identity. | `test_dependency_recovery.py`, actual PostgreSQL lock/cancellation fixtures, `test_rolling_snapshot_jobs.py`; removal falsifiers for classification and waiting. |
 | A15, P2 | Proven inactive returning identities start fresh formation; dated metadata does not import a future listing into earlier history. Protected holdings/pending/cooldown dependencies still require anchors. | `test_returning_identity.py`: real snapshot publication, restart and protected-anchor refusal; independent dated-label assertions. |
 | A1/A17, P1/P2 | Callback invocation markers distinguish repeated same-phase calls. Killable database/alert observations and bounded stderr preserve supervisor progress. Dispatcher parent kills/reaps a silent dependency worker and restarts it. | Real lock, full log pipe, silent local socket, SIGTERM-resistant child, new invocation and expired invocation tests. No remote socket/account used. |
@@ -539,7 +539,7 @@ cases; it now shares the production module namespace. Both affected falsifiers
 were rerun and killed. No acceptance was obtained by xfail, fixture repinning,
 removing an economic assertion or promoting a capability bit.
 
-### Concrete NAS handoff — not executed
+### Concrete NAS handoff â€” not executed
 
 For the notification follow-up, explicitly migrate the isolated clone through
 the reviewed fenced installer before starting the dispatcher. Runtime schema
@@ -775,3 +775,91 @@ not replace those consumers' economic inputs or warmup identity. Pending #413
 implements recurring maintenance; pending #414 addresses heartbeat supervision.
 Their CI/integration and independent filesystem/host qualification remain distinct.
 No required provider/data/NAS gate is closed by these resource fixes.
+
+### Complete public status and HTTP concurrency review
+
+Reviewed against owner-merged main
+`29cdd7727ba2adea27672830c538d76a2218943e`, with pending #415
+`558673b1b434760673ee1de52c25c4e1e1f707c7` integrated in an isolated branch.
+Main now contains #412 and #413; their earlier pending labels above are historical.
+
+**P2 concurrency defect, locally fixed:** all three full panel routes previously
+ran independent expensive builds. `sentinel/panel/app.py:39` now admits one build
+and returns immediate 503 UNKNOWN with retry/no-store for contenders; completion
+and exceptions release the slot. The deployed Uvicorn command explicitly selects
+one worker. Real routed acceptance reproduces the defect before the fix; final
+targeted regression passes 160 cases and all four removal mutants are detected.
+
+**P2 single-request resource defect, still OPEN:** complete public shadow status
+on 5,000 synthetic securities / 300 sessions reaches **2,013,424 and 2,012,992 KiB
+VmHWM per reader**, well beyond the panel's unchanged 512 MiB budget. Two readers
+sharing an 8 GiB / two-CPU test container take **131.21 / 131.33 seconds** each.
+Closure/checkpoint/observer verification accounts for about 99 seconds; compact
+current-input assessment takes about 31 seconds. The concurrency fix does not
+resolve this allocation or establish a cumulative latency bound. No deployed OOM
+or target performance is inferred from the fixture.
+
+Both readers preserve initialized canonical state, session counts and zero
+command/fill counts; retained outputs agree on NAV and authority. This is a
+first-origin synthetic status probe, not a historical economic replay or the
+entire HTTP build. Advanced held-position checkpoints, realistic retained
+references/actions, actual strategy material consumers and full HTTP resource
+qualification remain open. Repeated canonical-state construction needs further
+local code work, not merely NAS evidence. Provider and historical-data gates are
+unchanged; Stage 1 and economic certification remain incomplete.
+
+See the [design](full-status-resource-review.md) and
+[retained measurements, exact commands and NAS handoff](../audit/economic_399/full_status/README.md).
+
+### Single-request status memory remediation
+
+Reviewed implementation `d5c35410f6be7e93a0fdc66183e56de0009be351`, on verified
+main `e255a78aaf4f89d25fc634864aafd2656c6cd176` after owner merge of #415; includes
+the unchanged #417 concurrency fix. The previous single-request finding above
+is now **locally fixed for the measured 5000-security synthetic scope**.
+
+`sentinel/shadow_observation.py:963` streams every feed-series entry, while
+`:1728` consumes and releases the verified seed before reading the checkpoint
+session. `sentinel/rolling_checkpoint.py:98` and
+`sentinel/rolling_daily_checkpoint.py:102` reuse one complete verification;
+`sentinel/core/session.py:58`/`:319` avoid duplicate encoded/copied state. No
+canonical field, economic invariant, source identity, hash or publication binding
+is omitted. Status is bound to one repeatable-read, read-only transaction;
+advancement keeps its reusable observer. A new lifecycle test caught retained
+psycopg loader classes; fixed classes with disposable instance pools address it.
+
+Two complete public status calls in one process peak at **401888 KiB (392.47 MiB)**,
+preserving initialization state/authority, NAV and database counts. Complete
+`/panel.json` peaks at **423884 KiB (413.95 MiB)**. Both containers exit 0 under
+an actual 512 MiB/no-swap cap with zero OOM events. Bypassing the optimized route
+causes the same cap to OOM-kill the negative control (exit 137). First-origin
+latencies are 98.695/95.751 seconds for status and 92.853 seconds for HTTP under
+the retained local load. These are observations, not an accepted latency SLO.
+
+The actual next-session transition commits 20 positions. Its complete HTTP read
+also passes the same cap, peaking at **437184 KiB (426.94 MiB)** in 91.089 seconds.
+Two advanced public status calls preserve their state, authority, NAV and row
+counts, both peaking at **419848 KiB (410.01 MiB)**, with zero OOM/limit events.
+Independent Decimal accounting explains its NAV drop as $97.91628 of existing
+10 bps entry costs on $97916.28 notional; residual float-mark/accounting differences
+are below $0.00000001. The source-finality guard correctly refused the first
+advanced probe's stale synthetic clock; only the probe clock was corrected.
+Publication plus that real transition takes 1007.224 seconds, explicitly leaving
+daily throughput qualification open. These fixtures do not qualify a backtest.
+
+Locally verified: 77 canonical/memory tests, 277 restart/recovery/panel regression
+tests (overlapping campaigns), ten guard-removal controls, unchanged historical
+serializer output/ownership, full-payload and last-security corruption refusal,
+bounded decoder lifetime, and 489 owned test modules with none unowned. No golden
+repin, xfail, provider capability enablement, NAS or real broker access.
+
+**Still open:** target workload/history and database-service memory qualification,
+full-scan latency, provider C1/F6/F19/C3, authoritative historical economic deltas
+and NAS-only deployment/restore evidence. The fixture setup process reaches
+**2.82 GiB**, including retained synthetic producer data; this is not an isolated
+production-runtime measurement. Material-consuming initialization/certification
+under its own 2 GiB limit remains a P2 local resource-review item, not something
+the status fix closes or that this setup peak alone proves defective. Production
+source changes require the existing reviewed continuation boundary. Stage 1 and
+economic certification remain incomplete. See the
+[complete commands, evidence scope, findings and NAS handoff](../audit/economic_399/status_memory/README.md).

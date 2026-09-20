@@ -99,18 +99,13 @@ def _publication(conn, checkpoint):
         raise Refused("CHECKPOINT_PUBLICATION_CHANGED")
 
 
-def load(conn, context):
+def load(conn, context, *, status_only=False):
     initial = origin.read(conn)
     if initial is None:
         raise Refused("COLD_START_CHECKPOINT_REQUIRED")
     checkpoint = read(conn)
     if checkpoint is None:
-        result = origin.restore(conn, initial, **context)
-        store = shadow.PostgresShadowObservationStore(conn, observation_id=initial.observation_id, commit_genesis=False)
-        observer = shadow.ShadowObserver.resume(
-            store=store, observation_id=initial.observation_id, starting_cash=initial.starting_cash,
-            first_session=initial.session, controller_config=context["controller"],
-            strategy_identity=context["strategy"], runtime_identity=context["runtime"])
+        observer, result = origin.restore_observer(conn, initial, **context, status_only=status_only)
         _publication(conn, initial)
         return initial, observer, result
     if (checkpoint.origin_sha256 != digest(initial.model_dump(by_alias=True))
@@ -122,7 +117,8 @@ def load(conn, context):
             or checkpoint.runtime_identity != context["runtime"]):
         raise Refused("DAILY_CHECKPOINT_CONFIG_CHANGED")
     store = shadow.PostgresShadowObservationStore(
-        conn, observation_id=checkpoint.observation_id, commit_genesis=False, records_from=checkpoint.session)
+        conn, observation_id=checkpoint.observation_id, commit_genesis=False, records_from=checkpoint.session,
+        stream_state=status_only)
     from sentinel import rolling_authority
     alien = conn.execute(
         # CASE keeps historical session/input JSON out of lineage inventory.
@@ -140,8 +136,9 @@ def load(conn, context):
     observer = shadow.ShadowObserver.resume_checkpoint(
         history_anchor=checkpoint.history_anchor, store=store, observation_id=checkpoint.observation_id,
         starting_cash=checkpoint.starting_cash, first_session=initial.session,
-        controller_config=context["controller"], strategy_identity=context["strategy"], runtime_identity=context["runtime"])
-    rows, _ = observer._history()
+        controller_config=context["controller"], strategy_identity=context["strategy"], runtime_identity=context["runtime"],
+        status_only=status_only)
+    rows, state = observer._history(consume_seed=True) if status_only else observer._history()
     if (len(rows) != 1 or rows[0]["record_sha256"] != checkpoint.record_sha256
             or rows[0]["state_sha256"] != checkpoint.state_sha256
             or digest(checkpoint.input_value) != rows[0]["input_sha256"]
@@ -155,4 +152,8 @@ def load(conn, context):
     else:
         shadow._timing_proof(checkpoint.precommit_timing, decision_session=checkpoint.session,
                              committed=False, where="daily checkpoint precommit timing")
-    return checkpoint, observer, observer.verify_history()
+    result = observer._result(
+        session=rows[0]["session"], state=state,
+        strategy_economics=rows[0]["strategy_economics"],
+        record_sha256=rows[0]["record_sha256"], appended=False)
+    return checkpoint, None if status_only else observer, result

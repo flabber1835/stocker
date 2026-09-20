@@ -25,6 +25,8 @@ from dataclasses import asdict, dataclass, is_dataclass
 from datetime import datetime, timezone
 from decimal import Decimal, InvalidOperation
 from fractions import Fraction
+from functools import lru_cache
+from uuid import uuid4
 from typing import Any, Mapping, Protocol, Sequence
 
 from sentinel.controller.frozen_rule import ControllerConfig
@@ -32,7 +34,9 @@ from sentinel.controller.machine import Controller
 from sentinel.core.kernel import advance_session as advance_state
 from sentinel.core.production import (
     DefensiveBar, PublishedSession, SessionState, load_published_session)
+from sentinel.core.session import _canonical_chunks
 from sentinel.feed import calendar
+from sentinel import observation_storage
 
 
 SHADOW_GO = "SHADOW_GO"
@@ -113,7 +117,14 @@ def _canonical_value(value: Any) -> Any:
 
 
 def _sha256(value: Any) -> str:
-    return hashlib.sha256(_canonical_json(value).encode("ascii")).hexdigest()
+    digest = hashlib.sha256()
+    try:
+        for chunk in _canonical_chunks(value):
+            digest.update(chunk.encode("ascii"))
+    except (TypeError, ValueError) as exc:
+        raise ShadowObservationRefused(
+            f"shadow observation value is not canonical JSON: {exc}") from exc
+    return digest.hexdigest()
 
 
 def _cash_text(value: Decimal | str | int | float) -> str:
@@ -848,6 +859,56 @@ class ShadowObservationResult:
         }
 
 
+def _compact_json_decoder(*, number_type=float):
+    """Standard JSON values with bounded, cursor-local immutable scalar reuse."""
+    @lru_cache(maxsize=4096)
+    def short_float(token):
+        return number_type(token)
+
+    @lru_cache(maxsize=4096)
+    def short_string(token):
+        return token
+
+    def number(token):
+        return short_float(token) if len(token) <= 64 else number_type(token)
+
+    def object_hook(value):
+        for key, item in value.items():
+            if isinstance(item, str) and len(item) <= 64:
+                value[key] = short_string(item)
+            elif isinstance(item, list):
+                for index, member in enumerate(item):
+                    if isinstance(member, str) and len(member) <= 64:
+                        item[index] = short_string(member)
+        return value
+
+    return lambda encoded: json.loads(encoded, parse_float=number, object_hook=object_hook)
+
+
+def _compact_json_loads(encoded):
+    return _compact_json_decoder()(encoded)
+
+
+@lru_cache(maxsize=2)
+def _compact_loader_classes(exact_numbers=False):
+    # Psycopg caches registered classes globally. Only instances may own pools.
+    from psycopg.types.json import JsonbBinaryLoader, JsonbLoader
+
+    class CompactJsonbLoader(JsonbLoader):
+        def __init__(self, oid, context=None):
+            super().__init__(oid, context)
+            self.loads = (_compact_json_decoder(number_type=Decimal) if exact_numbers
+                          else _compact_json_decoder())
+
+    class CompactJsonbBinaryLoader(JsonbBinaryLoader):
+        def __init__(self, oid, context=None):
+            super().__init__(oid, context)
+            self.loads = (_compact_json_decoder(number_type=Decimal) if exact_numbers
+                          else _compact_json_decoder())
+
+    return CompactJsonbLoader, CompactJsonbBinaryLoader
+
+
 class PostgresShadowObservationStore:
     """Append-only adapter over the existing namespaced JSON cursor table.
 
@@ -859,10 +920,11 @@ class PostgresShadowObservationStore:
     """
 
     def __init__(self, conn, *, observation_id: str, commit_genesis: bool = True,
-                 records_from: str | None = None) -> None:
+                 records_from: str | None = None, stream_state: bool = False) -> None:
         self.conn = conn
         self.commit_genesis = commit_genesis
         self.records_from = records_from
+        self.stream_state = stream_state
         self.observation_id = _observation_id(observation_id)
         self.prefix = f"{POSTGRES_CURSOR_PREFIX}{self.observation_id}:"
 
@@ -877,19 +939,74 @@ class PostgresShadowObservationStore:
         return f"{self.prefix}genesis"
 
     def genesis(self) -> dict | None:
-        with self.conn.cursor() as cur:
-            cur.execute(
-                "SELECT session,state FROM sentinel_processed_sessions"
-                " WHERE cursor_name=%s", (self._genesis_name,))
-            row = cur.fetchone()
+        if self.stream_state:
+            row = self._streamed_row(self._genesis_name, "initial_state")
+        else:
+            with self.conn.cursor() as cur:
+                self._compact_decoder(cur)
+                cur.execute(
+                    "SELECT session,state FROM sentinel_processed_sessions"
+                    " WHERE cursor_name=%s", (self._genesis_name,))
+                row = cur.fetchone()
         if row is None:
             return None
-        genesis = _as_mapping(
-            row[1], where=f"shadow observation row {self._genesis_name}")
+        genesis = self._owned_mapping(row[1], where=self._genesis_name)
         if str(row[0]) != genesis.get("first_session"):
             raise ShadowObservationRefused(
                 "shadow observation genesis row/session is incoherent")
         return genesis
+
+    @staticmethod
+    def _compact_decoder(cursor, *, exact_numbers=False):
+        # Cursor-local only. Protocol test cursors do not have driver adapters.
+        if hasattr(cursor, "adapters"):
+            for loader in _compact_loader_classes(exact_numbers):
+                cursor.adapters.register_loader("jsonb", loader)
+
+    def _streamed_row(self, name, state_field):
+        """Reconstruct every field, with a bounded feed-series wire batch."""
+        path = [state_field, "feed", "series"]
+        with self.conn.cursor() as cur:
+            self._compact_decoder(cur)
+            cur.execute(
+                "SELECT session,CASE WHEN jsonb_typeof(state#>%s)='object' THEN state#-%s ELSE state END,"
+                " jsonb_typeof(state#>%s)='object' FROM sentinel_processed_sessions WHERE cursor_name=%s",
+                (path, path, path, name))
+            row = cur.fetchone()
+        if row is None:
+            return None
+        session, value, split = row
+        value = self._owned_mapping(value, where=name)
+        if split:
+            series = value[state_field]["feed"]["series"] = {}
+            with self.conn.cursor(name="shadow_status_" + uuid4().hex) as cur:
+                cur.itersize = 32
+                self._compact_decoder(cur)
+                cur.execute(
+                    "SELECT key,value FROM sentinel_processed_sessions,"
+                    " LATERAL jsonb_each(state#>%s) WHERE cursor_name=%s", (path, name))
+                for key, item in cur:
+                    series[key] = item
+        return session, value
+
+    @staticmethod
+    def _owned_mapping(value, *, where):
+        # A JSONB decoder owns this fresh object; there is no store-side alias.
+        # Other observation stores still use the defensive canonical round trip.
+        if not isinstance(value, dict):
+            raise ShadowObservationRefused(f"{where} is not an object")
+        return value
+
+    def matches_genesis(self, expected: Mapping[str, Any]) -> bool | None:
+        """One coherent full-value comparison, with exact stored JSON decimals."""
+        with self.conn.cursor() as cur:
+            self._compact_decoder(cur, exact_numbers=True)
+            cur.execute(
+                "SELECT session,state FROM sentinel_processed_sessions WHERE cursor_name=%s",
+                (self._genesis_name,))
+            row = cur.fetchone()
+        return None if row is None else (str(row[0]) == expected["first_session"]
+            and observation_storage.exact_value_equal(row[1], expected))
 
     def append_genesis(self, genesis: Mapping[str, Any]) -> None:
         candidate = _as_mapping(genesis, where="shadow observation genesis")
@@ -898,14 +1015,11 @@ class PostgresShadowObservationStore:
                 "shadow observation store cannot seed another observation id")
         session = _xnys_session(
             candidate.get("first_session"), where="shadow first session")
-        encoded = _canonical_json(candidate)
         try:
+            observation_storage.insert(self.conn, name=self._genesis_name, session=session,
+                                       candidate=candidate, state_field="initial_state")
             with self.conn.cursor() as cur:
-                cur.execute(
-                    "INSERT INTO sentinel_processed_sessions"
-                    " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
-                    " ON CONFLICT (cursor_name) DO NOTHING",
-                    (self._genesis_name, session, encoded))
+                self._compact_decoder(cur, exact_numbers=True)
                 cur.execute(
                     "SELECT session,state FROM sentinel_processed_sessions"
                     " WHERE cursor_name=%s", (self._genesis_name,))
@@ -913,9 +1027,9 @@ class PostgresShadowObservationStore:
             if row is None:
                 raise ShadowObservationRefused(
                     "shadow observation genesis did not become durable")
-            stored = _as_mapping(
+            stored = self._owned_mapping(
                 row[1], where=f"shadow observation row {self._genesis_name}")
-            if str(row[0]) != session or stored != candidate:
+            if str(row[0]) != session or not observation_storage.exact_value_equal(stored, candidate):
                 raise ShadowObservationRefused(
                     "shadow observation genesis was already committed with "
                     "different evidence")
@@ -926,7 +1040,27 @@ class PostgresShadowObservationStore:
             raise
 
     def records(self) -> list[dict]:
+        if self.stream_state:
+            with self.conn.cursor() as cur:
+                cur.execute(
+                    "SELECT cursor_name,session FROM sentinel_processed_sessions"
+                    " WHERE cursor_name LIKE %s AND (%s::date IS NULL OR session>=%s::date)"
+                    " ORDER BY session,cursor_name LIMIT 2",
+                    (self.prefix + "session:%", self.records_from, self.records_from))
+                inventory = cur.fetchall()
+            if len(inventory) > 1:
+                raise ShadowObservationRefused("rolling status checkpoint has excess session records")
+            result = []
+            for name, stored_session in inventory:
+                row = self._streamed_row(name, "state")
+                if (row is None or row[0] != stored_session
+                        or name != self._name(str(row[1].get("session")))
+                        or str(stored_session) != row[1].get("session")):
+                    raise ShadowObservationRefused("shadow observation row key/session is incoherent")
+                result.append(row[1])
+            return result
         with self.conn.cursor() as cur:
+            self._compact_decoder(cur)
             if self.records_from is not None:
                 cur.execute(
                     "SELECT cursor_name,session,state FROM sentinel_processed_sessions"
@@ -943,8 +1077,7 @@ class PostgresShadowObservationStore:
             rows = cur.fetchall()
         out: list[dict] = []
         for cursor_name, stored_session, state in rows:
-            record = _as_mapping(
-                state, where=f"shadow observation row {cursor_name}")
+            record = self._owned_mapping(state, where=cursor_name)
             session = record.get("session")
             if (str(cursor_name) != self._name(str(session))
                     or str(stored_session) != str(session)):
@@ -961,13 +1094,10 @@ class PostgresShadowObservationStore:
         session = _xnys_session(
             candidate.get("session"), where="shadow observation append session")
         name = self._name(session)
-        encoded = _canonical_json(candidate)
+        observation_storage.insert(self.conn, name=name, session=session,
+                                   candidate=candidate, state_field="state")
         with self.conn.cursor() as cur:
-            cur.execute(
-                "INSERT INTO sentinel_processed_sessions"
-                " (cursor_name,session,state) VALUES (%s,%s,%s::jsonb)"
-                " ON CONFLICT (cursor_name) DO NOTHING",
-                (name, session, encoded))
+            self._compact_decoder(cur, exact_numbers=True)
             cur.execute(
                 "SELECT session,state FROM sentinel_processed_sessions"
                 " WHERE cursor_name=%s", (name,))
@@ -975,8 +1105,8 @@ class PostgresShadowObservationStore:
         if row is None:
             raise ShadowObservationRefused(
                 "shadow observation append did not become durable")
-        stored = _as_mapping(row[1], where=f"shadow observation row {name}")
-        if str(row[0]) != session or stored != candidate:
+        stored = self._owned_mapping(row[1], where=f"shadow observation row {name}")
+        if str(row[0]) != session or not observation_storage.exact_value_equal(stored, candidate):
             raise ShadowObservationRefused(
                 f"shadow observation session {session} was already committed "
                 "with different evidence")
@@ -1079,7 +1209,8 @@ class ShadowObserver:
             strategy_identity: Mapping[str, Any],
             runtime_identity: Mapping[str, Any],
             activation_timing: Mapping[str, Any],
-            warmup_input_identity: Mapping[str, Any]) -> None:
+            warmup_input_identity: Mapping[str, Any],
+            _retained_genesis: Mapping[str, Any] | None = None) -> None:
         self.store = store
         self.observation_id = _observation_id(observation_id)
         self.starting_cash = _cash_text(starting_cash)
@@ -1152,7 +1283,13 @@ class ShadowObserver:
         genesis["genesis_sha256"] = _sha256(genesis)
         self.genesis_record = genesis
         self.genesis_sha256 = genesis["genesis_sha256"]
-        self._persist_and_verify_genesis()
+        if _retained_genesis is None:
+            self._persist_and_verify_genesis()
+        else:
+            if _retained_genesis != self.genesis_record:
+                raise ShadowObservationRefused("shadow observation genesis changed after commitment")
+            self._verify_genesis_commitment()
+            self._pinned_status_genesis = True
 
     @classmethod
     def resume(
@@ -1160,8 +1297,18 @@ class ShadowObserver:
             starting_cash: Decimal | str | int | float, first_session: str,
             controller_config: ControllerConfig,
             strategy_identity: Mapping[str, Any],
-            runtime_identity: Mapping[str, Any]) -> "ShadowObserver":
+            runtime_identity: Mapping[str, Any],
+            status_only: bool = False) -> "ShadowObserver":
         """Reconstruct exactly from environment-bound spec plus durable rows."""
+        if status_only:
+            if not isinstance(store, PostgresShadowObservationStore):
+                raise ShadowObservationRefused("status resume requires PostgreSQL")
+            with store.conn.cursor() as cur:
+                cur.execute("SELECT transaction_timestamp(),current_setting('transaction_read_only'),"
+                            "current_setting('transaction_isolation')")
+                snapshot_time, readonly, isolation = cur.fetchone()
+            if readonly != "on" or isolation != "repeatable read":
+                raise ShadowObservationRefused("status resume requires a repeatable read read-only snapshot")
         try:
             genesis = store.genesis()
         except ShadowObservationRefused:
@@ -1172,7 +1319,8 @@ class ShadowObserver:
         if genesis is None:
             raise ShadowObservationRefused(
                 "shadow observation has no immutable genesis state")
-        raw = _as_mapping(genesis, where="shadow observation genesis")
+        raw = (genesis if isinstance(store, PostgresShadowObservationStore)
+               else _as_mapping(genesis, where="shadow observation genesis"))
         initial = raw.get("initial_state")
         if not isinstance(initial, Mapping):
             raise ShadowObservationRefused(
@@ -1185,14 +1333,18 @@ class ShadowObserver:
         if not isinstance(warmup_input, Mapping):
             raise ShadowObservationRefused(
                 "shadow observation genesis lacks its warm-up input identity")
-        return cls(
+        observer = cls(
             store=store, observation_id=observation_id,
             starting_cash=starting_cash, first_session=first_session,
             initial_state=initial, controller_config=controller_config,
             strategy_identity=strategy_identity,
             runtime_identity=runtime_identity,
             activation_timing=activation,
-            warmup_input_identity=warmup_input)
+            warmup_input_identity=warmup_input,
+            _retained_genesis=raw if status_only else None)
+        if status_only:
+            observer._status_snapshot_time = snapshot_time
+        return observer
 
     @classmethod
     def resume_checkpoint(cls, *, history_anchor: Mapping, **kwargs):
@@ -1206,20 +1358,32 @@ class ShadowObserver:
         return observer
 
     def _persist_and_verify_genesis(self) -> None:
+        if getattr(self, "_consumed_for_status", False):
+            raise ShadowObservationRefused("status observer has been consumed")
         try:
-            existing = self.store.genesis()
-            if existing is None:
-                self.store.append_genesis(self.genesis_record)
+            if isinstance(self.store, PostgresShadowObservationStore):
+                matches = self.store.matches_genesis(self.genesis_record)
+                if matches is None:
+                    self.store.append_genesis(self.genesis_record)
+                    matches = self.store.matches_genesis(self.genesis_record)
+            else:
                 existing = self.store.genesis()
+                if existing is None:
+                    self.store.append_genesis(self.genesis_record)
+                    existing = self.store.genesis()
+                matches = (_as_mapping(existing, where="shadow observation genesis")
+                           == self.genesis_record)
         except ShadowObservationRefused:
             raise
         except Exception as exc:
             raise ShadowObservationRefused(
                 "shadow observation genesis could not be persisted") from exc
-        if _as_mapping(existing, where="shadow observation genesis") \
-                != self.genesis_record:
+        if matches is not True:
             raise ShadowObservationRefused(
                 "shadow observation genesis changed after commitment")
+        self._verify_genesis_commitment()
+
+    def _verify_genesis_commitment(self) -> None:
         payload = {key: value for key, value in self.genesis_record.items()
                    if key != "genesis_sha256"}
         if (_sha256(payload) != self.genesis_sha256
@@ -1229,8 +1393,8 @@ class ShadowObserver:
 
     def _genesis_state_hash(self) -> str:
         try:
-            return SessionState.from_dict(
-                self.genesis_record["initial_state"]).state_hash
+            # __init__ emitted this through the canonical, validated to_dict().
+            return _sha256(self.genesis_record["initial_state"])
         except (TypeError, ValueError) as exc:
             raise ShadowObservationRefused(
                 "shadow observation genesis state is incoherent") from exc
@@ -1559,8 +1723,29 @@ class ShadowObserver:
             data_version=state.data_version)
         return state
 
-    def _history(self) -> tuple[list[dict], SessionState]:
-        self._persist_and_verify_genesis()
+    def _history(self, *, consume_seed=False) -> tuple[list[dict], SessionState]:
+        if consume_seed and getattr(self, "_pinned_status_genesis", False):
+            if getattr(self, "_consumed_for_status", False):
+                raise ShadowObservationRefused("status observer has been consumed")
+            with self.store.conn.cursor() as cur:
+                cur.execute("SELECT transaction_timestamp(),current_setting('transaction_read_only'),"
+                            "current_setting('transaction_isolation')")
+                if cur.fetchone() != (self._status_snapshot_time, "on", "repeatable read"):
+                    raise ShadowObservationRefused("status verification snapshot changed")
+            self._verify_genesis_commitment()
+        else:
+            self._persist_and_verify_genesis()
+        previous_record_sha256 = self.genesis_sha256
+        prior_state_sha256 = self.initial_state_sha256
+        state = self.initial_state
+        prior_data_version = self.initial_state.data_version
+        prior_strategy_economics = self.initial_strategy_economics
+        expected_session = self.first_session
+        if consume_seed:
+            self._consumed_for_status = True
+            self.initial_state = None
+            self.genesis_record = None
+            state = None
         try:
             rows = list(self.store.records())
         except ShadowObservationRefused:
@@ -1568,12 +1753,6 @@ class ShadowObserver:
         except Exception as exc:
             raise ShadowObservationRefused(
                 "shadow observation history is unreadable") from exc
-        previous_record_sha256 = self.genesis_sha256
-        prior_state_sha256 = self.initial_state_sha256
-        state = self.initial_state
-        prior_data_version = self.initial_state.data_version
-        prior_strategy_economics = self.initial_strategy_economics
-        expected_session = self.first_session
         anchor = getattr(self, "_history_anchor", None)
         if anchor is not None:
             if (not rows or len(rows) > 2
@@ -1586,7 +1765,8 @@ class ShadowObserver:
             prior_strategy_economics = anchor["prior_strategy_economics"]
         validated: list[dict] = []
         for index, value in enumerate(rows):
-            raw = _as_mapping(value, where=f"shadow observation row {index}")
+            raw = (value if isinstance(self.store, PostgresShadowObservationStore)
+                   else _as_mapping(value, where=f"shadow observation row {index}"))
             if set(raw) != _RECORD_FIELDS:
                 raise ShadowObservationRefused(
                     f"shadow observation row {index} has an unknown state shape")
@@ -1782,8 +1962,8 @@ class ShadowObserver:
             strategy_economics=retained[-1]["strategy_economics"],
             record_sha256=record["record_sha256"], appended=True)
 
-    def verify_history(self) -> ShadowObservationResult:
-        rows, state = self._history()
+    def verify_history(self, *, consume_seed=False) -> ShadowObservationResult:
+        rows, state = self._history(consume_seed=True) if consume_seed else self._history()
         if not rows:
             raise ShadowObservationRefused(
                 "shadow observation has no verified published session")

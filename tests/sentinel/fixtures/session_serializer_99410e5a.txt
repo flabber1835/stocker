@@ -1,0 +1,58 @@
+# Historical to_dict body copied unchanged from 99410e5aff363f9d3d1b0b8d3dbc4e9b93ef4b45
+# Test-only byte/ownership oracle; never a strategy implementation.
+def to_dict(self) -> dict:
+        recent_leadership, ldrc = _canonical_concordance_state(
+            self.strategy_identity, self.recent_leadership, self.ldrc)
+        concordance = (is_concordance_identity(self.strategy_identity)
+                       or median5_controller.enabled(self.strategy_identity))
+        origin = self.concordance_witness_origin
+        if concordance and origin is None:
+            # Pre-field v4 objects have the same unambiguous meaning as a
+            # persisted missing field: historical formation. They still cannot
+            # cross the v5 data-semantics identity boundary unless that required
+            # identity is explicitly present.
+            origin = CONCORDANCE_WITNESS_HISTORICAL
+        if concordance:
+            if origin not in _CONCORDANCE_WITNESS_ORIGINS:
+                raise ValueError(
+                    "Concordance state lacks a valid witness-formation origin")
+        elif self.concordance_witness_origin is not None:
+            raise ValueError(
+                "non-Concordance state carries Concordance witness provenance")
+        raw = asdict(self)
+        if self.median5 is None:
+            if median5_controller.enabled(self.strategy_identity):
+                raise ValueError("Median-5 controller state is required")
+            raw.pop("median5")
+        else:
+            if not median5_controller.enabled(self.strategy_identity):
+                raise ValueError("Median-5 state exists under another strategy")
+            median5_controller.validate(self.median5)
+            from sentinel.controller.champion_config import enabled as champion_enabled
+            from sentinel.controller.champion import validate_native
+            if champion_enabled(self.strategy_identity):
+                if self.median5["version"] != 2:
+                    raise ValueError("champion requires recovery state version 2")
+                validate_native(self.controller)
+            elif self.median5["version"] != 1:
+                raise ValueError("champion recovery cannot be relabelled as Median-5")
+        # Backward-compatible discriminated encoding: absence is the only
+        # historical formation that pre-dates this field; prospective
+        # formation is always explicit. Omitting the historical/irrelevant
+        # default keeps the discriminated encoding stable while v5 separately
+        # invalidates state that lacks the required data-semantics identity.
+        if origin != CONCORDANCE_WITNESS_PROSPECTIVE:
+            raw.pop("concordance_witness_origin", None)
+        else:
+            raw["concordance_witness_origin"] = origin
+        raw["recent_leadership"] = recent_leadership
+        raw["ldrc"] = ldrc
+        protected = _path_dependent_security_ids(
+            raw["wealth_core"], raw["pending"])
+        raw["feed"] = _bounded_feed_dict(raw["feed"], protected)
+        raw["last_known"] = _bounded_last_known(raw["last_known"], protected)
+        raw["last_evidence"] = _bounded_evidence(raw["last_evidence"])
+        raw["controller"] = validate_controller_state(raw["controller"])
+        raw["version"] = ENVELOPE_VERSION
+        json.dumps(raw, sort_keys=True, allow_nan=False)
+        return raw

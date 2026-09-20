@@ -10,7 +10,8 @@ from __future__ import annotations
 import hashlib
 import json
 import math
-from dataclasses import asdict, dataclass, field
+from copy import deepcopy
+from dataclasses import dataclass, field, fields
 from typing import Mapping, Sequence
 
 from stock_strategy_shared.wealth_core.feed import (
@@ -54,10 +55,75 @@ _PLAN_EVIDENCE_FIELDS = (
     "open_unresolved_security_ids", "hashes", "warnings")
 
 
+def _canonical_chunks(value):
+    """Strict canonical JSON, with bounded C-encoder batches for feed arrays.
+
+    Every spelling still comes from the standard encoder. Container traversal
+    avoids constructing a full encoded checkpoint or yielding each price through
+    all its ancestors. Markers are local to this traversal, never a verdict cache.
+    """
+    encoder = json.JSONEncoder(sort_keys=True, separators=(",", ":"), allow_nan=False)
+    active = set()
+
+    def small_scalar(item):
+        kind = type(item)
+        return (item is None or kind in (bool, float)
+                or kind is int and item.bit_length() <= 64
+                or kind is str and len(item) <= 64)
+
+    def walk(item):
+        if type(item) not in (dict, list, tuple):
+            yield from encoder.iterencode(item)
+            return
+        marker = id(item)
+        if marker in active:
+            raise ValueError("Circular reference detected")
+        active.add(marker)
+        try:
+            if type(item) is dict:
+                if not all(isinstance(key, str) for key in item):
+                    # Preserve the standard encoder's numeric-key and mixed-key
+                    # behavior; production state uses string keys throughout.
+                    yield from encoder.iterencode(item)
+                    return
+                yield "{"
+                for index, key in enumerate(sorted(item)):
+                    if index:
+                        yield ","
+                    yield encoder.encode(key)
+                    yield ":"
+                    yield from walk(item[key])
+                yield "}"
+            else:
+                yield "["
+                for start in range(0, len(item), 256):
+                    batch = item[start:start + 256]
+                    if start:
+                        yield ","
+                    if all(small_scalar(element) for element in batch):
+                        yield encoder.encode(batch)[1:-1]
+                    else:
+                        for index, element in enumerate(batch):
+                            if index:
+                                yield ","
+                            yield from walk(element)
+                yield "]"
+        finally:
+            active.remove(marker)
+
+    yield from walk(value)
+
+
 def _hash(value) -> str:
-    blob = json.dumps(
-        value, sort_keys=True, separators=(",", ":"), allow_nan=False)
-    return hashlib.sha256(blob.encode()).hexdigest()
+    digest = hashlib.sha256()
+    for chunk in _canonical_chunks(value):
+        digest.update(chunk.encode())
+    return digest.hexdigest()
+
+
+def _validate_json(value) -> None:
+    for _ in _canonical_chunks(value):
+        pass
 
 
 def _path_dependent_security_ids(wealth_core: Mapping,
@@ -328,7 +394,9 @@ class SessionState:
         elif self.concordance_witness_origin is not None:
             raise ValueError(
                 "non-Concordance state carries Concordance witness provenance")
-        raw = asdict(self)
+        raw = {item.name: deepcopy(getattr(self, item.name))
+               for item in fields(self) if item.name != "feed"}
+        raw["feed"] = self.feed
         if self.median5 is None:
             if median5_controller.enabled(self.strategy_identity):
                 raise ValueError("Median-5 controller state is required")
@@ -359,11 +427,13 @@ class SessionState:
         protected = _path_dependent_security_ids(
             raw["wealth_core"], raw["pending"])
         raw["feed"] = _bounded_feed_dict(raw["feed"], protected)
+        for security_id, series in raw["feed"]["series"].items():
+            raw["feed"]["series"][security_id] = deepcopy(series)
         raw["last_known"] = _bounded_last_known(raw["last_known"], protected)
         raw["last_evidence"] = _bounded_evidence(raw["last_evidence"])
         raw["controller"] = validate_controller_state(raw["controller"])
         raw["version"] = ENVELOPE_VERSION
-        json.dumps(raw, sort_keys=True, allow_nan=False)
+        _validate_json(raw)
         return raw
 
     @classmethod
@@ -397,7 +467,7 @@ class SessionState:
         migrated["controller"] = validate_controller_state(
             migrated.get("controller") or {})
         migrated["version"] = ENVELOPE_VERSION
-        json.dumps(migrated, sort_keys=True, allow_nan=False)
+        _validate_json(migrated)
         state = cls(**migrated)
         from sentinel.controller.ex3_v6 import enabled as v5_enabled
         for raw_order in state.pending:

@@ -18,7 +18,9 @@ no broker and has no mutation authority.
 from __future__ import annotations
 
 import os
+from functools import wraps
 from pathlib import Path
+from threading import BoundedSemaphore
 
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import FileResponse, HTMLResponse, JSONResponse, Response
@@ -34,6 +36,31 @@ from sentinel.panel.sources import build_panel
 app = FastAPI(title="Caesar's Palace", docs_url=None, redoc_url=None)
 app.include_router(push_enrollment_router)
 _STATIC_DIR = Path(__file__).with_name("static")
+_PANEL_BUILD_SLOT = BoundedSemaphore(1)
+
+
+def _one_panel_build(function):
+    """Bound complete response allocation; never reuse a prior verdict."""
+    @wraps(function)
+    def guarded(*args, **kwargs):
+        if not _PANEL_BUILD_SLOT.acquire(blocking=False):
+            headers = {"Cache-Control": "no-store", "Retry-After": "5"}
+            message = "A status refresh is already running. Please retry shortly."
+            if function.__name__ == "panel":
+                return HTMLResponse(
+                    '<!doctype html><html><head><meta charset="utf-8">'
+                    '<meta name="viewport" content="width=device-width,initial-scale=1">'
+                    '<meta http-equiv="refresh" content="5"><title>Status unavailable</title>'
+                    '</head><body><h1>Status unavailable</h1><p>' + message +
+                    '</p><p>This page will retry automatically.</p></body></html>',
+                    status_code=503, headers=headers)
+            return JSONResponse({"status": "UNKNOWN", "detail": message},
+                                status_code=503, headers=headers)
+        try:
+            return function(*args, **kwargs)
+        finally:
+            _PANEL_BUILD_SLOT.release()
+    return guarded
 
 
 @app.middleware("http")
@@ -203,6 +230,7 @@ def _shadow_segment_disclosure(panel: model.Panel, database_url: str) -> model.P
 
 
 @app.get("/", response_class=HTMLResponse)
+@_one_panel_build
 def panel() -> HTMLResponse:
     state_dir, dsn = _config()
     p = _shadow_segment_disclosure(
@@ -212,6 +240,7 @@ def panel() -> HTMLResponse:
 
 
 @app.get("/panel.json")
+@_one_panel_build
 def panel_json() -> JSONResponse:
     state_dir, dsn = _config()
     p = _shadow_segment_disclosure(
@@ -303,6 +332,7 @@ def health() -> dict:
 
 
 @app.get("/operational-health")
+@_one_panel_build
 def operational_health() -> JSONResponse:
     """The same required-fact verdict shown on the operator panel."""
     state_dir, dsn = _config()

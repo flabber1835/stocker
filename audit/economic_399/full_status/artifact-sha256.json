@@ -1,0 +1,26 @@
+{
+  "audit/economic_399/full_status/README.md": {
+    "sha256": "a188e583d4813a3ce218f7885d47927516e679656c91f952d1db427a8e801f00",
+    "bytes": 10904
+  },
+  "docs/full-status-resource-review.md": {
+    "sha256": "d84e9199a1e38dff37da2b4648f9ca05425003574cd025061e80f0db7d915f8e",
+    "bytes": 2773
+  },
+  "docs/economic-code-closure.md": {
+    "sha256": "d377eaa239a24034f08102acc81ec82e3ad4783d3278679b24fb510abd403252",
+    "bytes": 61531
+  },
+  "audit/economic_399/full_status/raw-logs.zip": {
+    "sha256": "58c23ff078168e8219bbfc5c90307b2d0e3fa9827946f7807d075ceb6e2a92be",
+    "bytes": 14477
+  },
+  "audit/economic_399/full_status/raw-log-sha256.json": {
+    "sha256": "22ddeb3c0ac5aca9a64002c1c709f78f6da09358ba77280cb0548974d74722b2",
+    "bytes": 1404
+  },
+  "audit/economic_399/full_status/source-sha256.json": {
+    "sha256": "f0c4b2289464ed8be1be60f05ce81320180a1ff4b2960e85ffc38e690680bad1",
+    "bytes": 2355
+  }
+}
