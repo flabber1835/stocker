@@ -1008,6 +1008,10 @@ class FakeCursor:
             if name not in self.conn.rows and name not in self.conn.pending:
                 self.conn.pending[name] = (session, json.loads(encoded))
             self.result = []
+        elif sql.startswith("select session::text=%s and state=%s::jsonb"):
+            session, encoded, name = params
+            row = self.conn.pending.get(name, self.conn.rows.get(name))
+            self.result = [] if row is None else [(str(row[0]) == session and row[1] == json.loads(encoded),)]
         elif sql.startswith("select session,state"):
             row = self.conn.pending.get(
                 params[0], self.conn.rows.get(params[0]))

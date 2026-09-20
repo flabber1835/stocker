@@ -22,8 +22,8 @@ def selected(conn):
     return rolling
 
 
-def _closure(conn, context):
-    checkpoint, observer, result = checkpoints.load(conn, context)
+def _closure(conn, context, *, status_only=False):
+    checkpoint, observer, result = checkpoints.load(conn, context, status_only=status_only)
     values = authority.latest(conn, context["observation_id"])
     latest = values[0] if values else None
     if latest is not None and latest.session > checkpoint.session:
@@ -74,7 +74,7 @@ def classify(conn, *, observation_id, starting_cash, structural_only=False, cloc
             if origin.read(conn) is None:
                 origin.require_fresh(conn)
                 return {"status": "NOT_STARTED"}
-            checkpoint, _, result, attested, _ = _closure(conn, context)
+            checkpoint, _, result, attested, _ = _closure(conn, context, status_only=True)
             if attested is None:
                 if structural_only:
                     return {"status": "RECONSTRUCTION_REQUIRED", "latest_session": checkpoint.session}

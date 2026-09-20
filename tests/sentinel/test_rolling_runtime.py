@@ -131,10 +131,10 @@ def test_authority_tamper_refuses_runtime_status(conn, published, defect):
 def test_status_is_readonly_without_warmup_or_transition(conn, published, monkeypatch):
     advance(conn)
     original = runtime._closure
-    def closure(conn, context):
+    def closure(conn, context, **kwargs):
         assert conn.execute("SHOW transaction_read_only").fetchone()[0] == "on"
         assert conn.execute("SHOW transaction_isolation").fetchone()[0] == "repeatable read"
-        return original(conn, context)
+        return original(conn, context, **kwargs)
     monkeypatch.setattr(runtime, "_closure", closure)
     monkeypatch.setattr(initial, "warm_session_state", lambda *_a, **_k: pytest.fail("rewarmed"))
     monkeypatch.setattr(shadow, "advance_state", lambda *_a, **_k: pytest.fail("replayed"))

@@ -90,32 +90,43 @@ def require_fresh(conn):
 
 
 def restore(conn, checkpoint, *, observation_id, starting_cash, controller, strategy, runtime):
+    return restore_observer(
+        conn, checkpoint, observation_id=observation_id, starting_cash=starting_cash,
+        controller=controller, strategy=strategy, runtime=runtime)[1]
+
+
+def restore_observer(conn, checkpoint, *, observation_id, starting_cash, controller, strategy, runtime,
+                     status_only=False):
     """Verify exactly one committed origin, without reading old price payloads."""
     if (checkpoint.observation_id != observation_id or checkpoint.starting_cash != starting_cash
             or checkpoint.strategy_identity != strategy or checkpoint.runtime_identity != runtime):
         raise RollingColdStartRefused("CHECKPOINT_CONFIG_CHANGED")
-    store = shadow.PostgresShadowObservationStore(conn, observation_id=observation_id, commit_genesis=False)
+    store = shadow.PostgresShadowObservationStore(conn, observation_id=observation_id, commit_genesis=False,
+                                                 stream_state=status_only)
     from sentinel import rolling_authority
     names = lineage_names(conn)
     names.discard(rolling_authority.name(observation_id, checkpoint.session))
     if names != {CURSOR, store._genesis_name, store._name(checkpoint.session)}:
         raise RollingColdStartRefused("CHECKPOINT_LINEAGE_CHANGED")
-    genesis = store.genesis()
-    rows = store.records()
-    if (genesis is None or genesis.get("genesis_sha256") != checkpoint.genesis_sha256
-            or len(rows) != 1 or rows[0].get("record_sha256") != checkpoint.record_sha256
-            or digest(checkpoint.input_value) != rows[0].get("input_sha256")
-            or genesis.get("warmup_input_identity") != checkpoint.warmup_input_identity):
-        raise RollingColdStartRefused("CHECKPOINT_RECORD_BINDING_CHANGED")
     observer = shadow.ShadowObserver.resume(
         store=store, observation_id=observation_id, starting_cash=starting_cash,
         first_session=checkpoint.session, controller_config=controller,
-        strategy_identity=strategy, runtime_identity=runtime)
-    result = observer.verify_history()
-    if result.state.state_hash != checkpoint.state_sha256:
-        raise RollingColdStartRefused("CHECKPOINT_STATE_CHANGED")
+        strategy_identity=strategy, runtime_identity=runtime, status_only=status_only)
+    rows, state = observer._history(consume_seed=True) if status_only else observer._history()
+    if (observer.genesis_sha256 != checkpoint.genesis_sha256
+            or len(rows) != 1 or rows[0].get("record_sha256") != checkpoint.record_sha256
+            or digest(checkpoint.input_value) != rows[0].get("input_sha256")
+            or observer.warmup_input_identity != checkpoint.warmup_input_identity):
+        raise RollingColdStartRefused("CHECKPOINT_RECORD_BINDING_CHANGED")
     if rows[0]["publication"]["publication"] != checkpoint.publication:
         raise RollingColdStartRefused("CHECKPOINT_PUBLICATION_CHANGED")
+    result = observer._result(
+        session=rows[0]["session"], state=state,
+        strategy_economics=rows[0]["strategy_economics"],
+        record_sha256=rows[0]["record_sha256"], appended=False)
+    del rows
+    if result.state.state_hash != checkpoint.state_sha256:
+        raise RollingColdStartRefused("CHECKPOINT_STATE_CHANGED")
     with conn.cursor() as cur:
         cur.execute("SELECT version,previous_version,run_id,window_start,window_end,evidence "
                     "FROM sentinel_corpus_publications WHERE version=%s", (result.state.data_version,))
@@ -129,4 +140,4 @@ def restore(conn, checkpoint, *, observation_id, starting_cash, controller, stra
         raise RollingColdStartRefused("CHECKPOINT_PUBLICATION_CHANGED")
     shadow._timing_proof(checkpoint.precommit_timing, decision_session=checkpoint.session,
                          committed=False, where="rolling checkpoint precommit timing")
-    return result
+    return None if status_only else observer, result

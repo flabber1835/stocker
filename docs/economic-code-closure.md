@@ -810,3 +810,56 @@ unchanged; Stage 1 and economic certification remain incomplete.
 
 See the [design](full-status-resource-review.md) and
 [retained measurements, exact commands and NAS handoff](../audit/economic_399/full_status/README.md).
+
+### Single-request status memory remediation
+
+Reviewed implementation `d5c35410f6be7e93a0fdc66183e56de0009be351`, on verified
+main `e255a78aaf4f89d25fc634864aafd2656c6cd176` after owner merge of #415; includes
+the unchanged #417 concurrency fix. The previous single-request finding above
+is now **locally fixed for the measured 5000-security synthetic scope**.
+
+`sentinel/shadow_observation.py:963` streams every feed-series entry, while
+`:1728` consumes and releases the verified seed before reading the checkpoint
+session. `sentinel/rolling_checkpoint.py:98` and
+`sentinel/rolling_daily_checkpoint.py:102` reuse one complete verification;
+`sentinel/core/session.py:58`/`:319` avoid duplicate encoded/copied state. No
+canonical field, economic invariant, source identity, hash or publication binding
+is omitted. Status is bound to one repeatable-read, read-only transaction;
+advancement keeps its reusable observer. A new lifecycle test caught retained
+psycopg loader classes; fixed classes with disposable instance pools address it.
+
+Two complete public status calls in one process peak at **401888 KiB (392.47 MiB)**,
+preserving initialization state/authority, NAV and database counts. Complete
+`/panel.json` peaks at **423884 KiB (413.95 MiB)**. Both containers exit 0 under
+an actual 512 MiB/no-swap cap with zero OOM events. Bypassing the optimized route
+causes the same cap to OOM-kill the negative control (exit 137). First-origin
+latencies are 98.695/95.751 seconds for status and 92.853 seconds for HTTP under
+the retained local load. These are observations, not an accepted latency SLO.
+
+The actual next-session transition commits 20 positions. Its complete HTTP read
+also passes the same cap, peaking at **437184 KiB (426.94 MiB)** in 91.089 seconds.
+Two advanced public status calls preserve their state, authority, NAV and row
+counts, both peaking at **419848 KiB (410.01 MiB)**, with zero OOM/limit events.
+Independent Decimal accounting explains its NAV drop as $97.91628 of existing
+10 bps entry costs on $97916.28 notional; residual float-mark/accounting differences
+are below $0.00000001. The source-finality guard correctly refused the first
+advanced probe's stale synthetic clock; only the probe clock was corrected.
+Publication plus that real transition takes 1007.224 seconds, explicitly leaving
+daily throughput qualification open. These fixtures do not qualify a backtest.
+
+Locally verified: 77 canonical/memory tests, 277 restart/recovery/panel regression
+tests (overlapping campaigns), ten guard-removal controls, unchanged historical
+serializer output/ownership, full-payload and last-security corruption refusal,
+bounded decoder lifetime, and 489 owned test modules with none unowned. No golden
+repin, xfail, provider capability enablement, NAS or real broker access.
+
+**Still open:** target workload/history and database-service memory qualification,
+full-scan latency, provider C1/F6/F19/C3, authoritative historical economic deltas
+and NAS-only deployment/restore evidence. The fixture setup process reaches
+**2.82 GiB**, including retained synthetic producer data; this is not an isolated
+production-runtime measurement. Material-consuming initialization/certification
+under its own 2 GiB limit remains a P2 local resource-review item, not something
+the status fix closes or that this setup peak alone proves defective. Production
+source changes require the existing reviewed continuation boundary. Stage 1 and
+economic certification remain incomplete. See the
+[complete commands, evidence scope, findings and NAS handoff](../audit/economic_399/status_memory/README.md).
