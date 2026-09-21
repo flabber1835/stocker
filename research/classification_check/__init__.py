@@ -1,0 +1,1 @@
+"""Isolated economic classification diagnostics."""
