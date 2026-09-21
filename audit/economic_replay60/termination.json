@@ -1,0 +1,13 @@
+{
+  "status": "STOPPED_AT_CONFIRMED_SOFTWARE_BLOCKER",
+  "stopped_utc": "2026-09-21T02:43:42.5189416Z",
+  "stopped_process": 30756,
+  "last_successful_session": "2008-12-22",
+  "blocked_session": "2008-12-23",
+  "reason": "Missing predecessor conversion signal basis despite retained prior-session anchor",
+  "worker_exit_code": 1,
+  "first_segment_budget_seconds": 3600,
+  "second_segment_budget_seconds": 3600,
+  "second_segment_actual_wall_seconds_approx": 1777,
+  "original_worker_status_preserved": true
+}

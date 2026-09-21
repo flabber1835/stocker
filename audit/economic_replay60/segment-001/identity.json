@@ -1,0 +1,30 @@
+{
+  "capital": "100000",
+  "classification_intervals": "3b8bc54142ff9a06122f11efc8cad012ce1b5262cd8719a50c616fc15a4f2709",
+  "dataset": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "economic_inputs": "07b82678ecbb1a71159295098a3461b85bf66fc2c50780f9f7deef4cd1e7a681",
+  "economic_runner": "0e116ec43e75593476ac34a766e20cb3e3172a4b094100ebdd10d9c2288533a0",
+  "harness": {
+    "inputs.py": "843d4799557fbd845169647562f735ada38172d6df83e8e9bbbf5c5fb804b385",
+    "january.py": "456ce54aef27cd358e7ae1da49efc37d2d32200abe27bf8e7655664c8a277079",
+    "run.py": "c22fadafa5e36c48a546442f7a78ee4cf03db2095af30a87e1e28fce1e779df1",
+    "supplement.py": "4c0c4465a5427c9610f0c51729a97b84a4f0fe801d975afa8bd0a6f38b09fbe3"
+  },
+  "measurement": "2006-07-31",
+  "origin": "2006-01-03",
+  "production": "624395dd04c48af7de3a8930cfd586ca2cc81245",
+  "production_manifest": "38bda37fb23d1f7994c3ca69c8fa15cce65784b8592505c572e8763cdafa381c",
+  "reference": "f26288218dd76d0092efe8414d9ac8c39075b256ff9a023a711227f9416ff21a",
+  "resume": null,
+  "seconds": 3600,
+  "strategy_identity": {
+    "controller_rule_sha256": "703386c775ea963506ff147e5c6189ef17944b3591f1a189f87518f5252e8948",
+    "data_semantics_source_sha256": "274a1433b8706b1370d9e74863f41dc6508da666a944c928f9aa277d50cc57f0",
+    "eligibility_config_sha256": "9440981c84f897396f56ae86c8fb37cc3a9f8b4ba609fec279c31d28092894ed",
+    "research_reference_source_sha256": "3fcf274dc5dba5b01ff3c637b62922f27c5dfe2e3b28e7f3a416e1bfeba09663",
+    "strategy": "sentinel-compact-champion-v1",
+    "universe": "BROAD_SHARADAR_COMMON_EQUITY",
+    "wealth_core_config_sha256": "b3a1d23c2790be568ee66c832719f83919427518948acb75c31fd1cad7e54745",
+    "wealth_core_source_sha256": "88841c9783710e4cf50e98f18b024c9dbb1ed87127be42eb5b039c108bb59d0a"
+  }
+}
