@@ -25,8 +25,9 @@ WORKDIR /work
 COPY pytest.ini /work/pytest.ini
 COPY tests/ /work/tests/
 COPY tools/ /work/tools/
-# Audit-only reporter used by the pressure-evidence falsifiers; never runtime code.
+# Audit-only reporters used by economic falsifiers; never runtime code.
 COPY audit/economic_399/postgres_pressure/report.py /work/audit/economic_399/postgres_pressure/report.py
+COPY audit/economic_399/local_closeout/economic_oracle.py /work/audit/economic_399/local_closeout/economic_oracle.py
 # CI authority plus the shared provider simulator used by feed integration tests.
 COPY .github/workflows/ /work/.github/workflows/
 COPY research/sharadar_replay/ /work/research/sharadar_replay/
