@@ -31,6 +31,8 @@ class EventType(str, Enum):
     DIVIDEND_PAID = "DIVIDEND_PAID"            # receivable -> cash
     CASH_MERGER = "CASH_MERGER"                # shares -> cash proceeds
     CONVERSION = "CONVERSION"                  # shares -> delivered security
+    SPINOFF_RECEIPT = "SPINOFF_RECEIPT"        # parent ownership -> child shares
+    SPINOFF_LIQUIDATION = "SPINOFF_LIQUIDATION"  # involuntary child -> cash
     WRITE_OFF = "WRITE_OFF"                    # confirmed worthless, THEN zero
     TERMINAL_LIQUIDATION = "TERMINAL_LIQUIDATION"
     TERMINAL_MARK = "TERMINAL_MARK"

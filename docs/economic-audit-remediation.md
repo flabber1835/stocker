@@ -19,14 +19,32 @@ to establish any new economic account authority.
 ## In-kind distributions
 
 `spinoffdividend` and `spinoff` denote in-kind child-security distributions.
-Their value is retained source evidence and never enters the cash-dividend map.
-The strategy policy is to require independently evidenced child ownership
-before advancing an entitled parent holding. The typed event retains parent
-and child permanent identities, effective session, source identity and vendor
-value; a missing child-share ratio or audited child valuation refuses the
-transition before accounting. The present ACTIONS schema supplies no complete
-holder terms, so these events are explicitly unsupported for an entitled book.
-No child disposal, cash substitution or parent reinvestment is inferred.
+Their vendor value is retained source evidence and never enters the ordinary
+cash-dividend map.
+
+Wealth Core did not select the child company. Complete, independently reviewed
+terms therefore cause the book to receive the holder-level child entitlement
+and liquidate the whole child shares at the first documented tradable open.
+The parent remains in its original slot with its age, review state and share
+count unchanged. Net child-sale proceeds become portfolio cash under the normal
+transaction-cost rule; a fractional entitlement becomes cash only when the
+reviewed terms provide its cash-in-lieu price.
+
+The distribution removes value from the parent's price. Before the same
+session's close-based stop and review, the parent entry reference and episode
+peak are multiplied by `parent open / (parent open + child entitlement value
+per parent share)`. This one-time gross-value rebase prevents the mechanical
+ex-distribution price drop from becoming a trailing stop. Sale cash is not
+subsequently counted as protection for the parent.
+
+The transition requires the parent and child permanent identities, exact child
+shares per parent share, same-session positive parent and child opening prices,
+and any required fractional-share cash-in-lieu price. Entitlements are computed
+across all episodes holding the parent and rounded once at the holder/security
+boundary. Missing or conflicting terms refuse before cash, references, ledger,
+or episode provenance changes. Unheld distributions remain no-ops. Both child
+receipt and liquidation are explicit ledger events, and every affected parent
+episode retains the reviewed source identity in its source-lot provenance.
 The execution membrane also fences these non-scalar events.
 
 The next ACTIONS semantic epoch re-normalizes retained spin-off sessions through

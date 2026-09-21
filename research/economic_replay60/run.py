@@ -28,6 +28,8 @@ sys.path[:0] = [str(_HARNESS), str(_HARNESS / "shared")]
 from stock_strategy_shared.wealth_core.feed import SecurityMeta
 from sentinel.controller.machine import Controller
 from sentinel.core.kernel import advance_session
+from sentinel.core.spinoffs import (
+    LIQUIDATE_CHILD_AT_OPEN, SpinoffDistribution)
 from sentinel.core.session import FeedAnchor, PublishedSession, SessionState
 from sentinel.feed.calendar import previous_sessions
 from sentinel.strategy import production_strategy
@@ -125,6 +127,21 @@ def load_supplements(path, applied, last_session):
     if any(by_id.get(key) != row for key, row in applied.items()):
         raise ValueError("applied supplemental evidence changed")
     return by_id
+
+
+def spinoff_supplement(row):
+    if row.get("kind") != "SPINOFF":
+        raise ValueError("supplement is not a spin-off")
+    return SpinoffDistribution(
+        session=row["effective_session"], parent_ticker=row["ticker"],
+        parent_security_id=row["security_id"],
+        child_ticker=row["child_ticker"],
+        child_security_id=row["child_security_id"],
+        source_row_id=row["id"], value_evidence=row.get("value_evidence"),
+        child_shares_per_parent=row["child_shares_per_parent"],
+        child_price=row.get("child_price"),
+        cash_in_lieu_price=row.get("cash_in_lieu_price"),
+        policy=LIQUIDATE_CHILD_AT_OPEN)
 
 
 def write_checkpoint(output, packet):
@@ -247,16 +264,26 @@ def main():
                 supplements = load_supplements(args.supplements, applied, state.last_processed_session)
                 selected = {k: r for k, r in supplements.items() if r["effective_session"] == day}
                 events = list(terminal.get(day, ()))
-                extra = terminals(selected.values()).get(day, ()) if selected else ()
+                terminal_selected = [r for r in selected.values()
+                                     if r.get("kind") != "SPINOFF"]
+                extra = terminals(terminal_selected).get(day, ()) if terminal_selected else ()
                 if extra:
                     ids = {t.security_id for t in extra}
                     events = [t for t in events if t.security_id not in ids] + list(extra)
+                spin_events = list(spins.get(day, ()))
+                spin_extra = [spinoff_supplement(r) for r in selected.values()
+                              if r.get("kind") == "SPINOFF"]
+                if spin_extra:
+                    ids = {item.parent_security_id for item in spin_extra}
+                    spin_events = [item for item in spin_events
+                                   if item.parent_security_id not in ids] + spin_extra
                 try:
                     published = PublishedSession(session=day, data_version=1,
                         bars=[vendor(r) for r in rows], meta=next_meta, sectors=next_sectors,
                         spy_closeadj=[float(data.benchmark[d]) for d in spy_days],
                         spy_sessions=spy_days, spy_expected_sessions=spy_days, feed_anchors=anchors,
-                        terminal_events=events, spinoff_distributions=spins.get(day, ()))
+                        terminal_events=events,
+                        spinoff_distributions=tuple(spin_events))
                     candidate = advance_session(state, published, controller_config=config, strategy_identity=identity)
                     gap, intraday = Decimal(cash[day]["gap_factor"]), Decimal(cash[day]["intraday_factor"])
                     prices = {"bil_open_signal": str(gap), "bil_close_signal": str(gap*intraday),

@@ -1,0 +1,51 @@
+{
+  "schema": "sentinel-held-spinoff-economic-certificate/v1",
+  "case": "BAX-BXLT-2015-07-01",
+  "scope": "isolated checkpoint transition; no replay continuation or broker authority",
+  "inputs": {
+    "prior_session": "2015-06-30",
+    "checkpoint_sha256": "60742e196ebbcdd9b15da5f7dce8998f17a9582629cb2fbd98ed406eb329e0ab",
+    "pit_archive_sha256": "7d86c6f728f0392516dec5e2a709c16d45b2f46bc139fe7f3d29af25ae4dfce8",
+    "sfp_sha256": "ac8bb85facb455754430800d3fc7aaa88581b55a6701c2658a82202772477945",
+    "supplements_sha256": "d779417369a89d2a6be2a17a8c63b97c5af6205e910549e6f5aecd824ea7ffd2",
+    "parent_security_id": "842836433184266027",
+    "child_security_id": "128227091113957066",
+    "parent_shares": 105,
+    "child_shares_per_parent": "1",
+    "parent_open": "37.55",
+    "child_open": "31.90",
+    "transaction_cost_rate": "0.001"
+  },
+  "oracle": {
+    "whole_child_shares": 105,
+    "gross_child_value": "3349.50",
+    "net_child_sale": "3346.1505",
+    "reference_scale": "0.5406767458603312"
+  },
+  "observed": {
+    "cash_before": "3526.1208432994736",
+    "cash_after": "6872.271343299473",
+    "cash_delta": "3346.1504999999997",
+    "whole_child_shares_received": 105,
+    "whole_child_shares_liquidated": 105,
+    "fees": "3.349499999999807",
+    "parent_shares_after": 105,
+    "parent_peak_before": "77.0",
+    "parent_peak_after": "41.6321094312455",
+    "parent_exit_pending": false,
+    "controlled_account_nav": "350902.5474701088548486692719",
+    "wealth_core_close_equity": "294936.9983232995",
+    "result_state_sha256": "fe0ff2867b5da8765f55c97f296dff23ef90e523457b88f471b3d20eaec0c1e3"
+  },
+  "source_sha256": {
+    "sentinel/core/spinoffs.py": "415a89ca975d36a4d20ec96cd9e779e473e49d31e5754faefd1cd8fdcf1cfb86",
+    "sentinel/core/kernel.py": "61f52d5fc936559c000258e5fee1494d98206444289a3ed9a07dc42532c5615b",
+    "shared/stock_strategy_shared/wealth_core/ledger.py": "c37a8656cc43a4807bf16e2fc6dcb97758cbe7271fc8d9a736ee526c9a9281f3"
+  },
+  "falsifier": {
+    "mutation": "replace parent peak reference scaling with multiplication by 1.0",
+    "expected": "focused test fails",
+    "observed": "1 failed",
+    "source_restored_sha256": "415a89ca975d36a4d20ec96cd9e779e473e49d31e5754faefd1cd8fdcf1cfb86"
+  }
+}
