@@ -2,6 +2,7 @@ import os
 import re
 import shlex
 import subprocess
+import textwrap
 from pathlib import Path
 
 import pytest
@@ -116,6 +117,64 @@ def test_pull_requests_run_the_complete_sentinel_safety_suite():
     assert "docker-compose.sentinel-backup.yml" in workflow
     assert "fetch-depth: 2" in workflow
     assert "git diff --check HEAD^ HEAD" in workflow
+    assert "PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}" in workflow
+
+
+@pytest.mark.parametrize("case", [
+    "merge_main", "earlier_pr_whitespace", "clean_push", "dirty_push", "missing_base",
+])
+def test_whitespace_check_uses_complete_pr_delta_and_refuses_missing_base(tmp_path, case):
+    source = tmp_path / "source"
+    source.mkdir()
+
+    def git(*args):
+        return subprocess.check_output(
+            ["git", *args], cwd=source, text=True, stderr=subprocess.STDOUT).strip()
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.name", "CI test")
+    git("config", "user.email", "ci@example.invalid")
+    git("config", "core.autocrlf", "false")
+    (source / "initial.txt").write_bytes(b"initial\n")
+    git("add", ".")
+    git("commit", "-qm", "initial")
+    git("checkout", "-qb", "feature")
+    dirty = case == "earlier_pr_whitespace"
+    (source / "feature.txt").write_bytes(b"feature \n" if dirty else b"feature\n")
+    git("add", ".")
+    git("commit", "-qm", "feature")
+    git("checkout", "-q", "main")
+    # Existing audit bytes on main must survive a feature-branch merge unchanged.
+    (source / "retained.txt").write_bytes(b"retained\r\n")
+    git("add", ".")
+    git("commit", "-qm", "retained evidence")
+    base = git("rev-parse", "HEAD")
+    git("checkout", "-q", "feature")
+    git("merge", "--no-ff", "-m", "merge main", "main")
+    if case != "merge_main":
+        (source / "latest.txt").write_bytes(
+            b"latest \n" if case == "dirty_push" else b"latest\n")
+        git("add", ".")
+        git("commit", "-qm", "later commit")
+
+    checkout = tmp_path / "checkout"
+    git("clone", "-q", "--depth=2", "--branch=feature", source.as_uri(), str(checkout))
+    workflow = _read(".github/workflows/sentinel-safety.yml")
+    step = workflow.split("      - name: Check changed-line whitespace\n", 1)[1]
+    script = textwrap.dedent(step.split("\n      - name:", 1)[0].split("        run: |\n", 1)[1])
+    advertised_base = "" if case.endswith("push") else base
+    if case == "missing_base":
+        advertised_base = "0" * 40
+    result = subprocess.run(
+        ["bash", "-c", script], cwd=checkout,
+        env={**os.environ, "PR_BASE_SHA": advertised_base},
+        capture_output=True, text=True, timeout=30)
+
+    expected_success = case in {"merge_main", "clean_push"}
+    assert (result.returncode == 0) == expected_success, result.stdout + result.stderr
+    if case in {"earlier_pr_whitespace", "dirty_push"}:
+        assert "trailing whitespace" in result.stdout
+    assert (checkout / "retained.txt").read_bytes() == b"retained\r\n"
 
 
 def test_pull_request_safety_is_read_only_and_publication_is_main_only():

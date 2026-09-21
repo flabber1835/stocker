@@ -1,0 +1,38 @@
+{
+  "capital": "100000",
+  "classifier": "8c14bf56b08dbb7d401e3730041546083c128e413267ade966cb3ad4029d413a",
+  "dataset": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+  "end": "2006-07-06",
+  "manual_source": "0ce3b763072dde5864e27cbba7ec513b29010f1b05201e6e1155006fbd2a8cb1",
+  "modes": [
+    "control",
+    "dates",
+    "seven",
+    "combined"
+  ],
+  "packages": {
+    "cryptography": "46.0.3",
+    "exchange-calendars": "4.13.2",
+    "numpy": "2.4.6",
+    "pandas": "3.0.5",
+    "pydantic": "2.13.4"
+  },
+  "positive_source": "75beead9fa83b1cdef3722d89e66edcd46d26c2ab6eff9d7ad1178fda30587f1",
+  "production": "624395dd04c48af7de3a8930cfd586ca2cc81245",
+  "production_manifest": "38bda37fb23d1f7994c3ca69c8fa15cce65784b8592505c572e8763cdafa381c",
+  "purpose": "formation diagnostic, not strategy performance verdict",
+  "python": "3.12.14 (main, Aug 25 2026, 14:01:42) [MSC v.1944 64 bit (AMD64)]",
+  "runner": "b9d7c40a2b8cad72e2c8d54624959dc2081c48fbf6f51d0289e14c5a34c65e97",
+  "seconds": 1800,
+  "start": "2006-01-03",
+  "strategy_identity": {
+    "controller_rule_sha256": "703386c775ea963506ff147e5c6189ef17944b3591f1a189f87518f5252e8948",
+    "data_semantics_source_sha256": "274a1433b8706b1370d9e74863f41dc6508da666a944c928f9aa277d50cc57f0",
+    "eligibility_config_sha256": "9440981c84f897396f56ae86c8fb37cc3a9f8b4ba609fec279c31d28092894ed",
+    "research_reference_source_sha256": "3fcf274dc5dba5b01ff3c637b62922f27c5dfe2e3b28e7f3a416e1bfeba09663",
+    "strategy": "sentinel-compact-champion-v1",
+    "universe": "BROAD_SHARADAR_COMMON_EQUITY",
+    "wealth_core_config_sha256": "b3a1d23c2790be568ee66c832719f83919427518948acb75c31fd1cad7e54745",
+    "wealth_core_source_sha256": "88841c9783710e4cf50e98f18b024c9dbb1ed87127be42eb5b039c108bb59d0a"
+  }
+}
