@@ -1,0 +1,12 @@
+[
+  {
+    "name": "identity",
+    "killed": true,
+    "output": "F                                                                        [100%]\n================================== FAILURES ===================================\n___________ test_research_snapshot_refuses_cross_parameter_identity ___________\n\n    def test_research_snapshot_refuses_cross_parameter_identity():\n        source, other = ProbeController('current'), ProbeController('combined')\n>       with pytest.raises(ValueError, match='identity mismatch'):\nE       Failed: DID NOT RAISE <class 'ValueError'>\n\nresearch\\impedance\\test_parameters.py:75: Failed\n=========================== short test summary info ===========================\nFAILED research/impedance/test_parameters.py::test_research_snapshot_refuses_cross_parameter_identity\n1 failed in 0.07s\n"
+  },
+  {
+    "name": "parity",
+    "killed": true,
+    "output": "F                                                                        [100%]\n================================== FAILURES ===================================\n_________________ test_parity_guard_detects_target_divergence _________________\n\n    def test_parity_guard_detects_target_divergence():\n        probe = ProbeController('current')\n        point = row()\n        result = probe.step(point)\n        point.update(core_multiplier=1., native_multiplier=1., recovery_reason='NORMAL',\n                     native_evidence={'native_snapshot': probe.native.snapshot()})\n        assert_baseline(point, result, probe)\n        broken = deepcopy(result)\n        broken['target'] = .55\n>       with pytest.raises(AssertionError, match='production target parity'):\nE       Failed: DID NOT RAISE <class 'AssertionError'>\n\nresearch\\impedance\\test_parameters.py:101: Failed\n=========================== short test summary info ===========================\nFAILED research/impedance/test_parameters.py::test_parity_guard_detects_target_divergence\n1 failed in 0.08s\n"
+  }
+]

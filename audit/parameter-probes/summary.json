@@ -1,0 +1,763 @@
+{
+  "healthy": {
+    "current": {
+      "ending_nav": 111311.53826638171,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "fast_sensitive": {
+      "ending_nav": 111311.53826638171,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "slow_earlier": {
+      "ending_nav": 111311.53826638171,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "recovery_faster": {
+      "ending_nav": 111311.53826638171,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "combined": {
+      "ending_nav": 111311.53826638171,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    }
+  },
+  "synchronized_shock": {
+    "current": {
+      "ending_nav": 86153.20606319985,
+      "max_drawdown": -0.17572780372991592,
+      "fees": 421.60842944577706,
+      "turnover": 421608.42944577703,
+      "changes": [
+        {
+          "day": 0,
+          "session": "2021-04-28",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 69,
+          "session": "2021-08-05",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [],
+      "days_below_full": 69,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "fast_sensitive": {
+      "ending_nav": 86153.20606319985,
+      "max_drawdown": -0.17572780372991592,
+      "fees": 421.60842944577706,
+      "turnover": 421608.42944577703,
+      "changes": [
+        {
+          "day": 0,
+          "session": "2021-04-28",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 69,
+          "session": "2021-08-05",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [],
+      "days_below_full": 69,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "slow_earlier": {
+      "ending_nav": 86153.20606319985,
+      "max_drawdown": -0.17572780372991592,
+      "fees": 421.60842944577706,
+      "turnover": 421608.42944577703,
+      "changes": [
+        {
+          "day": 0,
+          "session": "2021-04-28",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 69,
+          "session": "2021-08-05",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [],
+      "days_below_full": 69,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "recovery_faster": {
+      "ending_nav": 86153.20606319985,
+      "max_drawdown": -0.17572780372991592,
+      "fees": 421.60842944577706,
+      "turnover": 421608.42944577703,
+      "changes": [
+        {
+          "day": 0,
+          "session": "2021-04-28",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 69,
+          "session": "2021-08-05",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [],
+      "days_below_full": 69,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "combined": {
+      "ending_nav": 86153.20606319985,
+      "max_drawdown": -0.17572780372991592,
+      "fees": 421.60842944577706,
+      "turnover": 421608.42944577703,
+      "changes": [
+        {
+          "day": 0,
+          "session": "2021-04-28",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 69,
+          "session": "2021-08-05",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [],
+      "days_below_full": 69,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    }
+  },
+  "staggered_damage": {
+    "current": {
+      "ending_nav": 84209.30697710089,
+      "max_drawdown": -0.21575095426217172,
+      "fees": 229.45505658358877,
+      "turnover": 229455.05658358877,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "fast_sensitive": {
+      "ending_nav": 82996.29252871941,
+      "max_drawdown": -0.2045115596239886,
+      "fees": 410.6456548767507,
+      "turnover": 410645.6548767507,
+      "changes": [
+        {
+          "day": 15,
+          "session": "2021-05-19",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 66,
+          "session": "2021-08-02",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65
+      ],
+      "days_below_full": 51,
+      "terminal_difference_dollars": -1213.0144483814802,
+      "drawdown_difference_pp": 1.1239394638183131
+    },
+    "slow_earlier": {
+      "ending_nav": 84209.30697710089,
+      "max_drawdown": -0.21575095426217172,
+      "fees": 229.45505658358877,
+      "turnover": 229455.05658358877,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "recovery_faster": {
+      "ending_nav": 84209.30697710089,
+      "max_drawdown": -0.21575095426217172,
+      "fees": 229.45505658358877,
+      "turnover": 229455.05658358877,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "combined": {
+      "ending_nav": 82996.29252871941,
+      "max_drawdown": -0.2045115596239886,
+      "fees": 410.6456548767507,
+      "turnover": 410645.6548767507,
+      "changes": [
+        {
+          "day": 15,
+          "session": "2021-05-19",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 66,
+          "session": "2021-08-02",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [
+        15,
+        16,
+        17,
+        18,
+        19,
+        20,
+        21,
+        22,
+        23,
+        24,
+        25,
+        26,
+        27,
+        28,
+        29,
+        30,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65
+      ],
+      "days_below_full": 51,
+      "terminal_difference_dollars": -1213.0144483814802,
+      "drawdown_difference_pp": 1.1239394638183131
+    }
+  },
+  "gradual_decline": {
+    "current": {
+      "ending_nav": 89560.79091062772,
+      "max_drawdown": -0.12928424633590319,
+      "fees": 266.2118403725094,
+      "turnover": 266211.8403725094,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "fast_sensitive": {
+      "ending_nav": 89560.79091062772,
+      "max_drawdown": -0.12928424633590319,
+      "fees": 266.2118403725094,
+      "turnover": 266211.8403725094,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "slow_earlier": {
+      "ending_nav": 89560.79091062772,
+      "max_drawdown": -0.12928424633590319,
+      "fees": 266.2118403725094,
+      "turnover": 266211.8403725094,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "recovery_faster": {
+      "ending_nav": 89560.79091062772,
+      "max_drawdown": -0.12928424633590319,
+      "fees": 266.2118403725094,
+      "turnover": 266211.8403725094,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "combined": {
+      "ending_nav": 89560.79091062772,
+      "max_drawdown": -0.12928424633590319,
+      "fees": 266.2118403725094,
+      "turnover": 266211.8403725094,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    }
+  },
+  "temporary_correction": {
+    "current": {
+      "ending_nav": 94351.0334842233,
+      "max_drawdown": -0.1525406350611801,
+      "fees": 436.72961374255567,
+      "turnover": 436729.61374255567,
+      "changes": [
+        {
+          "day": 0,
+          "session": "2021-04-28",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 15,
+          "session": "2021-05-19",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [],
+      "days_below_full": 15,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "fast_sensitive": {
+      "ending_nav": 94351.0334842233,
+      "max_drawdown": -0.1525406350611801,
+      "fees": 436.72961374255567,
+      "turnover": 436729.61374255567,
+      "changes": [
+        {
+          "day": 0,
+          "session": "2021-04-28",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 15,
+          "session": "2021-05-19",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [],
+      "days_below_full": 15,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "slow_earlier": {
+      "ending_nav": 94351.0334842233,
+      "max_drawdown": -0.1525406350611801,
+      "fees": 436.72961374255567,
+      "turnover": 436729.61374255567,
+      "changes": [
+        {
+          "day": 0,
+          "session": "2021-04-28",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 15,
+          "session": "2021-05-19",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [],
+      "days_below_full": 15,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "recovery_faster": {
+      "ending_nav": 94283.29594516831,
+      "max_drawdown": -0.15314743960769206,
+      "fees": 436.4616409028943,
+      "turnover": 436461.6409028943,
+      "changes": [
+        {
+          "day": 0,
+          "session": "2021-04-28",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 11,
+          "session": "2021-05-13",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [
+        11,
+        12,
+        13,
+        14
+      ],
+      "days_below_full": 11,
+      "terminal_difference_dollars": -67.73753905498597,
+      "drawdown_difference_pp": -0.060680454651196314
+    },
+    "combined": {
+      "ending_nav": 94283.29594516831,
+      "max_drawdown": -0.15314743960769206,
+      "fees": 436.4616409028943,
+      "turnover": 436461.6409028943,
+      "changes": [
+        {
+          "day": 0,
+          "session": "2021-04-28",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 11,
+          "session": "2021-05-13",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [
+        11,
+        12,
+        13,
+        14
+      ],
+      "days_below_full": 11,
+      "terminal_difference_dollars": -67.73753905498597,
+      "drawdown_difference_pp": -0.060680454651196314
+    }
+  },
+  "leadership_rotation": {
+    "current": {
+      "ending_nav": 77174.44424295971,
+      "max_drawdown": -0.25891141671697415,
+      "fees": 238.02901704089462,
+      "turnover": 238029.01704089463,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "fast_sensitive": {
+      "ending_nav": 77174.44424295971,
+      "max_drawdown": -0.25891141671697415,
+      "fees": 238.02901704089462,
+      "turnover": 238029.01704089463,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "slow_earlier": {
+      "ending_nav": 78246.88391707091,
+      "max_drawdown": -0.24649994529583696,
+      "fees": 392.1237029367404,
+      "turnover": 392123.7029367404,
+      "changes": [
+        {
+          "day": 36,
+          "session": "2021-06-18",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 68,
+          "session": "2021-08-04",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67
+      ],
+      "days_below_full": 32,
+      "terminal_difference_dollars": 1072.4396741111996,
+      "drawdown_difference_pp": 1.2411471421137188
+    },
+    "recovery_faster": {
+      "ending_nav": 77174.44424295971,
+      "max_drawdown": -0.25891141671697415,
+      "fees": 238.02901704089462,
+      "turnover": 238029.01704089463,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "combined": {
+      "ending_nav": 78246.88391707091,
+      "max_drawdown": -0.24649994529583696,
+      "fees": 392.1237029367404,
+      "turnover": 392123.7029367404,
+      "changes": [
+        {
+          "day": 36,
+          "session": "2021-06-18",
+          "before": 1.0,
+          "after": 0.0
+        },
+        {
+          "day": 68,
+          "session": "2021-08-04",
+          "before": 0.0,
+          "after": 1.0
+        }
+      ],
+      "different_target_days": [
+        36,
+        37,
+        38,
+        39,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        46,
+        47,
+        48,
+        49,
+        50,
+        51,
+        52,
+        53,
+        54,
+        55,
+        56,
+        57,
+        58,
+        59,
+        60,
+        61,
+        62,
+        63,
+        64,
+        65,
+        66,
+        67
+      ],
+      "days_below_full": 32,
+      "terminal_difference_dollars": 1072.4396741111996,
+      "drawdown_difference_pp": 1.2411471421137188
+    }
+  },
+  "healthy_split": {
+    "current": {
+      "ending_nav": 111311.53826638171,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "fast_sensitive": {
+      "ending_nav": 111311.53826638171,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "slow_earlier": {
+      "ending_nav": 111311.53826638171,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "recovery_faster": {
+      "ending_nav": 111311.53826638171,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    },
+    "combined": {
+      "ending_nav": 111311.53826638171,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "changes": [],
+      "different_target_days": [],
+      "days_below_full": 0,
+      "terminal_difference_dollars": 0.0,
+      "drawdown_difference_pp": 0.0
+    }
+  }
+}
