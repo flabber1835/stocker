@@ -4,6 +4,10 @@ Reviewed production base: `da7b64a9429c9c73fb7efac90c8d4a5decb39e13`.
 Decision and interpretation: [investigation](../../docs/core-sentinel-impedance.md).
 Production decisions, configurations and golden artifacts are unchanged.
 
+The later [coherent market pipeline extension](pipeline-validation.md) retains
+seven generated-market runs through production warmup, Core and controller.
+Its results and limitations are separate from the component evidence below.
+
 ## Results
 
 - Nine synthetic path families; 960 Native transitions including warmup and

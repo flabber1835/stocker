@@ -255,6 +255,11 @@ an out-of-sample return expectation.
 
 ## Verification and retained artifacts
 
+The follow-on [coherent market pipeline study](core-sentinel-pipeline-study.md)
+now exercises production-formed holdings and the complete in-memory kernel.
+It reproduces staggered-damage saturation, exposes review/cash effects and
+qualifies which component examples did not recur in its integrated paths.
+
 See [commands and results](../audit/impedance/README.md). Twelve new diagnostic
 tests and nineteen existing champion tests pass; both deliberate mutants are
 detected. No production algorithm or configuration changed. The synthetic

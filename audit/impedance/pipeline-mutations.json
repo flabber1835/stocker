@@ -1,0 +1,14 @@
+[
+  {
+    "mutant": "remove_nav_guard",
+    "killed": true,
+    "returncode": 1,
+    "output": "F                                                                        [100%]\n================================== FAILURES ===================================\n_____________________ test_nav_rejects_wrong_current_mark _____________________\n\n    def test_nav_rejects_wrong_current_mark():\n>       with pytest.raises(AssertionError):\nE       Failed: DID NOT RAISE <class 'AssertionError'>\n\nresearch\\impedance\\test_pipeline.py:39: Failed\n=========================== short test summary info ===========================\nFAILED research/impedance/test_pipeline.py::test_nav_rejects_wrong_current_mark\n1 failed in 0.07s\n"
+  },
+  {
+    "mutant": "remove_split_guard",
+    "killed": true,
+    "returncode": 1,
+    "output": "F                                                                        [100%]\n================================== FAILURES ===================================\n_______________ test_split_equivalence_rejects_corruption[nav] ________________\n\ncorruption = 'nav'\n\n    @pytest.mark.parametrize('corruption', ['nav', 'decision', 'observation', 'missing_split', 'truncation'])\n    def test_split_equivalence_rejects_corruption(corruption):\n        # These retained real pipeline rows are inputs to the *evidence validator*.\n        # This is not a replacement for executing the canonical pipeline.\n        path = Path(__file__).resolve().parents[2] / 'audit/impedance/pipeline-results.json.gz'\n        cases = json.loads(gzip.decompress(path.read_bytes()))['cases']\n        healthy, split = cases['healthy'], cases['healthy_split']\n        assert_split_neutral(healthy, split)\n        row = split['records'][20]\n        if corruption == 'nav':\n            row['nav'] += 1.\n        elif corruption == 'decision':\n            row['core_multiplier'] = 0.\n        elif corruption == 'observation':\n            row['observation']['shadow_r20'] += .1\n        elif corruption == 'missing_split':\n            row['events'] = []\n        else:\n            split['records'].pop()\n>       with pytest.raises(AssertionError):\nE       Failed: DID NOT RAISE <class 'AssertionError'>\n\nresearch\\impedance\\test_pipeline.py:108: Failed\n=========================== short test summary info ===========================\nFAILED research/impedance/test_pipeline.py::test_split_equivalence_rejects_corruption[nav]\n1 failed in 0.10s\n"
+  }
+]

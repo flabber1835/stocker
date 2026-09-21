@@ -1,0 +1,107 @@
+{
+  "healthy": {
+    "first_native_defense": null,
+    "first_controlled_below_full": null,
+    "days_below_full": 0,
+    "first_eligibility": {
+      "drop_damage_acceleration": null,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": null
+    },
+    "max_core_drawdown": -0.018419351861601152,
+    "minimum_held": 20,
+    "maximum_cash_fraction": 0.016090268571902495,
+    "weak_core_releases": [],
+    "ending_nav": 120201.32720753113
+  },
+  "synchronized_shock": {
+    "first_native_defense": 0,
+    "first_controlled_below_full": 0,
+    "days_below_full": 69,
+    "first_eligibility": {
+      "drop_damage_acceleration": 0,
+      "five_session_confirmation_memory": 0,
+      "persistent_impairment_addition": 4
+    },
+    "max_core_drawdown": -0.17691726796144158,
+    "minimum_held": 8,
+    "maximum_cash_fraction": 0.6046758087867855,
+    "weak_core_releases": [],
+    "ending_nav": 96566.76373327107
+  },
+  "staggered_damage": {
+    "first_native_defense": null,
+    "first_controlled_below_full": null,
+    "days_below_full": 0,
+    "first_eligibility": {
+      "drop_damage_acceleration": 15,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": 19
+    },
+    "max_core_drawdown": -0.21827323979758673,
+    "minimum_held": 3,
+    "maximum_cash_fraction": 0.8459736403057013,
+    "weak_core_releases": [],
+    "ending_nav": 90494.77207591519
+  },
+  "gradual_decline": {
+    "first_native_defense": null,
+    "first_controlled_below_full": null,
+    "days_below_full": 0,
+    "first_eligibility": {
+      "drop_damage_acceleration": null,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": 31
+    },
+    "max_core_drawdown": -0.13043090870400853,
+    "minimum_held": 0,
+    "maximum_cash_fraction": 1.0,
+    "weak_core_releases": [],
+    "ending_nav": 96377.15766587837
+  },
+  "temporary_correction": {
+    "first_native_defense": 0,
+    "first_controlled_below_full": 0,
+    "days_below_full": 15,
+    "first_eligibility": {
+      "drop_damage_acceleration": 0,
+      "five_session_confirmation_memory": 0,
+      "persistent_impairment_addition": 4
+    },
+    "max_core_drawdown": -0.13641310564923248,
+    "minimum_held": 20,
+    "maximum_cash_fraction": 0.01863612687185563,
+    "weak_core_releases": [],
+    "ending_nav": 120201.32720753113
+  },
+  "leadership_rotation": {
+    "first_native_defense": null,
+    "first_controlled_below_full": null,
+    "days_below_full": 0,
+    "first_eligibility": {
+      "drop_damage_acceleration": null,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": null
+    },
+    "max_core_drawdown": -0.26183797073676396,
+    "minimum_held": 0,
+    "maximum_cash_fraction": 1.0,
+    "weak_core_releases": [],
+    "ending_nav": 82923.72804201012
+  },
+  "healthy_split": {
+    "first_native_defense": null,
+    "first_controlled_below_full": null,
+    "days_below_full": 0,
+    "first_eligibility": {
+      "drop_damage_acceleration": null,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": null
+    },
+    "max_core_drawdown": -0.018419351861601152,
+    "minimum_held": 20,
+    "maximum_cash_fraction": 0.016090268571902495,
+    "weak_core_releases": [],
+    "ending_nav": 120201.32720753113
+  }
+}
