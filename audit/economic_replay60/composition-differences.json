@@ -1,0 +1,233 @@
+[
+  {
+    "security_id": "239941989793759396",
+    "ticker": "SQNM",
+    "current_quantity": "296",
+    "reference_quantity": "0",
+    "reference_mark": null,
+    "reference_mark_source": null,
+    "quantity_gap_at_reference_mark": null,
+    "current_value": "5884.479999999999704",
+    "dollar_gap": 5884.48
+  },
+  {
+    "security_id": "872532685171113542",
+    "ticker": "LCC",
+    "current_quantity": "0",
+    "reference_quantity": "628.0",
+    "reference_mark": "7.33",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "-4603.240",
+    "current_value": "0",
+    "dollar_gap": -4603.24
+  },
+  {
+    "security_id": "776140674308328073",
+    "ticker": "DAL",
+    "current_quantity": "0",
+    "reference_quantity": "443.0",
+    "reference_mark": "10.25",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "-4540.750",
+    "current_value": "0",
+    "dollar_gap": -4540.75
+  },
+  {
+    "security_id": "68240004597436902",
+    "ticker": "AFAM",
+    "current_quantity": "104",
+    "reference_quantity": "0",
+    "reference_mark": null,
+    "reference_mark_source": null,
+    "quantity_gap_at_reference_mark": null,
+    "current_value": "4527.120000000000104",
+    "dollar_gap": 4527.12
+  },
+  {
+    "security_id": "164944515610617594",
+    "ticker": "FDRY",
+    "current_quantity": "0",
+    "reference_quantity": "271.0",
+    "reference_mark": "16.66",
+    "reference_mark_source": "PRIOR_MARK_CARRIED",
+    "quantity_gap_at_reference_mark": "-4514.860",
+    "current_value": "0",
+    "dollar_gap": -4514.86
+  },
+  {
+    "security_id": "907989354920106752",
+    "ticker": "ESINQ",
+    "current_quantity": "50",
+    "reference_quantity": "0",
+    "reference_mark": null,
+    "reference_mark_source": null,
+    "quantity_gap_at_reference_mark": null,
+    "current_value": "4384.000000000000350",
+    "dollar_gap": 4384
+  },
+  {
+    "security_id": "309469643573885782",
+    "ticker": "SMG",
+    "current_quantity": "154",
+    "reference_quantity": "0",
+    "reference_mark": null,
+    "reference_mark_source": null,
+    "quantity_gap_at_reference_mark": null,
+    "current_value": "4308.92",
+    "dollar_gap": 4308.92
+  },
+  {
+    "security_id": "168083666131069289",
+    "ticker": "NJR",
+    "current_quantity": "115",
+    "reference_quantity": "0",
+    "reference_mark": null,
+    "reference_mark_source": null,
+    "quantity_gap_at_reference_mark": null,
+    "current_value": "4258.450000000000115",
+    "dollar_gap": 4258.45
+  },
+  {
+    "security_id": "315026951121797814",
+    "ticker": "CRI",
+    "current_quantity": "0",
+    "reference_quantity": "216.0",
+    "reference_mark": "18.78",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "-4056.480",
+    "current_value": "0",
+    "dollar_gap": -4056.48
+  },
+  {
+    "security_id": "154180056919575706",
+    "ticker": "FDO",
+    "current_quantity": "162",
+    "reference_quantity": "0",
+    "reference_mark": null,
+    "reference_mark_source": null,
+    "quantity_gap_at_reference_mark": null,
+    "current_value": "3998.16",
+    "dollar_gap": 3998.16
+  },
+  {
+    "security_id": "693180408510627827",
+    "ticker": "GAS1",
+    "current_quantity": "0",
+    "reference_quantity": "102.0",
+    "reference_mark": "34.93",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "-3562.860",
+    "current_value": "0",
+    "dollar_gap": -3562.86
+  },
+  {
+    "security_id": "940157824148077450",
+    "ticker": "CASY",
+    "current_quantity": "155",
+    "reference_quantity": "0",
+    "reference_mark": null,
+    "reference_mark_source": null,
+    "quantity_gap_at_reference_mark": null,
+    "current_value": "3485.949999999999690",
+    "dollar_gap": 3485.95
+  },
+  {
+    "security_id": "475154314395267726",
+    "ticker": "APOL",
+    "current_quantity": "76",
+    "reference_quantity": "57.0",
+    "reference_mark": "75.37",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "1432.030",
+    "current_value": "5728.120000000000380",
+    "dollar_gap": 1432.03
+  },
+  {
+    "security_id": "852684403524489499",
+    "ticker": "THOR1",
+    "current_quantity": "180",
+    "reference_quantity": "144.0",
+    "reference_mark": "30.68",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "1104.480",
+    "current_value": "5522.40",
+    "dollar_gap": 1104.48
+  },
+  {
+    "security_id": "540523774344214888",
+    "ticker": "MYGN",
+    "current_quantity": "91",
+    "reference_quantity": "84.0",
+    "reference_mark": "64.88",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "454.160",
+    "current_value": "5904.079999999999545",
+    "dollar_gap": 454.16
+  },
+  {
+    "security_id": "669378209811695381",
+    "ticker": "AMGN",
+    "current_quantity": "80",
+    "reference_quantity": "73.0",
+    "reference_mark": "57.13",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "399.910",
+    "current_value": "4570.400000000000240",
+    "dollar_gap": 399.91
+  },
+  {
+    "security_id": "647878730222364752",
+    "ticker": "CBST",
+    "current_quantity": "192",
+    "reference_quantity": "182.0",
+    "reference_mark": "24.11",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "241.100",
+    "current_value": "4629.119999999999808",
+    "dollar_gap": 241.1
+  },
+  {
+    "security_id": "36666266239592614",
+    "ticker": "ALO1",
+    "current_quantity": "126",
+    "reference_quantity": "120.0",
+    "reference_mark": "36.45",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "218.700",
+    "current_value": "4592.700000000000378",
+    "dollar_gap": 218.7
+  },
+  {
+    "security_id": "515130960484578865",
+    "ticker": "BRL",
+    "current_quantity": "70",
+    "reference_quantity": "67.0",
+    "reference_mark": "65.8",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "197.40",
+    "current_value": "4605.999999999999790",
+    "dollar_gap": 197.4
+  },
+  {
+    "security_id": "547624092318245510",
+    "ticker": "PB",
+    "current_quantity": "135",
+    "reference_quantity": "131.0",
+    "reference_mark": "26.7",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "106.80",
+    "current_value": "3604.499999999999865",
+    "dollar_gap": 106.8
+  },
+  {
+    "security_id": "675540632474526608",
+    "ticker": "UST1",
+    "current_quantity": "64",
+    "reference_quantity": "65.0",
+    "reference_mark": "68.91",
+    "reference_mark_source": "CURRENT_RAW_CLOSE",
+    "quantity_gap_at_reference_mark": "-68.910",
+    "current_value": "4410.239999999999808",
+    "dollar_gap": -68.91
+  }
+]

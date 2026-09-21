@@ -1,0 +1,26 @@
+{
+  "blocked_session": "2008-12-23",
+  "comparison": {
+    "current": {
+      "cagr": 0.13255098597265805,
+      "multiple": "1.347424642997112909755853514"
+    },
+    "reference": {
+      "cagr": 0.12162706675737084,
+      "multiple": "1.3164987232557948"
+    },
+    "spy": {
+      "cagr": -0.12961212668698552,
+      "multiple": "0.7170871196708701724431086534"
+    }
+  },
+  "date": "2008-12-22",
+  "elapsed_seconds": 1345.72,
+  "error": "unresolved or blocked Wealth Core equity cannot feed verified Core+BIL strategy performance",
+  "maximum_drawdown": "-0.2050815580720741903304704658",
+  "measurement_start": "2006-07-31",
+  "nav": "124673.7213266214936670600955",
+  "phase": "PROVISIONAL_MATCHED_DATE_COMPARISON",
+  "status": "WAITING_FOR_EVIDENCE",
+  "total_sessions": 749
+}
