@@ -1,0 +1,20 @@
+{
+  "session": "2007-12-27",
+  "checkpoint_sha256": "fec7bbd9711b6d7743d8c23e98cb3f7cfcaac29842eb90e2d5fe8e353665ada2",
+  "raw_cash_and_shares": "118902.212409468085926",
+  "dividend_receivables": "20.5",
+  "oracle_equity": "118922.712409468085926",
+  "reported_equity": "118922.71240946809",
+  "difference": "-4.074E-12",
+  "receivables": [
+    {
+      "accrued_session": "2007-12-27",
+      "amount": 20.5,
+      "due_in": 0,
+      "security_id": "555782615540001401",
+      "ticker": "LECO"
+    }
+  ],
+  "oracle": "checkpoint cash + quantities times unmodified observations-2007.csv.gz raw closes + dividend receivables; raw prices read directly from original archive",
+  "status": "PASS"
+}

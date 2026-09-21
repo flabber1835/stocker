@@ -1,0 +1,196 @@
+{
+  "checks": "PASS",
+  "formation_start": "2006-01-03",
+  "measurement_start": "2006-07-31",
+  "last_session": "2008-12-22",
+  "sessions": 749,
+  "baseline": "92527.41663482299000000000015",
+  "first_holding_date": "2006-07-06",
+  "comparison": {
+    "current": {
+      "multiple": "1.347424642997112909755853514",
+      "cagr": 0.13255098597265805
+    },
+    "reference": {
+      "multiple": "1.3164987232557948",
+      "cagr": 0.12162706675737084
+    },
+    "spy": {
+      "multiple": "0.7170871196708701724431086534",
+      "cagr": -0.12961212668698552
+    }
+  },
+  "anchor_2008_09_02": {
+    "current": {
+      "multiple": "1.341960333445899149111409876",
+      "cagr": 0.15098061708306554
+    },
+    "reference": {
+      "multiple": "1.3111598298452936",
+      "cagr": 0.13827492949279668
+    },
+    "spy": {
+      "multiple": "1.039909127899090170938296258",
+      "cagr": 0.018884416595427715
+    }
+  },
+  "maximum_cagr_error": "6.771583745489667222204731E-15",
+  "allocation_differences": [],
+  "core_oracle": {
+    "cash": "16848.47074873779",
+    "receivables": "0",
+    "positions": [
+      {
+        "security_id": "239941989793759396",
+        "ticker": "SQNM",
+        "quantity": 296,
+        "raw_close": "19.879999999999999",
+        "value": "5884.479999999999704"
+      },
+      {
+        "security_id": "852684403524489499",
+        "ticker": "THOR1",
+        "quantity": 180,
+        "raw_close": "30.68",
+        "value": "5522.40"
+      },
+      {
+        "security_id": "515130960484578865",
+        "ticker": "BRL",
+        "quantity": 70,
+        "raw_close": "65.799999999999997",
+        "value": "4605.999999999999790"
+      },
+      {
+        "security_id": "669378209811695381",
+        "ticker": "AMGN",
+        "quantity": 80,
+        "raw_close": "57.130000000000003",
+        "value": "4570.400000000000240"
+      },
+      {
+        "security_id": "647878730222364752",
+        "ticker": "CBST",
+        "quantity": 192,
+        "raw_close": "24.109999999999999",
+        "value": "4629.119999999999808"
+      },
+      {
+        "security_id": "547624092318245510",
+        "ticker": "PB",
+        "quantity": 135,
+        "raw_close": "26.699999999999999",
+        "value": "3604.499999999999865"
+      },
+      {
+        "security_id": "907989354920106752",
+        "ticker": "ESINQ",
+        "quantity": 50,
+        "raw_close": "87.680000000000007",
+        "value": "4384.000000000000350"
+      },
+      {
+        "security_id": "168083666131069289",
+        "ticker": "NJR",
+        "quantity": 115,
+        "raw_close": "37.030000000000001",
+        "value": "4258.450000000000115"
+      },
+      {
+        "security_id": "309469643573885782",
+        "ticker": "SMG",
+        "quantity": 154,
+        "raw_close": "27.98",
+        "value": "4308.92"
+      },
+      {
+        "security_id": "940157824148077450",
+        "ticker": "CASY",
+        "quantity": 155,
+        "raw_close": "22.489999999999998",
+        "value": "3485.949999999999690"
+      },
+      {
+        "security_id": "540523774344214888",
+        "ticker": "MYGN",
+        "quantity": 91,
+        "raw_close": "64.879999999999995",
+        "value": "5904.079999999999545"
+      },
+      {
+        "security_id": "154180056919575706",
+        "ticker": "FDO",
+        "quantity": 162,
+        "raw_close": "24.68",
+        "value": "3998.16"
+      },
+      {
+        "security_id": "68240004597436902",
+        "ticker": "AFAM",
+        "quantity": 104,
+        "raw_close": "43.530000000000001",
+        "value": "4527.120000000000104"
+      },
+      {
+        "security_id": "675540632474526608",
+        "ticker": "UST1",
+        "quantity": 64,
+        "raw_close": "68.909999999999997",
+        "value": "4410.239999999999808"
+      },
+      {
+        "security_id": "36666266239592614",
+        "ticker": "ALO1",
+        "quantity": 126,
+        "raw_close": "36.450000000000003",
+        "value": "4592.700000000000378"
+      },
+      {
+        "security_id": "475154314395267726",
+        "ticker": "APOL",
+        "quantity": 76,
+        "raw_close": "75.370000000000005",
+        "value": "5728.120000000000380"
+      }
+    ],
+    "nav": "91263.110748737789777",
+    "residual": "-2.23E-13"
+  },
+  "checkpoint": {
+    "bytes": 14437042,
+    "last_session": "2008-12-22",
+    "path": "C:\\GitHub\\stocker\\.codex-tmp\\economic-replay-60m-20260921\\segment-002\\checkpoints\\checkpoint-2008-12-22.json.gz",
+    "sha256": "fecaa24467a2d0c1e124a8033bd6d8ea3f366b5eec223970f479b5ae940fcdbc"
+  },
+  "applied_supplements": [
+    "AVL1-2006-09-20-cash-reconstruction",
+    "REY-2006-10-27-issuer-cash",
+    "FALB-2006-11-02-cad-cash-reconstruction",
+    "GLG1-2006-11-03-stock-cash-witness",
+    "MCDTA-2007-01-26-stock-conversion",
+    "MCDT-2007-01-29-stock-conversion",
+    "TSG1-2007-03-30-cash-reconstruction",
+    "WEBX1-2007-05-25-cash-reconstruction",
+    "BOT1-2007-07-12-stock-plus-special-dividend",
+    "CHAP1-2007-09-14-cash-reconstruction",
+    "GSF1-2007-11-26-pre-recap-value-witness",
+    "HCR1-2007-12-21-cash-reconstruction",
+    "EDO-2007-12-21-cash-reconstruction",
+    "HET-2008-01-28-issuer-cash",
+    "MOGN-2008-01-28-issuer-cash",
+    "XMSR-2008-07-28-stock-conversion",
+    "SPSX-2008-08-08-sec-cash",
+    "EAS-2008-09-16-cash",
+    "SCRX-2008-10-09-cash",
+    "DRS1-2008-10-21-cash-timing-assumption",
+    "NWA-2008-10-29-stock-conversion",
+    "IKN-2008-10-30-cash-timing-assumption",
+    "LDG-2008-10-30-cash-reconstruction",
+    "UB-2008-11-04-cash-reconstruction",
+    "HPC-2008-11-13-economic-terms",
+    "BUD1-2008-11-17-cash-timing-assumption",
+    "IMCL-2008-11-24-economic-terms",
+    "PHLY-2008-12-01-cash-reconstruction",
+    "FDRY-2008-12-19-cash-reconstruction"
+  ]
+}

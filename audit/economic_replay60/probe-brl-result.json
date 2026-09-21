@@ -1,0 +1,117 @@
+{
+  "case": "BRL_TO_TEVA_2008_12_23",
+  "checkpoint": {
+    "bytes": 14437042,
+    "last_session": "2008-12-22",
+    "path": "C:\\GitHub\\stocker\\.codex-tmp\\economic-replay-60m-20260921\\segment-002\\checkpoints\\checkpoint-2008-12-22.json.gz",
+    "sha256": "fecaa24467a2d0c1e124a8033bd6d8ea3f366b5eec223970f479b5ae940fcdbc"
+  },
+  "source_anchor": [
+    "2008-12-22",
+    65.8,
+    65.8
+  ],
+  "delivered_prior_anchor": [
+    "2008-12-22",
+    41.82,
+    41.82
+  ],
+  "predecessor_has_current_bar": false,
+  "production_unresolved": {
+    "515130960484578865": "MISSING_CONVERSION_SIGNAL_BASIS"
+  },
+  "production_valuation": {
+    "execution_model": "stateful_ownership",
+    "session": "2008-12-23",
+    "intents": [],
+    "blocked": true,
+    "block_reason": "UNRESOLVED_EQUITY",
+    "resolved_equity": null,
+    "estimated_equity": 91279.3207487378,
+    "resolved_open_equity": null,
+    "open_unresolved_security_ids": [
+      "515130960484578865"
+    ],
+    "hashes": {
+      "normalized_input": "1293537e2e6825492cd99bcd3571ca27e492dca70d7f46e00294efe67b7eb2d6",
+      "candidate_audit": "1c199de547d448d8d3c74dd0a7bdfab60068abc16f39c5f4e2e067433a2534ed",
+      "decision": "36f91700d0593497c09a8020f89f1083434d78bcd0cdd22cf01b1e9dea2b745c",
+      "order": "27873633f6529ac2657b47ea900cd208a6c7e74289566b4c0f487115131ae72b",
+      "daily_state": "6cecc10fc75ae019ea7afd6f82190895e18a9cb806696064f812f33bc988b099",
+      "daily_equity": "d7cf59f3cfa0df122277e7ece2cb097ee0120909118e34a8a56291894af9041e",
+      "final_result": "53154dd244223022e95249bff2c634df413f1cf687a3b156e0eb0a52ec237de1"
+    },
+    "warnings": [
+      "admissions blocked: at least one holding has no trustworthy current mark or has an unresolved terminal action"
+    ]
+  },
+  "terms": {
+    "session": "2008-12-23",
+    "security_id": "515130960484578865",
+    "kind": "CASH_PLUS_STOCK",
+    "cash_per_share": 39.9,
+    "delivered_security_id": "328265922479251290",
+    "delivered_ticker": "TEVA",
+    "delivered_issuer_id": "P:SEC_UNKNOWN:328265922479251290",
+    "exchange_ratio": 0.6272,
+    "cash_in_lieu_price_per_delivered_share": 41.82,
+    "reference": "70 BRL -> 43 TEVA ADSs + USD2793 + 0.904-share CIL. CIL price USD41.82 is prior Dec22 raw-close assumption, NOT actual paying-agent rate. Completion-session economic recognition.",
+    "entitlement_aggregation": "HOLDER"
+  },
+  "independent_contract_oracle": {
+    "source_shares": 70,
+    "cash_per_share": "39.90",
+    "ratio": "0.6272",
+    "whole_shares": 43,
+    "fraction": "0.904",
+    "cil_price_assumption": "41.82",
+    "expected_cash": "2830.80528"
+  },
+  "direct_terminal_with_existing_basis": {
+    "result": {
+      "applied": true,
+      "kind": "CASH_PLUS_STOCK",
+      "converted": true,
+      "security_id": "515130960484578865",
+      "delivered_security_id": "328265922479251290",
+      "shares_delivered": 43.0,
+      "cash_in_lieu": 37.80528,
+      "cash_consideration": 2793.0,
+      "settlement_available_phase": "OPEN",
+      "terminal_audit": {
+        "security_id": "515130960484578865",
+        "ticker": "BRL",
+        "event_session": "2008-12-23",
+        "event_kind": "CASH_PLUS_STOCK",
+        "event_reference": "70 BRL -> 43 TEVA ADSs + USD2793 + 0.904-share CIL. CIL price USD41.82 is prior Dec22 raw-close assumption, NOT actual paying-agent rate. Completion-session economic recognition.",
+        "carried": false,
+        "carry_session": null,
+        "shares_at_carry": null,
+        "carry_price": null,
+        "carry_notional": null,
+        "last_trustworthy_print_session": null,
+        "grace_sessions": null,
+        "grace_prints": [],
+        "grace_split_multiplier": 1.0,
+        "grace_splits": [],
+        "settlement_session": "2008-12-23",
+        "settlement_method": "EXACT_TERMS",
+        "settlement_kind": "mixed",
+        "episode_continues": true,
+        "shares_at_settlement": 70,
+        "settlement_price": 39.9,
+        "settlement_notional": 2793.0,
+        "delivered_security_id": "328265922479251290",
+        "delivered_ticker": "TEVA",
+        "shares_delivered": 43.0,
+        "exchange_ratio": 0.6272,
+        "cash_consideration": 2793.0,
+        "cash_in_lieu": 37.81,
+        "notional_delta": null
+      }
+    },
+    "cash_change": 2830.8052800000005,
+    "delivered_shares": 43.0
+  },
+  "scope": "One failed session plus direct terminal-function counterfactual; no replay state/output/source mutation or continuation."
+}
