@@ -159,7 +159,8 @@ def _bounded_last_known(raw: Mapping, protected_security_ids: set[str]) -> dict:
 
 
 def _bounded_feed_dict(raw: Mapping,
-                       protected_security_ids: set[str] | None = None) -> dict:
+                       protected_security_ids: set[str] | None = None,
+                       *, _copy_arrays: bool = True) -> dict:
     """Return the schema-v3 feed restart image.
 
     The absolute split factor and current identity are anchors.  Observation
@@ -184,7 +185,8 @@ def _bounded_feed_dict(raw: Mapping,
     compact_series: dict[str, dict] = {}
     for sid, value in sorted((raw.get("series") or {}).items()):
         series = dict(value)
-        columns = {name: list(series.get(name) or []) for name in _SERIES_FIELDS}
+        columns = {name: (value if isinstance(value, list) else list(value))
+                   for name in _SERIES_FIELDS for value in [series.get(name) or []]}
         lengths = {len(column) for column in columns.values()}
         if len(lengths) != 1:
             raise ValueError(
@@ -263,7 +265,8 @@ def _bounded_feed_dict(raw: Mapping,
             **({"signal_basis_multiplier": float(signal_multiplier)}
                if signal_multiplier != 1. else {}),
             **({"signal_basis_anchor": list(signal_anchor)} if signal_anchor is not None else {}),
-            **{name: [columns[name][i] for i in keep]
+            **{name: (columns[name] if not _copy_arrays and isinstance(columns[name], list)
+                      and len(keep) == len(columns[name]) else [columns[name][i] for i in keep])
                for name in _SERIES_FIELDS},
         }
     missing = protected - set(compact_series)
@@ -376,6 +379,10 @@ class SessionState:
                 CONCORDANCE_WITNESS_HISTORICAL if concordance or median5 else None))
 
     def to_dict(self) -> dict:
+        return self._canonical_mapping(_copy_feed=True)
+
+    def _canonical_mapping(self, *, _copy_feed: bool) -> dict:
+        """Private synchronous view; borrowed feed arrays must never be mutated."""
         recent_leadership, ldrc = _canonical_concordance_state(
             self.strategy_identity, self.recent_leadership, self.ldrc)
         concordance = (is_concordance_identity(self.strategy_identity)
@@ -426,9 +433,10 @@ class SessionState:
         raw["ldrc"] = ldrc
         protected = _path_dependent_security_ids(
             raw["wealth_core"], raw["pending"])
-        raw["feed"] = _bounded_feed_dict(raw["feed"], protected)
-        for security_id, series in raw["feed"]["series"].items():
-            raw["feed"]["series"][security_id] = deepcopy(series)
+        raw["feed"] = _bounded_feed_dict(raw["feed"], protected, _copy_arrays=_copy_feed)
+        if _copy_feed:
+            for security_id, series in raw["feed"]["series"].items():
+                raw["feed"]["series"][security_id] = deepcopy(series)
         raw["last_known"] = _bounded_last_known(raw["last_known"], protected)
         raw["last_evidence"] = _bounded_evidence(raw["last_evidence"])
         raw["controller"] = validate_controller_state(raw["controller"])
@@ -437,7 +445,7 @@ class SessionState:
         return raw
 
     @classmethod
-    def from_dict(cls, raw: Mapping) -> "SessionState":
+    def from_dict(cls, raw: Mapping, *, _copy_feed: bool = True) -> "SessionState":
         version = int(raw.get("version", 0))
         if version == 1:
             raise ValueError("production state version 1 cannot be migrated safely: "
@@ -459,7 +467,7 @@ class SessionState:
         protected = _path_dependent_security_ids(
             migrated.get("wealth_core") or {}, migrated.get("pending") or [])
         migrated["feed"] = _bounded_feed_dict(
-            migrated.get("feed") or {}, protected)
+            migrated.get("feed") or {}, protected, _copy_arrays=_copy_feed)
         migrated["last_known"] = _bounded_last_known(
             migrated.get("last_known") or {}, protected)
         migrated["last_evidence"] = _bounded_evidence(
@@ -522,7 +530,7 @@ class SessionState:
 
     @property
     def state_hash(self) -> str:
-        return _hash(self.to_dict())
+        return _hash(self._canonical_mapping(_copy_feed=False))
 
 
 @dataclass(frozen=True)

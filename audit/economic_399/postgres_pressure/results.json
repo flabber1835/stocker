@@ -1,0 +1,399 @@
+{
+  "scope": "LOCAL_SYNTHETIC_POSTGRESQL_PROFILE",
+  "overall": {
+    "samples": 719,
+    "sampled_seconds": 727.0100000000093,
+    "max_sample_gap_seconds": 1.0599999999976717,
+    "charged_peak_bytes": 1074319360,
+    "sampled_current_peak_bytes": 1073741824,
+    "sampled_non_file_cache_peak_bytes": 268746752,
+    "sampled_non_file_cache_margin_basis_points": 7497,
+    "sampled_file_cache_peak_bytes": 890138624,
+    "events_start": {
+      "low": 0,
+      "high": 0,
+      "max": 0,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    },
+    "events_end": {
+      "low": 0,
+      "high": 0,
+      "max": 16591,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    },
+    "events_delta": {
+      "low": 0,
+      "high": 0,
+      "max": 16591,
+      "oom": 0,
+      "oom_kill": 0,
+      "oom_group_kill": 0
+    },
+    "non_file_cache_estimate_end_bytes": 164392960,
+    "total_memory_headroom": "TIGHT",
+    "some_stall_seconds": 0.675485,
+    "some_stall_percent": 0.09291275223174253,
+    "full_stall_seconds": 0.675176,
+    "full_stall_percent": 0.09287024937758646
+  },
+  "phases": {
+    "baseline": {
+      "samples": 2,
+      "sampled_seconds": 1.0199999999604188,
+      "max_sample_gap_seconds": 1.0199999999604188,
+      "charged_peak_bytes": 125411328,
+      "sampled_current_peak_bytes": 111255552,
+      "sampled_non_file_cache_peak_bytes": 23400448,
+      "sampled_non_file_cache_margin_basis_points": 9782,
+      "sampled_file_cache_peak_bytes": 87691264,
+      "events_start": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "events_end": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "events_delta": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "non_file_cache_estimate_end_bytes": 23343104,
+      "total_memory_headroom": "SAMPLED_MARGIN",
+      "some_stall_seconds": 0.0,
+      "some_stall_percent": 0.0,
+      "full_stall_seconds": 0.0,
+      "full_stall_percent": 0.0
+    },
+    "publish": {
+      "samples": 605,
+      "sampled_seconds": 611.6000000000349,
+      "max_sample_gap_seconds": 1.0599999999976717,
+      "charged_peak_bytes": 1074319360,
+      "sampled_current_peak_bytes": 1073737728,
+      "sampled_non_file_cache_peak_bytes": 268746752,
+      "sampled_non_file_cache_margin_basis_points": 7497,
+      "sampled_file_cache_peak_bytes": 862527488,
+      "events_start": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "events_end": {
+        "low": 0,
+        "high": 0,
+        "max": 12019,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "events_delta": {
+        "low": 0,
+        "high": 0,
+        "max": 12019,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "non_file_cache_estimate_end_bytes": 182087680,
+      "total_memory_headroom": "TIGHT",
+      "some_stall_seconds": 0.254771,
+      "some_stall_percent": 0.04165647482014151,
+      "full_stall_seconds": 0.254771,
+      "full_stall_percent": 0.04165647482014151
+    },
+    "scan1": {
+      "samples": 34,
+      "sampled_seconds": 33.40999999997439,
+      "max_sample_gap_seconds": 1.0200000000186265,
+      "charged_peak_bytes": 1074319360,
+      "sampled_current_peak_bytes": 1073741824,
+      "sampled_non_file_cache_peak_bytes": 192036864,
+      "sampled_non_file_cache_margin_basis_points": 8211,
+      "sampled_file_cache_peak_bytes": 890138624,
+      "events_start": {
+        "low": 0,
+        "high": 0,
+        "max": 12019,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "events_end": {
+        "low": 0,
+        "high": 0,
+        "max": 14489,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "events_delta": {
+        "low": 0,
+        "high": 0,
+        "max": 2470,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "non_file_cache_estimate_end_bytes": 171356160,
+      "total_memory_headroom": "TIGHT",
+      "some_stall_seconds": 0.287518,
+      "some_stall_percent": 0.8605746782407075,
+      "full_stall_seconds": 0.287518,
+      "full_stall_percent": 0.8605746782407075
+    },
+    "scan2": {
+      "samples": 32,
+      "sampled_seconds": 31.39000000001397,
+      "max_sample_gap_seconds": 1.0200000000186265,
+      "charged_peak_bytes": 1074319360,
+      "sampled_current_peak_bytes": 1073741824,
+      "sampled_non_file_cache_peak_bytes": 188710912,
+      "sampled_non_file_cache_margin_basis_points": 8242,
+      "sampled_file_cache_peak_bytes": 890003456,
+      "events_start": {
+        "low": 0,
+        "high": 0,
+        "max": 14489,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "events_end": {
+        "low": 0,
+        "high": 0,
+        "max": 16591,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "events_delta": {
+        "low": 0,
+        "high": 0,
+        "max": 2102,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "non_file_cache_estimate_end_bytes": 175939584,
+      "total_memory_headroom": "TIGHT",
+      "some_stall_seconds": 0.133184,
+      "some_stall_percent": 0.42428798980548177,
+      "full_stall_seconds": 0.132875,
+      "full_stall_percent": 0.4233035998723825
+    },
+    "storage": {
+      "samples": 45,
+      "sampled_seconds": 44.54000000003725,
+      "max_sample_gap_seconds": 1.0200000000186265,
+      "charged_peak_bytes": 1074319360,
+      "sampled_current_peak_bytes": 750338048,
+      "sampled_non_file_cache_peak_bytes": 168456192,
+      "sampled_non_file_cache_margin_basis_points": 8431,
+      "sampled_file_cache_peak_bytes": 580489216,
+      "events_start": {
+        "low": 0,
+        "high": 0,
+        "max": 16591,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "events_end": {
+        "low": 0,
+        "high": 0,
+        "max": 16591,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "events_delta": {
+        "low": 0,
+        "high": 0,
+        "max": 0,
+        "oom": 0,
+        "oom_kill": 0,
+        "oom_group_kill": 0
+      },
+      "non_file_cache_estimate_end_bytes": 164356096,
+      "total_memory_headroom": "TIGHT",
+      "some_stall_seconds": 0.0,
+      "some_stall_percent": 0.0,
+      "full_stall_seconds": 0.0,
+      "full_stall_percent": 0.0
+    },
+    "final": {
+      "samples": 1
+    }
+  },
+  "completed": [
+    {
+      "stage": "baseline",
+      "seconds": 1.5150000000139698
+    },
+    {
+      "stage": "publish",
+      "seconds": 611.9839999999967
+    },
+    {
+      "stage": "scan1",
+      "seconds": 33.67200000002049
+    },
+    {
+      "stage": "scan2",
+      "seconds": 32.46900000004098
+    },
+    {
+      "stage": "storage",
+      "seconds": 44.40600000001723
+    },
+    {
+      "stage": "final",
+      "seconds": 1.2030000000377186
+    }
+  ],
+  "containers": {
+    "baseline": {
+      "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-20T21:21:44.352184124Z",
+        "FinishedAt": "2026-09-20T21:21:45.451642722Z"
+      }
+    },
+    "publish": {
+      "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-20T21:21:46.250545881Z",
+        "FinishedAt": "2026-09-20T21:31:57.843752141Z"
+      }
+    },
+    "scan1": {
+      "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-20T21:31:58.718362235Z",
+        "FinishedAt": "2026-09-20T21:32:32.019842974Z"
+      }
+    },
+    "scan2": {
+      "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-20T21:32:32.769578565Z",
+        "FinishedAt": "2026-09-20T21:33:04.882639264Z"
+      }
+    },
+    "storage": {
+      "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-20T21:33:05.624316179Z",
+        "FinishedAt": "2026-09-20T21:33:49.678829238Z"
+      }
+    },
+    "final": {
+      "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-20T21:33:50.499199846Z",
+        "FinishedAt": "2026-09-20T21:33:51.366390227Z"
+      }
+    },
+    "postgres": {
+      "image": "sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b",
+      "state": {
+        "Status": "exited",
+        "Running": false,
+        "Paused": false,
+        "Restarting": false,
+        "OOMKilled": false,
+        "Dead": false,
+        "Pid": 0,
+        "ExitCode": 0,
+        "Error": "",
+        "StartedAt": "2026-09-20T21:21:42.122830213Z",
+        "FinishedAt": "2026-09-20T21:33:52.719809654Z"
+      }
+    }
+  },
+  "limits": {
+    "memory_bytes": 1073741824,
+    "swap_total_bytes": 1073741824,
+    "cpus": 1.5
+  },
+  "limitations": [
+    "Sampled estimate is not an unsampled memory bound.",
+    "Total charged memory and cache pressure remain visible.",
+    "No accepted latency budget or NAS qualification.",
+    "Single publisher/reader workload; no concurrent backup qualification."
+  ]
+}

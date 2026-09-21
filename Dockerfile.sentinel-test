@@ -25,9 +25,13 @@ WORKDIR /work
 COPY pytest.ini /work/pytest.ini
 COPY tests/ /work/tests/
 COPY tools/ /work/tools/
+# Audit-only reporters used by economic falsifiers; never runtime code.
+COPY audit/economic_399/postgres_pressure/report.py /work/audit/economic_399/postgres_pressure/report.py
+COPY audit/economic_399/local_closeout/economic_oracle.py /work/audit/economic_399/local_closeout/economic_oracle.py
 # CI authority plus the shared provider simulator used by feed integration tests.
 COPY .github/workflows/ /work/.github/workflows/
 COPY research/sharadar_replay/ /work/research/sharadar_replay/
+COPY research/bounded_20y/ /work/research/bounded_20y/
 COPY scripts/sentinel_feed_gate.py /work/scripts/sentinel_feed_gate.py
 COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py

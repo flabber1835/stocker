@@ -52,8 +52,8 @@ MUTANTS = (
     Mutant(
         name="working-order-added-to-remaining-delta",
         relative_path="sentinel/execution/commands.py",
-        original="    remaining = desired - held - committed\n",
-        replacement="    remaining = desired - held + committed\n",
+        original="    remaining = exact_decimal(Fraction(desired) - Fraction(held) - Fraction(committed))\n",
+        replacement="    remaining = exact_decimal(Fraction(desired) - Fraction(held) + Fraction(committed))\n",
         test=(
             "tests/sentinel/test_execution_contract.py::TestRemainingDelta::"
             "test_a_working_order_is_COMMITTED_and_not_re_ordered"
@@ -129,8 +129,8 @@ MUTANTS = (
     Mutant(
         name="cash-residual-adds-invested-notional",
         relative_path="sentinel/execution/projection.py",
-        original="    residual = nav - invested\n",
-        replacement="    residual = nav + invested\n",
+        original="    residual = Fraction(nav) - invested\n",
+        replacement="    residual = Fraction(nav) + invested\n",
         test=(
             "tests/sentinel/test_projection_and_executor.py::"
             "TestProjection::"

@@ -5,6 +5,13 @@ terminal leadership policy changes source identity; earlier performance figures
 do not certify it. See [the acceptance ledger](economic-audit-399-remediation.md)
 for implementation evidence and the remaining provider, replay and NAS gates.
 
+**Stage 1 local update, 2026-09-20:** [finite local review and validation](stage-one-local-closeout.md)
+is complete within its stated scope. Exact quantities, durable recovery and
+ownership, restores and full-size synthetic accounting/resource measurements
+have explicit evidence. Required CI/owner merge, real-input/latency/headroom
+qualification, provider guarantees and NAS evidence remain open. This does not
+certify economic output or provide the deferred twenty-year CAGR/multiple.
+
 **Selected integration, 2026-09-11:** the compact champion and its independent
 PR #352 research result are pinned in
 [production-compact-champion.md](production-compact-champion.md). PR #354 updates

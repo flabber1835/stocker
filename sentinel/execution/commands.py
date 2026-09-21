@@ -37,11 +37,13 @@ from dataclasses import dataclass, replace
 from datetime import datetime
 from decimal import Decimal
 from enum import Enum
+from fractions import Fraction
 from typing import Iterable, Optional, Sequence
 
 from sentinel.execution.contract import (
     BrokerInstrument, BrokerObservation, BrokerOrder, Side)
 from sentinel.execution.identity import CommandIdentity, DeploymentIdentity
+from sentinel.execution.numeric import exact_decimal
 from sentinel.execution.states import (
     Action, CommandState, RuntimeState, assert_transition, blocks_overlapping,
     exposure_action, require)
@@ -134,11 +136,11 @@ class Command:
 
     @property
     def remaining(self) -> Decimal:
-        return self.quantity - self.filled_quantity
+        return exact_decimal(Fraction(self.quantity) - Fraction(self.filled_quantity))
 
     @property
     def signed_remaining(self) -> Decimal:
-        return self.remaining if self.side is Side.BUY else -self.remaining
+        return self.remaining if self.side is Side.BUY else self.remaining.copy_negate()
 
     def transition(self, nxt: CommandState, **changes) -> "Command":
         """Move to `nxt`, or raise. The legality table is in states.py."""
@@ -154,12 +156,13 @@ def committed_quantity(orders: Iterable[BrokerOrder]) -> Decimal:
     directions. Only the UNFILLED remainder counts — the filled part is already
     in the observed position and counting it again would double it.
     """
-    total = Decimal(0)
+    total = Fraction(0)
     for o in orders:
         if not o.is_working:
             continue
-        total += o.remaining if o.side is Side.BUY else -o.remaining
-    return total
+        remaining = Fraction(o.remaining)
+        total += remaining if o.side is Side.BUY else -remaining
+    return exact_decimal(total)
 
 
 @dataclass(frozen=True)
@@ -190,7 +193,7 @@ class Delta:
 
     @property
     def quantity(self) -> Decimal:
-        return abs(self.remaining)
+        return self.remaining.copy_abs()
 
 
 def compute_delta(*, security_id: str, desired: Decimal,
@@ -223,14 +226,14 @@ def compute_delta(*, security_id: str, desired: Decimal,
         if not value.is_finite():
             raise ValueError(
                 f"{security_id}: {label} quantity must be finite, got {value}")
-    remaining = desired - held - committed
+    remaining = exact_decimal(Fraction(desired) - Fraction(held) - Fraction(committed))
     if not remaining.is_finite():
         raise ValueError(
             f"{security_id}: remaining delta must be finite, got {remaining}")
 
     if remaining == 0:
         classification = DeltaClass.NONE
-    elif abs(remaining) < min_increment:
+    elif remaining.copy_abs() < min_increment:
         classification = DeltaClass.DUST
     else:
         classification = DeltaClass.ACTIONABLE

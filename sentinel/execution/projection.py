@@ -41,8 +41,11 @@ trades against securities that had no market.
 from __future__ import annotations
 
 from dataclasses import dataclass, field
-from decimal import Decimal, ROUND_DOWN
+from decimal import Decimal
+from fractions import Fraction
 from typing import Mapping, Optional
+
+from sentinel.execution.numeric import display_decimal, exact_decimal
 
 
 class ProjectionRefused(ValueError):
@@ -64,7 +67,7 @@ class Projection:
 
     @property
     def invested_notional(self) -> Decimal:
-        return sum(self.notional.values(), Decimal(0))
+        return exact_decimal(sum(map(Fraction, self.notional.values()), Fraction(0)))
 
     @property
     def realised_exposure(self) -> Decimal:
@@ -76,7 +79,7 @@ class Projection:
         """
         if self.nav == 0:
             return Decimal(0)
-        return self.invested_notional / self.nav
+        return display_decimal(Fraction(self.invested_notional) / Fraction(self.nav))
 
     def to_dict(self) -> dict:
         return {
@@ -95,7 +98,8 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
             nav: Decimal, marks: Mapping[str, Decimal],
             defensive_security: Optional[str] = None,
             defensive_weight: Optional[Decimal] = None,
-            lot: Decimal = Decimal(1)) -> Projection:
+            lot: Decimal = Decimal(1),
+            weight_denominator: Decimal = Decimal(1)) -> Projection:
     """`shadow target x exposure -> whole shares`.
 
     `shadow_weights` are fractions of the CORE book summing to at most 1; they
@@ -104,6 +108,9 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
     same defect as `composite_scores` renormalising over a factor that is missing
     from the whole corpus, and it would make the realised exposure look correct
     while the book was concentrated somewhere nobody chose.
+
+    A caller may supply exact marked-value numerators and their shadow NAV as
+    `weight_denominator`, avoiding a rounded intermediate normalized weight.
     """
     if not isinstance(exposure, Decimal) or not isinstance(nav, Decimal):
         raise TypeError("exposure and nav must be Decimal")
@@ -113,7 +120,8 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
     # compares perfectly happily, sails through a range check and produces an
     # infinite target notional. Neither is caught by an `isinstance` test, so a
     # bounds check written without this is a bounds check with two holes.
-    scalars = [("exposure", exposure), ("nav", nav), ("lot", lot)]
+    scalars = [("exposure", exposure), ("nav", nav), ("lot", lot),
+               ("weight_denominator", weight_denominator)]
     if defensive_weight is not None:
         scalars.append(("defensive_weight", defensive_weight))
     for label, value in scalars:
@@ -130,11 +138,13 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
         raise ProjectionRefused(f"nav must be non-negative, got {nav}")
     if lot <= 0:
         raise ProjectionRefused(f"lot must be positive, got {lot}")
+    if weight_denominator <= 0:
+        raise ProjectionRefused("weight denominator must be positive")
     if defensive_weight is not None:
         if defensive_weight < 0 or defensive_weight > 1:
             raise ProjectionRefused(
                 f"defensive_weight must be in [0, 1], got {defensive_weight}")
-        if exposure + defensive_weight > 1:
+        if Fraction(exposure) + Fraction(defensive_weight) > 1:
             raise ProjectionRefused(
                 f"Core exposure {exposure} plus defensive weight "
                 f"{defensive_weight} exceeds 1")
@@ -157,7 +167,7 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
     # "Wealth Core always produces sane weights" is not a protection at a
     # broker boundary. It is an assumption about another component, and this is
     # the membrane.
-    total = Decimal(0)
+    total = Fraction(0)
     for security_id, weight in sorted(shadow_weights.items()):
         if not isinstance(weight, Decimal):
             raise TypeError(f"weight for {security_id} must be Decimal")
@@ -169,20 +179,20 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
                 f"weight for {security_id} is negative ({weight}). The book is "
                 f"LONG ONLY; a short leg is a malformed shadow, not a position "
                 f"to floor away.")
-        if weight > 1:
+        if weight > weight_denominator:
             raise ProjectionRefused(
-                f"weight for {security_id} is {weight}, above 1. A single name "
+                f"weight for {security_id} is {weight}/{weight_denominator}, above 1. A single name "
                 f"cannot exceed the whole core book.")
-        total += weight
+        total += Fraction(weight)
     # STRICTLY. No tolerance, deliberately: 25 slots at 4% is exactly 1 in
     # Decimal, so a legitimate shadow never needs slack, and a gate with an
     # epsilon is a gate whose real limit is the epsilon. If a producer ever
     # does need rounding room, it belongs where the weights are MADE — not at
     # the boundary that exists to disbelieve them.
-    if total > 1:
+    if total > Fraction(weight_denominator):
         raise ProjectionRefused(
-            f"shadow weights sum to {total}, above 1. At exposure {exposure} "
-            f"that is {total * exposure:f} of NAV in equities — leverage. The "
+            f"shadow weights sum to {total / Fraction(weight_denominator)}, above 1. At exposure {exposure} "
+            f"that exceeds NAV at full exposure — leverage. The "
             f"envelope is long-only and unlevered.")
 
     quantities: dict = {}
@@ -203,19 +213,19 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
             # NOT renormalised away, and not guessed at. The name is named.
             unpriced.append(security_id)
             continue
-        target_notional = nav * exposure * weight
-        raw = target_notional / price
+        target_notional = (Fraction(nav) * Fraction(exposure) * Fraction(weight)
+                           / Fraction(weight_denominator))
         # FLOOR, in whole lots. Rounding to nearest can overshoot the exposure
         # the controller asked for, and overshoot is the wrong direction in
         # exactly the state where the controller is cutting.
-        qty = (raw / lot).to_integral_value(rounding=ROUND_DOWN) * lot
+        qty = exact_decimal((target_notional // (Fraction(price) * Fraction(lot))) * Fraction(lot))
         if qty <= 0:
             continue
         quantities[security_id] = qty
-        notional[security_id] = qty * price
+        notional[security_id] = exact_decimal(Fraction(qty) * Fraction(price))
 
-    invested = sum(notional.values(), Decimal(0))
-    residual = nav - invested
+    invested = sum(map(Fraction, notional.values()), Fraction(0))
+    residual = Fraction(nav) - invested
 
     defensive_qty = Decimal(0)
     if defensive_security is not None:
@@ -223,15 +233,14 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
         # default remains the whole residual for callers that intentionally use
         # this projector as a full cash sweep.
         defensive_notional = (residual if defensive_weight is None
-                              else nav * defensive_weight)
+                              else Fraction(nav) * Fraction(defensive_weight))
         price = marks.get(defensive_security)
         price_ok = (isinstance(price, Decimal) and price.is_finite()
                     and price > 0)
         if price_ok and defensive_notional > 0:
-            defensive_qty = (
-                defensive_notional / price / lot
-            ).to_integral_value(rounding=ROUND_DOWN) * lot
-            residual -= defensive_qty * price
+            defensive_qty = exact_decimal(
+                (defensive_notional // (Fraction(price) * Fraction(lot))) * Fraction(lot))
+            residual -= Fraction(defensive_qty) * Fraction(price)
         elif defensive_notional > 0:
             unpriced.append(defensive_security)
 
@@ -239,7 +248,7 @@ def project(*, shadow_weights: Mapping[str, Decimal], exposure: Decimal,
         target_exposure=exposure, nav=nav, quantities=quantities,
         notional=notional, unpriced=tuple(sorted(set(unpriced))),
         defensive_security=defensive_security,
-        defensive_quantity=defensive_qty, cash_residual=residual)
+        defensive_quantity=defensive_qty, cash_residual=exact_decimal(residual))
 
 
 def desired_basket(projection: Projection) -> dict:

@@ -1,0 +1,383 @@
+{
+  "archive": "resource-evidence.zip",
+  "bytes": 353150,
+  "sha256": "f4b634b5be12770d23f658b267215eb40ca314872ec8e74b8ec9066771d47b2c",
+  "files": {
+    "final/2026-09-14.json": {
+      "bytes": 326,
+      "sha256": "199fee6a00d1c591e3d679dedfd0561e52cc4ae3216feaf8e9aa91799a9a30e8"
+    },
+    "final/2026-09-15.json": {
+      "bytes": 342,
+      "sha256": "871e9b71ec3f493c8ff9184a86548a766fdf0fec2a409cfd3424f2b587b78ccb"
+    },
+    "final/advance-adopted-container.log": {
+      "bytes": 978,
+      "sha256": "027370dbba8c1ddc9619020220b8f977c79189e9fb0d2bec5c06d518464864a9"
+    },
+    "final/advance-postgres-memory.log": {
+      "bytes": 1196,
+      "sha256": "b727ab0e9abbc02841b657b75c3f99947e56e27be8ec191428bcdf1994ef0ed1"
+    },
+    "final/advance.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "final/advanced_http-postgres-memory.log": {
+      "bytes": 1196,
+      "sha256": "52a48378d0a3d91928b288252c4ef4a39448739ae0cd0b624767b259c4254575"
+    },
+    "final/advanced_http.log": {
+      "bytes": 1075,
+      "sha256": "1152c9022bcc78c49724193b232591a951f4d51a43d6f2329377562c522ff46e"
+    },
+    "final/advanced_status-postgres-memory.log": {
+      "bytes": 1196,
+      "sha256": "1467d50165876bbdeb886f79397d5973338da9b3f97349d1b52235be13537706"
+    },
+    "final/advanced_status.log": {
+      "bytes": 1987,
+      "sha256": "15b86b8c0a6bbbb68111304f75e9a9ba7d26c0c55f80cfc11fa6f6a4003157a8"
+    },
+    "final/coordinator-production-identity.json": {
+      "bytes": 471,
+      "sha256": "c27f078db7b78a95b8a7119a5b5af50e7dd463d461a79da93ccdd3fced6fa9d1"
+    },
+    "final/coordinator-resume-2.json": {
+      "bytes": 330,
+      "sha256": "1124db3ee8f9caebbc5e8ec1b91f54b056321f7d1b27dde54e2a9fd1c6251bdb"
+    },
+    "final/coordinator-resume.json": {
+      "bytes": 296,
+      "sha256": "8de9133575a95691913f905bb62cef3abd0598df7cbaea9268efc9eedd0112c3"
+    },
+    "final/database.json": {
+      "bytes": 61,
+      "sha256": "835c44db3f36908e7ddcc126a30285fa985f8fa931f6ba10994ec64df6fe6923"
+    },
+    "final/fixture.json": {
+      "bytes": 403,
+      "sha256": "9f8ef357e5af1c3c209dd130d0e9df0c6a79d5db0a4c00df8e15833c1782f3a9"
+    },
+    "final/http-postgres-memory.log": {
+      "bytes": 1184,
+      "sha256": "62dd52771266f1b8057ae07c7b5d747d5dbab332f65a5d0cbf84592a10373d40"
+    },
+    "final/http.log": {
+      "bytes": 1067,
+      "sha256": "ddd4f01c1b73bac59cc45805c7c5c7b2c1bb95d66ee6d278b7e9672a72ba1b68"
+    },
+    "final/initialize-postgres-memory.log": {
+      "bytes": 1183,
+      "sha256": "a57bd40185e6c17c1e4e7a6f19260f9a6cb20af9678bdbbdbe6aa2d4613aab94"
+    },
+    "final/initialize.log": {
+      "bytes": 601,
+      "sha256": "9be353f9dd483eb186e95676130ae4617b050ddc462e8534098a6c7d09be9470"
+    },
+    "final/next_publish-postgres-memory.log": {
+      "bytes": 1193,
+      "sha256": "d340c86601417a2784455dcef32206170d5ac14eb3ee077688254278519c9409"
+    },
+    "final/next_publish.log": {
+      "bytes": 277022,
+      "sha256": "4c6c5126be9e88eb46562e57f72043e6c0a781d749b1f244693533d9648192ea"
+    },
+    "final/postgres-cpu.stat": {
+      "bytes": 145,
+      "sha256": "a333468577da4f65ace505acf36aee6ad19ebc7b1eaba28f5b88de8cad3a77b4"
+    },
+    "final/postgres-memory.events": {
+      "bytes": 57,
+      "sha256": "d57b1fb57972bba59bd3ed5c3332716f7326b731184c1487ed5fbb92081a9f61"
+    },
+    "final/postgres-memory.peak": {
+      "bytes": 11,
+      "sha256": "47ad231d004a6f959fca459034703e5260ce89af83add19731f659f692971441"
+    },
+    "final/postgres-memory.stat": {
+      "bytes": 932,
+      "sha256": "ef90f99d090be1017460022c7db61ba7a6b528a7c2357bd676d83c1877045612"
+    },
+    "final/postgres-server.log": {
+      "bytes": 3536,
+      "sha256": "2704bc41d41ceafa5791dc39638eb29e92d1d95c02d7343d068722607ef0aade"
+    },
+    "final/postgres.log": {
+      "bytes": 123,
+      "sha256": "fbca0d444f75a62b1e911d9a43e95e0efc2820e750a81b096ae0523611002a0b"
+    },
+    "final/publish-postgres-memory.log": {
+      "bytes": 1184,
+      "sha256": "426e03d5f3041d1fc17715c60ad37fbadc292b3968f329964c8e19019b83c177"
+    },
+    "final/publish.log": {
+      "bytes": 277016,
+      "sha256": "885233cb9ace0158cd08430bb463a54da47e745f357601945fad49671c7eb9aa"
+    },
+    "final/sentinel-cost-01272566-advance.inspect.json": {
+      "bytes": 3026,
+      "sha256": "c6f234271c066d9b3e1ddad904cba958cbe2c04cad52cf6a0202dbb976fb01d4"
+    },
+    "final/sentinel-cost-01272566-advanced_http.inspect.json": {
+      "bytes": 3023,
+      "sha256": "1319d2e0fa93220773433238645eca895091550a0c4dfcf54cb71c70023752b7"
+    },
+    "final/sentinel-cost-01272566-advanced_status.inspect.json": {
+      "bytes": 3023,
+      "sha256": "35d89bed551508f7de37e7953eb5c191a65b7a1e498d244e0cc28a35c45bc121"
+    },
+    "final/sentinel-cost-01272566-http.inspect.json": {
+      "bytes": 3023,
+      "sha256": "a417202a571ba22882d13b928cb9a93dab7e614c30db303ba53a3377f9df34cf"
+    },
+    "final/sentinel-cost-01272566-initialize.inspect.json": {
+      "bytes": 3024,
+      "sha256": "6bd3b59f1b8ba4b0ffc378536267bc9e91b0052c56548a95caf7636e17ed4611"
+    },
+    "final/sentinel-cost-01272566-next_publish.inspect.json": {
+      "bytes": 3026,
+      "sha256": "1c4650f37cdeb90d7793e438e19ba0a1274e6a81eff4538fe57640e47d6b338e"
+    },
+    "final/sentinel-cost-01272566-postgres.inspect.json": {
+      "bytes": 2956,
+      "sha256": "1a25924d179316d077b0db8d9425f13bca3e7bc3cf670400e04f83ea59151037"
+    },
+    "final/sentinel-cost-01272566-publish.inspect.json": {
+      "bytes": 3023,
+      "sha256": "b04fb546765742a327d82ce33bfd96fbf6b8a054b3f0c39bb1026859fb5a95f7"
+    },
+    "final/sentinel-cost-01272566-status.inspect.json": {
+      "bytes": 3021,
+      "sha256": "bfa0d56e84e2374df31cfbb501df7f70eb07b08e9fbc439f7a5d9cf923399a33"
+    },
+    "final/status-postgres-memory.log": {
+      "bytes": 1183,
+      "sha256": "1c2944d22e1fa23a1973d4761236d40c7eeed11831d0897110f95fffff0a81e6"
+    },
+    "final/status.log": {
+      "bytes": 1970,
+      "sha256": "202b42f4fc2ae480ce29ec64817851c50e8523deb921ccaba7254bf7842df76e"
+    },
+    "final/stop": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "host/local-ci-reviewed-head.json": {
+      "bytes": 8574,
+      "sha256": "e00369ff870e963fd2bd9d71ce6d7fe5bd2c475de83cedb3073bd31c43738141"
+    },
+    "host/local-final-audit-pyflakes.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "host/local-final-diff-check.log": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "host/local-final-syntax.log": {
+      "bytes": 34,
+      "sha256": "451d54e50e712e11dbe5ea9b1d21beb76e2f8038e432b97f832faef930bfe1f7"
+    },
+    "host/local-prior-sources-final.log": {
+      "bytes": 1399,
+      "sha256": "b1153ed7da09748bbbd6ceeb54a83af84bf38519c026600ef9f139faf483cac2"
+    },
+    "host/local-resource-compressed-8408.log": {
+      "bytes": 8543,
+      "sha256": "16944f63d3183ae5ad60c8e83ca80ded675e43dd977961cc16956ea82ef033d3"
+    },
+    "host/local-resource-production-identity.log": {
+      "bytes": 45,
+      "sha256": "3c47c600cd479471f519240082c55769d50921cf3fff499873c1ca12d3360b8f"
+    },
+    "host/local-resource-read-8408.log": {
+      "bytes": 3329,
+      "sha256": "5cc06de3594bc228bb2acc7cc232cc9a657c35df4eb7127cd41727c430c00182"
+    },
+    "host/local-resource-read-final-resume.log": {
+      "bytes": 4312,
+      "sha256": "fc49a54f886c649014cb2de161020ce52ac35082e2b43f7fe803e6b04df78cd9"
+    },
+    "host/local-resource-read-resumed.log": {
+      "bytes": 4592,
+      "sha256": "be5e0622839bacf403ff0fe403067aff409b43b7e44d195bf1cf337041e42c22"
+    },
+    "host/local-resource-report.log": {
+      "bytes": 513,
+      "sha256": "382abdae7709afb68f2eaeea8319fc0c8b9cb7bf165fe55a83e0d8a8e72668ff"
+    },
+    "host/resource-results.json": {
+      "bytes": 53436,
+      "sha256": "a0cffa594246242a6b42cf62df7d998b85cc52d9676cb6e204740c87df0bf6b4"
+    },
+    "host/resource_report.py": {
+      "bytes": 5551,
+      "sha256": "26a4c309a9bcb19a93c10df7d712408186a7c7199c23c07ec5e48cf8b31319a9"
+    },
+    "host/run_stages.py": {
+      "bytes": 7381,
+      "sha256": "4b9177c158f09fe9c89ce54327774080bec51ff6fcbf71f4090d178b2ce09dbf"
+    },
+    "intermediate-failed/2026-09-14.json": {
+      "bytes": 326,
+      "sha256": "cfc2ee020a1451adefe04950750a7916d8684e2819472ee63a7a5b56cee468fa"
+    },
+    "intermediate-failed/2026-09-15.json": {
+      "bytes": 342,
+      "sha256": "1a2c010b38ff3875dc3a1baf3dd6193715a216e71b8b7a21e2fb3406bc2060bd"
+    },
+    "intermediate-failed/advance-postgres-memory.log": {
+      "bytes": 1197,
+      "sha256": "de2866587d2153335d2ec0f7e0b139ccbfdf281771a4314ccbe668a1ec95444e"
+    },
+    "intermediate-failed/advance.log": {
+      "bytes": 847,
+      "sha256": "1207059edd8b51c7540dec3ccf5a969b0d19965cf46f6e87d9dbda3db353fb19"
+    },
+    "intermediate-failed/database.json": {
+      "bytes": 61,
+      "sha256": "cc5e3f0d95181eeccd708cdc580d29f3b94be67014c292142d3d8a4cf0d130f1"
+    },
+    "intermediate-failed/fixture.json": {
+      "bytes": 403,
+      "sha256": "dd8c92f478654135f3f0fd7c1b44b4797a9e57529b54e087e8026c9da364c8ea"
+    },
+    "intermediate-failed/http-postgres-memory.log": {
+      "bytes": 1174,
+      "sha256": "6e9e01a4cef871da728c8a2f4a3cac4ef22c260beb4e7053c4d604b615bd89f3"
+    },
+    "intermediate-failed/http.log": {
+      "bytes": 245,
+      "sha256": "2a48e9f7c6c6b602eb37f6640cfc4bd85c51b29ea564720103607987cd89d5d7"
+    },
+    "intermediate-failed/initialize-postgres-memory.log": {
+      "bytes": 1174,
+      "sha256": "32445efd93af445fe724f2dda35aebddb0dbe800d878dc324ffa2f6012090687"
+    },
+    "intermediate-failed/initialize.log": {
+      "bytes": 602,
+      "sha256": "57550fc94ba36709f2a565f1c46410f1814edd2ad2f29825a9d76d019130f50b"
+    },
+    "intermediate-failed/next_publish-postgres-memory.log": {
+      "bytes": 1186,
+      "sha256": "42e1703526856c180262f1436f7f94c155cd97eaf7aacc08b5adafdb1a2ad3cd"
+    },
+    "intermediate-failed/next_publish.log": {
+      "bytes": 277021,
+      "sha256": "0acb8d045d392f283177b87c1a56dba0460aad2291e542644a19481b969485a4"
+    },
+    "intermediate-failed/postgres-cpu.stat": {
+      "bytes": 145,
+      "sha256": "4d0ce091eeac786c8cdd2f99c1cb7e4c8c9d72751c47386ca140a18eec6eb144"
+    },
+    "intermediate-failed/postgres-memory.events": {
+      "bytes": 57,
+      "sha256": "c8f993dfebba1c606fc16444f287ceba4b4c447e833bc03b13d3853927fcacfb"
+    },
+    "intermediate-failed/postgres-memory.peak": {
+      "bytes": 11,
+      "sha256": "62833d693b3034edb90a38e24d0c0a45cb7c63672a2a0d5206c631a9c1c30965"
+    },
+    "intermediate-failed/postgres-memory.stat": {
+      "bytes": 933,
+      "sha256": "c3c98600943d4d1867c096700308edabc49fe1037a178cfc9a8301c5414fbda6"
+    },
+    "intermediate-failed/postgres-server.log": {
+      "bytes": 3080,
+      "sha256": "2e90a4b31d0f99bde9cb16ed596113e7b93a71a5141b4bb9e5dfd0f3d8a0b8f4"
+    },
+    "intermediate-failed/postgres.log": {
+      "bytes": 123,
+      "sha256": "963b9058fc9bdb009892ab33ce3e7d79f970ac2670a64a4fdf36313547eb7009"
+    },
+    "intermediate-failed/publish-postgres-memory.log": {
+      "bytes": 1179,
+      "sha256": "de377c741d125b6424a95f2f22a1a7edc0c5055e845d1263870daa463a84b624"
+    },
+    "intermediate-failed/publish.log": {
+      "bytes": 277017,
+      "sha256": "628825d206660e3d7250c83525dd76d3767953553159a57b9fd5b2870fdcb5c8"
+    },
+    "intermediate-failed/sentinel-cost-db8ddd02-advance.inspect.json": {
+      "bytes": 3035,
+      "sha256": "0402afc8061e307447a6fc01b3550f572251bc6f8813e1449228de0f451dfa41"
+    },
+    "intermediate-failed/sentinel-cost-db8ddd02-http.inspect.json": {
+      "bytes": 3034,
+      "sha256": "d1ba450426e0f8db5bed38d974e671dba9d3109c8aa6f1c4b048fef2b2e14e50"
+    },
+    "intermediate-failed/sentinel-cost-db8ddd02-initialize.inspect.json": {
+      "bytes": 3036,
+      "sha256": "9de9345e00d0519d7cfb08d984bfcca560df4df61f3914311c8ce6e30fdcb7ae"
+    },
+    "intermediate-failed/sentinel-cost-db8ddd02-next_publish.inspect.json": {
+      "bytes": 3034,
+      "sha256": "192247f269a195f56a43de30e9f48876f1dc8794338335ff9c2c271fc9e5b9ed"
+    },
+    "intermediate-failed/sentinel-cost-db8ddd02-postgres.inspect.json": {
+      "bytes": 2968,
+      "sha256": "9251093013e2cc9f72080434eb59d5373357ba173799d02e9098cd4c187d6864"
+    },
+    "intermediate-failed/sentinel-cost-db8ddd02-publish.inspect.json": {
+      "bytes": 3036,
+      "sha256": "9a2f66f7ec96d590ee43b3987db78e7d0e289adb1e80ff8a8d2d27a1ebd94ca4"
+    },
+    "intermediate-failed/sentinel-cost-db8ddd02-status.inspect.json": {
+      "bytes": 3034,
+      "sha256": "5be453a4a04867babd72eca24edf7fb3bc978790da7dd92615fb6d72235a1bbd"
+    },
+    "intermediate-failed/status-postgres-memory.log": {
+      "bytes": 1174,
+      "sha256": "870157526b2d8261aed8a4f80d3d765ff3a73e362e944df30348a2c8d1801a39"
+    },
+    "intermediate-failed/status.log": {
+      "bytes": 108,
+      "sha256": "00778d49ca0f35c682b8571683430d25514c63944870eb97216576f88c2379d2"
+    },
+    "intermediate-failed/stop": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "sources/stage-one-resource-compressed-source/run_stages.py": {
+      "bytes": 4180,
+      "sha256": "61c4d53d975454212f6dc2999de878b5be7666a66971022edf1529c695cf5416"
+    },
+    "sources/stage-one-resource-compressed-source/source-SHA256SUMS.json": {
+      "bytes": 184129,
+      "sha256": "d86360098d8911a3c71147d298f904cce3dbb9f646633a6a719168acb07d38a3"
+    },
+    "sources/stage-one-resource-compressed-source/stages.py": {
+      "bytes": 10553,
+      "sha256": "5a53ba04dbb18f23432e9e5582ed9818bd5c0af2ae65abaf8ba53fe4b51a7153"
+    },
+    "sources/stage-one-resource-oracle-source/economic_oracle.py": {
+      "bytes": 3041,
+      "sha256": "d573be14a3cf3c823934ecf3481b84f8babdd568c7dea79b8743e2bc86fc137b"
+    },
+    "sources/stage-one-resource-oracle-source/run_stages.py": {
+      "bytes": 6734,
+      "sha256": "f953652cab737fe30f27e0909bc1eb4ce2013f9c5d4a24dd862ee040c0800522"
+    },
+    "sources/stage-one-resource-oracle-source/source-SHA256SUMS.json": {
+      "bytes": 185435,
+      "sha256": "715cf981903a2513619036c3ddb5b5ce1195e05134b8e80765ceef0f68935625"
+    },
+    "sources/stage-one-resource-oracle-source/stages.py": {
+      "bytes": 10554,
+      "sha256": "5b0a37e54687256a209d6086d3506fe0a7428c15c7e23a57af7f8d3f7f25c548"
+    },
+    "sources/stage-one-resource-read-source/run_stages.py": {
+      "bytes": 4559,
+      "sha256": "133a941b2ef865ca4198d5d119c006bd9a9c50a003267829d53c1e26e8d56c19"
+    },
+    "sources/stage-one-resource-read-source/source-SHA256SUMS.json": {
+      "bytes": 185309,
+      "sha256": "1741ab683123907ff32ba555639a85a919656421123e9e824c6662c5cc0cd497"
+    },
+    "sources/stage-one-resource-read-source/stages.py": {
+      "bytes": 10553,
+      "sha256": "5a53ba04dbb18f23432e9e5582ed9818bd5c0af2ae65abaf8ba53fe4b51a7153"
+    }
+  }
+}
