@@ -1,0 +1,175 @@
+[
+  {
+    "id": "REY-2006-10-27-issuer-cash",
+    "effective_session": "2006-10-27",
+    "original_event_session": "2006-10-26",
+    "known_by": "2006-10-26",
+    "security_id": "659080056497857391",
+    "ticker": "REY",
+    "kind": "CASH_MERGER",
+    "cash_per_share": "40.00",
+    "delivered_security_id": "",
+    "delivered_ticker": "",
+    "delivered_issuer_id": "",
+    "exchange_ratio": "",
+    "cash_in_lieu_price_per_delivered_share": "",
+    "reference": "REY Class A $40 cash; issuer October 26 completion release, October 27 delisting; next-session economic recognition, not a broker settlement-date claim",
+    "sources": [
+      "https://www.sec.gov/Archives/edgar/data/83588/000095012306011813/y22076fdefm14a.htm",
+      "https://www.advfn.com/stock-market/NYSE/REY/stock-news/17422912/reynolds-and-reynolds-announces-closing-of-merger"
+    ],
+    "disposition": "EXACT_EVIDENCE",
+    "authority": "SEC_PROXY_AND_ISSUER_COMPLETION_RELEASE"
+  },
+  {
+    "id": "HET-2008-01-28-issuer-cash",
+    "effective_session": "2008-01-28",
+    "original_event_session": "2008-01-28",
+    "known_by": "2008-01-28",
+    "security_id": "192586880711243639",
+    "ticker": "HET",
+    "kind": "CASH_MERGER",
+    "cash_per_share": "90.00",
+    "delivered_security_id": "",
+    "delivered_ticker": "",
+    "delivered_issuer_id": "",
+    "exchange_ratio": "",
+    "cash_in_lieu_price_per_delivered_share": "",
+    "reference": "HET $90 common-share consideration; issuer January 28 completion release; closing leadership witness only, no held HET position; not a broker cash availability assertion",
+    "sources": [
+      "https://www.sec.gov/Archives/edgar/data/858339/000089882208000159/pressrelease.htm"
+    ],
+    "disposition": "EXACT_EVIDENCE",
+    "authority": "ISSUER_COMPLETION_RELEASE_SEC_ARCHIVE"
+  },
+  {
+    "id": "MOGN-2008-01-28-issuer-cash",
+    "effective_session": "2008-01-28",
+    "original_event_session": "2008-01-28",
+    "known_by": "2008-01-28",
+    "security_id": "68479681776669621",
+    "ticker": "MOGN",
+    "kind": "CASH_MERGER",
+    "cash_per_share": "41.00",
+    "delivered_security_id": "",
+    "delivered_ticker": "",
+    "delivered_issuer_id": "",
+    "exchange_ratio": "",
+    "cash_in_lieu_price_per_delivered_share": "",
+    "reference": "MOGN $41 common-share consideration; December 10 agreement and January 28 US-date issuer completion release; end-of-day leadership witness only, no held MOGN; intraday publication time not certified",
+    "sources": [
+      "https://www.eisai.com/news/pdf/enews200803pdf.pdf",
+      "https://www.sec.gov/Archives/edgar/data/702131/000095013307004863/w44303exv99w1.htm"
+    ],
+    "disposition": "EXACT_EVIDENCE",
+    "authority": "ISSUER_COMPLETION_AND_AGREEMENT_RELEASES"
+  },
+  {
+    "id": "XMSR-2008-07-28-stock-conversion",
+    "effective_session": "2008-07-28",
+    "original_event_session": "2008-07-28",
+    "known_by": "2007-02-19",
+    "security_id": "512429007987298889",
+    "ticker": "XMSR",
+    "kind": "CONVERSION",
+    "cash_per_share": "",
+    "delivered_security_id": "881960888100488127",
+    "delivered_ticker": "SIRI",
+    "delivered_issuer_id": "P:SEC_UNKNOWN:881960888100488127",
+    "exchange_ratio": "4.6",
+    "cash_in_lieu_price_per_delivered_share": "",
+    "reference": "XMSR fixed 4.6 SIRI common shares, terms known February 19 2007; original PIT July 28 event date retained; unheld leadership constituent; completion July 29 release is later corroboration only; delivered identity uses retained metadata issuer key",
+    "sources": [
+      "https://investor.siriusxm.com/sec-filings/all-sec-filings/content/0000950123-07-002460/y30604exv99w1.htm"
+    ],
+    "disposition": "EXACT_EVIDENCE_CORRECTS_EVENT_KIND",
+    "authority": "ISSUER_AGREEMENT_TERMS_PLUS_RETAINED_EVENT_DATE"
+  },
+  {
+    "id": "SPSX-2008-08-08-sec-cash",
+    "effective_session": "2008-08-08",
+    "original_event_session": "2008-08-07",
+    "known_by": "2008-08-07",
+    "security_id": "776999869916961922",
+    "ticker": "SPSX",
+    "kind": "CASH_MERGER",
+    "cash_per_share": "45.00",
+    "delivered_security_id": "",
+    "delivered_ticker": "",
+    "delivered_issuer_id": "",
+    "exchange_ratio": "",
+    "cash_in_lieu_price_per_delivered_share": "",
+    "reference": "SPSX $45 common-share consideration; August 7 SEC filing confirms effective merger at 17:00 New York; August 8 economic recognition for 115 held shares, not broker settlement finality",
+    "sources": [
+      "https://www.sec.gov/Archives/edgar/data/1271193/000090342308000647/s8-114844.htm",
+      "https://www.sec.gov/Archives/edgar/data/1271193/000110465908051787/a08-21118_18k.htm"
+    ],
+    "disposition": "EXACT_EVIDENCE",
+    "authority": "SEC_COMPLETION_FILINGS"
+  },
+  {
+    "id": "EAS-2008-09-16-cash",
+    "effective_session": "2008-09-16",
+    "original_event_session": "2008-09-16",
+    "known_by": "2008-09-16",
+    "security_id": "141792502181756432",
+    "ticker": "EAS",
+    "kind": "CASH_MERGER",
+    "cash_per_share": "28.50",
+    "delivered_security_id": "",
+    "delivered_ticker": "",
+    "delivered_issuer_id": "",
+    "exchange_ratio": "",
+    "cash_in_lieu_price_per_delivered_share": "",
+    "reference": "EAS $28.50 common-share consideration known November 20 2007; September 16 exchange notice confirms event effective; unheld closing leadership constituent, no opening cash claim",
+    "sources": [
+      "https://www.sec.gov/Archives/edgar/data/1046861/000104686107000080/e8k112007e99-1.htm",
+      "https://www.nasdaqtrader.com/content/phlxmemos/2008/sep/1635-08.pdf"
+    ],
+    "disposition": "EXACT_EVIDENCE",
+    "authority": "ISSUER_TERMS_AND_EXCHANGE_EVENT_NOTICE"
+  },
+  {
+    "id": "SCRX-2008-10-09-cash",
+    "effective_session": "2008-10-09",
+    "original_event_session": "2008-10-09",
+    "known_by": "2008-10-09",
+    "security_id": "486323212632963393",
+    "ticker": "SCRX",
+    "kind": "CASH_MERGER",
+    "cash_per_share": "31.00",
+    "delivered_security_id": "",
+    "delivered_ticker": "",
+    "delivered_issuer_id": "",
+    "exchange_ratio": "",
+    "cash_in_lieu_price_per_delivered_share": "",
+    "reference": "SCRX $31 common-share consideration; October 9 release confirms effective merger 17:00 EDT; end-of-day leadership witness after event, no held position or opening cash assertion",
+    "sources": [
+      "https://www.sec.gov/Archives/edgar/data/1106773/000110465908063286/a08-25921_1ex99d1.htm"
+    ],
+    "disposition": "EXACT_EVIDENCE",
+    "authority": "ISSUER_COMPLETION_RELEASE_SEC_ARCHIVE"
+  },
+  {
+    "id": "NWA-2008-10-29-stock-conversion",
+    "effective_session": "2008-10-29",
+    "original_event_session": "2008-10-29",
+    "known_by": "2008-10-29",
+    "security_id": "680121237621218261",
+    "ticker": "NWA",
+    "kind": "CONVERSION",
+    "cash_per_share": "",
+    "delivered_security_id": "776140674308328073",
+    "delivered_ticker": "DAL",
+    "delivered_issuer_id": "P:SEC_CIK:27904",
+    "exchange_ratio": "1.25",
+    "cash_in_lieu_price_per_delivered_share": "",
+    "reference": "NWA 1.25 DAL common shares per common share; issuer October 29 completion; unheld end-of-day leadership constituent; no opening or broker credit claim; delivered ID is post-2007 Delta incarnation",
+    "sources": [
+      "https://ir.delta.com/news/news-details/2008/Delta-and-Northwest-Merge-Creating-Premier-Global-Airline/default.aspx",
+      "https://www.sec.gov/Archives/edgar/data/27904/000101968708001770/delta_8k-ex0201.htm"
+    ],
+    "disposition": "EXACT_EVIDENCE_CORRECTS_EVENT_KIND",
+    "authority": "ISSUER_COMPLETION_AND_SEC_AGREEMENT"
+  }
+]

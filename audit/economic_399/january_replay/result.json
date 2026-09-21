@@ -1,0 +1,20 @@
+{
+  "cagr": -0.022646867306092958,
+  "checkpoint": {
+    "bytes": 14333865,
+    "last_session": "2008-10-29",
+    "path": "/evidence/january-002/checkpoints/checkpoint-2008-10-29.json.gz",
+    "sha256": "b3914e3ef8a71f176b920dcfb0fe7c4359a0bc16d676163b6444879ee2e52d66"
+  },
+  "date": "2008-10-29",
+  "elapsed_seconds": 1813.22,
+  "maximum_drawdown": "-0.3039593099468859312889197792",
+  "measurement_base": "90886.7055916009799999999999",
+  "multiple": "0.9498118142955540318386281050",
+  "nav": "86325.26673330440225610577497",
+  "phase": "PROVISIONAL_PARTIAL_MEASUREMENT",
+  "reference_cagr": 0.12899263415855905,
+  "reference_multiple": "1.313530660478431",
+  "status": "STOPPED_RESUMABLE",
+  "total_sessions": 712
+}
