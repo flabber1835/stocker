@@ -55,6 +55,15 @@ scope and continue to execute the complete certification. Protected publication
 therefore remains bound to a full run for the exact main commit and runtime
 artifact; pull-request evidence is never substituted for publication evidence.
 
+The operator lane checks pull-request whitespace against the exact advertised
+base SHA and the tested head tree. It fetches that base explicitly because the
+two-commit checkout may omit it. Comparing only `HEAD^` with `HEAD` checks the
+wrong changes after merging `main` into a feature branch and misses defects in
+earlier feature commits. A missing base or failed fetch fails the check; there
+is no fallback to a smaller diff. Non-pull-request runs retain the previous
+first-parent comparison. Existing byte-pinned audit evidence is not rewritten
+to satisfy a check of changes already present on the base branch.
+
 ## Advisory campaign ownership
 
 Advisory campaigns execute once per pull request against the synthetic merge
