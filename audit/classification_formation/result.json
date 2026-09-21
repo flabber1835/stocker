@@ -1,0 +1,35 @@
+{
+  "elapsed_seconds": 946.55,
+  "failure": null,
+  "scenarios": {
+    "combined": {
+      "changed_observations": 224332,
+      "core_nav": "99399.529614823",
+      "last_session": "2006-07-06",
+      "nav": "99399.529614823",
+      "total_sessions": 128
+    },
+    "control": {
+      "changed_observations": 0,
+      "core_nav": "99368.92559160099",
+      "last_session": "2006-07-06",
+      "nav": "99368.92559160099",
+      "total_sessions": 128
+    },
+    "dates": {
+      "changed_observations": 223585,
+      "core_nav": "98890.42987245199",
+      "last_session": "2006-07-06",
+      "nav": "98890.42987245199",
+      "total_sessions": 128
+    },
+    "seven": {
+      "changed_observations": 747,
+      "core_nav": "99382.53663482302",
+      "last_session": "2006-07-06",
+      "nav": "99382.53663482302",
+      "total_sessions": 128
+    }
+  },
+  "status": "BOUNDED_DIAGNOSTIC"
+}
