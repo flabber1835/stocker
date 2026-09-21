@@ -7,6 +7,12 @@ economic/reference compatibility, provider capability acceptance, and deployed
 NAS qualification. None implies the others. Overall certification is BLOCKED
 until all required evidence has an explicit passing disposition.
 
+The [2026-09-20 local cash/fill closeout](stage-one-cash-fill-closeout.md)
+records L03-Z1 (P2): zero-valued native cash identities could bypass immutable
+replay checks. Local acceptance now covers zero evidence, restart, transactional
+rollback and metadata revisions. C1/F6/F19 provider gates remain blocked; this
+local fix is not economic certification.
+
 The [recurring maintenance implementation](backup-recurring-maintenance.md) and
 [updated Step 1 ledger](economic-code-closure.md#recurring-proactive-backup-maintenance-and-retention)
 now distinguish locally implemented backup renewal/retention from the still-open

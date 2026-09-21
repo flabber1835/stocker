@@ -134,3 +134,26 @@ not a claim that the whole exact-head CI image was rebuilt locally. The earlier
 falsify this particular import defect. AST and diff checks pass; pyflakes has
 only the same existing pytest-fixture diagnostics as the base. Ownership passes
 with 491 modules and zero unowned. Full GitHub CI must still pass before merge.
+
+## Main-lane wall-time budget, 2026-09-20
+
+Run `35536479801`, job `106146878585`, at #425 head
+`fa24fddc2a1982c91e6be76181b6b4c7af587ec5` passed all **5,001 general tests in
+1,249.42 seconds**, then reached 71% of the separately executed rolling tests
+before its 45-minute job budget cancelled the process. Both aggregate jobs
+correctly refused the cancelled dependency. This is incomplete CI evidence,
+not a newly observed economic assertion failure.
+
+Decision before implementation: allow **75 minutes for sentinel-main only**,
+because it runs both complete partitions serially. All other lanes, including
+the independently passing 39m48s warmup lane, retain 45 minutes. Keep the same
+module selections, separate processes, assertions, JUnit merge and mandatory
+dependency checks. This is a CI execution budget, not a relaxed production
+latency threshold or a claim of certification. A successful rerun is required.
+
+Focused validation: `python -m pytest tests/scripts/test_sentinel_ci_parallel_evidence.py
+-q -p no:cacheprovider` passes **54 tests in 2.05 seconds** in the offline local
+test image. The existing executable-shell cases verify module conservation,
+separate-process selection and failure propagation. The timeout change neither
+adds an xfail nor removes a test. Permanent ownership passes for 495 modules,
+zero unowned. Full GitHub CI is pending after publication of this correction.
