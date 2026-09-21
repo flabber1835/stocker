@@ -1,0 +1,242 @@
+{
+  "logs/local-ci425-mutations-failure.log": {
+    "sha256": "71ba1c7df1f0c2f7b4d362ff627a6286458e817a3888c1e5a9d28c634b1337a9",
+    "bytes": 24295
+  },
+  "logs/local-compressed-public-tamper.log": {
+    "sha256": "0187b37ee08ff8ab624f8a4ecfbd5222701697453e369d480dda4db169ea48b2",
+    "bytes": 930
+  },
+  "logs/local-envelope-restoration.log": {
+    "sha256": "7e8d1bc885c76ef4bf51bd89269415b64fe3b76fcb76a306e79118b3411afd91",
+    "bytes": 1091
+  },
+  "logs/local-envelope-tests.log": {
+    "sha256": "ed7b9b258b300e8eaa3276937e948e7fa42507aeae1322748f89fd32b0539d73",
+    "bytes": 977
+  },
+  "logs/local-final-pyflakes.log": {
+    "sha256": "e49078ead0ff53cdaa2d50f7bc5f2233763a7d658e894ba0d32a7815276e52cc",
+    "bytes": 588
+  },
+  "logs/local-final-syntax.log": {
+    "sha256": "7fc6b2faff4452432a2bacbdb89e2c4d6cef94e4d7ed57a9554b994879ecd9dc",
+    "bytes": 45
+  },
+  "logs/local-raw-input-inventory.log": {
+    "sha256": "9b75ad066457443f8108fdb9c0efb1f5537b7417192fb94739191ed147996bdc",
+    "bytes": 2782
+  },
+  "logs/local-read-allocation-regression-v2.log": {
+    "sha256": "321b14763cfa89db4194b71da6824a7c9a93881f1121dc4b58ecd90af8838f23",
+    "bytes": 1114
+  },
+  "logs/local-read-allocation-regression.log": {
+    "sha256": "8afefa40b4d2a4659315aca292863ee9428563438d8db34e651ae24dd4df0967",
+    "bytes": 1038
+  },
+  "logs/local-read-allocations.log": {
+    "sha256": "5312546206c98aad29e034074101908baf372caf299b84cde5119de029a4a23b",
+    "bytes": 686
+  },
+  "logs/local-read-final-controls.log": {
+    "sha256": "96ec56d34d2b1792f2d719d661d7b8c0cb64110af9be5076f60114c07824f699",
+    "bytes": 1043
+  },
+  "logs/local-read-mutants.log": {
+    "sha256": "ca29684b063577cde0e6caaed1275533597c125e3ab69bb60dba91001ba97133",
+    "bytes": 6337
+  },
+  "logs/local-storage-callers.log": {
+    "sha256": "4336242c87fbe568cccca28aca3d3af6f6a81f7a05bbb28e9128daf86c1ee752",
+    "bytes": 1299
+  },
+  "logs/local-storage-compressed.log": {
+    "sha256": "f95bdb114fdee90cda1c07e20333ab00bfeb7556a248657cd1a7994badd6ba77",
+    "bytes": 1729
+  },
+  "logs/local-storage-mutants.log": {
+    "sha256": "ae66d46a827c7529a5c6462aec6ed901866a93f9b261dc52b39e41620bee94c1",
+    "bytes": 20131
+  },
+  "logs/local-storage-pair.log": {
+    "sha256": "475faf6c31b3959c82b32bf93f671e9a341a11620ae9d2f5235a691def8d108f",
+    "bytes": 2176
+  },
+  "logs/local-storage-pg16.log": {
+    "sha256": "ccb581bebec783b1ebbcea333682f43e31004b44662c9d6c76c6cb97781d8cda",
+    "bytes": 2858
+  },
+  "stage-one-ci425-mutations/report.json": {
+    "sha256": "de66ff91258be12a90d4ceef1e2e43b40d93667147c496e0ec145b505115ec19",
+    "bytes": 27778
+  },
+  "stage-one-resource-compressed-source/sentinel/core/session.py": {
+    "sha256": "1f200a18b98f54cd1a85893c53b03fe57a1a715fe7a3f9a5fa67a0ee496e7fc1",
+    "bytes": 33458
+  },
+  "stage-one-resource-compressed-source/sentinel/observation_storage.py": {
+    "sha256": "61d790f31995d212f7895895b3d26b51c5798178a12b1716e76b9bbf5c1fff56",
+    "bytes": 5631
+  },
+  "stage-one-resource-compressed-source/sentinel/shadow_observation.py": {
+    "sha256": "f4398490b2f0030ead42d6f2ac5012507d8dbc70b6f13981ced3b0e3b3e6ae1a",
+    "bytes": 127964
+  },
+  "stage-one-resource-compressed-source/source-SHA256SUMS.json": {
+    "sha256": "d86360098d8911a3c71147d298f904cce3dbb9f646633a6a719168acb07d38a3",
+    "bytes": 184129
+  },
+  "stage-one-resource-pair-source/sentinel/core/session.py": {
+    "sha256": "1f200a18b98f54cd1a85893c53b03fe57a1a715fe7a3f9a5fa67a0ee496e7fc1",
+    "bytes": 33458
+  },
+  "stage-one-resource-pair-source/sentinel/observation_storage.py": {
+    "sha256": "d990a942e9b861aa84a2a10b8943f49930e38aefad8425e37e181df7250b65eb",
+    "bytes": 3764
+  },
+  "stage-one-resource-pair-source/sentinel/shadow_observation.py": {
+    "sha256": "d0827f14fb91784f35cf130e4fecf703bc09d0f99270b01632264f367a484d4f",
+    "bytes": 127344
+  },
+  "stage-one-resource-pair-source/source-SHA256SUMS.json": {
+    "sha256": "87b77e7d6232e023c8f5f3b78a4e9ddedd0ed3a47139156d65a3da763e05cdb2",
+    "bytes": 184129
+  },
+  "stage-one-resource-read-source/sentinel/core/session.py": {
+    "sha256": "c95b085ecef3ad3996ba43cb838c4a7d03cbcbc33967bdb65b7c3b798522a51c",
+    "bytes": 34066
+  },
+  "stage-one-resource-read-source/sentinel/observation_storage.py": {
+    "sha256": "61d790f31995d212f7895895b3d26b51c5798178a12b1716e76b9bbf5c1fff56",
+    "bytes": 5631
+  },
+  "stage-one-resource-read-source/sentinel/shadow_observation.py": {
+    "sha256": "ad174359e9600a475d7d27cc38d8daafec44b3b9b0095cd5cc26337b1b8665bd",
+    "bytes": 128219
+  },
+  "stage-one-resource-read-source/source-SHA256SUMS.json": {
+    "sha256": "1741ab683123907ff32ba555639a85a919656421123e9e824c6662c5cc0cd497",
+    "bytes": 185309
+  },
+  "stage-one-storage-compressed/database.json": {
+    "sha256": "ce25eab92a4307343edb567d2a9984590e10b41d175404a15d5792bffbe77a3a",
+    "bytes": 61
+  },
+  "stage-one-storage-compressed/postgres-cpu.stat": {
+    "sha256": "a38b5ad4d203b212d169d02747acedfedb2f8ee85314491293708d71e1828cb6",
+    "bytes": 129
+  },
+  "stage-one-storage-compressed/postgres-memory.events": {
+    "sha256": "28fe05a1d7b8467a03fb54454f7b6a130fab752864d0454f5f6c4a4b6ce307f2",
+    "bytes": 53
+  },
+  "stage-one-storage-compressed/postgres-memory.peak": {
+    "sha256": "b290ab883b37b073b4a17c8c8c1c03b4b2926279737322a53886f5bd0521bb8f",
+    "bytes": 10
+  },
+  "stage-one-storage-compressed/postgres-memory.stat": {
+    "sha256": "67e9986b4286cb302f946bbc56981e88f07e9f084efc11629dd04576bf653f51",
+    "bytes": 858
+  },
+  "stage-one-storage-compressed/postgres-server.log": {
+    "sha256": "41d0a910e028fd5aa439d0ce5599e93ae4fc98e61fee533453d937300e450dc1",
+    "bytes": 624
+  },
+  "stage-one-storage-compressed/postgres.log": {
+    "sha256": "62c33fed07c19b7d634464bbe0335aed88c708af1cd158b584cfc26ba9ea2b59",
+    "bytes": 118
+  },
+  "stage-one-storage-compressed/sentinel-cost-ea05fa53-postgres.inspect.json": {
+    "sha256": "3f009d40c08979887fc714e00c4a093ca2c875c13c797a902692cb9e0a76f6ce",
+    "bytes": 2962
+  },
+  "stage-one-storage-compressed/sentinel-cost-ea05fa53-storage.inspect.json": {
+    "sha256": "54bf143876661d0bb2a86cb629d866935d8c91066e1c9cd8d60025922fc795dd",
+    "bytes": 3030
+  },
+  "stage-one-storage-compressed/stop": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "stage-one-storage-compressed/storage-postgres-memory.log": {
+    "sha256": "2d735d6f9d05ea6b0be47f5aaac611eba528a10fd39086b43b236287ba4a8702",
+    "bytes": 1102
+  },
+  "stage-one-storage-compressed/storage.log": {
+    "sha256": "61b1ad0792dd0a1052e5ebe39f9f9c9aa0a25292e6f81d7cf33064898bd1970a",
+    "bytes": 338
+  },
+  "stage-one-storage-pair/database.json": {
+    "sha256": "091debe61f3b9a911253b6b2e7761b6a67010fad7d483b4784f04cd83e42fd64",
+    "bytes": 61
+  },
+  "stage-one-storage-pair/postgres-cpu.stat": {
+    "sha256": "f597b55bd8f5e58242717bcda53450b3bfe2f1b7333cb38e344343d70bb2f900",
+    "bytes": 131
+  },
+  "stage-one-storage-pair/postgres-memory.events": {
+    "sha256": "e319a2c4a6b9897239bff3fcd169c92c96b9d76fe6a04a98fc1b5346046a50a2",
+    "bytes": 56
+  },
+  "stage-one-storage-pair/postgres-memory.peak": {
+    "sha256": "6ca8d2dfdb2484b3436a085985b597b617554bd1051e8677dc140f778ea66592",
+    "bytes": 11
+  },
+  "stage-one-storage-pair/postgres-memory.stat": {
+    "sha256": "7cb5c5d0920fc78dde3b586475b6795720671e32b487de3e6659bcfb4e4a5210",
+    "bytes": 883
+  },
+  "stage-one-storage-pair/postgres-server.log": {
+    "sha256": "01571a47e887bb8a393dc1d288b0e1fce386f20711d0215cea628d6922983545",
+    "bytes": 2265
+  },
+  "stage-one-storage-pair/postgres.log": {
+    "sha256": "4fbda1d7a465ef4e1364d98393f4b632ac87015adcd236ffbc8ea63e598a4c15",
+    "bytes": 122
+  },
+  "stage-one-storage-pair/sentinel-cost-d445024c-postgres.inspect.json": {
+    "sha256": "bd0a7591a646de27b60bd0a3133d6c00d7db8f5ab45012a3be254e9c58ec826d",
+    "bytes": 2949
+  },
+  "stage-one-storage-pair/sentinel-cost-d445024c-storage.inspect.json": {
+    "sha256": "e6dcd36cbb8fcebc8966b6a06efb23bfc06a53211641c4827e21fe185c4da6ee",
+    "bytes": 3018
+  },
+  "stage-one-storage-pair/stop": {
+    "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+    "bytes": 0
+  },
+  "stage-one-storage-pair/storage-postgres-memory.log": {
+    "sha256": "86ad4b6609cd1dd93f83b27ac65dea78085d2d604b63d76014cf35511b86cff5",
+    "bytes": 1133
+  },
+  "stage-one-storage-pair/storage.log": {
+    "sha256": "9a95489697dbf4fe7199d4fe13f630cacf5136e6df8dcfa77ec978a5d53256cd",
+    "bytes": 1494
+  },
+  "stage-one-storage-pg16/database.json": {
+    "sha256": "95b79b23b43db3b7d90db245ec265eb5e7532e13ef5f62a26858a4dc87bbc0a5",
+    "bytes": 56
+  },
+  "stage-one-storage-pg16/postgres-memory.log": {
+    "sha256": "4ea320616bd6be8b44d971cfc73cc263bf9c690e871dacad0f132a622f37d97c",
+    "bytes": 1104
+  },
+  "stage-one-storage-pg16/postgres.inspect.json": {
+    "sha256": "00a97ff5ba98e0c2510e1044ef505eff816de7228e6c8a0478998085e664536c",
+    "bytes": 8335
+  },
+  "stage-one-storage-pg16/postgres.log": {
+    "sha256": "253f226edf5f27d86303cdaa4406d7dc8fe534c9e76a49e6c5ae4985b7c0cc44",
+    "bytes": 18063
+  },
+  "stage-one-storage-pg16/storage.log": {
+    "sha256": "a1f46ad4465899103e6b19c5b1abd3e4a49761ea6718eaee71fed4e3019af71f",
+    "bytes": 339
+  },
+  "stage-one-storage-pg16/tests.log": {
+    "sha256": "46e626593fd14985d984e610ebf9fb750803fb61361e141387ff3729bc1dff42",
+    "bytes": 115
+  }
+}

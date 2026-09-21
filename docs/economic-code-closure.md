@@ -4,6 +4,14 @@ Current remaining-work index: [the ten-item Stage 1 closeout checklist](stage-on
 Use its IDs and pass conditions for progress reports; the chronological record
 below preserves earlier findings and their later dispositions.
 
+The [integrated local closeout](stage-one-local-closeout.md) now completes the
+finite economic-path review and locally feasible fixes/tests. Exact sizing,
+zero-cash identity and storage/read memory defects are repaired; all eight
+8,408-security synthetic stages complete with independent economic checks and
+zero OOM. PostgreSQL reclaim pressure is retained as unqualified headroom.
+L01 required CI/owner merge, L09 authoritative-window/budget qualification,
+E1–E4 provider/policy evidence, N1 NAS and B1 deferred replay remain separate gates.
+
 Forward-paper update: [autonomous paper readiness](autonomous-paper-readiness.md)
 integrates main's recurring backup renewal and restore-gated retention with
 bounded process execution, exact selected-generation verification, and durable
@@ -268,7 +276,7 @@ these acceptance tests is not a claim that no other economic defect exists.
 
 | Finding | Locally established behavior and production path | Evidence |
 |---|---|---|
-| A2, P1 | `shadow_service.advance_once` â†’ `rolling_runtime.service_advance` â†’ `rolling_recovery.advance_one` preserves the canonical book and advances one missed session using retained dated inputs. Separate reconstruction receipts cannot grant prospective authority. Restart recovers committed candidates/receipts exactly once. | Continuous versus interrupted PostgreSQL clones with actual holdings, a stop shock, pending exits, cooldowns and a subsequent fresh session; equal full canonical state, unchanged genesis/capital and zero execution rows. Full restore validation reports reconstruction without attestation. |
+| A2, P1 | `shadow_service.advance_once` → `rolling_runtime.service_advance` → `rolling_recovery.advance_one` preserves the canonical book and advances one missed session using retained dated inputs. Separate reconstruction receipts cannot grant prospective authority. Restart recovers committed candidates/receipts exactly once. | Continuous versus interrupted PostgreSQL clones with actual holdings, a stop shock, pending exits, cooldowns and a subsequent fresh session; equal full canonical state, unchanged genesis/capital and zero execution rows. Full restore validation reports reconstruction without attestation. |
 | A3/A4/A11/A13/A20, P1/P2 | Typed dependency failures propagate through worker, preparation, guarded authority checks and backup cleanup. Explicit revocation/integrity remains terminal. Live leases/retry deadlines wait without replacing identity. | `test_dependency_recovery.py`, actual PostgreSQL lock/cancellation fixtures, `test_rolling_snapshot_jobs.py`; removal falsifiers for classification and waiting. |
 | A15, P2 | Proven inactive returning identities start fresh formation; dated metadata does not import a future listing into earlier history. Protected holdings/pending/cooldown dependencies still require anchors. | `test_returning_identity.py`: real snapshot publication, restart and protected-anchor refusal; independent dated-label assertions. |
 | A1/A17, P1/P2 | Callback invocation markers distinguish repeated same-phase calls. Killable database/alert observations and bounded stderr preserve supervisor progress. Dispatcher parent kills/reaps a silent dependency worker and restarts it. | Real lock, full log pipe, silent local socket, SIGTERM-resistant child, new invocation and expired invocation tests. No remote socket/account used. |
@@ -566,7 +574,7 @@ cases; it now shares the production module namespace. Both affected falsifiers
 were rerun and killed. No acceptance was obtained by xfail, fixture repinning,
 removing an economic assertion or promoting a capability bit.
 
-### Concrete NAS handoff â€” not executed
+### Concrete NAS handoff — not executed
 
 For the notification follow-up, explicitly migrate the isolated clone through
 the reviewed fenced installer before starting the dispatcher. Runtime schema

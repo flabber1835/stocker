@@ -7,6 +7,14 @@ economic/reference compatibility, provider capability acceptance, and deployed
 NAS qualification. None implies the others. Overall certification is BLOCKED
 until all required evidence has an explicit passing disposition.
 
+The [2026-09-20 integrated local closeout](stage-one-local-closeout.md) and
+[finite checklist](stage-one-closeout-checklist.md) reconcile every finding to
+production callers, durable state and acceptance. Locally feasible review,
+repairs and measurements are complete; required CI/owner merge, real-input and
+latency/headroom qualification, provider/policy evidence, NAS and deferred
+historical replay remain unresolved. The retained full-size synthetic run has
+zero OOM, but PostgreSQL memory pressure prevents a headroom acceptance claim.
+
 The [2026-09-20 local cash/fill closeout](stage-one-cash-fill-closeout.md)
 records L03-Z1 (P2): zero-valued native cash identities could bypass immutable
 replay checks. Local acceptance now covers zero evidence, restart, transactional

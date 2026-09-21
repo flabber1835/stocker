@@ -1,0 +1,107 @@
+{
+  "commit": "e088bfd26c695309e259cfc44ab1e8982d6f858d",
+  "files": [
+    {
+      "path": "sharadar/SHARADAR_TICKERS.zip",
+      "bytes": 5286484,
+      "sha256": "308bcc46f4efaffe6f6fc4f7236af82df5c57a9f2be07c677089f0e6fba2eebf",
+      "member": "SHARADAR_TICKERS_3_9d55c66cf84cd02091405a84d061ba83.csv",
+      "header": [
+        "table",
+        "permaticker",
+        "ticker",
+        "name",
+        "exchange",
+        "isdelisted",
+        "category",
+        "cusips",
+        "siccode",
+        "sicsector",
+        "sicindustry",
+        "figi",
+        "famaindustry",
+        "sector",
+        "industry",
+        "scalemarketcap",
+        "scalerevenue",
+        "relatedtickers",
+        "currency",
+        "location",
+        "lastupdated",
+        "firstadded",
+        "firstpricedate",
+        "lastpricedate",
+        "firstquarter",
+        "lastquarter",
+        "secfilings",
+        "companysite"
+      ]
+    },
+    {
+      "path": "sharadar/SHARADAR_ACTIONS.zip",
+      "bytes": 9855560,
+      "sha256": "db67132dca8cf38107ca4bcaea7276ea5d0e8f77254f6556802caad6efa91b02",
+      "member": "SHARADAR_ACTIONS_2_29fe246cadf640e7e1609af39f779093.csv",
+      "header": [
+        "date",
+        "action",
+        "ticker",
+        "name",
+        "value",
+        "contraticker",
+        "contraname"
+      ]
+    },
+    {
+      "path": "sharadar/SFP/SHARADAR_SFP.zip.001..004",
+      "bytes": 298465320,
+      "sha256": "8d2ebf7485977d9c40ec379eb33bd9d36d39d69db13602e5c51862d03172400c",
+      "header": [
+        "ticker",
+        "date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "closeadj",
+        "closeunadj",
+        "lastupdated"
+      ],
+      "series": {
+        "SPY": {
+          "rows": 7190,
+          "first": "1997-12-31",
+          "last": "2026-08-03"
+        },
+        "BIL": {
+          "rows": 4825,
+          "first": "2007-05-30",
+          "last": "2026-08-03"
+        }
+      }
+    },
+    {
+      "path": "sharadar/SHARADAR_SEP_2022.csv.gz",
+      "bytes": 41419154,
+      "sha256": "c4e19b7e193dadfb014ce14fa276e2237f741b2e0ff586973b75222504a13a55",
+      "header": [
+        "ticker",
+        "date",
+        "open",
+        "high",
+        "low",
+        "close",
+        "volume",
+        "closeadj",
+        "closeunadj",
+        "lastupdated"
+      ]
+    }
+  ],
+  "tickers_structural_probe": {
+    "status": "PASS",
+    "rows": 21939
+  },
+  "admission": "NOT_ESTABLISHED: file/Git provenance and structural validity do not supply export refresh-bracket evidence, complete API/CSV reference agreement or production publication/coverage receipts. No provider request made."
+}

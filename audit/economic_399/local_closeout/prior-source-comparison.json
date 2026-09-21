@@ -1,0 +1,388 @@
+[
+  {
+    "evidence": "audit/economic_399/backup_horizon_renewal/source-provenance.json",
+    "same": [
+      "audit/economic_399/backup_horizon_renewal/run_local.py",
+      "docs/backup-horizon-renewal.md",
+      "scripts/sentinel-backup-verify-chain.sh",
+      "scripts/sentinel_go_backup_refresh.py",
+      "tests/sentinel/test_go_backup_refresh.py",
+      "tools/sentinel_backup_horizon_falsifiers.py"
+    ],
+    "changed": [
+      "docs/economic-code-closure.md",
+      "docs/sentinel-deployment.md",
+      "scripts/sentinel-backup-status.sh",
+      "tests/backup/command_adapter.py",
+      "tests/backup/test_shell_lifecycle.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/backup_proof_bounds/source-provenance.json",
+    "same": [
+      "audit/economic_399/backup_proof_bounds/measure_payload.py",
+      "audit/economic_399/backup_proof_bounds/run_local.py",
+      "tests/backup/test_runtime_backup_authority.py",
+      "tests/backup/test_runtime_backup_bounds.py",
+      "tests/backup/test_runtime_backup_integrity.py",
+      "tests/backup/test_runtime_sequences.py",
+      "tests/sentinel/test_backup_bounded_reads.py",
+      "tools/sentinel_backup_bound_falsifiers.py"
+    ],
+    "changed": [
+      "sentinel/backup_runtime_authority.py",
+      "tests/backup/lab.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/backup_selection_ci/source-provenance.json",
+    "same": [
+      "audit/economic_399/backup_selection_ci/run_local.py",
+      "docs/backup-runtime-selection.md",
+      "tests/internal_state/physical.py",
+      "tests/internal_state/test_physical.py",
+      "tests/production_composition/test_canonical_go_e2e_harness.py",
+      "tools/sentinel_backup_fixture_falsifiers.py"
+    ],
+    "changed": [
+      "docs/economic-code-closure.md"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/backup_selection_integration/source-provenance.json",
+    "same": [
+      "audit/economic_399/backup_proof_bounds/measure_payload.py",
+      "audit/economic_399/backup_proof_bounds/run_local.py",
+      "audit/economic_399/backup_selection_integration/horizon_probe.py",
+      "audit/economic_399/bounded_base_selection/run_local.py",
+      "audit/economic_399/host_lock_ownership/run_local.py",
+      "scripts/sentinel-backup-publish-selection.sh",
+      "scripts/sentinel_backup_lock.py",
+      "scripts/sentinel_go_lock.py",
+      "scripts/sentinel_lock_ownership.py",
+      "sentinel/backup_runtime_authority.py",
+      "tests/scripts/test_host_lock_ownership.py"
+    ],
+    "changed": [
+      "docs/economic-code-closure.md",
+      "docs/sentinel-deployment.md",
+      "scripts/sentinel-base-backup.sh",
+      "scripts/test-backup-runtime-media.sh",
+      "tests/backup/test_shell_lifecycle.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/bounded_base_selection/source-provenance.json",
+    "same": [
+      "sentinel/backup_runtime_authority.py",
+      "scripts/sentinel-backup-publish-selection.sh",
+      "tests/backup/lab.py",
+      "tests/backup/test_runtime_base_selection.py",
+      "tests/sentinel/test_backup_selection_sql.py",
+      "tools/sentinel_backup_selection_falsifiers.py",
+      "audit/economic_399/bounded_base_selection/run_local.py"
+    ],
+    "changed": [
+      "scripts/sentinel-base-backup.sh",
+      "scripts/test-backup-runtime-media.sh",
+      "tests/backup/command_adapter.py",
+      "tests/backup/test_shell_lifecycle.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/closure_followup_403/source-provenance.json",
+    "same": [
+      "docs/sentinel-operator-monitoring.md",
+      "sentinel/panel/push_enrollment.py",
+      "sentinel/push_recipients.py",
+      "sentinel/schema.py",
+      "sentinel/web_push.py",
+      "tests/sentinel/test_autonomous_deploy.py",
+      "tests/sentinel/test_notification_recovery.py"
+    ],
+    "changed": [
+      "docs/economic-code-closure.md",
+      "scripts/sentinel_autonomous_deploy.py",
+      "tools/economic_audit_mutation_check.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/code_closure/source-provenance.json",
+    "same": [
+      "docs/rolling-daily-continuation.md",
+      "docs/rolling-missed-session-recovery.md",
+      "docs/rolling-shadow-runtime.md",
+      "scripts/sentinel_autonomous_deploy_bootstrap.py",
+      "sentinel/alert_service.py",
+      "sentinel/alert_supervisor.py",
+      "sentinel/automation/outbox.py",
+      "sentinel/automation_recovery.py",
+      "sentinel/automation_runtime.py",
+      "sentinel/core/rolling_continuity.py",
+      "sentinel/dependency_availability.py",
+      "sentinel/deployment_fence.py",
+      "sentinel/execution/guarded.py",
+      "sentinel/feed/history_retention_catalog.py",
+      "sentinel/feed/retention.py",
+      "sentinel/feed/retention_schema.py",
+      "sentinel/feed/rolling_jobs.py",
+      "sentinel/feed/runtime_schema.py",
+      "sentinel/restore_validation.py",
+      "sentinel/rolling_authority.py",
+      "sentinel/rolling_daily.py",
+      "sentinel/rolling_initialization.py",
+      "sentinel/rolling_reconstruction_evidence.py",
+      "sentinel/shadow_service.py",
+      "sentinel/shadow_worker.py",
+      "tests/sentinel/test_alert_supervisor.py",
+      "tests/sentinel/test_automation_outbox.py",
+      "tests/sentinel/test_dependency_recovery.py",
+      "tests/sentinel/test_deployment_fence.py",
+      "tests/sentinel/test_operator_monitoring.py",
+      "tests/sentinel/test_returning_identity.py",
+      "tests/sentinel/test_rolling_inputs.py",
+      "tests/sentinel/test_rolling_recovery.py",
+      "tests/sentinel/test_rolling_snapshot_jobs.py",
+      "tools/sentinel_rolling_daily_falsifiers.py"
+    ],
+    "changed": [
+      "docs/economic-code-closure.md",
+      "docs/sentinel-execution-contract.md",
+      "scripts/sentinel_autonomous_deploy.py",
+      "scripts/sentinel_autonomous_deploy_driver.py",
+      "sentinel/automation_supervisor.py",
+      "sentinel/core/decision.py",
+      "sentinel/core/rolling_inputs.py",
+      "sentinel/feed/rolling_go_inputs.py",
+      "sentinel/panel/push_enrollment.py",
+      "sentinel/rolling_daily_checkpoint.py",
+      "sentinel/rolling_recovery.py",
+      "sentinel/rolling_runtime.py",
+      "sentinel/schema.py",
+      "sentinel/shadow_supervisor.py",
+      "sentinel/supervisor_io.py",
+      "sentinel/web_push.py",
+      "tests/scripts/test_deployment_recovery.py",
+      "tests/sentinel/test_notification_recovery.py",
+      "tests/sentinel/test_rolling_runtime.py",
+      "tests/sentinel/test_supervisor_dependency_bounds.py",
+      "tools/economic_audit_mutation_check.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/host_lock_ci_layout/source-provenance.json",
+    "same": [
+      "tests/scripts/test_host_lock_ownership.py",
+      "audit/economic_399/host_lock_ci_layout/run_local.py",
+      "scripts/sentinel_backup_lock.py",
+      "scripts/sentinel_go_lock.py",
+      "scripts/sentinel_lock_ownership.py"
+    ],
+    "changed": []
+  },
+  {
+    "evidence": "audit/economic_399/host_lock_ownership/source-provenance.json",
+    "same": [
+      "audit/economic_399/host_lock_ownership/run_local.py",
+      "scripts/sentinel_backup_lock.py",
+      "scripts/sentinel_go_lock.py",
+      "scripts/sentinel_lock_ownership.py",
+      "tests/host_python38/test_lock_ownership.py",
+      "tools/sentinel_host_lock_falsifiers.py"
+    ],
+    "changed": [
+      "tests/backup/test_shell_lifecycle.py",
+      "tests/scripts/test_host_lock_ownership.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/local_closeout/source-provenance.json",
+    "same": [
+      "audit/economic_399/cash_precision/README.md",
+      "audit/economic_399/cash_precision/ci-equivalence-sha256.json",
+      "audit/economic_399/cash_precision/mutations.py",
+      "audit/economic_399/cash_precision/producer-sha256.json",
+      "audit/economic_399/cash_precision/producer_mutations.py",
+      "audit/economic_399/cash_precision/sha256.json",
+      "audit/economic_399/cash_zero_identity/README.md",
+      "audit/economic_399/cash_zero_identity/artifact-sha256.json",
+      "audit/economic_399/cash_zero_identity/campaign.py",
+      "audit/economic_399/cash_zero_identity/ci_followup/SHA256SUMS.json",
+      "audit/economic_399/cash_zero_identity/raw-log-sha256.json",
+      "audit/economic_399/cash_zero_identity/run_local.py",
+      "audit/economic_399/cash_zero_identity/source-sha256.json",
+      "audit/economic_399/local_closeout/campaign.py",
+      "audit/economic_399/local_closeout/pit-input-inventory.json",
+      "audit/economic_399/local_closeout/prior_sources.py",
+      "audit/economic_399/recovery_closeout/README.md",
+      "audit/economic_399/recovery_closeout/campaign.py",
+      "audit/economic_399/recovery_closeout/run_local.py",
+      "audit/economic_399/recovery_closeout/source-and-artifact-sha256.json",
+      "docs/production-champion-paper-deltas.json",
+      "docs/sentinel-execution-contract.md",
+      "docs/stage-one-cash-fill-closeout.md",
+      "docs/stage-one-finding-index.md",
+      "docs/stage-one-recovery-closeout.md",
+      "sentinel/core/cashflow.py",
+      "sentinel/core/decision.py",
+      "sentinel/execution/alpaca.py",
+      "sentinel/execution/broker_cash.py",
+      "sentinel/execution/commands.py",
+      "sentinel/execution/contract.py",
+      "sentinel/execution/numeric.py",
+      "sentinel/execution/opening_sizing.py",
+      "sentinel/execution/projection.py",
+      "sentinel/execution/target_reprojection.py",
+      "sentinel/paper/cash.py",
+      "tests/sentinel/test_alpaca_execution_entrypoint.py",
+      "tests/sentinel/test_alpaca_simulation_durability.py",
+      "tests/sentinel/test_alpaca_simulation_review_regressions.py",
+      "tests/sentinel/test_cash_grace_identity.py",
+      "tests/sentinel/test_historical_recovery_process_death.py",
+      "tests/sentinel/test_issue209_target_reprojection.py",
+      "tests/sentinel/test_issue_183_alpaca_hardening.py",
+      "tests/sentinel/test_nav_quantity_precision.py",
+      "tests/sentinel/test_production_decision.py",
+      "tests/sentinel/test_strict_recovery_predecessor.py"
+    ],
+    "changed": [
+      "audit/economic_399/cash_zero_identity/ci_followup/README.md",
+      "audit/economic_399/local_closeout/prior-source-comparison.json",
+      "audit/economic_399/local_closeout/run_local.py",
+      "audit/economic_399/local_closeout/run_stages.py",
+      "audit/economic_399/local_closeout/stages.py",
+      "docs/economic-audit-399-remediation.md",
+      "docs/economic-code-closure.md",
+      "docs/stage-one-closeout-checklist.md",
+      "docs/stage-one-local-closeout.md",
+      "tests/sentinel/test_rolling_restore_integrity.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/manifest_bound/source-provenance.json",
+    "same": [
+      "audit/economic_399/manifest_bound/measure_manifest.py",
+      "audit/economic_399/manifest_bound/run_local.py",
+      "tests/backup/test_manifest_admission.py",
+      "tests/sentinel/test_backup_manifest_bound.py",
+      "tools/sentinel_manifest_bound_falsifiers.py"
+    ],
+    "changed": [
+      "sentinel/backup_runtime_authority.py",
+      "tests/backup/lab.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/partial_fill_notional/source-provenance.json",
+    "same": [
+      "audit/economic_399/partial_fill_notional/run_local.py",
+      "tests/sentinel/test_native_fill_acceptance.py",
+      "tests/sentinel/test_native_fill_progression.py",
+      "tools/sentinel_partial_fill_falsifiers.py"
+    ],
+    "changed": [
+      "docs/economic-audit-399-remediation.md",
+      "docs/economic-code-closure.md",
+      "sentinel/execution/fill_integrity.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/recurring_maintenance/source-provenance.json",
+    "same": [
+      ".github/workflows/backup-reliability.yml",
+      "audit/economic_399/recurring_maintenance/physical_worker.py",
+      "audit/economic_399/recurring_maintenance/private_media.py",
+      "audit/economic_399/recurring_maintenance/run_local.py",
+      "scripts/sentinel-backup-media-lock.sh",
+      "scripts/sentinel-base-backup.sh",
+      "scripts/sentinel-restore-drill.sh",
+      "scripts/sentinel-restore-worker.sh",
+      "scripts/sentinel_env.py",
+      "scripts/test-backup-maintenance-worker.sh",
+      "scripts/test-backup-runtime-media.sh",
+      "sentinel/backup_retention.py",
+      "tests/backup/command_adapter.py",
+      "tests/backup/test_shell_lifecycle.py",
+      "tests/sentinel/test_backup_contract.py"
+    ],
+    "changed": [
+      "scripts/sentinel-backup-maintenance.sh",
+      "scripts/sentinel_backup_maintenance.py",
+      "tests/backup/test_recurring_maintenance.py",
+      "tests/host_python38/test_env_ingestion.py",
+      "tools/sentinel_maintenance_falsifiers.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/rolling_admission_403/source-provenance.json",
+    "same": [
+      "docs/rolling-admission-readers.md",
+      "scripts/sentinel_autonomous_deploy_driver.py",
+      "scripts/sentinel_autonomous_deploy_install_entry.py",
+      "sentinel/cli/authority.py",
+      "sentinel/cli/feed.py",
+      "sentinel/feed/readers.py",
+      "sentinel/observation_authority.py",
+      "sentinel/panel/sources.py",
+      "tests/sentinel/test_cli.py",
+      "tests/sentinel/test_merge_readiness_137_149.py",
+      "tests/sentinel/test_operational_parity.py",
+      "tests/sentinel/test_panel.py",
+      "tests/sentinel/test_paper_observation_authority.py",
+      "tests/sentinel/test_runtime_regressions_137_148_149_150.py",
+      "tools/sentinel_observation_authority.py",
+      "tools/sentinel_rolling_admission_falsifiers.py"
+    ],
+    "changed": [
+      "docs/economic-code-closure.md",
+      "docs/sentinel-deployment.md",
+      "scripts/sentinel_autonomous_deploy.py",
+      "sentinel/core/decision.py",
+      "sentinel/execution/feed_inputs.py",
+      "sentinel/feed/rolling_go_inputs.py",
+      "tests/sentinel/test_rolling_admission_readers.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/rolling_admission_ci_405/source-provenance.json",
+    "same": [
+      "audit/economic_399/rolling_admission_403/run_local.py",
+      "audit/economic_399/rolling_admission_ci_405/run_local.py",
+      "scripts/sentinel_autonomous_deploy.py",
+      "scripts/sentinel_autonomous_deploy_driver.py",
+      "scripts/sentinel_autonomous_deploy_install_entry.py",
+      "sentinel/cli/authority.py",
+      "sentinel/cli/feed.py",
+      "sentinel/feed/readers.py",
+      "sentinel/observation_authority.py",
+      "sentinel/panel/sources.py",
+      "tests/sentinel/test_cli.py",
+      "tests/sentinel/test_empty_account_binding.py",
+      "tests/sentinel/test_merge_readiness_137_149.py",
+      "tests/sentinel/test_operational_parity.py",
+      "tests/sentinel/test_panel.py",
+      "tests/sentinel/test_paper_observation_authority.py",
+      "tests/sentinel/test_runtime_regressions_137_148_149_150.py",
+      "tools/sentinel_observation_authority.py",
+      "tools/sentinel_rolling_admission_falsifiers.py"
+    ],
+    "changed": [
+      "sentinel/core/decision.py",
+      "sentinel/execution/feed_inputs.py",
+      "sentinel/feed/rolling_go_inputs.py",
+      "tests/sentinel/test_rolling_admission_readers.py"
+    ]
+  },
+  {
+    "evidence": "audit/economic_399/supervisor_finite_timing/source-provenance.json",
+    "same": [
+      "tests/sentinel/test_supervisor_timing_admission.py",
+      "tools/sentinel_supervisor_timing_falsifiers.py",
+      "audit/economic_399/supervisor_finite_timing/run_local.py"
+    ],
+    "changed": [
+      "sentinel/shadow_supervisor.py",
+      "sentinel/automation_supervisor.py"
+    ]
+  }
+]

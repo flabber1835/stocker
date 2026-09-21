@@ -55,6 +55,28 @@ def test_exact_reverse_split_is_supported_for_whole_share_adapter():
     assert projected.target_basket == {"SEC-A": Decimal("1.0")}
 
 
+def test_action_product_cannot_round_fractional_intent_into_a_whole_share():
+    with pytest.raises(TargetProjectionRefused, match="not a multiple"):
+        project_target(
+            plan(basket={"SEC-A": Decimal("10")}),
+            through_session=date(2026, 8, 21),
+            action_multipliers={"SEC-A": Decimal("0.099999999999999999999999999999")})
+
+
+def test_cancelled_entry_scaling_keeps_exact_surviving_ratio():
+    # Three pending shares cancel at 1:2; six survive as three. The account
+    # originally allocated three shares to nine Core shares: 3 * (3/9) = 1.
+    projected = project_target(
+        plan(basket={"SEC-A": Decimal("3")}),
+        through_session=date(2026, 8, 21),
+        action_multipliers={"SEC-A": Decimal("0.5")},
+        action_evidence=_pending_split_evidence("0.5"),
+        canonical_target_shares={"SEC-A": Decimal("9")},
+        pending_open_shares={"SEC-A": (Decimal("3"), Decimal("6"))})
+    assert projected.target_basket == {"SEC-A": Decimal("1")}
+    assert projected.cancelled_pending_opens == {"SEC-A": (Decimal("3"),)}
+
+
 def test_fractional_reverse_split_refuses_instead_of_rounding():
     with pytest.raises(TargetProjectionRefused, match="not a multiple"):
         project_target(
