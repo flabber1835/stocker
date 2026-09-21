@@ -1,0 +1,480 @@
+{
+  "error": "incomplete leadership cash terminal: 235828730321992901",
+  "error_type": "ValueError",
+  "held": {
+    "0": {
+      "current_shares": 129,
+      "entry_date": "2009-03-25",
+      "entry_raw_open": 33.334888,
+      "entry_split_adjusted_price": 2.222000012434018,
+      "episode_peak_split_adjusted_close": 18.417,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 129,
+      "issuer_id": "SID:146666351462403983",
+      "market_sessions_held": 1717,
+      "review_completed": true,
+      "security_id": "146666351462403983",
+      "signal_date": "2009-03-24",
+      "slot_id": 0,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 33.334888,
+          "security_id": "146666351462403983",
+          "session": "2009-03-25",
+          "shares": 129,
+          "ticker": "ORLY"
+        }
+      ],
+      "ticker": "ORLY"
+    },
+    "1": {
+      "current_shares": 74,
+      "entry_date": "2012-01-04",
+      "entry_raw_open": 40.91,
+      "entry_split_adjusted_price": 40.91,
+      "episode_peak_split_adjusted_close": 81.18,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 74,
+      "issuer_id": "SID:658911899205312605",
+      "market_sessions_held": 1016,
+      "review_completed": true,
+      "security_id": "658911899205312605",
+      "signal_date": "2012-01-03",
+      "slot_id": 1,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 40.91,
+          "security_id": "658911899205312605",
+          "session": "2012-01-04",
+          "shares": 74,
+          "ticker": "DG"
+        }
+      ],
+      "ticker": "DG"
+    },
+    "10": {
+      "current_shares": 163,
+      "entry_date": "2016-01-15",
+      "entry_raw_open": 77.89,
+      "entry_split_adjusted_price": 38.945,
+      "episode_peak_split_adjusted_close": 38.45,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 163,
+      "issuer_id": "SID:1087715417992556721",
+      "market_sessions_held": 2,
+      "review_completed": false,
+      "security_id": "1087715417992556721",
+      "signal_date": "2016-01-14",
+      "slot_id": 10,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 77.89,
+          "security_id": "1087715417992556721",
+          "session": "2016-01-15",
+          "shares": 163,
+          "ticker": "HRL"
+        }
+      ],
+      "ticker": "HRL"
+    },
+    "11": {
+      "current_shares": 105,
+      "entry_date": "2012-12-17",
+      "entry_raw_open": 65.98,
+      "entry_split_adjusted_price": 35.673851691864655,
+      "episode_peak_split_adjusted_close": 42.13,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 105,
+      "issuer_id": "SID:842836433184266027",
+      "market_sessions_held": 777,
+      "review_completed": true,
+      "security_id": "842836433184266027",
+      "signal_date": "2012-12-14",
+      "slot_id": 11,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 65.98,
+          "security_id": "842836433184266027",
+          "session": "2012-12-17",
+          "shares": 105,
+          "ticker": "BAX"
+        },
+        {
+          "child_open": 31.9,
+          "child_security_id": "128227091113957066",
+          "child_shares_per_parent": "1",
+          "child_ticker": "BXLT",
+          "kind": "SPINOFF_CHILD_LIQUIDATION",
+          "parent_security_id": "842836433184266027",
+          "reference_scale": 0.5406767458603312,
+          "session": "2015-07-01",
+          "source_row_id": "BAX-2015-07-01-BXLT-spinoff"
+        }
+      ],
+      "ticker": "BAX"
+    },
+    "12": {
+      "current_shares": 111,
+      "entry_date": "2011-11-01",
+      "entry_raw_open": 66.04,
+      "entry_split_adjusted_price": 66.04,
+      "episode_peak_split_adjusted_close": 207.84,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 111,
+      "issuer_id": "SID:281171718950464420",
+      "market_sessions_held": 1059,
+      "review_completed": true,
+      "security_id": "281171718950464420",
+      "signal_date": "2011-10-31",
+      "slot_id": 12,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 66.04,
+          "security_id": "281171718950464420",
+          "session": "2011-11-01",
+          "shares": 111,
+          "ticker": "ALXN"
+        }
+      ],
+      "ticker": "ALXN"
+    },
+    "13": {
+      "current_shares": 588,
+      "entry_date": "2015-11-25",
+      "entry_raw_open": 23.76,
+      "entry_split_adjusted_price": 23.76,
+      "episode_peak_split_adjusted_close": 24.12,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 588,
+      "issuer_id": "SID:7447504902661053",
+      "market_sessions_held": 36,
+      "review_completed": false,
+      "security_id": "7447504902661053",
+      "signal_date": "2015-11-24",
+      "slot_id": 13,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 23.76,
+          "security_id": "7447504902661053",
+          "session": "2015-11-25",
+          "shares": 588,
+          "ticker": "VRE"
+        }
+      ],
+      "ticker": "VRE"
+    },
+    "14": {
+      "current_shares": 40,
+      "entry_date": "2008-11-25",
+      "entry_raw_open": 27.943324075886196,
+      "entry_split_adjusted_price": 27.943324075886196,
+      "episode_peak_split_adjusted_close": 82.4,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 40,
+      "issuer_id": "SID:571136091303237635",
+      "market_sessions_held": 1798,
+      "review_completed": true,
+      "security_id": "571136091303237635",
+      "signal_date": "2008-11-24",
+      "slot_id": 14,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 27.65,
+          "security_id": "154180056919575706",
+          "session": "2008-11-25",
+          "shares": 162,
+          "ticker": "FDO"
+        },
+        {
+          "cash_consideration": 9655.2,
+          "cash_in_lieu": 19.283264,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": 0.2484,
+          "exchange_ratio_exact": "0.2484",
+          "from_security_id": "154180056919575706",
+          "from_ticker": "FDO",
+          "kind": "CASH_PLUS_STOCK",
+          "reference": "162 held FDO shares: contractual cash USD9655.20 plus 40 DLTR and 0.2408 fractional share. July 7 first-post-completion-session recognition preserves already processed July 6. Fractional cash USD19.283264 uses July 6 DLTR raw close USD80.08 as an explicit economic approximation, not paying-agent cash rate. Corrected pre-application fork: delivered issuer uses the canonical P:SEC_CIK group key.",
+          "reference_rebase": {
+            "cash_distributed": 9674.483264,
+            "delivered_raw_open": 80.42,
+            "delivered_shares": 40,
+            "equity_fraction": 0.24953295448740828,
+            "package_value": 12891.283264,
+            "policy": "cash-adjusted-continuation-v1",
+            "raw_reference_multiplier": 1.0106084656740035,
+            "signal_reference_multiplier": 1.0106084656740035,
+            "source_shares": 162.0,
+            "valuation_phase": "OPEN"
+          },
+          "session": "2015-07-07",
+          "shares_delivered": 40.0,
+          "shares_in": 162,
+          "to_security_id": "571136091303237635",
+          "to_ticker": "DLTR"
+        }
+      ],
+      "ticker": "DLTR"
+    },
+    "15": {
+      "current_shares": 101,
+      "entry_date": "2015-09-24",
+      "entry_raw_open": 138.14,
+      "entry_split_adjusted_price": 138.14,
+      "episode_peak_split_adjusted_close": 140.05,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 101,
+      "issuer_id": "SID:732428359392320882",
+      "market_sessions_held": 80,
+      "review_completed": false,
+      "security_id": "732428359392320882",
+      "signal_date": "2015-09-23",
+      "slot_id": 15,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 138.14,
+          "security_id": "732428359392320882",
+          "session": "2015-09-24",
+          "shares": 101,
+          "ticker": "PRE1"
+        }
+      ],
+      "ticker": "PRE1"
+    },
+    "17": {
+      "current_shares": 212,
+      "entry_date": "2016-01-19",
+      "entry_raw_open": 58.96,
+      "entry_split_adjusted_price": 58.96,
+      "episode_peak_split_adjusted_close": 58.7,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 212,
+      "issuer_id": "SID:175647085019960977",
+      "market_sessions_held": 1,
+      "review_completed": false,
+      "security_id": "175647085019960977",
+      "signal_date": "2016-01-15",
+      "slot_id": 17,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 58.96,
+          "security_id": "175647085019960977",
+          "session": "2016-01-19",
+          "shares": 212,
+          "ticker": "SWI1"
+        }
+      ],
+      "ticker": "SWI1"
+    },
+    "18": {
+      "current_shares": 106,
+      "entry_date": "2009-04-14",
+      "entry_raw_open": 25.48906533840842,
+      "entry_split_adjusted_price": 25.48906533840842,
+      "episode_peak_split_adjusted_close": 63.03,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 107,
+      "issuer_id": "SID:899932545079148879",
+      "market_sessions_held": 1704,
+      "review_completed": true,
+      "security_id": "899932545079148879",
+      "signal_date": "2009-04-13",
+      "slot_id": 18,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 23.24,
+          "security_id": "553972112448702494",
+          "session": "2009-04-14",
+          "shares": 185,
+          "ticker": "SGP1"
+        },
+        {
+          "cash_consideration": 1942.5,
+          "cash_in_lieu": 21.146965,
+          "entitlement_aggregation": "HOLDER",
+          "exchange_ratio": 0.5767,
+          "exchange_ratio_exact": "0.5767",
+          "from_security_id": "553972112448702494",
+          "from_ticker": "SGP1",
+          "kind": "CASH_PLUS_STOCK",
+          "reference": "185 held Schering-Plough shares convert to USD10.50 plus 0.5767 MRK each. November 4 replay recognition follows the November 3 close; USD30.67 merger-date MRK raw close values the 0.6895 fractional share and is not a paying-agent rate.",
+          "reference_rebase": {
+            "cash_distributed": 1963.646965,
+            "delivered_raw_open": 31.33,
+            "delivered_shares": 106,
+            "equity_fraction": 0.6284227859401993,
+            "package_value": 5284.626965,
+            "policy": "cash-adjusted-continuation-v1",
+            "raw_reference_multiplier": 1.0967756169711025,
+            "signal_reference_multiplier": 1.0967756169711025,
+            "source_shares": 185.0,
+            "valuation_phase": "OPEN"
+          },
+          "session": "2009-11-04",
+          "shares_delivered": 106.0,
+          "shares_in": 185,
+          "to_security_id": "899932545079148879",
+          "to_ticker": "MRK"
+        }
+      ],
+      "ticker": "MRK"
+    },
+    "19": {
+      "current_shares": 22,
+      "entry_date": "2011-11-18",
+      "entry_raw_open": 329.65,
+      "entry_split_adjusted_price": 329.65,
+      "episode_peak_split_adjusted_close": 797.29,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 22,
+      "issuer_id": "SID:891577786785926908",
+      "market_sessions_held": 1046,
+      "review_completed": true,
+      "security_id": "891577786785926908",
+      "signal_date": "2011-11-17",
+      "slot_id": 19,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 329.65,
+          "security_id": "891577786785926908",
+          "session": "2011-11-18",
+          "shares": 22,
+          "ticker": "AZO"
+        }
+      ],
+      "ticker": "AZO"
+    },
+    "2": {
+      "current_shares": 169,
+      "entry_date": "2015-10-29",
+      "entry_raw_open": 81.39,
+      "entry_split_adjusted_price": 81.39,
+      "episode_peak_split_adjusted_close": 86.81,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 169,
+      "issuer_id": "SID:675395347301985910",
+      "market_sessions_held": 55,
+      "review_completed": false,
+      "security_id": "675395347301985910",
+      "signal_date": "2015-10-28",
+      "slot_id": 2,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 81.39,
+          "security_id": "675395347301985910",
+          "session": "2015-10-29",
+          "shares": 169,
+          "ticker": "AIZ"
+        }
+      ],
+      "ticker": "AIZ"
+    },
+    "3": {
+      "current_shares": 61,
+      "entry_date": "2012-05-24",
+      "entry_raw_open": 124.508007,
+      "entry_split_adjusted_price": 41.50300014712359,
+      "episode_peak_split_adjusted_close": 97.48,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 61,
+      "issuer_id": "SID:400924842867806105",
+      "market_sessions_held": 918,
+      "review_completed": true,
+      "security_id": "400924842867806105",
+      "signal_date": "2012-05-23",
+      "slot_id": 3,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 124.508007,
+          "security_id": "400924842867806105",
+          "session": "2012-05-24",
+          "shares": 61,
+          "ticker": "SHW"
+        }
+      ],
+      "ticker": "SHW"
+    },
+    "4": {
+      "current_shares": 34,
+      "entry_date": "2015-11-02",
+      "entry_raw_open": 405.37,
+      "entry_split_adjusted_price": 40.537000000000006,
+      "episode_peak_split_adjusted_close": 43.628,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 34,
+      "issuer_id": "SID:1062164357650740673",
+      "market_sessions_held": 53,
+      "review_completed": false,
+      "security_id": "1062164357650740673",
+      "signal_date": "2015-10-30",
+      "slot_id": 4,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 405.37,
+          "security_id": "1062164357650740673",
+          "session": "2015-11-02",
+          "shares": 34,
+          "ticker": "UHAL"
+        }
+      ],
+      "ticker": "UHAL"
+    },
+    "8": {
+      "current_shares": 164,
+      "entry_date": "2012-05-08",
+      "entry_raw_open": 51.22,
+      "entry_split_adjusted_price": 51.22,
+      "episode_peak_split_adjusted_close": 134.74,
+      "exit_pending": false,
+      "exit_reason": null,
+      "initial_shares": 164,
+      "issuer_id": "SID:827375650881331035",
+      "market_sessions_held": 930,
+      "review_completed": true,
+      "security_id": "827375650881331035",
+      "signal_date": "2012-05-07",
+      "slot_id": 8,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "raw_open": 51.22,
+          "security_id": "827375650881331035",
+          "session": "2012-05-08",
+          "shares": 164,
+          "ticker": "HD"
+        }
+      ],
+      "ticker": "HD"
+    }
+  },
+  "session": "2016-01-21",
+  "traceback": "Traceback (most recent call last):\n  File \"C:\\GitHub\\stocker\\.codex-tmp\\merged-20y-runtime-ee23c894\\research\\economic_replay60\\run.py\", line 287, in main\n    candidate = advance_session(state, published, controller_config=config, strategy_identity=identity)\n                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\GitHub\\stocker\\.codex-tmp\\merged-20y-runtime-ee23c894\\sentinel\\core\\kernel.py\", line 252, in advance_session\n    terminal_values=terminal_returns.values(prior=env, published=published))\n                    ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"C:\\GitHub\\stocker\\.codex-tmp\\merged-20y-runtime-ee23c894\\sentinel\\controller\\terminal_returns.py\", line 29, in values\n    raise ValueError('incomplete leadership cash terminal: ' + sid)\nValueError: incomplete leadership cash terminal: 235828730321992901\n"
+}

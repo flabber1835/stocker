@@ -1,0 +1,29 @@
+{
+  "kind": "explicit_analytical_source_fork",
+  "old_pointer": "C:\\GitHub\\stocker\\.codex-tmp\\economic-replay-merged-da7b64a9\\segment-043\\latest-checkpoint.json",
+  "old_checkpoint_sha256": "60742e196ebbcdd9b15da5f7dce8998f17a9582629cb2fbd98ed406eb329e0ab",
+  "old_state_sha256": "304237b1b6d7af430fcb896ea50eeca17555e3b0bd46ad2c17ce0f068e49dc11",
+  "new_state_sha256": "5c0c3cddd53f9584a691078f4db98f17a98248066a011b5fa604ac0f319ac994",
+  "last_processed_session": "2015-06-30",
+  "production_revision": "ee23c894c97a2c4023654ce3a56a62728f5b061e",
+  "identity_changes": {
+    "data_semantics_source_sha256": {
+      "old": "274a1433b8706b1370d9e74863f41dc6508da666a944c928f9aa277d50cc57f0",
+      "new": "ba877e2000e2eb5f5966897436f37a8a8b3d83c11bbe24a8c748623840a185e9"
+    },
+    "wealth_core_source_sha256": {
+      "old": "844fc26017cff590480eb50d6da1d4872e9c2670ffafddc7394b7a3d7fdc4478",
+      "new": "1d1d922e13924e5400514c857fef969aec24399399cd09e67741aed90b93e2fc"
+    }
+  },
+  "history_rewritten": false,
+  "scope": "mixed-source analytical continuation; not certification",
+  "changed_production_files": [
+    "sentinel/core/kernel.py",
+    "sentinel/core/spinoffs.py",
+    "shared/stock_strategy_shared/wealth_core/ledger.py"
+  ],
+  "new_checkpoint_sha256": "305d8ec062e873fd2e8029460c76eba7adbe7f86d1f2039722310be555859a8e",
+  "new_checkpoint_path": "C:\\GitHub\\stocker\\.codex-tmp\\economic-replay-merged-ee23c894\\migration\\checkpoints\\checkpoint-2015-06-30.json.gz",
+  "production_manifest_sha256": "794e61b22e304020437377e94f5ba83e1d20b57e638691e8d131f8ce440799f1"
+}

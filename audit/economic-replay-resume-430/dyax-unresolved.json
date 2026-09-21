@@ -1,0 +1,16 @@
+{
+  "session": "2016-01-21",
+  "security_id": "235828730321992901",
+  "ticker": "DYAX",
+  "held": false,
+  "contractual_cash_per_share": "37.30",
+  "contingent_right_maximum_per_share": "4.00",
+  "legal_completion": "2016-01-22",
+  "archive_terminal_date": "2016-01-21",
+  "status": "UNRESOLVED_CVR_VALUATION_AND_EVENT_DATE",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/907562/000110465916091032/a16-2705_168k.htm",
+    "https://www.sec.gov/Archives/edgar/data/936402/000110465916091030/a16-2737_1ex99d1.htm"
+  ],
+  "decision": "No applied supplement: unheld leadership still needs full economic terminal value. Do not assign zero or full eventual payout to the non-tradable contingent right using hindsight. Need point-in-time value/evidence and an explicit event-timing treatment before continuation."
+}

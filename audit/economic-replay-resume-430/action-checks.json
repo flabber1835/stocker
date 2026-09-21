@@ -1,0 +1,19 @@
+{
+  "FDO": {
+    "canonical_delivered_issuer": "P:SEC_CIK:935703",
+    "kind": "CASH_PLUS_STOCK",
+    "whole_shares": 40,
+    "exact_entitlement": "40.2408",
+    "contractual_cash": "9655.20",
+    "fractional_cash_proxy": "19.283264"
+  },
+  "FSL": {
+    "canonical_delivered_issuer": "P:SEC_UNKNOWN:886029635225989413",
+    "kind": "CASH_PLUS_STOCK"
+  },
+  "BAX_certificate_reproduction": {
+    "date": "2015-07-01",
+    "account_nav": "350902.5474701088548486692719",
+    "exact_match": true
+  }
+}

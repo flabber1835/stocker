@@ -1,0 +1,30 @@
+{
+  "checkpoint": {
+    "bytes": 15189178,
+    "last_session": "2016-01-20",
+    "path": "C:\\GitHub\\stocker\\.codex-tmp\\economic-replay-merged-ee23c894\\segment-045\\checkpoints\\checkpoint-2016-01-20.json.gz",
+    "sha256": "3b35da86480ecee313e0c0a67468c6d92ef106572e13ec7bab5540f82d56da11"
+  },
+  "comparison": {
+    "current": {
+      "cagr": 0.1458865715074809,
+      "multiple": "3.632938282272535138712387867"
+    },
+    "reference": {
+      "cagr": 0.17372019089269175,
+      "multiple": "4.560329600901069"
+    },
+    "spy": {
+      "cagr": 0.061983974630107824,
+      "multiple": "1.767744925177447409672717108"
+    }
+  },
+  "date": "2016-01-20",
+  "elapsed_seconds": 862.52,
+  "maximum_drawdown": "-0.2977324909346084152720352722",
+  "measurement_start": "2006-07-31",
+  "nav": "336146.3940524290269919735687",
+  "phase": "PROVISIONAL_MATCHED_DATE_COMPARISON",
+  "status": "STOPPED_RESUMABLE",
+  "total_sessions": 2529
+}
