@@ -437,6 +437,7 @@ def test_data_semantics_identity_moves_when_only_a_decoder_source_moves(
 
 
 @pytest.mark.parametrize("module_name,old,new", [
+    ("sentinel.execution.numeric", "Context(prec=28)", "Context(prec=6)"),
     ("sentinel.feed.corporate_action_authority",
      "cash_per_old_share=final", "cash_per_old_share=stale"),
     ("sentinel.feed.actions_reconcile_v7",

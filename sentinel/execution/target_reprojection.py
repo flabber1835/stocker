@@ -21,6 +21,7 @@ from fractions import Fraction
 from typing import Mapping, Optional
 
 from sentinel.execution.plan import ExecutionPlan
+from sentinel.execution.numeric import exact_decimal
 from stock_strategy_shared.wealth_core.shares import is_integral, split_shares
 
 
@@ -103,7 +104,7 @@ def _evidence_factor(item: Mapping[str, object]) -> tuple[Fraction, Fraction]:
 
 def _exact_evidenced_projection(
         *, security_id: str, quantity: Decimal, multiplier: Decimal,
-        increment: Decimal, projected: Decimal,
+        increment: Decimal, projected: Fraction,
         evidence: tuple[Mapping[str, object], ...]) -> Optional[Decimal]:
     """Recover only an exact action rational that lands on a broker increment.
 
@@ -135,7 +136,7 @@ def _exact_evidenced_projection(
     steps = exact_target / Fraction(increment)
     if steps.denominator != 1:
         return None
-    snapped = Decimal(steps.numerator) * increment
+    snapped = exact_decimal(steps.numerator * Fraction(increment))
     if not _fractions_close(
             Fraction(projected), Fraction(snapped),
             _RATIO_REPRESENTATION_TOLERANCE):
@@ -183,7 +184,8 @@ def _action_age_pending_open(
         canonical = _decimal(
             item.get("canonical_multiplier"),
             where="pending-open scalar action canonical multiplier")
-        by_session[session] = by_session.get(session, Decimal(1)) * canonical
+        by_session[session] = exact_decimal(
+            Fraction(by_session.get(session, Decimal(1))) * Fraction(canonical))
 
     if not _fractions_close(
             Fraction(multiplier), published_product,
@@ -311,9 +313,9 @@ def project_target(
         if any(value <= 0 for value in (*opens, *closes)):
             raise TargetProjectionRefused(
                 f"pending share provenance for {security_id} must be positive")
-        reconstructed = (
-            held_quantity + sum(opens, Decimal(0))
-            - sum(closes, Decimal(0)))
+        reconstructed = exact_decimal(
+            Fraction(held_quantity) + sum(map(Fraction, opens), Fraction(0))
+            - sum(map(Fraction, closes), Fraction(0)))
         if reconstructed < 0:
             raise TargetProjectionRefused(
                 f"pending closes over-close canonical target {security_id}")
@@ -363,7 +365,7 @@ def project_target(
         if multiplier <= 0:
             raise TargetProjectionRefused(
                 f"corporate-action multiplier {security_id} must be positive")
-        projected_multiplier = multiplier
+        projected_multiplier = Fraction(multiplier)
         entries = pending_opens.get(str(security_id), ())
         if entries and (multiplier != 1 or str(security_id) in evidence_ids):
             surviving = []
@@ -379,13 +381,13 @@ def project_target(
             if refused:
                 cancelled[str(security_id)] = tuple(refused)
                 projected_multiplier = (
-                    sum(surviving, Decimal(0))
-                    / canonical_targets[str(security_id)])
-        projected = quantity * projected_multiplier
+                    sum(map(Fraction, surviving), Fraction(0))
+                    / Fraction(canonical_targets[str(security_id)]))
+        projected = Fraction(quantity) * projected_multiplier
         if projected < 0:
             raise TargetProjectionRefused(
                 f"projected target {security_id} would be short")
-        if projected % increment != 0:
+        if (projected / Fraction(increment)).denominator != 1:
             exact = (
                 _exact_evidenced_projection(
                     security_id=str(security_id), quantity=quantity,
@@ -397,8 +399,8 @@ def project_target(
                     f"projected target {security_id}={projected} is not a "
                     f"multiple of the certified broker increment {increment}; "
                     "refusing instead of rounding economic intent")
-            projected = exact
-        target[str(security_id)] = projected
+            projected = Fraction(exact)
+        target[str(security_id)] = exact_decimal(projected)
         # A sequence of individually material actions can have a net multiplier
         # of one.  Keep that sequence bound to the projection: an entry may
         # already have been cancelled at an intermediate action boundary.

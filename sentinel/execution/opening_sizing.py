@@ -2,11 +2,13 @@
 from __future__ import annotations
 
 from dataclasses import replace
-from decimal import Decimal, ROUND_FLOOR
+from decimal import Decimal
+from fractions import Fraction
 import math
 
 from sentinel.execution.opening_prices import (
     OpeningPrices, OpeningPriceNotReady, OpeningPriceUnavailable, OpeningPriceUnavailability)
+from sentinel.execution.numeric import display_decimal
 from sentinel.execution.target_reprojection import (
     TargetProjectionRefused, _decimal, load_projection)
 from stock_strategy_shared.wealth_core.adapter import PendingOrder
@@ -210,7 +212,7 @@ def resolve(state, plan, projection,
         proceeds = exit_proceeds(quantity, float(prices.prices[sid]), cfg)
         cash += proceeds
         exits.append({"security_id": sid, "shares": str(quantity), "proceeds": str(proceeds)})
-    scale = plan.target_exposure * plan.account_nav / _shadow_equity(state)
+    scale = Fraction(plan.target_exposure) * Fraction(plan.account_nav) / Fraction(_shadow_equity(state))
     entries = []
     for intent in plan.opening_intents:
         price = float(prices.prices[intent.security_id])
@@ -226,7 +228,7 @@ def resolve(state, plan, projection,
         cash -= cost
         if not math.isfinite(cash) or cash < 0 or quantity < 0:
             raise TargetProjectionRefused("opening sizing violates the cash budget")
-        account_quantity = (Decimal(quantity) * scale).to_integral_value(rounding=ROUND_FLOOR)
+        account_quantity = Decimal((quantity * scale) // 1)
         basket[intent.security_id] = account_quantity
         entries.append({**intent.to_dict(), "cash_before": str(before),
             "budget": str(budget), "core_shares": str(quantity), "core_cost": str(cost),
@@ -235,5 +237,5 @@ def resolve(state, plan, projection,
         "mode": FINAL_MODE, "prices": prices.to_dict(),
         "intents": [item.to_dict() for item in plan.opening_intents],
         "cash_before_sales": str(starting_cash), "due_dividends": str(due),
-        "sales": exits, "account_scale": str(scale), "entries": entries,
+        "sales": exits, "account_scale": str(display_decimal(scale)), "entries": entries,
         "cash_after_entries": str(cash)})

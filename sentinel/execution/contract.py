@@ -37,9 +37,11 @@ from dataclasses import dataclass, field, replace
 from datetime import date, datetime
 from decimal import Decimal
 from enum import Enum
+from fractions import Fraction
 from typing import Mapping, Optional, Protocol, Sequence, runtime_checkable
 
 from sentinel.execution.states import CommandState
+from sentinel.execution.numeric import exact_decimal
 
 
 class Side(str, Enum):
@@ -571,7 +573,7 @@ class BrokerOrder:
 
     @property
     def remaining(self) -> Decimal:
-        return self.quantity - self.filled_quantity
+        return exact_decimal(Fraction(self.quantity) - Fraction(self.filled_quantity))
 
     @property
     def is_working(self) -> bool:

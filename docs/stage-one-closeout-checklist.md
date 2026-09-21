@@ -33,15 +33,20 @@ scope is discovered, explicitly record the new gate and its completion impact.
 ## The ten items
 
 - [ ] **L01 — Integrate the reviewed fixes and pass required CI.**
-  **Now:** INTEGRATION PENDING. The owner merged #419; current main is
-  `eaae66f9e6626306f8b233fd723d25b278e13351`. #421, #423 and #424 remain open.
+  **Now:** INTEGRATION PENDING. The owner merged #419, #421 and #422; fetched main is
+  `db65f4d0b8786266350eba2df6fc0848a3925313`. #422, #423 and #424 are integrated
+  into [#425](https://github.com/flabber1835/stocker/pull/425), which carries the
+  remaining reviewed fixes. Required current-head CI and owner merges remain.
   **Done when:** the reviewed changes are owner-merged through PRs, any overlap is resolved,
   and required CI passes on the resulting reviewed source. Validate affected
   integration seams, including the split test-image imports; do not count a
   passing older commit as evidence for the merged one. No agent self-merge.
 
-- [ ] **L02 — Finish the numeric economics and identity cross-check.**
-  **Now:** substantial local evidence; final integrated caller review pending.
+- [x] **L02 — Finish the numeric economics and identity cross-check.**
+  **Now:** LOCAL PASS in the [integrated local review](stage-one-local-closeout.md).
+  Corrected premature ratio floors and exact working-order residuals; 302
+  regression passes, 13 detected mutants and 153 integration/ownership passes
+  (overlapping scopes). Historical economic deltas remain B1; delivery/CI is L01.
   **Scope:** F2/F9/F10/F11/C2; canonical admission/opening quantity and stops,
   execution sizing, NAV serialization, terminal returns, plan/strategy identity,
   and #421's exact cash/P&L helper and consumers.
@@ -62,7 +67,8 @@ scope is discovered, explicitly record the new gate and its completion impact.
   L03-Z1 allowed zero-valued native cash identities to bypass replay checks;
   retained zero evidence now prevents revisions from inventing external capital
   or silently retaining changed deposits. Combined CI/merge remains L01 and
-  numeric #421 integration remains L02. Scope C1/F6/F8/F19 in `execution/alpaca.py`,
+  #421/#424 integration now also passes 58 real-PostgreSQL cash tests at
+  `6042debb`; #424 delivery is `86f174b1`. Scope C1/F6/F8/F19 in `execution/alpaca.py`,
   `broker_cash.py`, `fill_integrity.py`, journal, paper cash and performance.
   **Done when:** account/native identity, timestamps, cumulative quantity/notional,
   duplicate/overlap replay, partial-to-complete progression, corrections/busts,
@@ -88,9 +94,12 @@ scope is discovered, explicitly record the new gate and its completion impact.
   evidence converges without a duplicate submission. Missing predecessor evidence
   retains the takeover fence. Provider completeness E3 is separate.
 
-- [ ] **L05 — Close action, identifier and ownership economics.**
-  **Now:** rename/rebase/entitlement fixes have retained evidence; final boundary
-  cross-check pending. Scope F1/F3/F16 and A9/A10/A14/A15/A16: rolling continuity,
+- [x] **L05 — Close action, identifier and ownership economics.**
+  **Now:** LOCAL PASS in the [caller/action review](stage-one-local-closeout.md).
+  Fixed exact surviving-entry ratio and fractional-product admission; supported
+  ownership, retained history, rename/rebase and explicit held-spinoff refusal
+  boundaries reviewed and validated. E4 and real input authority remain open.
+  Scope F1/F3/F16 and A9/A10/A14/A15/A16: rolling continuity,
   dated references/action readers, target reprojection, returning identities,
   terminal handling and `paper_performance.scan_entitlements`.
   **Done when:** dated rename/rebase/split/terminal inputs preserve economic units;
@@ -99,9 +108,12 @@ scope is discovered, explicitly record the new gate and its completion impact.
   Unsupported held spinoffs and entitlement assumptions need explicit reviewed
   support-or-refusal dispositions, never an invented continuation value.
 
-- [ ] **L06 — Close rolling-state and restore integrity.**
-  **Now:** logical and physical local restore evidence exists; final dependency
-  closure against current source pending. Scope F14/F15 and the A21 restore
+- [x] **L06 — Close rolling-state and restore integrity.**
+  **Now:** LOCAL PASS for structural closure, including populated physical backup,
+  independent restored cluster and next-session cash/holdings preservation.
+  [Current acceptance and precise limits](stage-one-local-closeout.md#l06-populated-restore-acceptance)
+  distinguish the local PG17 page copy from retained PG16 WAL-worker evidence
+  and NAS qualification. Scope F14/F15 and the A21 restore
   extension: origin/daily checkpoints, authenticated observations,
   snapshot publication, retained references/actions and restore validation.
   **Done when:** every surviving economic state has its required origin,
@@ -110,9 +122,11 @@ scope is discovered, explicitly record the new gate and its completion impact.
   cash/holdings and unchanged prior intent. Map existing physical PostgreSQL
   evidence to the current paths; rerun only changed or unsupported claims.
 
-- [ ] **L07 — Close notifications and process supervision.**
-  **Now:** local fixes and takeover/crash tests exist; final cross-component
-  ownership review pending. Scope F12/F13 and A1/alert-A4/A6/A17/A18/A19/A24/A25:
+- [x] **L07 — Close notifications and process supervision.**
+  **Now:** LOCAL PASS: final claim/attempt/recipient and process deadline caller
+  review, with composed SQL rotation/death/recurrence and silent-dependency checks
+  in the 168-pass boundary run. See [cross-check](stage-one-local-closeout.md).
+  Scope F12/F13 and A1/alert-A4/A6/A17/A18/A19/A24/A25:
   outbox, Web Push, recipient rotation, incident recurrence, shadow/automation
   supervisors and deployment subprocess deadlines.
   **Done when:** late results cannot acknowledge a successor attempt or recipient;
@@ -121,9 +135,12 @@ scope is discovered, explicitly record the new gate and its completion impact.
   from physical exactly-once delivery. Real devices and uninterruptible host I/O
   stay in deployed qualification, not local pass claims.
 
-- [ ] **L08 — Close maintenance, retention and deployment sequencing.**
-  **Now:** recurring maintenance is implemented and locally tested; it must not
-  be relisted as missing code. Relevant F4 and A2/A3/A4/A5/backup-A6/A7/A11/A13/A20/A21/
+- [x] **L08 — Close maintenance, retention and deployment sequencing.**
+  **Now:** LOCAL PASS: reviewed deployed scheduler/worker call chain, ownership,
+  successor/restore receipt and retention journal/WAL floor, plus fence-before-
+  migration. Current boundary tests pass and retained unchanged worker evidence
+  is explicitly mapped in the [review](stage-one-local-closeout.md).
+  Relevant F4 and A2/A3/A4/A5/backup-A6/A7/A11/A13/A20/A21/
   A22/A23/A26/A27 paths include dependency retry classification, backup maintenance,
   restore-gated retention, WAL/base selection and installer authority/fencing.
   **Done when:** existing acceptance establishes single ownership through worker
@@ -133,9 +150,23 @@ scope is discovered, explicitly record the new gate and its completion impact.
   NAS scheduler and filesystem guarantees remain external evidence.
 
 - [ ] **L09 — Qualify the locally available real-size workload.**
-  **Now:** OPEN local/data-dependent resource work, A12 and remaining callback/
-  status cost. #419 qualifies a 5,000-security synthetic scope; retained PIT
-  inventory reaches 8,408 rows/day and 2,474,682 rows in a 300-session window.
+  **Now:** BLOCKED INPUT/BUDGET; locally feasible code review, repairs, tests and
+  measurements are complete, including the [PG16 pressure investigation](postgres-local-pressure.md).
+  Continuous local sampling reproduced file-cache reclaim, with 256.30 MiB peak
+  sampled non-file-cache usage, no OOM and 0.68 s of stalls over 727 s. No additional
+  PostgreSQL code defect was reproduced; total-memory headroom remains TIGHT and
+  target latency/concurrency remains unqualified. Both demonstrated write/read
+  OOM defects are repaired.
+  All eight 8,408-security synthetic stages complete under unchanged service caps,
+  including two status reads at each frontier, full HTTP, next-session advancement
+  and the independent published-price cash/NAV oracle. No OOM occurs. PostgreSQL
+  records 52,181 limit/reclaim events and a 552,960-byte transient peak excess;
+  headroom is **not qualified**. Keep its raw counters and the 204–224-second read
+  timings visible. See [final scope, results and remaining gates](stage-one-local-closeout.md).
+  Raw historical archives are present, but accepted production acquisition/admission
+  evidence and an explicit latency/headroom budget are absent. Qualify those with
+  a representative admitted window and the target host; no synthetic authority
+  promotion. Retained PIT inventory reaches 8,408 rows/day and 2,474,682 rows/window.
   **Done when:** identify and admit a representative authoritative bounded window,
   including its required reference/action history; measure initialization,
   advancement, advanced status/full HTTP and restart at configured service caps.
@@ -146,10 +177,14 @@ scope is discovered, explicitly record the new gate and its completion impact.
   exact manifest/field/date and procedure entries. This is bounded resource
   qualification, **not** the deferred 20-year return backtest.
 
-- [ ] **L10 — Publish the final finding-to-evidence reconciliation.**
-  **Now:** all 22 economic finding IDs and all 27 autonomy labels (including
-  three reused labels) have an explicit owner in the finding index. L04 has its
-  final caller/evidence map; the other items' final reconciliation remains OPEN.
+- [x] **L10 — Publish the final finding-to-evidence reconciliation.**
+  **Now:** LOCAL PASS for the [finding-to-caller/evidence reconciliation](stage-one-local-closeout.md#current-finding-to-caller-cross-check).
+  All F1–F19/C1–C3 and all 27 autonomy labels, including three reused labels,
+  have explicit production, persistence/restart and acceptance dispositions.
+  L09's demonstrated defects are repaired; its input/budget/headroom qualification
+  and E1–E4/N1/B1 remain explicitly unresolved.
+  Historical source differences are inventoried rather than reported as reruns.
+  This closes the mapping/review item, not L01 delivery or L09 qualification.
   **Done when:** every F1–F19/C1–C3 and relevant #400 finding has a disposition
   linked to L02–L09, current production caller, persistence/restart path and
   acceptance/falsifier or named external blocker. Reconcile duplicated A4/A5/A6
