@@ -1,0 +1,26 @@
+[
+  {
+    "mutant": "disable_entry",
+    "killed": true,
+    "exit_code": 1,
+    "output": "F                                                                        [100%]\n================================== FAILURES ===================================\n________ test_saturated_damage_enters_on_fifth_close_without_new_shock ________\n\n    def test_saturated_damage_enters_on_fifth_close_without_new_shock():\n        state=owned.fresh()\n        for day in range(5):\n            state,result=advance(state,day)\n>           assert result['target']==(1. if day<4 else 0.)\nE           assert 1.0 == 0.0\n\ntests\\champion\\test_owned_impairment.py:41: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/champion/test_owned_impairment.py::test_saturated_damage_enters_on_fifth_close_without_new_shock\n1 failed in 0.18s\n"
+  },
+  {
+    "mutant": "early_recovery",
+    "killed": true,
+    "exit_code": 1,
+    "output": "F                                                                        [100%]\n================================== FAILURES ===================================\n_ test_recovery_needs_eight_owned_healthy_closes_and_preserves_parent_ceiling _\n\n    def test_recovery_needs_eight_owned_healthy_closes_and_preserves_parent_ceiling():\n        state=impaired_state()\n        for day in range(5,13):\n            state,r=advance(state,day,parent=.55,**healthy())\n>           assert r['target']==(0. if day<12 else .55)\nE           assert 0.55 == 0.0\n\ntests\\champion\\test_owned_impairment.py:63: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/champion/test_owned_impairment.py::test_recovery_needs_eight_owned_healthy_closes_and_preserves_parent_ceiling\n1 failed in 0.18s\n"
+  },
+  {
+    "mutant": "bypass_ceiling",
+    "killed": true,
+    "exit_code": 1,
+    "output": "F                                                                        [100%]\n================================== FAILURES ===================================\n________ test_complete_kernel_enforces_owned_protection_with_same_core ________\n\ntransitions = {'current': [SessionState(wealth_core={'median5': {'version': 1, 'last_index': 252, 'sums': {'T00': [0.122462737533548...version': 1, 'active': False, 'entry_streak': 0, 'recovery_streak': 0, 'last_session': '2021-01-08'}, version=5), ...]}\n\n    def test_complete_kernel_enforces_owned_protection_with_same_core(transitions):\n        before=transitions['current'];after=transitions['owned']\n        assert len(before[39].wealth_core['episodes'])==20\n        for old,new in zip(before,after):\n            assert old.wealth_core==new.wealth_core\n            assert old.ledger==new.ledger\n            assert old.last_evidence['observation']==new.last_evidence['observation']\n        stress=after[40:]\n>       assert any(s.last_decision['target_core_exposure']==0. for s in stress), 'owned ceiling never reaches final target'\nE       AssertionError: owned ceiling never reaches final target\nE       assert False\nE        +  where False = any(<generator object test_complete_kernel_enforces_owned_protection_with_same_core.<locals>.<genexpr> at 0x0000021FBACBCAD0>)\n\ntests\\champion\\test_owned_kernel.py:64: AssertionError\n=========================== short test summary info ===========================\nFAILED tests/champion/test_owned_kernel.py::test_complete_kernel_enforces_owned_protection_with_same_core\n1 failed in 17.76s\n"
+  },
+  {
+    "mutant": "ignore_cursor",
+    "killed": true,
+    "exit_code": 1,
+    "output": "F                                                                        [100%]\n================================== FAILURES ===================================\n________ test_snapshot_cannot_detach_protection_from_canonical_cursor _________\n\n    def test_snapshot_cannot_detach_protection_from_canonical_cursor():\n        cfg,identity=owned_impairment_strategy()\n        state=SessionState.fresh(starting_cash=100000.,controller=Controller(cfg),strategy_identity=identity)\n        raw=state.to_dict();raw['owned_impairment']['last_session']='2020-01-01'\n>       with pytest.raises(ValueError,match='cursor differs'): SessionState.from_dict(raw)\nE       Failed: DID NOT RAISE <class 'ValueError'>\n\ntests\\champion\\test_owned_impairment.py:134: Failed\n=========================== short test summary info ===========================\nFAILED tests/champion/test_owned_impairment.py::test_snapshot_cannot_detach_protection_from_canonical_cursor\n1 failed in 0.52s\n"
+  }
+]

@@ -1,5 +1,11 @@
 # Sentinel — architecture and build plan
 
+[Persistent owned impairment](sentinel-owned-impairment.md) adds an explicitly
+selected, versioned challenger to the same canonical kernel. It addresses
+persistent held-book damage independently of shock acceleration and leadership
+strength. Synthetic protection/return tradeoffs are retained; the production
+default and deployment authority are unchanged.
+
 The production selector now names the owner-selected compact champion.
 [production-compact-champion.md](production-compact-champion.md) defines its
 canonical V5 book, native controller, REC8 recovery state and replay ownership.

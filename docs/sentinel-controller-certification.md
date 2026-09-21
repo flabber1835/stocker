@@ -1,5 +1,13 @@
 # Certifying the Sentinel controller — what is proven, and what step 2 blocks on
 
+**Owned-book protection challenger, 2026-09-21:**
+[implementation and synthetic comparison](sentinel-owned-impairment.md) closes
+the specified persistent-damage detector gap in a separate strategy identity.
+Seventy-seven targeted local tests and four mutation controls pass. Synthetic
+results improve some drawdowns but worsen some terminal returns. This is not a
+promotion, production-default change or closure of historical/provider/NAS
+certification gates.
+
 **Economic audit 399, 2026-09-18: certification remains BLOCKED.** The corrected
 terminal leadership policy changes source identity; earlier performance figures
 do not certify it. See [the acceptance ledger](economic-audit-399-remediation.md)

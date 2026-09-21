@@ -49,6 +49,7 @@ _DATA_SEMANTICS_MODULES = (
     "sentinel.controller.champion",
     "sentinel.controller.champion_config",
     "sentinel.controller.champion_frozen",
+    "sentinel.controller.owned_impairment",
     "sentinel.controller.machine",
     "sentinel.controller.recent_leadership",
     "sentinel.core.bootstrap",

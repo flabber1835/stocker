@@ -1,0 +1,204 @@
+{
+  "healthy": {
+    "current": {
+      "ending_nav": 111311.53826638171,
+      "return_fraction": 0.11311538266381715,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "first_reduction": null,
+      "days_below_full": 0,
+      "owned_entries": [],
+      "owned_releases": []
+    },
+    "owned": {
+      "ending_nav": 111311.53826638171,
+      "return_fraction": 0.11311538266381715,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "first_reduction": null,
+      "days_below_full": 0,
+      "owned_entries": [],
+      "owned_releases": []
+    },
+    "terminal_difference_dollars": 0.0,
+    "drawdown_difference_pp": 0.0
+  },
+  "synchronized_shock": {
+    "current": {
+      "ending_nav": 86153.20606319985,
+      "return_fraction": -0.1384679393680015,
+      "max_drawdown": -0.17572780372991592,
+      "fees": 421.60842944577706,
+      "turnover": 421608.42944577703,
+      "first_reduction": 0,
+      "days_below_full": 69,
+      "owned_entries": [],
+      "owned_releases": []
+    },
+    "owned": {
+      "ending_nav": 85250.05277379036,
+      "return_fraction": -0.14749947226209636,
+      "max_drawdown": -0.17555078171272254,
+      "fees": 421.78358097876946,
+      "turnover": 421783.58097876946,
+      "first_reduction": 0,
+      "days_below_full": 74,
+      "owned_entries": [
+        4
+      ],
+      "owned_releases": [
+        74
+      ]
+    },
+    "terminal_difference_dollars": -903.1532894094853,
+    "drawdown_difference_pp": 0.01770220171933845
+  },
+  "staggered_damage": {
+    "current": {
+      "ending_nav": 84209.30697710089,
+      "return_fraction": -0.15790693022899116,
+      "max_drawdown": -0.21575095426217172,
+      "fees": 229.45505658358877,
+      "turnover": 229455.05658358877,
+      "first_reduction": null,
+      "days_below_full": 0,
+      "owned_entries": [],
+      "owned_releases": []
+    },
+    "owned": {
+      "ending_nav": 82018.17116973847,
+      "return_fraction": -0.17981828830261526,
+      "max_drawdown": -0.20822079799111104,
+      "fees": 409.55036107355323,
+      "turnover": 409550.3610735532,
+      "first_reduction": 19,
+      "days_below_full": 52,
+      "owned_entries": [
+        19
+      ],
+      "owned_releases": [
+        71
+      ]
+    },
+    "terminal_difference_dollars": -2191.135807362414,
+    "drawdown_difference_pp": 0.7530156271060684
+  },
+  "gradual_decline": {
+    "current": {
+      "ending_nav": 89560.79091062772,
+      "return_fraction": -0.10439209089372281,
+      "max_drawdown": -0.12928424633590319,
+      "fees": 266.2118403725094,
+      "turnover": 266211.8403725094,
+      "first_reduction": null,
+      "days_below_full": 0,
+      "owned_entries": [],
+      "owned_releases": []
+    },
+    "owned": {
+      "ending_nav": 90018.86076833455,
+      "return_fraction": -0.09981139231665448,
+      "max_drawdown": -0.12013506504153693,
+      "fees": 444.4537605855254,
+      "turnover": 444453.7605855254,
+      "first_reduction": 31,
+      "days_below_full": 72,
+      "owned_entries": [
+        31
+      ],
+      "owned_releases": [
+        103
+      ]
+    },
+    "terminal_difference_dollars": 458.06985770682513,
+    "drawdown_difference_pp": 0.914918129436626
+  },
+  "temporary_correction": {
+    "current": {
+      "ending_nav": 94351.0334842233,
+      "return_fraction": -0.05648966515776699,
+      "max_drawdown": -0.1525406350611801,
+      "fees": 436.72961374255567,
+      "turnover": 436729.61374255567,
+      "first_reduction": 0,
+      "days_below_full": 15,
+      "owned_entries": [],
+      "owned_releases": []
+    },
+    "owned": {
+      "ending_nav": 94351.0334842233,
+      "return_fraction": -0.05648966515776699,
+      "max_drawdown": -0.1525406350611801,
+      "fees": 436.72961374255567,
+      "turnover": 436729.61374255567,
+      "first_reduction": 0,
+      "days_below_full": 15,
+      "owned_entries": [
+        4
+      ],
+      "owned_releases": [
+        15
+      ]
+    },
+    "terminal_difference_dollars": 0.0,
+    "drawdown_difference_pp": 0.0
+  },
+  "leadership_rotation": {
+    "current": {
+      "ending_nav": 77174.44424295971,
+      "return_fraction": -0.22825555757040283,
+      "max_drawdown": -0.25891141671697415,
+      "fees": 238.02901704089462,
+      "turnover": 238029.01704089463,
+      "first_reduction": null,
+      "days_below_full": 0,
+      "owned_entries": [],
+      "owned_releases": []
+    },
+    "owned": {
+      "ending_nav": 89140.30333063305,
+      "return_fraction": -0.10859696669366958,
+      "max_drawdown": -0.13959803582705932,
+      "fees": 434.66641004031527,
+      "turnover": 434666.41004031524,
+      "first_reduction": 19,
+      "days_below_full": 51,
+      "owned_entries": [
+        19
+      ],
+      "owned_releases": [
+        70
+      ]
+    },
+    "terminal_difference_dollars": 11965.859087673336,
+    "drawdown_difference_pp": 11.931338088991483
+  },
+  "healthy_split": {
+    "current": {
+      "ending_nav": 111311.53826638171,
+      "return_fraction": 0.11311538266381715,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "first_reduction": null,
+      "days_below_full": 0,
+      "owned_entries": [],
+      "owned_releases": []
+    },
+    "owned": {
+      "ending_nav": 111311.53826638171,
+      "return_fraction": 0.11311538266381715,
+      "max_drawdown": -0.01815807867614605,
+      "fees": 96.7251117944453,
+      "turnover": 96725.11179444529,
+      "first_reduction": null,
+      "days_below_full": 0,
+      "owned_entries": [],
+      "owned_releases": []
+    },
+    "terminal_difference_dollars": 0.0,
+    "drawdown_difference_pp": 0.0
+  }
+}

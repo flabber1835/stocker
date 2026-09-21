@@ -334,6 +334,17 @@ def advance_session(
             },
             "ldrc": asdict(overlay_decision),
         }
+    from sentinel.controller import owned_impairment
+    owned_state = env.owned_impairment
+    owned_impairment.validate(running_identity, owned_state, expected_session=env.last_processed_session)
+    if owned_impairment.enabled(running_identity):
+        owned_state, owned_evidence = owned_impairment.step(
+            observation=observation, base_target=decision["target_core_exposure"], state=owned_state)
+        decision = {**decision, "champion_target_core_exposure": decision["target_core_exposure"],
+                    "target_core_exposure": owned_evidence["target"],
+                    "reason": decision["reason"] + "|" + owned_evidence["reason"],
+                    "owned_impairment": owned_evidence}
+        concordance_evidence["owned_impairment"] = owned_evidence
     evidence = {
         **({"median5_eligible_population": plan.eligible_universe_count}
            if median5 else {}),
@@ -374,6 +385,7 @@ def advance_session(
         ldrc=ldrc_state,
         concordance_witness_origin=env.concordance_witness_origin,
         median5=median5_state,
+        owned_impairment=owned_state,
     )
 
 
