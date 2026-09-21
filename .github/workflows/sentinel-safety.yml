@@ -370,7 +370,19 @@ jobs:
             -f docker-compose.sentinel-backup.yml \
             -f docker-compose.sentinel-automation.yml \
             --profile authorized-cli config --quiet
-          git diff --check HEAD^ HEAD
+
+      - name: Check changed-line whitespace
+        if: ${{ matrix.lane == 'operator' }}
+        env:
+          PR_BASE_SHA: ${{ github.event.pull_request.base.sha || '' }}
+        run: |
+          set -euo pipefail
+          if [ -n "$PR_BASE_SHA" ]; then
+            git fetch --no-tags --depth=1 origin "$PR_BASE_SHA"
+            git diff --check "$PR_BASE_SHA" HEAD
+          else
+            git diff --check HEAD^ HEAD
+          fi
 
       - name: Kill reviewed production mutants
         if: ${{ matrix.lane == 'mutations' }}
