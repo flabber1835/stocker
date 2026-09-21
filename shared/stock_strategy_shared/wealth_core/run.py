@@ -331,6 +331,12 @@ def run_sessions(*, sessions: Sequence[str],
         # acquired for cash pays into the balance that this session's admissions
         # size against — and a write-off resolves the equity block in the same
         # session rather than one late.
+        prior_conversion_bases = {
+            terms.security_id: basis
+            for terms in events_by_session.get(session, ())
+            if terms.kind in (TerminalKind.CONVERSION, TerminalKind.CASH_PLUS_STOCK)
+            and (basis := feed.prior_conversion_basis(terms.security_id)) is not None
+        }
         norm = feed.advance(session, bars_by_session.get(session, ()),
                             (terminal_states or {}).get(session))
         last_norm = norm
@@ -342,6 +348,7 @@ def run_sessions(*, sessions: Sequence[str],
                            # Applied INSIDE the session, at their documented
                            # position after splits/dividends and before fills.
                            terminal_terms=events_by_session.get(session, []),
+                           prior_conversion_bases=prior_conversion_bases,
                            settlement_counters=out.settlement_counters)
         # FOLD FIRST, then decide whether to keep. The accumulator has already
         # consumed everything the parity hashes need by the time the object is

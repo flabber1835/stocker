@@ -1,0 +1,20 @@
+{
+  "start": "2006-07-31",
+  "end": "2008-12-24",
+  "current_baseline": "92527.41663482299000000000015",
+  "current_scenario": "Retained reconstructed-classification prefix plus two-session fixed-source analytical fork",
+  "performance": {
+    "current": {
+      "multiple": "1.347424642997112927877345002",
+      "cagr": 0.1322295457047171
+    },
+    "reference": {
+      "multiple": "1.3164987232557945",
+      "cagr": 0.12133351163536574
+    },
+    "spy": {
+      "multiple": "0.7137980921379799564293355164",
+      "cagr": -0.13100191010078105
+    }
+  }
+}

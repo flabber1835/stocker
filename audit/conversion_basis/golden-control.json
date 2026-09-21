@@ -1,0 +1,14 @@
+{
+  "unchanged_golden_path": true,
+  "result_hash": "11566dc3608fa06644d31aecb90f470ab3c2cec7075b9d32ab84e063a10ecaef",
+  "parity_hashes": {
+    "normalized_input": "c37f33d4c1481ae335d4734aee7f8effae5cc9ab224bede0e9c1648514cd3539",
+    "candidate_audit": "c971e9f9b000bf2680d360706d26884043e38adef5ed1e78b99a74b94683460a",
+    "decision": "6418987f5ef3bf28e85fcef09a05246eb12854c4183b97d88bebf50b0cd2a7c4",
+    "order": "339361b7f5128c99721f317184d612eeb08e9841ceabecb6482f74916e493b3e",
+    "daily_state": "1908b278055002da708d0b23173d57eedc6e70b27112fbd5a9f26742a06620e9",
+    "daily_equity": "a72977ac147242a268b9186d469c63180f48af6605d43088fadba48ea2e25022",
+    "final_result": "11566dc3608fa06644d31aecb90f470ab3c2cec7075b9d32ab84e063a10ecaef"
+  },
+  "method": "Current implementation versus in-memory fallback-disabled control; all existing behavior is identical on the golden scenario. Existing pinned-result tests remain pre-existing strict xfails; no pin changed."
+}

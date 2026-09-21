@@ -98,7 +98,7 @@ review age and the stop peak for a position the strategy never chose to leave.
 Raw per-share accounting state divides by the exchange ratio. Signal-domain
 state cannot use that ratio alone: source and delivered securities have
 independent cumulative split adjustments. The adapter therefore supplies each
-security's same-session signal-to-raw scale and translates entry price and peak
+security's signal-to-raw scale and translates entry price and peak
 as
 
 ```text
@@ -112,6 +112,25 @@ the conversion before shares, cash, identity, or ledger state changes; assuming
 equal signal bases would turn a data gap into a trailing-stop decision. A deal
 that genuinely delivers less value than the target's market price can still stop
 the position out, and that is correct.
+
+When the predecessor has no event-session bar, the shared driver may supply its
+owned signal/raw basis from the immediately preceding processed market session.
+This is a unit conversion, not a carried valuation. The retained series must
+match the permanent security ID and prior market index/date, contain aligned,
+finite positive raw and owned signal observations, and agree with its retained
+publication anchor when present. A current predecessor bar takes precedence,
+including when its basis is invalid; older observations and ticker matches are
+never substitutes. The delivered security still requires its current basis and
+current raw prices for open/close valuation. Publication changes retain the
+existing anchor reconciliation guard. The fallback evidence is recorded in the
+terminal result (and thus the final result hash); the prior feed state remains
+part of the production state commitment. No new persisted state is introduced.
+
+The bounded economic certificate for this change must reproduce the BRL/TEVA
+2008-12-23 transition, compare cash and share entitlements against independent
+decimal arithmetic, exercise unequal signal bases and failure cases, and verify
+restart parity. A changed-source replay is an explicitly identified analytical
+fork, not a silent continuation of a checkpoint signed by another strategy.
 
 Fractional entitlements **floor once per holder/security** and are settled in
 cash. Internal episodes receive pro-rata ownership of the aggregate delivery;

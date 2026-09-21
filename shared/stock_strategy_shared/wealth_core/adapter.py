@@ -845,6 +845,7 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                  strategy_id: str, strategy_version: int,
                  security_bars: Sequence[SecurityBar],
                  terminal_terms: Sequence = (),
+                 prior_conversion_bases: dict[str, dict] | None = None,
                  settlement_counters: dict | None = None) -> SessionResult:
     """One market session, in the fixed order documented at module level.
 
@@ -920,6 +921,11 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
             for slot_id, episode in state.episodes.items()
         }
         _b = by_sec.get(terms.security_id)
+        # Only the canonical feed's immediately prior owned basis may bridge a
+        # predecessor that no longer quotes. Never replace an invalid current
+        # bar, a delivered basis, or executable/marking evidence with history.
+        prior_basis = ((prior_conversion_bases or {}).get(terms.security_id)
+                       if _b is None else None)
         terminal_result = apply_terminal(
                  state, terms, ledger=ledger, session=session, cfg=cfg,
                  # Staleness carried in from PRIOR sessions — THIS session's
@@ -935,11 +941,15 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                                    if _b is not None and _b.can_execute
                                    else None),
                  source_signal_to_raw_scale=(
-                     _b.signal_to_raw_scale if _b is not None else None),
+                     _b.signal_to_raw_scale if _b is not None else
+                     prior_basis["signal_to_raw_scale"] if prior_basis else None),
                  delivered_signal_to_raw_scale=(
                      by_sec[terms.delivered_security_id].signal_to_raw_scale
                      if terms.delivered_security_id in by_sec else None),
                  counters=settlement_counters)
+        if prior_basis is not None:
+            for row in [terminal_result, *terminal_result.get("episode_results", ())]:
+                row["source_signal_basis"] = dict(prior_basis)
         for slot_id, predecessor_security_id in (
                 episodes_before_terminal.items()):
             if slot_id not in state.episodes:
