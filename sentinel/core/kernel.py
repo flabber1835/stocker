@@ -139,12 +139,13 @@ def advance_session(
         prior_state_sha256=(env.state_hash if (published.history_proof or {}).get("schema")
                             == "sentinel.rolling-continuity/1" else None),
         session=published.session)
-    from sentinel.core.spinoffs import require_supported_entitlements
-    require_supported_entitlements(env, published.spinoff_distributions)
-
     state = PortfolioState.from_dict(env.wealth_core)
     pending = [PendingOrder.from_dict(item) for item in env.pending]
     ledger = Ledger.from_dict(env.ledger)
+    from sentinel.core.spinoffs import apply_supported_entitlements
+    spinoff_audit = apply_supported_entitlements(
+        state, published.spinoff_distributions, bars=published.bars,
+        ledger=ledger, config=wealth)
     last_known = dict(env.last_known)
     feed = _feed_from_dict(env.feed, published.meta, elig)
     if median5 and env.data_version is not None and published.data_version != env.data_version:
@@ -348,6 +349,7 @@ def advance_session(
         "wealth_core": _bounded_evidence(
             {"wealth_core": plan.to_dict()}
         )["wealth_core"],
+        **({"spinoffs": list(spinoff_audit)} if spinoff_audit else {}),
         **concordance_evidence,
     }
     wealth_core = state.to_dict()
