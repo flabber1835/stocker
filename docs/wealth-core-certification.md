@@ -1,5 +1,13 @@
 # Wealth Core v1 — certification manifest
 
+**Cash-adjusted conversion, 2026-09-21:** the continuing stock's entry/peak
+references now receive the equity portion of a mixed deal's historical value.
+The bounded [economic certificate](../audit/cash_conversion/README.md) covers
+independent package-value/drawdown oracles and the 2008-12-23/24 BRL/TEVA case,
+including restart and a ratio-only control. This changes strategy policy and
+source identity. It does not replace historical golden artifacts, certify the
+full historical CAGR, or change the broader certification gates below.
+
 **Economic audit 399, 2026-09-18: certification remains BLOCKED.** The corrected
 V5 sizing profile and terminal leadership policy require new replay evidence.
 See [the finding and acceptance ledger](economic-audit-399-remediation.md).

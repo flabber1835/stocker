@@ -1,0 +1,82 @@
+{
+  "policy": "cash-adjusted-continuation-v1",
+  "method": "Canonical golden scenario versus in-memory ratio-only control; original fixtures unchanged",
+  "ratio_only_result_hash": "11566dc3608fa06644d31aecb90f470ab3c2cec7075b9d32ab84e063a10ecaef",
+  "cash_adjusted_result_hash": "aaf4e592fc6f0f81603be10b9a9a26e072163c5071820b5385854d9e94066cc9",
+  "first_changed_session": "S190",
+  "conversion_evidence": [
+    {
+      "session": "S190",
+      "applied": true,
+      "kind": "CONVERSION",
+      "converted": true,
+      "security_id": "SEC_CONVERTED",
+      "delivered_security_id": "SEC_ACQUIRER",
+      "shares_delivered": 367.0,
+      "cash_in_lieu": 20.3,
+      "cash_consideration": 0.0,
+      "reference_rebase": {
+        "policy": "cash-adjusted-continuation-v1",
+        "valuation_phase": "OPEN",
+        "delivered_raw_open": 131.1,
+        "source_shares": 485.0,
+        "delivered_shares": 367,
+        "cash_distributed": 20.3,
+        "package_value": 48134.0,
+        "equity_fraction": 0.9995782606889101,
+        "raw_reference_multiplier": 1.3209685461420202,
+        "signal_reference_multiplier": 1.3209685461420202
+      },
+      "settlement_available_phase": "OPEN",
+      "terminal_audit": {
+        "security_id": "SEC_CONVERTED",
+        "ticker": "CONV",
+        "event_session": "S190",
+        "event_kind": "CONVERSION",
+        "event_reference": "golden/stock-for-stock",
+        "carried": false,
+        "carry_session": null,
+        "shares_at_carry": null,
+        "carry_price": null,
+        "carry_notional": null,
+        "last_trustworthy_print_session": null,
+        "grace_sessions": null,
+        "grace_prints": [],
+        "grace_split_multiplier": 1.0,
+        "grace_splits": [],
+        "settlement_session": "S190",
+        "settlement_method": "EXACT_TERMS",
+        "settlement_kind": "non_cash",
+        "episode_continues": true,
+        "shares_at_settlement": 485,
+        "settlement_price": null,
+        "settlement_notional": null,
+        "delivered_security_id": "SEC_ACQUIRER",
+        "delivered_ticker": "ACQR",
+        "shares_delivered": 367.0,
+        "exchange_ratio": 0.757,
+        "cash_consideration": 0.0,
+        "cash_in_lieu": 20.3,
+        "notional_delta": null
+      }
+    }
+  ],
+  "old_parity_hashes": {
+    "normalized_input": "c37f33d4c1481ae335d4734aee7f8effae5cc9ab224bede0e9c1648514cd3539",
+    "candidate_audit": "c971e9f9b000bf2680d360706d26884043e38adef5ed1e78b99a74b94683460a",
+    "decision": "6418987f5ef3bf28e85fcef09a05246eb12854c4183b97d88bebf50b0cd2a7c4",
+    "order": "339361b7f5128c99721f317184d612eeb08e9841ceabecb6482f74916e493b3e",
+    "daily_state": "1908b278055002da708d0b23173d57eedc6e70b27112fbd5a9f26742a06620e9",
+    "daily_equity": "a72977ac147242a268b9186d469c63180f48af6605d43088fadba48ea2e25022",
+    "final_result": "11566dc3608fa06644d31aecb90f470ab3c2cec7075b9d32ab84e063a10ecaef"
+  },
+  "new_parity_hashes": {
+    "normalized_input": "c37f33d4c1481ae335d4734aee7f8effae5cc9ab224bede0e9c1648514cd3539",
+    "candidate_audit": "c971e9f9b000bf2680d360706d26884043e38adef5ed1e78b99a74b94683460a",
+    "decision": "50bf96e7be4e9738085cb98d4d7795bd03db306db338f3802a9e6f1df2fd856b",
+    "order": "339361b7f5128c99721f317184d612eeb08e9841ceabecb6482f74916e493b3e",
+    "daily_state": "9914164e43b9f7af599d0107bd39f58de0a1a9524e55e08adcbfc0b0238304dd",
+    "daily_equity": "a72977ac147242a268b9186d469c63180f48af6605d43088fadba48ea2e25022",
+    "final_result": "aaf4e592fc6f0f81603be10b9a9a26e072163c5071820b5385854d9e94066cc9"
+  }
+}

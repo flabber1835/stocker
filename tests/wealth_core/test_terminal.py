@@ -193,7 +193,8 @@ class TestSecurityLevelTerminalEvent:
 class TestConversion:
 
     BASIS = {"source_signal_to_raw_scale": 1.0,
-             "delivered_signal_to_raw_scale": 1.0}
+             "delivered_signal_to_raw_scale": 1.0,
+             "delivered_raw_open": 140.0}
 
     def conv(self, ratio=0.5, lieu=140.0, cash=None, kind=TerminalKind.CONVERSION):
         return terms(kind, delivered_security_id="S2", delivered_ticker="T2",

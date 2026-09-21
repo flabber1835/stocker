@@ -590,6 +590,38 @@ class Feed:
                 # cannot enter a candidate set before its metadata observation.
                 self._series_for(b).append(b, idx)
 
+    def prior_conversion_basis(self, security_id: str) -> dict | None:
+        """Owned units at the last processed market close, never a current mark.
+
+        Called before advancing the conversion session. A delisted predecessor
+        need not quote again, but an older/mismatched observation cannot establish
+        its immediately preceding basis. Publication rebasing is reconciled by
+        the production boundary before this shared driver runs.
+        """
+        series = self.series.get(security_id)
+        if series is None or series.security_id != security_id:
+            return None
+        columns = (series.sessions, series.session_indices,
+                   series.raw_closes, series.signal_closes)
+        if not columns[0] or len({len(column) for column in columns}) != 1:
+            return None
+        session = series.sessions[-1]
+        if (series.session_indices[-1] != self._session_index
+                or self._seen_sessions.get(session) != self._session_index):
+            return None
+        raw, signal = series.raw_closes[-1], series.signal_closes[-1]
+        if not (_positive(raw) and _positive(signal)):
+            return None
+        if (series.signal_basis_anchor is not None
+                and list(series.signal_basis_anchor) != [session, raw, signal]):
+            return None
+        scale = float(signal) / float(raw)
+        if not _positive(scale):
+            return None
+        return {"security_id": security_id, "session": session,
+                "raw_close": float(raw), "owned_signal_close": float(signal),
+                "signal_to_raw_scale": scale}
+
     def advance(self, session: str, bars: Iterable[VendorBar],
                 terminal_states: Mapping[str, TerminalState] | None = None
                 ) -> NormalisedSession:

@@ -1,0 +1,282 @@
+{
+  "scope": "Two-session analytical fork; no historical performance recertification",
+  "checkpoint": {
+    "bytes": 14437042,
+    "last_session": "2008-12-22",
+    "path": "C:\\GitHub\\stocker\\.codex-tmp\\economic-replay-60m-20260921\\segment-002\\checkpoints\\checkpoint-2008-12-22.json.gz",
+    "sha256": "fecaa24467a2d0c1e124a8033bd6d8ea3f366b5eec223970f479b5ae940fcdbc"
+  },
+  "original_state_sha256": "d44c5a7281aea08d1f50a9393d70a77ecc646c7a42a838edc32b151ff717a71f",
+  "original_strategy_identity": {
+    "strategy": "sentinel-compact-champion-v1",
+    "controller_rule_sha256": "703386c775ea963506ff147e5c6189ef17944b3591f1a189f87518f5252e8948",
+    "wealth_core_source_sha256": "88841c9783710e4cf50e98f18b024c9dbb1ed87127be42eb5b039c108bb59d0a",
+    "data_semantics_source_sha256": "274a1433b8706b1370d9e74863f41dc6508da666a944c928f9aa277d50cc57f0",
+    "wealth_core_config_sha256": "b3a1d23c2790be568ee66c832719f83919427518948acb75c31fd1cad7e54745",
+    "eligibility_config_sha256": "9440981c84f897396f56ae86c8fb37cc3a9f8b4ba609fec279c31d28092894ed",
+    "research_reference_source_sha256": "3fcf274dc5dba5b01ff3c637b62922f27c5dfe2e3b28e7f3a416e1bfeba09663",
+    "universe": "BROAD_SHARADAR_COMMON_EQUITY"
+  },
+  "fixed_strategy_identity": {
+    "strategy": "sentinel-compact-champion-v1",
+    "controller_rule_sha256": "703386c775ea963506ff147e5c6189ef17944b3591f1a189f87518f5252e8948",
+    "wealth_core_source_sha256": "07614bcaf0d1543f7c5ca81dc775af4b5c06262f95c3d773a5cb5afbce15eab2",
+    "data_semantics_source_sha256": "274a1433b8706b1370d9e74863f41dc6508da666a944c928f9aa277d50cc57f0",
+    "wealth_core_config_sha256": "b3a1d23c2790be568ee66c832719f83919427518948acb75c31fd1cad7e54745",
+    "eligibility_config_sha256": "9440981c84f897396f56ae86c8fb37cc3a9f8b4ba609fec279c31d28092894ed",
+    "research_reference_source_sha256": "3fcf274dc5dba5b01ff3c637b62922f27c5dfe2e3b28e7f3a416e1bfeba09663",
+    "universe": "BROAD_SHARADAR_COMMON_EQUITY"
+  },
+  "fork_state_sha256": "bf3ba3e8a5989d87865ab4390842c5ee401f4732bf9439449b37e1483b9e2db9",
+  "archive_sha256": "7d86c6f728f0392516dec5e2a709c16d45b2f46bc139fe7f3d29af25ae4dfce8",
+  "supplements_sha256": "ae631b1fd813146e0776b455cde34652d86aea97365d52bc310a149ae58acdfc",
+  "sessions": [
+    {
+      "session": "2008-12-23",
+      "state_sha256": "a5736abc831c6e61b7bb5abbed87c6ea2c2719cdcb28d49e0b0294266366c42e",
+      "restart_parity": true,
+      "prior_immutable": true,
+      "manual_close_nav": "91309.69602873779",
+      "wealth_core": {
+        "execution_model": "stateful_ownership",
+        "session": "2008-12-23",
+        "intents": [
+          {
+            "session": "2008-12-23",
+            "operation": "CLOSE_POSITION",
+            "security_id": "328265922479251290",
+            "ticker": "TEVA",
+            "slot_id": 3,
+            "shares": 43.0,
+            "reason": "EXIT_TRAILING_STOP",
+            "signal_session": "2008-12-23",
+            "strategy_id": "stocker_wealth_core_v1",
+            "strategy_version": 1
+          }
+        ],
+        "blocked": false,
+        "block_reason": null,
+        "resolved_equity": 91309.6960287378,
+        "estimated_equity": 91309.6960287378,
+        "resolved_open_equity": 91838.8260287378,
+        "open_unresolved_security_ids": [],
+        "hashes": {
+          "normalized_input": "1293537e2e6825492cd99bcd3571ca27e492dca70d7f46e00294efe67b7eb2d6",
+          "candidate_audit": "1c199de547d448d8d3c74dd0a7bdfab60068abc16f39c5f4e2e067433a2534ed",
+          "decision": "71696d1ad26c83618d68aac077c9961c974306279a7abb0393f3b5aa48d41f0c",
+          "order": "724dc9e9e042f5ba386226777cdd6ad73cf9a423e596bc367f78edb725a5645d",
+          "daily_state": "df74543cd9e77e575362ee2b1b4b0b9840cefcd87e0ada9a1c956b0030c3d0d4",
+          "daily_equity": "033a3168d6533bc0d002b57052fed73afd252a56ac3ee72a7b8f9ebc6894e084",
+          "final_result": "362017363dd1a2cf108a04b50e2a8d31ae5e6f83861fcc296d44844d86923446"
+        },
+        "warnings": []
+      },
+      "economics": {
+        "schema": "sentinel.shadow-strategy-economics/1",
+        "starting_cash": "100000",
+        "last_session": "2008-12-23",
+        "previous_strategy_nav": "124673.7213266214936670600955",
+        "strategy_nav": "124541.7515626284090753616558",
+        "strategy_cumulative_return": "0.245417515626284090753616558",
+        "held_allocation": "0",
+        "pending_allocation": "0",
+        "initial_deployment": false,
+        "turnover": "0",
+        "transaction_cost_factor": "1",
+        "gross_factor": "0.9989414789051868528843181165",
+        "net_factor": "0.9989414789051868528843181165",
+        "parent_core_open_equity": "91838.8260287378",
+        "parent_core_close_equity": "91309.6960287378",
+        "bil_open_adjusted": "0.99976899408216602",
+        "bil_close_adjusted": "0.9989414789051868528843181165",
+        "bil_previous_session": "2008-12-22",
+        "bil_previous_close_adjusted_current_publication": "1",
+        "core_overnight_return": "0.006308302174632726970550291",
+        "bil_overnight_return": "-0.00023100591783398",
+        "core_intraday_return": "-0.0057615065749471468238333522",
+        "bil_intraday_return": "-0.00082770638205165",
+        "strategy_prices": {
+          "bil_close_adjusted": "0.9989414789051868528843181165",
+          "bil_close_signal": "0.9989414789051868528843181165",
+          "bil_close_unadjusted": "0.9989414789051868528843181165",
+          "bil_open_signal": "0.99976899408216602",
+          "bil_previous_close_adjusted": "1",
+          "bil_previous_session": "2008-12-22",
+          "bil_open_adjusted": "0.99976899408216602"
+        },
+        "strategy_prices_sha256": "49dd09011f62c7dbb759035602950b268716a926f9983885f945fb5291a61998"
+      }
+    },
+    {
+      "session": "2008-12-24",
+      "state_sha256": "2a09fc6b2c986283a241a7fad9f4fc0ce3897d0adbda9c0fe22d5512c250254b",
+      "restart_parity": true,
+      "prior_immutable": true,
+      "manual_close_nav": "91289.055078737788",
+      "wealth_core": {
+        "execution_model": "stateful_ownership",
+        "session": "2008-12-24",
+        "intents": [
+          {
+            "session": "2008-12-24",
+            "operation": "OPEN_SLOT_POSITION",
+            "security_id": "872532685171113542",
+            "ticker": "LCC",
+            "slot_id": 8,
+            "shares": 0,
+            "reason": "ENTRY_DURABLE_RANK",
+            "signal_session": "2008-12-24",
+            "strategy_id": "stocker_wealth_core_v1",
+            "strategy_version": 1
+          }
+        ],
+        "blocked": false,
+        "block_reason": null,
+        "resolved_equity": 91289.0550787378,
+        "estimated_equity": 91289.0550787378,
+        "resolved_open_equity": 91495.74602873778,
+        "open_unresolved_security_ids": [],
+        "hashes": {
+          "normalized_input": "acb96b01ecd8cbb672f7b0faa3f54a9ced27c3efa453fff4ac86522fa0172d5e",
+          "candidate_audit": "d11f940af96a513ab78ad625fae5e2f3a6419b73a9f79ec0960fd8efa4786bcb",
+          "decision": "af55b9b44f3ae2219e10bb8d793746196e7d973a3aded79a0ba5c077e1dda9ce",
+          "order": "b2c266c99359109397f3978e967460275d9bda7af914c33c1225a596a6530aa5",
+          "daily_state": "f29e7bfff2096e5f1619e8fdbb042cec42fb9cccd0d9c0ece7ff468660bc1691",
+          "daily_equity": "a1f10afb27106f02e237d615bbf934fc2483b068ddead1d4e07bdd15967462c1",
+          "final_result": "843e901abe2265116888a78a61d8ee24412e2851c9947373180a2af616c134c1"
+        },
+        "warnings": []
+      },
+      "economics": {
+        "schema": "sentinel.shadow-strategy-economics/1",
+        "starting_cash": "100000",
+        "last_session": "2008-12-24",
+        "previous_strategy_nav": "124541.7515626284090753616558",
+        "strategy_nav": "124673.7213266214953437948884",
+        "strategy_cumulative_return": "0.246737213266214953437948884",
+        "held_allocation": "0",
+        "pending_allocation": "0",
+        "initial_deployment": false,
+        "turnover": "0",
+        "transaction_cost_factor": "1",
+        "gross_factor": "1.001059642749015959751249526",
+        "net_factor": "1.001059642749015959751249526",
+        "parent_core_open_equity": "91495.74602873778",
+        "parent_core_close_equity": "91289.0550787378",
+        "bil_open_adjusted": "1.0014956443355791",
+        "bil_close_adjusted": "1.001059642749015959751249526",
+        "bil_previous_session": "2008-12-23",
+        "bil_previous_close_adjusted_current_publication": "1",
+        "core_overnight_return": "0.002037571124335193149072362",
+        "bil_overnight_return": "0.0014956443355791",
+        "core_intraday_return": "-0.0022590225116592929691494925",
+        "bil_intraday_return": "-0.0004353504571179600000000004",
+        "strategy_prices": {
+          "bil_close_adjusted": "1.001059642749015959751249526",
+          "bil_close_signal": "1.001059642749015959751249526",
+          "bil_close_unadjusted": "1.001059642749015959751249526",
+          "bil_open_signal": "1.0014956443355791",
+          "bil_previous_close_adjusted": "1",
+          "bil_previous_session": "2008-12-23",
+          "bil_open_adjusted": "1.0014956443355791"
+        },
+        "strategy_prices_sha256": "a75121680861bf97bde9f706a5e12d955b2ff8624faea30441f908b3a1eb3dba"
+      }
+    }
+  ],
+  "without_fix": {
+    "execution_model": "stateful_ownership",
+    "session": "2008-12-23",
+    "intents": [],
+    "blocked": true,
+    "block_reason": "UNRESOLVED_EQUITY",
+    "resolved_equity": null,
+    "estimated_equity": 91279.3207487378,
+    "resolved_open_equity": null,
+    "open_unresolved_security_ids": [
+      "515130960484578865"
+    ],
+    "hashes": {
+      "normalized_input": "1293537e2e6825492cd99bcd3571ca27e492dca70d7f46e00294efe67b7eb2d6",
+      "candidate_audit": "1c199de547d448d8d3c74dd0a7bdfab60068abc16f39c5f4e2e067433a2534ed",
+      "decision": "36f91700d0593497c09a8020f89f1083434d78bcd0cdd22cf01b1e9dea2b745c",
+      "order": "27873633f6529ac2657b47ea900cd208a6c7e74289566b4c0f487115131ae72b",
+      "daily_state": "6cecc10fc75ae019ea7afd6f82190895e18a9cb806696064f812f33bc988b099",
+      "daily_equity": "d7cf59f3cfa0df122277e7ece2cb097ee0120909118e34a8a56291894af9041e",
+      "final_result": "53154dd244223022e95249bff2c634df413f1cf687a3b156e0eb0a52ec237de1"
+    },
+    "warnings": [
+      "admissions blocked: at least one holding has no trustworthy current mark or has an unresolved terminal action"
+    ]
+  },
+  "conversion": {
+    "terms": {
+      "session": "2008-12-23",
+      "security_id": "515130960484578865",
+      "kind": "CASH_PLUS_STOCK",
+      "cash_per_share": 39.9,
+      "delivered_security_id": "328265922479251290",
+      "delivered_ticker": "TEVA",
+      "delivered_issuer_id": "P:SEC_UNKNOWN:328265922479251290",
+      "exchange_ratio": 0.6272,
+      "cash_in_lieu_price_per_delivered_share": 41.82,
+      "reference": "70 BRL -> 43 TEVA ADSs + USD2793 + 0.904-share CIL. CIL price USD41.82 is prior Dec22 raw-close assumption, NOT actual paying-agent rate. Completion-session economic recognition.",
+      "entitlement_aggregation": "HOLDER"
+    },
+    "source_shares": 70,
+    "whole_delivered_shares": 43,
+    "fraction": "0.9040",
+    "cash": "2830.805280",
+    "cash_in_lieu_assumed_price": "41.82",
+    "actual_cash_change": 2830.8052800000005,
+    "delivered_episode": {
+      "security_id": "328265922479251290",
+      "ticker": "TEVA",
+      "issuer_id": "SID:328265922479251290",
+      "slot_id": 3,
+      "signal_date": "2008-11-07",
+      "entry_date": "2008-11-10",
+      "entry_raw_open": 103.63520408163265,
+      "entry_split_adjusted_price": 103.63520408163266,
+      "initial_shares": 44,
+      "current_shares": 43,
+      "episode_peak_split_adjusted_close": 106.80803571428571,
+      "market_sessions_held": 30,
+      "source_lots": [
+        {
+          "kind": "ADMISSION",
+          "session": "2008-11-10",
+          "security_id": "515130960484578865",
+          "ticker": "BRL",
+          "shares": 70,
+          "raw_open": 65.0
+        },
+        {
+          "kind": "CASH_PLUS_STOCK",
+          "session": "2008-12-23",
+          "from_security_id": "515130960484578865",
+          "from_ticker": "BRL",
+          "shares_in": 70,
+          "exchange_ratio": 0.6272,
+          "exchange_ratio_exact": "0.6272",
+          "entitlement_aggregation": "HOLDER",
+          "shares_delivered": 43.0,
+          "cash_consideration": 2793.0,
+          "cash_in_lieu": 37.80528,
+          "to_security_id": "328265922479251290",
+          "to_ticker": "TEVA",
+          "reference": "70 BRL -> 43 TEVA ADSs + USD2793 + 0.904-share CIL. CIL price USD41.82 is prior Dec22 raw-close assumption, NOT actual paying-agent rate. Completion-session economic recognition."
+        }
+      ],
+      "review_completed": false,
+      "exit_pending": true,
+      "exit_reason": "EXIT_TRAILING_STOP"
+    }
+  },
+  "production_modules_local": true,
+  "changed_source_files": {
+    "shared/stock_strategy_shared/wealth_core/adapter.py": "453eb4932dcbee0252514f09afb5371ba363f3926c5d85e5b3caaca6ab05b0c5",
+    "shared/stock_strategy_shared/wealth_core/feed.py": "7f4d20b9ddb60f2dbac86a7001b74d31917ca6ece885c15b8ce268caeca583e0",
+    "shared/stock_strategy_shared/wealth_core/run.py": "58922dca3180f9c19bcb7dacce2342ddc8ed93c64d66a1ca5819a65321c433ad"
+  }
+}
