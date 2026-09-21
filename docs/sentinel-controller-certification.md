@@ -1,5 +1,11 @@
 # Certifying the Sentinel controller — what is proven, and what step 2 blocks on
 
+**Interface investigation, 2026-09-21:** [Core/Sentinel calibration diagnostics](core-sentinel-impedance.md)
+record synthetic evidence for shock-gate saturation, timing, changing breadth
+populations, capital/headcount differences and recovery population differences.
+They establish policy consequences and research alternatives, not a new approved
+strategy, improved historical returns or closure of certification gates.
+
 **Economic audit 399, 2026-09-18: certification remains BLOCKED.** The corrected
 terminal leadership policy changes source identity; earlier performance figures
 do not certify it. See [the acceptance ledger](economic-audit-399-remediation.md)

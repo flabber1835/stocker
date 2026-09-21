@@ -1,0 +1,147 @@
+{
+  "abrupt_shock": {
+    "first_native_defense_close": 0,
+    "first_fast_signal": 0,
+    "first_slow_signal": null,
+    "alternative_first_eligibility_close": {
+      "drop_damage_acceleration": 0,
+      "five_session_confirmation_memory": 0,
+      "persistent_impairment_addition": 4
+    }
+  },
+  "already_damaged": {
+    "first_native_defense_close": null,
+    "first_fast_signal": null,
+    "first_slow_signal": null,
+    "alternative_first_eligibility_close": {
+      "drop_damage_acceleration": 0,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": 4
+    }
+  },
+  "market_confirmation_late": {
+    "first_native_defense_close": null,
+    "first_fast_signal": null,
+    "first_slow_signal": null,
+    "alternative_first_eligibility_close": {
+      "drop_damage_acceleration": 6,
+      "five_session_confirmation_memory": 6,
+      "persistent_impairment_addition": 4
+    }
+  },
+  "market_confirmation_expired": {
+    "first_native_defense_close": null,
+    "first_fast_signal": null,
+    "first_slow_signal": null,
+    "alternative_first_eligibility_close": {
+      "drop_damage_acceleration": 10,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": 4
+    }
+  },
+  "gradual_decline": {
+    "first_native_defense_close": 59,
+    "first_fast_signal": null,
+    "first_slow_signal": 59,
+    "alternative_first_eligibility_close": {
+      "drop_damage_acceleration": null,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": 24
+    }
+  },
+  "deep_plateau": {
+    "first_native_defense_close": null,
+    "first_fast_signal": null,
+    "first_slow_signal": null,
+    "alternative_first_eligibility_close": {
+      "drop_damage_acceleration": null,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": 4
+    }
+  },
+  "four_session_correction": {
+    "first_native_defense_close": null,
+    "first_fast_signal": null,
+    "first_slow_signal": null,
+    "alternative_first_eligibility_close": {
+      "drop_damage_acceleration": 0,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": null
+    }
+  },
+  "eight_session_correction": {
+    "first_native_defense_close": null,
+    "first_fast_signal": null,
+    "first_slow_signal": null,
+    "alternative_first_eligibility_close": {
+      "drop_damage_acceleration": 0,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": 4
+    }
+  },
+  "healthy": {
+    "first_native_defense_close": null,
+    "first_fast_signal": null,
+    "first_slow_signal": null,
+    "alternative_first_eligibility_close": {
+      "drop_damage_acceleration": null,
+      "five_session_confirmation_memory": null,
+      "persistent_impairment_addition": null
+    }
+  }
+}
+{
+  "capital": {
+    "tiny_damaged": {
+      "held": 20,
+      "damage_count": 18,
+      "damage_fraction": 0.9,
+      "green_fraction": 0.1,
+      "damaged_capital_fraction_of_stocks": 0.006502890173410405,
+      "stock_value": 221440.0,
+      "cash": 0.0,
+      "nav": 221440.0,
+      "invested_fraction": 1.0
+    },
+    "large_damaged": {
+      "held": 20,
+      "damage_count": 18,
+      "damage_fraction": 0.9,
+      "green_fraction": 0.1,
+      "damaged_capital_fraction_of_stocks": 0.9998472455597062,
+      "stock_value": 1440220.0,
+      "cash": 0.0,
+      "nav": 1440220.0,
+      "invested_fraction": 1.0
+    }
+  },
+  "turnover": {
+    "before": {
+      "held": 20,
+      "damage_count": 10,
+      "damage_fraction": 0.5,
+      "green_fraction": 0.5,
+      "damaged_capital_fraction_of_stocks": 0.35294117647058826,
+      "stock_value": 1700.0,
+      "cash": 0.0,
+      "nav": 1700.0,
+      "invested_fraction": 1.0
+    },
+    "after": {
+      "held": 10,
+      "damage_count": 0,
+      "damage_fraction": 0.0,
+      "green_fraction": 1.0,
+      "damaged_capital_fraction_of_stocks": 0.0,
+      "stock_value": 1100.0,
+      "cash": 599.4000000000001,
+      "nav": 1699.4,
+      "invested_fraction": 0.6472872778627751
+    },
+    "first_close_fills": 0,
+    "next_open_fills": 10,
+    "fees": 0.6,
+    "actual_stock_fraction_at_core_multiplier_055": 0.3560080028245263,
+    "note": "Prices never recover. Sells move value to cash less fees. Flat prehistory deliberately has no residual peers."
+  }
+}

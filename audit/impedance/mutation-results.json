@@ -1,0 +1,16 @@
+[
+  {
+    "mutant": "ignore_damage_acceleration",
+    "test": "test_saturation_has_independent_bounded_fraction_oracle",
+    "killed": true,
+    "returncode": 1,
+    "output": "F                                                                        [100%]\n================================== FAILURES ===================================\n___________ test_saturation_has_independent_bounded_fraction_oracle ___________\n\n    def test_saturation_has_independent_bounded_fraction_oracle():\n        for row in saturation_grid():\n            remaining=1-Fraction(row['prior_damaged'],row['held'])\n            assert row['max_attainable_delta']==pytest.approx(float(remaining))\n            # All other gates pass. Exact fraction arithmetic supplies the oracle.\n>           assert row['fast']==(remaining>=Fraction(3,10))\nE           assert True == (Fraction(1, 5) >= Fraction(3, 10))\nE            +  where Fraction(3, 10) = Fraction(3, 10)\n\nresearch\\impedance\\test_study.py:20: AssertionError\n=========================== short test summary info ===========================\nFAILED research/impedance/test_study.py::test_saturation_has_independent_bounded_fraction_oracle\n1 failed in 0.09s\n"
+  },
+  {
+    "mutant": "retain_confirmation_forever",
+    "test": "test_phase_memory_repairs_only_bounded_delay",
+    "killed": true,
+    "returncode": 1,
+    "output": "F                                                                        [100%]\n================================== FAILURES ===================================\n________________ test_phase_memory_repairs_only_bounded_delay _________________\n\npaths = {'abrupt_shock': {'alternative_first_eligibility_close': {'drop_damage_acceleration': 0, 'five_session_confirmation_me...ent_addition': 4}, 'first_fast_signal': None, 'first_native_defense_close': None, 'first_slow_signal': None, ...}, ...}\n\n    def test_phase_memory_repairs_only_bounded_delay(paths):\n        key='five_session_confirmation_memory'\n        assert paths['market_confirmation_late']['first_fast_signal'] is None\n        assert paths['market_confirmation_late']['alternative_first_eligibility_close'][key]==6\n>       assert paths['market_confirmation_expired']['alternative_first_eligibility_close'][key] is None\nE       assert 10 is None\n\nresearch\\impedance\\test_study.py:34: AssertionError\n=========================== short test summary info ===========================\nFAILED research/impedance/test_study.py::test_phase_memory_repairs_only_bounded_delay\n1 failed in 0.14s\n"
+  }
+]
