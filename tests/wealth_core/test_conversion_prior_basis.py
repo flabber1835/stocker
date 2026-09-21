@@ -47,7 +47,9 @@ def test_absent_predecessor_uses_owned_basis_and_exact_cash_share_oracle():
     assert ep.security_id == "TEVA"
     assert ep.current_shares == shares == 43
     assert state.cash == pytest.approx(float(Decimal(10000)+cash))
-    assert ep.episode_peak_split_adjusted_close == pytest.approx(131.6/.6272*.5/2)
+    package = cash + Decimal(43)*Decimal('42.11')
+    translated_peak = 131.6*70*42.11/float(package)*.5/2
+    assert ep.episode_peak_split_adjusted_close == pytest.approx(max(translated_peak, 41.99*.5))
     assert out.sessions[0].resolved_open_equity == pytest.approx(float(10000+cash)+43*42.11)
     assert out.sessions[0].resolved_equity == pytest.approx(float(10000+cash)+43*41.99)
     assert out.terminal_results[0]["source_signal_basis"]["session"] == "2008-12-22"
@@ -94,9 +96,10 @@ def test_missing_delivered_open_remains_unresolved():
     from dataclasses import replace
     state, feed, terms, bars = case()
     out = run_case(state, feed, terms, [replace(bars[0], raw_open=None)])
-    assert state.episodes[0].security_id == "TEVA"
+    assert state.episodes[0].security_id == "BRL"
     assert out.sessions[0].resolved_open_equity is None
-    assert out.sessions[0].open_unresolved_security_ids == ("TEVA",)
+    assert out.sessions[0].open_unresolved_security_ids == ("BRL",)
+    assert out.terminal_results[0]["reason"] == "MISSING_CONVERSION_OPENING_VALUE"
 
 
 def test_missing_delivered_basis_never_uses_its_prior_observation():
@@ -113,7 +116,10 @@ def test_current_source_split_takes_precedence_over_prior_basis():
     out = run_case(state, feed, terms, bars)
     ep = state.episodes[0]
     assert ep.current_shares == int(Decimal(140)*Decimal("0.6272")) == 87
-    assert ep.episode_peak_split_adjusted_close == pytest.approx(131.6/.6272*.5/4)
+    cash = Decimal(140)*Decimal('39.9') + Decimal('.808')*Decimal('41.82')
+    package = cash + Decimal(87)*Decimal('42.11')
+    translated_peak = 131.6*140*42.11/float(package)*.5/4
+    assert ep.episode_peak_split_adjusted_close == pytest.approx(max(translated_peak, 41.99*.5))
     assert "source_signal_basis" not in out.terminal_results[0]
 
 

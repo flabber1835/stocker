@@ -95,11 +95,9 @@ A conversion **continues** the episode — same slot, same age, same review flag
 because a takeover is not an exit, and restarting the clock would reset the
 review age and the stop peak for a position the strategy never chose to leave.
 
-Raw per-share accounting state divides by the exchange ratio. Signal-domain
-state cannot use that ratio alone: source and delivered securities have
-independent cumulative split adjustments. The adapter therefore supplies each
-security's signal-to-raw scale and translates entry price and peak
-as
+For an integral stock-only conversion with no cash distribution, raw per-share accounting
+state divides by the exchange ratio. Signal-domain state also translates between
+the independently adjusted source and delivered securities:
 
 ```text
 old signal value / exchange ratio
@@ -112,6 +110,47 @@ the conversion before shares, cash, identity, or ledger state changes; assuming
 equal signal bases would turn a data gap into a trailing-stop decision. A deal
 that genuinely delivers less value than the target's market price can still stop
 the position out, and that is correct.
+
+### Cash-adjusted continuation (2026-09-21)
+
+For a conversion returning cash and retaining stock, allocate historical entry
+and peak value proportionally to the equity that remains. Use the delivered
+security's trustworthy **event-session raw open**, before fills. Never use its
+later close or a prior carried price for this valuation. This is an explicit
+strategy-policy change from the old ratio-only mixed-deal rule.
+
+Let `q` be aggregate source shares, `Q` the holder's whole delivered shares,
+`C` all cash consideration **including cash in lieu**, `P` the delivered raw
+open, and `S`/`D` the source/delivered owned signal-to-raw scales:
+
+```text
+package_value = C + Q * P
+equity_fraction = Q * P / package_value
+raw_reference_multiplier = q * P / package_value
+new raw entry reference = old raw entry reference * raw_reference_multiplier
+new signal entry/peak = old signal entry/peak * raw_reference_multiplier * D / S
+```
+
+The multiplier follows from allocating `equity_fraction` of historical position
+value to the `Q` remaining shares. Thus delivered price / translated peak equals
+package value / historical source peak value at the opening boundary. A
+value-preserving deal preserves percentage drawdown; a real loss or premium in
+the package remains visible. At subsequent closes the stop follows the remaining
+stock alone. Returned cash is spendable portfolio cash and is never counted
+again as protection for that stock. Ordinary dividend policy is unchanged.
+
+Compute one holder-level multiplier before mutating any episode, including when
+the cash comes solely from a fractional entitlement. All episodes receive that
+multiplier but retain their own entry, peak, age, review state and existing
+pending exits. A wholly cash-settled entitlement releases the episode and needs
+no signal rebase. Missing/invalid delivered opening valuation or nonrepresentable
+reference transformations block the complete conversion before cash, shares,
+identity or ledger mutation. A close cannot rescue missing opening evidence.
+
+Record the opening price, package composition and multipliers in conversion
+provenance. Historical source lots retain their original purchase information;
+the adjusted entry reference is a strategy reference, not a tax-basis assertion.
+No golden re-pin or historical strategy-identity rewrite accompanies this rule.
 
 When the predecessor has no event-session bar, the shared driver may supply its
 owned signal/raw basis from the immediately preceding processed market session.

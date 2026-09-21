@@ -27,7 +27,8 @@ None of them raise. The block does.
 THE CONVERSION PEAK, which is the subtle one. An episode's trailing stop is
 anchored on a peak in the OLD security's signal-price domain, and after a
 conversion the closes arrive in the NEW one's independently split-adjusted
-domain. Raw per-share accounting divides by the exchange ratio. Signal-domain
+domain. References allocate historical value to retained equity when a deal
+distributes cash; stock-only references divide by the exchange ratio. Signal
 entry and peak values additionally multiply by the delivered security's
 signal-to-raw scale divided by the source security's scale. Without both scales
 the conversion blocks before any mutation; assuming they are equal can invent a
@@ -53,11 +54,11 @@ from fractions import Fraction
 import math
 from dataclasses import asdict, dataclass, field
 from enum import Enum
-from typing import Mapping, Sequence
+from typing import Mapping
 
 from stock_strategy_shared.wealth_core.engine import WealthCoreConfig
 from stock_strategy_shared.wealth_core.ledger import EventType, Ledger
-from stock_strategy_shared.wealth_core.marks import Mark, MarkStatus
+from stock_strategy_shared.wealth_core.marks import Mark
 from stock_strategy_shared.wealth_core.shares import as_json as _as_json
 from stock_strategy_shared.wealth_core.state import HoldingEpisode, PortfolioState
 from stock_strategy_shared.wealth_core.terminal_audit import (
@@ -237,6 +238,36 @@ def _conversion_allocations(held, terms, cash_before: float):
 
 # ── applying a terminal action ───────────────────────────────────────────────
 
+def _conversion_reference_scale(total_shares: Fraction, terms: TerminalTerms,
+                                delivered_raw_open: float | None) -> tuple[float, dict | None]:
+    """Allocate historical position value to retained equity at the event open.
+
+    Fraction arithmetic shares the holder-level entitlement convention. Cash
+    leaves the episode, so it must leave its entry/peak reference as well.
+    """
+    whole, fraction = _split_entitlement(total_shares, terms.exchange_ratio)
+    cash = total_shares * Fraction(str(terms.cash_per_share or 0))
+    if fraction:
+        cash += fraction * Fraction(str(terms.cash_in_lieu_price_per_delivered_share))
+    if cash == 0 and fraction == 0:
+        return 1.0 / float(terms.exchange_ratio), None
+    if not _positive(delivered_raw_open):
+        raise TermsIncomplete("MISSING_CONVERSION_OPENING_VALUE")
+    price = Fraction(str(delivered_raw_open))
+    package = cash + whole * price
+    scale = float(total_shares * price / package)
+    if not (_positive(scale) and _positive(float(package))):
+        raise TermsIncomplete("INVALID_CONVERSION_REFERENCE_SCALE")
+    return scale, {
+        "policy": "cash-adjusted-continuation-v1", "valuation_phase": "OPEN",
+        "delivered_raw_open": float(delivered_raw_open),
+        "source_shares": float(total_shares), "delivered_shares": whole,
+        "cash_distributed": float(cash), "package_value": float(package),
+        "equity_fraction": float(whole * price / package),
+        "raw_reference_multiplier": scale,
+    }
+
+
 def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledger,
                    session: str, cfg: WealthCoreConfig,
                    last_valid_mark: float | None = None,
@@ -246,6 +277,7 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
                    executable_price_phase: str = "OPEN",
                    source_signal_to_raw_scale: float | None = None,
                    delivered_signal_to_raw_scale: float | None = None,
+                   delivered_raw_open: float | None = None,
                    counters: dict | None = None) -> dict:
     """Apply one terminal action, CARRY it, or RECORD that it cannot be applied.
 
@@ -397,13 +429,37 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
     # No continuing delivered shares means there is no signal state to
     # translate.  One is the neutral value for that release-only path.
     signal_scale = 1.0
+    raw_reference_scale = 1.0
+    rebase_evidence = None
     if (decision.source is SettlementSource.EXACT_TERMS
             and terms.kind in (TerminalKind.CONVERSION,
                                TerminalKind.CASH_PLUS_STOCK)
             and _split_entitlement(total_shares, terms.exchange_ratio)[0] > 0):
+        why = None
         if not (_positive(source_signal_to_raw_scale)
                 and _positive(delivered_signal_to_raw_scale)):
             why = "MISSING_CONVERSION_SIGNAL_BASIS"
+        else:
+            try:
+                raw_reference_scale, rebase_evidence = _conversion_reference_scale(
+                    total_shares, terms, delivered_raw_open)
+                basis_ratio = (float(delivered_signal_to_raw_scale)
+                               / float(source_signal_to_raw_scale))
+                signal_scale = (basis_ratio / float(terms.exchange_ratio)
+                                if rebase_evidence is None else
+                                basis_ratio * raw_reference_scale)
+                references = [value for _, ep in held for value in (
+                    ep.entry_raw_open * raw_reference_scale,
+                    ep.entry_split_adjusted_price * signal_scale,
+                    (ep.episode_peak_split_adjusted_close * signal_scale
+                     if ep.episode_peak_split_adjusted_close is not None else 1.0))]
+                if not all(_positive(value) for value in [signal_scale, *references]):
+                    why = "INVALID_CONVERSION_REFERENCE_SCALE"
+            except TermsIncomplete as exc:
+                why = str(exc)
+            except (OverflowError, ZeroDivisionError):
+                why = "INVALID_CONVERSION_REFERENCE_SCALE"
+        if why is not None:
             decision = SettlementDecision(
                 source=SettlementSource.UNRESOLVED, price_per_share=None,
                 event_known=True, terms_complete=True,
@@ -425,9 +481,8 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
                                     "ticker": ep.ticker}
                                    for slot_id, ep in held]})
             return result
-        signal_scale = (float(delivered_signal_to_raw_scale)
-                        / float(source_signal_to_raw_scale)
-                        / float(terms.exchange_ratio))
+        if rebase_evidence is not None:
+            rebase_evidence["signal_reference_multiplier"] = signal_scale
 
     allocations = (_conversion_allocations(held, terms, state.cash)
                    if decision.source is SettlementSource.EXACT_TERMS
@@ -468,6 +523,8 @@ def apply_terminal(state: PortfolioState, terms: TerminalTerms, *, ledger: Ledge
             res = _apply_conversion(
                 state, slot_id, ep, ledger, session, terms, cfg,
                 signal_domain_scale=float(signal_scale),
+                raw_reference_scale=raw_reference_scale,
+                rebase_evidence=rebase_evidence,
                 allocation=allocations[index])
         results.append(res)
     # The NON-CASH consideration is only knowable AFTER dispatch: the delivered
@@ -617,6 +674,8 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
                       ledger: Ledger, session: str, terms: TerminalTerms,
                       cfg: WealthCoreConfig, *,
                       signal_domain_scale: float,
+                      raw_reference_scale: float,
+                      rebase_evidence: dict | None,
                       allocation: _ConversionAllocation) -> dict:
     """Transfer the episode into the delivered security.
 
@@ -646,7 +705,9 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
                         "entitlement_aggregation": terms.entitlement_aggregation,
                         "cash_in_lieu": round(lieu, 10),
                         "cash_consideration": round(cash_leg, 10),
-                        "reference": terms.reference})
+                        "reference": terms.reference,
+                        **({"reference_rebase": dict(rebase_evidence)}
+                           if rebase_evidence is not None else {})})
     state.cash = allocation.cash_after
 
     if delivered <= 0:
@@ -658,10 +719,9 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
                 "security_id": before_sec, "cash_in_lieu": lieu,
                 "cash_consideration": cash_leg}
 
-    # Raw per-share accounting rescales by the exchange ratio. Signal state also
-    # crosses between the independently adjusted source and delivered domains;
-    # `signal_domain_scale` contains both operations and was validated before
-    # any episode in this security-level event was mutated.
+    # Historical references follow the retained equity portion of the package.
+    # Signal references also cross the independent adjustment domains. Both
+    # multipliers were validated for every episode before any mutation.
     # Provenance BEFORE the identity is overwritten — after this block there is
     # no other record that these shares were once a different company.
     ep.source_lots = list(ep.source_lots) + [{
@@ -675,13 +735,16 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
         "cash_in_lieu": round(lieu, 10),
         "to_security_id": terms.delivered_security_id,
         "to_ticker": terms.delivered_ticker,
-        "reference": terms.reference}]
+        "reference": terms.reference,
+        **({"reference_rebase": dict(rebase_evidence)}
+           if rebase_evidence is not None else {})}]
     ep.security_id = terms.delivered_security_id
     ep.ticker = terms.delivered_ticker
     ep.issuer_id = terms.delivered_issuer_id
     ep.current_shares = delivered
     ep.initial_shares = max(1, int(round(ep.initial_shares * ratio)))
-    ep.entry_raw_open = ep.entry_raw_open / ratio
+    ep.entry_raw_open = (ep.entry_raw_open / ratio if rebase_evidence is None
+                         else ep.entry_raw_open * raw_reference_scale)
     ep.entry_split_adjusted_price *= signal_domain_scale
     if ep.episode_peak_split_adjusted_close is not None:
         ep.episode_peak_split_adjusted_close *= signal_domain_scale
@@ -691,7 +754,9 @@ def _apply_conversion(state: PortfolioState, slot_id: int, ep: HoldingEpisode,
             "security_id": before_sec,
             "delivered_security_id": ep.security_id,
             "shares_delivered": delivered, "cash_in_lieu": lieu,
-            "cash_consideration": cash_leg}
+            "cash_consideration": cash_leg,
+            **({"reference_rebase": dict(rebase_evidence)}
+               if rebase_evidence is not None else {})}
 
 
 def _apply_proxy(state: PortfolioState, slot_id: int, ep: HoldingEpisode,

@@ -1,5 +1,11 @@
 # Conversion basis fix: bounded economic certificate
 
+This is the retained certificate for commit `fc8afa7e`, before the subsequently
+authorized cash-adjusted strategy policy. See the
+[cash-adjusted certificate](../cash_conversion/README.md) for the current rule.
+The JSON evidence here is preserved unchanged. To reproduce this historical
+phase, use its recorded commit's certificate script and source.
+
 **PASS for the missing-predecessor conversion fix:** BRL/TEVA on 2008-12-23
 and its following session complete through the canonical production kernel.
 Cash, delivered shares, independently recomputed closing NAV, immutable prior

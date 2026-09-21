@@ -946,6 +946,11 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
                  delivered_signal_to_raw_scale=(
                      by_sec[terms.delivered_security_id].signal_to_raw_scale
                      if terms.delivered_security_id in by_sec else None),
+                 delivered_raw_open=(
+                     by_sec[terms.delivered_security_id].raw_open
+                     if terms.delivered_security_id in by_sec
+                     and not by_sec[terms.delivered_security_id].unresolved_corporate_action
+                     else None),
                  counters=settlement_counters)
         if prior_basis is not None:
             for row in [terminal_result, *terminal_result.get("episode_results", ())]:
@@ -1151,6 +1156,11 @@ def step_session(*, session: str, state: PortfolioState, bars: Sequence[DailyBar
             delivered_signal_to_raw_scale=(
                 by_sec[terms.delivered_security_id].signal_to_raw_scale
                 if terms.delivered_security_id in by_sec else None),
+            delivered_raw_open=(
+                by_sec[terms.delivered_security_id].raw_open
+                if terms.delivered_security_id in by_sec
+                and not by_sec[terms.delivered_security_id].unresolved_corporate_action
+                else None),
             counters=settlement_counters)
         transformed, cancelled = _transform_pending_for_terminal(
             state, pending, terms=terms, result=closing_result, session=session)

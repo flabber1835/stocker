@@ -125,7 +125,7 @@ def test_true_near_integer_fraction_delivers_nine_and_pays_fractional_cash():
         state, _conversion(ratio=0.99999999995, lieu=100.0),
         ledger=ledger, session="d9", cfg=CFG,
         source_signal_to_raw_scale=1.0,
-        delivered_signal_to_raw_scale=1.0)
+        delivered_signal_to_raw_scale=1.0, delivered_raw_open=100.0)
 
     assert result["applied"] is True
     assert result["shares_delivered"] == 9

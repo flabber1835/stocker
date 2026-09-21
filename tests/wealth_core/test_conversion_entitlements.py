@@ -82,7 +82,10 @@ def test_mixed_holder_cash_and_pending_exits_survive_restart(parts):
                             quantity, "2026-08-11", "TEST") for slot, quantity in enumerate(parts)]
     event = replace(terms(cash_in_lieu_price_per_delivered_share=100.),
                     kind=TerminalKind.CASH_PLUS_STOCK, cash_per_share=2.)
-    step(state, ledger, pending=pending, events=[event], daily=bars(new_open=None))
+    # A priced but halted delivered security permits rebase without filling exits.
+    daily = bars()
+    daily[1] = replace(daily[1], tradeable=False)
+    step(state, ledger, pending=pending, events=[event], daily=daily)
     assert state.shares_by_security()["NEW"] == 101
     assert state.cash == pytest.approx(10_456., abs=1e-9)
     assert sum(p.shares for p in pending) == 101
@@ -132,7 +135,8 @@ def test_contractual_floor_is_independent_of_decimal_context(precision, ratio):
             assert not applied["applied"] and state.episodes[0].security_id == "OLD"
             applied = apply_terminal(state, replace(event, cash_in_lieu_price_per_delivered_share=1.),
                                      ledger=ledger, session=DAY, cfg=CFG,
-                                     source_signal_to_raw_scale=1., delivered_signal_to_raw_scale=1.)
+                                     source_signal_to_raw_scale=1., delivered_signal_to_raw_scale=1.,
+                                     delivered_raw_open=1.)
         assert applied["shares_delivered"] == expected_whole
         assert PortfolioState.from_dict(json.loads(json.dumps(state.to_dict()))).to_dict() == state.to_dict()
 
