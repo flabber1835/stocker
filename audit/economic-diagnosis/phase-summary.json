@@ -1,0 +1,2663 @@
+{
+  "schema": "sentinel.mechanical-phase-panel/1",
+  "sources": {
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/__init__.py": "cfcefbd0b8e89d752e8e2c96ba8c7262b65639ef2818c14b5e32ab34a3e59ade",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/pipeline.py": "38e3e26e0f510a9c8ca76b861872b35bf3cf5a4430b1611e0e98b911e46745d5",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/pipeline_diagnostics.py": "02fb53276ff65a7a7f5101db788d9e476f877c2cd8918a72caf7115348616cac",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/study.py": "5106ed8f8f5e9307a666dbaed9ad3422569c03e7dd171500ad6ddba39d4178f1",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/holdings.py": "86f4676a66c3fdf8f37f7c8d291adcf6db840ef5c9c7c4ebc9cb46a6cfbbcd3c",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/parameters.py": "a6c864e9fac233f1f9bfb5f5a5d9ed894c65c205a3142d6be97db976ce5462f8",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/account.py": "a4289547767317b75e396b253c6461b04490e613a4058d201b8c463a6e7f3679",
+    "7250ce3d65cc38a103989d460fe3c557a38343c8:sentinel/controller/owned_impairment.py": "318206ac43ed1027c39d3738fd186be5aac8845895f8e0ee9fbe1f80ceb99ffb",
+    "sentinel/core/kernel.py": "61f52d5fc936559c000258e5fee1494d98206444289a3ed9a07dc42532c5615b",
+    "sentinel/controller/champion_frozen.py": "a67bb21df8df12f1e411bfc9a562eb62180df4e1fd6f9e94c1e845a9f0978fb5",
+    "sentinel/controller/median5_breadth.py": "8cd6ac067e9fa004fb7134d5117beb4f45c6175d288a4bf42841be7c0bd55f71",
+    "sentinel/controller/median5.py": "89b46dcdaa1b6fcac3757d4ed6e257f09550849a181bf62d61037419b17d5c02",
+    "shared/stock_strategy_shared/wealth_core/engine.py": "4c452e699c9c309d44a1849f65af76b947afa0c108ca9e522240ade8ecae623a",
+    "sentinel/execution/projection.py": "f7b401a159ef7b9a9a96ba712492d88aaccdf2392ff62753562aa72ffbbc6008",
+    "research/economic_diagnosis/phases.py": "17077f12bd6ba8a2f2c848dd9da6813b64470607aa60971a4f92329738eefb34"
+  },
+  "formation_lengths": [
+    40,
+    80,
+    120,
+    160
+  ],
+  "checks": {
+    "current_controller_parity_closes": 3760,
+    "canonical_restart_pairs": 224,
+    "controller_and_account_restart_pairs_each": 1344,
+    "retained_eighty_session_economics_exact": true,
+    "neutral_split_observations_decisions": true,
+    "split_pretrade_value_preserved": true,
+    "production_constants_unchanged": true
+  },
+  "phases": {
+    "40": {
+      "healthy": {
+        "current": {
+          "ending_nav": 110239.8366147444,
+          "max_drawdown": -0.018085307015544005,
+          "fees": 97.69201290113025,
+          "turnover": 97692.01290113026,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 110239.8366147444,
+          "max_drawdown": -0.018085307015544005,
+          "fees": 97.69201290113025,
+          "turnover": 97692.01290113026,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 110239.8366147444,
+          "max_drawdown": -0.018085307015544005,
+          "fees": 97.69201290113025,
+          "turnover": 97692.01290113026,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 110239.8366147444,
+          "max_drawdown": -0.018085307015544005,
+          "fees": 97.69201290113025,
+          "turnover": 97692.01290113026,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 110239.8366147444,
+          "max_drawdown": -0.018085307015544005,
+          "fees": 97.69201290113025,
+          "turnover": 97692.01290113026,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 110239.8366147444,
+          "max_drawdown": -0.018085307015544005,
+          "fees": 97.69201290113025,
+          "turnover": 97692.01290113026,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      },
+      "synchronized_shock": {
+        "current": {
+          "ending_nav": 83571.24570879905,
+          "max_drawdown": -0.17991646597116417,
+          "fees": 420.41342524487357,
+          "turnover": 420413.42524487356,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 109,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 109,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 83571.24570879905,
+          "max_drawdown": -0.17991646597116417,
+          "fees": 420.41342524487357,
+          "turnover": 420413.42524487356,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 109,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 109,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 83571.24570879905,
+          "max_drawdown": -0.17991646597116417,
+          "fees": 420.41342524487357,
+          "turnover": 420413.42524487356,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 109,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 109,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 83571.24570879905,
+          "max_drawdown": -0.17991646597116417,
+          "fees": 420.41342524487357,
+          "turnover": 420413.42524487356,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 109,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 109,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 83571.24570879905,
+          "max_drawdown": -0.17991646597116417,
+          "fees": 420.41342524487357,
+          "turnover": 420413.42524487356,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 109,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 109,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 82684.3476960955,
+          "max_drawdown": -0.17973848366027112,
+          "fees": 420.83598696367926,
+          "turnover": 420835.98696367926,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 114,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 114,
+          "terminal_difference_dollars": -886.8980127035466,
+          "drawdown_difference_pp": 0.01779823108930545
+        }
+      },
+      "staggered_damage": {
+        "current": {
+          "ending_nav": 85926.3474591384,
+          "max_drawdown": -0.2116786390177775,
+          "fees": 235.69500031688972,
+          "turnover": 235695.00031688972,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 80584.36683359828,
+          "max_drawdown": -0.213055555939048,
+          "fees": 408.06957143328316,
+          "turnover": 408069.57143328316,
+          "changes": [
+            {
+              "day": 15,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 106,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 91,
+          "terminal_difference_dollars": -5341.98062554012,
+          "drawdown_difference_pp": -0.137691692127051
+        },
+        "slow_earlier": {
+          "ending_nav": 85926.3474591384,
+          "max_drawdown": -0.2116786390177775,
+          "fees": 235.69500031688972,
+          "turnover": 235695.00031688972,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 85926.3474591384,
+          "max_drawdown": -0.2116786390177775,
+          "fees": 235.69500031688972,
+          "turnover": 235695.00031688972,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 80584.36683359828,
+          "max_drawdown": -0.213055555939048,
+          "fees": 408.06957143328316,
+          "turnover": 408069.57143328316,
+          "changes": [
+            {
+              "day": 15,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 106,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 91,
+          "terminal_difference_dollars": -5341.98062554012,
+          "drawdown_difference_pp": -0.137691692127051
+        },
+        "owned": {
+          "ending_nav": 80818.69278634658,
+          "max_drawdown": -0.2116786390177775,
+          "fees": 411.5903070923514,
+          "turnover": 411590.3070923514,
+          "changes": [
+            {
+              "day": 19,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 111,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 92,
+          "terminal_difference_dollars": -5107.654672791818,
+          "drawdown_difference_pp": 0.0
+        }
+      },
+      "gradual_decline": {
+        "current": {
+          "ending_nav": 79903.84155200605,
+          "max_drawdown": -0.22302169331500465,
+          "fees": 238.2534969526957,
+          "turnover": 238253.4969526957,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 79903.84155200605,
+          "max_drawdown": -0.22302169331500465,
+          "fees": 238.2534969526957,
+          "turnover": 238253.4969526957,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 80796.99941213206,
+          "max_drawdown": -0.20801980072560322,
+          "fees": 398.387741018121,
+          "turnover": 398387.741018121,
+          "changes": [
+            {
+              "day": 68,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 108,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 40,
+          "terminal_difference_dollars": 893.1578601260117,
+          "drawdown_difference_pp": 1.5001892589401433
+        },
+        "recovery_faster": {
+          "ending_nav": 79903.84155200605,
+          "max_drawdown": -0.22302169331500465,
+          "fees": 238.2534969526957,
+          "turnover": 238253.4969526957,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 80796.99941213206,
+          "max_drawdown": -0.20801980072560322,
+          "fees": 398.387741018121,
+          "turnover": 398387.741018121,
+          "changes": [
+            {
+              "day": 68,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 108,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 40,
+          "terminal_difference_dollars": 893.1578601260117,
+          "drawdown_difference_pp": 1.5001892589401433
+        },
+        "owned": {
+          "ending_nav": 91106.26388113982,
+          "max_drawdown": -0.10420681255385522,
+          "fees": 438.1149273416495,
+          "turnover": 438114.9273416495,
+          "changes": [
+            {
+              "day": 35,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 110,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 75,
+          "terminal_difference_dollars": 11202.42232913377,
+          "drawdown_difference_pp": 11.881488076114943
+        }
+      },
+      "temporary_correction": {
+        "current": {
+          "ending_nav": 93380.55731032458,
+          "max_drawdown": -0.141129136000386,
+          "fees": 434.9240905970051,
+          "turnover": 434924.0905970051,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 18,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 18,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 93380.55731032458,
+          "max_drawdown": -0.141129136000386,
+          "fees": 434.9240905970051,
+          "turnover": 434924.0905970051,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 18,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 18,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 93380.55731032458,
+          "max_drawdown": -0.141129136000386,
+          "fees": 434.9240905970051,
+          "turnover": 434924.0905970051,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 18,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 18,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 93380.55731032458,
+          "max_drawdown": -0.141129136000386,
+          "fees": 434.9240905970051,
+          "turnover": 434924.0905970051,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 18,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 18,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 93380.55731032458,
+          "max_drawdown": -0.141129136000386,
+          "fees": 434.9240905970051,
+          "turnover": 434924.0905970051,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 18,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 18,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 92409.32415467365,
+          "max_drawdown": -0.14147524909144105,
+          "fees": 434.57500108934454,
+          "turnover": 434575.0010893445,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 23,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 23,
+          "terminal_difference_dollars": -971.2331556509307,
+          "drawdown_difference_pp": -0.03461130910550336
+        }
+      },
+      "leadership_rotation": {
+        "current": {
+          "ending_nav": 74621.69230289104,
+          "max_drawdown": -0.28683043436489386,
+          "fees": 234.40007487225589,
+          "turnover": 234400.07487225588,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 74621.69230289104,
+          "max_drawdown": -0.28683043436489386,
+          "fees": 234.40007487225589,
+          "turnover": 234400.07487225588,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 80227.77778768049,
+          "max_drawdown": -0.22810353395676652,
+          "fees": 399.6337403384433,
+          "turnover": 399633.7403384433,
+          "changes": [
+            {
+              "day": 36,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 80,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 44,
+          "terminal_difference_dollars": 5606.085484789452,
+          "drawdown_difference_pp": 5.872690040812733
+        },
+        "recovery_faster": {
+          "ending_nav": 74621.69230289104,
+          "max_drawdown": -0.28683043436489386,
+          "fees": 234.40007487225589,
+          "turnover": 234400.07487225588,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 80227.77778768049,
+          "max_drawdown": -0.22810353395676652,
+          "fees": 399.6337403384433,
+          "turnover": 399633.7403384433,
+          "changes": [
+            {
+              "day": 36,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 80,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 44,
+          "terminal_difference_dollars": 5606.085484789452,
+          "drawdown_difference_pp": 5.872690040812733
+        },
+        "owned": {
+          "ending_nav": 91983.09134377334,
+          "max_drawdown": -0.1130702476741785,
+          "fees": 445.10896415126825,
+          "turnover": 445108.96415126824,
+          "changes": [
+            {
+              "day": 14,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 82,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 68,
+          "terminal_difference_dollars": 17361.3990408823,
+          "drawdown_difference_pp": 17.376018669071534
+        }
+      },
+      "healthy_split": {
+        "current": {
+          "ending_nav": 110246.89284702568,
+          "max_drawdown": -0.01810503133464103,
+          "fees": 97.76015675430078,
+          "turnover": 97760.15675430078,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 110246.89284702568,
+          "max_drawdown": -0.01810503133464103,
+          "fees": 97.76015675430078,
+          "turnover": 97760.15675430078,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 110246.89284702568,
+          "max_drawdown": -0.01810503133464103,
+          "fees": 97.76015675430078,
+          "turnover": 97760.15675430078,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 110246.89284702568,
+          "max_drawdown": -0.01810503133464103,
+          "fees": 97.76015675430078,
+          "turnover": 97760.15675430078,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 110246.89284702568,
+          "max_drawdown": -0.01810503133464103,
+          "fees": 97.76015675430078,
+          "turnover": 97760.15675430078,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 110246.89284702568,
+          "max_drawdown": -0.01810503133464103,
+          "fees": 97.76015675430078,
+          "turnover": 97760.15675430078,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      }
+    },
+    "80": {
+      "healthy": {
+        "current": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      },
+      "synchronized_shock": {
+        "current": {
+          "ending_nav": 86153.20606319985,
+          "max_drawdown": -0.17572780372991592,
+          "fees": 421.60842944577706,
+          "turnover": 421608.42944577703,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 69,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 69,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 86153.20606319985,
+          "max_drawdown": -0.17572780372991592,
+          "fees": 421.60842944577706,
+          "turnover": 421608.42944577703,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 69,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 69,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 86153.20606319985,
+          "max_drawdown": -0.17572780372991592,
+          "fees": 421.60842944577706,
+          "turnover": 421608.42944577703,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 69,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 69,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 86153.20606319985,
+          "max_drawdown": -0.17572780372991592,
+          "fees": 421.60842944577706,
+          "turnover": 421608.42944577703,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 69,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 69,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 86153.20606319985,
+          "max_drawdown": -0.17572780372991592,
+          "fees": 421.60842944577706,
+          "turnover": 421608.42944577703,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 69,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 69,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 85250.05277379036,
+          "max_drawdown": -0.17555078171272254,
+          "fees": 421.78358097876946,
+          "turnover": 421783.58097876946,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 74,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 74,
+          "terminal_difference_dollars": -903.1532894094853,
+          "drawdown_difference_pp": 0.01770220171933845
+        }
+      },
+      "staggered_damage": {
+        "current": {
+          "ending_nav": 84209.30697710089,
+          "max_drawdown": -0.21575095426217172,
+          "fees": 229.45505658358877,
+          "turnover": 229455.05658358877,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 82996.29252871941,
+          "max_drawdown": -0.2045115596239886,
+          "fees": 410.6456548767507,
+          "turnover": 410645.6548767507,
+          "changes": [
+            {
+              "day": 15,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 66,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 51,
+          "terminal_difference_dollars": -1213.0144483814802,
+          "drawdown_difference_pp": 1.1239394638183131
+        },
+        "slow_earlier": {
+          "ending_nav": 84209.30697710089,
+          "max_drawdown": -0.21575095426217172,
+          "fees": 229.45505658358877,
+          "turnover": 229455.05658358877,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 84209.30697710089,
+          "max_drawdown": -0.21575095426217172,
+          "fees": 229.45505658358877,
+          "turnover": 229455.05658358877,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 82996.29252871941,
+          "max_drawdown": -0.2045115596239886,
+          "fees": 410.6456548767507,
+          "turnover": 410645.6548767507,
+          "changes": [
+            {
+              "day": 15,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 66,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 51,
+          "terminal_difference_dollars": -1213.0144483814802,
+          "drawdown_difference_pp": 1.1239394638183131
+        },
+        "owned": {
+          "ending_nav": 82018.17116973847,
+          "max_drawdown": -0.20822079799111104,
+          "fees": 409.55036107355323,
+          "turnover": 409550.3610735532,
+          "changes": [
+            {
+              "day": 19,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 71,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 52,
+          "terminal_difference_dollars": -2191.135807362414,
+          "drawdown_difference_pp": 0.7530156271060684
+        }
+      },
+      "gradual_decline": {
+        "current": {
+          "ending_nav": 89560.79091062772,
+          "max_drawdown": -0.12928424633590319,
+          "fees": 266.2118403725094,
+          "turnover": 266211.8403725094,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 89560.79091062772,
+          "max_drawdown": -0.12928424633590319,
+          "fees": 266.2118403725094,
+          "turnover": 266211.8403725094,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 89560.79091062772,
+          "max_drawdown": -0.12928424633590319,
+          "fees": 266.2118403725094,
+          "turnover": 266211.8403725094,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 89560.79091062772,
+          "max_drawdown": -0.12928424633590319,
+          "fees": 266.2118403725094,
+          "turnover": 266211.8403725094,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 89560.79091062772,
+          "max_drawdown": -0.12928424633590319,
+          "fees": 266.2118403725094,
+          "turnover": 266211.8403725094,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 90018.86076833455,
+          "max_drawdown": -0.12013506504153693,
+          "fees": 444.4537605855254,
+          "turnover": 444453.7605855254,
+          "changes": [
+            {
+              "day": 31,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 103,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 72,
+          "terminal_difference_dollars": 458.06985770682513,
+          "drawdown_difference_pp": 0.914918129436626
+        }
+      },
+      "temporary_correction": {
+        "current": {
+          "ending_nav": 94351.0334842233,
+          "max_drawdown": -0.1525406350611801,
+          "fees": 436.72961374255567,
+          "turnover": 436729.61374255567,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 15,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 15,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 94351.0334842233,
+          "max_drawdown": -0.1525406350611801,
+          "fees": 436.72961374255567,
+          "turnover": 436729.61374255567,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 15,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 15,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 94351.0334842233,
+          "max_drawdown": -0.1525406350611801,
+          "fees": 436.72961374255567,
+          "turnover": 436729.61374255567,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 15,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 15,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 94283.29594516831,
+          "max_drawdown": -0.15314743960769206,
+          "fees": 436.4616409028943,
+          "turnover": 436461.6409028943,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 11,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 11,
+          "terminal_difference_dollars": -67.73753905498597,
+          "drawdown_difference_pp": -0.060680454651196314
+        },
+        "combined": {
+          "ending_nav": 94283.29594516831,
+          "max_drawdown": -0.15314743960769206,
+          "fees": 436.4616409028943,
+          "turnover": 436461.6409028943,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 11,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 11,
+          "terminal_difference_dollars": -67.73753905498597,
+          "drawdown_difference_pp": -0.060680454651196314
+        },
+        "owned": {
+          "ending_nav": 94351.0334842233,
+          "max_drawdown": -0.1525406350611801,
+          "fees": 436.72961374255567,
+          "turnover": 436729.61374255567,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 15,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 15,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      },
+      "leadership_rotation": {
+        "current": {
+          "ending_nav": 77174.44424295971,
+          "max_drawdown": -0.25891141671697415,
+          "fees": 238.02901704089462,
+          "turnover": 238029.01704089463,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 77174.44424295971,
+          "max_drawdown": -0.25891141671697415,
+          "fees": 238.02901704089462,
+          "turnover": 238029.01704089463,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 78246.88391707091,
+          "max_drawdown": -0.24649994529583696,
+          "fees": 392.1237029367404,
+          "turnover": 392123.7029367404,
+          "changes": [
+            {
+              "day": 36,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 68,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 32,
+          "terminal_difference_dollars": 1072.4396741111996,
+          "drawdown_difference_pp": 1.2411471421137188
+        },
+        "recovery_faster": {
+          "ending_nav": 77174.44424295971,
+          "max_drawdown": -0.25891141671697415,
+          "fees": 238.02901704089462,
+          "turnover": 238029.01704089463,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 78246.88391707091,
+          "max_drawdown": -0.24649994529583696,
+          "fees": 392.1237029367404,
+          "turnover": 392123.7029367404,
+          "changes": [
+            {
+              "day": 36,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 68,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 32,
+          "terminal_difference_dollars": 1072.4396741111996,
+          "drawdown_difference_pp": 1.2411471421137188
+        },
+        "owned": {
+          "ending_nav": 89140.30333063305,
+          "max_drawdown": -0.13959803582705932,
+          "fees": 434.66641004031527,
+          "turnover": 434666.41004031524,
+          "changes": [
+            {
+              "day": 19,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 70,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 51,
+          "terminal_difference_dollars": 11965.859087673336,
+          "drawdown_difference_pp": 11.931338088991483
+        }
+      },
+      "healthy_split": {
+        "current": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 111311.53826638171,
+          "max_drawdown": -0.01815807867614605,
+          "fees": 96.7251117944453,
+          "turnover": 96725.11179444529,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      }
+    },
+    "120": {
+      "healthy": {
+        "current": {
+          "ending_nav": 110308.8768127554,
+          "max_drawdown": -0.016184098775077094,
+          "fees": 96.72475891396209,
+          "turnover": 96724.75891396208,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 110308.8768127554,
+          "max_drawdown": -0.016184098775077094,
+          "fees": 96.72475891396209,
+          "turnover": 96724.75891396208,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 110308.8768127554,
+          "max_drawdown": -0.016184098775077094,
+          "fees": 96.72475891396209,
+          "turnover": 96724.75891396208,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 110308.8768127554,
+          "max_drawdown": -0.016184098775077094,
+          "fees": 96.72475891396209,
+          "turnover": 96724.75891396208,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 110308.8768127554,
+          "max_drawdown": -0.016184098775077094,
+          "fees": 96.72475891396209,
+          "turnover": 96724.75891396208,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 110308.8768127554,
+          "max_drawdown": -0.016184098775077094,
+          "fees": 96.72475891396209,
+          "turnover": 96724.75891396208,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      },
+      "synchronized_shock": {
+        "current": {
+          "ending_nav": 88731.27128381493,
+          "max_drawdown": -0.172518383479344,
+          "fees": 422.51246933827343,
+          "turnover": 422512.4693382734,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 32,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 32,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 88731.27128381493,
+          "max_drawdown": -0.172518383479344,
+          "fees": 422.51246933827343,
+          "turnover": 422512.4693382734,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 32,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 32,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 88731.27128381493,
+          "max_drawdown": -0.172518383479344,
+          "fees": 422.51246933827343,
+          "turnover": 422512.4693382734,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 32,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 32,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 89316.30118224763,
+          "max_drawdown": -0.17273669781670076,
+          "fees": 422.23467731328657,
+          "turnover": 422234.6773132866,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 28,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 28,
+          "terminal_difference_dollars": 585.0298984326946,
+          "drawdown_difference_pp": -0.021831433735675088
+        },
+        "combined": {
+          "ending_nav": 89316.30118224763,
+          "max_drawdown": -0.17273669781670076,
+          "fees": 422.23467731328657,
+          "turnover": 422234.6773132866,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 28,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 28,
+          "terminal_difference_dollars": 585.0298984326946,
+          "drawdown_difference_pp": -0.021831433735675088
+        },
+        "owned": {
+          "ending_nav": 88731.27128381493,
+          "max_drawdown": -0.172518383479344,
+          "fees": 422.51246933827343,
+          "turnover": 422512.4693382734,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 32,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 32,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      },
+      "staggered_damage": {
+        "current": {
+          "ending_nav": 86563.34665629671,
+          "max_drawdown": -0.19072444983447412,
+          "fees": 96.68741019477558,
+          "turnover": 96687.41019477558,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 80968.70616615917,
+          "max_drawdown": -0.19031293833840823,
+          "fees": 255.49902558129162,
+          "turnover": 255499.02558129161,
+          "changes": [
+            {
+              "day": 15,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 105,
+          "terminal_difference_dollars": -5594.640490137535,
+          "drawdown_difference_pp": 0.04115114960658861
+        },
+        "slow_earlier": {
+          "ending_nav": 86563.34665629671,
+          "max_drawdown": -0.19072444983447412,
+          "fees": 96.68741019477558,
+          "turnover": 96687.41019477558,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 86563.34665629671,
+          "max_drawdown": -0.19072444983447412,
+          "fees": 96.68741019477558,
+          "turnover": 96687.41019477558,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 80968.70616615917,
+          "max_drawdown": -0.19031293833840823,
+          "fees": 255.49902558129162,
+          "turnover": 255499.02558129161,
+          "changes": [
+            {
+              "day": 15,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 105,
+          "terminal_difference_dollars": -5594.640490137535,
+          "drawdown_difference_pp": 0.04115114960658861
+        },
+        "owned": {
+          "ending_nav": 80863.70349391144,
+          "max_drawdown": -0.19136296506088557,
+          "fees": 255.29381770116376,
+          "turnover": 255293.81770116376,
+          "changes": [
+            {
+              "day": 19,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 101,
+          "terminal_difference_dollars": -5699.6431623852695,
+          "drawdown_difference_pp": -0.06385152264114513
+        }
+      },
+      "gradual_decline": {
+        "current": {
+          "ending_nav": 79839.85182759358,
+          "max_drawdown": -0.20160148172406422,
+          "fees": 253.279125834642,
+          "turnover": 253279.125834642,
+          "changes": [
+            {
+              "day": 80,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 40,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 79839.85182759358,
+          "max_drawdown": -0.20160148172406422,
+          "fees": 253.279125834642,
+          "turnover": 253279.125834642,
+          "changes": [
+            {
+              "day": 80,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 40,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 82367.04681732017,
+          "max_drawdown": -0.17632953182679834,
+          "fees": 258.3113530515855,
+          "turnover": 258311.35305158555,
+          "changes": [
+            {
+              "day": 65,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 55,
+          "terminal_difference_dollars": 2527.1949897265877,
+          "drawdown_difference_pp": 2.527194989726589
+        },
+        "recovery_faster": {
+          "ending_nav": 79839.85182759358,
+          "max_drawdown": -0.20160148172406422,
+          "fees": 253.279125834642,
+          "turnover": 253279.125834642,
+          "changes": [
+            {
+              "day": 80,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 40,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 82367.04681732017,
+          "max_drawdown": -0.17632953182679834,
+          "fees": 258.3113530515855,
+          "turnover": 258311.35305158555,
+          "changes": [
+            {
+              "day": 65,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 55,
+          "terminal_difference_dollars": 2527.1949897265877,
+          "drawdown_difference_pp": 2.527194989726589
+        },
+        "owned": {
+          "ending_nav": 88399.79742370355,
+          "max_drawdown": -0.11600202576296448,
+          "fees": 270.07706161226935,
+          "turnover": 270077.0616122694,
+          "changes": [
+            {
+              "day": 40,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 80,
+          "terminal_difference_dollars": 8559.945596109974,
+          "drawdown_difference_pp": 8.559945596109975
+        }
+      },
+      "temporary_correction": {
+        "current": {
+          "ending_nav": 94216.51949413061,
+          "max_drawdown": -0.13422585882835425,
+          "fees": 437.7541253281694,
+          "turnover": 437754.1253281694,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 26,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 26,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 94216.51949413061,
+          "max_drawdown": -0.13422585882835425,
+          "fees": 437.7541253281694,
+          "turnover": 437754.1253281694,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 26,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 26,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 94216.51949413061,
+          "max_drawdown": -0.13422585882835425,
+          "fees": 437.7541253281694,
+          "turnover": 437754.1253281694,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 26,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 26,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 94216.51949413061,
+          "max_drawdown": -0.13422585882835425,
+          "fees": 437.7541253281694,
+          "turnover": 437754.1253281694,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 26,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 26,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 94216.51949413061,
+          "max_drawdown": -0.13422585882835425,
+          "fees": 437.7541253281694,
+          "turnover": 437754.1253281694,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 26,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 26,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 94216.51949413061,
+          "max_drawdown": -0.13422585882835425,
+          "fees": 437.7541253281694,
+          "turnover": 437754.1253281694,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 26,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 26,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      },
+      "leadership_rotation": {
+        "current": {
+          "ending_nav": 73290.16513696984,
+          "max_drawdown": -0.29297380178816335,
+          "fees": 230.4828903696389,
+          "turnover": 230482.89036963892,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 73290.16513696984,
+          "max_drawdown": -0.29297380178816335,
+          "fees": 230.4828903696389,
+          "turnover": 230482.89036963892,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 78430.72331672968,
+          "max_drawdown": -0.24212213723876908,
+          "fees": 392.218462547886,
+          "turnover": 392218.46254788607,
+          "changes": [
+            {
+              "day": 39,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 75,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 36,
+          "terminal_difference_dollars": 5140.5581797598425,
+          "drawdown_difference_pp": 5.0851664549394275
+        },
+        "recovery_faster": {
+          "ending_nav": 73290.16513696984,
+          "max_drawdown": -0.29297380178816335,
+          "fees": 230.4828903696389,
+          "turnover": 230482.89036963892,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 78430.72331672968,
+          "max_drawdown": -0.24212213723876908,
+          "fees": 392.218462547886,
+          "turnover": 392218.46254788607,
+          "changes": [
+            {
+              "day": 39,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 75,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 36,
+          "terminal_difference_dollars": 5140.5581797598425,
+          "drawdown_difference_pp": 5.0851664549394275
+        },
+        "owned": {
+          "ending_nav": 89361.17050607686,
+          "max_drawdown": -0.13650228140886955,
+          "fees": 434.51107843502166,
+          "turnover": 434511.0784350217,
+          "changes": [
+            {
+              "day": 21,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 77,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 56,
+          "terminal_difference_dollars": 16071.00536910702,
+          "drawdown_difference_pp": 15.647152037929379
+        }
+      },
+      "healthy_split": {
+        "current": {
+          "ending_nav": 110313.43615515452,
+          "max_drawdown": -0.016193305101536937,
+          "fees": 96.79921005518158,
+          "turnover": 96799.21005518158,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 110313.43615515452,
+          "max_drawdown": -0.016193305101536937,
+          "fees": 96.79921005518158,
+          "turnover": 96799.21005518158,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 110313.43615515452,
+          "max_drawdown": -0.016193305101536937,
+          "fees": 96.79921005518158,
+          "turnover": 96799.21005518158,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 110313.43615515452,
+          "max_drawdown": -0.016193305101536937,
+          "fees": 96.79921005518158,
+          "turnover": 96799.21005518158,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 110313.43615515452,
+          "max_drawdown": -0.016193305101536937,
+          "fees": 96.79921005518158,
+          "turnover": 96799.21005518158,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 110313.43615515452,
+          "max_drawdown": -0.016193305101536937,
+          "fees": 96.79921005518158,
+          "turnover": 96799.21005518158,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      }
+    },
+    "160": {
+      "healthy": {
+        "current": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      },
+      "synchronized_shock": {
+        "current": {
+          "ending_nav": 82391.25411041615,
+          "max_drawdown": -0.17608745889583854,
+          "fees": 257.77664155384423,
+          "turnover": 257776.64155384424,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 120,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 82391.25411041615,
+          "max_drawdown": -0.17608745889583854,
+          "fees": 257.77664155384423,
+          "turnover": 257776.64155384424,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 120,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 82391.25411041615,
+          "max_drawdown": -0.17608745889583854,
+          "fees": 257.77664155384423,
+          "turnover": 257776.64155384424,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 120,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 82391.25411041615,
+          "max_drawdown": -0.17608745889583854,
+          "fees": 257.77664155384423,
+          "turnover": 257776.64155384424,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 120,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 82391.25411041615,
+          "max_drawdown": -0.17608745889583854,
+          "fees": 257.77664155384423,
+          "turnover": 257776.64155384424,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 120,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 82391.25411041615,
+          "max_drawdown": -0.17608745889583854,
+          "fees": 257.77664155384423,
+          "turnover": 257776.64155384424,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 120,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      },
+      "staggered_damage": {
+        "current": {
+          "ending_nav": 84697.96887086035,
+          "max_drawdown": -0.21753930322732729,
+          "fees": 96.71779053094741,
+          "turnover": 96717.79053094742,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 78145.038893327,
+          "max_drawdown": -0.21854961106673,
+          "fees": 249.93055050572755,
+          "turnover": 249930.55050572756,
+          "changes": [
+            {
+              "day": 15,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 105,
+          "terminal_difference_dollars": -6552.929977533349,
+          "drawdown_difference_pp": -0.10103078394027021
+        },
+        "slow_earlier": {
+          "ending_nav": 84697.96887086035,
+          "max_drawdown": -0.21753930322732729,
+          "fees": 96.71779053094741,
+          "turnover": 96717.79053094742,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 84697.96887086035,
+          "max_drawdown": -0.21753930322732729,
+          "fees": 96.71779053094741,
+          "turnover": 96717.79053094742,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 78145.038893327,
+          "max_drawdown": -0.21854961106673,
+          "fees": 249.93055050572755,
+          "turnover": 249930.55050572756,
+          "changes": [
+            {
+              "day": 15,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 105,
+          "terminal_difference_dollars": -6552.929977533349,
+          "drawdown_difference_pp": -0.10103078394027021
+        },
+        "owned": {
+          "ending_nav": 78781.23751859213,
+          "max_drawdown": -0.21753930322732729,
+          "fees": 251.16798656705402,
+          "turnover": 251167.986567054,
+          "changes": [
+            {
+              "day": 19,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 101,
+          "terminal_difference_dollars": -5916.731352268223,
+          "drawdown_difference_pp": 0.0
+        }
+      },
+      "gradual_decline": {
+        "current": {
+          "ending_nav": 77798.09599406563,
+          "max_drawdown": -0.2220190400593437,
+          "fees": 249.22147479553178,
+          "turnover": 249221.47479553177,
+          "changes": [
+            {
+              "day": 80,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 40,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 77798.09599406563,
+          "max_drawdown": -0.2220190400593437,
+          "fees": 249.22147479553178,
+          "turnover": 249221.47479553177,
+          "changes": [
+            {
+              "day": 80,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 40,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 80903.22251091633,
+          "max_drawdown": -0.19096777489083672,
+          "fees": 255.5329127503373,
+          "turnover": 255532.91275033727,
+          "changes": [
+            {
+              "day": 65,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 55,
+          "terminal_difference_dollars": 3105.1265168506943,
+          "drawdown_difference_pp": 3.105126516850698
+        },
+        "recovery_faster": {
+          "ending_nav": 77798.09599406563,
+          "max_drawdown": -0.2220190400593437,
+          "fees": 249.22147479553178,
+          "turnover": 249221.47479553177,
+          "changes": [
+            {
+              "day": 80,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 40,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 80903.22251091633,
+          "max_drawdown": -0.19096777489083672,
+          "fees": 255.5329127503373,
+          "turnover": 255532.91275033727,
+          "changes": [
+            {
+              "day": 65,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 55,
+          "terminal_difference_dollars": 3105.1265168506943,
+          "drawdown_difference_pp": 3.105126516850698
+        },
+        "owned": {
+          "ending_nav": 87119.44538730466,
+          "max_drawdown": -0.12880554612695339,
+          "fees": 267.96156427825355,
+          "turnover": 267961.5642782535,
+          "changes": [
+            {
+              "day": 44,
+              "before": 1.0,
+              "after": 0.0
+            }
+          ],
+          "days_below_full": 76,
+          "terminal_difference_dollars": 9321.349393239027,
+          "drawdown_difference_pp": 9.321349393239032
+        }
+      },
+      "temporary_correction": {
+        "current": {
+          "ending_nav": 93131.1453184595,
+          "max_drawdown": -0.1387130180046373,
+          "fees": 434.5510696970259,
+          "turnover": 434551.0696970259,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 15,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 15,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 93131.1453184595,
+          "max_drawdown": -0.1387130180046373,
+          "fees": 434.5510696970259,
+          "turnover": 434551.0696970259,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 15,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 15,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 93131.1453184595,
+          "max_drawdown": -0.1387130180046373,
+          "fees": 434.5510696970259,
+          "turnover": 434551.0696970259,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 15,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 15,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 93360.79172867737,
+          "max_drawdown": -0.13925986712414629,
+          "fees": 434.62558712772864,
+          "turnover": 434625.5871277286,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 11,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 11,
+          "terminal_difference_dollars": 229.64641021787247,
+          "drawdown_difference_pp": -0.05468491195089742
+        },
+        "combined": {
+          "ending_nav": 93360.79172867737,
+          "max_drawdown": -0.13925986712414629,
+          "fees": 434.62558712772864,
+          "turnover": 434625.5871277286,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 11,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 11,
+          "terminal_difference_dollars": 229.64641021787247,
+          "drawdown_difference_pp": -0.05468491195089742
+        },
+        "owned": {
+          "ending_nav": 90892.39221008791,
+          "max_drawdown": -0.13777131214739347,
+          "fees": 434.8084835277392,
+          "turnover": 434808.4835277392,
+          "changes": [
+            {
+              "day": 0,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 24,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 24,
+          "terminal_difference_dollars": -2238.7531083715876,
+          "drawdown_difference_pp": 0.09417058572438464
+        }
+      },
+      "leadership_rotation": {
+        "current": {
+          "ending_nav": 73159.94621083236,
+          "max_drawdown": -0.29718448076213,
+          "fees": 230.5815531491529,
+          "turnover": 230581.55314915293,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 73159.94621083236,
+          "max_drawdown": -0.29718448076213,
+          "fees": 230.5815531491529,
+          "turnover": 230581.55314915293,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 79689.86576694714,
+          "max_drawdown": -0.22281552514991376,
+          "fees": 400.8700301269629,
+          "turnover": 400870.03012696287,
+          "changes": [
+            {
+              "day": 37,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 91,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 54,
+          "terminal_difference_dollars": 6529.919556114779,
+          "drawdown_difference_pp": 7.436895561221624
+        },
+        "recovery_faster": {
+          "ending_nav": 73159.94621083236,
+          "max_drawdown": -0.29718448076213,
+          "fees": 230.5815531491529,
+          "turnover": 230581.55314915293,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 79689.86576694714,
+          "max_drawdown": -0.22281552514991376,
+          "fees": 400.8700301269629,
+          "turnover": 400870.03012696287,
+          "changes": [
+            {
+              "day": 37,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 91,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 54,
+          "terminal_difference_dollars": 6529.919556114779,
+          "drawdown_difference_pp": 7.436895561221624
+        },
+        "owned": {
+          "ending_nav": 88751.35641223408,
+          "max_drawdown": -0.12998003451156315,
+          "fees": 437.4898028034502,
+          "turnover": 437489.80280345015,
+          "changes": [
+            {
+              "day": 16,
+              "before": 1.0,
+              "after": 0.0
+            },
+            {
+              "day": 93,
+              "before": 0.0,
+              "after": 1.0
+            }
+          ],
+          "days_below_full": 77,
+          "terminal_difference_dollars": 15591.410201401712,
+          "drawdown_difference_pp": 16.720444625056686
+        }
+      },
+      "healthy_split": {
+        "current": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "fast_sensitive": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "slow_earlier": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "recovery_faster": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "combined": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        },
+        "owned": {
+          "ending_nav": 107903.46987762357,
+          "max_drawdown": -0.02163507470613113,
+          "fees": 96.41380540093712,
+          "turnover": 96413.80540093713,
+          "changes": [],
+          "days_below_full": 0,
+          "terminal_difference_dollars": 0.0,
+          "drawdown_difference_pp": 0.0
+        }
+      }
+    }
+  },
+  "split_terminal_lot_effect_dollars": {
+    "40": {
+      "current": 7.056232281276607,
+      "fast_sensitive": 7.056232281276607,
+      "slow_earlier": 7.056232281276607,
+      "recovery_faster": 7.056232281276607,
+      "combined": 7.056232281276607,
+      "owned": 7.056232281276607
+    },
+    "80": {
+      "current": 0.0,
+      "fast_sensitive": 0.0,
+      "slow_earlier": 0.0,
+      "recovery_faster": 0.0,
+      "combined": 0.0,
+      "owned": 0.0
+    },
+    "120": {
+      "current": 4.559342399108573,
+      "fast_sensitive": 4.559342399108573,
+      "slow_earlier": 4.559342399108573,
+      "recovery_faster": 4.559342399108573,
+      "combined": 4.559342399108573,
+      "owned": 4.559342399108573
+    },
+    "160": {
+      "current": 0.0,
+      "fast_sensitive": 0.0,
+      "slow_earlier": 0.0,
+      "recovery_faster": 0.0,
+      "combined": 0.0,
+      "owned": 0.0
+    }
+  }
+}

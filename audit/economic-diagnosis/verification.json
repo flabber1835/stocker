@@ -1,0 +1,9 @@
+{
+  "verdict": "PASS",
+  "prior_economic_comparisons": 196,
+  "historical_exact_pairs": 101,
+  "source_anchors": {
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:audit/parameter-probes/summary.json": "232b6dadb8b09baeb21902111e3b70123a51a2bfb0568373e68d5d5d2048bd7d",
+    "7250ce3d65cc38a103989d460fe3c557a38343c8:audit/owned-impairment/summary.json": "704879dcc183ace38a10824f1ace2a5c1f6e77b03a918c13f52cecb6d06a0849"
+  }
+}

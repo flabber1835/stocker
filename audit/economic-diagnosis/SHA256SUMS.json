@@ -1,0 +1,114 @@
+{
+  "audit/economic-diagnosis/accounting-run.log": {
+    "sha256": "a382d0b1922d01a34e199d8c3f10b749427ae89c5d316f3c3c2ab0ffe114d6ad",
+    "bytes": 4856
+  },
+  "audit/economic-diagnosis/daily.jsonl.gz": {
+    "sha256": "a667baa456a086d295f6ae84b3b5719e21b1db8eb2970d7ebd2871523e4329bc",
+    "bytes": 1171910
+  },
+  "audit/economic-diagnosis/mutations.json": {
+    "sha256": "cce145bf6784dc248771999ff21533d051df17e76285d2a62c3ca966c113184a",
+    "bytes": 476
+  },
+  "audit/economic-diagnosis/owned-parity.json": {
+    "sha256": "885caa994e6bc7698e13c4507ba30031939784ea33cbe5742ef924d3af93d49a",
+    "bytes": 137
+  },
+  "audit/economic-diagnosis/ownership.log": {
+    "sha256": "eb823b775c432e4056e3bb5daf0627a1d3e87e612bd05b3a7361cfd9d5a7bd1b",
+    "bytes": 12707
+  },
+  "audit/economic-diagnosis/phase-120.json.gz": {
+    "sha256": "c86595bc9a6699e6d065190d607edf23069dac245ad38fdc0700873b0cc3f330",
+    "bytes": 374041
+  },
+  "audit/economic-diagnosis/phase-160.json.gz": {
+    "sha256": "ca723969e67ab3e3ed61b5487814a3843a78abde8fab041406d54ae48d913447",
+    "bytes": 383808
+  },
+  "audit/economic-diagnosis/phase-40.json.gz": {
+    "sha256": "f3cd93c6603d960719de67366dc6432a7de431c4340d0f3438f5f7349c28d326",
+    "bytes": 377804
+  },
+  "audit/economic-diagnosis/phase-80.json.gz": {
+    "sha256": "0647b966d89c10634feda0292e529d797830dd2b2c4859ecfd8f78ef30ba58e5",
+    "bytes": 367926
+  },
+  "audit/economic-diagnosis/phase-summary.json": {
+    "sha256": "b579928d0c09ea74463ca7afa4af9bd04bf639b90a06992452a08bd99fada9fa",
+    "bytes": 81802
+  },
+  "audit/economic-diagnosis/README.md": {
+    "sha256": "e300e954ab96b10863fabebf58f9de615b8c5bff8d4cfd31070622f5af70e3f8",
+    "bytes": 7914
+  },
+  "audit/economic-diagnosis/summary.json": {
+    "sha256": "13c5f8d16ab7c903d37614f5731f119b714109789128ce8f71cc80d60967ff51",
+    "bytes": 75810
+  },
+  "audit/economic-diagnosis/test-ownership.json": {
+    "sha256": "eb823b775c432e4056e3bb5daf0627a1d3e87e612bd05b3a7361cfd9d5a7bd1b",
+    "bytes": 12707
+  },
+  "audit/economic-diagnosis/unit-tests.xml": {
+    "sha256": "774e3f0cb143cc86bb7e23afdb0f290a101df8e20477d1b8dcc1919fb756f60b",
+    "bytes": 2011
+  },
+  "audit/economic-diagnosis/verification.json": {
+    "sha256": "1080fba84790eb8f514e26a503d50ff1d2d9dfde918cb5821e12f8e9b46d483a",
+    "bytes": 424
+  },
+  "audit/economic-diagnosis/window-2011.json.gz": {
+    "sha256": "78ffa5e3aa66d6527517ab6b95336248dff27090419c4cf7290388f61417657b",
+    "bytes": 3487
+  },
+  "audit/economic-diagnosis/window-2018.json.gz": {
+    "sha256": "cccee5b1d8de5e4147fea78d4da98b35704a7eb4034bb7764bfe8701b6712141",
+    "bytes": 4680
+  },
+  "audit/economic-diagnosis/window-2026.json.gz": {
+    "sha256": "a3ddf2aca42f67d140063cd1fc926bc11f9ebc73b10ebf5fcf1583e0fa4dddc3",
+    "bytes": 12701
+  },
+  "docs/economic-results-diagnosis.md": {
+    "sha256": "d0d518ad5f24e533f437d45c5faabca4ab062f5a7077ffab76d025ecffd6a736",
+    "bytes": 5627
+  },
+  "docs/sentinel-mechanical-fitness.md": {
+    "sha256": "47269c26dea9ec22f4b962008544527e34caa99d899efbde4187b22d037c2daf",
+    "bytes": 14678
+  },
+  "research/economic_diagnosis/__init__.py": {
+    "sha256": "ae0aba46758a83b53ca2a86a5590369744aaee0a7c9cb83a43b654fdb8a5b7bf",
+    "bytes": 77
+  },
+  "research/economic_diagnosis/analyze.py": {
+    "sha256": "3c6f8e8128cbb62d9a82370ff51fdb2a14bb70e933b81edcbe3fe19e09a3e1bf",
+    "bytes": 14176
+  },
+  "research/economic_diagnosis/mutations.py": {
+    "sha256": "dede75892e99f44106169bc9309dc75585b96d8afce41311cbd14ddaeeab7248",
+    "bytes": 1874
+  },
+  "research/economic_diagnosis/phases.py": {
+    "sha256": "17077f12bd6ba8a2f2c848dd9da6813b64470607aa60971a4f92329738eefb34",
+    "bytes": 11000
+  },
+  "research/economic_diagnosis/test_analysis.py": {
+    "sha256": "5b8c879482cdb5da572e4817536440281bd81634106da68eea45f5acf08309b5",
+    "bytes": 2617
+  },
+  "research/economic_diagnosis/test_mechanics.py": {
+    "sha256": "31453091b6a9499af1734870981d6e80ce9c7cb8519da405cd04473f5cea7aa5",
+    "bytes": 2742
+  },
+  "research/economic_diagnosis/verify_results.py": {
+    "sha256": "ffdb6a2004079c61f31dc6b6566006162c57ac6e9a4eadd7e0165b2512b41eec",
+    "bytes": 2684
+  },
+  "research/economic_diagnosis/window.py": {
+    "sha256": "9e86040ddeb66f86ca5e6a2517466cbdcc468a6b87dea9e85119c5b75080cc96",
+    "bytes": 4844
+  }
+}

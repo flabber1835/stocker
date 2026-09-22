@@ -1,0 +1,149 @@
+{
+  "metrics": {
+    "current": {
+      "multiple": 29.243784827632766,
+      "cagr": 0.18385952802371383,
+      "max_drawdown": -0.2977324909346085,
+      "peak_date": "2011-07-07",
+      "trough_date": "2011-11-18",
+      "annualized_daily_volatility": 0.19237630898490954,
+      "longest_underwater_sessions": 607
+    },
+    "reference": {
+      "multiple": 56.26534933655897,
+      "cagr": 0.22323600023175633,
+      "max_drawdown": -0.2652803738241418,
+      "peak_date": "2021-02-12",
+      "trough_date": "2022-09-26",
+      "annualized_daily_volatility": 0.19078679674661975,
+      "longest_underwater_sessions": 627
+    },
+    "current_core_reference_exposure": {
+      "multiple": 52.123136514559114,
+      "cagr": 0.21856798594502008,
+      "max_drawdown": -0.27992263186533184,
+      "peak_date": "2021-02-12",
+      "trough_date": "2022-09-26",
+      "annualized_daily_volatility": 0.18898309704178068,
+      "longest_underwater_sessions": 607
+    },
+    "reference_core_current_exposure": {
+      "multiple": 31.11884279649156,
+      "cagr": 0.18754380668725168,
+      "max_drawdown": -0.27835824677541443,
+      "peak_date": "2011-05-10",
+      "trough_date": "2011-11-18",
+      "annualized_daily_volatility": 0.19391134342600566,
+      "longest_underwater_sessions": 627
+    },
+    "current_core": {
+      "multiple": 23.313008308282743,
+      "cagr": 0.1705191191541374,
+      "max_drawdown": -0.45632807882332627,
+      "peak_date": "2008-06-18",
+      "trough_date": "2009-06-23",
+      "annualized_daily_volatility": 0.21509314011279926,
+      "longest_underwater_sessions": 746
+    },
+    "reference_core": {
+      "multiple": 23.396515458218154,
+      "cagr": 0.1707283988522944,
+      "max_drawdown": -0.5033805797189879,
+      "peak_date": "2008-06-23",
+      "trough_date": "2009-03-06",
+      "annualized_daily_volatility": 0.21604612677072108,
+      "longest_underwater_sessions": 718
+    },
+    "native_only": {
+      "multiple": 23.780481916466382,
+      "cagr": 0.17168162634956505,
+      "max_drawdown": -0.365527603835355,
+      "peak_date": "2021-02-12",
+      "trough_date": "2022-09-26",
+      "annualized_daily_volatility": 0.19964427786331898,
+      "longest_underwater_sessions": 751
+    },
+    "bill_only": {
+      "multiple": 1.3662718988753237,
+      "cagr": 0.015726346646742106,
+      "max_drawdown": -0.007722642129477597,
+      "peak_date": "2008-09-29",
+      "trough_date": "2008-10-17",
+      "annualized_daily_volatility": 0.004941816366748974,
+      "longest_underwater_sessions": 1105
+    },
+    "current_zero_overlay_fee": {
+      "multiple": 29.84227712207304,
+      "cagr": 0.185059302450781,
+      "max_drawdown": -0.2963258463013655,
+      "peak_date": "2011-07-07",
+      "trough_date": "2011-11-18",
+      "annualized_daily_volatility": 0.19239579438897225,
+      "longest_underwater_sessions": 607
+    },
+    "current_double_overlay_fee": {
+      "multiple": 28.656777959237953,
+      "cagr": 0.18265990055549627,
+      "max_drawdown": -0.29913772821954454,
+      "peak_date": "2011-07-07",
+      "trough_date": "2011-11-18",
+      "annualized_daily_volatility": 0.1923615421610922,
+      "longest_underwater_sessions": 608
+    },
+    "spy": {
+      "multiple": 8.443306659433098,
+      "cagr": 0.11256316445674568,
+      "max_drawdown": -0.55201855645911,
+      "peak_date": "2007-10-09",
+      "trough_date": "2009-03-09",
+      "annualized_daily_volatility": 0.19428130986432568,
+      "longest_underwater_sessions": 1223
+    }
+  },
+  "attribution": {
+    "core_log_gap": 0.06930819931833265,
+    "exposure_log_gap": 0.5851036150619409,
+    "total_log_gap": 0.6544118143802735,
+    "interaction_log": 0.014323504953393407
+  },
+  "diagnostics": {
+    "held_allocation_pairs": {
+      "1.0/1.0": 4153,
+      "0.0/0.0": 579,
+      "1.0/0.0": 115,
+      "0.0/1.0": 16,
+      "0.55/0.55": 163,
+      "0.0/0.55": 6
+    },
+    "current_exposure_counts": {
+      "1.0": 4268,
+      "0.0": 601,
+      "0.55": 163
+    },
+    "mean_current_stock_fraction": 0.9220783627836839,
+    "mean_reference_stock_fraction": 0.9275151781385784,
+    "mean_current_close_equity_target": 0.8151602113445503,
+    "mean_current_held_count": 18.271462639109696,
+    "mean_reference_held_count": 18.017488076311604,
+    "event_reasons": {
+      "ENTRY_DURABLE_RANK": 394,
+      "SPLIT": 26,
+      "EXIT_TRAILING_STOP": 286,
+      "DIVIDEND_ACCRUED": 787,
+      "DIVIDEND_PAID": 787,
+      "CASH_MERGER": 45,
+      "EXIT_REVIEW_WEAKNESS": 49,
+      "CASH_PLUS_STOCK": 7,
+      "CONVERSION": 1,
+      "SPINOFF_CHILD_RECEIVED": 2,
+      "INVOLUNTARY_SPINOFF_CHILD_LIQUIDATED": 2
+    },
+    "recovery_only_sessions": 210,
+    "exact_holding_set_equal_sessions": 57,
+    "average_jaccard_holding_overlap": 0.549973555114931
+  },
+  "errors": {
+    "current": 1.0880185641326534e-14,
+    "reference": 1.354472090042691e-14
+  }
+}

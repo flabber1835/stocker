@@ -1,0 +1,18 @@
+{
+  "overnight_ownership": {
+    "verdict": "KILLED",
+    "falsifier": "test_exit_still_bears_overnight_loss"
+  },
+  "transition_fee": {
+    "verdict": "KILLED",
+    "falsifier": "test_fee_applies_to_changed_fraction"
+  },
+  "entry_gap_lookahead": {
+    "verdict": "KILLED",
+    "falsifier": "test_entry_does_not_receive_the_pre_entry_equity_gap"
+  },
+  "cash_compounding": {
+    "verdict": "KILLED",
+    "falsifier": "test_unchanged_sleeves_are_not_rebalanced_at_open"
+  }
+}
