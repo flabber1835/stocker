@@ -1,0 +1,16 @@
+{
+  "omit_recovery_execution": {
+    "killed": true,
+    "exit_code": 1,
+    "test_summary": [
+      "1 failed, 3 passed in 0.14s"
+    ]
+  },
+  "confuse_acceleration_with_volatility_level": {
+    "killed": true,
+    "exit_code": 1,
+    "test_summary": [
+      "1 failed, 3 passed in 0.16s"
+    ]
+  }
+}

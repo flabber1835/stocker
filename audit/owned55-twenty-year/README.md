@@ -67,9 +67,18 @@ The first different target was 2011-08-10, and only 73 daily targets differed
 over the 5,176-session run. The relative NAV ratio improved 6.25% during the
 2011-08-10 to 2011-11-04 impairment episode. Later entry/recovery windows
 were mixed: 2018 improved the relative ratio 1.13%, while 2020 reduced it
-2.87% and 2021 reduced it 0.17%. In 2008 both policies were already at zero
+2.26% and 2021 reduced it 0.17%. In 2008 both policies were already at zero
 exposure, so the owned cause made no target or economic difference. These are
 episode attributions, not evidence that 55% is an optimal ceiling.
+
+The [full mechanical assessment](../../docs/owned55-mechanics-assessment.md)
+adds all-history signal-range, binding-gate and recovery analysis. Its
+`mechanics.json` includes the next-open recovery execution in episode returns;
+the initial `final-audit.json` is preserved as the earlier signal-close analysis.
+That boundary correction changes the 2020 episode from -2.87% to -2.26% without
+changing final account NAV, CAGR or drawdown. The new episode factors multiply
+to the final 4.85% relative wealth improvement. Excluding 2011, their compounded
+effect is -1.32%; the full-history gain does not establish broad superiority.
 
 Validation command, from this worktree:
 
