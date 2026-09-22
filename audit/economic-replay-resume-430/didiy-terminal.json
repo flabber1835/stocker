@@ -1,0 +1,15 @@
+{
+  "session": "2022-06-10",
+  "security_id": "321836923261566800",
+  "ticker": "DIDIY",
+  "held": false,
+  "status": "RESOLVED_EXECUTABLE_MARKET_EXIT",
+  "terminal_session_close": "2.29",
+  "terminal_session_volume": 127069663,
+  "actual_nyse_delisting": "2022-06-13",
+  "decision": "Use the positive-volume terminal-session close under the executable-print waterfall. This is an unheld last-in-universe market exit, not acquisition cash; the same ADS continued OTC.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1764757/000110465922063652/tm2216577d1_ex99-2.htm",
+    "https://www.sec.gov/Archives/edgar/data/1764757/000110465923053304/didi-20221231x20f.htm"
+  ]
+}

@@ -1,0 +1,28 @@
+{
+  "session": "2024-09-30",
+  "security_id": "1145034674624991713",
+  "ticker": "SWN",
+  "held": false,
+  "terminal_raw_close": "7.11",
+  "terminal_reported_volume": "116214734",
+  "delivered_security_id": "46951300802194186",
+  "archive_delivered_ticker": "EXE",
+  "legal_delivered_ticker": "CHK",
+  "delivered_same_session_close": "82.25",
+  "exchange_ratio": "0.0867",
+  "status": "RESOLVED_EXACT_CONVERSION_WITH_UNRESOLVED_UPSTREAM_IDENTITY_CLASSIFICATION_DEFECT",
+  "unresolved_input_defect": {
+    "affected_start": "2021-02-10",
+    "affected_end": "2024-10-01",
+    "archive_issuer_id": "SEC_CIK:1075736",
+    "correct_issuer_id": "SEC_CIK:895126",
+    "archive_sector": "07 Telcm",
+    "correct_sector": "04 Enrgy",
+    "required_remediation": "Correct the authoritative PIT identity/classification and replay from before 2021-02-10."
+  },
+  "decision": "Use the exact contractual SWN conversion for the terminal event while retaining the earlier delivered-security identity and sector contamination as a certification blocker.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/7332/000110465924104962/tm2425085d1_8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/895126/000089512624000135/exe-20240930.htm"
+  ]
+}

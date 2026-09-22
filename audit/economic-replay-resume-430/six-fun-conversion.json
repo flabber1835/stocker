@@ -1,0 +1,20 @@
+{
+  "session": "2024-07-01",
+  "security_id": "407971953404853547",
+  "ticker": "SIX",
+  "held": false,
+  "terminal_raw_close": "32.00",
+  "terminal_reported_volume": "16838505",
+  "delivered_security_id": "1144271736914874719",
+  "delivered_ticker": "FUN",
+  "delivered_same_session_close": "52.11",
+  "exchange_ratio": "0.5800",
+  "special_dividend_per_share": "1.53",
+  "special_dividend_pit_session": "2024-06-28",
+  "status": "RESOLVED_EXACT_FIXED_STOCK_CONVERSION",
+  "decision": "Convert at the exact contractual ratio, use the causal same-session FUN close only for fractional shares, and do not duplicate the separately recorded special dividend.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/701374/000119312524173426/d813704dex991.htm",
+    "https://www.sec.gov/Archives/edgar/data/1999001/000119312524173290/d818752d8k12b.htm"
+  ]
+}

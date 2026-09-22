@@ -1,0 +1,20 @@
+{
+  "session": "2022-01-28",
+  "security_id": "48106408264599521",
+  "ticker": "RDS.B",
+  "held": false,
+  "status": "RESOLVED_ONE_FOR_ONE_ADS_ASSIMILATION",
+  "legal_exchange_ratio": "1",
+  "delivered_security_id": "888056120539582187",
+  "delivered_ticker": "SHEL",
+  "event_session_rdsb_close": "51.06",
+  "event_session_shel_close": "51.04",
+  "first_single_line_session": "2022-01-31",
+  "decision": "Use Shell's December 20 timetable as causal authority and the January 31 SEC filing only as corroboration. Correct the false cash terminal to a one-for-one SHEL ADS assimilation. RDS.B was unheld, so this supplies leadership continuity only.",
+  "sources": [
+    "https://shell.gcs-web.com/node/20046/pdf",
+    "https://www.sec.gov/Archives/edgar/data/1306965/000117184322000621/f6k_013122.htm",
+    "https://www.shell.com/investors/information-for-shareholders/share-information.html"
+  ],
+  "known_by": "2021-12-20"
+}

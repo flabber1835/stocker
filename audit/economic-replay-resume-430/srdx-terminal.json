@@ -1,0 +1,14 @@
+{
+  "session": "2025-11-18",
+  "security_id": "1151056686004735204",
+  "ticker": "SRDX",
+  "held": false,
+  "cash_per_share": "43.00",
+  "legal_completion": "2025-11-19",
+  "status": "RESOLVED_EXACT_UNHELD_CASH_CONSIDERATION",
+  "decision": "Preserve the archive terminal boundary and use exact contractual cash consideration for leadership continuity; no portfolio receivable is created.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/924717/000095017025105477/srdx-20250630.htm",
+    "https://www.sec.gov/Archives/edgar/data/924717/000119312525288169/d864112d8k.htm"
+  ]
+}

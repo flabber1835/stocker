@@ -1,0 +1,19 @@
+{
+  "session": "2026-01-08",
+  "security_id": "111172743570106002",
+  "ticker": "HOUS",
+  "held": false,
+  "delivered_security_id": "114545707884836156",
+  "delivered_ticker": "COMP",
+  "delivered_issuer_id": "SEC_CIK:1563190",
+  "exchange_ratio": "1.436",
+  "same_session_delivered_close": "12.26",
+  "legal_completion": "2026-01-09",
+  "status": "RESOLVED_EXACT_UNHELD_STOCK_CONVERSION",
+  "decision": "Use the exact stock ratio and same-session delivered-security close at the archive boundary; no portfolio conversion occurs because HOUS is unheld.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1563190/000162828025052403/compassinc-sx4.htm",
+    "https://www.sec.gov/Archives/edgar/data/876661/000087666126000018/ruleprovisionnotice.htm",
+    "https://www.sec.gov/Archives/edgar/data/1398987/000119312526008327/d33443d8k.htm"
+  ]
+}

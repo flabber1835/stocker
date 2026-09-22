@@ -1,0 +1,15 @@
+{
+  "session": "2023-01-19",
+  "security_id": "692531027995465379",
+  "ticker": "AVEO",
+  "held": true,
+  "held_shares": 1983,
+  "contractual_cash_per_share": "15.00",
+  "exact_cash_entitlement": "29745.00",
+  "status": "RESOLVED_EXACT_CASH_SETTLEMENT",
+  "decision": "Replay from the clean October 26 checkpoint and recognize exact common-share cash consideration on the legal and archive terminal session.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1325879/000119312522264065/d414210d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1325879/000119312523010990/d450299d8k.htm"
+  ]
+}

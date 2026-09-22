@@ -1,0 +1,17 @@
+{
+  "session": "2025-10-07",
+  "security_id": "247925318417494479",
+  "ticker": "VRNA",
+  "instrument": "ADS_REPRESENTING_EIGHT_ORDINARY_SHARES",
+  "held": true,
+  "held_shares": "903",
+  "cash_per_share": "107.00",
+  "exact_cash_entitlement": "96621.00",
+  "status": "RESOLVED_EXACT_HELD_CASH_CONSIDERATION_RESTART_REQUIRED",
+  "decision": "Recognize the exact contractual ADS consideration and restart before the incomplete terminal contaminated the retained book.",
+  "restart_checkpoint": "segment-083/checkpoints/checkpoint-2025-09-25.json.gz",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1657312/000165731225000026/vrna-20250630.htm",
+    "https://www.sec.gov/Archives/edgar/data/1657312/000110465925097318/tm2528100d1_8k.htm"
+  ]
+}

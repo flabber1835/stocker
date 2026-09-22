@@ -1,0 +1,19 @@
+{
+  "session": "2022-10-03",
+  "security_id": "85956380961679327",
+  "ticker": "CHNG",
+  "held": true,
+  "held_shares": 741,
+  "merger_cash_per_share": "25.75",
+  "special_dividend_per_share": "2.00",
+  "local_pit_dividend_per_share": "0",
+  "complete_cash_per_share": "27.75",
+  "exact_cash_entitlement": "20562.75",
+  "status": "RESOLVED_EXACT_CASH_PACKAGE",
+  "decision": "Recognize both rights in the terminal settlement because the holder qualifies for both and the local PIT stream did not record the special dividend separately.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1756497/000119312521003258/d28897d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1756497/000119312522247904/d405324dex991.htm",
+    "https://www.sec.gov/Archives/edgar/data/1756497/000119312522256246/d403452d8k.htm"
+  ]
+}

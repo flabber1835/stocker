@@ -1,0 +1,18 @@
+{
+  "session": "2023-12-29",
+  "security_id": "922461509402035850",
+  "ticker": "DISH",
+  "held": false,
+  "terminal_raw_close": "5.77",
+  "terminal_reported_volume": "50765224",
+  "legal_delivered_ticker": "SATS",
+  "legal_delivered_issuer_cik": "1415404",
+  "legal_exchange_ratio": "0.350877",
+  "delivered_tape_status": "ABSENT_IN_BOUNDED_PIT_AROUND_COMPLETION",
+  "status": "RESOLVED_EXECUTABLE_TERMINAL_WITH_MISSING_DELIVERED_TAPE",
+  "decision": "Use the causal positive-volume terminal print for unheld leadership continuity because the delivered EchoStar tape is absent; do not invent a delivered price.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1415404/000110465923106152/tm2326297d1_8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1001082/000110465924000088/tm2333859d17_8k.htm"
+  ]
+}

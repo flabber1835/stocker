@@ -1,0 +1,14 @@
+{
+  "session": "2022-07-20",
+  "security_id": "518880534867944450",
+  "ticker": "VG2",
+  "held": false,
+  "status": "RESOLVED_EXACT_CASH_SETTLEMENT",
+  "contractual_cash_per_share": "21.00",
+  "actual_legal_completion": "2022-07-21",
+  "decision": "Apply exact contractual cash on the archive final-trading boundary for unheld leadership continuity.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1272830/000127283021000327/vonagefaqsv2.htm",
+    "https://www.sec.gov/Archives/edgar/data/1272830/000127283022000105/closingannouncement8-k1.htm"
+  ]
+}

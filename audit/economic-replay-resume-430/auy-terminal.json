@@ -1,0 +1,17 @@
+{
+  "session": "2023-03-31",
+  "security_id": "399015290409969211",
+  "ticker": "AUY",
+  "held": false,
+  "terminal_raw_close": "5.85",
+  "terminal_reported_volume": "42239053",
+  "legal_cash_per_share": "1.0406",
+  "legal_agnico_shares_per_parent": "0.0376",
+  "legal_pan_american_shares_per_parent": "0.1598",
+  "status": "RESOLVED_EXECUTABLE_TERMINAL_PACKAGE_EXIT",
+  "decision": "Use the causal positive-volume terminal print for unheld leadership continuity because the supplement interface cannot express two delivered equities and partial-package valuation is economically wrong.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1264089/000110465922130576/tm2231281d2_ex99-1.htm",
+    "https://www.sec.gov/Archives/edgar/data/1264089/000117184323002028/exh_991.htm"
+  ]
+}

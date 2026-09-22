@@ -1,0 +1,20 @@
+{
+  "session": "2023-06-30",
+  "security_id": "957813242710783302",
+  "ticker": "IIVI",
+  "held": false,
+  "archive_security_type": "common",
+  "authoritative_security_type": "mandatory_convertible_preferred",
+  "affected_archive_first_session": "2020-08-10",
+  "terminal_raw_close": "227.08",
+  "terminal_reported_volume": "247144",
+  "actual_conversion_date": "2023-07-03",
+  "actual_common_conversion_ratio": "4.4523",
+  "status": "CONTAINED_TERMINAL_UNRESOLVED_HISTORICAL_CLASSIFICATION",
+  "decision": "Use the terminal print only to stop future propagation. The historical leadership and controller effects remain uncertified until the PIT classification interval is corrected and replayed.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/820318/000082031823000009/iivi-20230331.htm",
+    "https://www.sec.gov/Archives/edgar/data/820318/000119312523180985/d515821d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/820318/000087666123000552/ruleprovisionnotice.htm"
+  ]
+}

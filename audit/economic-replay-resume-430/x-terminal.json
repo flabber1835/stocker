@@ -1,0 +1,18 @@
+{
+  "session": "2025-06-17",
+  "security_id": "177331179426033273",
+  "ticker": "X",
+  "held": false,
+  "cash_per_share": "55.00",
+  "status": "RESOLVED_EXACT_UNHELD_CASH_CONSIDERATION",
+  "decision": "Preserve the archive terminal boundary and use exact contractual cash consideration for leadership continuity; no portfolio receivable is created.",
+  "last_local_observation": {
+    "session": "2025-06-16",
+    "raw_close": "54.85"
+  },
+  "legal_completion": "2025-06-18",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1163302/000116330225000018/x-20241231.htm",
+    "https://www.sec.gov/Archives/edgar/data/1163302/000110465925060674/tm2517314d1_8k.htm"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "session": "2025-09-26",
+  "security_id": "272478278078438193",
+  "ticker": "WOLF2",
+  "held": false,
+  "provider_kind": "CASH_MERGER",
+  "legal_kind": "CHAPTER_11_STOCK_CONVERSION",
+  "final_raw_close": "1.21",
+  "reported_volume": "118538000",
+  "new_security_id": "437950410803911253",
+  "new_ticker": "WOLF",
+  "new_security_first_session": "2025-09-29",
+  "initial_exchange_ratio": "0.008352",
+  "contingent_exchange_ratio": "0.005568",
+  "status": "BOUNDED_UNHELD_TERMINAL_PRINT_PROXY_PROVIDER_CLASSIFICATION_RETAINED",
+  "decision": "Use the final executable old-share print only for unheld leadership-series continuity because the delivered security has no same-session price. Do not treat it as cash consideration or portfolio settlement.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/895419/000119312525215405/d928290d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/895419/000119312525223057/d69265d8k.htm"
+  ]
+}

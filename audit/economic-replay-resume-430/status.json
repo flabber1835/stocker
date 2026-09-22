@@ -1,30 +1,30 @@
 {
   "checkpoint": {
-    "bytes": 19878633,
-    "last_session": "2021-12-30",
-    "path": "C:\\GitHub\\stocker\\.codex-tmp\\economic-replay-merged-ee23c894\\segment-069\\checkpoints\\checkpoint-2021-12-30.json.gz",
-    "sha256": "03c966068ac73f2b5c2034cd4dbe9108da5ffb8677cbf7d3d775d4358f675550"
+    "bytes": 15200016,
+    "last_session": "2026-07-31",
+    "path": "C:\\GitHub\\stocker\\.codex-tmp\\economic-replay-merged-ee23c894\\segment-084\\checkpoints\\checkpoint-2026-07-31.json.gz",
+    "sha256": "72d621aac063cf6ae2e50d3d1c681c74ce2df8f83c74dcc77978c00eb6d7f918"
   },
   "comparison": {
     "current": {
-      "cagr": 0.16098855368864673,
-      "multiple": "9.987627277689443907025561903"
+      "cagr": 0.18385952802371325,
+      "multiple": "29.24378482763247733120692704"
     },
     "reference": {
-      "cagr": 0.19278467839076827,
-      "multiple": "15.148476983912644"
+      "cagr": 0.22323600023175563,
+      "multiple": "56.265349336558316"
     },
     "spy": {
-      "cagr": 0.11094024008783208,
-      "multiple": "5.063147068131495007717582331"
+      "cagr": 0.11256316445674568,
+      "multiple": "8.443306659433098078000243748"
     }
   },
-  "date": "2021-12-30",
-  "elapsed_seconds": 619.86,
+  "date": "2026-07-31",
+  "elapsed_seconds": 1276.08,
   "maximum_drawdown": "-0.2977324909346084152720352722",
   "measurement_start": "2006-07-31",
-  "nav": "924129.3503160941066223925628",
+  "nav": "2705851.862725465448329437005",
   "phase": "PROVISIONAL_MATCHED_DATE_COMPARISON",
-  "status": "STOPPED_RESUMABLE",
-  "total_sessions": 4027
+  "status": "COMPLETE",
+  "total_sessions": 5176
 }

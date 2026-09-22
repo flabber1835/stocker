@@ -1,0 +1,14 @@
+{
+  "session": "2024-07-26",
+  "security_id": "965579180728514841",
+  "ticker": "HOLI",
+  "held": false,
+  "prior_session_raw_close": "26.42",
+  "cash_per_share": "26.50",
+  "status": "RESOLVED_EXACT_CASH_CONSIDERATION",
+  "decision": "Use the exact post-completion cash deliverable, not the nearby terminal market print.",
+  "sources": [
+    "https://reportify-1252068037.cos.ap-beijing.myqcloud.com/media/production/n_ce5a884cacd2f20a66c239205e61f339_3cbb3dec237476f9afdad3bc57d79513_20240718212525.pdf",
+    "https://infomemo.theocc.com/infomemos?number=54944"
+  ]
+}

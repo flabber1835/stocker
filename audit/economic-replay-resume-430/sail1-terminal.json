@@ -1,0 +1,16 @@
+{
+  "session": "2022-08-15",
+  "security_id": "912220778513772854",
+  "ticker": "SAIL1",
+  "held": true,
+  "held_shares": 454,
+  "contractual_cash_per_share": "65.25",
+  "exact_cash_entitlement": "29623.50",
+  "status": "RESOLVED_EXACT_CASH_SETTLEMENT",
+  "actual_legal_completion": "2022-08-16",
+  "decision": "Replay from the clean April 27 checkpoint and recognize exact cash at the archive final-trading boundary.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1627857/000119312522100936/d248941dex991.htm",
+    "https://www.sec.gov/Archives/edgar/data/1627857/000119312522222355/d477742dex991.htm"
+  ]
+}

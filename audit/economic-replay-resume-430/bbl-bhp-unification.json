@@ -1,0 +1,19 @@
+{
+  "session": "2022-01-28",
+  "security_id": "441520804164056560",
+  "ticker": "BBL",
+  "held": false,
+  "status": "RESOLVED_ONE_FOR_ONE_ADS_UNIFICATION",
+  "legal_exchange_ratio": "1",
+  "delivered_security_id": "537395114216782439",
+  "delivered_ticker": "BHP",
+  "event_session_bbl_close": "64.18",
+  "event_session_bhp_close": "64.17",
+  "first_post_unification_session": "2022-01-31",
+  "decision": "Correct the false cash terminal to a one-for-one BHP ADS conversion. BBL was unheld, so this supplies leadership continuity only and creates no portfolio entitlement or broker-delivery claim.",
+  "sources": [
+    "https://www.bhp.com/news/media-centre/releases/2022/01/court-sanction-of-bhps-unification-scheme-of-arrangement",
+    "https://www.bhp.com/news/media-centre/releases/2022/01/bhp-unification-scheme-of-arrangement-becomes-effective",
+    "https://www.sec.gov/Archives/edgar/data/1171264/000119312521352035/d256620d6k.htm"
+  ]
+}

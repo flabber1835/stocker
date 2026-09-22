@@ -1,0 +1,18 @@
+{
+  "session": "2022-10-03",
+  "security_id": "518965153324894375",
+  "ticker": "BHVN1",
+  "held": false,
+  "status": "RESOLVED_EXECUTABLE_COMPLETE_PACKAGE_EXIT",
+  "terminal_session_close": "151.80",
+  "terminal_session_volume": 4261000,
+  "legal_cash_per_share": "148.50",
+  "legal_child_security_id": "584157368528428769",
+  "legal_child_ticker": "BHVN",
+  "legal_child_shares_per_parent": "0.5",
+  "decision": "Use the positive-volume final print to value the complete cash-plus-spin package causally; do not use the next-day child price or count the spinoff twice.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/78003/000119312522145661/d336582d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1935979/000162828022026549/biohavenltd-sx1.htm"
+  ]
+}

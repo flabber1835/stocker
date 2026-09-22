@@ -1,0 +1,14 @@
+{
+  "session": "2022-09-26",
+  "security_id": "336542627528470254",
+  "ticker": "GCP",
+  "held": false,
+  "status": "RESOLVED_EXACT_CASH_SETTLEMENT",
+  "contractual_cash_per_share": "32.00",
+  "actual_legal_completion": "2022-09-27",
+  "decision": "Apply exact contractual cash on the archive final-trading boundary for unheld leadership continuity.",
+  "sources": [
+    "https://www.saint-gobain.com/sites/saint-gobain.com/files/media/document/SGO_URD_2021_EN_220330_MEL.pdf",
+    "https://gcpat.sg/en-gb/about/news/blog/gcp-applied-technologies-acquisition-saint-gobain-closes"
+  ]
+}

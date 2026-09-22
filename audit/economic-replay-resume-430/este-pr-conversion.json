@@ -1,0 +1,17 @@
+{
+  "session": "2023-10-31",
+  "security_id": "787522156476050338",
+  "ticker": "ESTE",
+  "held": false,
+  "delivered_security_id": "429461440255021477",
+  "delivered_ticker": "PR",
+  "exchange_ratio": "1.446",
+  "cash_in_lieu_price_per_delivered_share": "14.57",
+  "status": "RESOLVED_FIXED_STOCK_CONVERSION",
+  "decision": "Preserve the final-trading archive boundary and use the exact stock ratio with the same-session delivered close only for fractions.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/10254/000001025423000175/este-20230821.htm",
+    "https://www.sec.gov/Archives/edgar/data/10254/000119312523270505/d551345d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1658566/000119312523270509/d559460d8k.htm"
+  ]
+}

@@ -1,0 +1,17 @@
+{
+  "session": "2025-11-14",
+  "security_id": "625855250757559217",
+  "ticker": "MTSR",
+  "held": false,
+  "guaranteed_cash_per_share": "65.60",
+  "contingent_value_right_maximum": "20.65",
+  "last_executable_session": "2025-11-13",
+  "final_raw_close": "70.50",
+  "reported_volume": "27874000",
+  "status": "BOUNDED_UNHELD_TERMINAL_PRINT_PROXY_CASH_PLUS_CVR",
+  "decision": "Use the final executable share price as aggregate cash-plus-CVR market value for unheld leadership continuity; do not characterize it as cash consideration or portfolio settlement.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/2040807/000119312525273292/d50740dex21.htm",
+    "https://www.sec.gov/Archives/edgar/data/2040807/000119312525280387/d161976d8k.htm"
+  ]
+}

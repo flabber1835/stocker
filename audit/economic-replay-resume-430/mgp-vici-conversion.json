@@ -1,0 +1,17 @@
+{
+  "session": "2022-04-28",
+  "security_id": "139451436629498027",
+  "ticker": "MGP",
+  "held": false,
+  "status": "RESOLVED_FIXED_STOCK_CONVERSION",
+  "legal_exchange_ratio": "1.366",
+  "delivered_security_id": "45854788209044163",
+  "delivered_ticker": "VICI",
+  "event_session_vici_close": "30.64",
+  "actual_legal_completion": "2022-04-29",
+  "decision": "Correct the false cash terminal to a 1.366 VICI stock conversion at the archive final-trading boundary. MGP was unheld; the separate MGM OP-unit redemption is excluded.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1705696/000119312521278317/d214293ds4a.htm",
+    "https://www.sec.gov/Archives/edgar/data/1705696/000119312522134159/d291163d8k.htm"
+  ]
+}

@@ -1,0 +1,13 @@
+{
+  "session": "2025-05-07",
+  "security_id": "426909110892886734",
+  "ticker": "ZCAR",
+  "held": false,
+  "terminal_raw_close": "4.95",
+  "terminal_reported_volume": "685340",
+  "status": "RESOLVED_EXECUTABLE_NASDAQ_EXIT_WITH_OTC_CONTINUATION",
+  "decision": "Use the causal positive-volume final Nasdaq print for unheld leadership continuity; do not manufacture cash consideration for a regulatory delisting.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1854275/000121390025040800/ea0241234-8k_zoomcar.htm"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "session": "2024-01-03",
+  "security_id": "663559201098760918",
+  "ticker": "LTHM",
+  "held": false,
+  "terminal_raw_close": "16.51",
+  "terminal_reported_volume": "50972121",
+  "delivered_security_id": "683269517186158393",
+  "delivered_ticker": "ALTM",
+  "exchange_ratio": "2.406",
+  "delivered_first_session": "2024-01-04",
+  "delivered_first_close": "6.81",
+  "status": "RESOLVED_EXECUTABLE_TERMINAL_BEFORE_DELIVERED_SECURITY_TRADING",
+  "decision": "Use LTHM's causal positive-volume final print for unheld leadership continuity. Retain the exact contractual ALTM ratio as evidence, but do not use ALTM's next-session price at the January 3 boundary.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1977303/000114036124000579/ny20017659x1_ex99-1.htm",
+    "https://www.sec.gov/Archives/edgar/data/876661/000087666124000021/ruleprovisionnotice.htm"
+  ]
+}

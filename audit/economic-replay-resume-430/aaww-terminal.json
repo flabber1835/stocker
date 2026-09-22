@@ -1,0 +1,16 @@
+{
+  "session": "2023-03-17",
+  "security_id": "39617551160377787",
+  "ticker": "AAWW",
+  "held": true,
+  "held_shares": 288,
+  "contractual_cash_per_share": "102.50",
+  "exact_cash_entitlement": "29520.00",
+  "status": "RESOLVED_EXACT_CASH_SETTLEMENT",
+  "decision": "Replay from the retained clean February 1 checkpoint and recognize exact common-share cash consideration on the legal and archive terminal session.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1135185/000095015722000865/defa14a.htm",
+    "https://www.sec.gov/Archives/edgar/data/1135185/000110465923033984/tm239235d1_ex99-1.htm",
+    "https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2023-160"
+  ]
+}

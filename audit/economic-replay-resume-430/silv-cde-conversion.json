@@ -1,0 +1,26 @@
+{
+  "session": "2025-02-13",
+  "security_id": "694106194929270539",
+  "ticker": "SILV",
+  "held": false,
+  "terminal_raw_close": "11.55",
+  "terminal_reported_volume": "5268333",
+  "delivered_security_id": "383358336107315763",
+  "delivered_ticker": "CDE",
+  "delivered_same_session_close": "7.22",
+  "exchange_ratio": "1.6022",
+  "status": "RESOLVED_EXACT_CONVERSION_WITH_UNRESOLVED_UPSTREAM_IDENTITY_CLASSIFICATION_DEFECT",
+  "unresolved_input_defect": {
+    "affected_start": "2018-08-21",
+    "affected_end": "2025-02-13",
+    "archive_issuer_id": "SEC_CIK:1058307",
+    "correct_issuer_id": "SEC_CIK:1659520",
+    "archive_sector": "07 Telcm",
+    "required_remediation": "Correct the authoritative PIT identity/classification and replay from before 2018-08-21."
+  },
+  "decision": "Use the exact contractual SILV conversion for the terminal event while retaining the historical issuer and sector contamination as a certification blocker.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/215466/000114036125004511/ef20043624_8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1659520/000095014225000380/eh250591256_ex9901.htm"
+  ]
+}

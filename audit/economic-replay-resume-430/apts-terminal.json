@@ -1,0 +1,15 @@
+{
+  "session": "2022-06-23",
+  "security_id": "425931792436652190",
+  "ticker": "APTS",
+  "held": true,
+  "held_shares": 1257,
+  "contractual_cash_per_share": "25.00",
+  "exact_cash_entitlement": "31425.00",
+  "status": "RESOLVED_EXACT_CASH_SETTLEMENT",
+  "decision": "Replay from the clean April 27 checkpoint and recognize the exact common-share cash entitlement on legal completion.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1481832/000148183222000014/apts-20220216.htm",
+    "https://www.sec.gov/Archives/edgar/data/1481832/000148183222000180/apts-20220623.htm"
+  ]
+}

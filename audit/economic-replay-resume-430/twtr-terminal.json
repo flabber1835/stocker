@@ -1,0 +1,13 @@
+{
+  "session": "2022-10-27",
+  "security_id": "944772179300698832",
+  "ticker": "TWTR",
+  "held": false,
+  "contractual_cash_per_share": "54.20",
+  "status": "RESOLVED_EXACT_CASH_SETTLEMENT",
+  "decision": "Use exact contractual consideration on the legal and archive terminal session for unheld leadership continuity.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1418091/000119312522120461/d310843d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1418091/000119312522272772/d411753d8k.htm"
+  ]
+}

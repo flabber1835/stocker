@@ -1,0 +1,16 @@
+{
+  "session": "2025-04-15",
+  "security_id": "650665391089899748",
+  "ticker": "SWI",
+  "held": true,
+  "held_shares": "3032",
+  "cash_per_share": "18.50",
+  "exact_cash_entitlement": "56092.00",
+  "status": "RESOLVED_EXACT_HELD_CASH_CONSIDERATION_RESTART_REQUIRED",
+  "decision": "Recognize the exact contractual receivable and restart before the incomplete terminal contaminated the retained book.",
+  "restart_checkpoint": "segment-078/checkpoints/checkpoint-2025-02-14.json.gz",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1739942/000119312525022306/d910729dex991.htm",
+    "https://www.sec.gov/Archives/edgar/data/1739942/000119312525082231/d938698dex991.htm"
+  ]
+}

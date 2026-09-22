@@ -4,9 +4,10 @@ For predecessor retries the latest numbered segment owns each date. Segment 044
 is accepted only through July 6 (before its superseded FDO input); 045 owns the
 continuation. Segment 047 is accepted only through January 28, 2016; exploratory
 segments 048-051 are excluded and corrected segment 052 owns January 29 onward.
-Later accepted segments must be non-overlapping and contiguous. The independent
-verifier checks session coverage, NAV continuity, final holdings and checkpoint
-session count. Selection never uses performance.
+The later explicit cuts discard state that advanced across incomplete held
+terminal events. Accepted rows must be non-overlapping and contiguous. The
+independent verifier checks session coverage, NAV continuity, final holdings
+and checkpoint session count. Selection never uses performance.
 """
 import argparse
 from decimal import Decimal
@@ -28,10 +29,18 @@ def main():
              args.root / 'economic-replay-merged-da7b64a9']
     paths = [p for root in roots for p in sorted(root.glob('segment-*/daily.jsonl'))]
     current = args.root / 'economic-replay-merged-ee23c894'
-    if args.last_segment < 52:
-        raise ValueError('last segment precedes corrected continuation')
-    paths += [current / f'segment-{n:03d}/daily.jsonl'
-              for n in (44, 45, 47, *range(52, args.last_segment + 1))]
+    if args.last_segment != 84:
+        raise ValueError('final reviewed lineage ends at segment 084')
+    accepted = [
+        (44, '2015-07-06'), (45, None), (47, '2016-01-28'),
+        *[(n, None) for n in range(52, 73)],
+        (76, '2023-02-01'), (77, '2023-08-14'),
+        (78, '2025-02-14'), (82, '2025-05-06'),
+        (83, '2025-09-25'), (84, None),
+    ]
+    paths += [current / f'segment-{n:03d}/daily.jsonl' for n, _ in accepted]
+    cut_by_path = {current / f'segment-{n:03d}/daily.jsonl': cut
+                   for n, cut in accepted if cut is not None}
     if any(not path.exists() for path in paths):
         raise ValueError('accepted segment is absent')
     daily, owners, sources = {}, {}, []
@@ -43,10 +52,7 @@ def main():
         for line in raw.decode().splitlines():
             row = json.loads(line)
             day = row['date']
-            if path.parent.name == 'segment-044' and day > '2015-07-06':
-                excluded += 1
-                continue
-            if path.parent.name == 'segment-047' and day > '2016-01-28':
+            if day > cut_by_path.get(path, '9999-12-31'):
                 excluded += 1
                 continue
             if path.parent.parent == current and int(path.parent.name.removeprefix('segment-')) >= 52:

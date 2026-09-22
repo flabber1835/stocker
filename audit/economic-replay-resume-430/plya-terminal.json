@@ -1,0 +1,16 @@
+{
+  "session": "2025-06-13",
+  "security_id": "88549551315698472",
+  "ticker": "PLYA",
+  "held": true,
+  "held_shares": "4525",
+  "cash_per_share": "13.50",
+  "exact_cash_entitlement": "61087.50",
+  "status": "RESOLVED_EXACT_HELD_CASH_CONSIDERATION_RESTART_REQUIRED",
+  "decision": "Recognize the exact tender and remaining-share acquisition amount and restart before the incomplete terminal contaminated the retained book.",
+  "restart_checkpoint": "segment-082/checkpoints/checkpoint-2025-05-06.json.gz",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1468174/000110465925060325/tm2518204d1_8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1468174/000110465925112977/tm2531334d2_ex99-1.htm"
+  ]
+}

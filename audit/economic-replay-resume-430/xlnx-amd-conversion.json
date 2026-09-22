@@ -1,0 +1,17 @@
+{
+  "session": "2022-02-11",
+  "security_id": "691509071280886073",
+  "ticker": "XLNX",
+  "held": false,
+  "status": "RESOLVED_FIXED_STOCK_CONVERSION",
+  "legal_exchange_ratio": "1.7234",
+  "delivered_security_id": "225029010200819642",
+  "delivered_ticker": "AMD",
+  "event_session_amd_close": "113.18",
+  "actual_legal_completion": "2022-02-14",
+  "decision": "Correct the false cash terminal to a 1.7234 AMD stock conversion at the archive final-trading boundary. XLNX was unheld, so this supplies leadership continuity only.",
+  "sources": [
+    "https://ir.amd.com/news-events/press-releases/detail/977/amd-to-acquire-xilinx-creating-the-industrys-high-performance-computing-leader",
+    "https://ir.amd.com/financial-information/sec-filings/content/0000002488-22-000031/amd-20220214.htm"
+  ]
+}

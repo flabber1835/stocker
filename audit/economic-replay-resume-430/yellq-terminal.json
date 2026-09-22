@@ -1,0 +1,18 @@
+{
+  "session": "2023-08-15",
+  "security_id": "576774468891329877",
+  "ticker": "YELLQ",
+  "held": false,
+  "terminal_raw_close": "1.10",
+  "terminal_reported_volume": "7966601",
+  "chapter_11_petition": "2023-08-06",
+  "nasdaq_suspension": "2023-08-16",
+  "otc_continuation_symbol": "YELLQ",
+  "status": "RESOLVED_BOUNDED_MARKET_EXIT_WITHOUT_CASH_FINALITY",
+  "decision": "Use the last executable in-archive Nasdaq print for unheld leadership continuity; do not infer cash consideration or bankruptcy recovery.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/716006/000095017023040179/yell-20230807.htm",
+    "https://ir.nasdaq.com/news-releases/news-release-details/delisting-securities-nymox-pharmaceutical-corporation-aridis",
+    "https://investors.myyellow.com/investor-resources/investor-faqs/"
+  ]
+}

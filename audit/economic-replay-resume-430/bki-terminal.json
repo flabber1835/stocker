@@ -1,0 +1,17 @@
+{
+  "session": "2023-09-01",
+  "security_id": "285304847559167677",
+  "ticker": "BKI",
+  "held": false,
+  "terminal_raw_close": "75.76",
+  "terminal_reported_volume": "21296864",
+  "legal_cash_election_per_share": "75.867",
+  "legal_stock_election_ratio": "0.6577",
+  "legal_stock_election_ticker": "ICE",
+  "status": "RESOLVED_EXECUTABLE_TERMINAL_ELECTIVE_PACKAGE",
+  "decision": "Use the causal positive-volume terminal print for unheld leadership continuity rather than inventing a holder election or proration result.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1571949/000119312523228147/d529514d8k.htm",
+    "https://ir.theice.com/press/news-details/2023/Intercontinental-Exchange-Completes-Acquisition-of-Black-Knight-and-Announces-Preliminary-Results-of-Elections-Made-by-Black-Knight-Stockholders-in-Connection-with-the-Acquisition/default.aspx"
+  ]
+}

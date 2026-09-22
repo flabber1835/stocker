@@ -1,0 +1,14 @@
+{
+  "session": "2022-10-12",
+  "security_id": "961917206145222151",
+  "ticker": "CVET",
+  "held": false,
+  "contractual_cash_per_share": "21.00",
+  "status": "RESOLVED_EXACT_CASH_SETTLEMENT",
+  "decision": "Preserve the final-trading archive boundary and use exact contractual consideration for unheld leadership continuity.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1752836/000119312522159139/d290661d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1752836/000119312522261932/d335086d8k.htm",
+    "https://www.nasdaqtrader.com/TraderNews.aspx?id=eca2022-284"
+  ]
+}

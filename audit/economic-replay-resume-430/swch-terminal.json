@@ -1,0 +1,15 @@
+{
+  "session": "2022-12-05",
+  "security_id": "903870393381176216",
+  "ticker": "SWCH",
+  "held": true,
+  "held_shares": 857,
+  "contractual_cash_per_share": "34.25",
+  "exact_cash_entitlement": "29352.25",
+  "status": "RESOLVED_EXACT_CASH_SETTLEMENT",
+  "decision": "Replay from the clean October 26 checkpoint and recognize exact Class A common-share cash consideration on the archive final-trading boundary.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1710583/000119312522147632/d353797d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1710583/000119312522298966/d356989d8k.htm"
+  ]
+}

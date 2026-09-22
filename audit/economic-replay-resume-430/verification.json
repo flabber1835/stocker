@@ -2,22 +2,22 @@
   "checks": "PASS",
   "formation_start": "2006-01-03",
   "measurement_start": "2006-07-31",
-  "last_session": "2021-12-30",
-  "sessions": 4027,
+  "last_session": "2026-07-31",
+  "sessions": 5176,
   "baseline": "92527.41663482299000000000015",
   "first_holding_date": "2006-07-06",
   "comparison": {
     "current": {
-      "multiple": "9.987627277689443907025561903",
-      "cagr": 0.16098855368864673
+      "multiple": "29.24378482763247733120692704",
+      "cagr": 0.18385952802371325
     },
     "reference": {
-      "multiple": "15.148476983912644",
-      "cagr": 0.19278467839076827
+      "multiple": "56.265349336558316",
+      "cagr": 0.22323600023175563
     },
     "spy": {
-      "multiple": "5.063147068131495007717582331",
-      "cagr": 0.11094024008783208
+      "multiple": "8.443306659433098078000243748",
+      "cagr": 0.11256316445674568
     }
   },
   "anchor_2008_09_02": {
@@ -1451,140 +1451,347 @@
       "field": "held_allocation",
       "current": "0",
       "reference": "1.0"
+    },
+    {
+      "date": "2022-02-17",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2022-02-18",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2022-02-18",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2022-02-22",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2022-08-08",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2022-08-09",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2022-08-09",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2022-08-10",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2022-08-10",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2022-08-11",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2022-08-11",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2022-08-12",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "0.55"
+    },
+    {
+      "date": "2026-03-30",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-03-31",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-03-31",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-01",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-01",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-02",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-02",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-06",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-06",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-07",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-07",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-08",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-08",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-09",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-09",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-10",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-10",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-13",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-13",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-14",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-14",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-15",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-15",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-16",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-16",
+      "field": "pending_allocation",
+      "current": "0",
+      "reference": "1.0"
+    },
+    {
+      "date": "2026-04-17",
+      "field": "held_allocation",
+      "current": "0",
+      "reference": "1.0"
     }
   ],
   "core_oracle": {
-    "cash": "130350.44922571816",
+    "cash": "970385.312751546",
     "receivables": "0",
     "positions": [
       {
-        "security_id": "524074005503537544",
-        "ticker": "DEN",
-        "quantity": 632,
-        "raw_close": "75.170000000000002",
-        "value": "47507.440000000001264"
+        "security_id": "131558713824601338",
+        "ticker": "ATEX",
+        "quantity": 1112,
+        "raw_close": "93.019999999999996",
+        "value": "103438.239999999995552"
       },
       {
-        "security_id": "19222395384737646",
-        "ticker": "EPAM",
-        "quantity": 55,
-        "raw_close": "673.13999999999999",
-        "value": "37022.69999999999945"
+        "security_id": "831602523120012298",
+        "ticker": "NFG",
+        "quantity": 762,
+        "raw_close": "82.310000000000002",
+        "value": "62720.220000000001524"
       },
       {
-        "security_id": "1142384738338025061",
-        "ticker": "WST",
-        "quantity": 74,
-        "raw_close": "471.33999999999997",
-        "value": "34879.15999999999778"
+        "security_id": "345679706151556113",
+        "ticker": "SU",
+        "quantity": 822,
+        "raw_close": "67.280000000000001",
+        "value": "55304.160000000000822"
       },
       {
-        "security_id": "736127636795898067",
-        "ticker": "PWR",
-        "quantity": 383,
-        "raw_close": "112.83",
-        "value": "43213.89"
+        "security_id": "326576239200069305",
+        "ticker": "ATEN",
+        "quantity": 3169,
+        "raw_close": "29.57",
+        "value": "93707.33"
       },
       {
-        "security_id": "921949065031827713",
-        "ticker": "TPR",
-        "quantity": 782,
-        "raw_close": "40.810000000000002",
-        "value": "31913.420000000001564"
+        "security_id": "1039584136787635682",
+        "ticker": "AHR",
+        "quantity": 2177,
+        "raw_close": "55.600000000000001",
+        "value": "121041.200000000002177"
       },
       {
-        "security_id": "1147101530458608922",
-        "ticker": "CHRD",
-        "quantity": 387,
-        "raw_close": "127.15000000000001",
-        "value": "49207.05000000000387"
+        "security_id": "495161380520953778",
+        "ticker": "FTI",
+        "quantity": 39,
+        "raw_close": "71.659999999999997",
+        "value": "2794.739999999999883"
       },
       {
-        "security_id": "183768544366008802",
-        "ticker": "PRFT",
-        "quantity": 284,
-        "raw_close": "129.84999999999999",
-        "value": "36877.39999999999716"
+        "security_id": "1096890341814551411",
+        "ticker": "NESR",
+        "quantity": 1847,
+        "raw_close": "26.960000000000001",
+        "value": "49795.120000000001847"
       },
       {
-        "security_id": "883115274840887895",
-        "ticker": "WAL",
-        "quantity": 334,
-        "raw_close": "107.79000000000001",
-        "value": "36001.86000000000334"
+        "security_id": "1125757768717674484",
+        "ticker": "LLYVK",
+        "quantity": 894,
+        "raw_close": "98.599999999999994",
+        "value": "88148.399999999994636"
       },
       {
-        "security_id": "974573013202092716",
-        "ticker": "FRHC",
-        "quantity": 655,
-        "raw_close": "69.890000000000001",
-        "value": "45777.950000000000655"
+        "security_id": "151591024860208405",
+        "ticker": "INDV",
+        "quantity": 2174,
+        "raw_close": "40.009999999999998",
+        "value": "86981.739999999995652"
       },
       {
-        "security_id": "842836433184266027",
-        "ticker": "BAX",
-        "quantity": 105,
-        "raw_close": "86.450000000000003",
-        "value": "9077.250000000000315"
+        "security_id": "445786942899948161",
+        "ticker": "WRB",
+        "quantity": 621,
+        "raw_close": "72.540000000000006",
+        "value": "45047.340000000003726"
       },
       {
-        "security_id": "200263107375568913",
-        "ticker": "FDS",
-        "quantity": 72,
-        "raw_close": "484.74000000000001",
-        "value": "34901.28000000000072"
+        "security_id": "895750335155060927",
+        "ticker": "ESLT",
+        "quantity": 147,
+        "raw_close": "808.64999999999998",
+        "value": "118871.54999999999706"
       },
       {
-        "security_id": "753641750484343508",
-        "ticker": "LSI",
-        "quantity": 283,
-        "raw_close": "151.97999999999999",
-        "value": "43010.33999999999717"
+        "security_id": "635499515642261586",
+        "ticker": "CRS",
+        "quantity": 366,
+        "raw_close": "519.65999999999997",
+        "value": "190195.55999999998902"
       },
       {
-        "security_id": "103434391420773307",
-        "ticker": "INTU",
-        "quantity": 45,
-        "raw_close": "643.36000000000001",
-        "value": "28951.20000000000045"
+        "security_id": "860604539490443063",
+        "ticker": "CNP",
+        "quantity": 1568,
+        "raw_close": "42.039999999999999",
+        "value": "65918.719999999998432"
       },
       {
-        "security_id": "178942520116408142",
-        "ticker": "DAC",
-        "quantity": 583,
-        "raw_close": "72.359999999999999",
-        "value": "42185.879999999999417"
-      },
-      {
-        "security_id": "948467845455813361",
-        "ticker": "ATKR",
-        "quantity": 417,
-        "raw_close": "109.59999999999999",
-        "value": "45703.19999999999583"
-      },
-      {
-        "security_id": "899932545079148879",
-        "ticker": "MRK",
-        "quantity": 106,
-        "raw_close": "77.140000000000001",
-        "value": "8176.840000000000106"
-      },
-      {
-        "security_id": "817094156882738806",
-        "ticker": "VICR",
-        "quantity": 5,
-        "raw_close": "126.06",
-        "value": "630.30"
+        "security_id": "952846900641587896",
+        "ticker": "MCK",
+        "quantity": 120,
+        "raw_close": "856.19000000000005",
+        "value": "102742.80000000000600"
       }
     ],
-    "nav": "705387.609225718159091",
-    "residual": "-4.0909E-11"
+    "nav": "2157092.432751545986331",
+    "residual": "-1.3669E-11"
   },
   "checkpoint": {
-    "bytes": 19878633,
-    "last_session": "2021-12-30",
-    "path": "C:\\GitHub\\stocker\\.codex-tmp\\economic-replay-merged-ee23c894\\segment-069\\checkpoints\\checkpoint-2021-12-30.json.gz",
-    "sha256": "03c966068ac73f2b5c2034cd4dbe9108da5ffb8677cbf7d3d775d4358f675550"
+    "bytes": 15200016,
+    "last_session": "2026-07-31",
+    "path": "C:\\GitHub\\stocker\\.codex-tmp\\economic-replay-merged-ee23c894\\segment-084\\checkpoints\\checkpoint-2026-07-31.json.gz",
+    "sha256": "72d621aac063cf6ae2e50d3d1c681c74ce2df8f83c74dcc77978c00eb6d7f918"
   },
   "applied_supplements": [
     "AVL1-2006-09-20-cash-reconstruction",
@@ -1706,6 +1913,46 @@
     "GTT-2021-07-01-executable-terminal-market-exit",
     "SPRT-2021-09-14-executable-terminal-market-exit",
     "XEC-2021-09-30-executable-terminal-market-exit",
-    "XLRN-2021-11-22-exact-cash-acquisition"
+    "XLRN-2021-11-22-exact-cash-acquisition",
+    "BBL-2022-01-28-BHP-ADS-unification",
+    "RDSB-2022-01-28-SHEL-ADS-assimilation",
+    "XLNX-2022-02-11-AMD-stock-conversion",
+    "MGP-2022-04-28-VICI-stock-conversion",
+    "DIDIY-2022-06-10-executable-terminal-market-exit",
+    "APTS-2022-06-23-exact-cash-held",
+    "VG2-2022-07-20-exact-cash",
+    "SAIL1-2022-08-15-exact-cash-held",
+    "GCP-2022-09-26-exact-cash",
+    "BHVN1-2022-10-03-executable-terminal-package-exit",
+    "CHNG-2022-10-03-exact-cash-plus-special-dividend-held",
+    "CVET-2022-10-12-exact-cash",
+    "TWTR-2022-10-27-exact-cash",
+    "SWCH-2022-12-05-exact-cash-held",
+    "SWIR-2023-01-12-exact-cash-held",
+    "AVEO-2023-01-19-exact-cash-held",
+    "AAWW-2023-03-17-exact-cash-held",
+    "AUY-2023-03-31-executable-terminal-multi-security-package",
+    "IIVI-2023-06-30-executable-terminal-preferred-containment",
+    "YELLQ-2023-08-15-executable-nasdaq-exit",
+    "FOCS-2023-08-30-exact-cash-held",
+    "BKI-2023-09-01-executable-terminal-elective-package",
+    "ESTE-2023-10-31-fixed-stock-conversion",
+    "DISH-2023-12-29-executable-terminal-missing-delivered-tape",
+    "LTHM-2024-01-03-executable-terminal-before-arcadium-trading",
+    "SIX-2024-07-01-combined-company-stock-conversion",
+    "HOLI-2024-07-26-exact-cash-merger",
+    "SWN-2024-09-30-chesapeake-stock-conversion",
+    "SILV-2025-02-13-coeur-stock-conversion",
+    "ATSG-2025-04-10-exact-held-cash-merger",
+    "PYCR-2025-04-11-exact-held-cash-merger",
+    "SWI-2025-04-15-exact-held-cash-merger",
+    "ZCAR-2025-05-07-executable-nasdaq-exit",
+    "PLYA-2025-06-13-exact-held-cash-acquisition",
+    "X-2025-06-17-exact-unheld-cash-acquisition",
+    "WOLF2-2025-09-26-executable-terminal-before-reorganization",
+    "VRNA-2025-10-07-exact-held-ads-cash-acquisition",
+    "MTSR-2025-11-14-executable-terminal-cash-plus-cvr",
+    "SRDX-2025-11-18-exact-unheld-cash-acquisition",
+    "HOUS-2026-01-08-comp-stock-conversion"
   ]
 }

@@ -1,0 +1,15 @@
+{
+  "session": "2023-08-30",
+  "security_id": "339911307317319613",
+  "ticker": "FOCS",
+  "held": true,
+  "held_shares": 684,
+  "contractual_cash_per_share": "53.00",
+  "exact_cash_entitlement": "36252.00",
+  "status": "RESOLVED_EXACT_CASH_SETTLEMENT",
+  "decision": "Replay from the retained clean August 14 checkpoint and recognize exact Class A common-share cash consideration on the archive final-trading boundary.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1651052/000110465923026393/tm237908d4_defa14a.htm",
+    "https://www.sec.gov/Archives/edgar/data/1651052/000110465923097110/tm2325227d1_8k.htm"
+  ]
+}

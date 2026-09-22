@@ -1,0 +1,16 @@
+{
+  "session": "2025-04-11",
+  "security_id": "530096994681580629",
+  "ticker": "PYCR",
+  "held": true,
+  "held_shares": "2605",
+  "cash_per_share": "22.50",
+  "exact_cash_entitlement": "58612.50",
+  "status": "RESOLVED_EXACT_HELD_CASH_CONSIDERATION_RESTART_REQUIRED",
+  "decision": "Recognize the exact contractual receivable and restart before the incomplete terminal contaminated the retained book.",
+  "restart_checkpoint": "segment-078/checkpoints/checkpoint-2025-02-14.json.gz",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/723531/000095010325000267/dp223210_ex9901.htm",
+    "https://www.sec.gov/Archives/edgar/data/723531/000095010325004790/dp227639_ex9901.htm"
+  ]
+}
