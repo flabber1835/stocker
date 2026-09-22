@@ -1,0 +1,34 @@
+{
+  "base": "ee23c894c97a2c4023654ce3a56a62728f5b061e",
+  "production_files": 305,
+  "differences": [],
+  "pilot": {
+    "bytes": 4484143,
+    "last_session": "2006-04-07",
+    "path": "C:\\GitHub\\stocker\\.codex-tmp\\slow15-20y-run\\segment-001\\checkpoints\\checkpoint-2006-04-07.json.gz",
+    "sha256": "bbc2cb4fa4974f97a8a9dd0145d1757396a51ce553237ca7941697f090b34942"
+  },
+  "research_binding": {
+    "schema": "slow15-economic-comparison/1",
+    "helper_sha256": "a6c864e9fac233f1f9bfb5f5a5d9ed894c65c205a3142d6be97db976ce5462f8",
+    "research_sources": {
+      "run.py": "2104b4789c77fdea403d1fea0e9c54396ec8a57afbdf232ec78bee1456cf45ee",
+      "model.py": "b031824fbcc30be71b78369b4ed6ec3766b726877db05a2b1ca0dbd0ce9039a8"
+    },
+    "supplements_sha256": "7c8b7da7363269d010bb4f30bdb0674563458c712a5c875568b577805919f725",
+    "controller_identities": {
+      "current": "research-only:ad7c017293ffe6e7d9cbfab60aa6e962b956ce6e2f8ca95ee7ee603746c16a98",
+      "slow_earlier": "research-only:b15a821c9f6718b30e41f483eaaeab5cb79cc60e4b047bea23b70890ad7f0d38"
+    },
+    "end": "2026-07-31",
+    "origin": "2006-01-03",
+    "measurement": "2006-07-31",
+    "capital": "100000"
+  },
+  "pilot_session_count": 67,
+  "pilot_cursor": "2006-04-07",
+  "first_resumed_session": "2006-04-10",
+  "account_continuity": "exact",
+  "research_cursor_validation": "passed",
+  "control_parity": "enforced each close"
+}
