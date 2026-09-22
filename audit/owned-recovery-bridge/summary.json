@@ -1,0 +1,2644 @@
+{
+  "schema": "owned-recovery-bridge-synthetic/1",
+  "phases": {
+    "40": {
+      "healthy": {
+        "current": {
+          "ending_nav": 110239.8366147444,
+          "max_drawdown": -0.018085307015544005,
+          "fees": 97.69201290113025,
+          "turnover": 97692.01290113026,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 110239.8366147444,
+          "max_drawdown": -0.018085307015544005,
+          "fees": 97.69201290113025,
+          "turnover": 97692.01290113026,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 110239.8366147444,
+          "max_drawdown": -0.018085307015544005,
+          "fees": 97.69201290113025,
+          "turnover": 97692.01290113026,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 20,
+          "largest_weight": 0.05131489976369383,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 0
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.020529077562097986,
+            "max": 0.05261575199431712,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 0.15,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.05,
+            "max": 1.0,
+            "distinct": 16
+          },
+          "spy_vol_ratio": {
+            "min": -0.8543376000633542,
+            "max": 0.01153183012022474,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "synchronized_shock": {
+        "current": {
+          "ending_nav": 83490.181820917,
+          "max_drawdown": -0.1799552775213722,
+          "fees": 420.49440814985064,
+          "turnover": 420494.4081498507,
+          "zero_closes": 109,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 83124.97034854339,
+          "max_drawdown": -0.17958051665041264,
+          "fees": 420.8984323841702,
+          "turnover": 420898.4323841702,
+          "zero_closes": 109,
+          "partial_closes": 5
+        },
+        "bridge": {
+          "ending_nav": 83124.97034854339,
+          "max_drawdown": -0.17958051665041264,
+          "fees": 420.8984323841702,
+          "turnover": 420898.4323841702,
+          "zero_closes": 109,
+          "partial_closes": 5
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 8,
+          "largest_weight": 0.12717093510873617,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 109,
+          "damage_full": 103
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.19386031648957458,
+            "max": 0.037241951229703085,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.4,
+            "max": 1.0,
+            "distinct": 13
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 0.6,
+            "distinct": 13
+          },
+          "spy_vol_ratio": {
+            "min": -0.9805790080063589,
+            "max": 1.0567557435816117,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 109,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 109,
+              "target": 0.55
+            },
+            {
+              "day": 114,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 109,
+              "target": 0.55
+            },
+            {
+              "day": 114,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "staggered_damage": {
+        "current": {
+          "ending_nav": 85935.77348703075,
+          "max_drawdown": -0.2116786390177775,
+          "fees": 232.40722579617318,
+          "turnover": 232407.22579617318,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 83511.24488355475,
+          "max_drawdown": -0.2116786390177775,
+          "fees": 315.4394402628151,
+          "turnover": 315439.44026281504,
+          "zero_closes": 0,
+          "partial_closes": 92
+        },
+        "bridge": {
+          "ending_nav": 83511.24488355475,
+          "max_drawdown": -0.2116786390177775,
+          "fees": 315.4394402628151,
+          "turnover": 315439.44026281504,
+          "zero_closes": 0,
+          "partial_closes": 92
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 3,
+          "largest_weight": 0.3363100178978486,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 88
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.22018630469438305,
+            "max": 0.029689915289338176,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 24
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 0.85,
+            "distinct": 21
+          },
+          "spy_vol_ratio": {
+            "min": -0.9810527106848682,
+            "max": 1.0358062646684654,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 19,
+              "target": 0.55
+            },
+            {
+              "day": 111,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 19,
+              "target": 0.55
+            },
+            {
+              "day": 111,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "gradual_decline": {
+        "current": {
+          "ending_nav": 79967.35248812402,
+          "max_drawdown": -0.22302169331500465,
+          "fees": 235.1675355834587,
+          "turnover": 235167.53558345867,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 84835.70276291421,
+          "max_drawdown": -0.17039145036667902,
+          "fees": 330.2025888727117,
+          "turnover": 330202.5888727117,
+          "zero_closes": 0,
+          "partial_closes": 75
+        },
+        "bridge": {
+          "ending_nav": 84835.70276291421,
+          "max_drawdown": -0.17039145036667902,
+          "fees": 330.2025888727117,
+          "turnover": 330202.5888727117,
+          "zero_closes": 0,
+          "partial_closes": 75
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 0,
+          "largest_weight": 1.0,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 64
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.09126666786458992,
+            "max": 0.024315491043108484,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 10
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 5
+          },
+          "spy_vol_ratio": {
+            "min": -0.8820358011852159,
+            "max": 0.01153183012025849,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 35,
+              "target": 0.55
+            },
+            {
+              "day": 110,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 35,
+              "target": 0.55
+            },
+            {
+              "day": 110,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "temporary_correction": {
+        "current": {
+          "ending_nav": 93380.55731032458,
+          "max_drawdown": -0.141129136000386,
+          "fees": 434.9240905970051,
+          "turnover": 434924.0905970051,
+          "zero_closes": 18,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 92898.91563809138,
+          "max_drawdown": -0.1408260148253877,
+          "fees": 435.62009704317217,
+          "turnover": 435620.09704317217,
+          "zero_closes": 18,
+          "partial_closes": 5
+        },
+        "bridge": {
+          "ending_nav": 92898.91563809138,
+          "max_drawdown": -0.1408260148253877,
+          "fees": 435.62009704317217,
+          "turnover": 435620.09704317217,
+          "zero_closes": 18,
+          "partial_closes": 5
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 20,
+          "largest_weight": 0.051314899763693855,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 18,
+          "damage_full": 8
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.15524207184736794,
+            "max": 0.20258178738798205,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 3
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 17
+          },
+          "spy_vol_ratio": {
+            "min": -0.9843919579829586,
+            "max": 1.0567557435816117,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 18,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 18,
+              "target": 0.55
+            },
+            {
+              "day": 23,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 18,
+              "target": 0.55
+            },
+            {
+              "day": 23,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "leadership_rotation": {
+        "current": {
+          "ending_nav": 74040.45699869063,
+          "max_drawdown": -0.2916900033124571,
+          "fees": 233.9998250935604,
+          "turnover": 233999.8250935604,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 81773.59266757646,
+          "max_drawdown": -0.21424058729275586,
+          "fees": 337.6328996095674,
+          "turnover": 337632.8996095674,
+          "zero_closes": 0,
+          "partial_closes": 68
+        },
+        "bridge": {
+          "ending_nav": 81773.59266757646,
+          "max_drawdown": -0.21424058729275586,
+          "fees": 337.6328996095674,
+          "turnover": 337632.8996095674,
+          "zero_closes": 0,
+          "partial_closes": 68
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 0,
+          "largest_weight": 1.0,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 45
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.13270160435646106,
+            "max": 0.03381433477480322,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 6
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 23
+          },
+          "spy_vol_ratio": {
+            "min": -0.8543376000633542,
+            "max": 0.01153183012022474,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 14,
+              "target": 0.55
+            },
+            {
+              "day": 82,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 14,
+              "target": 0.55
+            },
+            {
+              "day": 82,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "healthy_split": {
+        "current": {
+          "ending_nav": 110246.89284702568,
+          "max_drawdown": -0.01810503133464103,
+          "fees": 97.76015675430078,
+          "turnover": 97760.15675430078,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 110246.89284702568,
+          "max_drawdown": -0.01810503133464103,
+          "fees": 97.76015675430078,
+          "turnover": 97760.15675430078,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 110246.89284702568,
+          "max_drawdown": -0.01810503133464103,
+          "fees": 97.76015675430078,
+          "turnover": 97760.15675430078,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 20,
+          "largest_weight": 0.05131489976369383,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 0
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.020529077562097986,
+            "max": 0.05261575199431712,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 0.15,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.05,
+            "max": 1.0,
+            "distinct": 16
+          },
+          "spy_vol_ratio": {
+            "min": -0.8543376000633542,
+            "max": 0.01153183012022474,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "rebound_relapse": {
+        "current": {
+          "ending_nav": 72938.36893421208,
+          "max_drawdown": -0.2835352399389568,
+          "fees": 701.4404866434643,
+          "turnover": 701440.4866434643,
+          "zero_closes": 94,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 71774.93288011175,
+          "max_drawdown": -0.29148937480038106,
+          "fees": 700.1176443237105,
+          "turnover": 700117.6443237105,
+          "zero_closes": 94,
+          "partial_closes": 7
+        },
+        "bridge": {
+          "ending_nav": 71774.93288011175,
+          "max_drawdown": -0.29148937480038106,
+          "fees": 700.1176443237105,
+          "turnover": 700117.6443237105,
+          "zero_closes": 94,
+          "partial_closes": 7
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 8,
+          "largest_weight": 0.12717093510873634,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 3,
+          "native_zero": 91,
+          "damage_full": 79
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.19386031648957458,
+            "max": 0.30368921532430115,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 15
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 17
+          },
+          "spy_vol_ratio": {
+            "min": -0.9823593296154964,
+            "max": 1.0567557435816117,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 30,
+              "target": 1.0
+            },
+            {
+              "day": 45,
+              "target": 0.0
+            },
+            {
+              "day": 109,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 30,
+              "target": 0.55
+            },
+            {
+              "day": 32,
+              "target": 1.0
+            },
+            {
+              "day": 45,
+              "target": 0.0
+            },
+            {
+              "day": 109,
+              "target": 0.55
+            },
+            {
+              "day": 114,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 30,
+              "target": 0.55
+            },
+            {
+              "day": 32,
+              "target": 1.0
+            },
+            {
+              "day": 45,
+              "target": 0.0
+            },
+            {
+              "day": 109,
+              "target": 0.55
+            },
+            {
+              "day": 114,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "owned_recovery": {
+        "current": {
+          "ending_nav": 108040.19221802126,
+          "max_drawdown": -0.1791252982770477,
+          "fees": 419.79302156028604,
+          "turnover": 419793.021560286,
+          "zero_closes": 44,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 108040.19221802126,
+          "max_drawdown": -0.1791252982770477,
+          "fees": 419.79302156028604,
+          "turnover": 419793.021560286,
+          "zero_closes": 44,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 110261.45955379358,
+          "max_drawdown": -0.1791252982770477,
+          "fees": 421.8683473609761,
+          "turnover": 421868.3473609761,
+          "zero_closes": 40,
+          "partial_closes": 4
+        },
+        "screen": {
+          "terminal_delta": 2221.267335772325,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 2.0753258006900523
+        },
+        "bridge_days": [
+          40,
+          41,
+          42,
+          43
+        ],
+        "target_difference_days": [
+          40,
+          41,
+          42,
+          43
+        ],
+        "mechanics": {
+          "minimum_holdings": 20,
+          "largest_weight": 0.05131489976369376,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 11,
+          "native_zero": 33,
+          "damage_full": 22
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.19386031648957458,
+            "max": 0.20595507161350968,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 7
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 10
+          },
+          "spy_vol_ratio": {
+            "min": -0.9805790080063589,
+            "max": 1.0567557435816117,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 44,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 44,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 40,
+              "target": 0.55
+            },
+            {
+              "day": 44,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "leaders_recovery": {
+        "current": {
+          "ending_nav": 83782.57506271478,
+          "max_drawdown": -0.1798787095290444,
+          "fees": 403.1987955633627,
+          "turnover": 403198.79556336266,
+          "zero_closes": 105,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 83589.4906255648,
+          "max_drawdown": -0.17954158610988913,
+          "fees": 403.57252259503946,
+          "turnover": 403572.52259503945,
+          "zero_closes": 105,
+          "partial_closes": 5
+        },
+        "bridge": {
+          "ending_nav": 83589.4906255648,
+          "max_drawdown": -0.17954158610988913,
+          "fees": 403.57252259503946,
+          "turnover": 403572.52259503945,
+          "zero_closes": 105,
+          "partial_closes": 5
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 0,
+          "largest_weight": 1.0,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 105,
+          "damage_full": 82
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.19386031648957458,
+            "max": 0.02514612854598064,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 2
+          },
+          "spy_vol_ratio": {
+            "min": -0.9805790080063589,
+            "max": 1.0567557435816117,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 105,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 105,
+              "target": 0.55
+            },
+            {
+              "day": 110,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 105,
+              "target": 0.55
+            },
+            {
+              "day": 110,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "concentration": {
+        "current": {
+          "ending_nav": 116723.87608100758,
+          "max_drawdown": -0.08482432290845587,
+          "fees": 126.05234570938127,
+          "turnover": 126052.34570938126,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 116723.87608100758,
+          "max_drawdown": -0.08482432290845587,
+          "fees": 126.05234570938127,
+          "turnover": 126052.34570938126,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 116723.87608100758,
+          "max_drawdown": -0.08482432290845587,
+          "fees": 126.05234570938127,
+          "turnover": 126052.34570938126,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 18,
+          "largest_weight": 0.11573326018046924,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 0
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.0675917284010269,
+            "max": 0.12523118973490033,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 0.1,
+            "distinct": 3
+          },
+          "green_breadth": {
+            "min": 0.10526315789473684,
+            "max": 1.0,
+            "distinct": 26
+          },
+          "spy_vol_ratio": {
+            "min": -0.8543376000633542,
+            "max": 0.01153183012022474,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "stationary_volatility": {
+        "current": {
+          "ending_nav": 110243.61413511954,
+          "max_drawdown": -0.04139520497835725,
+          "fees": 97.70024498038038,
+          "turnover": 97700.24498038038,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 110243.61413511954,
+          "max_drawdown": -0.04139520497835725,
+          "fees": 97.70024498038038,
+          "turnover": 97700.24498038038,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 110243.61413511954,
+          "max_drawdown": -0.04139520497835725,
+          "fees": 97.70024498038038,
+          "turnover": 97700.24498038038,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 20,
+          "largest_weight": 0.05131489976369387,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 0
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.020414495543044642,
+            "max": 0.052615751994316895,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 0.85,
+            "distinct": 14
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 19
+          },
+          "spy_vol_ratio": {
+            "min": 0.04371752025039721,
+            "max": 1.0802475833212575,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "repeated_shocks": {
+        "current": {
+          "ending_nav": 75845.29777979107,
+          "max_drawdown": -0.2586792089930271,
+          "fees": 715.473982392001,
+          "turnover": 715473.982392001,
+          "zero_closes": 92,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 75799.65017456032,
+          "max_drawdown": -0.25884020339776204,
+          "fees": 715.3197841954283,
+          "turnover": 715319.7841954282,
+          "zero_closes": 92,
+          "partial_closes": 6
+        },
+        "bridge": {
+          "ending_nav": 75799.65017456032,
+          "max_drawdown": -0.25884020339776204,
+          "fees": 715.3197841954283,
+          "turnover": 715319.7841954282,
+          "zero_closes": 92,
+          "partial_closes": 6
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 1,
+          "largest_weight": 1.0,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 4,
+          "native_zero": 88,
+          "damage_full": 71
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.1553422633945798,
+            "max": 0.13282108477692867,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 11
+          },
+          "spy_vol_ratio": {
+            "min": -0.9790363729290309,
+            "max": 1.0698164478347834,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 27,
+              "target": 1.0
+            },
+            {
+              "day": 30,
+              "target": 0.0
+            },
+            {
+              "day": 95,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 27,
+              "target": 0.55
+            },
+            {
+              "day": 28,
+              "target": 1.0
+            },
+            {
+              "day": 30,
+              "target": 0.0
+            },
+            {
+              "day": 95,
+              "target": 0.55
+            },
+            {
+              "day": 100,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 27,
+              "target": 0.55
+            },
+            {
+              "day": 28,
+              "target": 1.0
+            },
+            {
+              "day": 30,
+              "target": 0.0
+            },
+            {
+              "day": 95,
+              "target": 0.55
+            },
+            {
+              "day": 100,
+              "target": 1.0
+            }
+          ]
+        }
+      }
+    },
+    "120": {
+      "healthy": {
+        "current": {
+          "ending_nav": 110308.8768127554,
+          "max_drawdown": -0.016184098775077094,
+          "fees": 96.72475891396209,
+          "turnover": 96724.75891396208,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 110308.8768127554,
+          "max_drawdown": -0.016184098775077094,
+          "fees": 96.72475891396209,
+          "turnover": 96724.75891396208,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 110308.8768127554,
+          "max_drawdown": -0.016184098775077094,
+          "fees": 96.72475891396209,
+          "turnover": 96724.75891396208,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 20,
+          "largest_weight": 0.05140955329486043,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 0
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.015085142178212774,
+            "max": 0.05392660116091874,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 0.1,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.2,
+            "max": 1.0,
+            "distinct": 16
+          },
+          "spy_vol_ratio": {
+            "min": -0.8547694683272589,
+            "max": 0.01153183012022474,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "synchronized_shock": {
+        "current": {
+          "ending_nav": 88604.58632161104,
+          "max_drawdown": -0.17255696917211372,
+          "fees": 422.7875835961523,
+          "turnover": 422787.5835961523,
+          "zero_closes": 32,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 88604.58632161104,
+          "max_drawdown": -0.17255696917211372,
+          "fees": 422.7875835961523,
+          "turnover": 422787.5835961523,
+          "zero_closes": 32,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 88604.58632161104,
+          "max_drawdown": -0.17255696917211372,
+          "fees": 422.7875835961523,
+          "turnover": 422787.5835961523,
+          "zero_closes": 32,
+          "partial_closes": 0
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 0,
+          "largest_weight": 1.0,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 7,
+          "native_zero": 25,
+          "damage_full": 2
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.17361852539427303,
+            "max": 0.05118257775594248,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 13
+          },
+          "spy_vol_ratio": {
+            "min": -0.9842832266103037,
+            "max": 0.9842950837717803,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 32,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 32,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 32,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "staggered_damage": {
+        "current": {
+          "ending_nav": 86563.34665629671,
+          "max_drawdown": -0.19072444983447412,
+          "fees": 96.68741019477558,
+          "turnover": 96687.41019477558,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 83908.16190743152,
+          "max_drawdown": -0.19100303521062656,
+          "fees": 171.7057192632719,
+          "turnover": 171705.71926327192,
+          "zero_closes": 0,
+          "partial_closes": 101
+        },
+        "bridge": {
+          "ending_nav": 83908.16190743152,
+          "max_drawdown": -0.19100303521062656,
+          "fees": 171.7057192632719,
+          "turnover": 171705.71926327192,
+          "zero_closes": 0,
+          "partial_closes": 101
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 20,
+          "largest_weight": 0.057535958006798234,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 105
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.19211693805274455,
+            "max": 0.053701500644384836,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.15,
+            "max": 1.0,
+            "distinct": 7
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 0.55,
+            "distinct": 6
+          },
+          "spy_vol_ratio": {
+            "min": -0.982938423995605,
+            "max": 0.9928546317750961,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 19,
+              "target": 0.55
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 19,
+              "target": 0.55
+            }
+          ]
+        }
+      },
+      "gradual_decline": {
+        "current": {
+          "ending_nav": 79839.85182759358,
+          "max_drawdown": -0.20160148172406422,
+          "fees": 253.279125834642,
+          "turnover": 253279.125834642,
+          "zero_closes": 40,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 83633.63275518549,
+          "max_drawdown": -0.16366367244814506,
+          "fees": 268.2690801896669,
+          "turnover": 268269.0801896669,
+          "zero_closes": 40,
+          "partial_closes": 40
+        },
+        "bridge": {
+          "ending_nav": 83633.63275518549,
+          "max_drawdown": -0.16366367244814506,
+          "fees": 268.2690801896669,
+          "turnover": 268269.0801896669,
+          "zero_closes": 40,
+          "partial_closes": 40
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 20,
+          "largest_weight": 0.05140955329486044,
+          "healthy_owned_weak_leaders": 2,
+          "recovery_held": 0,
+          "native_zero": 40,
+          "damage_full": 101
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.07659025420434107,
+            "max": 0.022432401743126995,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 7
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 0.8,
+            "distinct": 5
+          },
+          "spy_vol_ratio": {
+            "min": -0.8547694683272584,
+            "max": 0.011531830120262043,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 80,
+              "target": 0.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 40,
+              "target": 0.55
+            },
+            {
+              "day": 80,
+              "target": 0.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 40,
+              "target": 0.55
+            },
+            {
+              "day": 80,
+              "target": 0.0
+            }
+          ]
+        }
+      },
+      "temporary_correction": {
+        "current": {
+          "ending_nav": 94003.45242237563,
+          "max_drawdown": -0.1342248433009966,
+          "fees": 437.36165565131535,
+          "turnover": 437361.65565131535,
+          "zero_closes": 26,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 94003.45242237563,
+          "max_drawdown": -0.1342248433009966,
+          "fees": 437.36165565131535,
+          "turnover": 437361.65565131535,
+          "zero_closes": 26,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 94003.45242237563,
+          "max_drawdown": -0.1342248433009966,
+          "fees": 437.36165565131535,
+          "turnover": 437361.65565131535,
+          "zero_closes": 26,
+          "partial_closes": 0
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 0,
+          "largest_weight": 1.0,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 26,
+          "damage_full": 2
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.1340770514745817,
+            "max": 0.055880354761216555,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 18
+          },
+          "spy_vol_ratio": {
+            "min": -0.9889595717347177,
+            "max": 0.9842950837717803,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 26,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 26,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 26,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "leadership_rotation": {
+        "current": {
+          "ending_nav": 72621.31990372385,
+          "max_drawdown": -0.29871136376878105,
+          "fees": 230.00355388219165,
+          "turnover": 230003.55388219166,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 79738.84163409563,
+          "max_drawdown": -0.22829276230944773,
+          "fees": 325.9344352528293,
+          "turnover": 325934.43525282934,
+          "zero_closes": 0,
+          "partial_closes": 56
+        },
+        "bridge": {
+          "ending_nav": 79738.84163409563,
+          "max_drawdown": -0.22829276230944773,
+          "fees": 325.9344352528293,
+          "turnover": 325934.43525282934,
+          "zero_closes": 0,
+          "partial_closes": 56
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 0,
+          "largest_weight": 1.0,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 38
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.14350929489508035,
+            "max": 0.047299099435867076,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 6
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 16
+          },
+          "spy_vol_ratio": {
+            "min": -0.8547694683272589,
+            "max": 0.01153183012022474,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 21,
+              "target": 0.55
+            },
+            {
+              "day": 77,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            },
+            {
+              "day": 21,
+              "target": 0.55
+            },
+            {
+              "day": 77,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "healthy_split": {
+        "current": {
+          "ending_nav": 110313.43615515452,
+          "max_drawdown": -0.016193305101536937,
+          "fees": 96.79921005518158,
+          "turnover": 96799.21005518158,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 110313.43615515452,
+          "max_drawdown": -0.016193305101536937,
+          "fees": 96.79921005518158,
+          "turnover": 96799.21005518158,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 110313.43615515452,
+          "max_drawdown": -0.016193305101536937,
+          "fees": 96.79921005518158,
+          "turnover": 96799.21005518158,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 20,
+          "largest_weight": 0.05140955329486043,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 0
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.015085142178212774,
+            "max": 0.05392660116091874,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 0.1,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.2,
+            "max": 1.0,
+            "distinct": 16
+          },
+          "spy_vol_ratio": {
+            "min": -0.8547694683272589,
+            "max": 0.01153183012022474,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "rebound_relapse": {
+        "current": {
+          "ending_nav": 75401.84805303294,
+          "max_drawdown": -0.29169572938274835,
+          "fees": 423.4699551753661,
+          "turnover": 423469.9551753661,
+          "zero_closes": 31,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 73292.08515639212,
+          "max_drawdown": -0.29169572938274835,
+          "fees": 492.1127483076411,
+          "turnover": 492112.7483076411,
+          "zero_closes": 31,
+          "partial_closes": 71
+        },
+        "bridge": {
+          "ending_nav": 73292.08515639212,
+          "max_drawdown": -0.29169572938274835,
+          "fees": 492.1127483076411,
+          "turnover": 492112.7483076411,
+          "zero_closes": 31,
+          "partial_closes": 71
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 0,
+          "largest_weight": 1.0,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 6,
+          "native_zero": 25,
+          "damage_full": 77
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.17361852539427303,
+            "max": 0.07649945945457937,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 2
+          },
+          "spy_vol_ratio": {
+            "min": -0.9842832266103037,
+            "max": 0.9842950837717803,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 31,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 31,
+              "target": 1.0
+            },
+            {
+              "day": 49,
+              "target": 0.55
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 31,
+              "target": 1.0
+            },
+            {
+              "day": 49,
+              "target": 0.55
+            }
+          ]
+        }
+      },
+      "owned_recovery": {
+        "current": {
+          "ending_nav": 113344.52684203378,
+          "max_drawdown": -0.17216931210781516,
+          "fees": 422.84380250046905,
+          "turnover": 422843.802500469,
+          "zero_closes": 38,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 113344.52684203378,
+          "max_drawdown": -0.17216931210781516,
+          "fees": 422.84380250046905,
+          "turnover": 422843.802500469,
+          "zero_closes": 38,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 113344.52684203378,
+          "max_drawdown": -0.17216931210781516,
+          "fees": 422.84380250046905,
+          "turnover": 422843.802500469,
+          "zero_closes": 38,
+          "partial_closes": 0
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 0,
+          "largest_weight": 1.0,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 7,
+          "native_zero": 31,
+          "damage_full": 2
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.17361852539427303,
+            "max": 0.2368556898972598,
+            "distinct": 114
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 12
+          },
+          "spy_vol_ratio": {
+            "min": -0.9842832266103037,
+            "max": 0.9842950837717803,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 38,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 38,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 38,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "leaders_recovery": {
+        "current": {
+          "ending_nav": 116981.71431776856,
+          "max_drawdown": -0.17216931210781516,
+          "fees": 424.03122172655054,
+          "turnover": 424031.22172655055,
+          "zero_closes": 37,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 116981.71431776856,
+          "max_drawdown": -0.17216931210781516,
+          "fees": 424.03122172655054,
+          "turnover": 424031.22172655055,
+          "zero_closes": 37,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 119089.59789550715,
+          "max_drawdown": -0.17216931210781516,
+          "fees": 424.93341466160973,
+          "turnover": 424933.41466160974,
+          "zero_closes": 32,
+          "partial_closes": 5
+        },
+        "screen": {
+          "terminal_delta": 2107.883577738583,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.9021929350591904
+        },
+        "bridge_days": [
+          32,
+          33,
+          34,
+          35,
+          36
+        ],
+        "target_difference_days": [
+          32,
+          33,
+          34,
+          35,
+          36
+        ],
+        "mechanics": {
+          "minimum_holdings": 0,
+          "largest_weight": 1.0,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 12,
+          "native_zero": 25,
+          "damage_full": 2
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.17361852539427303,
+            "max": 0.19164700643115928,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 7
+          },
+          "spy_vol_ratio": {
+            "min": -0.9842832266103037,
+            "max": 0.9842950837717803,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 37,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 37,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 32,
+              "target": 0.55
+            },
+            {
+              "day": 37,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "concentration": {
+        "current": {
+          "ending_nav": 116761.05849054822,
+          "max_drawdown": -0.08769201042829045,
+          "fees": 125.56528435693397,
+          "turnover": 125565.28435693396,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 116761.05849054822,
+          "max_drawdown": -0.08769201042829045,
+          "fees": 125.56528435693397,
+          "turnover": 125565.28435693396,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 116761.05849054822,
+          "max_drawdown": -0.08769201042829045,
+          "fees": 125.56528435693397,
+          "turnover": 125565.28435693396,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 18,
+          "largest_weight": 0.11636984429860725,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 0
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.07226734809246527,
+            "max": 0.10533939057108443,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 0.1,
+            "distinct": 2
+          },
+          "green_breadth": {
+            "min": 0.3,
+            "max": 1.0,
+            "distinct": 19
+          },
+          "spy_vol_ratio": {
+            "min": -0.8547694683272589,
+            "max": 0.01153183012022474,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "stationary_volatility": {
+        "current": {
+          "ending_nav": 110309.77002858669,
+          "max_drawdown": -0.039636773796343894,
+          "fees": 96.72565302390358,
+          "turnover": 96725.65302390358,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 110309.77002858669,
+          "max_drawdown": -0.039636773796343894,
+          "fees": 96.72565302390358,
+          "turnover": 96725.65302390358,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "bridge": {
+          "ending_nav": 110309.77002858669,
+          "max_drawdown": -0.039636773796343894,
+          "fees": 96.72565302390358,
+          "turnover": 96725.65302390358,
+          "zero_closes": 0,
+          "partial_closes": 0
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 20,
+          "largest_weight": 0.05140955329486039,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 0,
+          "native_zero": 0,
+          "damage_full": 0
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.015085142178213218,
+            "max": 0.0787205889401692,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 0.8,
+            "distinct": 13
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 18
+          },
+          "spy_vol_ratio": {
+            "min": 0.045341472542242967,
+            "max": 1.0891927049900056,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 1.0
+            }
+          ]
+        }
+      },
+      "repeated_shocks": {
+        "current": {
+          "ending_nav": 93450.5909503258,
+          "max_drawdown": -0.21827938260702318,
+          "fees": 436.3996732724612,
+          "turnover": 436399.6732724612,
+          "zero_closes": 28,
+          "partial_closes": 0
+        },
+        "owned55": {
+          "ending_nav": 86512.89744616511,
+          "max_drawdown": -0.23574497642257763,
+          "fees": 675.3621098003298,
+          "turnover": 675362.1098003298,
+          "zero_closes": 28,
+          "partial_closes": 48
+        },
+        "bridge": {
+          "ending_nav": 86512.89744616511,
+          "max_drawdown": -0.23574497642257763,
+          "fees": 675.3621098003298,
+          "turnover": 675362.1098003298,
+          "zero_closes": 28,
+          "partial_closes": 48
+        },
+        "screen": {
+          "terminal_delta": 0.0,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.0
+        },
+        "bridge_days": [],
+        "target_difference_days": [],
+        "mechanics": {
+          "minimum_holdings": 0,
+          "largest_weight": 1.0,
+          "healthy_owned_weak_leaders": 0,
+          "recovery_held": 3,
+          "native_zero": 25,
+          "damage_full": 42
+        },
+        "signal_ranges": {
+          "shadow_r20": {
+            "min": -0.1340770514745817,
+            "max": 0.12468063487986747,
+            "distinct": 120
+          },
+          "damaged_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 3
+          },
+          "green_breadth": {
+            "min": 0.0,
+            "max": 1.0,
+            "distinct": 12
+          },
+          "spy_vol_ratio": {
+            "min": -0.9793089178543649,
+            "max": 1.0500944976699365,
+            "distinct": 120
+          }
+        },
+        "decision_changes": {
+          "current": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 28,
+              "target": 1.0
+            }
+          ],
+          "owned55": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 28,
+              "target": 1.0
+            },
+            {
+              "day": 34,
+              "target": 0.55
+            },
+            {
+              "day": 58,
+              "target": 1.0
+            },
+            {
+              "day": 64,
+              "target": 0.55
+            },
+            {
+              "day": 88,
+              "target": 1.0
+            }
+          ],
+          "bridge": [
+            {
+              "day": 0,
+              "target": 0.0
+            },
+            {
+              "day": 28,
+              "target": 1.0
+            },
+            {
+              "day": 34,
+              "target": 0.55
+            },
+            {
+              "day": 58,
+              "target": 1.0
+            },
+            {
+              "day": 64,
+              "target": 0.55
+            },
+            {
+              "day": 88,
+              "target": 1.0
+            }
+          ]
+        }
+      }
+    }
+  },
+  "sources": {
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/__init__.py": "cfcefbd0b8e89d752e8e2c96ba8c7262b65639ef2818c14b5e32ab34a3e59ade",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/pipeline.py": "38e3e26e0f510a9c8ca76b861872b35bf3cf5a4430b1611e0e98b911e46745d5",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/pipeline_diagnostics.py": "02fb53276ff65a7a7f5101db788d9e476f877c2cd8918a72caf7115348616cac",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/study.py": "5106ed8f8f5e9307a666dbaed9ad3422569c03e7dd171500ad6ddba39d4178f1",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/holdings.py": "86f4676a66c3fdf8f37f7c8d291adcf6db840ef5c9c7c4ebc9cb46a6cfbbcd3c",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/parameters.py": "a6c864e9fac233f1f9bfb5f5a5d9ed894c65c205a3142d6be97db976ce5462f8",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/account.py": "a4289547767317b75e396b253c6461b04490e613a4058d201b8c463a6e7f3679",
+    "181dfef1682b1351fe715059dd5ad99329321f5a:research/owned55_replay/model.py": "523d0df320668e2ce4be48f042031c2f93fdbd7f425cb7df17ebf7854c6fdd8a",
+    "7250ce3d65cc38a103989d460fe3c557a38343c8:sentinel/controller/owned_impairment.py": "318206ac43ed1027c39d3738fd186be5aac8845895f8e0ee9fbe1f80ceb99ffb",
+    "sentinel/core/kernel.py": "61f52d5fc936559c000258e5fee1494d98206444289a3ed9a07dc42532c5615b",
+    "sentinel/core/production.py": "9b69a9ec283fe216590eacfda83384511747be43c497805c5a731ec24d510feb",
+    "sentinel/controller/champion_frozen.py": "a67bb21df8df12f1e411bfc9a562eb62180df4e1fd6f9e94c1e845a9f0978fb5",
+    "sentinel/controller/median5.py": "89b46dcdaa1b6fcac3757d4ed6e257f09550849a181bf62d61037419b17d5c02",
+    "sentinel/controller/median5_breadth.py": "8cd6ac067e9fa004fb7134d5117beb4f45c6175d288a4bf42841be7c0bd55f71",
+    "sentinel/execution/projection.py": "f7b401a159ef7b9a9a96ba712492d88aaccdf2392ff62753562aa72ffbbc6008",
+    "shared/stock_strategy_shared/wealth_core/engine.py": "4c452e699c9c309d44a1849f65af76b947afa0c108ca9e522240ade8ecae623a",
+    "research/recovery_bridge/audit.py": "5d5479bf50431cac18c41313992f6f5be94a90042ef2485ddbaacfb9f27d0ca0",
+    "research/recovery_bridge/model.py": "7ebb15c5c748ac881b8c320193ab788b2591413c42fc417390509bf275a3527f",
+    "research/recovery_bridge/mutations.py": "3a552fd7446a335b8ce4ccfd1fe282cc183081474c8b8b3a7ff3e690c06a1b7e",
+    "research/recovery_bridge/run.py": "476ae99bac8bb803f4776bb12b57e354a4ec36d64dc4b9cf4f4878077a79bf68",
+    "research/recovery_bridge/scenarios.py": "3e340f50da5f3f2492e16393c98808854bfaee490a0cdc515918c6116ecf15e7",
+    "research/recovery_bridge/sources.py": "de0706af5500f8853478b92c2207288d4866a72e9c6dfe9924169ed158e9ecd3",
+    "research/recovery_bridge/test_model.py": "5be8f246bf17bafc3ce4937abc9648377ea5ed7153831be51176d3fb515abfd7",
+    "research/recovery_bridge/__init__.py": "9b859eb2f0f56bec601c6f97dee0040b4b4a282c41e5570de20f72974c6a4641"
+  },
+  "screen": {
+    "adverse_cases": 0,
+    "coherent_improvement": true,
+    "healthy_unchanged": true,
+    "eligible_for_historical_followup": true
+  },
+  "checks": {
+    "production_parity_closes": 3280,
+    "core_restart_pairs": 208,
+    "account_and_controller_restart_pairs_each": 624,
+    "daily_accounting_pairs": 9360,
+    "production_constants_unchanged": true
+  },
+  "artifacts": {
+    "phase-120-concentration.json.gz": "b91939d8384d4f4b5bacde7335b9e9c113debdd0ea2ad7ebd758e329f2c73dc8",
+    "phase-120-gradual_decline.json.gz": "21dcf5474e966dd5cd4e3b79bb2ec4837314950b70003343a5ae7804e00b1d33",
+    "phase-120-healthy.json.gz": "beebd6c31388c9da641f5366166c7bb76957755684e0840c8732a734f8e42908",
+    "phase-120-healthy_split.json.gz": "8fa9331d4e6ef2a2e6e8800fad1335fcc9c23f848154e9cea5d02582f630ff55",
+    "phase-120-leadership_rotation.json.gz": "f959ec05b4581f0450434df2c846dc78d0cd21283fcbb538b324735564b93e36",
+    "phase-120-leaders_recovery.json.gz": "2f665a689de95edde204e1b9cf3e7e7a98c687923a8cf2e4ed93a31c9a07af94",
+    "phase-120-owned_recovery.json.gz": "d5fb2cd1ce67825ffa7def6738625679b4ff646b79d02582bdbffbeb70f539f7",
+    "phase-120-rebound_relapse.json.gz": "81755d218e15bffd72773818abc37160ab7e04360c28ae756fb28dcc05e99a38",
+    "phase-120-repeated_shocks.json.gz": "5907d37e34250aa9e374035f2c1352eb6aaf1a468123a98e462813b9b0035d97",
+    "phase-120-staggered_damage.json.gz": "724e63e82c68d88d6d389cb85bca5cb85f4aecd3e0e7a87629893d8828481f06",
+    "phase-120-stationary_volatility.json.gz": "bebf44e1d76e0b3c47f2e2cf54940554c37f231c6a45aca6aaba64efff8bfcd8",
+    "phase-120-synchronized_shock.json.gz": "2ef92f068b647eb87f640f258410231e450cfd9adca23bfd283fd46d7321f94f",
+    "phase-120-temporary_correction.json.gz": "86937dcc6dc171acbe2c745c616c7ab8974fe696d5486387f2fcf3fb6520ecc8",
+    "phase-40-concentration.json.gz": "8a7bb84c05a3047195a7419aa34e4121e457291b703972bd180e915c6132c44d",
+    "phase-40-gradual_decline.json.gz": "f436f188b76f991bd7581c76c0584480e61e08ee953348ec8094a1d8abf41031",
+    "phase-40-healthy.json.gz": "cf20a96b29376068bbf581f35637e3ed210cc90347c399e406f479e9f1bad02e",
+    "phase-40-healthy_split.json.gz": "ad301294a4f9efc9ca46f766516ad9a3f6bdc472e516de755b371e5262ccd09a",
+    "phase-40-leadership_rotation.json.gz": "819992984d1a47e7611844c4b1963bff75cb49736dc5d388aee05a9b1e06922b",
+    "phase-40-leaders_recovery.json.gz": "bf1de1f939e95d94cfa8840642d4053a914cef77fe2960f65731740873c5dd65",
+    "phase-40-owned_recovery.json.gz": "0feb18affb2a58650d4106f51786c6361ad39082bae8dfc2ee146f119071abe6",
+    "phase-40-rebound_relapse.json.gz": "a7cba79d4bd8c4edba35eb891d5fa5dd7304651de3e4fa232cb0c6aa472ff857",
+    "phase-40-repeated_shocks.json.gz": "1335861822a2b2783526ac95593e141aa3d6650216a9d6024e3b957ddcb81f1d",
+    "phase-40-staggered_damage.json.gz": "73f997f73a9eb6f67f9a2e6ff165bd0992852293d492e630ac93cb4ccdc5ad5d",
+    "phase-40-stationary_volatility.json.gz": "9149b262d496a42865016c2cece34f2b7cf448223e9afa41c834608f86fd2f7a",
+    "phase-40-synchronized_shock.json.gz": "d5bc44f85ccf12136d70e1b6a7ab93efc1ca7b28d46f5ef981e8101bb534d152",
+    "phase-40-temporary_correction.json.gz": "646e05a65d29efd448a4a2569bd2f892974ee7bd38acf62f6da3a0a35aad14a1"
+  }
+}

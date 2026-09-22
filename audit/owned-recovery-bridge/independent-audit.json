@@ -1,0 +1,67 @@
+{
+  "cases": 26,
+  "independent_account_days": 9360,
+  "timing_faults_killed": {
+    "same_close_execution": true
+  },
+  "original_core_controller_parity_cases": 14,
+  "legacy_account_differences": {
+    "40/healthy": {
+      "previous_current_nav": 110239.8366147444,
+      "causal_current_nav": 110239.8366147444
+    },
+    "40/synchronized_shock": {
+      "previous_current_nav": 83571.24570879905,
+      "causal_current_nav": 83490.181820917
+    },
+    "40/staggered_damage": {
+      "previous_current_nav": 85926.3474591384,
+      "causal_current_nav": 85935.77348703075
+    },
+    "40/gradual_decline": {
+      "previous_current_nav": 79903.84155200605,
+      "causal_current_nav": 79967.35248812402
+    },
+    "40/temporary_correction": {
+      "previous_current_nav": 93380.55731032458,
+      "causal_current_nav": 93380.55731032458
+    },
+    "40/leadership_rotation": {
+      "previous_current_nav": 74621.69230289104,
+      "causal_current_nav": 74040.45699869063
+    },
+    "40/healthy_split": {
+      "previous_current_nav": 110246.89284702568,
+      "causal_current_nav": 110246.89284702568
+    },
+    "120/healthy": {
+      "previous_current_nav": 110308.8768127554,
+      "causal_current_nav": 110308.8768127554
+    },
+    "120/synchronized_shock": {
+      "previous_current_nav": 88731.27128381493,
+      "causal_current_nav": 88604.58632161104
+    },
+    "120/staggered_damage": {
+      "previous_current_nav": 86563.34665629671,
+      "causal_current_nav": 86563.34665629671
+    },
+    "120/gradual_decline": {
+      "previous_current_nav": 79839.85182759358,
+      "causal_current_nav": 79839.85182759358
+    },
+    "120/temporary_correction": {
+      "previous_current_nav": 94216.51949413061,
+      "causal_current_nav": 94003.45242237563
+    },
+    "120/leadership_rotation": {
+      "previous_current_nav": 73290.16513696984,
+      "causal_current_nav": 72621.31990372385
+    },
+    "120/healthy_split": {
+      "previous_current_nav": 110313.43615515452,
+      "causal_current_nav": 110313.43615515452
+    }
+  },
+  "neutral_split_signal_decisions": true
+}
