@@ -1,0 +1,2356 @@
+{
+  "account_days": 3840,
+  "causal_execution_fault_killed": true,
+  "attribution": {
+    "40-owned_recovery-control": {
+      "stress_days": {},
+      "event_trace": {
+        "40": {
+          "held": 20,
+          "stock_fraction": 0.9840683188350847,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19746332068462413,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "41": {
+          "held": 20,
+          "stock_fraction": 0.9842190296295634,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19694303576136174,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "42": {
+          "held": 20,
+          "stock_fraction": 0.9843697122967986,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.1967338520659927,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "43": {
+          "held": 20,
+          "stock_fraction": 0.9845198466387084,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.1968156156664198,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "44": {
+          "held": 20,
+          "stock_fraction": 0.9846688437600898,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19715086386765734,
+          "native": 1.0,
+          "recovery": "FULL_RISK_CERTIFIED_PERSISTENCE",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "45": {
+          "held": 20,
+          "stock_fraction": 0.9848160708413597,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.1976864984215918,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "46": {
+          "held": 20,
+          "stock_fraction": 0.9849608774040901,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19835607736068717,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "47": {
+          "held": 20,
+          "stock_fraction": 0.9851026220063921,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19908266677483155,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "48": {
+          "held": 20,
+          "stock_fraction": 0.9852406983536326,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19978217274540988,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "49": {
+          "held": 20,
+          "stock_fraction": 0.9853745598986136,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.2003670500559509,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "50": {
+          "held": 20,
+          "stock_fraction": 0.9855037421219538,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.20075025980493755,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "51": {
+          "held": 20,
+          "stock_fraction": 0.9856278818154822,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.20084932507501074,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "52": {
+          "held": 20,
+          "stock_fraction": 0.9857467328277638,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.20059031533678606,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "53": {
+          "held": 20,
+          "stock_fraction": 0.9858601778627794,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19991157939452564,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        }
+      }
+    },
+    "40-owned_recovery-relapse": {
+      "stress_days": {
+        "42": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-1084.49292079741968",
+            "additional_shock_loss": "-1294.38633882661013",
+            "intraday": "206.331588476801910",
+            "fees": "0.766143137111795620"
+          },
+          "sign_bridge": {
+            "overnight": "-1084.49292079741968",
+            "additional_shock_loss": "-1294.38633882661013",
+            "intraday": "206.331588476801910",
+            "fees": "0.766143137111795620"
+          }
+        },
+        "43": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-1070.457970978226100",
+            "additional_shock_loss": "-1278.984795154768190",
+            "intraday": "203.9803437323524300",
+            "fees": "0.5664089198232477400"
+          },
+          "sign_bridge": {
+            "overnight": "-1070.457970978226100",
+            "additional_shock_loss": "-1278.984795154768190",
+            "intraday": "203.9803437323524300",
+            "fees": "0.5664089198232477400"
+          }
+        },
+        "44": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-1052.5386205455929400",
+            "additional_shock_loss": "-1257.8873923612632700",
+            "intraday": "204.10598342877173000",
+            "fees": "1.20425530509534547000"
+          },
+          "sign_bridge": {
+            "overnight": "-1052.5386205455929400",
+            "additional_shock_loss": "-1257.8873923612632700",
+            "intraday": "204.10598342877173000",
+            "fees": "1.20425530509534547000"
+          }
+        },
+        "45": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "387.30079010751914",
+            "fees": "160.86085493401453181"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "387.30079010751914",
+            "fees": "160.86085493401453181"
+          },
+          "bridge": {
+            "overnight": "-1051.94740050686236000",
+            "additional_shock_loss": "-1256.53936827932147000",
+            "intraday": "372.061167019955020000",
+            "fees": "70.777484462116893870000"
+          },
+          "sign_bridge": {
+            "overnight": "-1051.94740050686236000",
+            "additional_shock_loss": "-1256.53936827932147000",
+            "intraday": "372.061167019955020000",
+            "fees": "70.777484462116893870000"
+          }
+        },
+        "46": {
+          "current": {
+            "overnight": "-2002.63194783880716",
+            "additional_shock_loss": "-2389.03681782319581",
+            "intraday": "376.67139983705660",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "-2002.63194783880716",
+            "additional_shock_loss": "-2389.03681782319581",
+            "intraday": "376.67139983705660",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-1922.260731918021710000",
+            "additional_shock_loss": "-2293.465705306709660000",
+            "intraday": "361.855724523472360000",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1922.260731918021710000",
+            "additional_shock_loss": "-2293.465705306709660000",
+            "intraday": "361.855724523472360000",
+            "fees": "0"
+          }
+        },
+        "47": {
+          "current": {
+            "overnight": "-1965.931018934622280",
+            "additional_shock_loss": "-2339.884458469661260",
+            "intraday": "364.511739949092790",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "-1965.931018934622280",
+            "additional_shock_loss": "-2339.884458469661260",
+            "intraday": "364.511739949092790",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-1887.0475391088397300000",
+            "additional_shock_loss": "-2246.2948244432431900000",
+            "intraday": "350.1781975868893800000",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1887.0475391088397300000",
+            "additional_shock_loss": "-2246.2948244432431900000",
+            "intraday": "350.1781975868893800000",
+            "fees": "0"
+          }
+        },
+        "48": {
+          "current": {
+            "overnight": "-1931.3651486085489700",
+            "additional_shock_loss": "-2291.4250746966873000",
+            "intraday": "350.9395179552182300",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "-1931.3651486085489700",
+            "additional_shock_loss": "-2291.4250746966873000",
+            "intraday": "350.9395179552182300",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-1853.88614764269573000000",
+            "additional_shock_loss": "-2199.78839299821721000000",
+            "intraday": "337.14170694716434000000",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1853.88614764269573000000",
+            "additional_shock_loss": "-2199.78839299821721000000",
+            "intraday": "337.14170694716434000000",
+            "fees": "0"
+          }
+        },
+        "49": {
+          "current": {
+            "overnight": "-1898.64823683081131000",
+            "additional_shock_loss": "-2243.55779473146575000",
+            "intraday": "336.13704813155630000",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "-1898.64823683081131000",
+            "additional_shock_loss": "-2243.55779473146575000",
+            "intraday": "336.13704813155630000",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-1822.501596924630540000000",
+            "additional_shock_loss": "-2153.849427328813870000000",
+            "intraday": "322.921431794062710000000",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1822.501596924630540000000",
+            "additional_shock_loss": "-2153.849427328813870000000",
+            "intraday": "322.921431794062710000000",
+            "fees": "0"
+          }
+        },
+        "50": {
+          "current": {
+            "overnight": "-1867.452058484851520000",
+            "additional_shock_loss": "-2196.197536679300840000",
+            "intraday": "320.343395505806780000",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "-1867.452058484851520000",
+            "additional_shock_loss": "-2196.197536679300840000",
+            "intraday": "320.343395505806780000",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-1792.5784642847115400000000",
+            "additional_shock_loss": "-2108.3961170455968100000000",
+            "intraday": "307.7470692300555700000000",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1792.5784642847115400000000",
+            "additional_shock_loss": "-2108.3961170455968100000000",
+            "intraday": "307.7470692300555700000000",
+            "fees": "0"
+          }
+        },
+        "51": {
+          "current": {
+            "overnight": "-1837.4190943788466100000",
+            "additional_shock_loss": "-2149.2776697038449300000",
+            "intraday": "306.09820564989395000000",
+            "fees": "0.48293659257590019000000"
+          },
+          "owned55": {
+            "overnight": "-1837.4190943788466100000",
+            "additional_shock_loss": "-2149.2776697038449300000",
+            "intraday": "306.09820564989395000000",
+            "fees": "0.48293659257590019000000"
+          },
+          "bridge": {
+            "overnight": "-1763.77318441491381000000000",
+            "additional_shock_loss": "-2063.36438152441468000000000",
+            "intraday": "291.89313975143309000000000",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1763.77318441491381000000000",
+            "additional_shock_loss": "-2063.36438152441468000000000",
+            "intraday": "291.89313975143309000000000",
+            "fees": "0"
+          }
+        }
+      },
+      "event_trace": {
+        "40": {
+          "held": 20,
+          "stock_fraction": 0.9840683188350847,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19746332068462413,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "41": {
+          "held": 20,
+          "stock_fraction": 0.9842190296295634,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19694303576136174,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "42": {
+          "held": 20,
+          "stock_fraction": 0.9838940871117152,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.1613929953363713,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "43": {
+          "held": 20,
+          "stock_fraction": 0.9835634860541227,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.12717875193672845,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "44": {
+          "held": 20,
+          "stock_fraction": 0.9832265230718646,
+          "damage": 0.0,
+          "green": 0.35,
+          "r20": 0.09421004454434745,
+          "native": 1.0,
+          "recovery": "FULL_RISK_CERTIFIED_PERSISTENCE",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "45": {
+          "held": 20,
+          "stock_fraction": 0.982882369414743,
+          "damage": 0.0,
+          "green": 0.0,
+          "r20": 0.06238926326382188,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "46": {
+          "held": 20,
+          "stock_fraction": 0.9825300884383827,
+          "damage": 0.5,
+          "green": 0.0,
+          "r20": 0.03161506556090421,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "47": {
+          "held": 20,
+          "stock_fraction": 0.9821686580714848,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": 0.001785945451584281,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "48": {
+          "held": 20,
+          "stock_fraction": 0.9817969976458267,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.027196357340255384,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "49": {
+          "held": 20,
+          "stock_fraction": 0.981413998322728,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.05542371645541222,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "50": {
+          "held": 20,
+          "stock_fraction": 0.9810185562468191,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.08297884820555945,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "51": {
+          "held": 20,
+          "stock_fraction": 0.9806096074799785,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.10993300398864769,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 0.55,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "52": {
+          "held": 20,
+          "stock_fraction": 0.9807691476884443,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.11016244877447334,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 0.55,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "53": {
+          "held": 20,
+          "stock_fraction": 0.9809214436910954,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.11070124812791515,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 0.55,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        }
+      }
+    },
+    "40-owned_recovery-overnight_gap": {
+      "stress_days": {
+        "42": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-8419.34884081487627",
+            "additional_shock_loss": "-8629.24225884406672",
+            "intraday": "187.756826884723380",
+            "fees": "7.606717773945573850"
+          },
+          "sign_bridge": {
+            "overnight": "-8419.34884081487627",
+            "additional_shock_loss": "-8629.24225884406672",
+            "intraday": "187.756826884723380",
+            "fees": "7.606717773945573850"
+          }
+        }
+      },
+      "event_trace": {
+        "40": {
+          "held": 20,
+          "stock_fraction": 0.9840683188350847,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19746332068462413,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "41": {
+          "held": 20,
+          "stock_fraction": 0.9842190296295634,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19694303576136174,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "42": {
+          "held": 20,
+          "stock_fraction": 0.9805381887980762,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.03887185946481542,
+          "native": 0.0,
+          "recovery": "RECOVERY_EPISODE_START",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "43": {
+          "held": 20,
+          "stock_fraction": 0.9807244055877933,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.038842129611723064,
+          "native": 0.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "44": {
+          "held": 20,
+          "stock_fraction": 0.9809092256113355,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.038608567518534365,
+          "native": 0.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "45": {
+          "held": 20,
+          "stock_fraction": 0.9810918635029728,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.038213683873467574,
+          "native": 0.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "46": {
+          "held": 20,
+          "stock_fraction": 0.9812715117627716,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.03771069331925414,
+          "native": 0.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "47": {
+          "held": 20,
+          "stock_fraction": 0.9814473738790147,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.03716122903362906,
+          "native": 0.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "48": {
+          "held": 20,
+          "stock_fraction": 0.9816186967419006,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.036632672404175226,
+          "native": 0.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "49": {
+          "held": 20,
+          "stock_fraction": 0.9817848011980203,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.03619518067718508,
+          "native": 0.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "50": {
+          "held": 20,
+          "stock_fraction": 0.981945109738739,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.03591851507339716,
+          "native": 0.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "51": {
+          "held": 20,
+          "stock_fraction": 0.982099170478723,
+          "damage": 0.95,
+          "green": 0.0,
+          "r20": -0.03586879025563616,
+          "native": 0.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "52": {
+          "held": 20,
+          "stock_fraction": 0.9822466767495756,
+          "damage": 0.8,
+          "green": 0.0,
+          "r20": -0.03610528082479192,
+          "native": 0.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "53": {
+          "held": 20,
+          "stock_fraction": 0.9823874817971683,
+          "damage": 0.8,
+          "green": 0.0,
+          "r20": -0.03667742922177342,
+          "native": 0.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        }
+      }
+    },
+    "40-owned_recovery-changing_holdings": {
+      "stress_days": {
+        "42": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-7443.72080339308249",
+            "additional_shock_loss": "-7653.61422142227294",
+            "intraday": "191.874649169291640",
+            "fees": "6.875023757381339190"
+          },
+          "sign_bridge": {
+            "overnight": "-7443.72080339308249",
+            "additional_shock_loss": "-7653.61422142227294",
+            "intraday": "191.874649169291640",
+            "fees": "6.875023757381339190"
+          }
+        }
+      },
+      "event_trace": {
+        "40": {
+          "held": 20,
+          "stock_fraction": 0.9840683188350847,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19746332068462413,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "41": {
+          "held": 20,
+          "stock_fraction": 0.9842190296295634,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.19694303576136174,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 0.55
+          }
+        },
+        "42": {
+          "held": 20,
+          "stock_fraction": 0.9810922433111406,
+          "damage": 0.5,
+          "green": 0.5,
+          "r20": -0.01070789519027815,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "43": {
+          "held": 10,
+          "stock_fraction": 0.5932245127349913,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.01284796803243382,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "44": {
+          "held": 10,
+          "stock_fraction": 0.5956514855850294,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.016205811467937092,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "45": {
+          "held": 10,
+          "stock_fraction": 0.5980703144216933,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.01935108744789993,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "46": {
+          "held": 10,
+          "stock_fraction": 0.6004692812262165,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.022324983122269382,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "47": {
+          "held": 10,
+          "stock_fraction": 0.6028364844803548,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.02517663944502968,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "48": {
+          "held": 10,
+          "stock_fraction": 0.6051602893083541,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.027960977160588762,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "49": {
+          "held": 10,
+          "stock_fraction": 0.6074297746929551,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.030736265535231344,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "50": {
+          "held": 10,
+          "stock_fraction": 0.6096351614109102,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.033561517369711025,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "51": {
+          "held": 10,
+          "stock_fraction": 0.6117682051985064,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.03649380743967667,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "52": {
+          "held": 10,
+          "stock_fraction": 0.613822541032748,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.039585622463401804,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        },
+        "53": {
+          "held": 10,
+          "stock_fraction": 0.6157939662160733,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.04288235720130307,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.0
+          }
+        }
+      }
+    },
+    "120-leaders_recovery-control": {
+      "stress_days": {},
+      "event_trace": {
+        "32": {
+          "held": 10,
+          "stock_fraction": 0.5085628188463808,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.02746430480784956,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "33": {
+          "held": 11,
+          "stock_fraction": 0.5602750426652916,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.03375202402769739,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "34": {
+          "held": 12,
+          "stock_fraction": 0.6125165200563675,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.040705945350365536,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "35": {
+          "held": 13,
+          "stock_fraction": 0.6634137669529366,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.04828325726461302,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "36": {
+          "held": 14,
+          "stock_fraction": 0.7141872997051025,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.056451985787761005,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "37": {
+          "held": 15,
+          "stock_fraction": 0.7654670511627584,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.06522352323479197,
+          "native": 1.0,
+          "recovery": "FULL_RISK_CERTIFIED_PERSISTENCE",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "38": {
+          "held": 16,
+          "stock_fraction": 0.8164293301620152,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.07460120977925433,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "39": {
+          "held": 17,
+          "stock_fraction": 0.8674531441602412,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.08454136287229086,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "40": {
+          "held": 18,
+          "stock_fraction": 0.9175864233070015,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.09499167606778247,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "41": {
+          "held": 19,
+          "stock_fraction": 0.9674229762966748,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.10578402794215425,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "42": {
+          "held": 20,
+          "stock_fraction": 0.9985829696165197,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.1167166940377633,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "43": {
+          "held": 20,
+          "stock_fraction": 0.9985966348086913,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.1273922394342557,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "44": {
+          "held": 20,
+          "stock_fraction": 0.9986097756836105,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.13729361752243063,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "45": {
+          "held": 20,
+          "stock_fraction": 0.9986224176339038,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.14635618097840264,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        }
+      }
+    },
+    "120-leaders_recovery-relapse": {
+      "stress_days": {
+        "34": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-555.33855168720931",
+            "additional_shock_loss": "-688.55713305130924",
+            "intraday": "141.97553368511766",
+            "fees": "2.3672487233151380"
+          },
+          "sign_bridge": {
+            "overnight": "-1014.52099648988402",
+            "additional_shock_loss": "-1257.69299516128366",
+            "intraday": "258.85145208086566",
+            "fees": "3.9010477019672484"
+          }
+        },
+        "35": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-598.231945316579330",
+            "additional_shock_loss": "-741.474421041527400",
+            "intraday": "150.498988406650470",
+            "fees": "2.3148669746786736"
+          },
+          "sign_bridge": {
+            "overnight": "-1091.411801988364050",
+            "additional_shock_loss": "-1352.594665843546460",
+            "intraday": "274.357795211431060",
+            "fees": "3.8452126812339520"
+          }
+        },
+        "36": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-640.6395743835487500",
+            "additional_shock_loss": "-791.7236907951901000",
+            "intraday": "158.1311228757744600",
+            "fees": "2.3075120187554589"
+          },
+          "sign_bridge": {
+            "overnight": "-1168.4215290875931300",
+            "additional_shock_loss": "-1443.8673136999720800",
+            "intraday": "288.5400292966874600",
+            "fees": "3.8907914192408472"
+          }
+        },
+        "37": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-682.68742691911564000",
+            "additional_shock_loss": "-840.68108403370962000",
+            "intraday": "0E-18",
+            "fees": "71.282021717089901240000"
+          },
+          "sign_bridge": {
+            "overnight": "-1246.26716946910013000",
+            "additional_shock_loss": "-1534.58064191858424000",
+            "intraday": "300.87809747909799000",
+            "fees": "3.86059132620942707"
+          }
+        },
+        "38": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1323.042894498869230000",
+            "additional_shock_loss": "-1622.367029419295230000",
+            "intraday": "316.0652777839195200000",
+            "fees": "4.1921828280501677100000"
+          }
+        },
+        "39": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1405.3494799945922900000",
+            "additional_shock_loss": "-1718.3329663009288700000",
+            "intraday": "326.4303153048072100000",
+            "fees": "3.7290124083517604"
+          }
+        },
+        "40": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1476.19514618369677000000",
+            "additional_shock_loss": "-1798.10350993411018000000",
+            "intraday": "335.12674038375511000000",
+            "fees": "3.79974623440620346"
+          }
+        },
+        "41": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1548.802975973416170000000",
+            "additional_shock_loss": "-1878.085056289261200000000",
+            "intraday": "341.009156161593570000000",
+            "fees": "3.72784351685428512"
+          }
+        },
+        "42": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1619.9870231030904400000000",
+            "additional_shock_loss": "-1953.8231691731624200000000",
+            "intraday": "344.5844458909120800000000",
+            "fees": "3.73031940932652327000000"
+          }
+        },
+        "43": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "sign_bridge": {
+            "overnight": "-1691.18009438781865000000000",
+            "additional_shock_loss": "-2027.54658445655216000000000",
+            "intraday": "327.90932417902157000000000",
+            "fees": "0"
+          }
+        }
+      },
+      "event_trace": {
+        "32": {
+          "held": 10,
+          "stock_fraction": 0.5085628188463808,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.02746430480784956,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "33": {
+          "held": 11,
+          "stock_fraction": 0.5602750426652916,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.03375202402769739,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "34": {
+          "held": 12,
+          "stock_fraction": 0.604352402935539,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.023121763929662364,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "35": {
+          "held": 13,
+          "stock_fraction": 0.6503885114195443,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.011716221761367995,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "36": {
+          "held": 14,
+          "stock_fraction": 0.6955767697497085,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.0005202144100016071,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "37": {
+          "held": 15,
+          "stock_fraction": 0.7410844924167227,
+          "damage": 0.0,
+          "green": 0.8666666666666667,
+          "r20": -0.013532802036643643,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "38": {
+          "held": 16,
+          "stock_fraction": 0.7871403122619287,
+          "damage": 0.0,
+          "green": 0.25,
+          "r20": -0.027301535183824832,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "39": {
+          "held": 17,
+          "stock_fraction": 0.8343073043436233,
+          "damage": 0.6470588235294118,
+          "green": 0.17647058823529413,
+          "r20": -0.041845829105087384,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "40": {
+          "held": 18,
+          "stock_fraction": 0.8816361755420239,
+          "damage": 0.7777777777777778,
+          "green": 0.05555555555555555,
+          "r20": -0.05720186910252956,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "41": {
+          "held": 19,
+          "stock_fraction": 0.9298216530018794,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.07338338051048277,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "42": {
+          "held": 19,
+          "stock_fraction": 0.9284930665663663,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.0905997567758321,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "43": {
+          "held": 19,
+          "stock_fraction": 0.9271213332736271,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.10787364126452414,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "44": {
+          "held": 19,
+          "stock_fraction": 0.927772704720183,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.10042541055108689,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "45": {
+          "held": 19,
+          "stock_fraction": 0.9283992656911488,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.09364001303280967,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.55
+          }
+        }
+      }
+    },
+    "120-leaders_recovery-overnight_gap": {
+      "stress_days": {
+        "34": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-4457.16230564462696",
+            "additional_shock_loss": "-4590.38088700872689",
+            "intraday": "120.193705953206050",
+            "fees": "4.328901845215382080"
+          },
+          "sign_bridge": {
+            "overnight": "-8141.44796907048877",
+            "additional_shock_loss": "-8384.61996774188841",
+            "intraday": "215.261363191869010",
+            "fees": "3.509034613364435980"
+          }
+        }
+      },
+      "event_trace": {
+        "32": {
+          "held": 10,
+          "stock_fraction": 0.5085628188463808,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.02746430480784956,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "33": {
+          "held": 11,
+          "stock_fraction": 0.5602750426652916,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.03375202402769739,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "34": {
+          "held": 12,
+          "stock_fraction": 0.5618962127435602,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.07648621145180856,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "35": {
+          "held": 12,
+          "stock_fraction": 0.5647195216808527,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.07049613180709424,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "36": {
+          "held": 12,
+          "stock_fraction": 0.567534080753503,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.06444676831078888,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "37": {
+          "held": 12,
+          "stock_fraction": 0.5703243942989262,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.058371285271468065,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "38": {
+          "held": 12,
+          "stock_fraction": 0.5730763094810326,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.05230162361174873,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.55
+          }
+        },
+        "39": {
+          "held": 12,
+          "stock_fraction": 0.5757774142931502,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.046267450205744964,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.55
+          }
+        },
+        "40": {
+          "held": 12,
+          "stock_fraction": 0.5784173658388507,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.04029517451174236,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.55
+          }
+        },
+        "41": {
+          "held": 12,
+          "stock_fraction": 0.5809881389583166,
+          "damage": 1.0,
+          "green": 0.0,
+          "r20": -0.03440707539718946,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.55
+          }
+        },
+        "42": {
+          "held": 13,
+          "stock_fraction": 0.6326697541278875,
+          "damage": 0.9230769230769231,
+          "green": 0.07692307692307693,
+          "r20": -0.02842309969684631,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.55
+          }
+        },
+        "43": {
+          "held": 14,
+          "stock_fraction": 0.6846578320860098,
+          "damage": 0.8571428571428571,
+          "green": 0.14285714285714285,
+          "r20": -0.02225824941766197,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.55
+          }
+        },
+        "44": {
+          "held": 14,
+          "stock_fraction": 0.686730897681844,
+          "damage": 0.21428571428571427,
+          "green": 0.14285714285714285,
+          "r20": -0.01644106507019405,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.55
+          }
+        },
+        "45": {
+          "held": 14,
+          "stock_fraction": 0.6887292102779964,
+          "damage": 0.0,
+          "green": 0.14285714285714285,
+          "r20": -0.011312023809271987,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 0.55
+          }
+        }
+      }
+    },
+    "120-leaders_recovery-changing_holdings": {
+      "stress_days": {
+        "34": {
+          "current": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "owned55": {
+            "overnight": "0",
+            "additional_shock_loss": "0",
+            "intraday": "0",
+            "fees": "0"
+          },
+          "bridge": {
+            "overnight": "-3079.69757325200244",
+            "additional_shock_loss": "-3212.91615461610237",
+            "intraday": "125.785172549494330",
+            "fees": "3.259092420689412680"
+          },
+          "sign_bridge": {
+            "overnight": "-5679.59948497485915",
+            "additional_shock_loss": "-5922.77148364625879",
+            "intraday": "227.719662046816640",
+            "fees": "3.085225004535177470"
+          }
+        }
+      },
+      "event_trace": {
+        "32": {
+          "held": 10,
+          "stock_fraction": 0.5085628188463808,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.02746430480784956,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "33": {
+          "held": 11,
+          "stock_fraction": 0.5602750426652916,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.03375202402769739,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.55,
+            "sign_bridge": 1.0
+          }
+        },
+        "34": {
+          "held": 12,
+          "stock_fraction": 0.5745388011389224,
+          "damage": 0.4166666666666667,
+          "green": 0.5833333333333334,
+          "r20": -0.052190041343676996,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "35": {
+          "held": 8,
+          "stock_fraction": 0.4438789621381461,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.0468704420464483,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "36": {
+          "held": 9,
+          "stock_fraction": 0.49647958619852256,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.04184951763304334,
+          "native": 1.0,
+          "recovery": "FULL_RISK_HELD",
+          "targets": {
+            "current": 0.0,
+            "owned55": 0.0,
+            "bridge": 0.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "37": {
+          "held": 10,
+          "stock_fraction": 0.5486942148948754,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.03628636409934993,
+          "native": 1.0,
+          "recovery": "FULL_RISK_CERTIFIED_PERSISTENCE",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "38": {
+          "held": 11,
+          "stock_fraction": 0.5999302677772097,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.030177253740659715,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "39": {
+          "held": 12,
+          "stock_fraction": 0.6505944466664115,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.02356131303616127,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "40": {
+          "held": 13,
+          "stock_fraction": 0.7025731010094559,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.016473249926917788,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "41": {
+          "held": 14,
+          "stock_fraction": 0.7520541041311524,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.009050799897980744,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "42": {
+          "held": 15,
+          "stock_fraction": 0.8035253596893716,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": -0.0014322660084189476,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "43": {
+          "held": 15,
+          "stock_fraction": 0.8050253996588834,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.006073159308525478,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "44": {
+          "held": 15,
+          "stock_fraction": 0.8064733582433026,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.012928013980063158,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        },
+        "45": {
+          "held": 15,
+          "stock_fraction": 0.8078717657582779,
+          "damage": 0.0,
+          "green": 1.0,
+          "r20": 0.01907892640198061,
+          "native": 1.0,
+          "recovery": "NORMAL",
+          "targets": {
+            "current": 1.0,
+            "owned55": 1.0,
+            "bridge": 1.0,
+            "sign_bridge": 1.0
+          }
+        }
+      }
+    }
+  }
+}

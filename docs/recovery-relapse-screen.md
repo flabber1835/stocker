@@ -81,3 +81,115 @@ are allowed after results. If either bridge fails, report rejection and do not
 start a long replay of the failed policy. If the repaired candidate passes all
 coverage and economic gates, the authorized next step is its frozen 20-year
 comparison; do not infer production promotion or economic certification.
+
+## Outcome: reject both candidates under the frozen budgets
+
+Registration commit: `d09c7394`, before implementation and results. All eight
+paths completed. Both bridge variants fail all six entered-stress cases; the
+two unstressed controls improve as before. The twenty-year continuation is
+therefore **not started**. No threshold, shock or budget was adjusted to rescue
+either candidate. Production remains the current controller.
+
+Terminal differences and extra drawdown below are versus Owned55, starting at
+$100,000. Extra drawdown is deterioration in percentage points, not relative
+percent. Fees stayed within the $250 incremental-fee budget throughout.
+
+| Formation / stress | Old bridge terminal difference | Sign bridge terminal difference | Old bridge extra drawdown | Sign bridge extra drawdown |
+|---|---:|---:|---:|---:|
+| 40 / no stress | +$2,221 | +$2,221 | 0.00 pp | 0.00 pp |
+| 40 / relapse | -$3,556 | -$3,556 | 3.07 pp | 3.07 pp |
+| 40 / overnight gap | -$8,756 | -$8,756 | 8.12 pp | 8.12 pp |
+| 40 / changed holdings | -$7,621 | -$7,621 | 7.14 pp | 7.14 pp |
+| 120 / no stress | +$2,108 | +$4,330 | 0.00 pp | 0.00 pp |
+| 120 / relapse | -$2,259 | -$2,501 | 2.04 pp | **10.39 pp** |
+| 120 / overnight gap | -$4,874 | **+$990** | 4.28 pp | **7.81 pp** |
+| 120 / changed holdings | -$4,045 | -$5,163 | 2.89 pp | 5.34 pp |
+
+The last gap result is particularly useful: a positive terminal difference
+would conceal materially worse interim risk. It fails the drawdown budget
+despite ending ahead. The experiment was adversarial by design and conditioned
+on earlier entry. It establishes possible loss and rejects these fixed risk
+budgets; it does not estimate event frequency, expected CAGR, or prove that the
+existing controller is globally optimal.
+
+## What the mechanics show
+
+**The comparator inconsistency is removed in the research policy.** The exact
+former witness now returns full exposure for both +1% and +3% Core r20, with
+leaders/SPY at +2%, from the same prior state. An independent truth table covers
+192 combinations of prior state and other inputs, each with six ordered Core
+returns (1,152 transitions). Native zero, divergence caps, missing/nonfinite
+inputs and persistence remain enforced. Removing an economic constraint is
+nevertheless a design tradeoff, not proof that the old arithmetic was broken.
+
+**Early entry creates genuine overnight risk.** In the 40-session gap case,
+the bridge has bought stocks at day 41's open before the extra 20% loss at day
+42's open. Its additional shock loss is $8,629.24, borne by *previously owned*
+shares. Current/Owned55 are still defensive at that instant. Closing evidence
+and subsequent liquidation cannot erase this loss. In the rebuilding-book gap,
+the old bridge loses $4,590.38 and the sign bridge $8,384.62 at the event open.
+This is causal account ownership, not same-close execution or a valuation bug.
+
+**Full release closes the recovery episode too definitively.** In the
+120-session relapse, at day 32 the old bridge allows 55% and the sign rule
+allows 100%. Both execute at day 33's open; relapse starts on day 34. Core r20
+turns negative on day 36, so the old bridge withdraws at day 37's open. The
+sign-confirmed full release already cleared its recovery episode: it remains
+at 100% through day 44 even as r20 deteriorates to roughly -10%, damage reaches
+100% and green reaches zero. The independent owned-impairment channel finally
+caps it at 55% on day 45's close, effective day 46. Native is still full in this
+interval. This explains the extra 10.39 pp drawdown; it is not a timing defect
+in the new account model.
+
+**Book rebuilding changes the effective exposure.** In that relapse the Core
+stock fraction grows from about 51% on day 32 to 93% on day 41 as admissions
+continue. A fixed 100% Core allocation therefore almost doubles the live stock
+fraction during deteriorating prices. The controller is not choosing holdings;
+it must assess the changing book that Core actually owns. The half-book shock
+does exercise real changes: ten pre-stress holdings disappear in the first
+formation and five in the second over the next twenty sessions, through
+canonical stops/replacement rather than manual edits.
+
+## Dynamic range and the next design decision
+
+This experiment provides more precise evidence than saying the signals have
+"enough range". In the rebuilding relapse, returns deteriorate while damage
+remains zero through day 38. Then count damage moves through about 65%, 78%
+and 100% on days 39–41. Those are reachable measurements, but coarse and lagged;
+at 100% further deterioration is invisible to that breadth measure. Meanwhile
+green drops from 100% to about 87%, 25%, 18%, 6% and zero. The problem includes
+both sensor semantics and the controller state that is allowed to use them.
+Increasing numeric precision or lowering a single threshold does not establish
+a safe cure.
+
+The existing leadership hold is **load-bearing protection** on these false
+recoveries. The result argues against simply weakening it to obtain earlier
+upside. Retain current production behavior. If research continues, the next
+explicit design decision should be whether a recovery remains provisional
+after admission, with a revocable owned-risk permission and bounded exposure
+while the book rebuilds. Separately choose an acceptable gap-loss budget: no
+close-based health signal can guarantee avoidance of an overnight gap. Neither
+choice is implemented or optimized here; both require a new frozen experiment
+and honest adverse-loss criteria.
+
+## Validation and limitations
+
+- All **3,840 account-days** reconcile independently from regenerated price
+  paths, prior holdings, signed trades, fees, overnight P&L and intraday P&L.
+- Two retained controls reproduce all 720 prior account-days exactly for
+  current, Owned55 and the old bridge, including decisions and balances.
+- 960 scenario closes preserve canonical current-controller parity and Native
+  state parity in the changed policy. 108 Core restart pairs and 432 each
+  controller/account restart pairs pass at fixed cuts and actual transitions.
+- 23 focused tests pass. Five policy/price/identity mutants are killed, and a
+  separate same-close execution corruption is rejected by the retained-trace
+  auditor. Syntax, staged whitespace and repository ownership checks pass.
+- Every stress hits actual preexisting bridge stock ownership. Detailed price,
+  position, cause and cash traces are retained; no original result is repinned.
+
+These are 60-security deterministic market paths and snapshot-following whole-
+share accounts with zero-yield synthetic bills, not probability estimates,
+authoritative historical-data results, complete execution/reconciliation tests
+or deployment qualification. This experiment changes no production code.
+Exact commands, immutable dependencies and evidence are in
+`audit/recovery-relapse-screen/README.md`.

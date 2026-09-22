@@ -1,0 +1,27 @@
+{
+  "leader_relative_comparator_restored": {
+    "killed": true,
+    "exit_code": 1,
+    "summary": "3 failed, 20 passed in 1.49s"
+  },
+  "market_relative_comparator_restored": {
+    "killed": true,
+    "exit_code": 1,
+    "summary": "3 failed, 20 passed in 1.37s"
+  },
+  "gap_moved_to_close": {
+    "killed": true,
+    "exit_code": 1,
+    "summary": "1 failed, 22 passed in 1.31s"
+  },
+  "future_price_level_not_adjusted": {
+    "killed": true,
+    "exit_code": 1,
+    "summary": "1 failed, 22 passed in 1.35s"
+  },
+  "policy_identity_not_changed": {
+    "killed": true,
+    "exit_code": 1,
+    "summary": "1 failed, 22 passed in 1.38s"
+  }
+}

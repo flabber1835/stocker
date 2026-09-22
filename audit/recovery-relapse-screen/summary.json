@@ -1,0 +1,1780 @@
+{
+  "schema": "entered-recovery-risk/1",
+  "cases": {
+    "40-owned_recovery-control": {
+      "current": {
+        "ending_nav": 108040.19221802126,
+        "max_drawdown": -0.1791252982770477,
+        "fees": 419.79302156028604,
+        "turnover": 419793.021560286,
+        "zero_closes": 44,
+        "partial_closes": 0
+      },
+      "owned55": {
+        "ending_nav": 108040.19221802126,
+        "max_drawdown": -0.1791252982770477,
+        "fees": 419.79302156028604,
+        "turnover": 419793.021560286,
+        "zero_closes": 44,
+        "partial_closes": 0
+      },
+      "bridge": {
+        "ending_nav": 110261.45955379358,
+        "max_drawdown": -0.1791252982770477,
+        "fees": 421.8683473609761,
+        "turnover": 421868.3473609761,
+        "zero_closes": 40,
+        "partial_closes": 4
+      },
+      "sign_bridge": {
+        "ending_nav": 110261.45955379358,
+        "max_drawdown": -0.1791252982770477,
+        "fees": 421.8683473609761,
+        "turnover": 421868.3473609761,
+        "zero_closes": 40,
+        "partial_closes": 4
+      },
+      "screen": {
+        "terminal_delta": 2221.267335772325,
+        "drawdown_delta_pp": 0.0,
+        "fee_delta": 2.0753258006900523
+      },
+      "bridge_days": [
+        40,
+        41,
+        42,
+        43
+      ],
+      "target_difference_days": [
+        40,
+        41,
+        42,
+        43
+      ],
+      "mechanics": {
+        "minimum_holdings": 20,
+        "largest_weight": 0.05131489976369376,
+        "healthy_owned_weak_leaders": 0,
+        "recovery_held": 11,
+        "native_zero": 33,
+        "damage_full": 22
+      },
+      "signal_ranges": {
+        "shadow_r20": {
+          "min": -0.19386031648957458,
+          "max": 0.20595507161350968,
+          "distinct": 120
+        },
+        "damaged_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 7
+        },
+        "green_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 10
+        },
+        "spy_vol_ratio": {
+          "min": -0.9805790080063589,
+          "max": 1.0567557435816117,
+          "distinct": 120
+        }
+      },
+      "decision_changes": {
+        "current": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 44,
+            "target": 1.0
+          }
+        ],
+        "owned55": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 44,
+            "target": 1.0
+          }
+        ],
+        "bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 40,
+            "target": 0.55
+          },
+          {
+            "day": 44,
+            "target": 1.0
+          }
+        ],
+        "sign_bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 40,
+            "target": 0.55
+          },
+          {
+            "day": 44,
+            "target": 1.0
+          }
+        ]
+      },
+      "screen_by_candidate": {
+        "bridge": {
+          "terminal_delta": 2221.267335772325,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 2.0753258006900523,
+          "passes": true,
+          "minimum_interim_delta": 0.0
+        },
+        "sign_bridge": {
+          "terminal_delta": 2221.267335772325,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 2.0753258006900523,
+          "passes": true,
+          "minimum_interim_delta": 0.0
+        }
+      },
+      "first_bridge": 40,
+      "event_day": 42,
+      "restart_cuts": [
+        0,
+        7,
+        19,
+        31,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        52,
+        69,
+        119
+      ],
+      "event_holdings": [
+        "S06",
+        "S07",
+        "S08",
+        "S15",
+        "S17",
+        "S18",
+        "S19",
+        "S27",
+        "S28",
+        "S29",
+        "S36",
+        "S38",
+        "S39",
+        "S40",
+        "S46",
+        "S48",
+        "S49",
+        "S50",
+        "S57",
+        "S59"
+      ],
+      "holdings_after_20": [
+        "S06",
+        "S07",
+        "S08",
+        "S15",
+        "S17",
+        "S18",
+        "S19",
+        "S27",
+        "S28",
+        "S29",
+        "S36",
+        "S38",
+        "S39",
+        "S40",
+        "S46",
+        "S48",
+        "S49",
+        "S50",
+        "S57",
+        "S59"
+      ]
+    },
+    "40-owned_recovery-relapse": {
+      "current": {
+        "ending_nav": 90569.69238070834,
+        "max_drawdown": -0.271353190271717,
+        "fees": 420.3650609622754,
+        "turnover": 420365.06096227537,
+        "zero_closes": 44,
+        "partial_closes": 0
+      },
+      "owned55": {
+        "ending_nav": 83983.875762014,
+        "max_drawdown": -0.271353190271717,
+        "fees": 561.4240931342945,
+        "turnover": 561424.0931342945,
+        "zero_closes": 44,
+        "partial_closes": 23
+      },
+      "bridge": {
+        "ending_nav": 80427.85845596922,
+        "max_drawdown": -0.30209962742204133,
+        "fees": 555.8910956705457,
+        "turnover": 555891.0956705457,
+        "zero_closes": 40,
+        "partial_closes": 27
+      },
+      "sign_bridge": {
+        "ending_nav": 80427.85845596922,
+        "max_drawdown": -0.30209962742204133,
+        "fees": 555.8910956705457,
+        "turnover": 555891.0956705457,
+        "zero_closes": 40,
+        "partial_closes": 27
+      },
+      "screen": {
+        "terminal_delta": -3556.0173060447705,
+        "drawdown_delta_pp": -3.0746437150324324,
+        "fee_delta": -5.532997463748757
+      },
+      "bridge_days": [
+        40,
+        41,
+        42,
+        43
+      ],
+      "target_difference_days": [
+        40,
+        41,
+        42,
+        43
+      ],
+      "mechanics": {
+        "minimum_holdings": 20,
+        "largest_weight": 0.05131489976369375,
+        "healthy_owned_weak_leaders": 3,
+        "recovery_held": 11,
+        "native_zero": 33,
+        "damage_full": 40
+      },
+      "signal_ranges": {
+        "shadow_r20": {
+          "min": -0.19386031648957458,
+          "max": 0.20595507161350968,
+          "distinct": 120
+        },
+        "damaged_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 8
+        },
+        "green_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 14
+        },
+        "spy_vol_ratio": {
+          "min": -0.9805790080063589,
+          "max": 1.0567557435816117,
+          "distinct": 120
+        }
+      },
+      "decision_changes": {
+        "current": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 44,
+            "target": 1.0
+          }
+        ],
+        "owned55": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 44,
+            "target": 1.0
+          },
+          {
+            "day": 51,
+            "target": 0.55
+          },
+          {
+            "day": 74,
+            "target": 1.0
+          }
+        ],
+        "bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 40,
+            "target": 0.55
+          },
+          {
+            "day": 44,
+            "target": 1.0
+          },
+          {
+            "day": 51,
+            "target": 0.55
+          },
+          {
+            "day": 74,
+            "target": 1.0
+          }
+        ],
+        "sign_bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 40,
+            "target": 0.55
+          },
+          {
+            "day": 44,
+            "target": 1.0
+          },
+          {
+            "day": 51,
+            "target": 0.55
+          },
+          {
+            "day": 74,
+            "target": 1.0
+          }
+        ]
+      },
+      "screen_by_candidate": {
+        "bridge": {
+          "terminal_delta": -3556.0173060447705,
+          "drawdown_delta_pp": -3.0746437150324324,
+          "fee_delta": -5.532997463748757,
+          "passes": false,
+          "minimum_interim_delta": -3556.0173060447705
+        },
+        "sign_bridge": {
+          "terminal_delta": -3556.0173060447705,
+          "drawdown_delta_pp": -3.0746437150324324,
+          "fee_delta": -5.532997463748757,
+          "passes": false,
+          "minimum_interim_delta": -3556.0173060447705
+        }
+      },
+      "first_bridge": 40,
+      "event_day": 42,
+      "restart_cuts": [
+        0,
+        7,
+        19,
+        31,
+        40,
+        41,
+        42,
+        43,
+        44,
+        45,
+        51,
+        52,
+        69,
+        74,
+        119
+      ],
+      "event_holdings": [
+        "S06",
+        "S07",
+        "S08",
+        "S15",
+        "S17",
+        "S18",
+        "S19",
+        "S27",
+        "S28",
+        "S29",
+        "S36",
+        "S38",
+        "S39",
+        "S40",
+        "S46",
+        "S48",
+        "S49",
+        "S50",
+        "S57",
+        "S59"
+      ],
+      "holdings_after_20": [
+        "S06",
+        "S07",
+        "S08",
+        "S15",
+        "S17",
+        "S18",
+        "S19",
+        "S27",
+        "S28",
+        "S29",
+        "S36",
+        "S38",
+        "S39",
+        "S40",
+        "S46",
+        "S48",
+        "S49",
+        "S50",
+        "S57",
+        "S59"
+      ]
+    },
+    "40-owned_recovery-overnight_gap": {
+      "current": {
+        "ending_nav": 89990.44265325772,
+        "max_drawdown": -0.1791252982770477,
+        "fees": 419.35873092982587,
+        "turnover": 419358.73092982586,
+        "zero_closes": 69,
+        "partial_closes": 0
+      },
+      "owned55": {
+        "ending_nav": 89647.4003041216,
+        "max_drawdown": -0.1791252982770477,
+        "fees": 420.16083790677675,
+        "turnover": 420160.83790677675,
+        "zero_closes": 69,
+        "partial_closes": 1
+      },
+      "bridge": {
+        "ending_nav": 80891.1601163803,
+        "max_drawdown": -0.26032578957453134,
+        "fees": 578.4831243013194,
+        "turnover": 578483.1243013195,
+        "zero_closes": 67,
+        "partial_closes": 3
+      },
+      "sign_bridge": {
+        "ending_nav": 80891.1601163803,
+        "max_drawdown": -0.26032578957453134,
+        "fees": 578.4831243013194,
+        "turnover": 578483.1243013195,
+        "zero_closes": 67,
+        "partial_closes": 3
+      },
+      "screen": {
+        "terminal_delta": -8756.240187741307,
+        "drawdown_delta_pp": -8.120049129748363,
+        "fee_delta": 158.3222863945427
+      },
+      "bridge_days": [
+        40,
+        41
+      ],
+      "target_difference_days": [
+        40,
+        41
+      ],
+      "mechanics": {
+        "minimum_holdings": 20,
+        "largest_weight": 0.05131489976369378,
+        "healthy_owned_weak_leaders": 0,
+        "recovery_held": 13,
+        "native_zero": 56,
+        "damage_full": 31
+      },
+      "signal_ranges": {
+        "shadow_r20": {
+          "min": -0.19386031648957458,
+          "max": 0.20595507161350968,
+          "distinct": 120
+        },
+        "damaged_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 11
+        },
+        "green_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 10
+        },
+        "spy_vol_ratio": {
+          "min": -0.9805790080063589,
+          "max": 1.0567557435816117,
+          "distinct": 120
+        }
+      },
+      "decision_changes": {
+        "current": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 69,
+            "target": 1.0
+          }
+        ],
+        "owned55": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 69,
+            "target": 0.55
+          },
+          {
+            "day": 70,
+            "target": 1.0
+          }
+        ],
+        "bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 40,
+            "target": 0.55
+          },
+          {
+            "day": 42,
+            "target": 0.0
+          },
+          {
+            "day": 69,
+            "target": 0.55
+          },
+          {
+            "day": 70,
+            "target": 1.0
+          }
+        ],
+        "sign_bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 40,
+            "target": 0.55
+          },
+          {
+            "day": 42,
+            "target": 0.0
+          },
+          {
+            "day": 69,
+            "target": 0.55
+          },
+          {
+            "day": 70,
+            "target": 1.0
+          }
+        ]
+      },
+      "screen_by_candidate": {
+        "bridge": {
+          "terminal_delta": -8756.240187741307,
+          "drawdown_delta_pp": -8.120049129748363,
+          "fee_delta": 158.3222863945427,
+          "passes": false,
+          "minimum_interim_delta": -8756.240187741307
+        },
+        "sign_bridge": {
+          "terminal_delta": -8756.240187741307,
+          "drawdown_delta_pp": -8.120049129748363,
+          "fee_delta": 158.3222863945427,
+          "passes": false,
+          "minimum_interim_delta": -8756.240187741307
+        }
+      },
+      "first_bridge": 40,
+      "event_day": 42,
+      "restart_cuts": [
+        0,
+        7,
+        19,
+        31,
+        40,
+        41,
+        42,
+        43,
+        45,
+        52,
+        69,
+        70,
+        119
+      ],
+      "event_holdings": [
+        "S06",
+        "S07",
+        "S08",
+        "S15",
+        "S17",
+        "S18",
+        "S19",
+        "S27",
+        "S28",
+        "S29",
+        "S36",
+        "S38",
+        "S39",
+        "S40",
+        "S46",
+        "S48",
+        "S49",
+        "S50",
+        "S57",
+        "S59"
+      ],
+      "holdings_after_20": [
+        "S06",
+        "S07",
+        "S08",
+        "S15",
+        "S17",
+        "S18",
+        "S19",
+        "S27",
+        "S28",
+        "S29",
+        "S36",
+        "S38",
+        "S39",
+        "S40",
+        "S46",
+        "S48",
+        "S49",
+        "S50",
+        "S57",
+        "S59"
+      ]
+    },
+    "40-owned_recovery-changing_holdings": {
+      "current": {
+        "ending_nav": 88530.76261481996,
+        "max_drawdown": -0.1791252982770477,
+        "fees": 420.6098927494554,
+        "turnover": 420609.8927494554,
+        "zero_closes": 69,
+        "partial_closes": 0
+      },
+      "owned55": {
+        "ending_nav": 88530.76261481996,
+        "max_drawdown": -0.1791252982770477,
+        "fees": 420.6098927494554,
+        "turnover": 420609.8927494554,
+        "zero_closes": 69,
+        "partial_closes": 0
+      },
+      "bridge": {
+        "ending_nav": 80909.50553981686,
+        "max_drawdown": -0.2505210140373021,
+        "fees": 582.3120737423558,
+        "turnover": 582312.0737423557,
+        "zero_closes": 67,
+        "partial_closes": 2
+      },
+      "sign_bridge": {
+        "ending_nav": 80909.50553981686,
+        "max_drawdown": -0.2505210140373021,
+        "fees": 582.3120737423558,
+        "turnover": 582312.0737423557,
+        "zero_closes": 67,
+        "partial_closes": 2
+      },
+      "screen": {
+        "terminal_delta": -7621.257075003101,
+        "drawdown_delta_pp": -7.139571576025439,
+        "fee_delta": 161.70218099290037
+      },
+      "bridge_days": [
+        40,
+        41
+      ],
+      "target_difference_days": [
+        40,
+        41
+      ],
+      "mechanics": {
+        "minimum_holdings": 10,
+        "largest_weight": 0.10247263547178723,
+        "healthy_owned_weak_leaders": 0,
+        "recovery_held": 36,
+        "native_zero": 33,
+        "damage_full": 22
+      },
+      "signal_ranges": {
+        "shadow_r20": {
+          "min": -0.19386031648957458,
+          "max": 0.20595507161350968,
+          "distinct": 120
+        },
+        "damaged_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 7
+        },
+        "green_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 14
+        },
+        "spy_vol_ratio": {
+          "min": -0.9805790080063589,
+          "max": 1.0567557435816117,
+          "distinct": 120
+        }
+      },
+      "decision_changes": {
+        "current": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 69,
+            "target": 1.0
+          }
+        ],
+        "owned55": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 69,
+            "target": 1.0
+          }
+        ],
+        "bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 40,
+            "target": 0.55
+          },
+          {
+            "day": 42,
+            "target": 0.0
+          },
+          {
+            "day": 69,
+            "target": 1.0
+          }
+        ],
+        "sign_bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 40,
+            "target": 0.55
+          },
+          {
+            "day": 42,
+            "target": 0.0
+          },
+          {
+            "day": 69,
+            "target": 1.0
+          }
+        ]
+      },
+      "screen_by_candidate": {
+        "bridge": {
+          "terminal_delta": -7621.257075003101,
+          "drawdown_delta_pp": -7.139571576025439,
+          "fee_delta": 161.70218099290037,
+          "passes": false,
+          "minimum_interim_delta": -7621.257075003101
+        },
+        "sign_bridge": {
+          "terminal_delta": -7621.257075003101,
+          "drawdown_delta_pp": -7.139571576025439,
+          "fee_delta": 161.70218099290037,
+          "passes": false,
+          "minimum_interim_delta": -7621.257075003101
+        }
+      },
+      "first_bridge": 40,
+      "event_day": 42,
+      "restart_cuts": [
+        0,
+        7,
+        19,
+        31,
+        40,
+        41,
+        42,
+        43,
+        45,
+        52,
+        69,
+        119
+      ],
+      "event_holdings": [
+        "S06",
+        "S07",
+        "S08",
+        "S15",
+        "S17",
+        "S18",
+        "S19",
+        "S27",
+        "S28",
+        "S29",
+        "S36",
+        "S38",
+        "S39",
+        "S40",
+        "S46",
+        "S48",
+        "S49",
+        "S50",
+        "S57",
+        "S59"
+      ],
+      "holdings_after_20": [
+        "S36",
+        "S38",
+        "S39",
+        "S40",
+        "S46",
+        "S48",
+        "S49",
+        "S50",
+        "S57",
+        "S59"
+      ]
+    },
+    "120-leaders_recovery-control": {
+      "current": {
+        "ending_nav": 116981.71431776856,
+        "max_drawdown": -0.17216931210781516,
+        "fees": 424.03122172655054,
+        "turnover": 424031.22172655055,
+        "zero_closes": 37,
+        "partial_closes": 0
+      },
+      "owned55": {
+        "ending_nav": 116981.71431776856,
+        "max_drawdown": -0.17216931210781516,
+        "fees": 424.03122172655054,
+        "turnover": 424031.22172655055,
+        "zero_closes": 37,
+        "partial_closes": 0
+      },
+      "bridge": {
+        "ending_nav": 119089.59789550715,
+        "max_drawdown": -0.17216931210781516,
+        "fees": 424.93341466160973,
+        "turnover": 424933.41466160974,
+        "zero_closes": 32,
+        "partial_closes": 5
+      },
+      "sign_bridge": {
+        "ending_nav": 121312.14933129113,
+        "max_drawdown": -0.17216931210781516,
+        "fees": 424.4032591241085,
+        "turnover": 424403.2591241085,
+        "zero_closes": 32,
+        "partial_closes": 0
+      },
+      "screen": {
+        "terminal_delta": 2107.883577738583,
+        "drawdown_delta_pp": 0.0,
+        "fee_delta": 0.9021929350591904
+      },
+      "bridge_days": [
+        32,
+        33,
+        34,
+        35,
+        36
+      ],
+      "target_difference_days": [
+        32,
+        33,
+        34,
+        35,
+        36
+      ],
+      "mechanics": {
+        "minimum_holdings": 0,
+        "largest_weight": 1.0,
+        "healthy_owned_weak_leaders": 0,
+        "recovery_held": 12,
+        "native_zero": 25,
+        "damage_full": 2
+      },
+      "signal_ranges": {
+        "shadow_r20": {
+          "min": -0.17361852539427303,
+          "max": 0.19164700643115928,
+          "distinct": 120
+        },
+        "damaged_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 2
+        },
+        "green_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 7
+        },
+        "spy_vol_ratio": {
+          "min": -0.9842832266103037,
+          "max": 0.9842950837717803,
+          "distinct": 120
+        }
+      },
+      "decision_changes": {
+        "current": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 37,
+            "target": 1.0
+          }
+        ],
+        "owned55": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 37,
+            "target": 1.0
+          }
+        ],
+        "bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 32,
+            "target": 0.55
+          },
+          {
+            "day": 37,
+            "target": 1.0
+          }
+        ],
+        "sign_bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 32,
+            "target": 1.0
+          }
+        ]
+      },
+      "screen_by_candidate": {
+        "bridge": {
+          "terminal_delta": 2107.883577738583,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.9021929350591904,
+          "passes": true,
+          "minimum_interim_delta": 0.0
+        },
+        "sign_bridge": {
+          "terminal_delta": 4330.435013522569,
+          "drawdown_delta_pp": 0.0,
+          "fee_delta": 0.3720373975579605,
+          "passes": true,
+          "minimum_interim_delta": 0.0
+        }
+      },
+      "first_bridge": 32,
+      "event_day": 34,
+      "restart_cuts": [
+        0,
+        7,
+        19,
+        31,
+        32,
+        33,
+        34,
+        35,
+        37,
+        44,
+        45,
+        69,
+        119
+      ],
+      "event_holdings": [
+        "S10",
+        "S11",
+        "S12",
+        "S20",
+        "S31",
+        "S32",
+        "S33",
+        "S41",
+        "S52",
+        "S53",
+        "S54"
+      ],
+      "holdings_after_20": [
+        "S00",
+        "S01",
+        "S09",
+        "S10",
+        "S11",
+        "S12",
+        "S20",
+        "S21",
+        "S30",
+        "S31",
+        "S32",
+        "S33",
+        "S37",
+        "S41",
+        "S42",
+        "S51",
+        "S52",
+        "S53",
+        "S54",
+        "S58"
+      ]
+    },
+    "120-leaders_recovery-relapse": {
+      "current": {
+        "ending_nav": 92053.13047744118,
+        "max_drawdown": -0.17216931210781516,
+        "fees": 421.7360023345793,
+        "turnover": 421736.0023345793,
+        "zero_closes": 65,
+        "partial_closes": 0
+      },
+      "owned55": {
+        "ending_nav": 92053.13047744118,
+        "max_drawdown": -0.17216931210781516,
+        "fees": 421.7360023345793,
+        "turnover": 421736.0023345793,
+        "zero_closes": 65,
+        "partial_closes": 0
+      },
+      "bridge": {
+        "ending_nav": 89794.3904422899,
+        "max_drawdown": -0.1925833411909058,
+        "fees": 564.1156765556198,
+        "turnover": 564115.6765556197,
+        "zero_closes": 61,
+        "partial_closes": 4
+      },
+      "sign_bridge": {
+        "ending_nav": 89552.15975478783,
+        "max_drawdown": -0.2760744036603703,
+        "fees": 562.3039245490066,
+        "turnover": 562303.9245490066,
+        "zero_closes": 32,
+        "partial_closes": 20
+      },
+      "screen": {
+        "terminal_delta": -2258.740035151277,
+        "drawdown_delta_pp": -2.0414029083090646,
+        "fee_delta": 142.37967422104043
+      },
+      "bridge_days": [
+        32,
+        33,
+        34,
+        35
+      ],
+      "target_difference_days": [
+        32,
+        33,
+        34,
+        35
+      ],
+      "mechanics": {
+        "minimum_holdings": 0,
+        "largest_weight": 1.0,
+        "healthy_owned_weak_leaders": 1,
+        "recovery_held": 40,
+        "native_zero": 25,
+        "damage_full": 18
+      },
+      "signal_ranges": {
+        "shadow_r20": {
+          "min": -0.17361852539427303,
+          "max": 0.17817294942792583,
+          "distinct": 120
+        },
+        "damaged_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 5
+        },
+        "green_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 13
+        },
+        "spy_vol_ratio": {
+          "min": -0.9842832266103037,
+          "max": 0.9842950837717803,
+          "distinct": 120
+        }
+      },
+      "decision_changes": {
+        "current": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 65,
+            "target": 1.0
+          }
+        ],
+        "owned55": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 65,
+            "target": 1.0
+          }
+        ],
+        "bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 32,
+            "target": 0.55
+          },
+          {
+            "day": 36,
+            "target": 0.0
+          },
+          {
+            "day": 65,
+            "target": 1.0
+          }
+        ],
+        "sign_bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 32,
+            "target": 1.0
+          },
+          {
+            "day": 45,
+            "target": 0.55
+          },
+          {
+            "day": 65,
+            "target": 1.0
+          }
+        ]
+      },
+      "screen_by_candidate": {
+        "bridge": {
+          "terminal_delta": -2258.740035151277,
+          "drawdown_delta_pp": -2.0414029083090646,
+          "fee_delta": 142.37967422104043,
+          "passes": false,
+          "minimum_interim_delta": -2275.7679274093534
+        },
+        "sign_bridge": {
+          "terminal_delta": -2500.97072265335,
+          "drawdown_delta_pp": -10.390509155255511,
+          "fee_delta": 140.5679222144273,
+          "passes": false,
+          "minimum_interim_delta": -10390.50915525551
+        }
+      },
+      "first_bridge": 32,
+      "event_day": 34,
+      "restart_cuts": [
+        0,
+        7,
+        19,
+        31,
+        32,
+        33,
+        34,
+        35,
+        36,
+        44,
+        45,
+        65,
+        69,
+        119
+      ],
+      "event_holdings": [
+        "S10",
+        "S11",
+        "S12",
+        "S20",
+        "S31",
+        "S32",
+        "S33",
+        "S41",
+        "S52",
+        "S53",
+        "S54"
+      ],
+      "holdings_after_20": [
+        "S00",
+        "S01",
+        "S09",
+        "S10",
+        "S11",
+        "S12",
+        "S20",
+        "S21",
+        "S22",
+        "S30",
+        "S31",
+        "S32",
+        "S33",
+        "S41",
+        "S42",
+        "S51",
+        "S52",
+        "S53",
+        "S54"
+      ]
+    },
+    "120-leaders_recovery-overnight_gap": {
+      "current": {
+        "ending_nav": 95423.00643389032,
+        "max_drawdown": -0.17216931210781516,
+        "fees": 422.3361164909579,
+        "turnover": 422336.1164909579,
+        "zero_closes": 61,
+        "partial_closes": 0
+      },
+      "owned55": {
+        "ending_nav": 95026.3263183954,
+        "max_drawdown": -0.17216931210781516,
+        "fees": 423.095937530334,
+        "turnover": 423095.93753033405,
+        "zero_closes": 61,
+        "partial_closes": 1
+      },
+      "bridge": {
+        "ending_nav": 90152.48079880947,
+        "max_drawdown": -0.21495068117854466,
+        "fees": 550.4556610093806,
+        "turnover": 550455.6610093806,
+        "zero_closes": 59,
+        "partial_closes": 3
+      },
+      "sign_bridge": {
+        "ending_nav": 96016.01880690709,
+        "max_drawdown": -0.2503103278159905,
+        "fees": 542.8369609181916,
+        "turnover": 542836.9609181916,
+        "zero_closes": 32,
+        "partial_closes": 24
+      },
+      "screen": {
+        "terminal_delta": -4873.845519585928,
+        "drawdown_delta_pp": -4.278136907072949,
+        "fee_delta": 127.35972347904658
+      },
+      "bridge_days": [
+        32,
+        33
+      ],
+      "target_difference_days": [
+        32,
+        33
+      ],
+      "mechanics": {
+        "minimum_holdings": 0,
+        "largest_weight": 1.0,
+        "healthy_owned_weak_leaders": 6,
+        "recovery_held": 36,
+        "native_zero": 25,
+        "damage_full": 10
+      },
+      "signal_ranges": {
+        "shadow_r20": {
+          "min": -0.17361852539427303,
+          "max": 0.18581795988535932,
+          "distinct": 120
+        },
+        "damaged_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 6
+        },
+        "green_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 13
+        },
+        "spy_vol_ratio": {
+          "min": -0.9842832266103037,
+          "max": 0.9888675935465172,
+          "distinct": 120
+        }
+      },
+      "decision_changes": {
+        "current": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 61,
+            "target": 1.0
+          }
+        ],
+        "owned55": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 61,
+            "target": 0.55
+          },
+          {
+            "day": 62,
+            "target": 1.0
+          }
+        ],
+        "bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 32,
+            "target": 0.55
+          },
+          {
+            "day": 34,
+            "target": 0.0
+          },
+          {
+            "day": 61,
+            "target": 0.55
+          },
+          {
+            "day": 62,
+            "target": 1.0
+          }
+        ],
+        "sign_bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 32,
+            "target": 1.0
+          },
+          {
+            "day": 38,
+            "target": 0.55
+          },
+          {
+            "day": 62,
+            "target": 1.0
+          }
+        ]
+      },
+      "screen_by_candidate": {
+        "bridge": {
+          "terminal_delta": -4873.845519585928,
+          "drawdown_delta_pp": -4.278136907072949,
+          "fee_delta": 127.35972347904658,
+          "passes": false,
+          "minimum_interim_delta": -4909.452224307985
+        },
+        "sign_bridge": {
+          "terminal_delta": 989.6924885116896,
+          "drawdown_delta_pp": -7.814101570817533,
+          "fee_delta": 119.74102338785758,
+          "passes": false,
+          "minimum_interim_delta": -7814.1015708175255
+        }
+      },
+      "first_bridge": 32,
+      "event_day": 34,
+      "restart_cuts": [
+        0,
+        7,
+        19,
+        31,
+        32,
+        33,
+        34,
+        35,
+        38,
+        44,
+        45,
+        61,
+        62,
+        69,
+        119
+      ],
+      "event_holdings": [
+        "S10",
+        "S11",
+        "S12",
+        "S20",
+        "S31",
+        "S32",
+        "S33",
+        "S41",
+        "S52",
+        "S53",
+        "S54"
+      ],
+      "holdings_after_20": [
+        "S01",
+        "S10",
+        "S11",
+        "S12",
+        "S20",
+        "S21",
+        "S22",
+        "S31",
+        "S32",
+        "S33",
+        "S41",
+        "S42",
+        "S51",
+        "S52",
+        "S53",
+        "S54"
+      ]
+    },
+    "120-leaders_recovery-changing_holdings": {
+      "current": {
+        "ending_nav": 112900.5182827787,
+        "max_drawdown": -0.17216931210781516,
+        "fees": 422.61261777511936,
+        "turnover": 422612.6177751194,
+        "zero_closes": 37,
+        "partial_closes": 0
+      },
+      "owned55": {
+        "ending_nav": 112900.5182827787,
+        "max_drawdown": -0.17216931210781516,
+        "fees": 422.61261777511936,
+        "turnover": 422612.6177751194,
+        "zero_closes": 37,
+        "partial_closes": 0
+      },
+      "bridge": {
+        "ending_nav": 108855.88678978369,
+        "max_drawdown": -0.2011094210944102,
+        "fees": 554.3901787662376,
+        "turnover": 554390.1787662375,
+        "zero_closes": 35,
+        "partial_closes": 2
+      },
+      "sign_bridge": {
+        "ending_nav": 107737.70314673774,
+        "max_drawdown": -0.22556302189039634,
+        "fees": 450.6859617915283,
+        "turnover": 450685.96179152833,
+        "zero_closes": 32,
+        "partial_closes": 0
+      },
+      "screen": {
+        "terminal_delta": -4044.6314929950167,
+        "drawdown_delta_pp": -2.894010898659505,
+        "fee_delta": 131.7775609911182
+      },
+      "bridge_days": [
+        32,
+        33
+      ],
+      "target_difference_days": [
+        32,
+        33
+      ],
+      "mechanics": {
+        "minimum_holdings": 0,
+        "largest_weight": 1.0,
+        "healthy_owned_weak_leaders": 0,
+        "recovery_held": 12,
+        "native_zero": 25,
+        "damage_full": 2
+      },
+      "signal_ranges": {
+        "shadow_r20": {
+          "min": -0.17361852539427303,
+          "max": 0.19275358039872104,
+          "distinct": 120
+        },
+        "damaged_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 3
+        },
+        "green_breadth": {
+          "min": 0.0,
+          "max": 1.0,
+          "distinct": 9
+        },
+        "spy_vol_ratio": {
+          "min": -0.9842832266103037,
+          "max": 0.9842950837717803,
+          "distinct": 120
+        }
+      },
+      "decision_changes": {
+        "current": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 37,
+            "target": 1.0
+          }
+        ],
+        "owned55": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 37,
+            "target": 1.0
+          }
+        ],
+        "bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 32,
+            "target": 0.55
+          },
+          {
+            "day": 34,
+            "target": 0.0
+          },
+          {
+            "day": 37,
+            "target": 1.0
+          }
+        ],
+        "sign_bridge": [
+          {
+            "day": 0,
+            "target": 0.0
+          },
+          {
+            "day": 32,
+            "target": 1.0
+          }
+        ]
+      },
+      "screen_by_candidate": {
+        "bridge": {
+          "terminal_delta": -4044.6314929950167,
+          "drawdown_delta_pp": -2.894010898659505,
+          "fee_delta": 131.7775609911182,
+          "passes": false,
+          "minimum_interim_delta": -4070.932729313121
+        },
+        "sign_bridge": {
+          "terminal_delta": -5162.815136040968,
+          "drawdown_delta_pp": -5.339370978258118,
+          "fee_delta": 28.073344016408953,
+          "passes": false,
+          "minimum_interim_delta": -5339.370978258114
+        }
+      },
+      "first_bridge": 32,
+      "event_day": 34,
+      "restart_cuts": [
+        0,
+        7,
+        19,
+        31,
+        32,
+        33,
+        34,
+        35,
+        37,
+        44,
+        45,
+        69,
+        119
+      ],
+      "event_holdings": [
+        "S10",
+        "S11",
+        "S12",
+        "S20",
+        "S31",
+        "S32",
+        "S33",
+        "S41",
+        "S52",
+        "S53",
+        "S54"
+      ],
+      "holdings_after_20": [
+        "S00",
+        "S01",
+        "S09",
+        "S21",
+        "S30",
+        "S32",
+        "S33",
+        "S37",
+        "S41",
+        "S42",
+        "S51",
+        "S52",
+        "S53",
+        "S54",
+        "S58"
+      ]
+    }
+  },
+  "source_sha256": {
+    "3c98d99aeb3646ff0883bdf2c76221492ef9b3bb:research/recovery_bridge/__init__.py": "9b859eb2f0f56bec601c6f97dee0040b4b4a282c41e5570de20f72974c6a4641",
+    "3c98d99aeb3646ff0883bdf2c76221492ef9b3bb:research/recovery_bridge/model.py": "7ebb15c5c748ac881b8c320193ab788b2591413c42fc417390509bf275a3527f",
+    "3c98d99aeb3646ff0883bdf2c76221492ef9b3bb:research/recovery_bridge/sources.py": "de0706af5500f8853478b92c2207288d4866a72e9c6dfe9924169ed158e9ecd3",
+    "3c98d99aeb3646ff0883bdf2c76221492ef9b3bb:research/recovery_bridge/scenarios.py": "3e340f50da5f3f2492e16393c98808854bfaee490a0cdc515918c6116ecf15e7",
+    "3c98d99aeb3646ff0883bdf2c76221492ef9b3bb:research/recovery_bridge/run.py": "476ae99bac8bb803f4776bb12b57e354a4ec36d64dc4b9cf4f4878077a79bf68",
+    "3c98d99aeb3646ff0883bdf2c76221492ef9b3bb:research/recovery_bridge/audit.py": "5d5479bf50431cac18c41313992f6f5be94a90042ef2485ddbaacfb9f27d0ca0",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/__init__.py": "cfcefbd0b8e89d752e8e2c96ba8c7262b65639ef2818c14b5e32ab34a3e59ade",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/pipeline.py": "38e3e26e0f510a9c8ca76b861872b35bf3cf5a4430b1611e0e98b911e46745d5",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/pipeline_diagnostics.py": "02fb53276ff65a7a7f5101db788d9e476f877c2cd8918a72caf7115348616cac",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/study.py": "5106ed8f8f5e9307a666dbaed9ad3422569c03e7dd171500ad6ddba39d4178f1",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/holdings.py": "86f4676a66c3fdf8f37f7c8d291adcf6db840ef5c9c7c4ebc9cb46a6cfbbcd3c",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/parameters.py": "a6c864e9fac233f1f9bfb5f5a5d9ed894c65c205a3142d6be97db976ce5462f8",
+    "f2a50c7b6ff4c9686f49b6eb53863e8e2b9959bb:research/impedance/account.py": "a4289547767317b75e396b253c6461b04490e613a4058d201b8c463a6e7f3679",
+    "181dfef1682b1351fe715059dd5ad99329321f5a:research/owned55_replay/model.py": "523d0df320668e2ce4be48f042031c2f93fdbd7f425cb7df17ebf7854c6fdd8a",
+    "7250ce3d65cc38a103989d460fe3c557a38343c8:sentinel/controller/owned_impairment.py": "318206ac43ed1027c39d3738fd186be5aac8845895f8e0ee9fbe1f80ceb99ffb",
+    "3c98d99aeb3646ff0883bdf2c76221492ef9b3bb:phase-40-owned_recovery": "0feb18affb2a58650d4106f51786c6361ad39082bae8dfc2ee146f119071abe6",
+    "3c98d99aeb3646ff0883bdf2c76221492ef9b3bb:phase-120-leaders_recovery": "2f665a689de95edde204e1b9cf3e7e7a98c687923a8cf2e4ed93a31c9a07af94",
+    "research/recovery_stress/audit.py": "6f22f9a63c9a0c33db9a763fc0f656c6d5b158afa4c427234b3fa3df6bd8252c",
+    "research/recovery_stress/market.py": "e4eb6e71fdf8e4b49a9adc0aab3fe5fb3b2c32e85c594c61646772f7f34ab9fc",
+    "research/recovery_stress/model.py": "2b20cd6a6740a6059a395abb660588f218b0d14ab888a04e2b1b64cb3d357b32",
+    "research/recovery_stress/mutations.py": "4f3895b9066f15cb989ff39df2785a6e75812798d684c941dc742d5d1d4892b6",
+    "research/recovery_stress/run.py": "2e8ad48abd69fbc1955532ffb62d4cab4fb7ad1db3c1c70764ba3411ce661156",
+    "research/recovery_stress/sources.py": "32b79c7e17902b905eccf0f109ca46e062d4c4d461ba7db31279949cb0cb2a8f",
+    "research/recovery_stress/test_recovery.py": "2b7f5d4e1364648d18145fa0f028f26f89f60c2dea574a87ccbde45ebbc27fab",
+    "research/recovery_stress/__init__.py": "142f34838880425cb49a0069294b6881d145d0d311522f782f1d3120b25b5563",
+    "sentinel/core/bootstrap.py": "eacbbdd4f0c24930381613c9169a558556d4f6403935169bd427a342e56a24f5",
+    "sentinel/core/cashflow.py": "127f30f023ca04775b3e4ee032734239c816924f70714bc04eee3c76480d1a9d",
+    "sentinel/core/catchup.py": "3e781874da3351510e40d03f22ab82f6248aad82feed67cc7b4101f3ab7a316c",
+    "sentinel/core/decision.py": "a97cedeebea062267319ac124a7d8d9d84326374a6355277e41359d287ffb303",
+    "sentinel/core/history.py": "d8296a70e0c529507f6832e8f020b0b0504b90f04b898c44a6f8828904d34cb3",
+    "sentinel/core/kernel.py": "61f52d5fc936559c000258e5fee1494d98206444289a3ed9a07dc42532c5615b",
+    "sentinel/core/loader.py": "95c9b96915ac2ab73b4c1d640ec825a6ed1ea7fd37163ffa550b455becf41191",
+    "sentinel/core/migration.py": "89cc16fe329d3be03e229193e4663fc06d96729911d53c64c7078a8e6b0ff0f8",
+    "sentinel/core/production.py": "9b69a9ec283fe216590eacfda83384511747be43c497805c5a731ec24d510feb",
+    "sentinel/core/rolling_continuity.py": "bb73e45a8f196c477fe4e2466fa7f48e44f25898798262f8d784ce7634d25c31",
+    "sentinel/core/rolling_inputs.py": "a9a219cc27f5cd54ba5e849c397ad788255fe6449708efd32dbd75258ae954be",
+    "sentinel/core/rolling_reader.py": "033b0f16f85287d5f266d8ec87becc4812636eb78d41061d93e0511ae42382b8",
+    "sentinel/core/session.py": "c95b085ecef3ad3996ba43cb838c4a7d03cbcbc33967bdb65b7c3b798522a51c",
+    "sentinel/core/spinoffs.py": "415a89ca975d36a4d20ec96cd9e779e473e49d31e5754faefd1cd8fdcf1cfb86",
+    "sentinel/core/terminal.py": "551a34f0ae3e6c2a0336055122f07fe5c48cbffdfdf42cba4a7a9427e3d140d7",
+    "sentinel/core/__init__.py": "dab2bfd96605eca71bebff61bac7798328d91bca32133dc6cce0ac6fe1b5cabf",
+    "sentinel/controller/champion.py": "b96dc432492e5e3b098dff6336416bd711e95a01c79b74ab940dec009742049a",
+    "sentinel/controller/champion_config.py": "0e5df39825bf0f55c7ddca73cc73656794abb7de9e97ca9f7dfe7e7a72e2d4e5",
+    "sentinel/controller/champion_frozen.py": "a67bb21df8df12f1e411bfc9a562eb62180df4e1fd6f9e94c1e845a9f0978fb5",
+    "sentinel/controller/concordance.py": "a3bb33f131060d72e385051843ecca8a0b1e6ad7cc3238f1b3036c73fc689d04",
+    "sentinel/controller/concordance_parent.py": "9c42ec75133c9a64063636d63975412df550243d57f88a9fc29d7b9e560b62f8",
+    "sentinel/controller/ex3_v6.py": "1ef77245bb7ecc027e732f13915915b3956d8d7847b82bfcd0b5186df7d9588f",
+    "sentinel/controller/frozen_rule.py": "cd4b730ae4b5108626e67f4ce0fbf6a32303960e070b9ab9b99246267cca121e",
+    "sentinel/controller/ldrc.py": "6eedb85005a3843d4b128eac863a525f83657544eba2f08fd1b1986be86b960a",
+    "sentinel/controller/machine.py": "484c365369424d478a4da628269b9db6cb7dd45a47050f201d06c34bead413d2",
+    "sentinel/controller/median5.py": "89b46dcdaa1b6fcac3757d4ed6e257f09550849a181bf62d61037419b17d5c02",
+    "sentinel/controller/median5_breadth.py": "8cd6ac067e9fa004fb7134d5117beb4f45c6175d288a4bf42841be7c0bd55f71",
+    "sentinel/controller/recent_leadership.py": "77fb36065457f85956ab2257bc4ea2054208123d6518ecd01f17e3f24d6ec24c",
+    "sentinel/controller/terminal_returns.py": "172c55b738753bcc9bcf29cf6ab3618d9de42d6f63f7e555d606508f7f740867",
+    "sentinel/controller/__init__.py": "6f9ac76cf0b5a030bcaeb556d3d1695708aa53ff024ab5948cf8fb4f10f73dc1",
+    "shared/stock_strategy_shared/wealth_core/adapter.py": "45c4d12f0d557c01a4c7f7cc4b3935100f549d6b540829156fd101adb9315a4a",
+    "shared/stock_strategy_shared/wealth_core/eligibility.py": "edbc38d65f7c18092160fa72cd9716ff2eb68b2eb44cf586ff6fa34d8bae0d24",
+    "shared/stock_strategy_shared/wealth_core/engine.py": "4c452e699c9c309d44a1849f65af76b947afa0c108ca9e522240ade8ecae623a",
+    "shared/stock_strategy_shared/wealth_core/execution_model.py": "d88dc2d791fc91b7106fa9eb2cd91aee63e34b7a53a5e38bf7d50d95230d1c34",
+    "shared/stock_strategy_shared/wealth_core/feed.py": "7f4d20b9ddb60f2dbac86a7001b74d31917ca6ece885c15b8ce268caeca583e0",
+    "shared/stock_strategy_shared/wealth_core/golden.py": "806867531bac6c60f24dcce8f6996c5adb9b289587b55d56adeaccacabe25d71",
+    "shared/stock_strategy_shared/wealth_core/hashes.py": "b900a66a1846446e7fa387aea1dee3110ac33ea194da0223985f6617c2adc9ba",
+    "shared/stock_strategy_shared/wealth_core/ledger.py": "c37a8656cc43a4807bf16e2fc6dcb97758cbe7271fc8d9a736ee526c9a9281f3",
+    "shared/stock_strategy_shared/wealth_core/liquidity.py": "07d8483ed58dd7173263a2e089ca15de1d2e8078c72822ec7fcd46448407177a",
+    "shared/stock_strategy_shared/wealth_core/live.py": "aec473222ec2d00c929a3ec522f093d9e139bb6d51ca2b5de48637abd6a7fef4",
+    "shared/stock_strategy_shared/wealth_core/marks.py": "b53edbf4cd723f5a53dc46e341f2cc8ee7efb891f10be7d5d57a1f2fbf239bd6",
+    "shared/stock_strategy_shared/wealth_core/median5.py": "47a538b6bcc23fcd1f08160123b0f3e4b69e59fef252f9e849cd57838dfcd01c",
+    "shared/stock_strategy_shared/wealth_core/ordering.py": "7b32d13e2709305742b6cead59c530a4b20c1823f47eea0415b1f539b6d6e86d",
+    "shared/stock_strategy_shared/wealth_core/performance.py": "aac5a3da47028832a4e6b3aa9e2d230558c220b9793c7c0a240d8635b1bb7040",
+    "shared/stock_strategy_shared/wealth_core/prices.py": "8160e46d9d969c14fb1abaf39d6c903d77ef36cbdd842aed765cf1c0d2d33370",
+    "shared/stock_strategy_shared/wealth_core/risk_profile.py": "b312fc40fcf3a1e593a8c334e107e3c282605280858ba87c86871bb66c517faa",
+    "shared/stock_strategy_shared/wealth_core/run.py": "58922dca3180f9c19bcb7dacce2342ddc8ed93c64d66a1ca5819a65321c433ad",
+    "shared/stock_strategy_shared/wealth_core/settlement.py": "4fcb6e16bf3dfdeb255255fba46b93feff4120ae301310be061660188c7ca2f5",
+    "shared/stock_strategy_shared/wealth_core/sharadar_domains.py": "4bebd224c7597913280dc731fcd04db10102f6b85250e8d74003754b53b550ba",
+    "shared/stock_strategy_shared/wealth_core/shares.py": "2297a6bd6e3d616b4b449fc1cbd8809003ace01e955d8dd06aea66b5b0e76537",
+    "shared/stock_strategy_shared/wealth_core/signals.py": "c0c6d41517909580af76b41217a725720144edc7d191cf7ea32dbd393bde4960",
+    "shared/stock_strategy_shared/wealth_core/state.py": "e0c9cea30206ac6eb2e25fc889200c82cf59038ac8fd91ce1c5c8f5df6646016",
+    "shared/stock_strategy_shared/wealth_core/state_restore_validation.py": "2fe2851d7bc1b05b5d57bc2cb96a3b554986b2beab26ddca315270b216cda30a",
+    "shared/stock_strategy_shared/wealth_core/terminal.py": "e1e6c0f38846afedd5fd8aeaba13b8f47c04d2896f14e2e6f339d94789973882",
+    "shared/stock_strategy_shared/wealth_core/terminal_audit.py": "2122f1b39e887e4813f66ceb4f740785a2ca62cef7146de076ce81cbce2ff351",
+    "shared/stock_strategy_shared/wealth_core/v5.py": "7e81a239b926cd3b824b1a49c535dc69d118b7512307c99f2e274ef202d148bb",
+    "shared/stock_strategy_shared/wealth_core/__init__.py": "fd8bed82bbb9d18481f7422216933a6b5a85066688c770ebad7dbfe1a6abe2fa"
+  },
+  "eligible_for_historical_continuation": {
+    "bridge": false,
+    "sign_bridge": false
+  },
+  "checks": {
+    "parity_sessions": 960,
+    "account_days": 3840,
+    "retained_control_account_days": 720,
+    "core_restart_pairs": 108,
+    "controller_account_restart_pairs_each": 432
+  },
+  "artifacts": {
+    "120-leaders_recovery-changing_holdings.json.gz": "14f1640eac3f65dc6d50250c2722480dc3aae6330626e8e334dccd002b5009f3",
+    "120-leaders_recovery-control.json.gz": "8a42fe71032f00c13bdd5e3670c44e442a2c0a14a0ecc3db02d4c65e528ba4df",
+    "120-leaders_recovery-overnight_gap.json.gz": "ad4e3f5f84ae3b5b9244b4501e246c9cd2ea072f780972335607f5a3235569e1",
+    "120-leaders_recovery-relapse.json.gz": "8f1465d8ff2f8e2aa1f5f8454bbab49983d3e9470d382227e58026ac802beae2",
+    "40-owned_recovery-changing_holdings.json.gz": "6547211ef4ab76b55cf387ec5e9de748a32d88f294d6f98bcd0e14ebee3e921e",
+    "40-owned_recovery-control.json.gz": "8621c682da004308243bcd1c33336171c82ee98537a1ec2ab1818dc43a8c77f6",
+    "40-owned_recovery-overnight_gap.json.gz": "79655961a1b656269a1a9386fc7bd0055d23517a58027e7a07308ce103826f7a",
+    "40-owned_recovery-relapse.json.gz": "a46f18669bc72f2c9c031fd20ee6a7dc240663c5eea04b5c0b6f8f6f102a2c8f"
+  }
+}
