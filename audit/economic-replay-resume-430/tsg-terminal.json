@@ -1,0 +1,18 @@
+{
+  "security_id": "120602878508160115",
+  "ticker": "TSG",
+  "held": false,
+  "terminal_observation": {
+    "session": "2020-05-04",
+    "raw_open": "27.75",
+    "raw_close": "27.309999999999999",
+    "reported_volume": "13226262"
+  },
+  "legal_exchange_ratio_flutter_ordinary": "0.2253",
+  "actual_legal_completion": "2020-05-05",
+  "market_exit_proxy_per_share": "27.31",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1635327/000163532720000041/ex991completionnotice.htm",
+    "https://www.sec.gov/Archives/edgar/data/1635327/000163532720000043/ex991fluttermay4release.htm"
+  ]
+}

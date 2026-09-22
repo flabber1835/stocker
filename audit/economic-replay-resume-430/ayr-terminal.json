@@ -1,0 +1,17 @@
+{
+  "security_id": "262911607688282576",
+  "ticker": "AYR",
+  "held": false,
+  "terminal_observation": {
+    "session": "2020-03-27",
+    "raw_open": "31.93",
+    "raw_close": "32.009999999999998",
+    "reported_volume": "4898349"
+  },
+  "cash_per_share": "32.00",
+  "actual_legal_completion": "2020-03-27",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1362988/000114036120007240/form8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1362988/000114036120007240/ex99_1.htm"
+  ]
+}

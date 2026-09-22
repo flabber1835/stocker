@@ -1,0 +1,17 @@
+{
+  "security_id": "424457957136313079",
+  "ticker": "IDTI",
+  "held": true,
+  "held_shares": "315",
+  "terminal_observation": {
+    "session": "2019-03-29"
+  },
+  "cash_per_share": "49.00",
+  "contractual_cash": "15435.00",
+  "recognition_session": "2019-04-01",
+  "actual_legal_completion": "2019-03-29",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/703361/000119312519093186/d929249d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/703361/000119312519093186/d929249dex991.htm"
+  ]
+}

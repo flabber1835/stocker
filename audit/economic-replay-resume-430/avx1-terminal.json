@@ -1,0 +1,17 @@
+{
+  "security_id": "437064850062150131",
+  "ticker": "AVX1",
+  "held": false,
+  "terminal_observation": {
+    "session": "2020-03-27",
+    "raw_open": "21.73",
+    "raw_close": "21.66",
+    "reported_volume": "2444000"
+  },
+  "cash_per_share": "21.75",
+  "actual_legal_completion": "2020-03-30",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/859163/000119312520090240/d909937d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/859163/000119312520090240/d909937dex991.htm"
+  ]
+}

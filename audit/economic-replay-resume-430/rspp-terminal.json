@@ -1,0 +1,20 @@
+{
+  "security_id": "500137598873820611",
+  "ticker": "RSPP",
+  "held": false,
+  "terminal_observation": {
+    "session": "2018-07-18",
+    "raw_open": "48.009999999999998",
+    "raw_close": "47.829999999999998",
+    "reported_volume": "6685022"
+  },
+  "exchange_ratio": "0.320",
+  "delivered_security_id": "168290178494746251",
+  "delivered_ticker": "CXO",
+  "delivered_raw_close": "149.66",
+  "actual_legal_completion": "2018-07-19",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1358071/000119312518221508/d548913dex991.htm",
+    "https://www.sec.gov/Archives/edgar/data/1588216/000089924318020301/xslF345X03/doc4.xml"
+  ]
+}

@@ -1,0 +1,31 @@
+{
+  "security_id": "563771684841720221",
+  "ticker": "LVGO",
+  "held": true,
+  "held_shares": "180",
+  "terminal_observation": {
+    "session": "2020-10-29",
+    "raw_open": "140.44999999999999",
+    "raw_close": "139.77000000000001",
+    "reported_volume": "9121543"
+  },
+  "delivered_security": {
+    "security_id": "678515407435512278",
+    "ticker": "TDOC",
+    "issuer_id": "SEC_CIK:1477449",
+    "raw_close_2020_10_29": "217.88999999999999"
+  },
+  "exchange_ratio": "0.5920",
+  "merger_cash_per_share": "4.24",
+  "special_dividend_per_share": "7.09",
+  "total_cash_per_share": "11.33",
+  "whole_delivered_shares": "106",
+  "fractional_delivered_shares": "0.56",
+  "cash_in_lieu": "122.0184",
+  "cash_entitlement": "2039.40",
+  "actual_legal_completion": "2020-10-30",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1477449/000155837020013035/tdoc-20200930x10q.htm",
+    "https://www.sec.gov/Archives/edgar/data/1639225/000114036120020508/nt10014322x5_defm14a.htm"
+  ]
+}

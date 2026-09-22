@@ -1,0 +1,17 @@
+{
+  "session": "2016-02-05",
+  "security_id": "609855399114247945",
+  "ticker": "POZN",
+  "held": false,
+  "kind": "CONVERSION",
+  "exchange_ratio": "1.0",
+  "delivered_security_id": "353297933322308690",
+  "delivered_ticker_in_archive": "ARLZQ",
+  "source_close": "5.94",
+  "delivered_close": "5.94",
+  "status": "ONE_FOR_ONE_SUCCESSOR_IDENTITY_AND_PRICE_DOMAIN_HANDOFF",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1059790/000110465915086822/a15-24800_6ex99d1.htm",
+    "https://www.sec.gov/Archives/edgar/data/1059790/000110465916094245/a16-3310_28k.htm"
+  ]
+}

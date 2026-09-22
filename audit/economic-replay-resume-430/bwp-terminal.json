@@ -1,0 +1,17 @@
+{
+  "security_id": "682885113868638203",
+  "ticker": "BWP",
+  "held": false,
+  "terminal_observation": {
+    "session": "2018-07-17",
+    "raw_open": "12.050000000000001",
+    "raw_close": "12.050000000000001",
+    "reported_volume": "4714822"
+  },
+  "cash_per_unit": "12.06",
+  "actual_legal_completion": "2018-07-18",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/60086/000095010318008079/dp92545_ex9901.htm",
+    "https://www.sec.gov/Archives/edgar/data/1336047/000095010318008633/dp93486_8k.htm"
+  ]
+}

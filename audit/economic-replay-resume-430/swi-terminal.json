@@ -1,0 +1,17 @@
+{
+  "session": "2016-02-04",
+  "security_id": "175647085019960977",
+  "ticker": "SWI1",
+  "held": true,
+  "shares": 212,
+  "cash_per_share": "60.10",
+  "contractual_cash": "12741.20",
+  "terminal_session_close": "59.98",
+  "actual_legal_completion": "2016-02-05",
+  "replay_checkpoint_session": "2016-01-28",
+  "status": "EXACT_HELD_CASH_TERMINAL_REPLAYED_BEFORE_EVENT",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1428669/000110465915071944/a15-21508_1defa14a.htm",
+    "https://www.sec.gov/Archives/edgar/data/1428669/000110465916094143/a16-3570_18k.htm"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "security_id": "165534302837647833",
+  "ticker": "XLRN",
+  "held": true,
+  "held_shares": "174",
+  "terminal_observation": {
+    "session": "2021-11-19",
+    "raw_open": "179.84999999999999",
+    "raw_close": "178.75",
+    "reported_volume": "7524481"
+  },
+  "cash_per_share": "180.00",
+  "cash_entitlement": "31320.00",
+  "actual_legal_completion": "2021-11-19",
+  "recognized_session": "2021-11-22",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1280600/000110465921142257/tm2133612d1_8k.htm"
+  ]
+}

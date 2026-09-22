@@ -1,0 +1,17 @@
+{
+  "security_id": "125966585638302435",
+  "ticker": "ESL",
+  "held": true,
+  "held_shares": "130",
+  "terminal_observation": {
+    "session": "2019-03-13"
+  },
+  "cash_per_share": "122.50",
+  "contractual_cash": "15925.00",
+  "recognition_session": "2019-03-14",
+  "actual_legal_completion": "2019-03-14",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1260221/000126022119000011/a8-kesterlineclosing31419.htm",
+    "https://www.sec.gov/Archives/edgar/data/1260221/000126022119000011/exhibit991jointpressreleas.htm"
+  ]
+}

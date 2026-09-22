@@ -1,0 +1,20 @@
+{
+  "security_id": "697803414084505931",
+  "ticker": "SCG",
+  "held": false,
+  "terminal_observation": {
+    "session": "2018-12-31",
+    "raw_open": "48.840000000000003",
+    "raw_close": "47.780000000000001",
+    "reported_volume": "17831547"
+  },
+  "exchange_ratio": "0.6690",
+  "delivered_security_id": "1100081557843370397",
+  "delivered_ticker": "D",
+  "cash_in_lieu_price_proxy": "71.46",
+  "actual_legal_completion": "2019-01-01",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/715957/000119312519000622/d681735d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/715957/000119312519000622/d681735dex994.htm"
+  ]
+}

@@ -1,0 +1,19 @@
+{
+  "security_id": "743513794597056069",
+  "ticker": "XEC",
+  "held": false,
+  "terminal_observation": {
+    "session": "2021-09-30",
+    "raw_open": "90.299999999999997",
+    "raw_close": "87.200000000000003",
+    "reported_volume": "7105754.0000000009"
+  },
+  "legal_exchange_ratio_cabot_coterra": "4.0146",
+  "market_exit_proxy_per_share": "87.20",
+  "rejected_successor_candidate": "security 401871450845769288 ticker CTRA issuer SEC_CIK:1704715; rejected as inconsistent",
+  "actual_legal_completion": "2021-10-01",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1168054/000110465921122062/tm2129003d1_8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/858470/000110465921122041/tm2129019d1_ex99-1.htm"
+  ]
+}

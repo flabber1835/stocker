@@ -1,0 +1,18 @@
+{
+  "security_id": "336647136488669274",
+  "ticker": "GOLD1",
+  "held": false,
+  "terminal_observation": {
+    "session": "2018-12-28",
+    "raw_open": "85.180000000000007",
+    "raw_close": "82.890000000000001",
+    "reported_volume": "2447656"
+  },
+  "legal_exchange_ratio": "6.1280",
+  "actual_legal_completion": "2019-01-01",
+  "market_exit_proxy": "82.89",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/756894/000119312518281326/d626438dex9917.htm",
+    "https://www.sec.gov/Archives/edgar/data/756894/000119312519072723/d686959dex991.htm"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "security_id": "743393661197515926",
+  "ticker": "TSL1",
+  "held": false,
+  "terminal_observation": {
+    "session": "2017-03-13",
+    "raw_open": "11.529999999999999",
+    "raw_close": "11.539999999999999",
+    "reported_volume": "4726353"
+  },
+  "cash_per_ads": "11.60",
+  "ordinary_shares_per_ads": 50,
+  "cash_per_ordinary_share": "0.232",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1382158/000110465916135787/a16-15926_1ex99d1.htm",
+    "https://www.sec.gov/Archives/edgar/data/1382158/000110465917016108/a16-16916_7ex99d1.htm"
+  ]
+}

@@ -1,0 +1,21 @@
+{
+  "security_id": "228470136078948629",
+  "ticker": "PF",
+  "held": false,
+  "terminal_observation": {
+    "session": "2018-10-25",
+    "raw_open": "67.150000000000006",
+    "raw_close": "66.659999999999997",
+    "reported_volume": "15057221"
+  },
+  "cash_per_share": "43.11",
+  "exchange_ratio": "0.6494",
+  "delivered_security_id": "1053905767311513488",
+  "delivered_ticker": "CAG",
+  "delivered_raw_close": "36.369999999999997",
+  "actual_legal_completion": "2018-10-26",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1564822/000119312518308612/d615499d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/23217/000002321719000006/cag-2019x10k.htm"
+  ]
+}

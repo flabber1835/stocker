@@ -1,0 +1,22 @@
+{
+  "parent_security_id": "899932545079148879",
+  "parent_ticker": "MRK",
+  "held_parent_shares": "106",
+  "effective_session": "2021-06-03",
+  "child_security": {
+    "security_id": "373965186538085411",
+    "ticker": "OGN",
+    "issuer_id": "SEC_CIK:1821825",
+    "raw_open": "34.149999999999999",
+    "raw_close": "37"
+  },
+  "child_shares_per_parent": "0.1",
+  "child_economic_entitlement": "10.6",
+  "liquidate_child_at_open_proceeds": "361.99",
+  "actual_legal_completion": "2021-06-02",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/310158/000119312521180657/d190548d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1821825/000119312521180652/d49288d8k.htm"
+  ],
+  "cash_in_lieu_price": "34.15"
+}

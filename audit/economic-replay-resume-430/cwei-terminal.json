@@ -1,0 +1,26 @@
+{
+  "security_id": "441017207290870628",
+  "ticker": "CWEI",
+  "held_shares": 19,
+  "terminal_observation": {
+    "session": "2017-04-24",
+    "raw_open": "133.83000000000001",
+    "raw_close": "131.90000000000001",
+    "reported_volume": "1336063"
+  },
+  "cash_per_share": "34.75",
+  "exchange_ratio": "2.7874",
+  "cash_total": "660.25",
+  "delivered_security_id": "243879949698562855",
+  "delivered_ticker": "NBL",
+  "whole_delivered_shares": 52,
+  "fractional_delivered_share": "0.9606",
+  "fractional_cash_proxy_price": "34.17",
+  "fractional_cash_proxy": "32.819702",
+  "first_post_completion_open": "34.30",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/72207/000156761917000049/s001509x1_ex99-1.htm",
+    "https://www.sec.gov/Archives/edgar/data/72207/000156761917000769/s001662x3_ex99-1.htm",
+    "https://www.sec.gov/Archives/edgar/data/72207/000007220719000018/nbl-20181231x10k.htm"
+  ]
+}

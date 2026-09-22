@@ -1,0 +1,17 @@
+{
+  "security_id": "145844343117924548",
+  "ticker": "ECYT",
+  "held": false,
+  "terminal_observation": {
+    "session": "2018-12-20",
+    "raw_open": "23.99",
+    "raw_close": "23.99",
+    "reported_volume": "2340222"
+  },
+  "cash_per_share": "24.00",
+  "actual_legal_completion": "2018-12-21",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1235007/000110465918074311/a18-41911_18k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1114448/000117184318008529/f6k_122118.htm"
+  ]
+}

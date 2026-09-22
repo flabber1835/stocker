@@ -1,0 +1,17 @@
+{
+  "security_id": "195669123482796072",
+  "ticker": "GTT",
+  "held": false,
+  "terminal_observation": {
+    "session": "2021-07-01",
+    "raw_open": "2.4300000000000002",
+    "raw_close": "2.3599999999999999",
+    "reported_volume": "4141889"
+  },
+  "market_exit_proxy_per_share": "2.36",
+  "economic_event": "NYSE suspension announced 2021-07-02; no acquisition or shareholder cash finality",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1315255/000162828021017516/gtit-20210820.htm",
+    "https://www.sec.gov/Archives/edgar/data/876661/000087666121001103/ruleprovisionnotice.htm"
+  ]
+}

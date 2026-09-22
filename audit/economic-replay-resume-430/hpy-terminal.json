@@ -1,0 +1,23 @@
+{
+  "session": "2016-04-22",
+  "security_id": "771230457757828472",
+  "ticker": "HPY",
+  "held": true,
+  "shares": 137,
+  "cash_per_share": "53.28",
+  "contractual_cash": "7299.36",
+  "exchange_ratio": "0.6687",
+  "delivered_security_id": "639752940331870587",
+  "delivered_ticker": "GPN",
+  "exact_delivered_entitlement": "91.6119",
+  "whole_delivered_shares": 91,
+  "fractional_delivered_share": "0.6119",
+  "fractional_cash_proxy_price": "73.29",
+  "fractional_cash_proxy": "44.846151",
+  "delivered_event_open": "74.27",
+  "status": "EXACT_HELD_CASH_STOCK_TERMS_WITH_DISCLOSED_FRACTION_PROXY",
+  "sources": [
+    "https://investors.globalpayments.com/financial-information/all-sec-filings/content/0001193125-15-405555/d104282d8k.htm",
+    "https://investors.globalpayments.com/financial-information/all-sec-filings/content/0001123360-16-000080/a8-kcompletionofheartlandt.htm"
+  ]
+}

@@ -2,8 +2,11 @@
 
 For predecessor retries the latest numbered segment owns each date. Segment 044
 is accepted only through July 6 (before its superseded FDO input); 045 owns the
-continuation. The independent verifier checks session coverage, NAV continuity,
-final holdings and checkpoint session count. Selection never uses performance.
+continuation. Segment 047 is accepted only through January 28, 2016; exploratory
+segments 048-051 are excluded and corrected segment 052 owns January 29 onward.
+Later accepted segments must be non-overlapping and contiguous. The independent
+verifier checks session coverage, NAV continuity, final holdings and checkpoint
+session count. Selection never uses performance.
 """
 import argparse
 from decimal import Decimal
@@ -17,6 +20,7 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--root', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--last-segment', type=int, required=True)
     args = parser.parse_args()
     if args.output.exists():
         raise ValueError('preserve existing verification series')
@@ -24,7 +28,12 @@ def main():
              args.root / 'economic-replay-merged-da7b64a9']
     paths = [p for root in roots for p in sorted(root.glob('segment-*/daily.jsonl'))]
     current = args.root / 'economic-replay-merged-ee23c894'
-    paths += [current / f'segment-{n}/daily.jsonl' for n in ('044', '045')]
+    if args.last_segment < 52:
+        raise ValueError('last segment precedes corrected continuation')
+    paths += [current / f'segment-{n:03d}/daily.jsonl'
+              for n in (44, 45, 47, *range(52, args.last_segment + 1))]
+    if any(not path.exists() for path in paths):
+        raise ValueError('accepted segment is absent')
     daily, owners, sources = {}, {}, []
     overlaps = different = excluded = 0
     for path in paths:
@@ -37,6 +46,12 @@ def main():
             if path.parent.name == 'segment-044' and day > '2015-07-06':
                 excluded += 1
                 continue
+            if path.parent.name == 'segment-047' and day > '2016-01-28':
+                excluded += 1
+                continue
+            if path.parent.parent == current and int(path.parent.name.removeprefix('segment-')) >= 52:
+                if daily and day <= max(daily):
+                    raise ValueError('corrected continuation overlaps accepted history')
             if day in daily:
                 overlaps += 1
                 different += row != daily[day]
@@ -45,15 +60,17 @@ def main():
     for previous, row in zip(ordered, ordered[1:]):
         assert abs(Decimal(row['economics']['previous_strategy_nav']) -
                    Decimal(previous['nav'])) < Decimal('1e-15'), row['date']
-    pointer = json.loads((current / 'segment-045/latest-checkpoint.json').read_text())
+    final = current / f'segment-{args.last_segment:03d}'
+    pointer = json.loads((final / 'latest-checkpoint.json').read_text())
     assert pointer['last_session'] == ordered[-1]['date']
     args.output.mkdir(parents=True)
     (args.output / 'daily.jsonl').write_text(
         ''.join(json.dumps(row) + '\n' for row in ordered), encoding='utf-8', newline='\n')
-    shutil.copyfile(current / 'segment-045/latest-checkpoint.json', args.output / 'latest-checkpoint.json')
+    shutil.copyfile(final / 'latest-checkpoint.json', args.output / 'latest-checkpoint.json')
     provenance = {'policy': __doc__, 'sources': sources, 'sessions': len(ordered),
                   'overlapping_rows': overlaps, 'different_overlap_rows': different,
-                  'superseded_044_rows_excluded': excluded, 'owner_by_date': owners}
+                  'superseded_rows_excluded': excluded,
+                  'last_segment': args.last_segment, 'owner_by_date': owners}
     (args.output / 'provenance.json').write_text(json.dumps(provenance, indent=2)+'\n', encoding='utf-8')
     print(json.dumps({k: v for k, v in provenance.items() if k not in ('sources', 'owner_by_date')}))
 

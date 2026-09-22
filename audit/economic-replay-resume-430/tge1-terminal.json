@@ -1,0 +1,18 @@
+{
+  "security_id": "1127692325695941205",
+  "ticker": "TGE1",
+  "held": false,
+  "portfolio_eligible": false,
+  "terminal_observation": {
+    "session": "2020-04-16",
+    "raw_open": "21.800000000000001",
+    "raw_close": "22.390000000000001",
+    "reported_volume": "40376000"
+  },
+  "cash_per_share": "22.45",
+  "actual_legal_completion": "2020-04-17",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1633651/000119312520110372/d910197d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1633651/000119312520108897/d903897dex991.htm"
+  ]
+}

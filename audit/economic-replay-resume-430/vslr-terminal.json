@@ -1,0 +1,24 @@
+{
+  "security_id": "107908173248206014",
+  "ticker": "VSLR",
+  "held": false,
+  "terminal_observation": {
+    "session": "2020-10-07",
+    "raw_open": "44.130000000000003",
+    "raw_close": "43.079999999999998",
+    "reported_volume": "10162043"
+  },
+  "delivered_security": {
+    "security_id": "179665193162456864",
+    "ticker": "RUN",
+    "issuer_id": "SEC_CIK:1469367",
+    "raw_close_2020_10_07": "78.049999999999997"
+  },
+  "exchange_ratio": "0.55",
+  "cash_in_lieu_price_per_delivered_share": "78.05",
+  "actual_legal_completion": "2020-10-08",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1469367/000119312520265967/d21282d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1607716/000119312520265966/d24983d8k.htm"
+  ]
+}

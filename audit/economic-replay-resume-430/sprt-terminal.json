@@ -1,0 +1,19 @@
+{
+  "security_id": "657836600083151899",
+  "ticker": "SPRT",
+  "held": false,
+  "terminal_observation": {
+    "session": "2021-09-14",
+    "raw_open": "18.699999999999999",
+    "raw_close": "11.800000000000001",
+    "reported_volume": "48132444"
+  },
+  "legal_exchange_ratio_greenidge_class_a": "0.115",
+  "market_exit_proxy_per_share": "11.80",
+  "successor_observation": "absent from retained PIT universe",
+  "actual_legal_completion": "2021-09-14",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1844971/000119312521273493/d163523d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1104855/000119312521271007/d181680d425.htm"
+  ]
+}

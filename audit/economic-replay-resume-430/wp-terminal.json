@@ -1,0 +1,21 @@
+{
+  "security_id": "660705304543191788",
+  "ticker": "WP",
+  "held": false,
+  "terminal_observation": {
+    "session": "2019-07-30",
+    "raw_open": "136.80000000000001",
+    "raw_close": "135",
+    "reported_volume": "19553403"
+  },
+  "cash_per_share": "11.00",
+  "exchange_ratio": "0.9287",
+  "delivered_security_id": "997588977062230032",
+  "delivered_ticker": "FIS",
+  "cash_in_lieu_price_proxy": "133.69",
+  "actual_legal_completion": "2019-07-31",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1136893/000119312519208224/d777638d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1136893/000113689319000192/fis-10xq09x30x2019.htm"
+  ]
+}

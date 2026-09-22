@@ -1,0 +1,20 @@
+{
+  "security_id": "906755109876599247",
+  "ticker": "QIHU",
+  "held_shares": 181,
+  "last_observation": {
+    "session": "2016-07-15",
+    "raw_open": "76.730000000000004",
+    "raw_close": "76.920000000000002",
+    "reported_volume": "13284175"
+  },
+  "next_session": "2016-07-18",
+  "next_session_observation_present": false,
+  "cash_per_ads": "77.00",
+  "held_cash": "13937.00",
+  "ordinary_share_cash_not_used": "51.33",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1508913/000114420416113098/v444318_ex99-1.htm",
+    "https://www.sec.gov/Archives/edgar/data/876661/000087666116001118/ruleprovisionnotice.htm"
+  ]
+}

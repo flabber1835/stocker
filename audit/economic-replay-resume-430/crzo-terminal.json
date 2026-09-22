@@ -1,0 +1,20 @@
+{
+  "security_id": "680764156431529299",
+  "ticker": "CRZO",
+  "held": false,
+  "terminal_observation": {
+    "session": "2019-12-20",
+    "raw_open": "8.1600000000000001",
+    "raw_close": "7.8300000000000001",
+    "reported_volume": "30962889"
+  },
+  "exchange_ratio": "1.75",
+  "delivered_security_id": "558204036584089673",
+  "delivered_ticker": "CPE",
+  "cash_in_lieu_price_proxy": "4.72",
+  "actual_legal_completion": "2019-12-20",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1040593/000119312519321118/d823216d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1481326/000104059319000156/xslF345X03/wf-form4_157686710193992.xml"
+  ]
+}

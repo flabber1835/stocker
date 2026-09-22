@@ -1,0 +1,24 @@
+{
+  "security_id": "737317082029194318",
+  "ticker": "QEP",
+  "held": false,
+  "terminal_observation": {
+    "session": "2021-03-16",
+    "raw_open": "4.1600000000000001",
+    "raw_close": "4.0800000000000001",
+    "reported_volume": "10100248"
+  },
+  "delivered_security": {
+    "security_id": "338215052835548340",
+    "ticker": "FANG",
+    "issuer_id": "SEC_CIK:1539838",
+    "raw_close_2021_03_16": "82.090000000000003"
+  },
+  "exchange_ratio": "0.050",
+  "cash_in_lieu_price_per_delivered_share": "82.09",
+  "actual_legal_completion": "2021-03-17",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1539838/000119312521084144/d137304d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1539838/000119312521084144/d137304dex991.htm"
+  ]
+}

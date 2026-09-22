@@ -1,0 +1,20 @@
+{
+  "security_id": "1010834858905861612",
+  "ticker": "PX1",
+  "held": false,
+  "terminal_observation": {
+    "session": "2018-10-30",
+    "raw_open": "166.11000000000001",
+    "raw_close": "164.5",
+    "reported_volume": "57375630"
+  },
+  "legal_exchange_ratio": "1.0",
+  "successor_security_id": "706710077329565982",
+  "successor_ticker": "LIN",
+  "successor_first_session": "2018-10-31",
+  "market_exit_proxy": "164.50",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1707925/000162828019003050/plc201810-k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1707925/000119312518313073/d643979dex992.htm"
+  ]
+}

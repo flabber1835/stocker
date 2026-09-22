@@ -1,0 +1,20 @@
+{
+  "security_id": "105517170442445546",
+  "ticker": "CBI",
+  "held": false,
+  "terminal_observation": {
+    "session": "2018-05-10",
+    "raw_open": "15.84",
+    "raw_close": "16.390000000000001",
+    "reported_volume": "11805524"
+  },
+  "post_split_exchange_ratio": "0.82407",
+  "pre_split_exchange_ratio_not_used": "2.47221",
+  "delivered_security_id": "319925527488316781",
+  "delivered_ticker": "MDRIQ",
+  "delivered_raw_close": "20.699999999999999",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/708819/000119312518160205/d569261dex991.htm",
+    "https://www.sec.gov/Archives/edgar/data/708819/000156459019003980/mdr-10k_20181231.htm"
+  ]
+}

@@ -1,0 +1,16 @@
+{
+  "session": "2016-01-29",
+  "security_id": "762951503713301294",
+  "ticker": "SYA",
+  "held": false,
+  "cash_per_share": "32.00",
+  "terminal_session_close": "32.02",
+  "terminal_session_volume": 2411742,
+  "separate_prior_dividend_excluded": "0.50",
+  "actual_legal_completion": "2016-02-01",
+  "status": "EXACT_TERMS_WITH_ONE_SESSION_ARCHIVE_TIMING_DIFFERENCE",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1403385/000095015715000930/defa14a.htm",
+    "https://www.sec.gov/Archives/edgar/data/1403385/000095015716001528/form8k.htm"
+  ]
+}

@@ -1,0 +1,18 @@
+{
+  "security_id": "792738652972274077",
+  "ticker": "FIT",
+  "held": true,
+  "held_shares": "2514",
+  "terminal_observation": {
+    "session": "2021-01-13",
+    "raw_open": "6.9900000000000002",
+    "raw_close": "6.9299999999999997",
+    "reported_volume": "3311089"
+  },
+  "cash_per_share": "7.35",
+  "cash_entitlement": "18477.90",
+  "actual_legal_completion": "2021-01-14",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1447599/000119312521008670/d95819d8k.htm"
+  ]
+}

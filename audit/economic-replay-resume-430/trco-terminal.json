@@ -1,0 +1,17 @@
+{
+  "security_id": "936698054317163987",
+  "ticker": "TRCO",
+  "held": true,
+  "held_shares": "362",
+  "terminal_observation": {
+    "session": "2019-09-18"
+  },
+  "cash_per_share": "46.687397",
+  "contractual_cash": "16900.837714",
+  "recognition_session": "2019-09-19",
+  "actual_legal_completion": "2019-09-19",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1142417/000119312519250115/d773720d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/726513/000119312519250119/d807112d8k.htm"
+  ]
+}

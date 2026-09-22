@@ -1,0 +1,18 @@
+{
+  "session": "2016-04-01",
+  "security_id": "558144031790701315",
+  "ticker": "HMIN",
+  "held": true,
+  "instrument": "NASDAQ_ADS",
+  "ordinary_shares_per_ads": 2,
+  "shares": 375,
+  "cash_per_ordinary_share": "17.90",
+  "cash_per_ads": "35.80",
+  "contractual_cash": "13425.00",
+  "terminal_session_close": "35.71",
+  "status": "EXACT_HELD_ADS_CASH_TERMINAL",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1376972/000114420415069503/v426374_ex99-2.htm",
+    "https://www.sec.gov/Archives/edgar/data/1376972/000114420416092341/v435950_ex99-1.htm"
+  ]
+}

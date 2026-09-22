@@ -1,0 +1,21 @@
+{
+  "security_id": "1119715517712320195",
+  "ticker": "SHPG",
+  "held": false,
+  "terminal_observation": {
+    "session": "2019-01-07",
+    "raw_open": "179.19999999999999",
+    "raw_close": "179.19999999999999",
+    "reported_volume": "1"
+  },
+  "cash_per_ads": "90.99",
+  "exchange_ratio_takeda_ads": "5.034",
+  "delivered_security_id": "799653445801140590",
+  "delivered_ticker": "TAK",
+  "cash_in_lieu_price_proxy": "18.58",
+  "actual_legal_completion": "2019-01-08",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/936402/000119312519004574/d673508d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1395064/000119312519026361/d688935d6k.htm"
+  ]
+}

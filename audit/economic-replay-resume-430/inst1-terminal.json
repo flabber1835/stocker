@@ -1,0 +1,17 @@
+{
+  "security_id": "148495470148800556",
+  "ticker": "INST1",
+  "held": false,
+  "terminal_observation": {
+    "session": "2020-03-23",
+    "raw_open": "49.060000000000002",
+    "raw_close": "49",
+    "reported_volume": "789712"
+  },
+  "cash_per_share": "49.00",
+  "actual_legal_completion": "2020-03-24",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1355754/000119312520083235/d902911d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1355754/000119312520046329/d877277dex99a1a.htm"
+  ]
+}

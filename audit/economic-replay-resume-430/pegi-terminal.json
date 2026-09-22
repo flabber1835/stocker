@@ -1,0 +1,17 @@
+{
+  "security_id": "406806755909951609",
+  "ticker": "PEGI",
+  "held": false,
+  "terminal_observation": {
+    "session": "2020-03-13",
+    "raw_open": "26.739999999999998",
+    "raw_close": "26.739999999999998",
+    "reported_volume": "4914853"
+  },
+  "cash_per_share": "26.75",
+  "actual_legal_completion": "2020-03-16",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1561660/000119312520075014/d857393dex991.htm",
+    "https://www.sec.gov/Archives/edgar/data/1561660/000119312519282561/d830360dex992.htm"
+  ]
+}

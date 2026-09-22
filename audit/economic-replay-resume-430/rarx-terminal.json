@@ -1,0 +1,17 @@
+{
+  "security_id": "407310743173850076",
+  "ticker": "RARX",
+  "held": false,
+  "terminal_observation": {
+    "session": "2020-04-02",
+    "raw_open": "47.990000000000002",
+    "raw_close": "47.990000000000002",
+    "reported_volume": "30200"
+  },
+  "cash_per_share": "48.00",
+  "actual_legal_completion": "2020-04-02",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1481512/000110465920042433/tm2014471-1_8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1481512/000110465920042433/tm2014471d1_ex99-1.htm"
+  ]
+}

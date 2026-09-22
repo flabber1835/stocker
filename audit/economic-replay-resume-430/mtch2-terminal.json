@@ -1,0 +1,26 @@
+{
+  "security_id": "369995575874917058",
+  "ticker": "MTCH2",
+  "held": false,
+  "portfolio_eligible": false,
+  "terminal_observation": {
+    "session": "2020-06-30",
+    "raw_open": "106.18000000000001",
+    "raw_close": "107.05",
+    "reported_volume": "3464175"
+  },
+  "market_exit_proxy_per_share": "107.05",
+  "actual_legal_completion": "2020-06-30",
+  "legal_terms": "one new-Match share plus USD3 cash or a new-Match fraction valued at USD3",
+  "retained_successor": {
+    "security_id": "984687283821901795",
+    "ticker": "MTCH",
+    "close_2020_06_30": "323.39999999999998",
+    "close_2020_07_01": "105.67",
+    "identity_conflict": "June 30 bar is pre-separation IAC; July 1 bar is new Match"
+  },
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/891103/000110465920080606/tm206790d25_8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/891103/000110465921059110/tm2113045d1_def14a.htm"
+  ]
+}

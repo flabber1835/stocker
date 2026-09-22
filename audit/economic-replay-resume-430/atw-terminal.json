@@ -1,0 +1,22 @@
+{
+  "security_id": "734348055751965877",
+  "ticker": "ATW",
+  "held": false,
+  "terminal_observation": {
+    "session": "2017-10-05",
+    "raw_open": "9.1500000000000004",
+    "raw_close": "9.3200000000000003",
+    "reported_volume": "29578438.000000004"
+  },
+  "exchange_ratio": "1.60",
+  "delivered_security_id": "341592409299906032",
+  "delivered_ticker": "VALPQ",
+  "delivered_raw_close": "5.8300000000000001",
+  "implied_package_value": "9.328",
+  "reported_rounded_package_value": "9.33",
+  "actual_legal_completion": "2017-10-06",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/314808/000110465917061338/a17-22864_1ex99d1.htm",
+    "https://www.sec.gov/Archives/edgar/data/314808/000031480817000144/esv-9302017x10q.htm"
+  ]
+}

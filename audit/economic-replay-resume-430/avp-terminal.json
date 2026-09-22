@@ -1,0 +1,19 @@
+{
+  "security_id": "869766819741234573",
+  "ticker": "AVP",
+  "held": false,
+  "terminal_observation": {
+    "session": "2020-01-03",
+    "raw_open": "5.6399999999999997",
+    "raw_close": "5.5999999999999996",
+    "reported_volume": "165158531"
+  },
+  "legal_exchange_ratio_natura_ads": "0.300",
+  "actual_legal_completion": "2020-01-03",
+  "successor_first_local_session": "2020-01-06",
+  "market_exit_proxy": "5.60",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1776967/000095010320000198/dp118836_6k.htm",
+    "https://www.sec.gov/Archives/edgar/data/8868/000000886821000004/avp-20201231.htm"
+  ]
+}

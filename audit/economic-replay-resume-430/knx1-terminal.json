@@ -1,0 +1,21 @@
+{
+  "security_id": "450783074872735055",
+  "ticker": "KNX1",
+  "held": false,
+  "terminal_observation": {
+    "session": "2017-09-08",
+    "raw_open": "40.700000000000003",
+    "raw_close": "40.850000000000001",
+    "reported_volume": "19618037"
+  },
+  "legal_exchange_ratio": "1.0",
+  "successor_security_id": "3612058933205099",
+  "successor_same_day_raw_close": "29.489999999999998",
+  "successor_same_day_signal_close": "40.957999999999998",
+  "combined_trading_first_session": "2017-09-11",
+  "market_exit_proxy": "40.85",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1492691/000149269117000056/knx-9302017x10q.htm",
+    "https://www.sec.gov/Archives/edgar/data/929452/000114420417047373/v474910_8k.htm"
+  ]
+}

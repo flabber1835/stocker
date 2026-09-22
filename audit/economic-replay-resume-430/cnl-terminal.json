@@ -1,0 +1,14 @@
+{
+  "session": "2016-04-13",
+  "security_id": "772427121210636055",
+  "ticker": "CNL1",
+  "held": false,
+  "cash_per_share": "55.37",
+  "terminal_session_close": "55.36",
+  "terminal_session_volume": 5895535,
+  "status": "EXACT_CASH_TERMS",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1089819/000108981914000034/exhibit991_102014.htm",
+    "https://www.sec.gov/Archives/edgar/data/18672/000108981916000094/clecocorp8k_041916.htm"
+  ]
+}

@@ -1,0 +1,14 @@
+{
+  "session": "2016-01-29",
+  "security_id": "704390691671505599",
+  "ticker": "PCP",
+  "held": false,
+  "cash_per_share": "235.00",
+  "terminal_session_close": "234.95",
+  "terminal_session_volume": 5800490,
+  "status": "EXACT_TERMS_OVERRIDE_FIVE_CENT_MARK_DIFFERENCE",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/79958/000119312515341940/d54109ddefm14a.htm",
+    "https://www.sec.gov/Archives/edgar/data/79958/000007995816000125/pcp12920168-kex991.htm"
+  ]
+}

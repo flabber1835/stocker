@@ -1,0 +1,17 @@
+{
+  "security_id": "243360349795587135",
+  "ticker": "FTSV",
+  "held": false,
+  "terminal_observation": {
+    "session": "2020-04-06",
+    "raw_open": "95.459999999999994",
+    "raw_close": "95.510000000000005",
+    "reported_volume": "693725"
+  },
+  "cash_per_share": "95.50",
+  "actual_legal_completion": "2020-04-07",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1667633/000110465920043980/a20-14980_68k.htm",
+    "https://www.sec.gov/Archives/edgar/data/882095/000104746920001348/a2240910zex-99_a1a.htm"
+  ]
+}
