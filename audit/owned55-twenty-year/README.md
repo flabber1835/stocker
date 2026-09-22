@@ -1,4 +1,4 @@
-# Owned55 full-history comparison: run in progress
+# Owned55 full-history comparison: completed local research replay
 
 This is a registered research experiment, not a production configuration change
 or economic certification. It preserves PR #432's independently persisted
@@ -44,8 +44,44 @@ python -m research.owned55_replay.continue_run --root C:/GitHub/stocker/.codex-t
 Do not start a second worker. Do not edit `run.py`, `model.py`, the runtime, or
 input files while the run is active; their byte identities are checkpoint-bound.
 
-Completion still requires exact session coverage and continuity, independent
-return/drawdown recomputation, final restart verification, 2011 response
-analysis, adverse recovery attribution, and artifact hashes. Known archive
-classification mistakes, action proxies, and scalar execution assumptions limit
-absolute-return interpretation. No NAS or broker evidence is claimed.
+## Completed result
+
+The source-bound replay reached 2026-07-31 without refusal. The independent
+`research/owned55_replay/audit.py` pass checked all 5,176 sessions across eight
+checkpointed segments against the retained current-controller daily record. It
+found no missing or duplicated session, decision or NAV drift, broken segment
+identity, daily-accounting failure, or reported return/drawdown discrepancy.
+There are 5,032 measured closes from 2006-07-31 through 2026-07-31. Exact
+checkpoint hashes, segment boundaries, controller events, and recomputed
+metrics are in `final-audit.json`.
+
+| Matched-date run | Final multiple | CAGR | Maximum drawdown |
+| --- | ---: | ---: | ---: |
+| Research champion | 56.2653x | 22.32% | Not retained here |
+| Owned55 | 30.6610x | 18.67% | -28.47% |
+| Current Sentinel | 29.2438x | 18.39% | -29.77% |
+| SPY | 8.4433x | 11.26% | Not retained here |
+
+Owned55's final NAV was $2,836,980 versus current Sentinel's $2,705,852.
+The first different target was 2011-08-10, and only 73 daily targets differed
+over the 5,176-session run. The relative NAV ratio improved 6.25% during the
+2011-08-10 to 2011-11-04 impairment episode. Later entry/recovery windows
+were mixed: 2018 improved the relative ratio 1.13%, while 2020 reduced it
+2.87% and 2021 reduced it 0.17%. In 2008 both policies were already at zero
+exposure, so the owned cause made no target or economic difference. These are
+episode attributions, not evidence that 55% is an optimal ceiling.
+
+Validation command, from this worktree:
+
+```powershell
+python -m research.owned55_replay.audit C:/GitHub/stocker/.codex-tmp/owned55-20y-run
+```
+
+The run's final status and checkpoint are retained under
+`C:/GitHub/stocker/.codex-tmp/owned55-20y-run/segment-008`; no checkpoint or
+source input was altered. Focused tests and syntax compilation were repeated
+after completion: eight tests passed. Known archive classification mistakes,
+action proxies, and scalar execution assumptions limit absolute-return
+interpretation. This experiment does not authorize production promotion,
+paper deployment, or economic certification. It contains no NAS or broker
+evidence.

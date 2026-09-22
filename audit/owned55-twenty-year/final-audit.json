@@ -1,0 +1,206 @@
+{
+  "status": "PASS",
+  "total_sessions": 5176,
+  "measurement_start": "2006-07-31",
+  "end": "2026-07-31",
+  "segments": [
+    {
+      "segment": "segment-001",
+      "first": "2006-01-03",
+      "last": "2006-04-10",
+      "rows": 68,
+      "checkpoint_sha256": "a4aff2f5a0f38b544072e22a91f86b8c3f66e429e7e0001229d7694f3e152fa4"
+    },
+    {
+      "segment": "segment-002",
+      "first": "2006-04-11",
+      "last": "2010-01-08",
+      "rows": 944,
+      "checkpoint_sha256": "b4fa7850deb7c0fb64936ecd47ad0871f350b77b7bedbbe42dda52a84e311860"
+    },
+    {
+      "segment": "segment-003",
+      "first": "2010-01-11",
+      "last": "2013-10-18",
+      "rows": 951,
+      "checkpoint_sha256": "45018daf3644c6e9842aef12641db035452f4cbc21bbed47660510c10fb682f7"
+    },
+    {
+      "segment": "segment-004",
+      "first": "2013-10-21",
+      "last": "2017-05-19",
+      "rows": 902,
+      "checkpoint_sha256": "6fca996577a704ed60a0780616236838b4a2ca5329967d4fb4d1cfeea0477782"
+    },
+    {
+      "segment": "segment-005",
+      "first": "2017-05-22",
+      "last": "2020-10-21",
+      "rows": 862,
+      "checkpoint_sha256": "445f7947f169e01d9883331683fc578a6686c1462f3361a5257df8657bcb85d6"
+    },
+    {
+      "segment": "segment-006",
+      "first": "2020-10-22",
+      "last": "2023-06-01",
+      "rows": 656,
+      "checkpoint_sha256": "b8c7036bd41344aebc6a7588eaaa2b41e6e118367051cc800c3d1a641c6de835"
+    },
+    {
+      "segment": "segment-007",
+      "first": "2023-06-02",
+      "last": "2026-03-26",
+      "rows": 706,
+      "checkpoint_sha256": "86867a5dd637db60a05b03f52edbb74661fd5e60d4597dea6cbc41aae77e11be"
+    },
+    {
+      "segment": "segment-008",
+      "first": "2026-03-27",
+      "last": "2026-07-31",
+      "rows": 87,
+      "checkpoint_sha256": "f42bbbefec99593cc0f60f027bd2a42fe8af4310c3368b05f177da4718a0c154"
+    }
+  ],
+  "first_target_difference": "2011-08-10",
+  "differing_target_sessions": 73,
+  "episodes": [
+    {
+      "entry": "2008-07-21",
+      "recovery": "2008-12-26",
+      "sessions": 111,
+      "entry_targets": [
+        0.0,
+        0.0
+      ],
+      "relative_ratio_before": "1",
+      "relative_ratio_after": "1",
+      "relative_change": "0"
+    },
+    {
+      "entry": "2011-08-10",
+      "recovery": "2011-11-04",
+      "sessions": 61,
+      "entry_targets": [
+        1.0,
+        0.55
+      ],
+      "relative_ratio_before": "1",
+      "relative_ratio_after": "1.062536497925258215919591764",
+      "relative_change": "0.062536497925258215919591764"
+    },
+    {
+      "entry": "2018-10-29",
+      "recovery": "2019-01-28",
+      "sessions": 60,
+      "entry_targets": [
+        1.0,
+        0.55
+      ],
+      "relative_ratio_before": "1.062536497925258215919591759",
+      "relative_ratio_after": "1.074502374079820952384636156",
+      "relative_change": "0.011261614239066307917921086"
+    },
+    {
+      "entry": "2020-03-13",
+      "recovery": "2020-05-14",
+      "sessions": 43,
+      "entry_targets": [
+        0.0,
+        0.0
+      ],
+      "relative_ratio_before": "1.074502374079820952384636155",
+      "relative_ratio_after": "1.043665237182587979867318167",
+      "relative_change": "-0.0286989937306012797187739780"
+    },
+    {
+      "entry": "2021-03-09",
+      "recovery": "2021-04-14",
+      "sessions": 25,
+      "entry_targets": [
+        1.0,
+        0.55
+      ],
+      "relative_ratio_before": "1.050250484704187497926269009",
+      "relative_ratio_after": "1.048461110045174788344680102",
+      "relative_change": "-0.0017037598983034062203160259"
+    }
+  ],
+  "current": {
+    "final_nav": "2705851.862725465448329437005",
+    "base": "92527.41663482299000000000015",
+    "multiple": "29.24378482763247733120692704",
+    "cagr": 0.18385952802371325,
+    "maximum_drawdown": "-0.2977324909346084152720352722",
+    "sessions": 5032
+  },
+  "owned55": {
+    "final_nav": "2836980.447610945414412810468",
+    "base": "92527.41663482299000000000015",
+    "multiple": "30.66097110230178764471271681",
+    "cagr": 0.1866640046802565,
+    "maximum_drawdown": "-0.2846705846068382875193728478",
+    "sessions": 5032,
+    "cause_events": [
+      {
+        "type": "entry",
+        "date": "2008-07-21",
+        "current_target": 0.0,
+        "owned55_target": 0.0
+      },
+      {
+        "type": "recovery",
+        "date": "2008-12-26",
+        "current_target": 0.0,
+        "owned55_target": 0.0
+      },
+      {
+        "type": "entry",
+        "date": "2011-08-10",
+        "current_target": 1.0,
+        "owned55_target": 0.55
+      },
+      {
+        "type": "recovery",
+        "date": "2011-11-04",
+        "current_target": 1.0,
+        "owned55_target": 1.0
+      },
+      {
+        "type": "entry",
+        "date": "2018-10-29",
+        "current_target": 1.0,
+        "owned55_target": 0.55
+      },
+      {
+        "type": "recovery",
+        "date": "2019-01-28",
+        "current_target": 0.0,
+        "owned55_target": 0.0
+      },
+      {
+        "type": "entry",
+        "date": "2020-03-13",
+        "current_target": 0.0,
+        "owned55_target": 0.0
+      },
+      {
+        "type": "recovery",
+        "date": "2020-05-14",
+        "current_target": 1.0,
+        "owned55_target": 1.0
+      },
+      {
+        "type": "entry",
+        "date": "2021-03-09",
+        "current_target": 1.0,
+        "owned55_target": 0.55
+      },
+      {
+        "type": "recovery",
+        "date": "2021-04-14",
+        "current_target": 0.55,
+        "owned55_target": 0.55
+      }
+    ]
+  }
+}
