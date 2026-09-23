@@ -1,0 +1,17 @@
+FROZEN_VALIDATION_SOURCE_SHA256=fb2b2b6f9688e9ca5c0d825d5422cc0f343cef23838d7254db79e4819faeaba9
+Traceback (most recent call last):
+  File "/tmp/repo/tools/owned55_startup_mutations.py", line 171, in <module>
+    raise SystemExit(main(args.output, args.group, args.case))
+                     ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/tmp/repo/tools/owned55_startup_mutations.py", line 148, in main
+    raise ValueError('unmodified acceptance test must pass before mutation: '+name)
+ValueError: unmodified acceptance test must pass before mutation: formed_oracle_cash_unchecked
+Traceback (most recent call last):
+  File "<string>", line 9, in <module>
+  File "/usr/local/lib/python3.12/pathlib.py", line 1027, in read_text
+    with self.open(mode='r', encoding=encoding, errors=errors) as f:
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+  File "/usr/local/lib/python3.12/pathlib.py", line 1013, in open
+    return io.open(self, mode, buffering, encoding, errors, newline)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+FileNotFoundError: [Errno 2] No such file or directory: '/tmp/repo/startup-mutations/results.json'

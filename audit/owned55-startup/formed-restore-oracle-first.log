@@ -1,0 +1,71 @@
+FROZEN_VALIDATION_SOURCE_SHA256=fbe6762faaffbbf8f1832cd133db16aa67b544838d36a343bd382f12d9492c52
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/sentinel/test_rolling_restore_integrity.py::test_published_price_oracle_refuses_a_dollar_of_invented_cash FAILED [100%]
+
+=================================== FAILURES ===================================
+________ test_published_price_oracle_refuses_a_dollar_of_invented_cash _________
+tests/sentinel/test_rolling_restore_integrity.py:192: in test_published_price_oracle_refuses_a_dollar_of_invented_cash
+    report = formed_accounting.check(conn, **accounting)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/support/formed_accounting.py:89: in check
+    assert opened == closed == prices[(sid, previous_session)][1], 'funded fixture must be flat'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: funded fixture must be flat
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 209, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 203, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 522, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 126, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 184, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 54, "job_id": "65ee9913-899b-44e4-9474-911f6711f616", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+----------------------------- Captured stderr call -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "sessions": 0, "stage": "historical_formation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-03-26", "sessions": 10, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-10", "sessions": 20, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-24", "sessions": 30, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-08", "sessions": 40, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-22", "sessions": 50, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-08", "sessions": 60, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-23", "sessions": 70, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-08", "sessions": 80, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-22", "sessions": 90, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-05", "sessions": 100, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-19", "sessions": 110, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-02", "sessions": 120, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-11", "sessions": 126, "stage": "historical_formation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 170, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 7500, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 162, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 7500, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 7500, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 372, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 7500, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 141, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 7500, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 167, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 36, "job_id": "8a68be49-f2c9-4b2e-acd5-173f386e9089", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_rolling_restore_integrity.py::test_published_price_oracle_refuses_a_dollar_of_invented_cash
+============================== 1 failed in 38.33s ==============================

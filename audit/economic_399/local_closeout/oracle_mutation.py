@@ -16,9 +16,11 @@ def run():
 
 def main():
     assert run().returncode == 0
-    path = Path('audit/economic_399/local_closeout/economic_oracle.py')
+    # The restore fixture now forms a historical book. Keep the retained cold
+    # oracle unchanged; mutate the independent oracle this live witness uses.
+    path = Path('tests/support/formed_accounting.py')
     original = path.read_bytes()
-    before = b"assert abs(cash_error) < Decimal('0.00000001'), ('cash mismatch', cash_error)"
+    before = b"_near(book['cash'], cash, 'cash mismatch')"
     assert original.count(before) == 1
     try:
         path.write_bytes(original.replace(before, b'pass'))

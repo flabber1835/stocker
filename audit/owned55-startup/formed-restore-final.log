@@ -1,0 +1,14 @@
+FROZEN_VALIDATION_SOURCE_SHA256=8783f1dde9c1b07ce07da111949f676a0485beb655340917951516deedfe59ad
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 3 items
+
+tests/sentinel/test_rolling_restore_integrity.py::test_populated_physical_restore_preserves_book_and_advances_next_session[inline] PASSED [ 33%]
+tests/sentinel/test_rolling_restore_integrity.py::test_populated_physical_restore_preserves_book_and_advances_next_session[compressed] PASSED [ 66%]
+tests/sentinel/test_rolling_restore_integrity.py::test_published_price_oracle_refuses_a_dollar_of_invented_cash PASSED [100%]
+
+======================== 3 passed in 228.14s (0:03:48) =========================

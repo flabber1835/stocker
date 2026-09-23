@@ -34,6 +34,15 @@ CASES = [
      FORM+'test_current_controller_uses_correlation_peers_not_sector_labels'),
 ]
 STARTUP_CASES = [
+    ('formed_oracle_cash_unchecked', 'tests/support/formed_accounting.py',
+     "_near(book['cash'], cash, 'cash mismatch')", 'pass  # cash guard removed',
+     'tests/sentinel/test_rolling_restore_integrity.py::test_published_price_oracle_refuses_a_dollar_of_invented_cash'),
+    ('formed_oracle_price_unchecked', 'tests/support/formed_accounting.py',
+     "_near(event['price'], opened, 'trade price mismatch')", 'pass  # price guard removed',
+     'tests/sentinel/test_rolling_restore_integrity.py::test_published_price_oracle_refuses_a_dollar_of_invented_cash'),
+    ('formed_oracle_entry_unchecked', 'tests/support/formed_accounting.py',
+     "_near(econ['strategy_nav'], expected_nav, 'funded NAV mismatch')", 'pass  # entry guard removed',
+     'tests/sentinel/test_rolling_restore_integrity.py::test_published_price_oracle_refuses_a_dollar_of_invented_cash'),
     ('formation_env_range_unbounded', 'scripts/sentinel_env.py',
      '"SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS": (30, 7200)',
      '"SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS": (30, None)',

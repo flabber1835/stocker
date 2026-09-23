@@ -101,7 +101,8 @@ def test_public_status_checks_final_compressed_series_after_valid_storage_rehash
     # Storage length/checksum/count remain valid. Public verification must
     # inspect the changed final series against the economic commitments.
     with pytest.raises(shadow_observation.ShadowObservationRefused,
-                       match='genesis changed|observation record changed'):
+                       match=('formed genesis binding differs' if field == 'initial_state'
+                              else 'observation record changed')):
         rolling_runtime.status(conn, observation_id=OBS, starting_cash=100_000)
 
 
@@ -123,8 +124,11 @@ def test_populated_physical_restore_preserves_book_and_advances_next_session(
     rolling_runtime.advance(conn, through='2026-09-14', observation_id=OBS, starting_cash=100_000)
     refresh(conn, operational_source, monkeypatch)
     second = rolling_runtime.advance(conn, through='2026-09-15', observation_id=OBS, starting_cash=100_000)
-    from audit.economic_399.local_closeout import economic_oracle
-    assert economic_oracle.check(conn, observation_id=OBS, session=second.session)['positions'] == 20
+    from tests.support import formed_accounting
+    accounting = dict(observation_id=OBS, session=second.session,
+                      previous_session='2026-09-14', formation_candidate=restore_ready['candidate_id'])
+    expected_accounting = formed_accounting.check(conn, **accounting)
+    assert expected_accounting['positions'] == 20
     book = deepcopy(second.state.wealth_core)
     assert book['episodes'] and 0 < book['cash'] < 100_000
     conn.commit()
@@ -151,6 +155,7 @@ def test_populated_physical_restore_preserves_book_and_advances_next_session(
             report = restore_validation.validate_restored_database(restored)
             assert report['transaction_read_only'] and report['restart_state_present']
             assert report['rolling']['session'] == second.session
+            assert formed_accounting.check(restored, **accounting) == expected_accounting
         # A fresh writable runtime connection advances only the restored cluster.
         with store.connect(dsn) as restored:
             assert resume(restored).state.wealth_core == book
@@ -175,19 +180,37 @@ def test_populated_physical_restore_preserves_book_and_advances_next_session(
 def test_published_price_oracle_refuses_a_dollar_of_invented_cash(conn, restore_ready,
                                                                operational_source, monkeypatch):
     from decimal import Decimal
-    from audit.economic_399.local_closeout import economic_oracle
+    from tests.support import formed_accounting
     from sentinel import rolling_runtime, shadow_observation
     from tests.sentinel.test_rolling_daily import refresh
     from tests.sentinel.test_rolling_initialization import OBS
     rolling_runtime.advance(conn, through='2026-09-14', observation_id=OBS, starting_cash=100_000)
     refresh(conn, operational_source, monkeypatch)
     result = rolling_runtime.advance(conn, through='2026-09-15', observation_id=OBS, starting_cash=100_000)
-    report = economic_oracle.check(conn, observation_id=OBS, session=result.session)
-    assert Decimal(report['fees_10bps']) > 0
-    assert abs(Decimal(report['expected_nav']) + Decimal(report['fees_10bps']) - 100000) < Decimal('1e-8')
+    accounting = dict(observation_id=OBS, session=result.session,
+                      previous_session='2026-09-14', formation_candidate=restore_ready['candidate_id'])
+    report = formed_accounting.check(conn, **accounting)
+    assert Decimal(report['historical_fees']) > 0
+    assert Decimal(report['expected_core_nav']) > 100000  # formation gains stay in the shadow
+    assert Decimal(report['funded_entry_fee']) > 0
+    assert abs(Decimal(report['expected_nav']) + Decimal(report['funded_entry_fee'])
+               - Decimal(report['funded_bil_pnl']) - 100000) < Decimal('1e-8')
     store = shadow_observation.PostgresShadowObservationStore(conn, observation_id=OBS)
-    conn.execute("UPDATE sentinel_processed_sessions SET state=jsonb_set(state,'{state,wealth_core,cash}',"
-                 "to_jsonb((state#>>'{state,wealth_core,cash}')::numeric+1)) WHERE cursor_name=%s",
-                 (store._name(result.session),))
-    with pytest.raises(AssertionError, match='cash mismatch'):
-        economic_oracle.check(conn, observation_id=OBS, session=result.session)
+    name = store._name(result.session)
+    original = conn.execute('SELECT state FROM sentinel_processed_sessions WHERE cursor_name=%s',
+                            (name,)).fetchone()[0]
+    mutations = [
+        (['state', 'wealth_core', 'cash'], original['state']['wealth_core']['cash'] + 1, 'cash mismatch'),
+        (['state', 'ledger', 'events', '0', 'price'],
+         original['state']['ledger']['events'][0]['price'] + 1, 'trade price mismatch'),
+        (['strategy_economics', 'strategy_nav'],
+         str(Decimal(report['expected_nav']) + Decimal(report['funded_entry_fee'])), 'funded NAV mismatch'),
+    ]
+    for path, value, reason in mutations:
+        conn.execute('UPDATE sentinel_processed_sessions SET state=jsonb_set(state,%s::text[],%s::jsonb) '
+                     'WHERE cursor_name=%s', (path, json.dumps(value), name))
+        with pytest.raises(AssertionError, match=reason):
+            formed_accounting.check(conn, **accounting)
+        conn.execute('UPDATE sentinel_processed_sessions SET state=%s::jsonb WHERE cursor_name=%s',
+                     (json.dumps(original), name))
+    assert formed_accounting.check(conn, **accounting) == report

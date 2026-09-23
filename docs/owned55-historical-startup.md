@@ -268,11 +268,27 @@ with executable call-site witnesses that detect a disconnected hook.
 | Formed GO admission | Empty PostgreSQL to authenticated formed genesis, current publication/overlap, actual GO caller and independent paper baseline | Implemented; isolated PostgreSQL positive acceptance and full read-only GO formation proof pass |
 | Failure recovery | Interruption, changed source, lost acknowledgement, duplicate start/order rejection | Authenticated progress, acknowledgement loss at 0/1/63/126, immutable origin restart and first funded daily resume pass; complete runtime regression retained in evidence report |
 | Observation admission | Canonical formed proof, matching production origin, selected policy, cold-proof and rehashed-evidence refusals | Locally passed; three observation faults killed; legacy cold proof cannot authorize Owned55 |
-| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Thirty-one mutations killed (eight controller/candidate, five integration/accounting, six deployment timing/configuration, two price domains, three observation, seven audit-only); final-head CI and full canonical GO positive campaign remain gates |
+| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Thirty-four mutations killed (eight controller/candidate, five integration/accounting, six deployment timing/configuration, two price domains, three observation, ten audit-only); final-head CI and full canonical GO positive campaign remain gates |
 | Deployment | NAS backup/restore/resource evidence and paper transport qualification | NAS-only; outside local certification |
 
 Local implementation acceptance does not close provider or deployment gates.
 Do not report economic certification complete while required gates remain open.
+
+Restore accounting witnesses distinguish historical shadow formation from the
+first funded paper observation. Preserve the original cold-book audit oracle
+and its evidence. A separate formed-book test oracle reconstructs historical
+cash, fees and quantities from dated published raw prices and trade decisions,
+then values the surviving book at the current published close. It must not use
+the production ledger's cash deltas, fees or marks as its expected values.
+For the deliberately flat stock tape on the first funded session, independently
+price stock entry and BIL's published intraday return/entry cost from the previous
+close's allocation and the formed stock/cash
+composition. Historical appreciation is not a deposit into the new account.
+The fixture-specific oracle refuses unsupported corporate actions or a
+non-flat funded stock session; it is not general provider or backtest certification.
+Physical restore must preserve both these independent accounting results and
+the authenticated state, including compressed storage. Invented cash, altered
+historical trade prices and a missing funded-entry charge must be detected.
 
 Exact commands, intermediate failures, limitations and the qualification handoff
 are retained in [the local evidence report](../audit/owned55-startup/README.md).

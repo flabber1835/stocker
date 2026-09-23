@@ -12,7 +12,9 @@ files={str(p):hashlib.sha256(p.read_bytes()).hexdigest() for folder in ('sentine
 print('FROZEN_VALIDATION_SOURCE_SHA256='+hashlib.sha256(json.dumps(files,sort_keys=True).encode()).hexdigest(),flush=True)
 result=subprocess.run([sys.executable,*sys.argv[1:]])
 if pathlib.Path('/tmp/repo/startup-mutations').exists():
-    print('MUTATION_RESULTS='+pathlib.Path('/tmp/repo/startup-mutations/results.json').read_text(),flush=True)
+    result_file = pathlib.Path('/tmp/repo/startup-mutations/results.json')
+    if result_file.exists():
+        print('MUTATION_RESULTS='+result_file.read_text(),flush=True)
     for log in sorted(pathlib.Path('/tmp/repo/startup-mutations').glob('*.log')):
         print('MUTATION_LOG='+log.name+'\\n'+log.read_text(),flush=True)
 raise SystemExit(result.returncode)

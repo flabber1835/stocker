@@ -1,0 +1,235 @@
+FROZEN_VALIDATION_SOURCE_SHA256=78df960a76d50f7d560a9bf57098c12e9e7165705358dcdee2405fe8aa2a2d28
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 9 items
+
+tests/sentinel/test_rolling_restore_integrity.py::test_restore_refuses_corrupt_current_rolling_dependencies[checkpoint] PASSED [ 11%]
+tests/sentinel/test_rolling_restore_integrity.py::test_restore_refuses_corrupt_current_rolling_dependencies[snapshot] PASSED [ 22%]
+tests/sentinel/test_rolling_restore_integrity.py::test_restore_refuses_corrupt_current_rolling_dependencies[missing-origin] PASSED [ 33%]
+tests/sentinel/test_rolling_restore_integrity.py::test_uninitialized_rolling_publication_is_a_valid_empty_restore PASSED [ 44%]
+tests/sentinel/test_rolling_restore_integrity.py::test_public_status_checks_final_compressed_series_after_valid_storage_rehash[initial_state-129] PASSED [ 55%]
+tests/sentinel/test_rolling_restore_integrity.py::test_public_status_checks_final_compressed_series_after_valid_storage_rehash[state-129] PASSED [ 66%]
+tests/sentinel/test_rolling_restore_integrity.py::test_populated_physical_restore_preserves_book_and_advances_next_session[inline] FAILED [ 77%]
+tests/sentinel/test_rolling_restore_integrity.py::test_populated_physical_restore_preserves_book_and_advances_next_session[compressed] FAILED [ 88%]
+tests/sentinel/test_rolling_restore_integrity.py::test_published_price_oracle_refuses_a_dollar_of_invented_cash FAILED [100%]
+
+=================================== FAILURES ===================================
+_ test_populated_physical_restore_preserves_book_and_advances_next_session[inline] _
+tests/sentinel/test_rolling_restore_integrity.py:130: in test_populated_physical_restore_preserves_book_and_advances_next_session
+    expected_accounting = formed_accounting.check(conn, **accounting)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/support/formed_accounting.py:105: in check
+    assert bil is not None and D(bil[0]) == D(bil[1]), 'funded BIL fixture must be flat'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: funded BIL fixture must be flat
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 225, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 204, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 537, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 128, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 191, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 57, "job_id": "2aff41d0-97be-4644-9168-131460ce5d0d", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+----------------------------- Captured stderr call -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "sessions": 0, "stage": "historical_formation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-03-26", "sessions": 10, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-10", "sessions": 20, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-24", "sessions": 30, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-08", "sessions": 40, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-22", "sessions": 50, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-08", "sessions": 60, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-23", "sessions": 70, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-08", "sessions": 80, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-22", "sessions": 90, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-05", "sessions": 100, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-19", "sessions": 110, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-02", "sessions": 120, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-11", "sessions": 126, "stage": "historical_formation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 154, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 7500, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 154, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 7500, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 7500, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 415, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 7500, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 103, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 7500, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 170, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 44, "job_id": "6350093e-aad2-4c82-944c-d8bb7262f55b", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+_ test_populated_physical_restore_preserves_book_and_advances_next_session[compressed] _
+tests/sentinel/test_rolling_restore_integrity.py:130: in test_populated_physical_restore_preserves_book_and_advances_next_session
+    expected_accounting = formed_accounting.check(conn, **accounting)
+                          ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/support/formed_accounting.py:105: in check
+    assert bil is not None and D(bil[0]) == D(bil[1]), 'funded BIL fixture must be flat'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: funded BIL fixture must be flat
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 10000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 15000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 20000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 25000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 30000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 35000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 40000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 45000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 1164, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 48891, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 10000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 15000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 20000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 25000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 30000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 35000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 40000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 45000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 1091, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 48891, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 10000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 15000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 20000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 25000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 30000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 35000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 40000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 45000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 48891, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 2689, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 48891, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 612, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 48891, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 835, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 65, "job_id": "a857745b-9725-4caa-ba63-756f9b437e48", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+----------------------------- Captured stderr call -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "sessions": 0, "stage": "historical_formation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-03-26", "sessions": 10, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-10", "sessions": 20, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-24", "sessions": 30, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-08", "sessions": 40, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-22", "sessions": 50, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-08", "sessions": 60, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-23", "sessions": 70, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-08", "sessions": 80, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-22", "sessions": 90, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-05", "sessions": 100, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-19", "sessions": 110, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-02", "sessions": 120, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-11", "sessions": 126, "stage": "historical_formation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 10000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 15000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 20000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 25000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 30000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 35000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 882, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 38700, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 10000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 15000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 20000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 25000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 30000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 35000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 1001, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 38700, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 10000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 15000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 20000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 25000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 30000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 35000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 38700, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 2208, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 38700, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 494, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 38700, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 750, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 49, "job_id": "14e80650-7ad7-45b2-9b95-b79ca711efdb", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+________ test_published_price_oracle_refuses_a_dollar_of_invented_cash _________
+tests/sentinel/test_rolling_restore_integrity.py:192: in test_published_price_oracle_refuses_a_dollar_of_invented_cash
+    report = formed_accounting.check(conn, **accounting)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tests/support/formed_accounting.py:105: in check
+    assert bil is not None and D(bil[0]) == D(bil[1]), 'funded BIL fixture must be flat'
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: funded BIL fixture must be flat
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 205, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 201, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 540, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 126, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 193, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 56, "job_id": "ca1e7462-db0a-4a47-a7e6-bdf9137519c3", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+----------------------------- Captured stderr call -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "sessions": 0, "stage": "historical_formation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-03-26", "sessions": 10, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-10", "sessions": 20, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-24", "sessions": 30, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-08", "sessions": 40, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-22", "sessions": 50, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-08", "sessions": 60, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-23", "sessions": 70, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-08", "sessions": 80, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-22", "sessions": 90, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-05", "sessions": 100, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-19", "sessions": 110, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-02", "sessions": 120, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-11", "sessions": 126, "stage": "historical_formation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 167, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 7500, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 164, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 7500, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 7500, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 449, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 7500, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 108, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 7500, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 178, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 44, "job_id": "bd27a937-c038-485b-ba22-0e95e6be6bf2", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_rolling_restore_integrity.py::test_populated_physical_restore_preserves_book_and_advances_next_session[inline]
+FAILED tests/sentinel/test_rolling_restore_integrity.py::test_populated_physical_restore_preserves_book_and_advances_next_session[compressed]
+FAILED tests/sentinel/test_rolling_restore_integrity.py::test_published_price_oracle_refuses_a_dollar_of_invented_cash
+=================== 3 failed, 6 passed in 437.23s (0:07:17) ====================

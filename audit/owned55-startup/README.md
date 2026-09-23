@@ -484,6 +484,81 @@ the two changed deployment/environment modules also parse as Python 3.8.
 Superseded GO attempt `35878872952` was cancelled before the replacement audit;
 it does not qualify the corrected deployment settings.
 
+## Formed-book restore accounting follow-up
+
+Sentinel safety run `35879952609`, job `107249710353`, completed at reviewed
+head `94ab194d9c22aa0bd3967cd99d2e5da3249d9bfc`: all 5,105 general tests passed
+in 2,716.293 seconds; rolling reported 341 passes and four failures in 5,703.494
+seconds. This was an assertion failure, not another timeout. The other five PR
+workflows passed. `ci-94ab-restore-failures.json` retains exact JUnit counts,
+failure identities, source/run/artifact bindings and downloaded file hashes.
+
+The four failures were validation defects in
+`tests/sentinel/test_rolling_restore_integrity.py`: the compressed-genesis
+falsifier expected the old cold-genesis refusal wording, while both physical
+restore variants and the invented-dollar falsifier invoked the original
+cold-entry oracle. Its same-day purchase-price and $100,000-minus-entry-fee
+assumptions do not describe a book with 126 historical economic transitions.
+The original cold oracle and golden audit evidence remain unchanged.
+
+The separate `tests/support/formed_accounting.py` oracle reconstructs cash,
+fees and held quantities from the recorded trade choices and their dated
+published raw opening prices. Expected money does not come from ledger cash
+deltas, fees, state marks or production accounting functions. It independently
+values current holdings, then prices the new account's stock/BIL entry from
+the prior allocation, starting capital and published BIL intraday marks.
+Formation appreciation remains in the shadow rather than becoming a funding
+deposit. Both inline and compressed physical restores must reproduce these
+accounting results before advancing the restored database independently.
+
+The oracle is deliberately scoped to this action-free, flat-equity fixture;
+unsupported actions or changing equity marks refuse. Float-derived raw marks
+retain the existing 1e-8 dollar accounting tolerance. Initial development
+checks caught exact-equality noise in rebased float marks and an incorrect
+assumption that the BIL source was intraday-flat; the final equation consumes
+its actual published open/close ratio. Those failed checks remain in
+`formed-restore-oracle-first.log`, `formed-restore-oracle-check.log` and
+`formed-oracle-mutation-baseline.log`. The mutation helper now preserves
+baseline logs even when no results JSON was produced; it still exits failed.
+The original audit mutation command now targets the oracle actually exercised
+by its restore acceptance test instead of silently mutating disconnected code.
+
+```text
+python tools/owned55_local_validation.py test tests/sentinel/test_rolling_restore_integrity.py
+Intermediate run: 6 passed, 3 failed in 437.23s; formed-restore-acceptance.log.
+Both compressed-state falsifiers and the four dependency/empty-restore tests
+passed. The three accounting cases correctly refused the erroneous assumption
+of intraday-flat BIL; these cases are rerun after using its published ratio.
+python tools/owned55_local_validation.py mutations formed_oracle_cash_unchecked
+python tools/owned55_local_validation.py mutations formed_oracle_price_unchecked
+python tools/owned55_local_validation.py mutations formed_oracle_entry_unchecked
+3/3 KILLED. Each unmodified baseline passed (39.30s, 40.38s, 39.12s), and each
+removed guard produced the intended DID NOT RAISE failure. Logs:
+final-mutation-formed_oracle_<cash|price|entry>_unchecked.log.
+Thirty-four distinct killed mutants overall; no new skips, xfails or golden repins.
+python tools/validate_test_responsibility.py --base origin/main --output audit/owned55-startup/test-responsibility-final.json
+PASS with no unowned tests. All 88 changed/new Python files parse; source pins
+are retained in integrated-source.json. Production sources are unchanged from
+94ab194d; this follow-up changes test/audit code and its documentation only.
+```
+
+```text
+python tools/owned55_local_validation.py test tests/sentinel/test_rolling_restore_integrity.py::test_populated_physical_restore_preserves_book_and_advances_next_session tests/sentinel/test_rolling_restore_integrity.py::test_published_price_oracle_refuses_a_dollar_of_invented_cash
+3 passed in 228.14s; formed-restore-final.log. Both real pg_basebackup /
+pg_verifybackup / independent-cluster restart variants pass, including the
+compressed book, restored accounting parity and next-session continuity.
+Together with the six unaffected passing cases above, all nine tests in the
+affected module have passed. Mutation baselines and final acceptance bind the
+same validation-source digest:
+8783f1dde9c1b07ce07da111949f676a0485beb655340917951516deedfe59ad.
+```
+
+Current `origin/main` was fetched again before delivery and remains
+`ee23c894c97a2c4023654ce3a56a62728f5b061e`, also the feature branch merge-base.
+Final-head CI and a replacement full GO campaign remain open; the old campaign
+cannot qualify the corrected test lens. No economic-certification gate is
+closed merely by correcting the test oracle.
+
 ## Remaining gates and concrete NAS handoff
 
 | Gate | Severity / disposition | Required evidence and pass/fail |

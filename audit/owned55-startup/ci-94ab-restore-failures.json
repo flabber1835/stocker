@@ -1,0 +1,85 @@
+{
+  "head": "94ab194d9c22aa0bd3967cd99d2e5da3249d9bfc",
+  "run_id": 35879952609,
+  "job_id": 107249710353,
+  "artifact_id": 10767274744,
+  "artifact_zip_sha256": "c3f374c097f2d082a2d619b5f7ca8a8bec6d11f9762cfb588c76c3780e578955",
+  "files": {
+    "sentinel-main-general.xml": {
+      "bytes": 873259,
+      "sha256": "43921a6ce10c329123b0699cc5c38cfbbcbdc05fb2b4acf84ee7d1740d49c681"
+    },
+    "sentinel-main-rolling.xml": {
+      "bytes": 72946,
+      "sha256": "6484dea99e6645cfd570bff90c1e1df559da979c8c8a3fc82417de912aa91756"
+    },
+    "summary.txt": {
+      "bytes": 848661,
+      "sha256": "c282008adbeccfd23185f10640fb64a9d83586205f7bd87cd274d6af70aa0410"
+    }
+  },
+  "suites": [
+    {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "0",
+      "skipped": "0",
+      "tests": "5105",
+      "time": "2716.293",
+      "timestamp": "2026-09-23T15:24:45.870070+00:00",
+      "hostname": "e55002ce9b17"
+    },
+    {
+      "name": "pytest",
+      "errors": "0",
+      "failures": "4",
+      "skipped": "0",
+      "tests": "345",
+      "time": "5703.494",
+      "timestamp": "2026-09-23T16:10:33.635711+00:00",
+      "hostname": "d56a5b293c93"
+    }
+  ],
+  "failures": [
+    {
+      "test": {
+        "classname": "tests.sentinel.test_rolling_restore_integrity",
+        "name": "test_public_status_checks_final_compressed_series_after_valid_storage_rehash[initial_state-129]",
+        "time": "130.886"
+      },
+      "failure": {
+        "message": "AssertionError: Regex pattern did not match.\n Regex: 'genesis changed|observation record changed'\n Input: 'formed genesis binding differs'"
+      }
+    },
+    {
+      "test": {
+        "classname": "tests.sentinel.test_rolling_restore_integrity",
+        "name": "test_populated_physical_restore_preserves_book_and_advances_next_session[inline]",
+        "time": "51.485"
+      },
+      "failure": {
+        "message": "AssertionError: 25"
+      }
+    },
+    {
+      "test": {
+        "classname": "tests.sentinel.test_rolling_restore_integrity",
+        "name": "test_populated_physical_restore_preserves_book_and_advances_next_session[compressed]",
+        "time": "159.619"
+      },
+      "failure": {
+        "message": "AssertionError: 1"
+      }
+    },
+    {
+      "test": {
+        "classname": "tests.sentinel.test_rolling_restore_integrity",
+        "name": "test_published_price_oracle_refuses_a_dollar_of_invented_cash",
+        "time": "50.912"
+      },
+      "failure": {
+        "message": "AssertionError: 25"
+      }
+    }
+  ]
+}
