@@ -33,7 +33,7 @@ def test_shadow_attestation_uses_data_budget_not_process_health_budget(monkeypat
     import json
     clock = [0.0]
     obj = object.__new__(deploy.AutonomousDeploy)
-    obj.cfg = SimpleNamespace(health_timeout=30, data_wait_timeout_seconds=120)
+    obj.cfg = SimpleNamespace(health_timeout=30, formation_timeout_seconds=120)
     obj.phase = lambda message: None
     obj._authorized_compose = lambda: ["docker", "compose"]
     def status(*args, **kwargs):
@@ -90,7 +90,7 @@ def test_shadow_read_cannot_authorize_after_data_deadline(tmp_path, monkeypatch)
     import json
     clock = [0.0]
     obj = object.__new__(deploy.AutonomousDeploy)
-    obj.cfg = _real_deployment_config(tmp_path, SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS="30")
+    obj.cfg = _real_deployment_config(tmp_path, SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS="30")
     obj.phase = lambda message: None
     obj._authorized_compose = lambda: ["docker", "compose"]
     def status(*args, **kwargs):
@@ -106,8 +106,8 @@ def test_shadow_read_cannot_authorize_after_data_deadline(tmp_path, monkeypatch)
 
 @pytest.mark.parametrize("budget", ["29", "7201", "unbounded"])
 def test_formation_wait_budget_is_bounded(tmp_path, budget):
-    with pytest.raises(deploy.DeployRefused, match="SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS"):
-        _real_deployment_config(tmp_path, SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS=budget)
+    with pytest.raises(deploy.DeployRefused, match="SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS"):
+        _real_deployment_config(tmp_path, SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS=budget)
 
 
 def test_dotenv_is_literal_and_does_not_truncate_hash_password(tmp_path):

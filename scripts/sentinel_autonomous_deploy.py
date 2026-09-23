@@ -1086,9 +1086,9 @@ class Config:
             env.get("SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS", "300"),
             name="SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS",
             minimum=30, maximum=1800)
-        self.data_wait_timeout_seconds = _int(
-            env.get("SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS", "7200"),
-            name="SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS",
+        self.formation_timeout_seconds = _int(
+            env.get("SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS", "7200"),
+            name="SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS",
             minimum=30, maximum=7200)
         self.allow_empty_bind = _as_bool(
             env.get("SENTINEL_DEPLOY_ALLOW_EMPTY_BIND", "0"),
@@ -2043,7 +2043,7 @@ class AutonomousDeploy:
         self.phase(
             "shadow: wait for current decision-close runtime attestation")
         started = time.monotonic()
-        deadline = started + self.cfg.data_wait_timeout_seconds
+        deadline = started + self.cfg.formation_timeout_seconds
         last_report = started
         last = None
         while time.monotonic() < deadline:

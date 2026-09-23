@@ -171,13 +171,20 @@ qualify fresh Owned55 deployment. The read-only proof grants no origin authority
 the durable GO caller independently applies the authenticated admission path.
 
 The dual deployment wait uses a separate bounded data-work budget, defaulting
-to 7,200 seconds (`SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS`, range 30–7,200).
+to 7,200 seconds (`SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS`, range 30–7,200).
 Process health retains its existing short budget. A verified shadow-status read
 may take up to 300 seconds, capped by the remaining data-work deadline; success
 after that deadline is refusal. This accommodates the measured 49-minute
 formation and 78-second status read without extending the source-final or
 next-open admission cutoffs. Startup that exceeds a causal cutoff remains
 unadmitted, and authenticated progress is retained for investigation/resume.
+
+Formation waiting is independent of the existing provider-freshness wait,
+`SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS` (default 43,200 seconds, bounded
+300–86,400). The deployment driver's provider retries must neither override the
+formation deadline nor make the shipped example environment invalid. Both the
+shared environment validator and the actual driver must accept the same two
+distinct settings; elapsed provider waits cannot grant formation admission.
 
 The owner subsequently selected July 31, 2026 as the local bootstrap endpoint
 and authorized reuse of the retained backtest data. Its exact 378-session axis
@@ -261,7 +268,7 @@ with executable call-site witnesses that detect a disconnected hook.
 | Formed GO admission | Empty PostgreSQL to authenticated formed genesis, current publication/overlap, actual GO caller and independent paper baseline | Implemented; isolated PostgreSQL positive acceptance and full read-only GO formation proof pass |
 | Failure recovery | Interruption, changed source, lost acknowledgement, duplicate start/order rejection | Authenticated progress, acknowledgement loss at 0/1/63/126, immutable origin restart and first funded daily resume pass; complete runtime regression retained in evidence report |
 | Observation admission | Canonical formed proof, matching production origin, selected policy, cold-proof and rehashed-evidence refusals | Locally passed; three observation faults killed; legacy cold proof cannot authorize Owned55 |
-| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Twenty-eight mutations killed (eight controller/candidate, five integration/accounting, three deployment timing, two price domains, three observation, seven audit-only); final-head CI and full canonical GO positive campaign remain gates |
+| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Thirty-one mutations killed (eight controller/candidate, five integration/accounting, six deployment timing/configuration, two price domains, three observation, seven audit-only); final-head CI and full canonical GO positive campaign remain gates |
 | Deployment | NAS backup/restore/resource evidence and paper transport qualification | NAS-only; outside local certification |
 
 Local implementation acceptance does not close provider or deployment gates.

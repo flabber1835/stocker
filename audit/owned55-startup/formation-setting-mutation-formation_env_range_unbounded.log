@@ -1,0 +1,35 @@
+FROZEN_VALIDATION_SOURCE_SHA256=13e308b048b8af295d0cf54e1bece347b9750bbb1f4eb836c6e3629bcbd0f8e9
+formation_env_range_unbounded KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "formation_env_range_unbounded",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/host_python38/test_env_review_fixes.py::EnvReviewFixes::test_every_typed_runtime_family_refuses_malformed_values",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=formation_env_range_unbounded.baseline.log
+.                                                                        [100%]
+1 passed in 0.04s
+
+MUTATION_LOG=formation_env_range_unbounded.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ EnvReviewFixes.test_every_typed_runtime_family_refuses_malformed_values ____
+tests/host_python38/test_env_review_fixes.py:188: in test_every_typed_runtime_family_refuses_malformed_values
+    with self.assertRaises(env.EnvRefused):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: EnvRefused not raised
+=========================== short test summary info ============================
+FAILED tests/host_python38/test_env_review_fixes.py::EnvReviewFixes::test_every_typed_runtime_family_refuses_malformed_values
+1 failed in 0.06s

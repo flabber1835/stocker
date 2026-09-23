@@ -1,0 +1,35 @@
+FROZEN_VALIDATION_SOURCE_SHA256=13e308b048b8af295d0cf54e1bece347b9750bbb1f4eb836c6e3629bcbd0f8e9
+late_status_acceptance KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "late_status_acceptance",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_autonomous_deploy.py::test_shadow_read_cannot_authorize_after_data_deadline",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=late_status_acceptance.baseline.log
+.                                                                        [100%]
+1 passed in 0.18s
+
+MUTATION_LOG=late_status_acceptance.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____________ test_shadow_read_cannot_authorize_after_data_deadline _____________
+tests/sentinel/test_autonomous_deploy.py:103: in test_shadow_read_cannot_authorize_after_data_deadline
+    with pytest.raises(deploy.DeployRefused, match="deployment timeout"):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'sentinel_autonomous_deploy.DeployRefused'>
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_autonomous_deploy.py::test_shadow_read_cannot_authorize_after_data_deadline
+1 failed in 0.22s

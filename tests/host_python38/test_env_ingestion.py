@@ -977,6 +977,7 @@ for key, lower, upper in (
         ("SENTINEL_DEPLOY_NOT_BEFORE_MARGIN_SECONDS", 0, 1800),
         ("SENTINEL_AUTOMATION_HEARTBEAT_SECONDS", 1, 300),
         ("SENTINEL_DEPLOY_DATA_RETRY_SECONDS", 30, 3600),
+        ("SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS", 30, 7200),
         ("SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS", 300, 86400)):
     for index, value in enumerate((str(lower), str(upper), str(lower - 1), str(upper + 1), "", "NaN", "Inf", "1.0", "1e3", "9" * 5000)):
         setattr(EnvHarness, "test_numeric_%s_%d" % (key, index), _semantic_case(key, value, index < 2))

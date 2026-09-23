@@ -442,6 +442,48 @@ python tools/owned55_local_validation.py test tests/scripts/test_sentinel_ci_par
 actual GO fault hooks remain required under the larger audit-only budget.
 ```
 
+## Independent formation and provider-wait configuration
+
+Final consumer tracing found a real configuration collision: the added formation
+limit reused `SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS`. The real driver already
+owned that setting for provider freshness (43,200 seconds by default), while
+the new base Config limited it to 7,200. Copying `.env.example` therefore passed
+the shared validator but failed actual driver construction. With no explicit
+setting, the driver silently replaced the formation budget with its longer
+provider budget. The earlier base-Config tests did not expose this boundary.
+
+Formation now uses its own `SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS` and
+`formation_timeout_seconds` property (default 7,200; range 30–7,200). Provider
+waiting retains its existing separate range and default. The shared validator
+has one entry per key and `.env.example` supplies both. The real driver accepts
+the shipped settings; a late formation status cannot consume unused provider
+time. This restores the documented separation without extending market cutoffs.
+
+```text
+python tools/owned55_local_validation.py test tests/sentinel/test_autonomous_deploy_driver.py::test_shipped_wait_settings_agree_with_actual_driver
+Before correction: 1 failed in 0.27s, the actual driver refused the shipped
+43,200-second provider setting; formation-setting-before.log.
+python tools/owned55_local_validation.py test tests/sentinel/test_autonomous_deploy.py tests/sentinel/test_autonomous_deploy_driver.py tests/host_python38/test_env_ingestion.py tests/host_python38/test_env_review_fixes.py
+966 passed in 39.69s; formation-setting-acceptance.log.
+python tools/owned55_local_validation.py mutations formation_uses_provider_budget
+python tools/owned55_local_validation.py mutations formation_env_collision
+python tools/owned55_local_validation.py mutations formation_env_range_unbounded
+3/3 new mutants KILLED after passing baselines; 31 distinct faults overall.
+python tools/owned55_local_validation.py mutations formation_health_timeout
+python tools/owned55_local_validation.py mutations status_short_timeout
+python tools/owned55_local_validation.py mutations late_status_acceptance
+All three affected timing mutants KILLED again; passing baselines and intended
+failures retained in formation-setting-mutation-<case>.log.
+python tools/owned55_local_validation.py partitions
+Final collection after the two driver witnesses: 5,612 nodes (general 5,105,
+rolling 345, warmup 20, automation 142), zero omissions or duplicates;
+go-partition-collection-settings.log. All 85 changed/new Python files parsed;
+the two changed deployment/environment modules also parse as Python 3.8.
+```
+
+Superseded GO attempt `35878872952` was cancelled before the replacement audit;
+it does not qualify the corrected deployment settings.
+
 ## Remaining gates and concrete NAS handoff
 
 | Gate | Severity / disposition | Required evidence and pass/fail |

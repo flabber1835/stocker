@@ -1,0 +1,38 @@
+FROZEN_VALIDATION_SOURCE_SHA256=c9473f23414dca8b98cba0774b835fc5c2604ade454328101c8bcc2b89889b06
+formation_uses_provider_budget KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "formation_uses_provider_budget",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_autonomous_deploy_driver.py::test_driver_formation_cannot_consume_provider_wait_budget",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=formation_uses_provider_budget.baseline.log
+.                                                                        [100%]
+1 passed in 0.19s
+
+MUTATION_LOG=formation_uses_provider_budget.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__________ test_driver_formation_cannot_consume_provider_wait_budget ___________
+tests/sentinel/test_autonomous_deploy_driver.py:119: in test_driver_formation_cannot_consume_provider_wait_budget
+    obj._wait_for_dual_shadow_session('2026-08-28')
+scripts/sentinel_autonomous_deploy.py:2050: in _wait_for_dual_shadow_session
+    completed = self.runner.run(self._authorized_compose() + [
+tests/sentinel/test_autonomous_deploy_driver.py:111: in status
+    assert 0 < kwargs['timeout'] <= 30
+E   assert 300 <= 30
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_autonomous_deploy_driver.py::test_driver_formation_cannot_consume_provider_wait_budget
+1 failed in 0.23s
