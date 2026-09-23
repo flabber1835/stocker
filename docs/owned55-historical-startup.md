@@ -36,7 +36,7 @@ reset the book. Formation adequacy is an acceptance question, not a claim that
 
 Reuse canonical feature warmup and `advance_session`; no parallel strategy.
 Require exact exchange-calendar coverage, dated benchmark history, permanent
-security identities, causally available security-type and first-observation metadata,
+security identities, explicitly identified security-type and first-observation metadata,
 and complete action inputs including independently supported terminal terms.
 Bind the formation policy, capital, strategy/source identity and every input to
 the result. Checkpoint/resume must equal uninterrupted replay. Missing, changed,
@@ -95,19 +95,47 @@ Its [corporate-actions endpoint](https://docs.alpaca.markets/us/reference/corpor
 warns that record-creation timing is not guaranteed. Neither establishes the
 missing historical metadata authority. Sharadar remains the production source.
 
-The owner is evaluating two startup policies: historically dated metadata, or
-today's metadata applied to historical prices to initialize a book prospectively.
-The latter can change initial holdings and controller state; it must be a
-separately identified initialization policy, never labelled historical PIT
-reconstruction. No choice has yet been authorized. More price history alone
-does not resolve missing metadata vintages. Source-dependent GO implementation
-remains pending that choice; independent controller and replay tests proceed.
+Following the owner's instruction to proceed, fresh GO selects
+`CURRENT_INFORMATION_INITIALIZATION_V1`: the admitted current Sharadar snapshot's
+classification and first-price dates, permanent identities and dated symbol
+mappings are applied to historical prices. This can change initial holdings and
+controller state relative to a historical metadata archive. It initializes a
+portfolio using information available at startup; it does not claim historical
+PIT reconstruction. The separate `HISTORICAL_PIT_V1` research candidate policy
+continues to require dated metadata. The policies have different commitments.
 
 The twenty-year research export has known classification/issuer defects and
-does not close this recent-period evidence gate. Obtain retained dated Sharadar
-snapshots or a separately reviewed authoritative interval export, with actual
-coverage and terms checked for the chosen start/end. Do not use today's
-classification retrospectively or silently fall back to cold formation.
+does not close the production evidence gate. Production must use the admitted
+Sharadar producer with actual coverage and action terms checked across the full
+formation interval. No silent fallback to cold formation is allowed.
+
+## Fresh GO integration decision
+
+First acquisition uses a distinct, exactly 379-session startup window: 252
+feature closes, 126 economic formation closes, and the current decision close.
+This window is permitted only for a fresh Owned55 lineage. It reuses the normal
+Sharadar export generation, identity, action, completeness and publication
+checks. Ordinary rolling acquisitions remain exactly 300 sessions. The initial
+379-session generation is retained until ordinary retention can retire it; the
+canonical strategy's bounded feed state remains unchanged. This avoids joining
+two independently refreshed 300-session generations into a fabricated source.
+
+Formation is a broker-free preparatory operation. It runs the canonical kernel
+against the sealed startup generation, retaining authenticated progress bound to
+that generation, the initialization policy, strategy, capital and runtime. A
+changed source or configuration cannot continue an old candidate. An interrupted
+candidate resumes only after its authenticated state and input binding verify.
+The final genesis admission additionally requires an empty execution/strategy
+lineage, current publication, next-open timing and backup authority. The
+formation state is never accepted through the existing cold-seed exception.
+
+The formed Core keeps its historical shares, cash and high-water marks; Sentinel
+keeps its formed controller memory. The independent live strategy accounting
+starts at the configured $50,000 baseline and execution projects weights onto
+the paper account's available capital. Historical shadow gains are not deposits,
+and historical formation decisions cannot create broker commands. Restart reads
+the committed origin rather than replaying or rebasing it. Formed-origin identity
+must survive ordinary advancement, restore and rolling retention.
 
 The owner subsequently selected July 31, 2026 as the local bootstrap endpoint
 and authorized reuse of the retained backtest data. Its exact 378-session axis
