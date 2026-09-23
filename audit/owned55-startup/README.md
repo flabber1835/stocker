@@ -427,6 +427,21 @@ passed in the offline Linux invocation above. The first collection helper
 invocation omitted the argparse `--` delimiter and did not collect tests;
 `go-sentinel-collection.argument-error.log` retains this setup error.
 
+The older Sentinel main job subsequently ended at its 75-minute limit:
+5,091 general tests passed in 2,643.92 seconds, followed by only 13% of the 344
+rolling cases before cancellation. `ci-b7577af0-time-budget.json` retains its
+timestamps and job link. The formed-startup fixtures need more audit time. The
+main lane now allows 150 minutes (other lanes remain 45); the full GO audit outer
+budget is four hours and its manual job five hours. Production source, execution
+and formation deadlines are untouched. An incomplete run still refuses.
+Superseded GO attempt `35878014779` was explicitly cancelled before replacement.
+
+```text
+python tools/owned55_local_validation.py test tests/scripts/test_sentinel_ci_parallel_evidence.py tests/production_composition/test_canonical_go_e2e_harness.py tests/production_composition/test_internal_go_stage_faults.py
+114 passed in 5.96s; ci-formation-budget.log. Coverage, failure propagation and
+actual GO fault hooks remain required under the larger audit-only budget.
+```
+
 ## Remaining gates and concrete NAS handoff
 
 | Gate | Severity / disposition | Required evidence and pass/fail |

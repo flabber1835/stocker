@@ -80,7 +80,7 @@ def test_warmup_lane_streams_progress_without_raising_its_deadline():
     workflow = yaml.safe_load((Path(__file__).resolve().parents[2] /
                               ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))
     job = workflow["jobs"]["parallel-certification"]
-    assert job["timeout-minutes"] == "${{ matrix.lane == 'sentinel-main' && 75 || 45 }}"
+    assert job["timeout-minutes"] == "${{ matrix.lane == 'sentinel-main' && 150 || 45 }}"
     step = next(step for step in job["steps"]
                 if step.get("if") == "${{ matrix.lane == 'sentinel-warmup' }}")
     command = step["run"]

@@ -233,9 +233,16 @@ and the new rolling publication through the version-dispatched authenticated
 reader. Its synthetic source covers at least 379 closes and uses $50,000. The
 successful path remains the real shell entrypoint, PostgreSQL, local-full test
 lens, read-only formation proof, promotion and panel handoff; no broker keys
-are supplied. The audit's outer deadline is three hours and the manual CI job
-budget is four hours, accommodating the test lens and formation separately.
+are supplied. The audit's outer deadline is four hours and the manual CI job
+budget is five hours, accommodating the test lens and formation separately.
 Production ingestion, source-final and execution admission deadlines are unchanged.
+
+The CI Sentinel main lane has a 150-minute test budget; other lane limits stay
+at 45 minutes. Retained GitHub evidence at `b7577af0` took 44 minutes for the
+general tests, then ended at the previous 75-minute job limit with only 13% of
+the rolling cases completed. Full historical formation in these integration
+fixtures requires a larger audit budget. This changes neither coverage nor
+production startup/market deadlines; a timed-out or incomplete run still refuses.
 
 Manual composition dispatch may select `positive` to run that successful path
 once without the four repeated sensitivity campaigns. The existing `all`
