@@ -10,6 +10,8 @@ from pathlib import Path
 import subprocess
 import sys
 import shutil
+import contextlib
+from types import SimpleNamespace
 
 import pytest
 import yaml
@@ -25,12 +27,19 @@ SPEC.loader.exec_module(harness)
 def _require_manual_full_go(workflow):
     composition = workflow["jobs"]["composition"]
     assert composition["strategy"]["matrix"]["campaign"] == (
-        "${{ fromJSON(github.event_name == 'workflow_dispatch' && "
-        "'[\"operator\",\"preparation\",\"financial\",\"handoff\"]' || '[\"smoke\"]') }}")
+        "${{ fromJSON(github.event_name != 'workflow_dispatch' && '[\"smoke\"]' || "
+        "inputs.campaign == 'positive' && '[\"positive\"]' || "
+        "'[\"operator\",\"preparation\",\"financial\",\"handoff\"]') }}")
+    dispatch = workflow.get("on", workflow.get(True))["workflow_dispatch"]["inputs"]["campaign"]
+    assert dispatch["default"] == "all"
+    assert dispatch["options"] == ["all", "positive"]
     steps = composition["steps"]
     launchers = [step for step in steps
                  if "python tools/production_go_e2e_audit.py" in step.get("run", "")]
     assert len(launchers) == 1
+    assert '"${sensitivity[@]}"' in launchers[0]["run"]
+    assert "if [ '${{ matrix.campaign }}' != positive ]; then" in launchers[0]["run"]
+    assert "sensitivity=(--sensitivity)" in launchers[0]["run"]
     evidence = next(step for step in steps
                     if step.get("name") == "Verify canonical GO evidence")
     for step in [*launchers, evidence]:
@@ -56,7 +65,7 @@ def test_script_process_can_load_production_session_calendar(tmp_path):
     completed = subprocess.run(
         [sys.executable, "-c",
          "import runpy,sys; h=runpy.run_path(sys.argv[1]); "
-         "assert len(h['_session_days']()) >= 252", str(PATH)],
+         "assert len(h['_session_days']()) >= 379", str(PATH)],
         cwd=tmp_path, env=env, text=True, capture_output=True, timeout=30,
         check=False,
     )
@@ -118,8 +127,8 @@ def test_fixture_supplies_seed_reference_tickers():
 def test_fixture_is_large_enough_for_readiness_history():
     page = harness._payload("SEP", {"ticker": ["SPY"]})
     by_spy = [row for row in page["datatable"]["data"] if row[0] == "SPY"]
-    assert len(by_spy) >= 252
-    assert len({row[1] for row in by_spy}) >= 252
+    assert len(by_spy) >= 379
+    assert len({row[1] for row in by_spy}) >= 379
 
 
 def test_fixture_supports_the_current_cash_adjudication_migration(monkeypatch):
@@ -265,6 +274,7 @@ def test_publication_observer_authenticates_with_the_fixture_receipt_key(
     monkeypatch.setattr(harness, "_git_head", lambda: "a" * 40)
     harness._write_env(tmp_path / ".env", port=8123, backup_dir=tmp_path / "backup")
     seeded_key = sentinel_env.load(tmp_path / ".env")[key_name]
+    assert sentinel_env.load(tmp_path / ".env")["SENTINEL_SHADOW_STARTING_CASH"] == "50000"
     receipt = {"publication_version": 1, "run_id": "fixture-seed"}
     expected = hmac.new(
         seeded_key.encode(), json.dumps(
@@ -301,6 +311,58 @@ def test_publication_observer_authenticates_with_the_fixture_receipt_key(
     monkeypatch.setattr(harness, "_run_host", run_host)
     harness._publication_identity()
     assert observed == [expected]
+
+
+@pytest.mark.parametrize("rolling", [False, True], ids=["legacy-seed", "rolling-startup"])
+def test_publication_observer_reads_the_selected_generation(monkeypatch, tmp_path, capsys, rolling):
+    from sentinel.core import decision
+    from sentinel.feed import rolling_go_inputs, store
+
+    selected = SimpleNamespace(version=2, window_end="2026-09-22")
+    events = []
+
+    class Connection:
+        def cursor(self):
+            return contextlib.nullcontext(self)
+        def execute(self, sql):
+            assert "REPEATABLE READ, READ ONLY" in sql
+        def rollback(self):
+            events.append("rollback")
+        def close(self):
+            events.append("close")
+
+    @contextlib.contextmanager
+    def pinned(conn):
+        assert isinstance(conn, Connection)
+        events.append("authenticated pin")
+        yield selected
+
+    monkeypatch.setattr(harness, "ROOT", tmp_path)
+    (tmp_path / ".env").write_text("SENTINEL_POSTGRES_PASSWORD=fixture\n")
+    monkeypatch.setattr(harness, "_compose_service_container_id", lambda *_a, **_k: "b" * 64)
+    monkeypatch.setattr(harness, "_git_head", lambda: "a" * 40)
+    monkeypatch.setenv("SENTINEL_DATABASE_URL", "fixture-only")
+    monkeypatch.setattr(store, "connect", lambda _: Connection())
+    monkeypatch.setattr(rolling_go_inputs, "pinned", pinned)
+    monkeypatch.setattr(rolling_go_inputs, "is_rolling", lambda value: rolling)
+    monkeypatch.setattr(decision, "publication_fingerprint", lambda value: "c" * 64)
+
+    def legacy_frontier(conn):
+        assert not rolling, "rolling generation must not read an older legacy frontier"
+        return "2026-09-21"
+
+    monkeypatch.setattr(store, "latest_visible_session", legacy_frontier)
+
+    def run_host(argv, **_kwargs):
+        assert argv[-2] == "-c"
+        exec(compile(argv[-1], "<publication-observer>", "exec"), {})
+        return subprocess.CompletedProcess(argv, 0, stdout=capsys.readouterr().out)
+
+    monkeypatch.setattr(harness, "_run_host", run_host)
+    value = harness._publication_identity()
+    assert value == dict(version=2, publication_fingerprint="c" * 64,
+                        visible_frontier="2026-09-22" if rolling else "2026-09-21")
+    assert events == ["authenticated pin", "rollback", "close"]
 
 
 def test_compose_propagates_sharadar_transport_with_safe_defaults():

@@ -34,6 +34,21 @@ CASES = [
      FORM+'test_current_controller_uses_correlation_peers_not_sector_labels'),
 ]
 STARTUP_CASES = [
+    ('go_legacy_frontier', 'tools/production_go_e2e_harness.py',
+     'held.window_end if rolling_go_inputs.is_rolling(held)',
+     'store.latest_visible_session(c) if rolling_go_inputs.is_rolling(held)',
+     'tests/production_composition/test_canonical_go_e2e_harness.py::test_publication_observer_reads_the_selected_generation[rolling-startup]'),
+    ('go_disconnected_preparation_fault', 'tools/production_go_stage_faults.py',
+     '("sentinel.feed.rolling_go_inputs", "prepare")',
+     '("sentinel.feed.outage_recovery", "catch_up")',
+     'tests/production_composition/test_internal_go_stage_faults.py::test_rolling_fault_reaches_the_production_call_site[feed-catchup-prepare]'),
+    ('go_disconnected_readiness_fault', 'tools/production_go_stage_faults.py',
+     'fault, "sentinel.feed.rolling_go_inputs", "readiness"',
+     'fault, "sentinel.feed.readiness", "check_readiness"',
+     'tests/production_composition/test_internal_go_stage_faults.py::test_rolling_fault_reaches_the_production_call_site[sharadar-readiness-readiness]'),
+    ('go_false_sensitivity_claim', 'tools/production_go_e2e_audit.py',
+     'if sensitivity_group == "positive" and sensitivity:', 'if False:',
+     'tests/production_composition/test_internal_go_stage_faults.py::test_positive_campaign_cannot_claim_sensitivity'),
     ('unsigned_formed_origin', 'sentinel/formed_origin.py',
      "or not hmac.compare_digest(str(value['hmac_sha256']), _signature(payload))", 'or False',
      'tests/sentinel/test_formed_startup.py::test_authenticated_origin_cannot_change_context_or_seed'),
@@ -88,6 +103,10 @@ def main(output, group='controller', case=None):
         if original.count(old.encode()) != 1:
             raise ValueError('mutation anchor changed: '+name)
         command = [sys.executable, '-B', '-m', 'pytest', node, '-q', '--tb=short', '-p', 'no:cacheprovider']
+        baseline = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=240)
+        (output/(name+'.baseline.log')).write_text(baseline.stdout + baseline.stderr, encoding='utf-8')
+        if baseline.returncode != 0:
+            raise ValueError('unmodified acceptance test must pass before mutation: '+name)
         try:
             path.write_bytes(original.replace(old.encode(), new.encode()))
             result = subprocess.run(command, cwd=ROOT, env=env, capture_output=True, text=True, timeout=240)

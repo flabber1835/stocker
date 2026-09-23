@@ -40,6 +40,8 @@
     "tests/internal_state/oracles.py": "317a3c8a33a294690586de03362b32ce99cfd5f2fe7cadad434b4f07e40889d5",
     "tests/internal_state/test_contract.py": "16027792da5b31f2b9026792987850848f244984dc4d2820ef458892e6997e5b",
     "tests/median5/test_warmup.py": "e9cb47a971aeb1f7b44e0f99080cb78d8bb0e5bd4300c4df9e6e9da339d3dd45",
+    "tests/production_composition/test_canonical_go_e2e_harness.py": "64b626d94a5637c660dbe58214d4b16b3a2e6dc859ee4a5ff46423ab4f5e85a0",
+    "tests/production_composition/test_internal_go_stage_faults.py": "822ebd500b463d3e539c1bb2f2b46534e944d47820744cacfefa4588bdc2c605",
     "tests/scripts/test_sentinel_go_validate.py": "cec7b20d03da69bba9b1fe35d420638274b795894dae7662ec09b3a3bf31ec7c",
     "tests/sentinel/test_autonomous_deploy.py": "6242766d386622b1d52ac8e8ac5f39befe0eecbad8b9af6b47f4aa4119c4528a",
     "tests/sentinel/test_feed_domains.py": "2d9dd7855ef1a99996a082f2de619d30f84b945d648c1d9ade8c233c7bcbc565",
@@ -64,7 +66,10 @@
     "tools/historical_formation_preview.py": "3b57bf3212d2b69b082c404f7ff55f17d96417139e1c4c744c8e38b36fe35eac",
     "tools/owned55_local_validation.py": "7a517b96bf226cbcfe46c3a663e2d8e9d7741a064ad111cd83c4c72388f950cb",
     "tools/owned55_resource_probe.py": "61581b7ab77e695a0121bee6d93579266d443553a3843a8807a327d734b3532c",
-    "tools/owned55_startup_mutations.py": "fbeb0634849d99b7bf9ef9cece59f2e779b37b87be6e0bd333ae96a87ba0e136",
+    "tools/owned55_startup_mutations.py": "3ad7e8fb8919f72bfd4278484cb9c102fb17a2ceb7b2d6bfffc9d82286a63782",
+    "tools/production_go_e2e_audit.py": "9e5f7e8c470f27f669dcc7f29e27e56b4c66e3fa0abb0ce1e4178509b48ea56e",
+    "tools/production_go_e2e_harness.py": "a2686781f6ab01ce6d4691591dfb3ac16181297f20dc5de09dcb6c8bd8772a0e",
+    "tools/production_go_stage_faults.py": "df86d7747cea48612cb44d4e74713b9ef6fa3ecc77755ca521bd7d669664c5e4",
     "tools/sentinel_operational_parity.py": "74a9cc80b4b47832cdc085fb328e089edea5a025f04468090a2ef4fc02a02754",
     "tools/verify_formation_preview.py": "1ca8545b51428a9d024b913d69e7cf3d410da557d6977df5ea3974b61ddb83ae"
   }

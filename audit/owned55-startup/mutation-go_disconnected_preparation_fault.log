@@ -1,0 +1,35 @@
+FROZEN_VALIDATION_SOURCE_SHA256=8030785a418d9824309dbaca76b9828d804e1712d74be57101bbab01eb21a89e
+go_disconnected_preparation_fault KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "go_disconnected_preparation_fault",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/production_composition/test_internal_go_stage_faults.py::test_rolling_fault_reaches_the_production_call_site[feed-catchup-prepare]",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=go_disconnected_preparation_fault.baseline.log
+.                                                                        [100%]
+1 passed in 0.48s
+
+MUTATION_LOG=go_disconnected_preparation_fault.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_rolling_fault_reaches_the_production_call_site[feed-catchup-prepare] ___
+tests/production_composition/test_internal_go_stage_faults.py:78: in test_rolling_fault_reaches_the_production_call_site
+    with pytest.raises(RuntimeError, match="E2E_STAGE_FAULT:" + fault):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'RuntimeError'>
+=========================== short test summary info ============================
+FAILED tests/production_composition/test_internal_go_stage_faults.py::test_rolling_fault_reaches_the_production_call_site[feed-catchup-prepare]
+1 failed in 0.51s

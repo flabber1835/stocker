@@ -490,7 +490,10 @@ def _ci_main_authority(work: Path, commit: str):
 
 
 def run(*, output: Path, sensitivity: bool, sensitivity_group: str = "all") -> dict:
-    internal_stages = stage_faults.selected_stages(sensitivity_group)
+    if sensitivity_group == "positive" and sensitivity:
+        raise AuditFailure("positive GO campaign cannot claim sensitivity coverage")
+    internal_stages = (() if sensitivity_group == "positive"
+                       else stage_faults.selected_stages(sensitivity_group))
     commit = base._git_head()
     output.parent.mkdir(parents=True, exist_ok=True)
     work = Path(tempfile.mkdtemp(prefix="sentinel-go-e2e-audit-"))
@@ -561,7 +564,7 @@ def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
     parser.add_argument("--sensitivity", action="store_true")
-    parser.add_argument("--sensitivity-group", choices=stage_faults.GROUPS, default="all")
+    parser.add_argument("--sensitivity-group", choices=(*stage_faults.GROUPS, "positive"), default="all")
     args = parser.parse_args(argv)
     try:
         result = run(output=args.output, sensitivity=args.sensitivity,

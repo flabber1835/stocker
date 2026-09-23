@@ -43,7 +43,7 @@ def selected_stages(group: str) -> tuple:
 _PREPARATION_HOOKS = {
     "schema-feed-permission": ("sentinel.backup_guard", "require_writes_permitted"),
     "schema-migration": ("sentinel.schema", "ensure_schema"),
-    "feed-catchup": ("sentinel.feed.outage_recovery", "catch_up"),
+    "feed-catchup": ("sentinel.feed.rolling_go_inputs", "prepare"),
 }
 _HOST_HOOKS = {
     "validation-evidence": ("sentinel_go_verified_entry", "go", "write_zip_no_clobber"),
@@ -91,7 +91,7 @@ def docker_arguments(argv: list[str], fault: str) -> list[str]:
                 boundary, boundary + "    __e2e_fail()\n", 1)
     elif fault == "sharadar-readiness" and "SENTINEL_GO_READINESS=" in code:
         result[index] = _failure_code(
-            fault, "sentinel.feed.readiness", "check_readiness") + code
+            fault, "sentinel.feed.rolling_go_inputs", "readiness") + code
     elif fault == "database-health" and "SENTINEL_GO_DATABASE_HEALTH=" in code:
         result[index] = _failure_code(
             fault, "sentinel.schema", "require_runtime_schema") + code

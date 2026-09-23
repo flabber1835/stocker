@@ -1,0 +1,32 @@
+FROZEN_VALIDATION_SOURCE_SHA256=6540265cdfcd7a54cbc76367fac7fd7c73b9b3c193e969905548623c6ac3c5b5
+go_disconnected_preparation_fault KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "go_disconnected_preparation_fault",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/production_composition/test_internal_go_stage_faults.py::test_rolling_fault_reaches_the_production_call_site[feed-catchup-prepare]",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=go_disconnected_preparation_fault.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_rolling_fault_reaches_the_production_call_site[feed-catchup-prepare] ___
+tests/production_composition/test_internal_go_stage_faults.py:60: in test_rolling_fault_reaches_the_production_call_site
+    from scripts import sentinel_go_24x7_entry as preparation
+scripts/sentinel_go_24x7_entry.py:26: in <module>
+    import sentinel_go_verified_entry as verified
+E   ModuleNotFoundError: No module named 'sentinel_go_verified_entry'
+=========================== short test summary info ============================
+FAILED tests/production_composition/test_internal_go_stage_faults.py::test_rolling_fault_reaches_the_production_call_site[feed-catchup-prepare]
+1 failed in 0.37s

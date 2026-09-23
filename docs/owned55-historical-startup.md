@@ -205,6 +205,23 @@ pre-populated seed presented as an ordinary cold start.
 
 ## Finite Stage 1 acceptance ledger
 
+The canonical GO composition audit must observe both legacy seed publications
+and the new rolling publication through the version-dispatched authenticated
+reader. Its synthetic source covers at least 379 closes and uses $50,000. The
+successful path remains the real shell entrypoint, PostgreSQL, local-full test
+lens, read-only formation proof, promotion and panel handoff; no broker keys
+are supplied. The audit's outer deadline is three hours and the manual CI job
+budget is four hours, accommodating the test lens and formation separately.
+Production ingestion, source-final and execution admission deadlines are unchanged.
+
+Manual composition dispatch may select `positive` to run that successful path
+once without the four repeated sensitivity campaigns. The existing `all`
+default still runs every campaign; normal PR CI retains its current smoke and
+authority checks. Positive-only evidence has an empty sensitivity list and is
+labelled explicitly; it cannot claim full stage-fault coverage. Rolling feed
+preparation and readiness fault hooks must target the actual rolling callers,
+with executable call-site witnesses that detect a disconnected hook.
+
 | Gate | Required evidence | Current status |
 | --- | --- | --- |
 | Policy | Frozen-rule parity, exact entry/release boundaries, independent zero causes, missing signals, restart and identity falsifiers | Locally passed; eight targeted mutations killed |
@@ -213,7 +230,7 @@ pre-populated seed presented as an ordinary cold start.
 | Historical producer | Selected initialization policy, required metadata and full action terms for the interval | Current-information initialization selected and implemented; real startup-generation coverage/actions must pass ordinary publication admission on deployment. Historical PIT reconstruction is not claimed. |
 | Formed GO admission | Empty PostgreSQL to authenticated formed genesis, current publication/overlap, actual GO caller and independent paper baseline | Implemented; isolated PostgreSQL positive acceptance and full read-only GO formation proof pass |
 | Failure recovery | Interruption, changed source, lost acknowledgement, duplicate start/order rejection | Authenticated progress, acknowledgement loss at 0/1/63/126, immutable origin restart and first funded daily resume pass; complete runtime regression retained in evidence report |
-| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Eighteen mutations killed (eight controller/candidate, five integration/accounting, three deployment timing, two price domains); final-head CI remains a delivery gate |
+| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Twenty-two mutations killed (eight controller/candidate, five integration/accounting, three deployment timing, two price domains, four audit-only); final-head CI and full canonical GO positive campaign remain gates |
 | Deployment | NAS backup/restore/resource evidence and paper transport qualification | NAS-only; outside local certification |
 
 Local implementation acceptance does not close provider or deployment gates.

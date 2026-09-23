@@ -302,11 +302,49 @@ python tools/owned55_local_validation.py mutations formation_bil_domain
 2/2 KILLED; formed-domain-mutation-<case>.log. Eighteen distinct faults overall.
 ```
 
+## Canonical GO audit follow-through
+
+The normal composition workflow at `c159e868` passed, but its PR campaign does
+not invoke full canonical GO. Source review found a legacy-only publication
+observer and disconnected legacy feed/readiness fault hooks in that manual
+audit. The observer now authenticates the selected generation and reads the
+rolling frontier; the hooks reach the actual rolling production calls. The
+synthetic fixture uses $50k and explicitly covers at least 379 closes. These are
+audit changes, with no change to production strategy or admission rules.
+
+A manual `positive` campaign runs the real shell GO, local-full test lens,
+PostgreSQL preparation, read-only formation/parity, promotion and panel handoff
+once. It explicitly records no stage-sensitivity cases; the default `all`
+campaigns are preserved. The full canonical positive run remains pending until
+its exact-head output is retained and independently checked.
+
+```text
+python tools/owned55_local_validation.py test tests/production_composition/test_canonical_go_e2e_harness.py tests/production_composition/test_internal_go_stage_faults.py
+56 passed in 5.45s; canonical-go-harness-check.log.
+python tools/owned55_local_validation.py mutations go_legacy_frontier
+python tools/owned55_local_validation.py mutations go_disconnected_preparation_fault
+python tools/owned55_local_validation.py mutations go_disconnected_readiness_fault
+python tools/owned55_local_validation.py mutations go_false_sensitivity_claim
+4/4 KILLED for the intended assertion; each isolated unmodified test passed first.
+Twenty-two distinct faults overall, including four audit-only faults.
+python tools/validate_test_responsibility.py --base origin/main --output audit/owned55-startup/test-responsibility-final.json
+PASS, no unowned tests.
+```
+
+The first two hook mutation invocations failed during an isolated import, not
+at the intended assertion. Their `*.setup-failure.log` artifacts are retained
+and do not count as kills. The test now sets its own script import path, and the
+mutation runner requires an individually passing baseline before modifying any
+source. The final retained mutation logs include that baseline and the specific
+`DID NOT RAISE` failures for disconnected hooks. A mistyped initial ownership
+tool path did not execute; the correct command above passed.
+
 ## Remaining gates and concrete NAS handoff
 
 | Gate | Severity / disposition | Required evidence and pass/fail |
 | --- | --- | --- |
 | Final source delivery | P1 release gate | Green required CI for the final reviewed PR head, user review/merge; retain exact main commit and image digest. No self-merge. |
+| Canonical GO composition | P1 local qualification gate | Full positive real shell GO on the final head, bound runtime/test lens, fresh 379-close publication and formed read-only proof, zero broker/behavioral mutation, successful promotion and panel handoff. PR smoke alone does not close this gate. |
 | Startup producer | P1 deployed input gate | Fresh admitted Sharadar generation with exactly 379 closes, permanent identities and required action/terminal terms. Missing/contradictory coverage is refusal, never inferred from an empty response. Current metadata policy must appear in formed origin. |
 | C1/F6 cash authority | P1 provider gate, unchanged | Account-bound authoritative cash producer, incremental completeness, revisions and finality. Obtain accepted provider guarantees and retained interval evidence; ordinary cash equality or empty history is insufficient. See economic-audit-399-remediation.md:407 and sentinel/execution/alpaca.py:2052. |
 | F19 native fills | P1 provider gate, unchanged | Native fill identity, exact order/asset/side/time, cumulative quantity/notional, corrections/busts and accepted average-price precision contract. No capability flag grants acceptance (sentinel/execution/alpaca.py:1715). |

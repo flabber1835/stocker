@@ -357,7 +357,7 @@ def _write_env(path: Path, *, port: int, backup_dir: Path) -> None:
         f"SENTINEL_BACKUP_DIR={backup_dir}",
         "SENTINEL_BACKUP_DURABLE_TARGET_ATTESTED=1",
         "SENTINEL_SHADOW_OBSERVATION_ENABLED=0",
-        "SENTINEL_SHADOW_STARTING_CASH=100000",
+        "SENTINEL_SHADOW_STARTING_CASH=50000",
         "SENTINEL_MAX_CYCLES=1",
         "SENTINEL_POLL_SECONDS=1",
     ]
@@ -529,15 +529,16 @@ def _publication_identity(*, env=None) -> dict:
     code = """
 import json, os
 from sentinel.core.decision import publication_fingerprint
-from sentinel.feed import publication, store
+from sentinel.feed import rolling_go_inputs, store
 c = store.connect(os.environ['SENTINEL_DATABASE_URL'])
 try:
     with c.cursor() as cur:
         cur.execute('SET TRANSACTION ISOLATION LEVEL REPEATABLE READ, READ ONLY')
-    with publication.pinned(c, commit=False) as held:
+    with rolling_go_inputs.pinned(c) as held:
         print(json.dumps({
             'publication_fingerprint': publication_fingerprint(held),
-            'visible_frontier': store.latest_visible_session(c),
+            'visible_frontier': (held.window_end if rolling_go_inputs.is_rolling(held)
+                                 else store.latest_visible_session(c)),
             'version': held.version,
         }, sort_keys=True))
 finally:
@@ -576,7 +577,7 @@ def _clean_runtime() -> None:
 
 
 def _invoke(*, target: str = "SHADOW", extra_env: dict[str, str] | None = None,
-            timeout: int = 5400, prepare_fixture: bool = True) -> subprocess.CompletedProcess[str]:
+            timeout: int = 10800, prepare_fixture: bool = True) -> subprocess.CompletedProcess[str]:
     from types import SimpleNamespace
     from scripts import sentinel_go_observability as observability
     if prepare_fixture:
