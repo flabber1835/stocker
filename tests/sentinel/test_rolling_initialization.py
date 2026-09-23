@@ -8,7 +8,7 @@ import pytest
 from sentinel import rolling_initialization as init, rolling_checkpoint as cp, schema
 from sentinel import shadow_observation as shadow, shadow_runtime
 from sentinel.feed import operational_snapshot as op, publication, store
-from sentinel.feed.rolling_contract import digest, canonical_json
+from sentinel.feed.rolling_contract import FormationWindow, digest, canonical_json
 from sentinel.strategy import production_strategy
 from tests.sentinel.test_operational_snapshot import operational_source  # noqa: F401
 from tests.sentinel.test_rolling_snapshot_publisher import conn, pg, source  # noqa: F401
@@ -62,7 +62,8 @@ def ready(conn, operational_source, monkeypatch):
     schema.ensure_schema(conn)
     data = operational_source
     template = deepcopy(data["TICKERS"][0])
-    axis = sorted({row["date"] for row in data["SEP"]})
+    axis = [str(day) for day in FormationWindow.through('2026-09-14').sessions]
+    template['firstpricedate'] = axis[0]
     symbols = ["AAA", "BBB", *[f"S{i:02}" for i in range(3, 26)]]
     data["TICKERS"] = [{**template, "ticker": symbol, "permaticker": str(i)}
                        for i, symbol in enumerate(symbols, 1)]
@@ -70,8 +71,8 @@ def ready(conn, operational_source, monkeypatch):
                     "close": str(50 + i * .2 + j * .03), "closeunadj": str((50 + i * .2 + j * .03) * 2),
                     "volume": "1000000", "lastupdated": "2026-09-15"}
                    for i, day in enumerate(axis) for j, symbol in enumerate(symbols)]
-    for row in data["SFP"]:
-        row.update(closeadj=str(600 + axis.index(row["date"])))
+    data['SFP'] = [{**data['SFP'][0], 'date': day, 'ticker': ticker, 'closeadj': str(600 + i)}
+                   for i, day in enumerate(axis) for ticker in ('SPY', 'BIL')]
     controller, strategy = production_strategy()
     job = op.enqueue(conn, strategy_sha256=digest(strategy), dependencies_sha256=digest("fixture"))
     conn.commit()
@@ -96,18 +97,21 @@ def resume(conn, **kwargs):
                        starting_cash=kwargs.get("starting_cash", 100_000))
 
 
-def test_real_publication_forms_only_pending_initial_book_and_atomic_checkpoint(conn, ready):
+def test_real_publication_forms_historical_book_and_atomic_checkpoint(conn, ready):
     result = start(conn)
     state = result.state
-    assert state.pending and not state.wealth_core["episodes"]
-    assert state.wealth_core["cash"] == 100_000 and not state.ledger["events"]
+    assert state.wealth_core['episodes'] and state.ledger['events']
+    assert result.strategy_nav == '100000' and result.strategy_cumulative_return == '0'
+    assert state.ledger['events'][0]['session'] < '2026-09-14'
     assert state.last_processed_session == "2026-09-14"
     assert state.data_version == ready["data_version"]
     assert result.verification == shadow.CANDIDATE and result.shadow_verdict == shadow.NOT_DEPLOYABLE
     checkpoint = cp.read(conn)
-    assert checkpoint.status == "COLD_START_COMMITTED"
+    assert checkpoint.status == "FORMED_START_COMMITTED"
     assert checkpoint.state_sha256 == state.state_hash
     assert checkpoint.snapshot == ready
+    assert checkpoint.warmup_input_identity['schema'] == 'sentinel.formed-origin/1'
+    assert checkpoint.warmup_input_identity['formation_count'] == 126
     assert checkpoint.pitr["schema"] == publication.PITR_EVIDENCE_SCHEMA
     assert len(cp.lineage_names(conn)) == 3
     for table in ("sentinel_execution_plans", "sentinel_commands", "sentinel_fills", "sentinel_bars"):
@@ -149,7 +153,7 @@ def test_restart_reads_a_consistent_read_only_snapshot(conn, ready, monkeypatch)
         assert conn.execute("SHOW transaction_isolation").fetchone()[0] == "repeatable read"
         return original(conn, *args, **kwargs)
     monkeypatch.setattr(cp, "restore", restore)
-    assert resume(conn).state.pending
+    assert resume(conn).state.wealth_core['episodes']
 
 
 @pytest.mark.parametrize("name,value", [("starting_cash", 200_000), ("observation_id", "other")])
@@ -205,7 +209,7 @@ def test_failed_first_state_leaves_no_partial_seed(conn, ready, monkeypatch, bou
         start(conn)
     assert cp.lineage_names(conn) == set()
     monkeypatch.setattr(target, method, original)
-    assert start(conn).state.pending
+    assert start(conn).state.wealth_core['episodes']
 
 
 def test_lost_ack_recovers_exact_checkpoint(conn, ready, monkeypatch):

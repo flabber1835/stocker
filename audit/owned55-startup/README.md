@@ -1,14 +1,17 @@
 # Owned55 and $50k formation: local evidence
 
-Date: 2026-09-22. Verified main base:
+Work: 2026-09-22–23. Verified main base:
 `ee23c894c97a2c4023654ce3a56a62728f5b061e` (#430), freshly fetched again before
 delivery. Branch: `codex/owned55-bootstrap`. Design was committed first as
 `bce259745810c46c67777ff132a1a335a83e9cdd`. See the PR head for the reviewed
 implementation commit; `implementation-source.json` pins the tested Python files.
 
-**INCOMPLETE / NOT DEPLOYABLE.** Owned55 policy and the independent formation
-component are implemented. Fresh GO does not yet acquire formation history or
-admit a formed genesis. This is not Stage 1 closure or economic certification.
+**Owned55, fresh historical formation and local acceptance are implemented.**
+Final-head CI and deployed input/transport/resource evidence remain separate
+gates. This report is not permission to deploy and is not economic certification.
+The original implementation evidence below is preserved; the integrated GO
+evidence and handoff follow it. New policy decisions were recorded in commit
+`07105770273acce0ca6f48acdd27ecf147577cd7` before integration code.
 
 ## What is established locally
 
@@ -34,6 +37,38 @@ admit a formed genesis. This is not Stage 1 closure or economic certification.
   by current eligibility, with positive admissions proving the comparison is not
   a vacuous empty book. Future first-session dates and unknown security types
   prevent admission. Historical sector/exchange membership is not a requirement.
+
+Fresh GO now fetches one sealed 379-close Sharadar generation, warms 252 closes,
+then advances the same canonical book/controller for 126 historical sessions.
+The current close creates the first forward decision. Current-information
+metadata is an explicit initialization policy, not historical PIT reconstruction.
+Ordinary acquisitions return to 300 sessions and strategy price memory stays
+bounded at 260. Historical events produce no broker commands or execution plans.
+
+Every formation transition has a source/configuration-bound authenticated
+checkpoint. An interrupted attempt resumes exactly once. A newer generation
+requires a fresh replay after authenticating and retaining the old attempt;
+capital or strategy changes refuse. Authenticated formed origin is distinct from
+ordinary cold genesis, and its identity survives daily advancement and restart.
+The independent live strategy baseline starts at $50,000; the formed Core's
+historical gain is not a deposit. Execution sizes from actual account capital.
+
+The first funded-open calculation removes the Core's hypothetical rotation
+fees and charges one entry into the resulting stock/BIL composition. A flat
+half-stock/half-cash Core at full allocation returns 0.9995 after 10bp stock
+entry, not 1.0000. A $50 gross gain with $9 hypothetical Core rotation fees on
+$10,000 has gross factor 1.005, not 1.0041. These independent cash equations and
+their deliberately broken variants are retained in the acceptance tests.
+
+| Reviewed production boundary | Acceptance |
+| --- | --- |
+| `sentinel/controller/owned_impairment.py:31`, canonical kernel and restored session envelope | Exact five/eight boundaries, missing signal behavior, parent zero, active target connected to the kernel; controller mutations |
+| `sentinel/feed/operational_snapshot.py:58`, typed window and catalog migration | Fresh 379/ordinary 300 separation, full source readiness, existing 300-only catalog upgrade without changing an old manifest |
+| `sentinel/core/formation_inputs.py:9`, `sentinel/core/formation.py:53` | Canonical feature warmup and daily transitions, source/cursor binding, independent cash/share/action oracle, bounded state and interrupted replay |
+| `sentinel/formation_bootstrap.py:81`, `sentinel/formed_origin.py:50`, rolling initialization/checkpoint | Real empty PostgreSQL to formed origin, HMAC tamper refusal, per-session commit acknowledgement loss, no historical commands, immutable restart |
+| `tools/sentinel_operational_parity.py:92`, host GO proof validator | Read-only full formation, current/restored transition parity, old feature-only proof refusal, no duplicate feature-corpus allocation |
+| `sentinel/formed_economics.py:16`, shadow observation first-funded transition | Independent entry-cost equations, missing marks, no free entry/double rotation fee, unchanged $50k baseline and daily resume |
+| Rolling paper preparation, projection, execution and journal | Verified formed shadow only, independently observed account NAV, held-basket decision-close prices, whole shares, acknowledgement/restart identity and duplicate submission prevention |
 
 ## Commands and results
 
@@ -103,16 +138,22 @@ Original archive, supplements and research golden outputs are preserved.
 
 The runner uses the separately frozen sibling `../owned55-formation-runtime`;
 348 hashes are in `preview-source.json`. Outputs/checkpoints are retained in
-`../owned55-formation-preview`. At publication the preview is still in progress;
-do not treat a partial prefix as complete validation. It has a 1,800-second
-segment budget and supports `--resume`; never start a duplicate process. Inspect
-the process as well as `status.json`: a budget exit leaves the latest daily
-status, so `RUNNING` alone is not liveness evidence.
+`../owned55-formation-preview`. The preview completed all 126 formation sessions
+through July 31. Independent verification in `preview-verification.json` checked
+the exact calendar, all unique session/state hashes, seven identically replayed
+rows after checkpoint resume, every cash/share ledger movement and the 260-close
+state bound. Final state is
+`957fee76b5f4edeb3c001a3ef15a8f9055cc87aea32f6e11975446953303a449`;
+checkpoint is `187ff76d03c383ece5dff1f27adeb6a7a01239fc2a0ceea7a1c8fe6b49b273d1`.
+It holds 13 names, shadow cash $18,364.760295 and shadow NAV $59,232.990295.
+The 55% endpoint allocation is the **parent** ceiling; the owned cause is inactive.
+These values are formation mechanics, not qualified performance or paper capital.
 
 ```text
 PYTHONPATH=../owned55-formation-runtime;../owned55-formation-runtime/shared
 python -u ../owned55-formation-runtime/tools/historical_formation_preview.py --archive ../pit-source-5bdc6b39.zip --supplements ../economic-replay-merged-ee23c894/supplements-continued.json --output ../owned55-formation-preview --seconds 1800
 # Only after that worker exits: the identical command with --resume.
+python tools/verify_formation_preview.py ../owned55-formation-preview --output audit/owned55-startup/preview-verification.json
 ```
 
 This archive has research SEP-tape/SEC identities rather than native Sharadar
@@ -121,31 +162,158 @@ permatickers. Its classification assumptions and known SILV issuer error on
 historically exact economic performance. No July checkpoint will be deployed:
 fresh GO must acquire current inputs and build its own book.
 
-## Remaining gates and NAS handoff
+The frozen preview uses the earlier `HISTORICAL_PIT_V1` research-fixture policy.
+The production `CURRENT_INFORMATION_INITIALIZATION_V1` caller is independently
+covered by the sealed-source PostgreSQL tests; the preview is not passed off as
+production producer acceptance.
 
-1. **P1 / local design and provider contract:** choose historically dated
-   classification/identity inputs or an explicitly different prospective startup
-   policy using current metadata. Ordinary TICKERS snapshots do not establish
-   historical metadata vintages. See `docs/owned55-historical-startup.md`.
-2. **P1 / local implementation:** connect formation acquisition, durable progress,
-   authenticated formed-genesis admission and publication overlap to actual GO.
-   Current `Formation` is a candidate-only component. The cold-seed rejection
-   remains intact in `sentinel/shadow_observation.py`.
-3. **P1 / local acceptance:** drive empty PostgreSQL through that GO caller,
-   interruption/restart, changed inputs, lost acknowledgements and duplicate
-   invocation. Prove zero historical broker calls and one authorized current
-   execution intent; do not substitute direct kernel tests for this gate.
-4. **P1 / data-dependent:** finish and review the unqualified real-data preview;
-   resolve source limitations for whichever production policy is selected.
-   Research metadata is not an authoritative production source.
-5. **P1 / delivery:** green required CI on the final integrated PR; user review
-   and merge. This draft must not be deployed as completed historical startup.
-6. **NAS-only, after 1-5:** verify final merged source/image identity, $50k reviewed
-   configuration, fresh Sharadar publication, backup/restore and resource budgets.
-   Run the repository's existing `bash scripts/sentinel-go-validate.sh` from the
-   merged checkout and retain its validation bundle. Inspect with
-   `bash scripts/sentinel-autonomous-deploy.sh --explain` before the reviewed
-   deployment flow. No deployment command was executed for this task.
+## Integrated GO commands and results
+
+The same offline image runs `tools/owned55_local_validation.py`; its read-only
+source mount is copied to a private directory before testing or mutations. Each
+log starts with a frozen source digest. Earlier logs hash Python files under
+sentinel/shared/tests/tools; the final runner also includes scripts. Resource
+checks share the 4 GiB container with disposable PostgreSQL; a process high-water
+measurement is not a separate enforced 512 MiB panel-container result.
+
+```text
+python tools/owned55_local_validation.py test tests/sentinel/test_formed_startup.py::test_first_funded_open_accounts_for_entry_and_preserves_formed_identity tests/sentinel/test_rolling_go_inputs.py tests/scripts/test_sentinel_go_validate.py
+83 passed in 92.05s; formed-go-proof.log
+
+python tools/owned55_local_validation.py test tests/v5 tests/sentinel/test_economic_boundaries.py tests/sentinel/test_nav_quantity_precision.py tests/sentinel/test_warmup_economic_contract.py tests/sentinel/test_issue209_simplified_ldrc_runtime.py tests/sentinel/test_issue_160_deployed_fenced.py tests/sentinel/test_operational_parity.py
+299 passed in 40.08s; ci-fixture-regression.log
+
+python tools/owned55_local_validation.py mutations
+5/5 killed; formed-mutations-detailed.log retains actual failure output
+python tools/owned55_local_validation.py mutations unsigned_formed_origin
+Signature falsifier refined to start with an otherwise-valid forged chain;
+formed-origin-signature-falsifier.log must show DID NOT RAISE without the guard.
+
+python -m pytest tests/sentinel/test_authority_static_architecture.py tests/sentinel/test_feed_static_architecture.py tests/sentinel/test_shadow_static_ownership.py tests/wealth_core/test_static_restore_ownership.py -q -p no:cacheprovider --basetemp=../owned55-final-ownership
+30 passed in 2.52s; final-ownership.log
+python tools/validate_test_responsibility.py --base origin/main --output audit/owned55-startup/test-responsibility-final.json
+PASS, no unowned tests
+
+python tools/owned55_local_validation.py test tests/sentinel/test_rolling_initialization.py tests/sentinel/test_rolling_daily.py tests/sentinel/test_rolling_runtime.py tests/sentinel/test_rolling_paper_inputs.py
+99 passed, 2 failed in 2439.96s; formed-runtime-regression.log. Both failures
+were the former cold-book assertion that the first plan must contain new Core
+dollar intents. A formed book already owns shares. The corrected acceptance
+independently calculates its actual account share basket using exact Fractions,
+then exercises the same current execution/retry path, without changing production
+execution rules. See formed-paper-execution.log for the focused rerun:
+python tools/owned55_local_validation.py test tests/sentinel/test_rolling_paper_inputs.py::test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow
+2 passed in 110.59s; formed-paper-execution.log.
+python tools/owned55_local_validation.py test tests/sentinel/test_rolling_go_inputs.py::test_snapshot_parity_uses_canonical_warmup_without_creating_a_book tests/sentinel/test_formed_startup.py tests/sentinel/test_formed_economics.py
+20 passed in 262.46s; formed-final-acceptance.log.
+python tools/owned55_local_validation.py resource 5000
+PASS: 5,000 securities / 1,895,000 rows / 126 formation sessions.
+Publication 517.17s, formed origin 2930.22s, verified status 78.45s.
+Status VmHWM 328.12 MiB < 512 MiB; shared container peak 3.2024 GiB < 4 GiB;
+no OOM events. See formed-resource-summary.json and original logs.
+python tools/owned55_local_validation.py test tests/sentinel/test_rolling_snapshot_storage.py::test_existing_300_only_catalog_migrates_without_rewriting_old_manifest tests/sentinel/test_formed_startup.py::test_authenticated_origin_cannot_change_context_or_seed
+2 passed in 38.54s; final-migration-and-origin.log.
+python tools/owned55_local_validation.py test tests/sentinel/test_formed_restore.py
+1 passed in 39.80s; formed-logical-restore-final.log.
+python tools/owned55_local_validation.py test tests/sentinel/test_rolling_retention_runtime.py
+2 passed in 87.48s; formed-retention-restore.log.
+
+python tools/owned55_local_validation.py test tests/sentinel/test_autonomous_deploy.py tests/sentinel/test_autonomous_deploy_driver.py tests/sentinel/test_autonomous_deploy_bootstrap.py tests/sentinel/test_host_python_compat.py tests/host_python38/test_env_ingestion.py tests/host_python38/test_env_review_fixes.py
+970 passed in 39.02s; formed-deploy-timeout.log. Includes generated environment
+parser cases because the bounded deployment setting passes through that parser.
+python tools/owned55_local_validation.py mutations formation_health_timeout
+python tools/owned55_local_validation.py mutations status_short_timeout
+python tools/owned55_local_validation.py mutations late_status_acceptance
+3/3 KILLED; formed-deploy-mutation-<case>.log retains the failures.
+Sixteen distinct faults killed overall; repeated refinements are not counted twice.
+
+Python ast.parse over final changed/new Python files
+59 files PASS; integrated-source.json pins their bytes.
+Python 3.8 ast.parse of scripts/sentinel_go_validate.py
+PASS; actual host interpreter remains covered by required CI.
+git diff --check
+PASS
+```
+
+Intermediate failures are retained rather than hidden: `formed-startup-final.log`
+had 18 passes and one failure because the startup-only checkpoint validator also
+ran on daily checkpoint subclasses. Restricting the origin check to the origin
+schema fixed that defect; first funded daily resume then passed. The initial
+broader run in `formed-go-regression.log` was stopped after that same root cause
+was identified; it is not counted as a passing run. A Windows attempt at the CI
+fixtures stopped at collection because host deployment requires POSIX `fcntl`;
+the complete affected group passed on Linux. CI at `7b2567ba` also exposed old
+profile/default expectations and hand-built state fixtures with an unadvanced
+Owned55 cursor. Fixtures now carry the new documented identity/cursor, preserving
+the consistency refusal. No economic golden was repinned and no xfail was added.
+The first logical-restore fixture mistakenly dumped its empty administrative
+database. The restored runtime correctly refused missing schema. The corrected
+fixture dumps the actual populated connection; no runtime/schema gate changed.
+
+The scale probe exposed a disconnected deployment timeout: a synthetic test
+provided a data-work budget that the real Config never defined, so deployment
+fell back to five-minute process health. Its 30-second status timeout was also
+shorter than the measured 78.45-second verified read. Real configuration now
+supplies a separate 7,200-second data deadline (bounded 30–7,200), with each
+verified status read capped at 300 seconds and the remaining deadline. A result
+arriving after the deadline refuses. Real-Config clock-driven acceptance and
+broken-wiring/deadline variants exercise the measured durations without an
+hour-long artificial sleep. No causal source/open cutoff was changed.
+
+The resource probe used PostgreSQL 17 inside the shared 4 GiB disposable
+container. All 311 sentinel/shared production Python files in the frozen worker
+match the delivered runtime bytes (`formed-resource-runtime-source.json`).
+Later host deployment timeout changes are separately tested above. This proves
+local synthetic scale mechanics, not deployed PG16, NAS concurrency or startup
+latency. The child process budget uses `/proc` VmHWM; inherited RUSAGE_MAXRSS from
+its larger parent is retained but is not treated as the child's high-water value.
+
+## Remaining gates and concrete NAS handoff
+
+| Gate | Severity / disposition | Required evidence and pass/fail |
+| --- | --- | --- |
+| Final source delivery | P1 release gate | Green required CI for the final reviewed PR head, user review/merge; retain exact main commit and image digest. No self-merge. |
+| Startup producer | P1 deployed input gate | Fresh admitted Sharadar generation with exactly 379 closes, permanent identities and required action/terminal terms. Missing/contradictory coverage is refusal, never inferred from an empty response. Current metadata policy must appear in formed origin. |
+| C1/F6 cash authority | P1 provider gate, unchanged | Account-bound authoritative cash producer, incremental completeness, revisions and finality. Obtain accepted provider guarantees and retained interval evidence; ordinary cash equality or empty history is insufficient. See economic-audit-399-remediation.md:407 and sentinel/execution/alpaca.py:2052. |
+| F19 native fills | P1 provider gate, unchanged | Native fill identity, exact order/asset/side/time, cumulative quantity/notional, corrections/busts and accepted average-price precision contract. No capability flag grants acceptance (sentinel/execution/alpaca.py:1715). |
+| C3 predecessor recovery | P1 provider/deployment gate, unchanged | Complete predecessor-incarnation command evidence, durable owner and restart reconciliation. Unknown or missing coverage blocks certification/replacement (sentinel/execution/alpaca.py:2363; economic-audit-399-remediation.md remaining gates). |
+| Deployed resources and restore | P1 NAS gate | Real startup within 4 GiB worker budget; status within 512 MiB panel budget; PG16 at configured 1 GiB, no OOM, measured latency/headroom and populated exact-point restore with unchanged origin/cursor. Local synthetic measurements do not establish NAS latency/concurrency. |
+| Economic performance | Data-dependent, unqualified | Research archive classification/identity limitations remain. A performance number is not inferred from the formation preview or ordinary CI. Historical reference/golden identities are preserved. |
+
+On the NAS, after the owner merges and approves deployment:
+
+1. Check out the exact merged main commit. Verify the promoted image/source
+   identity, fresh installation/empty behavioral lineage, reviewed `$50,000`
+   shadow configuration and intended paper account with $50,000 initial funding.
+   Actual execution capital remains independently observed; a different account
+   balance is not silently rebased by changing the shadow. Keep broker credentials
+   outside repository/evidence. Existing strategy state cannot be relabelled.
+2. Retain a verified backup and runtime archive authority. Run the repository's
+   ordinary GO preflight, including its explicit schema migration (the candidate
+   axis constraint now allows 300 or the typed 379-close startup window).
+   Do not alter the constraint or capabilities manually:
+
+   ```bash
+   bash scripts/sentinel-go-validate.sh
+   bash scripts/sentinel-autonomous-deploy.sh --explain
+   ```
+
+3. Retain the complete GO bundle: exact commit/image, fresh source manifest and
+   actions, `ROLLING_FORMED_STARTUP_AND_RESTART` proof with count 126 and matching
+   source/state commitments, unchanged source during proof, read-only proof
+   transaction and backup/host ownership checks. Any failed/stale clause is NO-GO.
+4. Use the reviewed paper deployment flow only after GO permits it. Retain
+   `FORMED_START_COMMITTED`, the authenticated `sentinel.formed-origin/1` receipt,
+   feature/formation dates, source/policy, controller cursor, independent live
+   starting NAV $50,000 and zero historical commands. At the next open, retain
+   one current plan, whole-share projection from actual account capital and
+   stable command identities through acknowledgement loss/retry. Restart must
+   preserve the same origin rather than reform or deposit shadow gains.
+5. Advance normally to a 300-close publication; verify the unchanged origin and
+   one daily transition. Restore the populated database to an independently
+   evidenced point, verify input/action retention, origin and command ownership,
+   and compare all relevant state/ledger hashes. Retain memory/OOM/latency results
+   under deployed service caps. Missing predecessor/provider evidence remains
+   an explicit certification refusal, even if forward paper observation is safe.
 
 NAS pass criteria must include the exact fresh 252+126 session axis, selected
 metadata policy/source commitments, authenticated formed state and controller

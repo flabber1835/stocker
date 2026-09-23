@@ -68,7 +68,7 @@ CONSTRAINTS = {
         ("f", ("foreign key (reference_sha256)", "sentinel_snapshot_evidence")),
         ("f", ("foreign key (source_evidence_sha256)", "sentinel_snapshot_evidence")),
         ("c", ("window_end > window_start",)),
-        ("c", ("jsonb_array_length(session_axis)", "300")),
+        ("c", ("jsonb_array_length(session_axis)", "300", "379")),
         ("c", ("snapshot_id is null", "manifest is null", "manifest is not null", "object")),
         ("c", ("expected_publication_version", "> 0")),
     ),

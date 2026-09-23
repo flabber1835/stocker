@@ -7,6 +7,16 @@ economic/reference compatibility, provider capability acceptance, and deployed
 NAS qualification. None implies the others. Overall certification is BLOCKED
 until all required evidence has an explicit passing disposition.
 
+The [Owned55 and $50k historical-startup addendum](owned55-historical-startup.md)
+records the new strategy identity and locally tested 252+126 formation, actual
+GO admission, independent live baseline and first-funded-open accounting.
+This changes the reviewed software scope; it does not inherit an earlier
+profile's certification. Its [retained evidence and NAS handoff](../audit/owned55-startup/README.md)
+separate synthetic/local acceptance from current Sharadar input qualification,
+C1/F6 cash finality, F19 native fill authority, C3 predecessor completeness and
+deployed resource/restore evidence. None of those provider guarantees is enabled
+by a capability flag or an empty history response.
+
 The [2026-09-20 integrated local closeout](stage-one-local-closeout.md) and
 [finite checklist](stage-one-closeout-checklist.md) reconcile every finding to
 production callers, durable state and acceptance. Locally feasible review,

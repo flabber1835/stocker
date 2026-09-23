@@ -8,7 +8,7 @@ from __future__ import annotations
 import hashlib
 import json
 from datetime import date
-from typing import Annotated, Literal
+from typing import Annotated, ClassVar, Literal
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator, model_validator
 
@@ -36,21 +36,22 @@ class Contract(BaseModel):
 
 
 class PriceWindow(Contract):
+    count: ClassVar[int] = PRICE_SESSIONS
     sessions: tuple[date, ...]
 
     @model_validator(mode="after")
     def exact_axis(self):
-        if len(self.sessions) != PRICE_SESSIONS:
-            raise ValueError(f"price window requires exactly {PRICE_SESSIONS} sessions")
+        if len(self.sessions) != self.count:
+            raise ValueError(f"price window requires exactly {self.count} sessions")
         actual = tuple(day.isoformat() for day in self.sessions)
-        expected = tuple(calendar.previous_sessions(actual[-1], PRICE_SESSIONS))
+        expected = tuple(calendar.previous_sessions(actual[-1], self.count))
         if actual != expected:
             raise ValueError("price window is not the exact consecutive XNYS axis")
         return self
 
     @classmethod
     def through(cls, target: str) -> "PriceWindow":
-        return cls(sessions=tuple(calendar.previous_sessions(target, PRICE_SESSIONS)))
+        return cls(sessions=tuple(calendar.previous_sessions(target, cls.count)))
 
     @property
     def start(self) -> date:
@@ -59,6 +60,17 @@ class PriceWindow(Contract):
     @property
     def end(self) -> date:
         return self.sessions[-1]
+
+
+class FormationWindow(PriceWindow):
+    """First acquisition only; ordinary rolling history remains 300 closes."""
+    count: ClassVar[int] = 379
+    purpose: Literal['OWNED55_FRESH_FORMATION_V1'] = 'OWNED55_FRESH_FORMATION_V1'
+
+
+def snapshot_window(value):
+    cls = FormationWindow if value.get('purpose') == 'OWNED55_FRESH_FORMATION_V1' else PriceWindow
+    return cls.model_validate(value)
 
 
 class RestartRequirement(Contract):
@@ -115,7 +127,7 @@ class SnapshotManifest(Contract):
     provider: Literal["SHARADAR"] = "SHARADAR"
     normalization_version: Label
     calendar_version: Label
-    window: PriceWindow
+    window: FormationWindow | PriceWindow
     reference_sha256: Digest
     source_evidence_sha256: Digest
     coverage_sha256: Digest

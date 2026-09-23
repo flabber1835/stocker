@@ -43,11 +43,15 @@ def canonical_state(raw, *, identity, cursor):
     check("state_cursor_atomicity", cursor, raw["last_processed_session"])
     check("controller_cursor", cursor, raw["controller"]["last_session"])
     check("decision_cursor", cursor, raw["last_decision"]["session"])
-    check("champion_profile", "sentinel-compact-champion-v1", identity.get("strategy"))
+    check("champion_profile", "sentinel-compact-champion-owned55-v1", identity.get("strategy"))
     check("witness_cursor", cursor, raw["median5"]["last_session"])
     check("recovery_version", 2, raw["median5"]["version"])
-    check("recovery_allocation", raw["last_decision"]["target_core_exposure"],
+    check("recovery_allocation", raw["last_decision"]["champion_target_core_exposure"],
           raw["median5"]["previous_desired"])
+    owned = raw["owned_impairment"]
+    check("owned_cursor", cursor, owned["last_session"])
+    check("owned_ceiling", min(raw["median5"]["previous_desired"], .55 if owned["active"] else 1.),
+          raw["last_decision"]["target_core_exposure"])
     for key in ("full_streak", "recent_positive_streak"):
         check("bounded_recovery_counter", True,
               type(raw["median5"][key]) is int and 0 <= raw["median5"][key] <= 8)

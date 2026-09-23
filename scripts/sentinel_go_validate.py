@@ -1222,7 +1222,7 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
                    and proof.get("scope") == "CURRENT_STRATEGY_STARTUP_AND_RESTART"
                    and "runtime_contract" not in proof)
     if (coherence.get("scope") == "ROLLING_CURRENT_INPUTS_ONLY"
-            and proof.get("scope") == "ROLLING_STARTUP_AND_RESTART"
+            and proof.get("scope") in {"ROLLING_STARTUP_AND_RESTART", "ROLLING_FORMED_STARTUP_AND_RESTART"}
             and proof.get("runtime_contract") == "sentinel.rolling-shadow-runtime/1"):
         snapshot = coherence.get("snapshot")
         scope_valid = (isinstance(snapshot, dict)
@@ -1234,6 +1234,16 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
                        and all(isinstance(snapshot.get(key), str) and re.fullmatch(
                            r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", snapshot[key])
                            for key in ("candidate_id", "job_id")))
+    if strategy.get('strategy') == 'sentinel-compact-champion-owned55-v1':
+        formed = proof.get('formation')
+        scope_valid = (scope_valid and proof.get('scope') == 'ROLLING_FORMED_STARTUP_AND_RESTART'
+            and isinstance(formed, dict) and formed.get('schema') == 'sentinel.formation-parity/1'
+            and formed.get('policy') == 'CURRENT_INFORMATION_INITIALIZATION_V1'
+            and type(formed.get('sessions')) is int and formed['sessions'] == 126
+            and isinstance(formed.get('end'), str) and formed['end'] < proof.get('decision_session', '')
+            and formed.get('state_sha256') == proof.get('prior_state_sha256')
+            and all(_HEX64.fullmatch(str(formed.get(k) or '')) is not None
+                    for k in ('chain_sha256', 'state_sha256', 'source_sha256')))
     return (
         report.get("schema") == "sentinel.production-operational-parity/1"
         and report.get("verdict") == "PASS"

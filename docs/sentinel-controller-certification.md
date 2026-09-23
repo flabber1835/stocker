@@ -3,8 +3,9 @@
 [Owned55 and $50k historical startup](owned55-historical-startup.md) records the
 owner-selected profile and new formation acceptance gates. The production
 selector changes identity; prior certification and checkpoints do not silently
-qualify it. Historical startup admission remains incomplete until its input
-and GO integration pass the documented gates.
+qualify it. The formed startup caller, read-only GO proof and first funded-open
+accounting are implemented and locally tested. Final-head CI and the linked
+provider/deployment evidence gates remain distinct from local acceptance.
 
 **Economic audit 399, 2026-09-18: certification remains BLOCKED.** The corrected
 terminal leadership policy changes source identity; earlier performance figures

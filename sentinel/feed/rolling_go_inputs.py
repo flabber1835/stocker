@@ -151,6 +151,18 @@ def _prepare(conn, *, target_session, budget_seconds=3600):
             raise RollingGoRefused("ROLLING_SOURCE_FINAL_TARGET_CHANGED")
         pub = current(conn)
         if is_rolling(pub) and pub.window_end == target_session:
+            from sentinel.feed import rolling_store
+            _, strategy = production_strategy()
+            binding = snapshots._bound(conn, pub)
+            actual = rolling_store.manifest(conn, binding['candidate_id']).window
+            expected = snapshots.acquisition_window(conn, digest(strategy))
+            # A pre-existing 300-session snapshot cannot silently satisfy fresh
+            # Owned55 formation. Once an origin exists its original larger
+            # generation remains usable until the next daily publication.
+            from sentinel.feed.rolling_contract import FormationWindow
+            if isinstance(expected, FormationWindow) and actual != expected:
+                pub = None
+        if is_rolling(pub) and pub.window_end == target_session:
             with snapshots.pinned(conn, commit=False) as (held, _):
                 binding, _ = validate_status(conn, held)
             conn.commit()

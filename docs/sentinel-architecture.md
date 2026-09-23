@@ -3,8 +3,10 @@
 [Owned55 and $50k historical startup](owned55-historical-startup.md) records the
 owner-selected profile and new formation acceptance gates. The production
 selector changes identity; prior certification and checkpoints do not silently
-qualify it. Historical startup admission remains incomplete until its input
-and GO integration pass the documented gates.
+qualify it. Fresh GO forms the canonical book and controller from a distinct
+379-close startup generation. It uses explicitly identified current-information
+metadata and retains an authenticated origin; subsequent acquisitions remain
+300 sessions. See the linked ledger for local evidence and outstanding gates.
 
 The production selector now names the owner-selected compact champion.
 [production-compact-champion.md](production-compact-champion.md) defines its

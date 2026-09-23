@@ -31,6 +31,7 @@ class FormationPlan(Contract):
     formation_sessions: Literal[126] = 126
     strategy: dict
     source_sha256: Digest
+    metadata_policy: Literal['HISTORICAL_PIT_V1', 'CURRENT_INFORMATION_INITIALIZATION_V1'] = 'HISTORICAL_PIT_V1'
 
     @field_validator('capital')
     @classmethod
@@ -66,13 +67,15 @@ class Formation:
         if any(not window.bars_by_session[s] for s in window.sessions):
             raise FormationRefused('FORMATION_WARMUP_EMPTY_SESSION')
         timeline = getattr(window, 'metadata_timeline', None)
-        if timeline is None or list(timeline.sessions) != window.sessions:
+        prospective = self.plan.metadata_policy == 'CURRENT_INFORMATION_INITIALIZATION_V1'
+        if not prospective and (timeline is None or list(timeline.sessions) != window.sessions):
             raise FormationRefused('FORMATION_CAUSAL_METADATA_REQUIRED')
         self.controller = controller_for_identity(self.plan.strategy)
         initial = SessionState.fresh(starting_cash=float(Decimal(self.plan.capital)),
             controller=Controller(self.controller), strategy_identity=self.plan.strategy)
-        self.state = warm_session_state(initial, window, publication_version=data_version)
-        self.warmup_identity = _warmup_input_identity(window, window.sessions, prospective_witness=False)
+        self.state = warm_session_state(initial, window, publication_version=data_version,
+                                        prospective_concordance_witness=prospective)
+        self.warmup_identity = _warmup_input_identity(window, window.sessions, prospective_witness=prospective)
         self.count = 0
         self.chain = digest(dict(plan=self.plan.model_dump(by_alias=True),
                                  warmup=self.warmup_identity, state=self.state.state_hash))

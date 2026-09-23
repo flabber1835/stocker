@@ -1,0 +1,31 @@
+FROZEN_VALIDATION_SOURCE_SHA256=dcd89cebfee2a1a5f070796874f65595a99f554ccda8ffbbc54dc7417f0887ef
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 20 items
+
+tests/sentinel/test_rolling_go_inputs.py::test_snapshot_parity_uses_canonical_warmup_without_creating_a_book PASSED [  5%]
+tests/sentinel/test_formed_startup.py::test_startup_window_does_not_relax_the_rolling_contract PASSED [ 10%]
+tests/sentinel/test_formed_startup.py::test_progress_commit_reply_loss_resumes_exactly_once[0] PASSED [ 15%]
+tests/sentinel/test_formed_startup.py::test_progress_commit_reply_loss_resumes_exactly_once[1] PASSED [ 20%]
+tests/sentinel/test_formed_startup.py::test_progress_commit_reply_loss_resumes_exactly_once[63] PASSED [ 25%]
+tests/sentinel/test_formed_startup.py::test_progress_commit_reply_loss_resumes_exactly_once[126] PASSED [ 30%]
+tests/sentinel/test_formed_startup.py::test_progress_cannot_be_self_rehashed_or_rebound[context] PASSED [ 35%]
+tests/sentinel/test_formed_startup.py::test_progress_cannot_be_self_rehashed_or_rebound[rehashed_state] PASSED [ 40%]
+tests/sentinel/test_formed_startup.py::test_progress_cannot_be_self_rehashed_or_rebound[cursor] PASSED [ 45%]
+tests/sentinel/test_formed_startup.py::test_authenticated_origin_cannot_change_context_or_seed PASSED [ 50%]
+tests/sentinel/test_formed_startup.py::test_first_funded_open_accounts_for_entry_and_preserves_formed_identity PASSED [ 55%]
+tests/sentinel/test_formed_startup.py::test_valid_obsolete_generation_is_retained_then_reformed_not_spliced PASSED [ 60%]
+tests/sentinel/test_formed_economics.py::test_flat_half_cash_book_pays_for_stock_and_bil_only[1-.9995] PASSED [ 65%]
+tests/sentinel/test_formed_economics.py::test_flat_half_cash_book_pays_for_stock_and_bil_only[.55-.999275] PASSED [ 70%]
+tests/sentinel/test_formed_economics.py::test_flat_half_cash_book_pays_for_stock_and_bil_only[0-.999] PASSED [ 75%]
+tests/sentinel/test_formed_economics.py::test_canonical_rotation_cost_is_replaced_by_one_funded_entry PASSED [ 80%]
+tests/sentinel/test_formed_economics.py::test_missing_or_invented_opening_evidence_refuses[marks0] PASSED [ 85%]
+tests/sentinel/test_formed_economics.py::test_missing_or_invented_opening_evidence_refuses[marks1] PASSED [ 90%]
+tests/sentinel/test_formed_economics.py::test_missing_or_invented_opening_evidence_refuses[marks2] PASSED [ 95%]
+tests/sentinel/test_formed_economics.py::test_missing_or_invented_opening_evidence_refuses[marks3] PASSED [100%]
+
+======================== 20 passed in 262.46s (0:04:22) ========================

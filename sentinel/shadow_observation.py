@@ -630,6 +630,12 @@ def _validate_economic_input_identity(value: Any, *, session: str) -> dict:
 def _validate_warmup_input_identity(
         value: Any, *, first_session: str) -> dict:
     """Validate the compact commitment to the seed's causal input corpus."""
+    from sentinel import formed_origin
+    if isinstance(value, Mapping) and value.get('schema') == formed_origin.SCHEMA:
+        try:
+            return formed_origin.validate(dict(value), first_session=first_session)
+        except (ValueError, TypeError, KeyError) as exc:
+            raise ShadowObservationRefused('invalid authenticated formed origin') from exc
     identity = _as_mapping(value, where="shadow warm-up economic input")
     fields = {
         "schema", "first_warmup_session", "last_warmup_session",
@@ -1418,6 +1424,17 @@ class ShadowObserver:
                 != self.controller_config.digest):
             raise ShadowObservationRefused(
                 "explicit strategy identity differs from controller configuration")
+        from sentinel import formed_origin
+        if self.warmup_input_identity.get('schema') == formed_origin.SCHEMA:
+            if not isinstance(self.store, PostgresShadowObservationStore):
+                raise ShadowObservationRefused('formed genesis requires the durable observation store')
+            try:
+                formed_origin.require_seed(self.warmup_input_identity, state=state,
+                    observation_id=self.observation_id, starting_cash=self.starting_cash,
+                    strategy=self.strategy_identity, runtime=self.runtime_identity)
+            except (ValueError, TypeError, KeyError) as exc:
+                raise ShadowObservationRefused('formed genesis binding differs') from exc
+            return
         if state.last_processed_session is not None:
             raise ShadowObservationRefused(
                 "initial shadow state has already processed an economic session")
@@ -1566,7 +1583,7 @@ class ShadowObserver:
 
     def _advance_strategy_economics(
             self, *, previous: Mapping[str, Any], state: SessionState,
-            strategy_prices: Mapping[str, Any]) -> dict:
+            strategy_prices: Mapping[str, Any], formed_startup_marks=None) -> dict:
         session = str(state.last_processed_session)
         prior = _as_mapping(previous, where="prior strategy economics")
         parent_open, parent_close = self._parent_economics(state)
@@ -1644,6 +1661,17 @@ class ShadowObserver:
                         Decimal(1) + new_allocation * core_intraday
                         + (Decimal(1) - new_allocation) * bil_intraday)
             net_factor = cost_factor * gross_factor
+        from sentinel import formed_origin, formed_economics
+        formed_entry = (initial_deployment
+                        and self.warmup_input_identity.get('schema') == formed_origin.SCHEMA)
+        if formed_entry:
+            entry = formed_economics.entry(state, formed_startup_marks,
+                parent_open=parent_open, parent_close=parent_close,
+                allocation=new_allocation, bil_intraday=bil_intraday)
+            core_intraday, gross_factor, net_factor = entry['core_intraday'], entry['gross_factor'], entry['net_factor']
+            turnover, cost_factor = entry['turnover'], entry['transaction_cost_factor']
+        elif formed_startup_marks is not None:
+            raise ShadowObservationRefused('formed startup marks outside first funded open')
         strategy_nav = prior_nav * net_factor
         if (not strategy_nav.is_finite() or strategy_nav <= 0
                 or not net_factor.is_finite() or net_factor <= 0):
@@ -1651,6 +1679,7 @@ class ShadowObserver:
                 "combined Core+BIL strategy economics are nonpositive/nonfinite")
         cumulative = strategy_nav / Decimal(self.starting_cash) - Decimal(1)
         return {
+            **({'formed_startup_marks': entry['marks']} if formed_entry else {}),
             "schema": STRATEGY_ECONOMICS_SCHEMA,
             "starting_cash": self.starting_cash,
             "last_session": session,
@@ -1824,7 +1853,8 @@ class ShadowObserver:
                 where=f"strategy economics at {expected_session}")
             expected_economics = self._advance_strategy_economics(
                 previous=prior_strategy_economics, state=state,
-                strategy_prices=strategy_economics.get("strategy_prices"))
+                strategy_prices=strategy_economics.get("strategy_prices"),
+                formed_startup_marks=strategy_economics.get('formed_startup_marks'))
             if strategy_economics != expected_economics:
                 raise ShadowObservationRefused(
                     f"combined Core+BIL economics changed at {expected_session}")
@@ -1929,9 +1959,15 @@ class ShadowObserver:
         prior_strategy_economics = (
             rows[-1]["strategy_economics"] if rows
             else self.initial_strategy_economics)
+        from sentinel import formed_origin, formed_economics
+        startup_marks = None
+        if (self.warmup_input_identity.get('schema') == formed_origin.SCHEMA
+                and prior_strategy_economics.get('last_session') is not None
+                and prior_strategy_economics.get('held_allocation') is None):
+            startup_marks = formed_economics.opening_marks(advanced, published.published)
         strategy_economics = self._advance_strategy_economics(
             previous=prior_strategy_economics, state=advanced,
-            strategy_prices=published.strategy_prices)
+            strategy_prices=published.strategy_prices, formed_startup_marks=startup_marks)
         record = {
             **self.spec,
             "session": expected,

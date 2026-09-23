@@ -1,0 +1,63 @@
+FROZEN_VALIDATION_SOURCE_SHA256=31c5d380c16321fbf3359d3b742b9bd125ba5bc10e10f40a50cceffc48d1086b
+unsigned_formed_origin KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "unsigned_formed_origin",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_formed_startup.py::test_authenticated_origin_cannot_change_context_or_seed",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=unsigned_formed_origin.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_authenticated_origin_cannot_change_context_or_seed ____________
+tests/sentinel/test_formed_startup.py:101: in test_authenticated_origin_cannot_change_context_or_seed
+    with pytest.raises(ValueError, match='AUTHENTICATION'):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'ValueError'>
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 243, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 259, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 610, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 151, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 223, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 65, "job_id": "9819e879-64be-4f2e-8a72-21e8faad4d8e", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+----------------------------- Captured stderr call -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "sessions": 0, "stage": "historical_formation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-03-26", "sessions": 10, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-10", "sessions": 20, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-24", "sessions": 30, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-08", "sessions": 40, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-22", "sessions": 50, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-08", "sessions": 60, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-23", "sessions": 70, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-08", "sessions": 80, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-22", "sessions": 90, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-05", "sessions": 100, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-19", "sessions": 110, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-02", "sessions": 120, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-11", "sessions": 126, "stage": "historical_formation", "status": "completed"}
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_formed_startup.py::test_authenticated_origin_cannot_change_context_or_seed
+1 failed in 38.96s

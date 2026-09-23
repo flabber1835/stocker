@@ -96,6 +96,28 @@ def test_window_counts_sessions_and_rejects_missing_middle(window):
                               *window.sessions[150:]))
 
 
+def test_existing_300_only_catalog_migrates_without_rewriting_old_manifest(conn, window):
+    from psycopg.errors import CheckViolation
+    from sentinel.feed.rolling_contract import FormationWindow
+    from sentinel.feed.rolling_schema import DDL as rolling_ddl
+    old_candidate = populated(conn, window)
+    old_manifest = seal(conn, old_candidate, window)
+    conn.execute('ALTER TABLE sentinel_price_candidates DROP CONSTRAINT sentinel_price_candidates_session_axis_check')
+    conn.execute("ALTER TABLE sentinel_price_candidates ADD CONSTRAINT sentinel_price_candidates_session_axis_check "
+                 "CHECK (jsonb_typeof(session_axis)='array' AND jsonb_array_length(session_axis)=300)")
+    startup = FormationWindow.through(str(window.end))
+    with pytest.raises(CheckViolation):
+        with conn.transaction():
+            begin(conn, startup)
+    for statement in rolling_ddl:
+        conn.execute(statement)
+    candidate = populated(conn, startup)
+    manifest = seal(conn, candidate, startup)
+    assert type(manifest.window) is FormationWindow
+    assert manifest.bar_count == 379
+    assert store.manifest(conn, old_candidate) == old_manifest
+
+
 def test_aggregate_requirement_and_bounded_scope(window):
     assert RestartRequirement().total_sessions == 261
     with pytest.raises(ValidationError, match="exceed"):

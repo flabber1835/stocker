@@ -145,7 +145,9 @@ def run(args):
                     if formed.count % 10 == 0 or formed.complete:
                         write(cp, formed.checkpoint()); print(json.dumps(status), flush=True)
                     if time.monotonic()-started >= args.seconds and not formed.complete:
-                        write(cp, formed.checkpoint()); return
+                        write(cp, formed.checkpoint())
+                        write(args.output / 'status.json', {**status, 'status': 'PAUSED_BUDGET'})
+                        return
         if formed is None or not formed.complete:
             raise ValueError('archive did not complete the requested formation axis')
 

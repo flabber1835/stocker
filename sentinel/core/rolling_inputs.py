@@ -166,8 +166,8 @@ def _snapshot_context(conn, candidate_id, snapshot_id):
     return refs, session, axis, warm, meta, sectors
 
 
-def _mapped_bars(conn, candidate_id, refs, meta, first):
-    for row in rolling_store.read_bars(conn, candidate_id):
+def _mapped_bars(conn, candidate_id, refs, meta, first, last=None):
+    for row in rolling_store.read_bars(conn, candidate_id, start=first, end=last):
         day = str(row.session)
         if day < first:
             continue

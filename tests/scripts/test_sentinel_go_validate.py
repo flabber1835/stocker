@@ -765,6 +765,32 @@ def test_rolling_go_proof_requires_supported_runtime_and_exact_input_scope(defec
     assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash="50000") is (defect is None)
 
 
+@pytest.mark.parametrize('defect', [None, 'missing', 'policy', 'count', 'state', 'legacy_scope'])
+def test_owned55_go_requires_the_formed_book_proof(defect):
+    report = _forward_report()
+    proof = report['proof']
+    proof['strategy_identity']['strategy'] = 'sentinel-compact-champion-owned55-v1'
+    proof.update(scope='ROLLING_FORMED_STARTUP_AND_RESTART', runtime_contract='sentinel.rolling-shadow-runtime/1',
+                 formation=dict(schema='sentinel.formation-parity/1', policy='CURRENT_INFORMATION_INITIALIZATION_V1',
+                    sessions=126, end='2026-07-30', chain_sha256='a'*64,
+                    state_sha256=proof['prior_state_sha256'], source_sha256='b'*64))
+    report['publication_coherence'].update(scope='ROLLING_CURRENT_INPUTS_ONLY', snapshot={
+        'data_version': 1, 'scope': 'DATA_ONLY', 'operational_go': False,
+        'snapshot_id': 'e'*64, 'candidate_id': '11111111-1111-1111-1111-111111111111',
+        'job_id': '22222222-2222-2222-2222-222222222222'})
+    if defect == 'missing':
+        proof.pop('formation')
+    elif defect == 'policy':
+        proof['formation']['policy'] = 'HISTORICAL_PIT_V1'
+    elif defect == 'count':
+        proof['formation']['sessions'] = 125
+    elif defect == 'state':
+        proof['formation']['state_sha256'] = '0'*64
+    elif defect == 'legacy_scope':
+        proof['scope'] = 'ROLLING_STARTUP_AND_RESTART'
+    assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash='50000') is (defect is None)
+
+
 def test_shadow_configuration_digest_is_exact_runtime_contract():
     env = {
         "SENTINEL_SHADOW_OBSERVATION_ID": "year-end.1",

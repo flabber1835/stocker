@@ -1,0 +1,43 @@
+{
+  "status": "MECHANICS_VERIFIED_NOT_ADMITTED",
+  "completed": 126,
+  "first": "2026-01-30",
+  "last": "2026-07-31",
+  "duplicate_rows_agree": 7,
+  "state_sha256": "957fee76b5f4edeb3c001a3ef15a8f9055cc87aea32f6e11975446953303a449",
+  "checkpoint_sha256": "187ff76d03c383ece5dff1f27adeb6a7a01239fc2a0ceea7a1c8fe6b49b273d1",
+  "holdings": 13,
+  "shadow_cash": 18364.76029500001,
+  "shadow_nav": 59232.990295,
+  "exposure": 0.55,
+  "parent_exposure": 0.55,
+  "owned": {
+    "version": 1,
+    "active": false,
+    "entry_streak": 0,
+    "recovery_streak": 0,
+    "last_session": "2026-07-31"
+  },
+  "ledger_events": {
+    "BUY": 31,
+    "DIVIDEND_ACCRUED": 10,
+    "DIVIDEND_PAID": 10,
+    "SELL": 17,
+    "CASH_MERGER": 1
+  },
+  "max_retained_sessions": 260,
+  "source": {
+    "archive_sha256": "7d86c6f728f0392516dec5e2a709c16d45b2f46bc139fe7f3d29af25ae4dfce8",
+    "dataset_sha256": "5bdc6b39e4a8ec4d3e4cebba6091b18a8b4032b41509581366bb60c0d0600993",
+    "supplements_sha256": "7c8b7da7363269d010bb4f30bdb0674563458c712a5c875568b577805919f725",
+    "classification_sha256": "3b8bc54142ff9a06122f11efc8cad012ce1b5262cd8719a50c616fc15a4f2709",
+    "identity_domain": "RESEARCH_SEP_TAPE_SEC_ISSUER_FF12",
+    "limitations": [
+      "NOT_SHARADAR_IDENTITY",
+      "RESEARCH_CLASSIFICATION_ASSUMPTIONS",
+      "KNOWN_SILV_WARMUP_METADATA_ERROR",
+      "NO_GO_AUTHORITY"
+    ]
+  },
+  "note": "Frozen earlier PIT-fixture policy; not the new current-information GO policy. No source-authority or deployment claim."
+}

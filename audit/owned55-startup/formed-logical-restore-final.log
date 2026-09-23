@@ -1,0 +1,12 @@
+FROZEN_VALIDATION_SOURCE_SHA256=e38512f7e38b764e5d510b6404941190098287d526f0a3a5c0063115651e69f3
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/sentinel/test_formed_restore.py::test_logical_restore_preserves_authenticated_formed_origin_and_never_reforms PASSED [100%]
+
+============================== 1 passed in 39.80s ==============================

@@ -1,0 +1,58 @@
+FROZEN_VALIDATION_SOURCE_SHA256=a48aab7c22ce15e162109d30377569d0585239ffbd00d6b265556d4a4cebb778
+formation_health_timeout KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "formation_health_timeout",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_autonomous_deploy.py::test_real_config_allows_measured_formation_and_full_status_read",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=formation_health_timeout.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_real_config_allows_measured_formation_and_full_status_read ________
+tests/sentinel/test_autonomous_deploy.py:85: in test_real_config_allows_measured_formation_and_full_status_read
+    assert obj._wait_for_dual_shadow_session("2026-08-28")["verification"] == "VERIFIED"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+scripts/sentinel_autonomous_deploy.py:2072: in _wait_for_dual_shadow_session
+    raise DeployRefused(
+E   sentinel_autonomous_deploy.DeployRefused: certified shadow did not attest the PAPER decision close before the deployment timeout
+----------------------------- Captured stdout call -----------------------------
+[WAIT] shadow attestation for 2026-08-28; elapsed 12s; data-work budget remaining 288s
+[WAIT] shadow attestation for 2026-08-28; elapsed 24s; data-work budget remaining 276s
+[WAIT] shadow attestation for 2026-08-28; elapsed 36s; data-work budget remaining 264s
+[WAIT] shadow attestation for 2026-08-28; elapsed 48s; data-work budget remaining 252s
+[WAIT] shadow attestation for 2026-08-28; elapsed 60s; data-work budget remaining 240s
+[WAIT] shadow attestation for 2026-08-28; elapsed 72s; data-work budget remaining 228s
+[WAIT] shadow attestation for 2026-08-28; elapsed 84s; data-work budget remaining 216s
+[WAIT] shadow attestation for 2026-08-28; elapsed 96s; data-work budget remaining 204s
+[WAIT] shadow attestation for 2026-08-28; elapsed 108s; data-work budget remaining 192s
+[WAIT] shadow attestation for 2026-08-28; elapsed 120s; data-work budget remaining 180s
+[WAIT] shadow attestation for 2026-08-28; elapsed 132s; data-work budget remaining 168s
+[WAIT] shadow attestation for 2026-08-28; elapsed 144s; data-work budget remaining 156s
+[WAIT] shadow attestation for 2026-08-28; elapsed 156s; data-work budget remaining 144s
+[WAIT] shadow attestation for 2026-08-28; elapsed 168s; data-work budget remaining 132s
+[WAIT] shadow attestation for 2026-08-28; elapsed 180s; data-work budget remaining 120s
+[WAIT] shadow attestation for 2026-08-28; elapsed 192s; data-work budget remaining 108s
+[WAIT] shadow attestation for 2026-08-28; elapsed 204s; data-work budget remaining 96s
+[WAIT] shadow attestation for 2026-08-28; elapsed 216s; data-work budget remaining 84s
+[WAIT] shadow attestation for 2026-08-28; elapsed 228s; data-work budget remaining 72s
+[WAIT] shadow attestation for 2026-08-28; elapsed 240s; data-work budget remaining 60s
+[WAIT] shadow attestation for 2026-08-28; elapsed 252s; data-work budget remaining 48s
+[WAIT] shadow attestation for 2026-08-28; elapsed 264s; data-work budget remaining 36s
+[WAIT] shadow attestation for 2026-08-28; elapsed 276s; data-work budget remaining 24s
+[WAIT] shadow attestation for 2026-08-28; elapsed 288s; data-work budget remaining 12s
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_autonomous_deploy.py::test_real_config_allows_measured_formation_and_full_status_read
+1 failed in 0.22s

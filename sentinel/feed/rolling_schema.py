@@ -13,7 +13,7 @@ DDL = [
         window_start DATE NOT NULL,
         window_end DATE NOT NULL CHECK (window_end > window_start),
         session_axis JSONB NOT NULL CHECK (jsonb_typeof(session_axis) = 'array'
-                                    AND jsonb_array_length(session_axis) = 300),
+                                    AND jsonb_array_length(session_axis) IN (300,379)),
         reference_sha256 TEXT NOT NULL REFERENCES sentinel_snapshot_evidence,
         source_evidence_sha256 TEXT NOT NULL REFERENCES sentinel_snapshot_evidence,
         expected_publication_version BIGINT CHECK (expected_publication_version > 0),
@@ -23,6 +23,11 @@ DDL = [
         CHECK ((snapshot_id IS NULL AND manifest IS NULL) OR
                (snapshot_id IS NOT NULL AND manifest IS NOT NULL
                 AND jsonb_typeof(manifest) = 'object')))""",
+    """ALTER TABLE sentinel_price_candidates DROP CONSTRAINT IF EXISTS
+        sentinel_price_candidates_session_axis_check""",
+    """ALTER TABLE sentinel_price_candidates ADD CONSTRAINT
+        sentinel_price_candidates_session_axis_check CHECK
+        (jsonb_typeof(session_axis) = 'array' AND jsonb_array_length(session_axis) IN (300,379))""",
     """CREATE TABLE IF NOT EXISTS sentinel_snapshot_bars (
         candidate_id UUID NOT NULL REFERENCES sentinel_price_candidates,
         security_id TEXT NOT NULL CHECK (length(security_id) BETWEEN 1 AND 256),

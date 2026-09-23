@@ -1086,6 +1086,10 @@ class Config:
             env.get("SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS", "300"),
             name="SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS",
             minimum=30, maximum=1800)
+        self.data_wait_timeout_seconds = _int(
+            env.get("SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS", "7200"),
+            name="SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS",
+            minimum=30, maximum=7200)
         self.allow_empty_bind = _as_bool(
             env.get("SENTINEL_DEPLOY_ALLOW_EMPTY_BIND", "0"),
             name="SENTINEL_DEPLOY_ALLOW_EMPTY_BIND")
@@ -2039,15 +2043,16 @@ class AutonomousDeploy:
         self.phase(
             "shadow: wait for current decision-close runtime attestation")
         started = time.monotonic()
-        deadline = started + max(self.cfg.health_timeout, min(
-            getattr(self.cfg, "data_wait_timeout_seconds", self.cfg.health_timeout), 7200))
+        deadline = started + self.cfg.data_wait_timeout_seconds
         last_report = started
         last = None
         while time.monotonic() < deadline:
             completed = self.runner.run(self._authorized_compose() + [
                 "--profile", "shadow", "exec", "-T", "sentinel-shadow",
                 "python", "-m", "sentinel", "shadow-status"],
-                capture=True, check=False, timeout=min(30, max(1, deadline - time.monotonic())))
+                capture=True, check=False, timeout=min(300, max(0.001, deadline - time.monotonic())))
+            if time.monotonic() >= deadline:
+                break
             if completed.returncode == 0:
                 try:
                     last = json.loads(completed.stdout or "")

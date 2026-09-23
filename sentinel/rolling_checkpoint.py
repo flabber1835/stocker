@@ -4,7 +4,7 @@ from __future__ import annotations
 import hmac
 from typing import Literal
 
-from pydantic import Field
+from pydantic import Field, model_validator
 
 from sentinel.feed import publication
 from sentinel.feed.rolling_contract import Contract, Digest, canonical_json, digest
@@ -20,7 +20,7 @@ class RollingColdStartRefused(RuntimeError):
 
 class Checkpoint(Contract):
     schema_id: Literal["sentinel.rolling-cold-start/1"] = Field(default=SCHEMA, alias="schema")
-    status: Literal["COLD_START_COMMITTED"] = "COLD_START_COMMITTED"
+    status: Literal["COLD_START_COMMITTED", "FORMED_START_COMMITTED"] = "COLD_START_COMMITTED"
     observation_id: str = Field(pattern=r"^[A-Za-z0-9][A-Za-z0-9.-]{0,63}$")
     session: str
     starting_cash: str
@@ -35,6 +35,21 @@ class Checkpoint(Contract):
     warmup_input_identity: dict
     precommit_timing: dict
     pitr: dict
+
+    @model_validator(mode='after')
+    def origin_kind(self):
+        # Daily/reconstruction checkpoints inherit fields but refer to their
+        # current publication. Their retained origin is authenticated separately.
+        if self.schema_id != SCHEMA:
+            return self
+        from sentinel import formed_origin
+        formed = self.warmup_input_identity.get('schema') == formed_origin.SCHEMA
+        if formed != (self.status == 'FORMED_START_COMMITTED'):
+            raise ValueError('checkpoint origin kind differs from initialization evidence')
+        if formed and (self.warmup_input_identity['snapshot_id'] != self.snapshot['snapshot_id']
+                       or self.warmup_input_identity['publication_sha256'] != digest(self.publication)):
+            raise ValueError('formed origin publication binding differs')
+        return self
 
 
 def _signature(payload):

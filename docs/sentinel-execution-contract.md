@@ -1,5 +1,12 @@
 # Sentinel — the execution and recovery contract
 
+[Owned55 historical startup](owned55-historical-startup.md) forms only canonical
+strategy state. Its 126 historical transitions cannot create an execution plan
+or broker command. The current decision reaches this membrane through the
+existing verified-shadow route; execution sizes onto observed paper capital.
+The first funded-open scalar accounting replaces hypothetical shadow rotation
+fees with one entry cost. Broker fills and cash remain actual P&L authority.
+
 [Forward paper reporting](autonomous-paper-readiness.md) records the owner's
 approved separation between current execution safety and historical performance.
 The rolling informational mirror may defer entitlements when native fill detail

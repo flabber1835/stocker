@@ -37,7 +37,7 @@ def test_shadow_attestation_uses_data_budget_not_process_health_budget(monkeypat
     obj.phase = lambda message: None
     obj._authorized_compose = lambda: ["docker", "compose"]
     def status(*args, **kwargs):
-        assert 0 < kwargs["timeout"] <= 30
+        assert 0 < kwargs["timeout"] <= 120
         return SimpleNamespace(returncode=0, stdout=json.dumps({
             "session": "2026-08-28", "verification": "VERIFIED",
             "shadow_verdict": "SHADOW_GO" if clock[0] >= 60 else "SHADOW_NO_GO"}))
@@ -46,6 +46,68 @@ def test_shadow_attestation_uses_data_budget_not_process_health_budget(monkeypat
     monkeypatch.setattr(deploy.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
     assert obj._wait_for_dual_shadow_session("2026-08-28")["shadow_verdict"] == "SHADOW_GO"
     assert clock[0] == 60
+
+
+def _real_deployment_config(tmp_path, **overrides):
+    key = tmp_path / "offline-test-signing-key"
+    key.write_text("synthetic fixture only", encoding="utf-8")
+    env = {name: "synthetic" for name in (
+        "SENTINEL_DEPLOYMENT_ID", "SENTINEL_PAPER_ACCOUNT_ID",
+        "SENTINEL_RUNTIME_IMAGE_REPOSITORY", "SENTINEL_TEST_IMAGE_REPOSITORY",
+        "SENTINEL_DEPLOY_SIGNING_KEY_ID", "SENTINEL_POSTGRES_PASSWORD",
+        "SENTINEL_BACKUP_DIR", "ALPACA_API_KEY", "ALPACA_SECRET_KEY", "SHARADAR_API_KEY")}
+    env.update(SENTINEL_DEPLOY_SIGNING_KEY_FILE=str(key),
+               SENTINEL_AUTHORITY_ARTIFACTS_DIR=str(tmp_path / "authority"))
+    env.update(overrides)
+    return deploy.Config(env)
+
+
+def test_real_config_allows_measured_formation_and_full_status_read(tmp_path, monkeypatch):
+    import json
+    import subprocess
+    clock = [0.0]
+    obj = object.__new__(deploy.AutonomousDeploy)
+    obj.cfg = _real_deployment_config(tmp_path)
+    obj.phase = lambda message: None
+    obj._authorized_compose = lambda: ["docker", "compose"]
+    def status(*args, **kwargs):
+        ready = clock[0] >= 2931  # Measured formation: 2930.22 seconds.
+        if ready:
+            if kwargs["timeout"] < 79:  # Measured verified status: 78.45 seconds.
+                raise subprocess.TimeoutExpired("shadow-status", kwargs["timeout"])
+            clock[0] += 79
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            "session": "2026-08-28", "verification": "VERIFIED",
+            "shadow_verdict": "SHADOW_GO" if ready else "SHADOW_NO_GO"}))
+    obj.runner = SimpleNamespace(run=status)
+    monkeypatch.setattr(deploy.time, "monotonic", lambda: clock[0])
+    monkeypatch.setattr(deploy.time, "sleep", lambda seconds: clock.__setitem__(0, clock[0] + seconds))
+    assert obj._wait_for_dual_shadow_session("2026-08-28")["verification"] == "VERIFIED"
+    assert clock[0] == 3010
+
+
+def test_shadow_read_cannot_authorize_after_data_deadline(tmp_path, monkeypatch):
+    import json
+    clock = [0.0]
+    obj = object.__new__(deploy.AutonomousDeploy)
+    obj.cfg = _real_deployment_config(tmp_path, SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS="30")
+    obj.phase = lambda message: None
+    obj._authorized_compose = lambda: ["docker", "compose"]
+    def status(*args, **kwargs):
+        assert kwargs["timeout"] <= 30
+        clock[0] = 30.01
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            "session": "2026-08-28", "verification": "VERIFIED", "shadow_verdict": "SHADOW_GO"}))
+    obj.runner = SimpleNamespace(run=status)
+    monkeypatch.setattr(deploy.time, "monotonic", lambda: clock[0])
+    with pytest.raises(deploy.DeployRefused, match="deployment timeout"):
+        obj._wait_for_dual_shadow_session("2026-08-28")
+
+
+@pytest.mark.parametrize("budget", ["29", "7201", "unbounded"])
+def test_formation_wait_budget_is_bounded(tmp_path, budget):
+    with pytest.raises(deploy.DeployRefused, match="SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS"):
+        _real_deployment_config(tmp_path, SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS=budget)
 
 
 def test_dotenv_is_literal_and_does_not_truncate_hash_password(tmp_path):

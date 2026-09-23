@@ -95,7 +95,7 @@ def test_current_champion_real_startup_and_restart_from_operational_window(opera
     report = parity.run_proof(conn, starting_cash="100000.00", expected_commit=COMMIT)
     assert report["verdict"] == "PASS"
     proof = report["proof"]
-    assert proof["strategy_identity"]["strategy"] == "sentinel-compact-champion-v1"
+    assert proof["strategy_identity"]["strategy"] == "sentinel-compact-champion-owned55-v1"
     assert proof["warmup_input"]["session_count"] == 252
     assert proof["starting_cash"] == "100000"
     assert proof["decision_session"] == FRONTIER

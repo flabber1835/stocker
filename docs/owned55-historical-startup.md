@@ -46,10 +46,10 @@ A hash or a claimed completeness boolean is not source authority. Production
 admission requires an approved producer contract and retained evidence. A
 locally constructed synthetic replay establishes mechanics only. It cannot be
 installed as a live genesis or turn a research export into a certified input.
-The current shadow genesis deliberately accepts only a cold book. Do not relax
-that guard until a distinct formed-genesis contract binds admitted formation
-evidence, live-window continuity, publication identity and independent paper
-capital. Existing backup, account, timing and execution gates remain required.
+The ordinary shadow genesis still accepts only a cold book. The distinct
+authenticated formed-origin contract binds formation evidence, live-window
+continuity, publication identity and independent paper capital. Existing backup,
+account, timing and execution gates remain required.
 
 ## Confirmed input dependency
 
@@ -137,6 +137,48 @@ and historical formation decisions cannot create broker commands. Restart reads
 the committed origin rather than replaying or rebasing it. Formed-origin identity
 must survive ordinary advancement, restore and rolling retention.
 
+Funding the formed holdings uses the existing decision-close, whole-share
+basket projection. Already-held Core positions are not relabelled as new
+Wealth Core dollar-entry intents. Actual pending Core entries retain their
+ordinary opening-price sizing rules. Opening gaps, integer residuals and fills
+can therefore differ from the scalar Core+BIL return model; the broker ledger
+remains actual paper P&L authority. Startup does not change this execution policy.
+
+Before admission, a newer source publication may replace an interrupted
+formation attempt. Verify the old progress signature and canonical state first,
+preserve it in a previous-attempt slot, then start a fresh replay against the new
+generation. Never splice generations or reuse the old economic state. Keep one
+active and one previous slot per observation; normal authenticated backup/PITR
+retains earlier revisions. A capital, strategy or runtime change requires
+explicit investigation and remains a refusal. After origin commitment, normal
+restart always uses the origin and never starts another formation attempt.
+
+The first funded open needs a distinct scalar accounting boundary. Undo that
+day's hypothetical Core BUY/SELL fees, then charge the frozen 10bp entry model
+once on the post-open Core holdings, using their actual raw opens and canonical
+shares. Charge BIL's entry once as well. Core's internal cash is not purchased
+and attracts no entry cost. This removes imaginary sales of a shadow portfolio
+the new account never owned, and avoids both free entry and double counting.
+Retain the dated opening marks in the authenticated observation. Subsequent
+closes use the existing Core+BIL accounting contract. This scalar model remains
+distinct from actual paper P&L, whose authority is broker fills and cash.
+
+GO's read-only strategy proof must run this same current-information formation
+before comparing the current transition with its restored-state transition.
+The proof reports `ROLLING_FORMED_STARTUP_AND_RESTART`, its 126-session chain,
+initialization policy and state commitment. A 252-feature-only proof cannot
+qualify fresh Owned55 deployment. The read-only proof grants no origin authority;
+the durable GO caller independently applies the authenticated admission path.
+
+The dual deployment wait uses a separate bounded data-work budget, defaulting
+to 7,200 seconds (`SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS`, range 30–7,200).
+Process health retains its existing short budget. A verified shadow-status read
+may take up to 300 seconds, capped by the remaining data-work deadline; success
+after that deadline is refusal. This accommodates the measured 49-minute
+formation and 78-second status read without extending the source-final or
+next-open admission cutoffs. Startup that exceeds a causal cutoff remains
+unadmitted, and authenticated progress is retained for investigation/resume.
+
 The owner subsequently selected July 31, 2026 as the local bootstrap endpoint
 and authorized reuse of the retained backtest data. Its exact 378-session axis
 is January 29, 2025 through July 31, 2026: feature warmup ends January 29, 2026;
@@ -154,13 +196,12 @@ crosswalk from the research archive is part of the requested deployment path;
 the production historical source must natively maintain its permanent identity
 and metadata contracts. The July endpoint applies only to local validation.
 
-Implement a broker-free canonical formation component now. It produces a
-source/plan/state-bound candidate checkpoint, not an authenticated GO genesis.
-Snapshots accept exactly the selected plan and source binding; input/session
-commitments form an append-only chain. Preview/research callers can use this
-same component without granting trading authority. Frozen source replay and
-synthetic acceptance can proceed while the live identity/producer bridge is
-unresolved. Existing GO must continue rejecting a pre-populated cold seed.
+The broker-free canonical formation component produces a source/plan/state-bound
+candidate checkpoint. Input/session commitments form an append-only chain.
+Preview/research callers use this component without granting trading authority.
+Only the separate durable startup caller may admit its complete result through
+the authenticated formed-origin contract. Existing GO continues rejecting a
+pre-populated seed presented as an ordinary cold start.
 
 ## Finite Stage 1 acceptance ledger
 
@@ -169,15 +210,14 @@ unresolved. Existing GO must continue rejecting a pre-populated cold seed.
 | Policy | Frozen-rule parity, exact entry/release boundaries, independent zero causes, missing signals, restart and identity falsifiers | Locally passed; eight targeted mutations killed |
 | Capital | $50k default wiring; independent whole-share affordability and scaling witnesses | Locally passed; explicit existing capital preserved |
 | Replay mechanics | 252+126 causal synthetic sessions, canonical Core, bounded state, action and identifier transitions, uninterrupted/resumed parity | Locally passed synthetic path; real archive preview remains unqualified |
-| Historical producer | Selected initialization policy, required metadata versions and full action terms for the interval | OPEN: metadata policy choice; ordinary snapshot does not prove historical vintages |
-| Formed GO admission | Empty PostgreSQL to authenticated formed genesis, current publication/overlap, actual GO caller and independent paper baseline | Pending producer contract |
-| Failure recovery | Interruption, changed source, lost acknowledgement, duplicate start/order rejection | Candidate resume, changed source and late-failure atomicity passed; GO integration remains |
-| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Local checks passed; CI pending publication |
+| Historical producer | Selected initialization policy, required metadata and full action terms for the interval | Current-information initialization selected and implemented; real startup-generation coverage/actions must pass ordinary publication admission on deployment. Historical PIT reconstruction is not claimed. |
+| Formed GO admission | Empty PostgreSQL to authenticated formed genesis, current publication/overlap, actual GO caller and independent paper baseline | Implemented; isolated PostgreSQL positive acceptance and full read-only GO formation proof pass |
+| Failure recovery | Interruption, changed source, lost acknowledgement, duplicate start/order rejection | Authenticated progress, acknowledgement loss at 0/1/63/126, immutable origin restart and first funded daily resume pass; complete runtime regression retained in evidence report |
+| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Sixteen mutations killed (eight controller/candidate, five integration/accounting, three deployment timing); final-head CI remains a delivery gate |
 | Deployment | NAS backup/restore/resource evidence and paper transport qualification | NAS-only; outside local certification |
 
-This ledger must be updated with exact commands and results. Do not report
-Stage 1 or economic certification complete while required gates remain open.
-An incomplete integration is delivered as a draft PR, explicitly not deployable.
+Local implementation acceptance does not close provider or deployment gates.
+Do not report economic certification complete while required gates remain open.
 
 Exact commands, intermediate failures, limitations and the qualification handoff
 are retained in [the local evidence report](../audit/owned55-startup/README.md).

@@ -33,14 +33,48 @@ CASES = [
      'pass  # mutant retains the legacy sector breadth',
      FORM+'test_current_controller_uses_correlation_peers_not_sector_labels'),
 ]
+STARTUP_CASES = [
+    ('unsigned_formed_origin', 'sentinel/formed_origin.py',
+     "or not hmac.compare_digest(str(value['hmac_sha256']), _signature(payload))", 'or False',
+     'tests/sentinel/test_formed_startup.py::test_authenticated_origin_cannot_change_context_or_seed'),
+    ('unsigned_progress', 'sentinel/formation_bootstrap.py',
+     "or not hmac.compare_digest(str(value['hmac_sha256']), _signature(checkpoint, context))", 'or False',
+     'tests/sentinel/test_formed_startup.py::test_progress_cannot_be_self_rehashed_or_rebound[rehashed_state]'),
+    ('disconnected_formation', 'sentinel/rolling_initialization.py',
+     "if owned(context['strategy']):", 'if False:',
+     'tests/sentinel/test_rolling_initialization.py::test_real_publication_forms_historical_book_and_atomic_checkpoint'),
+    ('free_stock_entry', 'sentinel/formed_economics.py',
+     "cost = D('.001') * turnover", "cost = D('.001') * (1-allocation)",
+     'tests/sentinel/test_formed_economics.py::test_flat_half_cash_book_pays_for_stock_and_bil_only[1-.9995]'),
+    ('double_rotation_fee', 'sentinel/formed_economics.py',
+     '(parent_close + fees) / parent_open - 1', 'parent_close / parent_open - 1',
+     'tests/sentinel/test_formed_economics.py::test_canonical_rotation_cost_is_replaced_by_one_funded_entry'),
+    ('formation_health_timeout', 'scripts/sentinel_autonomous_deploy.py',
+     'env.get("SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS", "7200")',
+     'env.get("SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS", "300")',
+     'tests/sentinel/test_autonomous_deploy.py::test_real_config_allows_measured_formation_and_full_status_read'),
+    ('status_short_timeout', 'scripts/sentinel_autonomous_deploy.py',
+     'timeout=min(300, max(0.001, deadline - time.monotonic()))',
+     'timeout=min(30, max(0.001, deadline - time.monotonic()))',
+     'tests/sentinel/test_autonomous_deploy.py::test_real_config_allows_measured_formation_and_full_status_read'),
+    ('late_status_acceptance', 'scripts/sentinel_autonomous_deploy.py',
+     'if time.monotonic() >= deadline:\n                break\n            if completed.returncode',
+     'if False:\n                break\n            if completed.returncode',
+     'tests/sentinel/test_autonomous_deploy.py::test_shadow_read_cannot_authorize_after_data_deadline'),
+]
 
 
-def main(output):
+def main(output, group='controller', case=None):
     output.mkdir(parents=True, exist_ok=True)
     results = []
     env = dict(os.environ, PYTHONPATH=os.pathsep.join((str(ROOT), str(ROOT/'shared'))),
                PYTHONDONTWRITEBYTECODE='1')
-    for name, filename, old, new, node in CASES:
+    selected = STARTUP_CASES if group == 'startup' else CASES
+    if case is not None:
+        selected = [item for item in selected if item[0] == case]
+        if not selected:
+            raise ValueError('unknown mutation: '+case)
+    for name, filename, old, new, node in selected:
         path = ROOT/filename
         original = path.read_bytes()
         if original.count(old.encode()) != 1:
@@ -65,4 +99,7 @@ def main(output):
 if __name__ == '__main__':
     parser=argparse.ArgumentParser(description=__doc__)
     parser.add_argument('--output',type=Path,required=True)
-    raise SystemExit(main(parser.parse_args().output))
+    parser.add_argument('--group', choices=['controller', 'startup'], default='controller')
+    parser.add_argument('--case')
+    args = parser.parse_args()
+    raise SystemExit(main(args.output, args.group, args.case))

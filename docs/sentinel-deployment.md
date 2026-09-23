@@ -3,8 +3,11 @@
 [Owned55 and $50k historical startup](owned55-historical-startup.md) records the
 owner-selected profile and new formation acceptance gates. The production
 selector changes identity; prior certification and checkpoints do not silently
-qualify it. Historical startup admission remains incomplete until its input
-and GO integration pass the documented gates.
+qualify it. Fresh startup now acquires 379 closes (252 feature + 126 formation
++ current decision), admits an authenticated formed origin and then returns to
+300-session acquisitions. It uses current-information metadata, not a claim of
+historical PIT reconstruction. Local evidence and remaining provider/NAS gates
+are recorded in the linked acceptance ledger.
 
 [GO backup horizon renewal](backup-horizon-renewal.md) makes an exhausted
 runtime archive-proof budget repairable through the existing certified fresh
