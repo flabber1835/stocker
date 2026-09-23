@@ -1,0 +1,11 @@
+FROZEN_VALIDATION_SOURCE_SHA256=0c9efb49fdfb0766f0bc642ac5901f401667e60174cf2002973d13f66bd97caa
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 0 items
+
+============================ no tests ran in 0.00s =============================
+ERROR: file or directory not found: tests/internal_state/test_restore.py

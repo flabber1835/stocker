@@ -272,6 +272,15 @@ SPY, SPY for a BIL field, or an incorrect BIL domain must fail. Keep the
 tokenizer and sole sensor/import boundary unchanged. This exception adds no GO,
 execution or certification authority.
 
+**Historical formation transport (2026-09-23, PR #440).** Add exactly
+`sentinel/core/formation_inputs.py` to that same transport allowlist. Its sole
+`closeadj` occurrence passes the admitted typed benchmark's `spy_total_return`
+to `PublishedSession.spy_closeadj`. Historical formation uses the same SPY
+sensor, equity signal/raw fields and four BIL domains. Pin the single named
+occurrence and exercise the actual formation input composer with distinct SPY,
+equity and BIL values. Deliberately substituting BIL for SPY or swapping BIL
+domains must fail. This exception grants no raw-column reads or second sensor.
+
 **2. Why total return is CORRECT here.** SPY in this rule is not a holding. It
 is a market-regime sensor, and the frozen specification defines both of its
 predicates on a total-return series (`standalone:176-178`). A dividend paid by

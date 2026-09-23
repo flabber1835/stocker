@@ -58,6 +58,8 @@ CLOSEADJ_PERMITTED = (
     # Typed snapshot SPY transport into the canonical cold-start decision.
     # Certification §5b pins this exact file and its domain falsifiers.
     "sentinel/rolling_initialization.py",
+    # Same typed SPY transport for historical formation; certification §5b.
+    "sentinel/core/formation_inputs.py",
     # Shared type definition for that exact published SPY transport.
     "sentinel/core/session.py",
     # The sole composition that hands the published series to the sensor.
@@ -157,6 +159,7 @@ class TestTheForbiddenColumn:
             "sentinel/core/production.py",
             "sentinel/core/rolling_reader.py",
             "sentinel/rolling_initialization.py",
+            "sentinel/core/formation_inputs.py",
             "sentinel/core/session.py",
             "sentinel/core/kernel.py",
             "sentinel/shadow_observation.py",
@@ -174,6 +177,7 @@ class TestTheForbiddenColumn:
     @pytest.mark.parametrize("path", [
         "sentinel/core/rolling_reader.py",
         "sentinel/rolling_initialization.py",
+        "sentinel/core/formation_inputs.py",
     ])
     def test_rolling_reader_has_only_the_named_spy_transport_occurrence(self, path):
         """The file exception may not silently grow additional column reads."""

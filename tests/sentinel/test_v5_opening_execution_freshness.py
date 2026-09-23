@@ -27,12 +27,12 @@ simulator_is_certified = activation.simulator_is_certified
 
 def _install_unresolved_v5_opening(conn, monkeypatch, *, sale):
     import sentinel.strategy
-    from sentinel.controller.champion_config import load
+    from sentinel.controller.owned_impairment import load
     from sentinel.core.decision import runtime_strategy_identity
     config = load()
     identity = runtime_strategy_identity(config)
     # The shared activation fixture selects its legacy controller. Restore the
-    # selected V5 profile before constructing or validating dollar intents.
+    # selected Owned55/V5 profile before constructing or validating dollar intents.
     monkeypatch.setattr(sentinel.strategy, "production_strategy",
                         lambda: (config, dict(identity)))
     bound, pinned = activation._bind(conn), activation._publish(conn)

@@ -1,0 +1,39 @@
+FROZEN_VALIDATION_SOURCE_SHA256=462640a685fef8429d2f9b293539bebe28bb66d925478ef4b851f107df17cca1
+formation_bil_domain KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "formation_bil_domain",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_rolling_initialization.py::test_composed_input_keeps_spy_equity_and_bil_domains_separate[formed]",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=formation_bil_domain.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_composed_input_keeps_spy_equity_and_bil_domains_separate[formed] _____
+tests/sentinel/test_rolling_initialization.py:68: in test_composed_input_keeps_spy_equity_and_bil_domains_separate
+    assert published.defensive_previous_bar == DefensiveBar(
+E   AssertionError: assert DefensiveBar(...djusted=121.0) == DefensiveBar(...djusted=111.0)
+E
+E     Omitting 5 identical items, use -vv to show
+E     Differing attributes:
+E     ['close_adjusted', 'close_unadjusted']
+E
+E     Drill down into differing attribute close_adjusted:
+E       close_adjusted: 111.0 != 121.0...
+E
+E     ...Full output truncated (3 lines hidden), use '-vv' to show
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_rolling_initialization.py::test_composed_input_keeps_spy_equity_and_bil_domains_separate[formed]
+1 failed in 1.33s

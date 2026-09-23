@@ -17,7 +17,8 @@ NOW = datetime(2026, 9, 15, 4, tzinfo=timezone.utc)
 OBS = "rolling-first"
 
 
-def test_composed_input_keeps_spy_equity_and_bil_domains_separate():
+@pytest.mark.parametrize('transport', ['cold', 'formed'])
+def test_composed_input_keeps_spy_equity_and_bil_domains_separate(transport):
     from stock_strategy_shared.wealth_core.feed import VendorBar
     from sentinel.core.loader import CorpusWindow
     from sentinel.core.rolling_inputs import ColdStartInputs
@@ -38,9 +39,28 @@ def test_composed_input_keeps_spy_equity_and_bil_domains_separate():
         benchmarks=benchmarks, terminal_events=(), spinoff_distributions=())
     pub = SimpleNamespace(version=7, evidence={"strategy_history": {}})
 
-    published = init._published(material, pub)
-    assert published.spy_closeadj == (600., 601.)
-    assert published.spy_sessions == published.spy_expected_sessions == axis
+    if transport == 'cold':
+        published = init._published(material, pub)
+    else:
+        from sentinel.core.formation_inputs import FormationInputs
+        from sentinel.feed import calendar
+        source = object.__new__(FormationInputs)
+        source.axis = list(calendar.previous_sessions(axis[-1], 253))
+        source.benchmarks = tuple(CanonicalBenchmark(
+            session=day, spy_total_return=300.+i,
+            bil_open_signal=71., bil_close_signal=81.,
+            bil_close_adjusted=91., bil_close_unadjusted=101.)
+            for i, day in enumerate(source.axis[:-2])) + benchmarks
+        source.refs = SimpleNamespace(current_metadata=lambda **kw: ({}, {}),
+                                      distributions=lambda **kw: ())
+        source.bars = lambda *args: (equity,)
+        source.terminals = ()
+        source.publication = pub
+        published = source.session(axis[-1], SimpleNamespace(feed={'series': {'1': {}}}))
+        assert published.spy_closeadj[:-2] == tuple(300.+i for i in range(251))
+        assert published.spy_sessions == tuple(source.axis)
+    assert published.spy_closeadj[-2:] == (600., 601.)
+    assert published.spy_sessions[-2:] == published.spy_expected_sessions[-2:] == axis
     assert published.bars == (equity,)
     assert published.bars[0].signal_close == 10.
     assert published.bars[0].raw_open == 19.
@@ -50,7 +70,7 @@ def test_composed_input_keeps_spy_equity_and_bil_domains_separate():
     assert published.defensive_bar == DefensiveBar(
         axis[1], "SENTINEL:BIL", "BIL", 92., 102., 122., 112.)
     committed = shadow._published_input_value(published)
-    assert committed["spy_closeadj"] == [600., 601.]
+    assert committed["spy_closeadj"][-2:] == [600., 601.]
     assert committed["bars"][0]["signal_close"] == 10.
     assert committed["bars"][0]["raw_close"] == 20.
     assert committed["defensive_previous_bar"]["close_adjusted"] == 121.

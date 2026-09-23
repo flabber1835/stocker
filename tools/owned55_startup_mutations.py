@@ -61,6 +61,14 @@ STARTUP_CASES = [
      'if time.monotonic() >= deadline:\n                break\n            if completed.returncode',
      'if False:\n                break\n            if completed.returncode',
      'tests/sentinel/test_autonomous_deploy.py::test_shadow_read_cannot_authorize_after_data_deadline'),
+    ('formation_spy_domain', 'sentinel/core/formation_inputs.py',
+     'spy_closeadj=tuple(b.spy_total_return for b in benchmarks)',
+     'spy_closeadj=tuple(b.bil_close_adjusted for b in benchmarks)',
+     'tests/sentinel/test_rolling_initialization.py::test_composed_input_keeps_spy_equity_and_bil_domains_separate[formed]'),
+    ('formation_bil_domain', 'sentinel/core/formation_inputs.py',
+     'b.bil_close_signal, b.bil_close_adjusted, b.bil_close_unadjusted)',
+     'b.bil_close_signal, b.bil_close_unadjusted, b.bil_close_adjusted)',
+     'tests/sentinel/test_rolling_initialization.py::test_composed_input_keeps_spy_equity_and_bil_domains_separate[formed]'),
 ]
 
 

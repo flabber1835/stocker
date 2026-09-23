@@ -1,0 +1,37 @@
+{
+  "reviewed_commit": "a2570f4db42af446aeda3aefab61262803b1579c",
+  "disposition": "Addressed by focused fixture/domain acceptance; final follow-up CI still required.",
+  "jobs": [
+    {
+      "job_id": 107088455951,
+      "run_id": 35832600945,
+      "result": "8 failed, 116 passed",
+      "root_cause": "Old hand-built contract fixture named sentinel-compact-champion-v1 and lacked Owned55 parent/owned fields.",
+      "url": "https://github.com/flabber1835/stocker/actions/runs/35832600945/job/107088455951"
+    },
+    {
+      "job_id": 107088875058,
+      "run_id": 35832600970,
+      "result": "Same eight test_contract fixture failures; downstream GO steps did not run.",
+      "root_cause": "Composition imports the same contract suite.",
+      "url": "https://github.com/flabber1835/stocker/actions/runs/35832600970/job/107088875058"
+    },
+    {
+      "job_id": 107089544592,
+      "run_id": 35832600915,
+      "result": "5 failed, 5085 passed in 2762.18s",
+      "root_cause": "New SPY transport not yet registered in closed allowlist; status-memory fixture still asserted a cold cash-only book; three opening-freshness tests selected legacy champion while using an Owned55 fixture.",
+      "url": "https://github.com/flabber1835/stocker/actions/runs/35832600915/job/107089544592"
+    },
+    {
+      "job_id": 107089544783,
+      "run_id": 35832600915,
+      "result": "1 failed, 284 passed",
+      "root_cause": "Mock observer namespace lacked the now-required warmup_input_identity.",
+      "url": "https://github.com/flabber1835/stocker/actions/runs/35832600915/job/107089544783"
+    }
+  ],
+  "unchanged_runtime": "No sentinel/shared production code changed in this CI follow-up. The 311-file resource source commitment remains valid.",
+  "positive_result": "69 passed in 40.00s",
+  "additional_faults": "SPY/BIL substitution and swapped BIL adjusted/raw domains both KILLED"
+}

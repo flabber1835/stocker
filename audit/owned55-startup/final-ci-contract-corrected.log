@@ -1,0 +1,63 @@
+FROZEN_VALIDATION_SOURCE_SHA256=0c9efb49fdfb0766f0bc642ac5901f401667e60174cf2002973d13f66bd97caa
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 42 items
+
+tests/internal_state/test_contract.py::test_full_suite_gate_cannot_pass_incomplete_results[empty] PASSED [  2%]
+tests/internal_state/test_contract.py::test_full_suite_gate_cannot_pass_incomplete_results[skip] PASSED [  4%]
+tests/internal_state/test_contract.py::test_full_suite_gate_cannot_pass_incomplete_results[xfail] PASSED [  7%]
+tests/internal_state/test_contract.py::test_full_suite_gate_cannot_pass_incomplete_results[xpass] PASSED [  9%]
+tests/internal_state/test_contract.py::test_full_suite_gate_cannot_pass_incomplete_results[deselect] PASSED [ 11%]
+tests/internal_state/test_contract.py::test_full_suite_gate_cannot_pass_incomplete_results[failure] PASSED [ 14%]
+tests/internal_state/test_contract.py::test_full_suite_gate_cannot_pass_incomplete_results[missing] PASSED [ 16%]
+tests/internal_state/test_contract.py::test_full_suite_gate_cannot_pass_incomplete_results[exit] PASSED [ 19%]
+tests/internal_state/test_contract.py::test_trace_has_exact_replay_identity_and_rejects_changed_events PASSED [ 21%]
+tests/internal_state/test_contract.py::test_reducer_replays_same_failure_and_rejects_invalid_causal_candidates PASSED [ 23%]
+tests/internal_state/test_contract.py::test_generation_is_deterministic_bounded_and_varied PASSED [ 26%]
+tests/internal_state/test_contract.py::test_independent_accounting_kills_false_facts[cash-broker_cash_conservation] PASSED [ 28%]
+tests/internal_state/test_contract.py::test_independent_accounting_kills_false_facts[shares-broker_share_conservation] PASSED [ 30%]
+tests/internal_state/test_contract.py::test_independent_accounting_kills_false_facts[duplicate-one_broker_order_per_key] PASSED [ 33%]
+tests/internal_state/test_contract.py::test_independent_accounting_kills_false_facts[overfill-broker_fill_bounds] PASSED [ 35%]
+tests/internal_state/test_contract.py::test_independent_state_contract_kills_corruption[cursor-state_cursor_atomicity] PASSED [ 38%]
+tests/internal_state/test_contract.py::test_independent_state_contract_kills_corruption[witness-witness_cursor] PASSED [ 40%]
+tests/internal_state/test_contract.py::test_independent_state_contract_kills_corruption[owned_cursor-owned_cursor] PASSED [ 42%]
+tests/internal_state/test_contract.py::test_independent_state_contract_kills_corruption[owned_cap-owned_ceiling] PASSED [ 45%]
+tests/internal_state/test_contract.py::test_independent_state_contract_kills_corruption[recovery-recovery_allocation] PASSED [ 47%]
+tests/internal_state/test_contract.py::test_independent_state_contract_kills_corruption[exposure-exposure_bounds] FAILED [ 50%]
+tests/internal_state/test_contract.py::test_independent_state_contract_kills_corruption[slot-one_slot_per_episode] PASSED [ 52%]
+tests/internal_state/test_contract.py::test_independent_state_contract_kills_corruption[future-no_future_observation] PASSED [ 54%]
+tests/internal_state/test_contract.py::test_independent_state_contract_kills_corruption[nan-finite_state] PASSED [ 57%]
+tests/internal_state/test_contract.py::test_independent_state_contract_kills_corruption[identity-strategy_identity] PASSED [ 59%]
+tests/internal_state/test_contract.py::test_journal_oracle_rejects_illegal_transition_and_changed_economics PASSED [ 61%]
+tests/internal_state/test_contract.py::test_recovered_attribution_keeps_pre_restore_economics_exact[intact] PASSED [ 64%]
+tests/internal_state/test_contract.py::test_recovered_attribution_keeps_pre_restore_economics_exact[quantity] PASSED [ 66%]
+tests/internal_state/test_contract.py::test_recovered_attribution_keeps_pre_restore_economics_exact[side] PASSED [ 69%]
+tests/internal_state/test_contract.py::test_recovered_attribution_keeps_pre_restore_economics_exact[instrument] PASSED [ 71%]
+tests/internal_state/test_contract.py::test_recovered_attribution_keeps_pre_restore_economics_exact[deployment] PASSED [ 73%]
+tests/internal_state/test_contract.py::test_recovered_attribution_keeps_pre_restore_economics_exact[revision] PASSED [ 76%]
+tests/internal_state/test_contract.py::test_recovered_attribution_keeps_pre_restore_economics_exact[key] PASSED [ 78%]
+tests/internal_state/test_contract.py::test_recovered_attribution_keeps_pre_restore_economics_exact[broker] PASSED [ 80%]
+tests/internal_state/test_contract.py::test_recovered_attribution_keeps_pre_restore_economics_exact[no_restore] PASSED [ 83%]
+tests/internal_state/test_physical.py::test_restored_data_does_not_republish_inherited_backup_metadata PASSED [ 85%]
+tests/internal_state/test_physical.py::test_failed_media_repair_remains_pending_and_cannot_claim_recovery[failure0] PASSED [ 88%]
+tests/internal_state/test_physical.py::test_failed_media_repair_remains_pending_and_cannot_claim_recovery[failure1] PASSED [ 90%]
+tests/internal_state/test_physical.py::test_failed_media_repair_remains_pending_and_cannot_claim_recovery[failure2] PASSED [ 92%]
+tests/internal_state/test_physical.py::test_media_repair_recovers_a_real_failed_archive_before_next_mutation PASSED [ 95%]
+tests/internal_state/test_physical.py::test_checkpoint_selects_only_verified_archived_media[pg_verifybackup] PASSED [ 97%]
+tests/internal_state/test_physical.py::test_checkpoint_selects_only_verified_archived_media[wait_archive] PASSED [100%]
+
+=================================== FAILURES ===================================
+__ test_independent_state_contract_kills_corruption[exposure-exposure_bounds] __
+tests/internal_state/test_contract.py:155: in test_independent_state_contract_kills_corruption
+    assert captured.value.invariant == expected
+E   AssertionError: assert 'owned_ceiling' == 'exposure_bounds'
+E
+E     - exposure_bounds
+E     + owned_ceiling
+=========================== short test summary info ============================
+FAILED tests/internal_state/test_contract.py::test_independent_state_contract_kills_corruption[exposure-exposure_bounds]
+======================== 1 failed, 41 passed in 33.75s =========================

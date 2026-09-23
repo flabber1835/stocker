@@ -224,10 +224,10 @@ python tools/owned55_local_validation.py mutations formation_health_timeout
 python tools/owned55_local_validation.py mutations status_short_timeout
 python tools/owned55_local_validation.py mutations late_status_acceptance
 3/3 KILLED; formed-deploy-mutation-<case>.log retains the failures.
-Sixteen distinct faults killed overall; repeated refinements are not counted twice.
+Eighteen distinct faults killed overall; repeated refinements are not counted twice.
 
 Python ast.parse over final changed/new Python files
-59 files PASS; integrated-source.json pins their bytes.
+64 files PASS; integrated-source.json pins their bytes.
 Python 3.8 ast.parse of scripts/sentinel_go_validate.py
 PASS; actual host interpreter remains covered by required CI.
 git diff --check
@@ -266,6 +266,41 @@ Later host deployment timeout changes are separately tested above. This proves
 local synthetic scale mechanics, not deployed PG16, NAS concurrency or startup
 latency. The child process budget uses `/proc` VmHWM; inherited RUSAGE_MAXRSS from
 its larger parent is retained but is not treated as the child's high-water value.
+
+## Final CI fixture and price-domain follow-up
+
+CI at `a2570f4db42af446aeda3aefab61262803b1579c` finished with failures retained
+in `ci-a2570f4d-findings.json`. All four internal-state lifecycle campaigns,
+Wealth Core, replay, automation, operator, existing mutations, warmup, host Python
+3.8, runtime build/PG16 recovery, browser, broker simulation and backup checks
+passed. The remaining failed assertions came from stale fixtures or the missing
+closed-list registration of the new formation SPY transport. Required workflow
+aggregators correctly stayed red; no success is inferred from partial CI.
+
+The contract fixture now independently supplies the Owned55 identity, parent
+target and owned cursor, with new owned-cursor/ceiling falsifiers. Its exposure
+falsifier uses a negative matched allocation so the ceiling check cannot mask
+the long-only bound. The warmup mock now carries its actual warmup commitment.
+The opening-freshness integration selects the actual Owned55 profile. The status
+memory acceptance now restores the formed book and independently reconciles its
+cash from ledger movements rather than asserting unspent cold-start capital.
+Certification section 5b records the exact new SPY transport file before its
+allowlist addition; the tokenizer remains strict, the file has only one named
+SPY transport occurrence, and distinct SPY/equity/BIL inputs plus two deliberately
+broken domain substitutions prove the separation. No production code changed.
+
+```text
+python tools/owned55_local_validation.py test tests/internal_state/test_contract.py tests/internal_state/test_restore.py
+Collection error: nonexistent restore test path; final-ci-contract.log, no tests.
+python tools/owned55_local_validation.py test tests/internal_state/test_contract.py tests/internal_state/test_physical.py
+41 passed, 1 failed in 33.75s; final-ci-contract-corrected.log. The old upper-bound
+falsifier hit owned_ceiling first; the isolated negative-bound falsifier then passed.
+python tools/owned55_local_validation.py test tests/internal_state/test_contract.py tests/sentinel/test_feed_domains.py tests/sentinel/test_v5_opening_execution_freshness.py tests/median5/test_warmup.py tests/sentinel/test_rolling_initialization.py::test_composed_input_keeps_spy_equity_and_bil_domains_separate tests/sentinel/test_status_memory.py::test_formed_checkpoint_reuses_verified_observer_and_retains_economics
+69 passed in 40.00s; final-ci-fixture-acceptance.log.
+python tools/owned55_local_validation.py mutations formation_spy_domain
+python tools/owned55_local_validation.py mutations formation_bil_domain
+2/2 KILLED; formed-domain-mutation-<case>.log. Eighteen distinct faults overall.
+```
 
 ## Remaining gates and concrete NAS handoff
 
