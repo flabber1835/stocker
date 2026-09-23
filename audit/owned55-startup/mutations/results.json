@@ -1,0 +1,130 @@
+[
+  {
+    "name": "wrong_ceiling",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "C:\\GitHub\\stocker\\.codex-tmp\\bounded-feed-venv\\Scripts\\python.exe",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/champion/test_owned_impairment.py::test_saturated_damage_enters_on_fifth_close_without_new_shock",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "early_entry",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "C:\\GitHub\\stocker\\.codex-tmp\\bounded-feed-venv\\Scripts\\python.exe",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/champion/test_owned_impairment.py::test_saturated_damage_enters_on_fifth_close_without_new_shock",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "early_release",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "C:\\GitHub\\stocker\\.codex-tmp\\bounded-feed-venv\\Scripts\\python.exe",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/champion/test_owned_impairment.py::test_recovery_needs_eight_owned_healthy_closes_and_preserves_parent_ceiling",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "lost_parent_zero",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "C:\\GitHub\\stocker\\.codex-tmp\\bounded-feed-venv\\Scripts\\python.exe",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/champion/test_owned_impairment.py::test_owned_ceiling_preserves_independent_parent_defense[0.0-0.0]",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "duplicate_session",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "C:\\GitHub\\stocker\\.codex-tmp\\bounded-feed-venv\\Scripts\\python.exe",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/champion/test_owned_impairment.py::test_duplicate_or_older_session_is_rejected_without_mutation",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "detached_source",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "C:\\GitHub\\stocker\\.codex-tmp\\bounded-feed-venv\\Scripts\\python.exe",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_historical_formation.py::test_resume_cannot_rebase_capital_or_change_source_period[change1]",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "disconnected_ceiling",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "C:\\GitHub\\stocker\\.codex-tmp\\bounded-feed-venv\\Scripts\\python.exe",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_historical_formation.py::test_active_owned_cause_reaches_final_kernel_target",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "sector_dependency",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "C:\\GitHub\\stocker\\.codex-tmp\\bounded-feed-venv\\Scripts\\python.exe",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_historical_formation.py::test_current_controller_uses_correlation_peers_not_sector_labels",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]

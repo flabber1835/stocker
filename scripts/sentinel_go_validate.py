@@ -559,7 +559,7 @@ def shadow_configuration_document(
             "shadow observation id must be 1-64 ASCII letters, digits, dots or hyphens")
     try:
         amount = Decimal(str(env.get(
-            "SENTINEL_SHADOW_STARTING_CASH", "100000")).strip())
+            "SENTINEL_SHADOW_STARTING_CASH", "50000")).strip())
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise ValidationRefused(
             "shadow starting cash must be a positive decimal") from exc

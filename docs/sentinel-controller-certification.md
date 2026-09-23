@@ -1,5 +1,11 @@
 # Certifying the Sentinel controller — what is proven, and what step 2 blocks on
 
+[Owned55 and $50k historical startup](owned55-historical-startup.md) records the
+owner-selected profile and new formation acceptance gates. The production
+selector changes identity; prior certification and checkpoints do not silently
+qualify it. Historical startup admission remains incomplete until its input
+and GO integration pass the documented gates.
+
 **Economic audit 399, 2026-09-18: certification remains BLOCKED.** The corrected
 terminal leadership policy changes source identity; earlier performance figures
 do not certify it. See [the acceptance ledger](economic-audit-399-remediation.md)

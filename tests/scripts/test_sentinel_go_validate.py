@@ -661,7 +661,7 @@ def _forward_report():
                 "strategy": "sentinel-compact-champion-v1",
                 "controller_rule_sha256": "c" * 64},
             "controller_configuration_sha256": "c" * 64,
-            "starting_cash": "100000", "decision_session": "2026-07-31",
+            "starting_cash": "50000", "decision_session": "2026-07-31",
             "data_version": 1,
             "warmup_input": {"session_count": 252, "warmup_input_sha256": "b" * 64},
             "sentinel_source_sha256": "d" * 64,
@@ -676,8 +676,11 @@ def _forward_report():
     }
 
 
-def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary():
-    runner = _Runner(_forward_report())
+@pytest.mark.parametrize("capital", [None, "100000"])
+def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary(capital):
+    report = _forward_report()
+    report["proof"]["starting_cash"] = capital or "50000"
+    runner = _Runner(report)
     subjects = {}
     timings = {}
     ticks = iter((20.0, 22.25))
@@ -689,6 +692,7 @@ def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary():
             "ALPACA_API_KEY": "must-not-enter-compose",
             "ALPACA_SECRET_KEY": "must-not-enter-compose",
             "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter-compose",
+            **({"SENTINEL_SHADOW_STARTING_CASH": capital} if capital else {}),
         }, commit=COMMIT, candidate_image_digest=DIGEST_A,
         runtime_image_digest=DIGEST_B, source_identity_sha256=IDENTITY,
         now_text=NOW_TEXT, subject_values=subjects,
@@ -699,6 +703,7 @@ def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary():
                    if "tools.sentinel_operational_parity" in call)
     assert "--no-deps" in forward
     assert "--starting-cash" in forward
+    assert forward[forward.index("--starting-cash") + 1] == (capital or "50000")
     assert "--expected-commit" in forward
     forward_env = next(env for call, env in runner.calls
                        if "tools.sentinel_operational_parity" in call)
@@ -757,7 +762,7 @@ def test_rolling_go_proof_requires_supported_runtime_and_exact_input_scope(defec
         report["publication_coherence"]["snapshot"]["job_id"] = []
     elif defect == "authority":
         report["publication_coherence"]["snapshot"]["operational_go"] = True
-    assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash="100000") is (defect is None)
+    assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash="50000") is (defect is None)
 
 
 def test_shadow_configuration_digest_is_exact_runtime_contract():

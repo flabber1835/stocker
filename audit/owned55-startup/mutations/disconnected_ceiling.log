@@ -1,0 +1,9 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_____________ test_active_owned_cause_reaches_final_kernel_target _____________
+tests\sentinel\test_historical_formation.py:205: in test_active_owned_cause_reaches_final_kernel_target
+    assert result.last_decision['target_core_exposure'] == .55
+E   assert 1.0 == 0.55
+=========================== short test summary info ===========================
+FAILED tests/sentinel/test_historical_formation.py::test_active_owned_cause_reaches_final_kernel_target
+1 failed in 19.71s

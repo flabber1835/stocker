@@ -337,6 +337,7 @@ class SessionState:
     ldrc: dict | None = None
     concordance_witness_origin: str | None = None
     median5: dict | None = None
+    owned_impairment: dict | None = None
     version: int = ENVELOPE_VERSION
 
     @classmethod
@@ -346,6 +347,7 @@ class SessionState:
         if missing:
             raise ValueError("strategy identity is incomplete: "
                              + ", ".join(sorted(missing)))
+        from sentinel.controller import owned_impairment
         concordance = is_concordance_identity(strategy_identity)
         median5 = median5_controller.enabled(strategy_identity)
         portfolio = PortfolioState.fresh(starting_cash, 20 if median5 else DEFAULT_SLOTS)
@@ -365,6 +367,7 @@ class SessionState:
             controller=controller.initial_state(),
             shadow_peak_nav=float(starting_cash),
             strategy_identity=dict(strategy_identity),
+            owned_impairment=(owned_impairment.fresh() if owned_impairment.enabled(strategy_identity) else None),
             median5=(median5_controller.fresh(champion=champion_enabled(strategy_identity))
                      if median5 else None),
             recent_leadership=(
@@ -404,6 +407,11 @@ class SessionState:
         raw = {item.name: deepcopy(getattr(self, item.name))
                for item in fields(self) if item.name != "feed"}
         raw["feed"] = self.feed
+        from sentinel.controller import owned_impairment
+        owned_impairment.validate(self.strategy_identity, self.owned_impairment,
+                                  expected_session=self.last_processed_session)
+        if self.owned_impairment is None:
+            raw.pop("owned_impairment")
         if self.median5 is None:
             if median5_controller.enabled(self.strategy_identity):
                 raise ValueError("Median-5 controller state is required")
@@ -477,6 +485,9 @@ class SessionState:
         migrated["version"] = ENVELOPE_VERSION
         _validate_json(migrated)
         state = cls(**migrated)
+        from sentinel.controller import owned_impairment
+        owned_impairment.validate(state.strategy_identity, state.owned_impairment,
+                                  expected_session=state.last_processed_session)
         from sentinel.controller.ex3_v6 import enabled as v5_enabled
         for raw_order in state.pending:
             from stock_strategy_shared.wealth_core.adapter import PendingOrder

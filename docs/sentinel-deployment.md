@@ -1,5 +1,11 @@
 # Sentinel — operational deployment ground truth
 
+[Owned55 and $50k historical startup](owned55-historical-startup.md) records the
+owner-selected profile and new formation acceptance gates. The production
+selector changes identity; prior certification and checkpoints do not silently
+qualify it. Historical startup admission remains incomplete until its input
+and GO integration pass the documented gates.
+
 [GO backup horizon renewal](backup-horizon-renewal.md) makes an exhausted
 runtime archive-proof budget repairable through the existing certified fresh
 backup path. It preserves old recovery points and requires exact successor

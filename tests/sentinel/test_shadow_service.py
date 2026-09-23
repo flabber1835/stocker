@@ -59,6 +59,17 @@ def test_shadow_service_config_is_explicit_and_normalized():
             SENTINEL_SHADOW_PUBLICATION_TIMING_POLICY="close-plus-one-second"))
 
 
+def test_new_installation_defaults_to_fifty_thousand_across_runtime_callers():
+    from sentinel.automation_runtime import shadow_config_from_env
+    env = _env()
+    del env["SENTINEL_SHADOW_STARTING_CASH"]
+    assert shadow_service.ShadowServiceConfig.from_env(env).starting_cash == Decimal("50000")
+    assert shadow_config_from_env(env)[2] == Decimal("50000")
+    env["SENTINEL_SHADOW_STARTING_CASH"] = "100000.00"
+    assert shadow_service.ShadowServiceConfig.from_env(env).starting_cash == Decimal("100000")
+    assert shadow_config_from_env(env)[2] == Decimal("100000")
+
+
 @pytest.mark.parametrize("name", [
     "SENTINEL_VALIDATED_SOURCE_IDENTITY_SHA256",
     "SENTINEL_VALIDATED_SHADOW_CONFIG_SHA256",

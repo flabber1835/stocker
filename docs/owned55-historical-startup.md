@@ -36,7 +36,7 @@ reset the book. Formation adequacy is an acceptance question, not a claim that
 
 Reuse canonical feature warmup and `advance_session`; no parallel strategy.
 Require exact exchange-calendar coverage, dated benchmark history, permanent
-security identities, causally available classification/sector/issuer metadata,
+security identities, causally available security-type and first-observation metadata,
 and complete action inputs including independently supported terminal terms.
 Bind the formation policy, capital, strategy/source identity and every input to
 the result. Checkpoint/resume must equal uninterrupted replay. Missing, changed,
@@ -62,25 +62,94 @@ tickers. The production snapshot loader therefore correctly supplies prospective
 metadata only. The legacy dated loader can read retained observations, but
 cannot manufacture observations preceding its first collection.
 
+The selected champion/Owned55 profile uses residual-correlation peers after
+removing SPY's market contribution (`median5_breadth`), not sector membership.
+The generic loader still carries sector labels for legacy profiles, but the
+canonical kernel replaces their breadth calculation for this strategy. Historical
+sector classifications are therefore not a startup decision dependency here.
+The selected Median-5 eligibility route also does not use exchange membership
+or `last_session`; its checks include common-equity category, `first_session`,
+available price/volume history and signal validity. Admission keys are security
+IDs (`SID:<id>`), not the legacy issuer-group diversification rule. Operational
+source/anchor validation still needs permanent identities and related-ticker
+evidence; this is not evidence that historical issuer groups drive selections.
+The historical decision dependencies are permanent security/ticker identity,
+eligible security type, first available session and dated price/action coverage.
+First-session values also participate in stable peer tie-breaking. Do not
+confuse fields carried by a shared loader with fields used by the selected
+economic policy. Historical sector or exchange-membership archives are not
+requirements for this profile.
+
+Ticker continuity must use provider permanent identities and dated mappings,
+not matching names or symbols alone. Sharadar documents `permaticker` as a
+unique, unchanging security/share-class identifier and supplies first/last price
+dates. Unambiguous source-backed mappings do not require daily archived names.
+Do not extrapolate this identity guarantee into an undocumented guarantee that
+today's category was known and valid on every earlier decision date. This
+narrows the historical-vintage question to actual decision attributes and any
+unresolved source mapping, rather than requiring arbitrary daily metadata dumps.
+
+Alpaca's [asset catalogue](https://alpaca.markets/sdks/python/api_reference/trading/assets.html)
+does not document historical as-of sector or issuer-classification queries.
+Its [corporate-actions endpoint](https://docs.alpaca.markets/us/reference/corporateactions-1)
+warns that record-creation timing is not guaranteed. Neither establishes the
+missing historical metadata authority. Sharadar remains the production source.
+
+The owner is evaluating two startup policies: historically dated metadata, or
+today's metadata applied to historical prices to initialize a book prospectively.
+The latter can change initial holdings and controller state; it must be a
+separately identified initialization policy, never labelled historical PIT
+reconstruction. No choice has yet been authorized. More price history alone
+does not resolve missing metadata vintages. Source-dependent GO implementation
+remains pending that choice; independent controller and replay tests proceed.
+
 The twenty-year research export has known classification/issuer defects and
 does not close this recent-period evidence gate. Obtain retained dated Sharadar
 snapshots or a separately reviewed authoritative interval export, with actual
 coverage and terms checked for the chosen start/end. Do not use today's
 classification retrospectively or silently fall back to cold formation.
 
+The owner subsequently selected July 31, 2026 as the local bootstrap endpoint
+and authorized reuse of the retained backtest data. Its exact 378-session axis
+is January 29, 2025 through July 31, 2026: feature warmup ends January 29, 2026;
+126 formation transitions start January 30, 2026. The slice has 2,345,187 rows
+and 7,201 identities. SILV's known wrong metadata occurs on 12 warmup sessions;
+its effect must be evaluated, not silently corrected. The archive uses
+SEP-tape identities and SEC-derived issuer/FF12 metadata, not Sharadar's
+permaticker and sector domains. It is a local mechanics fixture only.
+
+Owner clarification: first GO on a new computer fetches fresh inputs and forms
+its own book through the latest eligible session. No July research book or
+checkpoint is deployed. The durable checkpoint is created only after that
+local formation and is used by subsequent restarts. Consequently no operational
+crosswalk from the research archive is part of the requested deployment path;
+the production historical source must natively maintain its permanent identity
+and metadata contracts. The July endpoint applies only to local validation.
+
+Implement a broker-free canonical formation component now. It produces a
+source/plan/state-bound candidate checkpoint, not an authenticated GO genesis.
+Snapshots accept exactly the selected plan and source binding; input/session
+commitments form an append-only chain. Preview/research callers can use this
+same component without granting trading authority. Frozen source replay and
+synthetic acceptance can proceed while the live identity/producer bridge is
+unresolved. Existing GO must continue rejecting a pre-populated cold seed.
+
 ## Finite Stage 1 acceptance ledger
 
-| Gate | Required evidence | Initial status |
+| Gate | Required evidence | Current status |
 | --- | --- | --- |
-| Policy | Frozen-rule parity, exact entry/release boundaries, independent zero causes, missing signals, restart and identity falsifiers | Pending local tests |
-| Capital | $50k default wiring; independent whole-share affordability and scaling witnesses | Pending local tests |
-| Replay mechanics | 252+126 causal synthetic sessions, canonical Core, bounded state, action and identifier transitions, uninterrupted/resumed parity | Pending local tests |
-| Historical producer | Dated metadata and full action terms for the actual formation interval | BLOCKED: input not available |
+| Policy | Frozen-rule parity, exact entry/release boundaries, independent zero causes, missing signals, restart and identity falsifiers | Locally passed; eight targeted mutations killed |
+| Capital | $50k default wiring; independent whole-share affordability and scaling witnesses | Locally passed; explicit existing capital preserved |
+| Replay mechanics | 252+126 causal synthetic sessions, canonical Core, bounded state, action and identifier transitions, uninterrupted/resumed parity | Locally passed synthetic path; real archive preview remains unqualified |
+| Historical producer | Selected initialization policy, required metadata versions and full action terms for the interval | OPEN: metadata policy choice; ordinary snapshot does not prove historical vintages |
 | Formed GO admission | Empty PostgreSQL to authenticated formed genesis, current publication/overlap, actual GO caller and independent paper baseline | Pending producer contract |
-| Failure recovery | Interruption, changed source, lost acknowledgement, duplicate start/order rejection | Pending integration |
-| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Pending |
+| Failure recovery | Interruption, changed source, lost acknowledgement, duplicate start/order rejection | Candidate resume, changed source and late-failure atomicity passed; GO integration remains |
+| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Local checks passed; CI pending publication |
 | Deployment | NAS backup/restore/resource evidence and paper transport qualification | NAS-only; outside local certification |
 
 This ledger must be updated with exact commands and results. Do not report
 Stage 1 or economic certification complete while required gates remain open.
 An incomplete integration is delivered as a draft PR, explicitly not deployable.
+
+Exact commands, intermediate failures, limitations and the qualification handoff
+are retained in [the local evidence report](../audit/owned55-startup/README.md).

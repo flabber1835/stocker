@@ -1,0 +1,9 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+________ test_saturated_damage_enters_on_fifth_close_without_new_shock ________
+tests\champion\test_owned_impairment.py:41: in test_saturated_damage_enters_on_fifth_close_without_new_shock
+    assert result['target']==(1. if day<4 else .55)
+E   assert 0.0 == 0.55
+=========================== short test summary info ===========================
+FAILED tests/champion/test_owned_impairment.py::test_saturated_damage_enters_on_fifth_close_without_new_shock
+1 failed in 0.31s

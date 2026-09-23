@@ -1,0 +1,10 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+______ test_current_controller_uses_correlation_peers_not_sector_labels _______
+tests\sentinel\test_historical_formation.py:230: in test_current_controller_uses_correlation_peers_not_sector_labels
+    assert len({state.state_hash for state in outcomes}) == 1
+E   AssertionError: assert 3 == 1
+E    +  where 3 = len({'0798958f7125dd848f22476c47662f1af70d8769c2d0801ddbd059c546a9a8da', 'b1b5963f987e5690eb17f23ebed964f479f13b21728c9e4f4ce6d9beb001e551', 'ddb6b86e34ab75e273b84478aaa1aab7480788c95425a0c4f8fcc7974469d2d0'})
+=========================== short test summary info ===========================
+FAILED tests/sentinel/test_historical_formation.py::test_current_controller_uses_correlation_peers_not_sector_labels
+1 failed in 13.37s

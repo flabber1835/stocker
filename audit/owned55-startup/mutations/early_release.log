@@ -1,0 +1,9 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_ test_recovery_needs_eight_owned_healthy_closes_and_preserves_parent_ceiling _
+tests\champion\test_owned_impairment.py:63: in test_recovery_needs_eight_owned_healthy_closes_and_preserves_parent_ceiling
+    assert r['target']==(.55 if day<12 else .65)
+E   assert 0.65 == 0.55
+=========================== short test summary info ===========================
+FAILED tests/champion/test_owned_impairment.py::test_recovery_needs_eight_owned_healthy_closes_and_preserves_parent_ceiling
+1 failed in 0.29s

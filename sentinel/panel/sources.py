@@ -1678,7 +1678,7 @@ def _dual_authority_rows(
     observation_id = os.environ.get(
         "SENTINEL_SHADOW_OBSERVATION_ID", "primary").strip()
     starting_cash = os.environ.get(
-        "SENTINEL_SHADOW_STARTING_CASH", "100000").strip()
+        "SENTINEL_SHADOW_STARTING_CASH", "50000").strip()
     if not observation_id or not starting_cash:
         detail = "reviewed shadow observation id/capital is not configured"
         return ([

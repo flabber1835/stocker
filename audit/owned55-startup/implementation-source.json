@@ -1,0 +1,29 @@
+{
+  "python_files": 23,
+  "syntax": "PASS",
+  "files": {
+    "scripts/sentinel_autonomous_deploy.py": "d177e76078b6553a9128141d4cae630f5d3600a5224e5b05768317707b6cc422",
+    "scripts/sentinel_go_validate.py": "fdb7174bfad12cdb850413a33b11a6b67ba33f6d0f4415bc437603345ae1a2d6",
+    "sentinel/automation_runtime.py": "4b1c6f530201b0c09e6a5a920e4d9f587dcf89b2982dcb13a3c96fe3c5b83c0a",
+    "sentinel/controller/champion_config.py": "80d290297466c881885e453a28f1f20d3d6aa5e35cc0a4a88e0d9ded7d1f16ed",
+    "sentinel/controller/ex3_v6.py": "6735cb78bdf3be44e24fbe7b77f1b9ce4584dc50223e5880c5b859e6b9db6120",
+    "sentinel/controller/machine.py": "42ccefd7b497da560e611ceda3fd4ed0d40b573617ee8679851b2dd7bad3c797",
+    "sentinel/controller/median5.py": "6e350e21805cfa2747b119863234f946bb53d55fef8bc504df00536984b1257f",
+    "sentinel/controller/owned_impairment.py": "699286647502b99ea9a3bf7c02b3bd839a43523d613ed3c62ad71271c2de092b",
+    "sentinel/core/decision.py": "3fc42f6ddd92fc558c682435fc4955130aecab65a46ea46f0adb8d63ff05319e",
+    "sentinel/core/formation.py": "09ee875b2c9e814eacf88badc45e7e7c81cd855a1f761f2fd9878ba314297d66",
+    "sentinel/core/kernel.py": "8be3f66c98c9d8b63e596c893495ad0625f8eaa8fe0656a61e8a1bbd8a59bef6",
+    "sentinel/core/session.py": "3ea7a675e4340b882fb06ad16fb135933a280bc8326503da9baf3343b9a5f662",
+    "sentinel/panel/sources.py": "e75ee15a5c2a0d49cd2011c8e69335161abf664958691dbbf00a6ebf0494b2ed",
+    "sentinel/shadow_service.py": "e8495192b96fa9801e9a25f86f62f4d047cf0a70a9a9c5409812a34ebbe6a24b",
+    "sentinel/strategy.py": "4aefc72348c8f97d543f3c827cc106bf98c7fa91bc2d5c6b32f98e0ba326452a",
+    "tests/champion/test_controller.py": "a46e8c494b6bbc10f439d70ddff846f38148aa322db5b9f4ac395e10c2b55e4a",
+    "tests/champion/test_owned_impairment.py": "2eb38f4ed02880efd6a16a435aa9d5ed81d556c31d4ed1c93d7a21f26cb86b95",
+    "tests/champion/test_owned_kernel.py": "103d49dd10e6a94755c82dc2730ddd3188530646d6b0798d7fb0305fb735b136",
+    "tests/scripts/test_sentinel_go_validate.py": "0637a316b4066e4c91a7553995a961739f6c13c602878490e13d378053f4180d",
+    "tests/sentinel/test_historical_formation.py": "852689ffad07cae1004c2d6af84b4692edce9b36f46d8fdc66e695087749ee35",
+    "tests/sentinel/test_shadow_service.py": "edf86c94cf8647792351ff5aea55a22591c9ee8fe7e21d7982ff36b39d018b92",
+    "tools/historical_formation_preview.py": "e8aa83f3182287c49051ee270b6d7366851d240e6baad77434d607fec9ffe6c6",
+    "tools/owned55_startup_mutations.py": "db82847e01305b02bd6ab7d52fc6f6628e2a1b6b8819f14f3a9090b503ee48d7"
+  }
+}

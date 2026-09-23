@@ -4,7 +4,15 @@ from sentinel.core.decision import runtime_strategy_identity
 
 
 def production_strategy():
-    controller = load()
+    from sentinel.controller.owned_impairment import load as owned
+    controller = owned()
+    return controller, runtime_strategy_identity(controller)
+
+
+def owned_impairment_strategy():
+    """Explicit access to the selected Owned55 profile."""
+    from sentinel.controller.owned_impairment import load as owned
+    controller = owned()
     return controller, runtime_strategy_identity(controller)
 
 
@@ -14,7 +22,8 @@ def controller_for_identity(identity):
     from sentinel.controller.concordance_parent import load as concordance
     from sentinel.controller.median5 import load as median5
     from sentinel.controller.ex3_v6 import load as v5
-    for factory in (load, v5, median5, concordance, frozen):
+    from sentinel.controller.owned_impairment import load as owned
+    for factory in (owned, load, v5, median5, concordance, frozen):
         controller = factory()
         if controller.strategy_id == identity.get("strategy"):
             if controller.digest != identity.get("controller_rule_sha256"):

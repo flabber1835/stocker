@@ -288,7 +288,7 @@ def shadow_configuration_document(
             "shadow observation id must be 1-64 ASCII letters, digits, dots or hyphens")
     try:
         amount = Decimal(str(env.get(
-            "SENTINEL_SHADOW_STARTING_CASH", "100000")).strip())
+            "SENTINEL_SHADOW_STARTING_CASH", "50000")).strip())
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise DeployRefused(
             "shadow starting cash must be a positive decimal") from exc
@@ -2003,7 +2003,7 @@ class AutonomousDeploy:
             "c,plan=p,observation_id=os.environ.get("
             "'SENTINEL_SHADOW_OBSERVATION_ID','primary'),"
             "starting_cash=Decimal(os.environ.get("
-            "'SENTINEL_SHADOW_STARTING_CASH','100000'))); "
+            "'SENTINEL_SHADOW_STARTING_CASH','50000'))); "
             "print('SENTINEL_DUAL_RECONCILIATION='+json.dumps("
             "r,sort_keys=True)); c.rollback(); c.close()")
         completed = self.runner.run(self._authorized_compose() + [

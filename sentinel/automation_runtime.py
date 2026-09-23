@@ -357,7 +357,7 @@ def shadow_config_from_env(
         "SENTINEL_SHADOW_OBSERVATION_ID", "primary")).strip()
     try:
         starting_cash = Decimal(str(source.get(
-            "SENTINEL_SHADOW_STARTING_CASH", "100000")).strip())
+            "SENTINEL_SHADOW_STARTING_CASH", "50000")).strip())
     except Exception as exc:  # Decimal accepts several non-string objects
         raise ValueError(
             "SENTINEL_SHADOW_STARTING_CASH must be a positive decimal") from exc

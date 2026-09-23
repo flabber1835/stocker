@@ -36,7 +36,7 @@ def observations(count):
 def test_registered_runtime_and_restart_identity():
     from sentinel.paper.preparation import _default_paper_strategy
     cfg, identity = _default_paper_strategy()
-    assert cfg.strategy_id == "sentinel-compact-champion-v1"
+    assert cfg.strategy_id == "sentinel-compact-champion-owned55-v1"
     assert identity["research_reference_source_sha256"] == "3fcf274dc5dba5b01ff3c637b62922f27c5dfe2e3b28e7f3a416e1bfeba09663"
     state = SessionState.fresh(starting_cash=100000, controller=Controller(cfg), strategy_identity=identity)
     assert len(state.wealth_core["slots"]) == 20

@@ -1,0 +1,33 @@
+...........F...............................................              [100%]
+================================== FAILURES ===================================
+___________ test_bundle_contains_only_allowlisted_sanitized_members ___________
+
+tmp_path = WindowsPath('C:/GitHub/stocker/.codex-tmp/owned55-bootstrap-go-tests/test_bundle_contains_only_allo0')
+
+    def test_bundle_contains_only_allowlisted_sanitized_members(tmp_path):
+        account = "PA-PRIVATE-ACCOUNT-123456"
+        api_key = "SHARADAR-PRIVATE-KEY-987654"
+        probes = _probes(subjects={"alpaca_paper_account": account})
+
+        result = go.emit_bundle(
+            probes, output_dir=tmp_path, created_at=NOW,
+            valid_for=timedelta(hours=24),
+            scan_env={"SHARADAR_API_KEY": api_key})
+
+        assert result.upload_permitted is True
+        assert result.shadow_verdict == go.SHADOW_GO
+        assert result.dual_run_verdict == go.DUAL_RUN_GO
+        assert result.paper_execution_verdict == go.PAPER_GO
+>       assert stat.S_IMODE(result.path.stat().st_mode) == 0o600
+E       AssertionError: assert 438 == 384
+E        +  where 438 = <built-in function S_IMODE>(33206)
+E        +    where <built-in function S_IMODE> = stat.S_IMODE
+E        +    and   33206 = os.stat_result(st_mode=33206, st_ino=11540474045203918, st_dev=4230598018599630777, st_nlink=1, st_uid=0, st_gid=0, st_size=3903, st_atime=1790141017, st_mtime=1790141017, st_ctime=1790141017).st_mode
+E        +      where os.stat_result(st_mode=33206, st_ino=11540474045203918, st_dev=4230598018599630777, st_nlink=1, st_uid=0, st_gid=0, st_size=3903, st_atime=1790141017, st_mtime=1790141017, st_ctime=1790141017) = stat()
+E        +        where stat = WindowsPath('C:/GitHub/stocker/.codex-tmp/owned55-bootstrap-go-tests/test_bundle_contains_only_allo0/stocker-nas-go-validation-aaaaaaaaaaaa-20260821T193000Z.zip').stat
+E        +          where WindowsPath('C:/GitHub/stocker/.codex-tmp/owned55-bootstrap-go-tests/test_bundle_contains_only_allo0/stocker-nas-go-validation-aaaaaaaaaaaa-20260821T193000Z.zip') = BundleResult(path=WindowsPath('C:/GitHub/stocker/.codex-tmp/owned55-bootstrap-go-tests/test_bundle_contains_only_allo0...rdict='SHADOW_GO', dual_run_verdict='DUAL_RUN_GO', paper_execution_verdict='PAPER_EXECUTION_GO', upload_permitted=True).path
+
+tests\scripts\test_sentinel_go_validate.py:278: AssertionError
+=========================== short test summary info ===========================
+FAILED tests/scripts/test_sentinel_go_validate.py::test_bundle_contains_only_allowlisted_sanitized_members
+1 failed, 58 passed in 0.46s
