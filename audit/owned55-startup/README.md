@@ -339,6 +339,28 @@ source. The final retained mutation logs include that baseline and the specific
 `DID NOT RAISE` failures for disconnected hooks. A mistyped initial ownership
 tool path did not execute; the correct command above passed.
 
+The first manual run, [35866335437](https://github.com/flabber1835/stocker/actions/runs/35866335437),
+passed the composition checks but refused during the predecessor feed fixture.
+Its retained `go-attempt-35866335437.json` has `all_pass=false`. The HTTP fixture
+ignored ACTIONS' `action` filter: the renames-only preflight received the three
+unrelated relation/dividend/split rows, while the complete ACTIONS capture
+correctly contained no renames. Production stability refused the discrepancy.
+The fixture now filters the requested action types without removing anything
+from the unfiltered export. The HTTP acceptance test now includes the production
+identity preflight and its full-range action corroboration.
+
+```text
+python tools/owned55_local_validation.py test tests/production_composition/test_canonical_go_e2e_harness.py tests/production_composition/test_internal_go_stage_faults.py
+60 passed in 5.30s; canonical-go-action-filter-check.log.
+python tools/owned55_local_validation.py mutations go_action_filter_ignored
+Unmodified HTTP witness passed; ignored-filter mutant KILLED by unrelated rows
+in the rename-only response. Twenty-three distinct faults overall (five audit-only).
+```
+
+No completeness guard, capability, production source evidence or golden was
+changed to make this synthetic fixture pass. The successful full GO run remains
+an outstanding gate; the failed attempt grants no authority.
+
 ## Remaining gates and concrete NAS handoff
 
 | Gate | Severity / disposition | Required evidence and pass/fail |

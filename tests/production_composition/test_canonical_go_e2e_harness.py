@@ -196,6 +196,23 @@ def test_fixture_represents_the_complete_tri_cash_and_consolidation(monkeypatch)
         float(Decimal("1.435518") / Decimal("0.984560")))
 
 
+@pytest.mark.parametrize("action,expected", [
+    ("dividend", {"dividend"}), ("split", {"split"}),
+    ("dividend,split", {"dividend", "split"}),
+    ("tickerchangeto,tickerchangefrom", set()),
+])
+def test_fixture_action_filter_preserves_the_complete_unfiltered_table(monkeypatch, action, expected):
+    monkeypatch.setattr(harness, "_session_days", lambda: (
+        dt.date(2026, 5, 1), dt.date(2026, 5, 4), dt.date(2026, 5, 5)))
+    for export in (False, True):
+        options = {"qopts.export": ["true"]} if export else {}
+        complete = harness._payload("ACTIONS", options)["datatable"]["data"]
+        selected = harness._payload("ACTIONS", {**options, "action": [action]})["datatable"]["data"]
+        assert {row[1] for row in complete} == {"relation", "dividend", "split"}
+        assert {row[1] for row in selected} == expected
+        assert selected == [row for row in complete if row[1] in expected]
+
+
 @pytest.mark.parametrize("publish_selection", [True, False], ids=["selected", "stale"])
 def test_bootstrapped_fixture_leaves_a_bounded_real_backup_authority(
         monkeypatch, tmp_path, publish_selection):
@@ -396,11 +413,12 @@ def test_fixture_refuses_dropped_container_transport_setting(missing):
 def test_real_source_membrane_consumes_local_pages_and_complete_exports(monkeypatch):
     import httpx
     from types import SimpleNamespace
-    from sentinel.feed import sharadar, snapshot_export, snapshot_source, source_authority
+    from sentinel.feed import sharadar, snapshot_export, snapshot_source, source_authority, symbol_identity
     monkeypatch.setenv("SHARADAR_API_KEY", "e2e-sharadar-key")
     monkeypatch.setattr(sharadar, "ALLOW_INSECURE_BASE_URL", True)
     monkeypatch.setattr(sharadar, "FETCH_MAX_RETRIES", 1)
     monkeypatch.setattr(harness, "PAGE_SIZE", 4_000)
+    monkeypatch.setattr(harness, "_latest_closed_session", lambda: dt.date(2026, 9, 22))
     with harness._source_server() as port:
         def local_only(request):
             assert request.url.host == "127.0.0.1" and request.url.port == port
@@ -412,13 +430,20 @@ def test_real_source_membrane_consumes_local_pages_and_complete_exports(monkeypa
             TimeoutException=httpx.TimeoutException, TransportError=httpx.TransportError,
         )
         monkeypatch.setattr(sharadar, "NDL_BASE", f"http://127.0.0.1:{port}")
+        days = harness._session_days()
+        def identity_fetch(table, params):
+            return snapshot_source.fetch_table(table, params, http=http)
+        renames = symbol_identity.stable_rename_rows(identity_fetch, through=days[-1].isoformat())
+        assert renames == []
         guarded = source_authority.StableSharadarFetch(
-            snapshot_source.fetch_table, seed_mode=True)
+            snapshot_source.fetch_table, seed_mode=True,
+            identity_actions=renames, identity_through=days[-1].isoformat(), identity_fetch=identity_fetch)
         tickers = list(guarded(sharadar.TICKERS, http=http))
         assert {row["ticker"] for row in tickers} == set(harness.TICKERS)
-        days = harness._session_days()
         interval = sharadar.date_params(days[-2].isoformat(), days[-1].isoformat())
-        list(guarded(sharadar.ACTIONS, interval, http=http))
+        actions_window = sharadar.date_params("1900-01-01", days[-1].isoformat())
+        captured_actions = list(guarded(sharadar.ACTIONS, actions_window, http=http))
+        assert {row["action"] for row in captured_actions} == {"relation", "dividend", "split"}
         list(guarded(sharadar.SFP, {"ticker": "SPY,BIL", **interval}, http=http))
         seeded = list(guarded(sharadar.SEP, interval, http=http))
         assert len(seeded) == 2 * len(harness.TICKERS)

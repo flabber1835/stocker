@@ -1,0 +1,63 @@
+{
+  "all_pass": false,
+  "canonical_entrypoint": [
+    "bash",
+    "scripts/sentinel-go-validate.sh"
+  ],
+  "ci_git_authority": "local_bare_origin_main_bound_to_tested_commit",
+  "failure": {
+    "detail": "\", \"date_to\": \"\", \"elapsed_ms\": 525, \"rows\": 4000, \"stage\": \"capture_tickers\", \"status\": \"completed\", \"table\": \"TICKERS\"}\nSENTINEL_FEED_PROGRESS={\"elapsed_ms\": 0, \"rows\": 0, \"stage\": \"seed_membership_preflight\", \"status\": \"started\"}\nSENTINEL_FEED_PROGRESS={\"date_from\": \"2025-03-11\", \"date_to\": \"2025-03-11\", \"elapsed_ms\": 0, \"rows\": 0, \"stage\": \"download_sep\", \"status\": \"started\", \"table\": \"SEP\"}\nSENTINEL_FEED_PROGRESS={\"date_from\": \"2025-03-11\", \"date_to\": \"2025-03-11\", \"elapsed_ms\": 226, \"rows\": 4000, \"stage\": \"download_sep\", \"status\": \"completed\", \"table\": \"SEP\"}\nSENTINEL_FEED_PROGRESS={\"date_from\": \"2025-03-11\", \"date_to\": \"2025-03-11\", \"elapsed_ms\": 0, \"rows\": 0, \"stage\": \"download_sep\", \"status\": \"started\", \"table\": \"SEP\"}\nSENTINEL_FEED_PROGRESS={\"date_from\": \"2025-03-11\", \"date_to\": \"2025-03-11\", \"elapsed_ms\": 279, \"rows\": 4000, \"stage\": \"download_sep\", \"status\": \"completed\", \"table\": \"SEP\"}\nSENTINEL_FEED_PROGRESS={\"elapsed_ms\": 649, \"rows\": 4000, \"stage\": \"seed_membership_preflight\", \"status\": \"completed\"}\nSENTINEL_FEED_PROGRESS={\"elapsed_ms\": 0, \"rows\": 0, \"stage\": \"seed_membership_preflight\", \"status\": \"started\"}\nSENTINEL_FEED_PROGRESS={\"date_from\": \"2026-09-21\", \"date_to\": \"2026-09-21\", \"elapsed_ms\": 0, \"rows\": 0, \"stage\": \"download_sep\", \"status\": \"started\", \"table\": \"SEP\"}\nSENTINEL_FEED_PROGRESS={\"date_from\": \"2026-09-21\", \"date_to\": \"2026-09-21\", \"elapsed_ms\": 225, \"rows\": 4000, \"stage\": \"download_sep\", \"status\": \"completed\", \"table\": \"SEP\"}\nSENTINEL_FEED_PROGRESS={\"date_from\": \"2026-09-21\", \"date_to\": \"2026-09-21\", \"elapsed_ms\": 0, \"rows\": 0, \"stage\": \"download_sep\", \"status\": \"started\", \"table\": \"SEP\"}\nSENTINEL_FEED_PROGRESS={\"date_from\": \"2026-09-21\", \"date_to\": \"2026-09-21\", \"elapsed_ms\": 275, \"rows\": 4000, \"stage\": \"download_sep\", \"status\": \"completed\", \"table\": \"SEP\"}\nSENTINEL_FEED_PROGRESS={\"elapsed_ms\": 648, \"rows\": 4000, \"stage\": \"seed_membership_preflight\", \"status\": \"completed\"}\nSENTINEL_FEED_PROGRESS={\"elapsed_ms\": 0, \"rows\": 0, \"stage\": \"identity_preflight\", \"status\": \"started\"}\nSENTINEL_FEED_PROGRESS={\"elapsed_ms\": 36, \"rows\": 0, \"stage\": \"identity_preflight\", \"status\": \"completed\"}\nSENTINEL_FEED_PROGRESS={\"date_from\": \"1900-01-01\", \"date_to\": \"2026-09-21\", \"elapsed_ms\": 0, \"rows\": 0, \"stage\": \"capture_actions\", \"status\": \"started\", \"table\": \"ACTIONS\"}\nSENTINEL_FEED_PROGRESS={\"elapsed_ms\": 0, \"rows\": 0, \"stage\": \"actions_export\", \"status\": \"started\"}\nSENTINEL_FEED_PROGRESS={\"elapsed_ms\": 0, \"refreshed_at\": \"2026-09-23T13:27:31.950203+00:00\", \"rows\": 3, \"snapshot_at\": \"2026-09-23T13:27:31.950203+00:00\", \"stage\": \"actions_export\", \"status\": \"observed\"}\nSENTINEL_FEED_PROGRESS={\"elapsed_ms\": 12, \"rows\": 3, \"stage\": \"actions_export\", \"status\": \"completed\"}\nSENTINEL_FEED_PROGRESS={\"date_from\": \"1900-01-01\", \"date_to\": \"2026-09-21\", \"elapsed_ms\": 12, \"rows\": 0, \"stage\": \"capture_actions\", \"status\": \"failed\", \"table\": \"ACTIONS\"}\nTraceback (most recent call last):\n  File \"<frozen runpy>\", line 198, in _run_module_as_main\n  File \"<frozen runpy>\", line 88, in _run_code\n  File \"/app/sentinel/__main__.py\", line 9, in <module>\n    raise SystemExit(main())\n                     ^^^^^^\n  File \"/app/sentinel/cli/main.py\", line 484, in main\n    return _run_handler(handler, config, args)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/sentinel/cli/main.py\", line 436, in _run_handler\n    result = handler(config, args)\n             ^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/sentinel/cli/feed.py\", line 310, in cmd_feed_seed\n    p = ingest.seed(conn, **kw)\n        ^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/sentinel/feed/ingest.py\", line 369, in seed\n    progress, tracked = _run_seed_generation(\n                        ^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/sentinel/feed/ingest.py\", line 300, in _run_seed_generation\n    return seed_capture.run_generation(\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/sentinel/feed/seed_capture.py\", line 151, in run_generation\n    captured.capture(guarded, sharadar.ACTIONS,\n  File \"/app/sentinel/feed/seed_capture.py\", line 101, in capture\n    for row in fetch(table, params):\n               ^^^^^^^^^^^^^^^^^^^^\n  File \"/app/sentinel/feed/source_authority/tracker.py\", line 45, in __call__\n    rows = self._fetch(table, params, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/sentinel/feed/source_authority/fetch.py\", line 108, in __call__\n    rows = super().__call__(table, params, **kwargs)\n           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^\n  File \"/app/sentinel/feed/coherence.py\", line 427, in __call__\n    authority.require_stable(sharadar.ACTIONS, authority.observe_actions(expected),\n  File \"/app/sentinel/feed/authority.py\", line 190, in require_stable\n    raise VendorPublicationUnstable(\nsentinel.feed.authority.VendorPublicationUnstable: Sharadar ACTIONS publication is not stable across two complete observations: rows 3->0, fingerprint 1ffd55b828871caf->5b6fb58e61fa4759. Refusing to treat absence, removal, or the candidate corpus as authoritative.\n\n",
+    "type": "HarnessFailure"
+  },
+  "git_commit": "3f893b25a459a64dd458f309120ae8f0245fdd1b",
+  "schema": "sentinel.production-go-e2e/1",
+  "sensitivity": [],
+  "sensitivity_group": "positive",
+  "source_requests": [
+    {
+      "channel": "pages",
+      "table": "TICKERS"
+    },
+    {
+      "channel": "export",
+      "table": "TICKERS"
+    },
+    {
+      "channel": "download",
+      "table": "TICKERS"
+    },
+    {
+      "channel": "pages",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "pages",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "download",
+      "table": "ACTIONS"
+    }
+  ],
+  "success": null
+}

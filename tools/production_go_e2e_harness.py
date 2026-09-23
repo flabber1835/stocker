@@ -228,6 +228,9 @@ def _payload(table: str, query: dict[str, list[str]]) -> dict:
                          1.36, None, None])
             rows.append([event_day.isoformat(), "split", "TRI", "TRI fixture security",
                          0.984560, None, None])
+        if query.get("action"):
+            selected_actions = set(query["action"][0].split(","))
+            rows = [row for row in rows if row[1] in selected_actions]
     elif table == "TICKERS":
         columns, rows = TICKER_COLUMNS, _ticker_rows()
     else:

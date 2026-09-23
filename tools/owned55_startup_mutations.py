@@ -34,6 +34,9 @@ CASES = [
      FORM+'test_current_controller_uses_correlation_peers_not_sector_labels'),
 ]
 STARTUP_CASES = [
+    ('go_action_filter_ignored', 'tools/production_go_e2e_harness.py',
+     'if query.get("action"):', 'if False:',
+     'tests/production_composition/test_canonical_go_e2e_harness.py::test_real_source_membrane_consumes_local_pages_and_complete_exports'),
     ('go_legacy_frontier', 'tools/production_go_e2e_harness.py',
      'held.window_end if rolling_go_inputs.is_rolling(held)',
      'store.latest_visible_session(c) if rolling_go_inputs.is_rolling(held)',
