@@ -559,6 +559,62 @@ Final-head CI and a replacement full GO campaign remain open; the old campaign
 cannot qualify the corrected test lens. No economic-certification gate is
 closed merely by correcting the test oracle.
 
+## Canonical GO timeout at 747cdcca and bounded audit correction
+
+All six normal PR workflows, including the exact-head and synthetic-merge
+aggregate safety gates, passed at `747cdcca8649a781351439a90888fc842d419ce5`.
+The separate positive GO run [35900585894](https://github.com/flabber1835/stocker/actions/runs/35900585894)
+failed at its four-hour outer deadline with code 124. It was progressing, not
+demonstrably hung: the first image's parity command returned success at
+22:32:21 UTC; the second image's command was interrupted at 22:42:52 UTC.
+The combined parity comparison, later readiness/health gates, promotion and
+panel handoff therefore remain unproven. The ordinary Alpaca account gate was
+NOT_PROVEN as expected in this broker-free SHADOW campaign.
+
+`ci-747-go-timeout.json` preserves the exact artifact identity, downloaded file
+hashes, stable suite evidence, failure and timed phase transcript. The complete
+download and raw job log are retained under `.codex-tmp/owned55-go-attempt-35900585894`
+and `.codex-tmp/owned55-go-35900585894.log` in the parent workspace. Artifact
+`10780910835` has ZIP SHA256
+`ec95b79c0a12f1b8278419c334bf6c19997eece874e5a5e5ec6a26b129dcc1b6`.
+Download commands:
+
+```text
+gh run download 35900585894 --repo flabber1835/stocker --dir C:/GitHub/stocker/.codex-tmp/owned55-go-attempt-35900585894
+gh run view 35900585894 --repo flabber1835/stocker --job 107317770388 --log
+```
+
+The complete local-full lens passed 6,548 tests: 5,612 Sentinel, 857 Wealth Core
+and 79 GO script tests; zero failures/errors/skips/xfails/xpasses. The three
+pre-existing non-forward historical exclusions remain explicitly recorded.
+Runtime image `sha256:aec6c2edd33d6364fe5ead394aa185e64629feeeb30e3a208c3dfc7b5a8ecb78`
+and test image `sha256:76752fc1c35ef347198bbd42857cea19463db2636b1f48c1768dcf308876881e`
+are bound to that tested commit. The test phase took about 3h19m; subsequent
+financial preparation passed in 571 seconds, and the first image proof took
+1,242 seconds. These partial successes do not qualify the interrupted GO.
+
+The audit-only correction supplies a 19,800-second outer deadline and a
+360-minute manual CI job allowance. Production sources, financial guards,
+provider/formation deadlines and fixtures are unchanged. The replacement must
+rerun its complete test lens and both image proofs on its own exact commit.
+The positive-only campaign still cannot claim the other fault campaigns.
+
+```text
+python tools/owned55_local_validation.py test tests/production_composition/test_canonical_go_e2e_harness.py tests/production_composition/test_internal_go_stage_faults.py tests/scripts/test_sentinel_go_suites.py
+90 passed in 5.40s; go-budget-acceptance.log.
+python tools/owned55_local_validation.py mutations go_outer_budget_undersized
+python tools/owned55_local_validation.py mutations go_job_budget_undersized
+2/2 KILLED after passing baselines (0.15s and 0.13s); go-budget-*-mutation.log.
+```
+
+The timing acceptance uses the measured workload, exercises the actual audit
+invocation's deadline propagation and preserves a forced code-124 refusal.
+Its simulated timing is not a replacement full GO result. Both old budget
+mutants fail for the intended reason. There are now 36 distinct killed mutants,
+including 12 audit-only faults; this is not expanded economic test coverage.
+Fresh main/merge-base verification remains
+`ee23c894c97a2c4023654ce3a56a62728f5b061e`. The replacement full GO is pending.
+
 ## Remaining gates and concrete NAS handoff
 
 | Gate | Severity / disposition | Required evidence and pass/fail |

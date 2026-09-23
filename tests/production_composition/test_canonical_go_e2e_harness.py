@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import os
+import re
 from pathlib import Path
 import subprocess
 import sys
@@ -79,6 +80,45 @@ def test_canonical_entrypoint_is_real_production_go():
         "PROMOTE EXACT CERTIFIED RUNTIME",
         "POST-VALIDATION HANDOFF",
     )
+
+
+def test_full_go_budget_covers_measured_work_and_preserves_refusal(monkeypatch):
+    from scripts import sentinel_go_observability as observability
+
+    # Run 35900585894: complete lens 11,952s, preparation 571s, first
+    # image proof 1,242s. Both images must run; retain 20m for later gates.
+    measured_work = 11952 + 571 + 2 * 1242 + 1200
+    deadlines = []
+    prepared = []
+
+    def replay_timing(controller, go, command, *, cwd, env, raw_stream):
+        deadline = observability._timeout_seconds(controller, go, command)
+        deadlines.append(deadline)
+        assert raw_stream is True
+        assert command == [*harness.ENTRYPOINT, '--local-full-certification',
+                           '--target', 'SHADOW']
+        return subprocess.CompletedProcess(
+            command, 0 if measured_work < deadline else 124,
+            stdout='measured timeline', stderr='')
+
+    monkeypatch.setattr(harness, '_bootstrap_financial_fixture',
+                        lambda: prepared.append(True))
+    monkeypatch.setattr(observability, '_streaming_run', replay_timing)
+    assert harness._invoke().returncode == 0
+    assert prepared == [True]
+    # An actual refusal is returned unchanged; a larger default is not a bypass.
+    assert harness._invoke(timeout=measured_work - 1,
+                           prepare_fixture=False).returncode == 124
+    assert prepared == [True]
+
+    workflow = yaml.safe_load(
+        (ROOT / '.github/workflows/production-composition-harness.yml').read_text())
+    budget = workflow['jobs']['composition']['timeout-minutes']
+    matched = re.search(r"workflow_dispatch' && (\d+) \|\| (\d+)", budget)
+    assert matched is not None
+    # Fixture/build/retention run outside GO's clock; do not shorten PR smoke.
+    assert int(matched[1]) * 60 >= deadlines[0] + 30 * 60
+    assert int(matched[2]) == 180
 
 
 def test_fixture_pages_satisfy_consumed_sharadar_protocol():

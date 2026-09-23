@@ -46,7 +46,7 @@ jobs:
     needs: database-preflight
     name: go-campaign-${{ matrix.scope }}-${{ matrix.campaign }}
     runs-on: ubuntu-latest
-    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 300 || 180 }}
+    timeout-minutes: ${{ github.event_name == 'workflow_dispatch' && 360 || 180 }}
     env:
       # stock_strategy_shared is intentionally imported as a top-level module.
       PYTHONPATH: ${{ github.workspace }}/shared

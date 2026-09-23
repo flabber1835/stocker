@@ -34,6 +34,12 @@ CASES = [
      FORM+'test_current_controller_uses_correlation_peers_not_sector_labels'),
 ]
 STARTUP_CASES = [
+    ('go_outer_budget_undersized', 'tools/production_go_e2e_harness.py',
+     'timeout: int = 19800, prepare_fixture', 'timeout: int = 14400, prepare_fixture',
+     'tests/production_composition/test_canonical_go_e2e_harness.py::test_full_go_budget_covers_measured_work_and_preserves_refusal'),
+    ('go_job_budget_undersized', '.github/workflows/production-composition-harness.yml',
+     "workflow_dispatch' && 360 || 180", "workflow_dispatch' && 300 || 180",
+     'tests/production_composition/test_canonical_go_e2e_harness.py::test_full_go_budget_covers_measured_work_and_preserves_refusal'),
     ('formed_oracle_cash_unchecked', 'tests/support/formed_accounting.py',
      "_near(book['cash'], cash, 'cash mismatch')", 'pass  # cash guard removed',
      'tests/sentinel/test_rolling_restore_integrity.py::test_published_price_oracle_refuses_a_dollar_of_invented_cash'),

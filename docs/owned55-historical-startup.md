@@ -240,9 +240,20 @@ and the new rolling publication through the version-dispatched authenticated
 reader. Its synthetic source covers at least 379 closes and uses $50,000. The
 successful path remains the real shell entrypoint, PostgreSQL, local-full test
 lens, read-only formation proof, promotion and panel handoff; no broker keys
-are supplied. The audit's outer deadline is four hours and the manual CI job
-budget is five hours, accommodating the test lens and formation separately.
+are supplied. The audit's outer deadline is five and a half hours and the manual
+CI job budget is six hours, accommodating the test lens and formation separately.
 Production ingestion, source-final and execution admission deadlines are unchanged.
+
+Run `35900585894` at `747cdcca` demonstrated why the former four-hour outer
+budget was insufficient: its complete 6,548-test lens passed, taking about
+3 hours 19 minutes from the GO invocation; financial preparation then passed
+in 571 seconds. The first immutable-image parity proof passed in 1,242 seconds;
+the second was still running when the outer deadline stopped GO with code 124.
+The replacement audit budget reserves time for both independently executed
+image proofs and subsequent readiness/health/promotion checks, plus a separate
+30-minute CI allowance for fixture preparation and artifact retention. Timeout
+still refuses qualification. No prior test result is substituted for the new
+run's test lens, and no production deadline or financial acceptance is relaxed.
 
 The CI Sentinel main lane has a 150-minute test budget; other lane limits stay
 at 45 minutes. Retained GitHub evidence at `b7577af0` took 44 minutes for the
@@ -268,7 +279,7 @@ with executable call-site witnesses that detect a disconnected hook.
 | Formed GO admission | Empty PostgreSQL to authenticated formed genesis, current publication/overlap, actual GO caller and independent paper baseline | Implemented; isolated PostgreSQL positive acceptance and full read-only GO formation proof pass |
 | Failure recovery | Interruption, changed source, lost acknowledgement, duplicate start/order rejection | Authenticated progress, acknowledgement loss at 0/1/63/126, immutable origin restart and first funded daily resume pass; complete runtime regression retained in evidence report |
 | Observation admission | Canonical formed proof, matching production origin, selected policy, cold-proof and rehashed-evidence refusals | Locally passed; three observation faults killed; legacy cold proof cannot authorize Owned55 |
-| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Thirty-four mutations killed (eight controller/candidate, five integration/accounting, six deployment timing/configuration, two price domains, three observation, ten audit-only); final-head CI and full canonical GO positive campaign remain gates |
+| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Thirty-six mutations killed (eight controller/candidate, five integration/accounting, six deployment timing/configuration, two price domains, three observation, twelve audit-only); ordinary CI and all 6,548 local-full tests passed at 747cdcca, but its positive GO timed out during second-image parity. Replacement-head CI and full GO remain gates |
 | Deployment | NAS backup/restore/resource evidence and paper transport qualification | NAS-only; outside local certification |
 
 Local implementation acceptance does not close provider or deployment gates.

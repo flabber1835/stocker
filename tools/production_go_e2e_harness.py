@@ -580,7 +580,7 @@ def _clean_runtime() -> None:
 
 
 def _invoke(*, target: str = "SHADOW", extra_env: dict[str, str] | None = None,
-            timeout: int = 14400, prepare_fixture: bool = True) -> subprocess.CompletedProcess[str]:
+            timeout: int = 19800, prepare_fixture: bool = True) -> subprocess.CompletedProcess[str]:
     from types import SimpleNamespace
     from scripts import sentinel_go_observability as observability
     if prepare_fixture:
