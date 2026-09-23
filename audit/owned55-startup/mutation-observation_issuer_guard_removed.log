@@ -1,0 +1,52 @@
+FROZEN_VALIDATION_SOURCE_SHA256=546e4842d9024a9b43da7782eeb40f9e5c6053eaaf90a5c3cef0694af17ef9b9
+observation_issuer_guard_removed KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "observation_issuer_guard_removed",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_rolling_admission_readers.py::test_owned_candidate_and_issuer_refuse_rehashed_cold_warmup",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=observation_issuer_guard_removed.baseline.log
+.                                                                        [100%]
+1 passed in 19.12s
+
+MUTATION_LOG=observation_issuer_guard_removed.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_owned_candidate_and_issuer_refuse_rehashed_cold_warmup __________
+tests/sentinel/test_rolling_admission_readers.py:109: in test_owned_candidate_and_issuer_refuse_rehashed_cold_warmup
+    with pytest.raises(IssuanceRefused, match='formed startup proof'):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'tools.sentinel_certificate_issuer.IssuanceRefused'>
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 208, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 197, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 502, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 127, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 187, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 53, "job_id": "04ed03f2-9c5f-4882-87c0-731bf55315ed", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_rolling_admission_readers.py::test_owned_candidate_and_issuer_refuse_rehashed_cold_warmup
+1 failed in 18.64s

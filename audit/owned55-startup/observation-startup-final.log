@@ -1,0 +1,27 @@
+FROZEN_VALIDATION_SOURCE_SHA256=546e4842d9024a9b43da7782eeb40f9e5c6053eaaf90a5c3cef0694af17ef9b9
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 16 items
+
+tests/sentinel/test_observation_startup.py::test_truncated_or_relabelled_formation_cannot_authorize_owned55[change0] PASSED [  6%]
+tests/sentinel/test_observation_startup.py::test_truncated_or_relabelled_formation_cannot_authorize_owned55[change1] PASSED [ 12%]
+tests/sentinel/test_observation_startup.py::test_truncated_or_relabelled_formation_cannot_authorize_owned55[change2] PASSED [ 18%]
+tests/sentinel/test_observation_startup.py::test_truncated_or_relabelled_formation_cannot_authorize_owned55[change3] PASSED [ 25%]
+tests/sentinel/test_observation_startup.py::test_truncated_or_relabelled_formation_cannot_authorize_owned55[change4] PASSED [ 31%]
+tests/sentinel/test_observation_startup.py::test_truncated_or_relabelled_formation_cannot_authorize_owned55[change5] PASSED [ 37%]
+tests/sentinel/test_observation_startup.py::test_truncated_or_relabelled_formation_cannot_authorize_owned55[change6] PASSED [ 43%]
+tests/sentinel/test_observation_startup.py::test_truncated_or_relabelled_formation_cannot_authorize_owned55[change7] PASSED [ 50%]
+tests/sentinel/test_observation_startup.py::test_truncated_or_relabelled_formation_cannot_authorize_owned55[change8] PASSED [ 56%]
+tests/sentinel/test_observation_startup.py::test_truncated_or_relabelled_formation_cannot_authorize_owned55[change9] PASSED [ 62%]
+tests/sentinel/test_observation_startup.py::test_truncated_or_relabelled_formation_cannot_authorize_owned55[change10] PASSED [ 68%]
+tests/sentinel/test_rolling_admission_readers.py::test_candidate_refuses_warmup_for_different_generation_or_strategy[publication_fingerprint] PASSED [ 75%]
+tests/sentinel/test_rolling_admission_readers.py::test_candidate_refuses_warmup_for_different_generation_or_strategy[strategy_identity_sha256] PASSED [ 81%]
+tests/sentinel/test_rolling_admission_readers.py::test_candidate_refuses_warmup_for_different_generation_or_strategy[decision_session] PASSED [ 87%]
+tests/sentinel/test_rolling_admission_readers.py::test_owned_candidate_and_issuer_refuse_rehashed_cold_warmup PASSED [ 93%]
+tests/sentinel/test_rolling_admission_readers.py::test_warmup_is_the_selected_canonical_production_transition PASSED [100%]
+
+======================== 16 passed in 101.94s (0:01:41) ========================

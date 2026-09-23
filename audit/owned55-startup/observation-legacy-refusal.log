@@ -1,0 +1,12 @@
+FROZEN_VALIDATION_SOURCE_SHA256=e12a426a440af71fee593f2f080b7d8516d0d9ee108f7cba0d7335503ca99e9b
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/sentinel/test_operational_parity.py::test_owned_observation_refuses_legacy_publication_before_loading_formation PASSED [100%]
+
+============================== 1 passed in 1.53s ===============================

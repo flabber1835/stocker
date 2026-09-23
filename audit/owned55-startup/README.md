@@ -260,8 +260,12 @@ broken-wiring/deadline variants exercise the measured durations without an
 hour-long artificial sleep. No causal source/open cutoff was changed.
 
 The resource probe used PostgreSQL 17 inside the shared 4 GiB disposable
-container. All 311 sentinel/shared production Python files in the frozen worker
-match the delivered runtime bytes (`formed-resource-runtime-source.json`).
+container. Its 311 sentinel/shared production Python files matched the runtime
+at that check (`formed-resource-runtime-source.json`). The subsequent observation
+authorization change modifies one of those files and adds two proof modules;
+`resource-source-followup.json` records the exact difference. Durable formation,
+storage and status paths retain their measured bytes. The new read-only proof
+has functional evidence, not a new broad-universe resource measurement.
 Later host deployment timeout changes are separately tested above. This proves
 local synthetic scale mechanics, not deployed PG16, NAS concurrency or startup
 latency. The child process budget uses `/proc` VmHWM; inherited RUSAGE_MAXRSS from
@@ -360,6 +364,68 @@ in the rename-only response. Twenty-three distinct faults overall (five audit-on
 No completeness guard, capability, production source evidence or golden was
 changed to make this synthetic fixture pass. The successful full GO run remains
 an outstanding gate; the failed attempt grants no authority.
+
+## Formed observation authority and complete GO suite isolation
+
+The second canonical attempt, [35867850976](https://github.com/flabber1835/stocker/actions/runs/35867850976),
+passed source seeding and the populated physical backup, but correctly returned
+REFUSED at software certification. Its monolithic Sentinel test process reported
+a failure and then exited 137 without its final summary. Memory pressure is
+suspected, not proven by an OOM record. The failed JSON and bundle/log hashes are
+retained in `go-attempt-35867850976*.json`; no qualification is inferred from it.
+
+Independent reproduction found an actual startup integration defect: paper
+observation authorization still proved a 252+1 cold book, while the production
+initializer used 126 economic formation sessions. Observation and GO now share
+the canonical read-only formation adapter. The initializer independently reaches
+the same state; the preview creates no progress, processed-session or fill rows.
+Both candidate creation and the offline issuer refuse rehashed cold evidence
+under Owned55. Legacy profiles retain their explicit cold proof. The selected
+current-information policy and historical-certification limitation are unchanged.
+
+Both local-full GO callers now run general, rolling, warmup and automation in
+fresh network-disabled containers of the identical test image. All four must
+pass before the logical Sentinel suite counts as complete. The Wealth Core
+historical exclusions are unchanged. No test is skipped or repinned. Actual
+full and partitioned pytest collections are compared independently for missing
+and duplicate nodes; future ordinary test modules belong to the general group.
+
+```text
+python tools/owned55_local_validation.py test tests/sentinel/test_rolling_admission_readers.py::test_warmup_is_the_selected_canonical_production_transition
+Before fix: 1 failed in 32.23s; observation-startup-before.log.
+python tools/owned55_local_validation.py test tests/sentinel/test_rolling_admission_readers.py::test_warmup_is_the_selected_canonical_production_transition tests/sentinel/test_rolling_admission_readers.py::test_owned_candidate_and_issuer_refuse_rehashed_cold_warmup tests/sentinel/test_rolling_admission_readers.py::test_signed_rolling_candidate_installs_and_activates_with_reobserved_inputs tests/sentinel/test_operational_parity.py
+12 passed in 79.36s; observation-startup-acceptance.log.
+python tools/owned55_local_validation.py test tests/scripts/test_sentinel_go_validate.py tests/scripts/test_sentinel_go_suites.py tests/scripts/test_sentinel_single_runtime_go_build.py tests/scripts/test_sentinel_go_ci_runtime.py tests/sentinel/test_rolling_admission_readers.py tests/sentinel/test_paper_observation_authority.py tests/sentinel/test_operational_parity.py tests/sentinel/test_image_layout.py
+178 passed, 1 failed in 179.13s; observation-go-partition-acceptance.log.
+The negative decision-session case refused correctly but with changed message
+ordering. Source bindings now retain their original precedence; test unchanged.
+python tools/owned55_local_validation.py test tests/sentinel/test_observation_startup.py tests/sentinel/test_rolling_admission_readers.py::test_candidate_refuses_warmup_for_different_generation_or_strategy tests/sentinel/test_rolling_admission_readers.py::test_owned_candidate_and_issuer_refuse_rehashed_cold_warmup tests/sentinel/test_rolling_admission_readers.py::test_warmup_is_the_selected_canonical_production_transition
+16 passed in 101.94s; observation-startup-final.log.
+python tools/owned55_local_validation.py test tests/sentinel/test_operational_parity.py::test_owned_observation_refuses_legacy_publication_before_loading_formation
+1 passed in 1.53s; observation-legacy-refusal.log.
+python tools/owned55_local_validation.py mutations observation_cold_fallback
+python tools/owned55_local_validation.py mutations observation_cold_proof_allowed
+python tools/owned55_local_validation.py mutations observation_issuer_guard_removed
+python tools/owned55_local_validation.py mutations go_partition_failure_ignored
+python tools/owned55_local_validation.py mutations go_partition_misclassified
+5/5 KILLED, each after its unmodified test passed; mutation-<case>.log.
+Twenty-eight distinct mutants overall. Counts from overlapping test runs are
+not added together as unique test coverage.
+python tools/owned55_local_validation.py test tests/scripts/test_sentinel_go_validate.py tests/scripts/test_sentinel_go_suites.py tests/scripts/test_sentinel_single_runtime_go_build.py tests/scripts/test_sentinel_go_ci_runtime.py
+109 passed in 0.46s; go-partition-final.log. Both real GO callers covered.
+python tools/owned55_local_validation.py partitions
+PASS: 5,610 collected nodes; general 5,103, rolling 345, warmup 20, automation
+142. No missing or duplicate nodes; go-partition-collection-final.log.
+python tools/validate_test_responsibility.py --base origin/main --output audit/owned55-startup/test-responsibility-final.json
+PASS, no unowned tests; final changed/new Python source pins and syntax result
+are in integrated-source.json. Changed GO host modules also parse as Python 3.8.
+```
+
+An initial host invocation including `test_sentinel_go_ci_runtime.py` could not
+collect because Windows lacks `fcntl`; it executed no tests. The same tests
+passed in the offline Linux invocation above. The first collection helper
+invocation omitted the argparse `--` delimiter and did not collect tests;
+`go-sentinel-collection.argument-error.log` retains this setup error.
 
 ## Remaining gates and concrete NAS handoff
 

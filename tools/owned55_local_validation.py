@@ -21,13 +21,15 @@ raise SystemExit(result.returncode)
 
 if __name__ == '__main__':
     parser = argparse.ArgumentParser(description=__doc__)
-    parser.add_argument('mode', choices=['test', 'mutations', 'resource'])
+    parser.add_argument('mode', choices=['test', 'mutations', 'resource', 'partitions'])
     parser.add_argument('nodes', nargs='*')
     args = parser.parse_args()
     command = (['-m', 'pytest', *args.nodes, '-v', '--tb=short', '-p', 'no:cacheprovider'] if args.mode == 'test'
                else ['tools/owned55_startup_mutations.py', '--group', 'startup', '--output', 'startup-mutations'])
     if args.mode == 'resource':
         command = ['tools/owned55_resource_probe.py', *args.nodes]
+    if args.mode == 'partitions':
+        command = ['tools/verify_sentinel_test_partitions.py']
     if args.mode == 'mutations' and args.nodes:
         if len(args.nodes) != 1:
             parser.error('mutations accepts at most one case name')

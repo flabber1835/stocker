@@ -1,0 +1,12 @@
+{
+  "run_id": 35867850976,
+  "commit": "b7577af031204d32b4d77f1a0871becdb8a87d3c",
+  "all_pass": false,
+  "result": "REFUSED",
+  "bundle_sha256": "59aaf704531e19a3519878b669032d5df78927a0a017538c45f7947b98a44258",
+  "canonical_go_log_sha256": "b89ef7a077958cbb7ccae5842c7123b101afdd1381ec4d1d9f12be909a69be3b",
+  "sentinel_exit_code": 137,
+  "oom_confirmed": false,
+  "independently_reproduced_failure": "test_rolling_admission_readers.py::test_warmup_is_the_selected_canonical_production_transition",
+  "interpretation": "Observation admission was still a cold startup; GO correctly refused incomplete software certification."
+}

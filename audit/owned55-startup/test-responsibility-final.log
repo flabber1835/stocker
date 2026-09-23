@@ -343,7 +343,7 @@
       ]
     }
   },
-  "test_modules": 505,
+  "test_modules": 507,
   "test_roots": [
     "research/sharadar_replay/tests",
     "tests"

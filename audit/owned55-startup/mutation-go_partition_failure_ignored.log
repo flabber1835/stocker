@@ -1,0 +1,197 @@
+FROZEN_VALIDATION_SOURCE_SHA256=e12a426a440af71fee593f2f080b7d8516d0d9ee108f7cba0d7335503ca99e9b
+go_partition_failure_ignored KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "go_partition_failure_ignored",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=go_partition_failure_ignored.baseline.log
+............................                                             [100%]
+28 passed in 0.13s
+
+MUTATION_LOG=go_partition_failure_ignored.log
+FFFFFFFFFFFFFFFFFFFFFFFFFFFF                                             [100%]
+=================================== FAILURES ===================================
+_____ test_any_incomplete_partition_blocks_go[-9-10 passed in 1s-general] ______
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_____ test_any_incomplete_partition_blocks_go[-9-10 passed in 1s-rolling] ______
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+______ test_any_incomplete_partition_blocks_go[-9-10 passed in 1s-warmup] ______
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+____ test_any_incomplete_partition_blocks_go[-9-10 passed in 1s-automation] ____
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[1-9 passed, 1 failed in 1s-general] __
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[1-9 passed, 1 failed in 1s-rolling] __
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+__ test_any_incomplete_partition_blocks_go[1-9 passed, 1 failed in 1s-warmup] __
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[1-9 passed, 1 failed in 1s-automation] _
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_____________ test_any_incomplete_partition_blocks_go[0--general] ______________
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_____________ test_any_incomplete_partition_blocks_go[0--rolling] ______________
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+______________ test_any_incomplete_partition_blocks_go[0--warmup] ______________
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+____________ test_any_incomplete_partition_blocks_go[0--automation] ____________
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+______ test_any_incomplete_partition_blocks_go[0-1 skipped in 1s-general] ______
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+______ test_any_incomplete_partition_blocks_go[0-1 skipped in 1s-rolling] ______
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+______ test_any_incomplete_partition_blocks_go[0-1 skipped in 1s-warmup] _______
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+____ test_any_incomplete_partition_blocks_go[0-1 skipped in 1s-automation] _____
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[0-9 passed, 1 xfailed in 1s-general] _
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[0-9 passed, 1 xfailed in 1s-rolling] _
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[0-9 passed, 1 xfailed in 1s-warmup] __
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[0-9 passed, 1 xfailed in 1s-automation] _
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[0-9 passed, 1 xpassed in 1s-general] _
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[0-9 passed, 1 xpassed in 1s-rolling] _
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[0-9 passed, 1 xpassed in 1s-warmup] __
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[0-9 passed, 1 xpassed in 1s-automation] _
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+__ test_any_incomplete_partition_blocks_go[0-9 passed, 1 error in 1s-general] __
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+__ test_any_incomplete_partition_blocks_go[0-9 passed, 1 error in 1s-rolling] __
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+__ test_any_incomplete_partition_blocks_go[0-9 passed, 1 error in 1s-warmup] ___
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+_ test_any_incomplete_partition_blocks_go[0-9 passed, 1 error in 1s-automation] _
+tests/scripts/test_sentinel_go_suites.py:32: in test_any_incomplete_partition_blocks_go
+    assert complete == 2  # The other two logical suites cannot hide the missing portion.
+    ^^^^^^^^^^^^^^^^^^^^
+E   assert 3 == 2
+=========================== short test summary info ============================
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[-9-10 passed in 1s-general]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[-9-10 passed in 1s-rolling]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[-9-10 passed in 1s-warmup]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[-9-10 passed in 1s-automation]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[1-9 passed, 1 failed in 1s-general]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[1-9 passed, 1 failed in 1s-rolling]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[1-9 passed, 1 failed in 1s-warmup]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[1-9 passed, 1 failed in 1s-automation]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0--general]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0--rolling]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0--warmup]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0--automation]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-1 skipped in 1s-general]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-1 skipped in 1s-rolling]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-1 skipped in 1s-warmup]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-1 skipped in 1s-automation]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 xfailed in 1s-general]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 xfailed in 1s-rolling]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 xfailed in 1s-warmup]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 xfailed in 1s-automation]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 xpassed in 1s-general]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 xpassed in 1s-rolling]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 xpassed in 1s-warmup]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 xpassed in 1s-automation]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 error in 1s-general]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 error in 1s-rolling]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 error in 1s-warmup]
+FAILED tests/scripts/test_sentinel_go_suites.py::test_any_incomplete_partition_blocks_go[0-9 passed, 1 error in 1s-automation]
+28 failed in 0.19s

@@ -1,0 +1,2051 @@
+{
+  "all_pass": false,
+  "canonical_entrypoint": [
+    "bash",
+    "scripts/sentinel-go-validate.sh"
+  ],
+  "ci_git_authority": "local_bare_origin_main_bound_to_tested_commit",
+  "failure": {
+    "detail": "canonical GO did not complete successfully (rc=2)",
+    "type": "AuditFailure"
+  },
+  "git_commit": "b7577af031204d32b4d77f1a0871becdb8a87d3c",
+  "schema": "sentinel.production-go-e2e/1",
+  "sensitivity": [],
+  "sensitivity_group": "positive",
+  "source_requests": [
+    {
+      "channel": "pages",
+      "table": "TICKERS"
+    },
+    {
+      "channel": "export",
+      "table": "TICKERS"
+    },
+    {
+      "channel": "download",
+      "table": "TICKERS"
+    },
+    {
+      "channel": "pages",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "pages",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "download",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "pages",
+      "table": "SFP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "pages",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "pages",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "pages",
+      "table": "TICKERS"
+    },
+    {
+      "channel": "export",
+      "table": "TICKERS"
+    },
+    {
+      "channel": "download",
+      "table": "TICKERS"
+    },
+    {
+      "channel": "pages",
+      "table": "SFP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "download",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "pages",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "download",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "download",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "ACTIONS"
+    },
+    {
+      "channel": "export",
+      "table": "TICKERS"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    },
+    {
+      "channel": "export",
+      "table": "SEP"
+    }
+  ],
+  "success": null
+}

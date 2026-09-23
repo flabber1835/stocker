@@ -1,0 +1,2 @@
+usage: owned55_local_validation.py [-h] {test,mutations,resource} [nodes ...]
+owned55_local_validation.py: error: unrecognized arguments: --collect-only -qq

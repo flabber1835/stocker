@@ -916,37 +916,11 @@ def probe_certified_suite(runner: CommandRunner, *, commit: Optional[str],
         except (AttributeError, json.JSONDecodeError):
             identity_hash = None
 
-    suite_commands = (
-        ["docker", "run", "--rm", "--network", "none", candidate_digest,
-         "tests/sentinel", "-q", "-ra"],
-        ["docker", "run", "--rm", "--network", "none", candidate_digest,
-         "tests/wealth_core",
-         *(item for node in NON_FORWARD_HISTORICAL_EXCLUSIONS
-           for item in ("--deselect", node)),
-         "-q", "-ra"],
-        ["docker", "run", "--rm", "--network", "none", candidate_digest,
-         "tests/scripts/test_sentinel_go_validate.py",
-         "tests/scripts/test_sentinel_reviewed_deploy_gate.py",
-         "-q", "-ra"],
-    )
-    aggregate = {
-        "passed": 0, "failed": 0, "errors": 0, "skipped": 0,
-        "xfailed": 0, "xpassed": 0,
-    }
-    combined_exit = 0
-    suites_completed = 0
-    for command in suite_commands:
-        suite = runner.run(command)
-        counts = _parse_pytest_summary(
-            (suite.stdout or "") + "\n" + (suite.stderr or ""))
-        for key in aggregate:
-            aggregate[key] += counts[key]
-        if suite.returncode != 0:
-            # Signals are negative return codes.  ``max(0, -9)`` would
-            # otherwise turn a killed suite into a successful aggregate.
-            combined_exit = int(suite.returncode) or 1
-        if counts["passed"] > 0:
-            suites_completed += 1
+    import sentinel_go_suites
+    aggregate, combined_exit, suites_completed = sentinel_go_suites.run(
+        runner, image=candidate_digest,
+        exclusions=NON_FORWARD_HISTORICAL_EXCLUSIONS,
+        parse_summary=_parse_pytest_summary)
     summary = TestSummary(
         candidate_image_digest=candidate_digest,
         runtime_image_digest=runtime_digest,

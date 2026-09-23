@@ -122,18 +122,10 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
                     # window. Do not retain a second, unused warmup corpus.
                     binding, _ = rolling_go_inputs.validate_status(conn, held)
                     from sentinel.core.formation_inputs import FormationInputs
-                    from sentinel.core.formation import Formation
+                    from sentinel.core import formation_preview
                     source_inputs = FormationInputs(conn, binding, held)
-                    formation = Formation(source_inputs.plan(capital=cash, strategy=strategy),
-                                          source_inputs.warmup(), data_version=held.version)
-                    while not formation.complete:
-                        formation.advance(source_inputs.session(formation.axis[252+formation.count], formation.state))
-                    prior, warmup = formation.state, formation.warmup_identity
-                    published = source_inputs.session(frontier, prior)
-                    formation_proof = dict(schema='sentinel.formation-parity/1',
-                        policy=formation.plan.metadata_policy, sessions=formation.count,
-                        end=formation.plan.end, chain_sha256=formation.chain,
-                        state_sha256=prior.state_hash, source_sha256=formation.plan.source_sha256)
+                    prior, warmup, published, formation_proof = formation_preview.run(
+                        source_inputs, capital=cash, strategy=strategy, data_version=held.version)
                 else:
                     binding, material, _ = rolling_go_inputs.validate(conn, held)
                     prior = warm_session_state(

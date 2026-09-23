@@ -110,6 +110,16 @@ def test_legacy_observation_warmup_uses_the_same_selected_production_strategy(
     from sentinel import observation_authority
     from sentinel.core import production
     from sentinel.feed import readers
+    from sentinel import strategy
+    from sentinel.controller.champion_config import load
+    from sentinel.core.decision import runtime_strategy_identity
+
+    def legacy():
+        controller = load()
+        return controller, runtime_strategy_identity(controller)
+
+    monkeypatch.setattr(strategy, 'production_strategy', legacy)
+    monkeypatch.setattr(parity, 'production_strategy', legacy)
 
     # Supply the legacy loader's deterministic material at its I/O boundary;
     # canonical warm_session_state and advance_session remain real.
@@ -123,6 +133,17 @@ def test_legacy_observation_warmup_uses_the_same_selected_production_strategy(
     assert evidence["warmup_sessions"] == 252 and evidence["decision_session"] == FRONTIER
     assert evidence["starting_cash"] == "100000"
     assert evidence["result_state_sha256"] == proof["proof"]["result_state_sha256"]
+
+
+def test_owned_observation_refuses_legacy_publication_before_loading_formation(
+        monkeypatch, operational_inputs):
+    from sentinel import observation_authority
+    from sentinel.authority import AuthorityRefused
+    from sentinel.feed import readers
+
+    monkeypatch.setattr(readers, 'pinned', lambda c, **kw: parity.rolling_go_inputs.pinned(c))
+    with pytest.raises(AuthorityRefused, match='requires a formation publication'):
+        observation_authority.current_warmup_evidence(Connection(), starting_cash=50000)
 
 
 @pytest.mark.parametrize("fault", ["mutate_prior", "mutate_input", "restart_diverges", "wrong_version", "no_advance"])

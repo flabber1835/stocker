@@ -205,6 +205,29 @@ pre-populated seed presented as an ordinary cold start.
 
 ## Finite Stage 1 acceptance ledger
 
+Paper-observation candidate creation is a production startup caller too. Its
+Owned55 proof must use the same canonical 126-session formation and current
+transition as GO and the durable initializer. The prior 252+1 cold proof cannot
+qualify this profile. The new warmup evidence version `/3` records 379 measured
+closes, 252 feature closes, the 126-session formation commitment and the selected
+initialization policy. Candidate creation and the offline issuer both reject a
+cold proof under the Owned55 strategy/controller binding, even if its ordinary
+evidence hashes have been recomputed. Legacy profiles retain their `/2` cold
+proof. Owned55 cannot fall back to a legacy publication lacking formation inputs.
+The read-only proof and durable initializer must produce the same state at the
+same capital, while the proof writes no formation progress or broker commands.
+
+Local-full GO certification must isolate large test fixture lifetimes just as
+normal CI does. Sentinel's general, rolling, bulk-warmup and automation tests
+run in separate fresh containers using the same immutable test image. Their
+union is the complete Sentinel suite, with no new skip, xfail or omission.
+Collection coverage must prove the partition is complete and disjoint. All
+partitions must finish successfully before the existing logical Sentinel suite
+counts as complete; a missing summary, empty partition, signal or non-pass
+cannot be hidden by another partition's passing tests. The three logical suite
+contract and historical golden exclusions stay unchanged. Verbose test names
+and immediate failure output preserve diagnosis if a later process is killed.
+
 The canonical GO composition audit must observe both legacy seed publications
 and the new rolling publication through the version-dispatched authenticated
 reader. Its synthetic source covers at least 379 closes and uses $50,000. The
@@ -230,7 +253,8 @@ with executable call-site witnesses that detect a disconnected hook.
 | Historical producer | Selected initialization policy, required metadata and full action terms for the interval | Current-information initialization selected and implemented; real startup-generation coverage/actions must pass ordinary publication admission on deployment. Historical PIT reconstruction is not claimed. |
 | Formed GO admission | Empty PostgreSQL to authenticated formed genesis, current publication/overlap, actual GO caller and independent paper baseline | Implemented; isolated PostgreSQL positive acceptance and full read-only GO formation proof pass |
 | Failure recovery | Interruption, changed source, lost acknowledgement, duplicate start/order rejection | Authenticated progress, acknowledgement loss at 0/1/63/126, immutable origin restart and first funded daily resume pass; complete runtime regression retained in evidence report |
-| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Twenty-three mutations killed (eight controller/candidate, five integration/accounting, three deployment timing, two price domains, five audit-only); final-head CI and full canonical GO positive campaign remain gates |
+| Observation admission | Canonical formed proof, matching production origin, selected policy, cold-proof and rehashed-evidence refusals | Locally passed; three observation faults killed; legacy cold proof cannot authorize Owned55 |
+| CI and mutations | Relevant regressions, meaningful guard-removal faults, syntax and ownership checks | Twenty-eight mutations killed (eight controller/candidate, five integration/accounting, three deployment timing, two price domains, three observation, seven audit-only); final-head CI and full canonical GO positive campaign remain gates |
 | Deployment | NAS backup/restore/resource evidence and paper transport qualification | NAS-only; outside local certification |
 
 Local implementation acceptance does not close provider or deployment gates.
