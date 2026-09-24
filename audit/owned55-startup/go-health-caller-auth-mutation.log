@@ -1,0 +1,61 @@
+FROZEN_VALIDATION_SOURCE_SHA256=4dd5e5a5bfa4141ca4ee5af8c439f833eb705c059ef48f194913cb02b357e9da
+go_health_caller_auth_discarded KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "go_health_caller_auth_discarded",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_rolling_go_health_auth.py::test_go_health_payload_uses_authenticated_connection_for_writer_exclusion",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=go_health_caller_auth_discarded.baseline.log
+.                                                                        [100%]
+1 passed in 7.81s
+
+MUTATION_LOG=go_health_caller_auth_discarded.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+__ test_go_health_payload_uses_authenticated_connection_for_writer_exclusion ___
+tests/sentinel/test_rolling_go_health_auth.py:59: in test_go_health_payload_uses_authenticated_connection_for_writer_exclusion
+    exec(go._DATABASE_HEALTH_CODE, {})
+<string>:50: in <module>
+    ???
+sentinel/feed/rolling_go_health.py:46: in inspect
+    contender = store.connect(database_url)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sentinel/feed/store.py:148: in connect
+    return psycopg.connect(dsn, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/site-packages/psycopg/connection.py:122: in connect
+    raise last_ex.with_traceback(None)
+E   psycopg.OperationalError: connection failed: connection to server at "127.0.0.1", port 38947 failed: fe_sendauth: no password supplied
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 196, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 194, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 507, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 121, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 180, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 52, "job_id": "85da6f41-37ee-4ed3-9ec4-a9e6c8ada062", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_rolling_go_health_auth.py::test_go_health_payload_uses_authenticated_connection_for_writer_exclusion
+1 failed in 7.69s

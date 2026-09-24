@@ -615,6 +615,77 @@ including 12 audit-only faults; this is not expanded economic test coverage.
 Fresh main/merge-base verification remains
 `ee23c894c97a2c4023654ce3a56a62728f5b061e`. The replacement full GO is pending.
 
+## Authenticated rolling-health connection correction
+
+Full positive GO `35931143578`, job `107418100106`, at reviewed commit
+`54cd0a2454685c239982057a3012e01505c4da91` failed database financial health at
+2026-09-24 03:28 UTC with code 2, not a timeout. All six ordinary workflows
+passed that head. The complete 6,548-test lens again passed with no failures,
+errors, skips, xfails or xpasses; existing historical exclusions are unchanged.
+Financial preparation, both immutable-image parity commands, combined Core
+parity and Sharadar readiness passed before the connection failure. Successful
+promotion and panel handoff remain unproven.
+
+P1 startup blocker: `sentinel/feed/rolling_go_health.py:46` reconnected using
+`conn.info.dsn`, which psycopg explicitly strips of the password. The primary
+database connection and a following read-only probe succeeded; the failure was
+the independent writer-exclusion connection. An isolated SCRAM PostgreSQL
+reproduction executed the real `_DATABASE_HEALTH_CODE` and failed with
+`fe_sendauth: no password supplied`. Password-free trust fixtures had hidden
+this connection defect. Failed health check booleans in the bundle are
+fail-closed defaults, not separately observed schema/index failures.
+
+The fix passes the original database configuration explicitly from
+`scripts/sentinel_go_validate.py:1505` to the rolling health reader. It preserves
+authentication and the mandatory measured lock exclusion. The new acceptance
+in `tests/sentinel/test_rolling_go_health_auth.py:18` uses a dedicated ephemeral
+SCRAM login, proves password-free reconnect fails, executes the actual GO
+payload, requires all health checks to pass, and verifies no historical state or
+credentials appear in its output. The login defaults to read-only transactions.
+This module opts out of the legacy test-only feed-schema installer, so it
+exercises the production catalog-only validator too. The initial reproduction
+log retains its additional fixture-cleanup failure caused by that legacy shim;
+both final mutation logs reproduce the authentication failure without it.
+
+```text
+gh run download 35931143578 --repo flabber1835/stocker --dir C:/GitHub/stocker/.codex-tmp/owned55-go-attempt-35931143578
+gh run view 35931143578 --repo flabber1835/stocker --job 107418100106 --log
+python tools/owned55_local_validation.py test tests/sentinel/test_rolling_go_health_auth.py tests/sentinel/test_rolling_go_inputs.py::test_database_health_measures_actual_snapshot_queries_and_pin tests/sentinel/test_rolling_go_inputs.py::test_database_health_refuses_a_missing_publication_pin tests/scripts/test_sentinel_go_validate.py tests/production_composition/test_go_database_preflight.py
+78 passed in 41.02s; go-health-auth-acceptance.log.
+python tools/owned55_local_validation.py mutations go_health_auth_discarded
+python tools/owned55_local_validation.py mutations go_health_caller_auth_discarded
+2/2 KILLED after passing baselines (8.33s and 7.81s).
+python tools/owned55_local_validation.py partitions
+python tools/validate_test_responsibility.py --base origin/main --output audit/owned55-startup/test-responsibility-go-health.json
+```
+
+The existing pin-removal falsifier still refuses writer-exclusion health.
+The two new mutations independently discard authentication inside the reader
+and at the GO call site, each failing for the intended password error. There
+are now 38 distinct killed mutants, including 12 audit-only faults; none is a
+new claim about investment performance. The new test adds one rolling-suite
+node. Collection proved exactly 5,613 disjoint nodes (5,105 general, 346 rolling,
+20 warmup and 142 automation), no missing/duplicate nodes; collection SHA256
+`1de4ef9e9aa70a84ae96e89d2803b9b7fcadd73afe5e32d4d41cfb3d4ebcb26e`.
+All 91 changed/new Python files parse; ownership and whitespace checks pass.
+The focused runs bind frozen Python source SHA256
+`4dd5e5a5bfa4141ca4ee5af8c439f833eb705c059ef48f194913cb02b357e9da`.
+These focused tests do not substitute for replacement full GO evidence.
+
+`ci-54-go-health-failure.json` retains the exact commit, image identities, gate
+states, timeline and hashes of every downloaded artifact and raw log. The
+bundle SHA256 is
+`ebe36b00d586d1e278c09e47e7174e9ce98ad5499c08f17fe2c72bcd2fb020d5`;
+its member hashes and stable test summary were independently checked. Its
+isolated campaign `main` identity does not mean this PR has been merged.
+Runtime image is
+`sha256:a0a4de595426cce702af2efa233fce9269d2ad7386cf8039df87eec07ed89223`;
+test image is
+`sha256:8bceb7ab27da27476928d61423522fe6d5c1db0db0e06212b4a3828c0f7950a3`.
+Fresh fetch and merge-base remain `ee23c894c97a2c4023654ce3a56a62728f5b061e`.
+The replacement must rerun the complete lens and proofs on its own commit.
+No deadline, economic rule or acceptance guard is relaxed by this correction.
+
 ## Remaining gates and concrete NAS handoff
 
 | Gate | Severity / disposition | Required evidence and pass/fail |

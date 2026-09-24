@@ -1501,7 +1501,8 @@ try:
 
     from sentinel.feed import rolling_go_inputs, rolling_go_health
     if rolling_go_inputs.is_rolling(rolling_go_inputs.current(c)):
-        print('SENTINEL_GO_DATABASE_HEALTH=' + json.dumps(rolling_go_health.inspect(c), sort_keys=True))
+        print('SENTINEL_GO_DATABASE_HEALTH=' + json.dumps(
+            rolling_go_health.inspect(c, database_url=os.environ['SENTINEL_DATABASE_URL']), sort_keys=True))
         raise SystemExit(0)
 
     with publication.pinned(c, commit=False) as held:

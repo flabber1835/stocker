@@ -150,7 +150,7 @@ def test_sealed_payload_tamper_refuses(conn, published):
 
 def test_database_health_measures_actual_snapshot_queries_and_pin(conn, published):
     _read_only(conn)
-    report = health.inspect(conn)
+    report = health.inspect(conn, database_url=conn.info.dsn)
     assert report["input_contract"] == inputs.SCHEMA
     assert all(report["checks"].values()), report
     assert report["transaction_db_writes"] == 0
@@ -167,7 +167,7 @@ def test_database_health_refuses_a_missing_publication_pin(conn, published, monk
     # ownership paths to actually falsify the measured writer exclusion.
     monkeypatch.setattr(rolling_store, "_pin_reader", lambda _conn: None)
     _read_only(conn)
-    assert health.inspect(conn)["checks"]["publication_pin_excludes_writers"] is False
+    assert health.inspect(conn, database_url=conn.info.dsn)["checks"]["publication_pin_excludes_writers"] is False
 
 
 def test_supported_go_preparation_and_readiness_payloads_use_rolling(conn, published, monkeypatch, capsys):

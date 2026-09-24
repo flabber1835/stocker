@@ -34,6 +34,13 @@ CASES = [
      FORM+'test_current_controller_uses_correlation_peers_not_sector_labels'),
 ]
 STARTUP_CASES = [
+    ('go_health_auth_discarded', 'sentinel/feed/rolling_go_health.py',
+     'contender = store.connect(database_url)', 'contender = store.connect(conn.info.dsn)',
+     'tests/sentinel/test_rolling_go_health_auth.py::test_go_health_payload_uses_authenticated_connection_for_writer_exclusion'),
+    ('go_health_caller_auth_discarded', 'scripts/sentinel_go_validate.py',
+     "rolling_go_health.inspect(c, database_url=os.environ['SENTINEL_DATABASE_URL'])",
+     'rolling_go_health.inspect(c, database_url=c.info.dsn)',
+     'tests/sentinel/test_rolling_go_health_auth.py::test_go_health_payload_uses_authenticated_connection_for_writer_exclusion'),
     ('go_outer_budget_undersized', 'tools/production_go_e2e_harness.py',
      'timeout: int = 19800, prepare_fixture', 'timeout: int = 14400, prepare_fixture',
      'tests/production_composition/test_canonical_go_e2e_harness.py::test_full_go_budget_covers_measured_work_and_preserves_refusal'),
