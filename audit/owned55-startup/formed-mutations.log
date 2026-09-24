@@ -1,0 +1,88 @@
+FROZEN_VALIDATION_SOURCE_SHA256=cf25bd6c84cce2f517523a68a66ef81d43e4becbb9601b74fa6ced27ace0c2f1
+unsigned_formed_origin KILLED
+unsigned_progress KILLED
+disconnected_formation KILLED
+free_stock_entry KILLED
+double_rotation_fee KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "unsigned_formed_origin",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_formed_startup.py::test_authenticated_origin_cannot_change_context_or_seed",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "unsigned_progress",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_formed_startup.py::test_progress_cannot_be_self_rehashed_or_rebound[rehashed_state]",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "disconnected_formation",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_rolling_initialization.py::test_real_publication_forms_historical_book_and_atomic_checkpoint",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "free_stock_entry",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_formed_economics.py::test_flat_half_cash_book_pays_for_stock_and_bil_only[1-.9995]",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "double_rotation_fee",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_formed_economics.py::test_canonical_rotation_cost_is_replaced_by_one_funded_entry",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]

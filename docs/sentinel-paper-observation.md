@@ -8,6 +8,28 @@
 
 ## Accepted boundary
 
+**Owned55 startup addendum (2026-09-23).** The selected Owned55 production
+profile replaces the cold-start proof below with 252 feature closes, 126
+canonical economic formation closes and the current decision close. Its `/3`
+warmup evidence binds the formation chain and
+`CURRENT_INFORMATION_INITIALIZATION_V1` policy. Both candidate creation and the
+offline issuer refuse `/2` cold evidence for this profile. GO, the observation
+proof and the durable initializer must agree at identical capital. This is
+broker-free initialization using current admitted metadata; historical
+causality/certification remain unverified/not granted. The 253-session rules
+below describe legacy profiles and the retained historical comparison, not
+Owned55 initialization. See `owned55-historical-startup.md` for the current
+formation and restart contract.
+
+For fresh Owned55, retain GO's `ROLLING_FORMED_STARTUP_AND_RESTART` proof and
+the `/3` warmup evidence produced by `create-paper-observation-candidate` below;
+the legacy `target-book --sessions 253` comparison is not its startup evidence.
+Use the configured shadow capital ($50,000 by default) for this proof. Execution
+separately observes paper account NAV. After activation, ordinary standing
+authority and restart continue from the authenticated origin on the 300-close
+rolling window; they do not rerun formation. Creating a new startup proof still
+requires a complete admitted formation window and refuses its absence.
+
 Point-in-time historical issuer and sector metadata is unavailable. Historical
 CAGR and drawdown therefore remain `HISTORICAL_CAUSALITY_UNVERIFIED`. A
 production-style 253-session cold start ending 2026-07-31 produced the same
@@ -268,7 +290,7 @@ accepted cancel or sell.
 ### 3. Create, review, sign, install, and activate the standing trial root
 
 Candidate creation is database-read-only and broker-free. The command captures
-one UTC lifecycle reference **before** readiness and the 253-session warmup are
+one UTC lifecycle reference **before** readiness and the selected startup proof are
 computed; `issued_at` and the `not_before >= issued_at` check use that same
 reference, so construction time cannot consume the operator's activation
 margin. A correctly signed future-dated certificate may be installed as

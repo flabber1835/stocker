@@ -34,6 +34,7 @@ _SINGLETON_REFUSAL_TESTS = {
 _FEED_RUNTIME_SCHEMA_CONTRACT_PREFIX = "test_issue_165_feed_schema"
 _FEED_RUNTIME_SCHEMA_VALIDATION_MODULES = {
     "test_issue_162_predecessor_closes",
+    "test_rolling_go_health_auth",
 }
 _ISSUE_178_SOURCE_AUTHORITY_PREFIX = "test_issue_178_"
 _LEGACY_UNFINISHED_PUBLICATION_MODULES = {

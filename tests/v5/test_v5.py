@@ -163,7 +163,7 @@ def test_selected_default_profile_and_identity():
     from sentinel.core.session import SessionState
     from sentinel.controller.machine import Controller
     cfg, identity = production_strategy()
-    from sentinel.controller.champion_config import STRATEGY_ID
+    from sentinel.controller.owned_impairment import STRATEGY_ID
     assert cfg.strategy_id == STRATEGY_ID
     assert identity["universe"] == "BROAD_SHARADAR_COMMON_EQUITY"
     assert controller_for_identity(identity) == cfg
@@ -227,6 +227,7 @@ def test_v5_controller_cannot_be_silently_pinned_to_full_exposure():
         _publication, _observation)
     env = canonical()
     env.last_processed_session = DECISION_SESSION.isoformat()
+    env.owned_impairment['last_session'] = env.last_processed_session
     env.data_version = 7
     env.last_decision = {"session": DECISION_SESSION.isoformat(),
                          "target_core_exposure": .55}

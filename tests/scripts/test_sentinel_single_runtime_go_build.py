@@ -6,6 +6,7 @@ import os
 from pathlib import Path
 import subprocess
 import sys
+import pytest
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 SCRIPT = ROOT / "scripts" / "sentinel_go_validate.py"
@@ -14,6 +15,7 @@ go = importlib.util.module_from_spec(spec)
 assert spec.loader is not None
 sys.modules[spec.name] = go
 spec.loader.exec_module(go)
+import sentinel_go_local_full_runtime as local_full
 
 COMMIT = "a" * 40
 RUNTIME_ID = "sha256:" + "b" * 64
@@ -40,9 +42,10 @@ class RecordingRunner:
         return subprocess.CompletedProcess(command, 0, stdout="", stderr="")
 
 
-def test_production_go_certification_builds_runtime_then_test_lens_only():
+@pytest.mark.parametrize('certify', [go.probe_certified_suite, local_full.certify_local_full])
+def test_production_go_certification_builds_runtime_then_test_lens_only(certify):
     runner = RecordingRunner()
-    summary, gate = go.probe_certified_suite(
+    summary, gate = certify(
         runner, commit=COMMIT, now_text="2026-09-06T17:00:00Z")
 
     build_commands = [cmd for cmd in runner.commands if cmd[:2] == ["docker", "build"]]
@@ -58,4 +61,6 @@ def test_production_go_certification_builds_runtime_then_test_lens_only():
     assert summary.candidate_image_digest == TEST_ID
     assert summary.auxiliary_image_digests == ()
     assert summary.complete
+    assert summary.suites_completed == 3 and summary.passed == 6
+    assert sum('tools/sentinel_test_partition.py' in call for call in runner.commands) == 4
     assert gate.status == go.PASS

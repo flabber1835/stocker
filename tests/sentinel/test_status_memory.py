@@ -254,14 +254,14 @@ def test_database_reads_transfer_fresh_objects_without_roundtrip(conn, monkeypat
     assert store.genesis() == value
 
 
-def test_cold_checkpoint_reuses_verified_observer_and_retains_economics(conn, ready, monkeypatch):
+def test_formed_checkpoint_reuses_verified_observer_and_retains_economics(conn, ready, monkeypatch):
     expected = start(conn)
     context = initial._context(OBS, 100_000)
     calls = []
     resume = shadow.ShadowObserver.resume.__func__
     def counted(cls, **kwargs):
         calls.append(1)
-        assert len(calls) == 1, 'cold closure reconstructed its observer twice'
+        assert len(calls) == 1, 'formed closure reconstructed its observer twice'
         return resume(cls, **kwargs)
     monkeypatch.setattr(shadow.ShadowObserver, 'resume', classmethod(counted))
     conn.rollback()
@@ -269,8 +269,15 @@ def test_cold_checkpoint_reuses_verified_observer_and_retains_economics(conn, re
     checkpoint, observer, result = checkpoints.load(conn, context)
     assert len(calls) == 1
     assert result.state.state_hash == expected.state.state_hash == checkpoint.state_sha256
-    assert result.strategy_nav == '100000' and result.state.wealth_core['cash'] == 100000
-    assert not result.state.wealth_core['episodes'] and result.state.pending
+    assert result.strategy_nav == '100000'
+    assert result.state.wealth_core == expected.state.wealth_core
+    assert result.state.wealth_core['episodes'] and not result.state.pending
+    # Restore must preserve actual formation trades, not put their spend back
+    # into cash. Reconcile independently from the canonical ledger movements.
+    events = result.state.ledger['events']
+    assert any(event['event_type'] == 'BUY' for event in events)
+    assert result.state.wealth_core['cash'] == pytest.approx(
+        100000 + sum(event['cash_delta'] for event in events), abs=1e-7, rel=0)
     assert observer.genesis_sha256 == checkpoint.genesis_sha256
     assert_original_serialization(result.state)
     for table in ('sentinel_commands', 'sentinel_fills'):

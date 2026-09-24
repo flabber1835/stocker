@@ -1,0 +1,200 @@
+FROZEN_VALIDATION_SOURCE_SHA256=cf25bd6c84cce2f517523a68a66ef81d43e4becbb9601b74fa6ced27ace0c2f1
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 101 items
+
+tests/sentinel/test_rolling_initialization.py::test_composed_input_keeps_spy_equity_and_bil_domains_separate PASSED [  0%]
+tests/sentinel/test_rolling_initialization.py::test_real_publication_forms_historical_book_and_atomic_checkpoint PASSED [  1%]
+tests/sentinel/test_rolling_initialization.py::test_restart_does_not_read_prices_warm_or_transition_again PASSED [  2%]
+tests/sentinel/test_rolling_initialization.py::test_restart_survives_absent_original_price_payloads PASSED [  3%]
+tests/sentinel/test_rolling_initialization.py::test_restart_reads_a_consistent_read_only_snapshot PASSED [  4%]
+tests/sentinel/test_rolling_initialization.py::test_checkpoint_cannot_change_capital_or_observation[starting_cash-200000] PASSED [  5%]
+tests/sentinel/test_rolling_initialization.py::test_checkpoint_cannot_change_capital_or_observation[observation_id-other] PASSED [  6%]
+tests/sentinel/test_rolling_initialization.py::test_partial_state_is_never_interpreted_as_fresh[catchup] PASSED [  7%]
+tests/sentinel/test_rolling_initialization.py::test_partial_state_is_never_interpreted_as_fresh[catchup:resume_commitment:v1] PASSED [  8%]
+tests/sentinel/test_rolling_initialization.py::test_partial_state_is_never_interpreted_as_fresh[shadow-observation:v1:other:genesis] PASSED [  9%]
+tests/sentinel/test_rolling_initialization.py::test_partial_state_is_never_interpreted_as_fresh[shadow-segment:v3:other:00000001] PASSED [ 10%]
+tests/sentinel/test_rolling_initialization.py::test_partial_state_is_never_interpreted_as_fresh[unexpected-book] PASSED [ 11%]
+tests/sentinel/test_rolling_initialization.py::test_existing_execution_history_prevents_new_genesis PASSED [ 12%]
+tests/sentinel/test_rolling_initialization.py::test_orphaned_strategy_evidence_prevents_new_genesis PASSED [ 13%]
+tests/sentinel/test_rolling_initialization.py::test_failed_first_state_leaves_no_partial_seed[genesis] PASSED [ 14%]
+tests/sentinel/test_rolling_initialization.py::test_failed_first_state_leaves_no_partial_seed[session] PASSED [ 15%]
+tests/sentinel/test_rolling_initialization.py::test_failed_first_state_leaves_no_partial_seed[checkpoint] PASSED [ 16%]
+tests/sentinel/test_rolling_initialization.py::test_lost_ack_recovers_exact_checkpoint PASSED [ 17%]
+tests/sentinel/test_rolling_initialization.py::test_checkpoint_authentication_detects_valid_json_mutations[input_value] PASSED [ 18%]
+tests/sentinel/test_rolling_initialization.py::test_checkpoint_authentication_detects_valid_json_mutations[state_sha256] PASSED [ 19%]
+tests/sentinel/test_rolling_initialization.py::test_checkpoint_authentication_detects_valid_json_mutations[starting_cash] PASSED [ 20%]
+tests/sentinel/test_rolling_initialization.py::test_changed_state_cannot_be_self_rehashed_into_checkpoint PASSED [ 21%]
+tests/sentinel/test_rolling_initialization.py::test_missing_checkpoint_does_not_reseed_existing_state PASSED [ 22%]
+tests/sentinel/test_rolling_initialization.py::test_extra_shadow_lineage_prevents_checkpoint_admission PASSED [ 23%]
+tests/sentinel/test_rolling_initialization.py::test_transition_that_crosses_next_open_is_not_committed PASSED [ 24%]
+tests/sentinel/test_rolling_initialization.py::test_final_checkpoint_write_cannot_extend_opening_deadline PASSED [ 25%]
+tests/sentinel/test_rolling_initialization.py::test_unreviewed_publication_cannot_seed PASSED [ 26%]
+tests/sentinel/test_rolling_initialization.py::test_acquisition_bound_to_another_strategy_cannot_seed PASSED [ 27%]
+tests/sentinel/test_rolling_initialization.py::test_backup_gate_precedes_any_genesis_write PASSED [ 28%]
+tests/sentinel/test_rolling_initialization.py::test_common_writer_lock_excludes_another_initializer PASSED [ 29%]
+tests/sentinel/test_rolling_initialization.py::test_failed_publication_does_not_burn_a_committed_version PASSED [ 30%]
+tests/sentinel/test_rolling_daily.py::test_daily_advances_pending_book_and_matches_canonical_transition PASSED [ 31%]
+tests/sentinel/test_rolling_daily.py::test_repeated_continuation_outlives_origin_prices PASSED [ 32%]
+tests/sentinel/test_rolling_daily.py::test_historical_economic_changes_refuse_without_advancing[raw] PASSED [ 33%]
+tests/sentinel/test_rolling_daily.py::test_historical_economic_changes_refuse_without_advancing[signal] PASSED [ 34%]
+tests/sentinel/test_rolling_daily.py::test_historical_economic_changes_refuse_without_advancing[volume] PASSED [ 35%]
+tests/sentinel/test_rolling_daily.py::test_historical_economic_changes_refuse_without_advancing[sector] PASSED [ 36%]
+tests/sentinel/test_rolling_daily.py::test_historical_economic_changes_refuse_without_advancing[actions] PASSED [ 37%]
+tests/sentinel/test_rolling_daily.py::test_historical_economic_changes_refuse_without_advancing[spy] PASSED [ 38%]
+tests/sentinel/test_rolling_daily.py::test_historical_economic_changes_refuse_without_advancing[bil] PASSED [ 39%]
+tests/sentinel/test_rolling_daily.py::test_uniform_rebase_is_accepted PASSED [ 40%]
+tests/sentinel/test_rolling_daily.py::test_missing_causal_sessions_never_jump_cursor PASSED [ 41%]
+tests/sentinel/test_rolling_daily.py::test_failed_write_rolls_back_record_and_checkpoint[append] PASSED [ 42%]
+tests/sentinel/test_rolling_daily.py::test_failed_write_rolls_back_record_and_checkpoint[archive] PASSED [ 43%]
+tests/sentinel/test_rolling_daily.py::test_failed_write_rolls_back_record_and_checkpoint[checkpoint] PASSED [ 44%]
+tests/sentinel/test_rolling_daily.py::test_changed_signed_checkpoint_refuses PASSED [ 45%]
+tests/sentinel/test_rolling_daily.py::test_changed_input_archive_refuses PASSED [ 46%]
+tests/sentinel/test_rolling_daily.py::test_input_archive_cannot_be_overwritten PASSED [ 47%]
+tests/sentinel/test_rolling_daily.py::test_proof_cannot_admit_a_different_prior_state PASSED [ 48%]
+tests/sentinel/test_rolling_daily.py::test_checkpoint_reads_only_current_suffix_in_read_only_transaction PASSED [ 49%]
+tests/sentinel/test_rolling_daily.py::test_lost_commit_reply_recovers_once PASSED [ 50%]
+tests/sentinel/test_rolling_daily.py::test_stale_checkpoint_cannot_overwrite_current PASSED [ 51%]
+tests/sentinel/test_rolling_daily.py::test_checkpoint_refuses_tampered_or_foreign_lineage[record] PASSED [ 52%]
+tests/sentinel/test_rolling_daily.py::test_checkpoint_refuses_tampered_or_foreign_lineage[foreign] PASSED [ 53%]
+tests/sentinel/test_rolling_daily.py::test_checkpoint_refuses_tampered_or_foreign_lineage[suffix] PASSED [ 54%]
+tests/sentinel/test_rolling_daily.py::test_final_write_rechecks_authority[deadline] PASSED [ 55%]
+tests/sentinel/test_rolling_daily.py::test_final_write_rechecks_authority[backup] PASSED [ 56%]
+tests/sentinel/test_rolling_daily.py::test_writer_lock_excludes_continuation PASSED [ 57%]
+tests/sentinel/test_rolling_daily.py::test_overlap_guard_distinguishes_economic_changes[keys-IDENTITY_KEYS] PASSED [ 58%]
+tests/sentinel/test_rolling_daily.py::test_overlap_guard_distinguishes_economic_changes[signal-NONUNIFORM_SIGNAL] PASSED [ 59%]
+tests/sentinel/test_rolling_daily.py::test_overlap_guard_distinguishes_economic_changes[raw-RAW_ECONOMICS] PASSED [ 60%]
+tests/sentinel/test_rolling_daily.py::test_overlap_guard_distinguishes_economic_changes[spy-NONUNIFORM_BENCHMARK] PASSED [ 61%]
+tests/sentinel/test_rolling_daily.py::test_overlap_guard_distinguishes_economic_changes[bil-BIL_RAW_ECONOMICS] PASSED [ 62%]
+tests/sentinel/test_rolling_daily.py::test_live_anchor_outside_snapshot_refuses PASSED [ 63%]
+tests/sentinel/test_rolling_runtime.py::test_first_runtime_approval_is_signed_bound_and_idempotent PASSED [ 64%]
+tests/sentinel/test_rolling_runtime.py::test_committed_candidate_requires_runtime_attestation PASSED [ 65%]
+tests/sentinel/test_rolling_runtime.py::test_authority_failure_preserves_candidate_and_recovery_never_replays PASSED [ 66%]
+tests/sentinel/test_rolling_runtime.py::test_postcommit_cutoff_crossing_cannot_issue_authority PASSED [ 67%]
+tests/sentinel/test_rolling_runtime.py::test_lost_authority_commit_acknowledgement_recovers_exact_row PASSED [ 68%]
+tests/sentinel/test_rolling_runtime.py::test_authority_tamper_refuses_runtime_status[signature] PASSED [ 69%]
+tests/sentinel/test_rolling_runtime.py::test_authority_tamper_refuses_runtime_status[checkpoint] PASSED [ 70%]
+tests/sentinel/test_rolling_runtime.py::test_authority_tamper_refuses_runtime_status[runtime] PASSED [ 71%]
+tests/sentinel/test_rolling_runtime.py::test_authority_tamper_refuses_runtime_status[timing] PASSED [ 72%]
+tests/sentinel/test_rolling_runtime.py::test_authority_tamper_refuses_runtime_status[chain] PASSED [ 73%]
+tests/sentinel/test_rolling_runtime.py::test_status_is_readonly_without_warmup_or_transition PASSED [ 74%]
+tests/sentinel/test_rolling_runtime.py::test_daily_runtime_continuation_and_bounded_restart PASSED [ 75%]
+tests/sentinel/test_rolling_runtime.py::test_daily_cannot_skip_missing_predecessor_authority PASSED [ 76%]
+tests/sentinel/test_rolling_runtime.py::test_unattested_candidate_cannot_be_skipped_by_new_publication PASSED [ 77%]
+tests/sentinel/test_rolling_runtime.py::test_runtime_requires_exact_target_and_adjacent_session PASSED [ 78%]
+tests/sentinel/test_rolling_runtime.py::test_backup_refusal_after_candidate_commit_cannot_issue_authority PASSED [ 79%]
+tests/sentinel/test_rolling_runtime.py::test_publication_and_writer_locks_span_candidate_and_authority_commits PASSED [ 80%]
+tests/sentinel/test_rolling_runtime.py::test_changed_reviewed_runtime_withdraws_verification PASSED [ 81%]
+tests/sentinel/test_rolling_runtime.py::test_rolling_book_cannot_dispatch_back_to_legacy_publication PASSED [ 82%]
+tests/sentinel/test_rolling_runtime.py::test_actual_shadow_service_initializes_and_acquires_next_snapshot PASSED [ 83%]
+tests/sentinel/test_rolling_runtime.py::test_production_worker_gap_waits_without_legacy_catchup PASSED [ 84%]
+tests/sentinel/test_rolling_paper_inputs.py::test_readers_bind_snapshot_raw_marks_and_leave_legacy_readers_closed PASSED [ 85%]
+tests/sentinel/test_rolling_paper_inputs.py::test_next_open_resolver_is_bounded_and_historical_dates_do_not_borrow_extension PASSED [ 86%]
+tests/sentinel/test_rolling_paper_inputs.py::test_action_reader_requires_retained_predecessor_and_never_reads_legacy_rows PASSED [ 87%]
+tests/sentinel/test_rolling_paper_inputs.py::test_corrupt_receipt_cannot_trigger_a_permissive_reader_fallback PASSED [ 88%]
+tests/sentinel/test_rolling_paper_inputs.py::test_legacy_opening_identity_uses_the_publication_reader PASSED [ 89%]
+tests/sentinel/test_rolling_paper_inputs.py::test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow[alpaca-False] FAILED [ 90%]
+tests/sentinel/test_rolling_paper_inputs.py::test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow[alpaca-True] FAILED [ 91%]
+tests/sentinel/test_rolling_paper_inputs.py::test_rolling_preparation_refuses_non_shadow_mode_before_broker_read PASSED [ 92%]
+tests/sentinel/test_rolling_paper_inputs.py::test_candidate_only_shadow_cannot_become_a_paper_plan PASSED [ 93%]
+tests/sentinel/test_rolling_paper_inputs.py::test_automation_refresh_consumes_current_shadow_without_acquisition PASSED [ 94%]
+tests/sentinel/test_rolling_paper_inputs.py::test_fresh_broker_guard_rechecks_snapshot_receipt_after_read PASSED [ 95%]
+tests/sentinel/test_rolling_paper_inputs.py::test_snapshot_dividend_inputs_reuse_entitlement_domains PASSED [ 96%]
+tests/sentinel/test_rolling_paper_inputs.py::test_snapshot_actions_preserve_scalar_and_material_reconciliation_policy PASSED [ 97%]
+tests/sentinel/test_rolling_paper_inputs.py::test_next_open_identity_never_extends_a_delisted_or_reused_symbol[delisted] PASSED [ 98%]
+tests/sentinel/test_rolling_paper_inputs.py::test_next_open_identity_never_extends_a_delisted_or_reused_symbol[competing] PASSED [ 99%]
+tests/sentinel/test_rolling_paper_inputs.py::test_next_open_identity_never_extends_a_delisted_or_reused_symbol[successor] PASSED [100%]
+
+=================================== FAILURES ===================================
+_ test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow[alpaca-False] _
+tests/sentinel/test_rolling_paper_inputs.py:164: in test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow
+    assert first.plan.opening_intents
+E   AssertionError: assert ()
+E    +  where () = ExecutionPlan(plan_id='sentinel-779719ad1feac939c261195b81a65314f8308a3b6e9d442e4bb61b665be4ecc2', decision_session=datetime.date(2026, 9, 14), effective_session=datetime.date(2026, 9, 15), target_exposure=Decimal('1.0'), target_basket={'6': Decimal('48'), '7': Decimal('48'), '8': Decimal('48'), '9': Decimal('48'), '10': Decimal('48'), '11': Decimal('48'), '12': Decimal('48'), '13': Decimal('48'), '14': Decimal('48'), '15': Decimal('48'), '16': Decimal('48'), '17': Decimal('48'), '18': Decimal('48'), '19': Decimal('48'), '20': Decimal('48'), '21': Decimal('48'), '22': Decimal('48'), '23': Decimal('48'), '24': Decimal('48'), '25': Decimal('48'), 'SENTINEL:BIL': Decimal('0')}, data_version=1, shadow_snapshot_hash='6427ec08c5368bb52368478bd1b670970b257e25f2292e6130c184eb516e92ee', sentinel_transition_hash='4f3eea3131d8dd68a01dd6a559ba7691a985e9541dd6adaf987f97515e8f3dca', strategy_fingerprint='a5a770968e9865b5373e680c26fa282401982f7783f7ab30ba02aee348b12527', deployment_id='rolling-paper-test', broker='alpaca', broker_account_id='paper-fixture', takeover_epoch=1, publication_fingerprint='600233bb14708fe078a57b4c08cdd8d7fe719e7429bcde5c07c5bf2d07aacf9d', account_nav=Decimal('250000'), account_cash=Decimal('250000'), cash_residual=Decimal('8012.79999999998848'), unpriced_securities=(), defensive_security='SENTINEL:BIL', rollout_mode='CONTROLLER', rollout_version=2, rollout_certificate_sha256='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', superseded_by=None, opening_intents=()).opening_intents
+E    +    where ExecutionPlan(plan_id='sentinel-779719ad1feac939c261195b81a65314f8308a3b6e9d442e4bb61b665be4ecc2', decision_session=datetime.date(2026, 9, 14), effective_session=datetime.date(2026, 9, 15), target_exposure=Decimal('1.0'), target_basket={'6': Decimal('48'), '7': Decimal('48'), '8': Decimal('48'), '9': Decimal('48'), '10': Decimal('48'), '11': Decimal('48'), '12': Decimal('48'), '13': Decimal('48'), '14': Decimal('48'), '15': Decimal('48'), '16': Decimal('48'), '17': Decimal('48'), '18': Decimal('48'), '19': Decimal('48'), '20': Decimal('48'), '21': Decimal('48'), '22': Decimal('48'), '23': Decimal('48'), '24': Decimal('48'), '25': Decimal('48'), 'SENTINEL:BIL': Decimal('0')}, data_version=1, shadow_snapshot_hash='6427ec08c5368bb52368478bd1b670970b257e25f2292e6130c184eb516e92ee', sentinel_transition_hash='4f3eea3131d8dd68a01dd6a559ba7691a985e9541dd6adaf987f97515e8f3dca', strategy_fingerprint='a5a770968e9865b5373e680c26fa282401982f7783f7ab30ba02aee348b12527', deployment_id='rolling-paper-test', broker='alpaca', broker_account_id='paper-fixture', takeover_epoch=1, publication_fingerprint='600233bb14708fe078a57b4c08cdd8d7fe719e7429bcde5c07c5bf2d07aacf9d', account_nav=Decimal('250000'), account_cash=Decimal('250000'), cash_residual=Decimal('8012.79999999998848'), unpriced_securities=(), defensive_security='SENTINEL:BIL', rollout_mode='CONTROLLER', rollout_version=2, rollout_certificate_sha256='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', superseded_by=None, opening_intents=()) = PreparationResult(plan=ExecutionPlan(plan_id='sentinel-779719ad1feac939c261195b81a65314f8308a3b6e9d442e4bb61b665be4ecc2', decision_session=datetime.date(2026, 9, 14), effective_session=datetime.date(2026, 9, 15), target_exposure=Decimal('1.0'), target_basket={'6': Decimal('48'), '7': Decimal('48'), '8': Decimal('48'), '9': Decimal('48'), '10': Decimal('48'), '11': Decimal('48'), '12': Decimal('48'), '13': Decimal('48'), '14': Decimal('48'), '15': Decimal('48'), '16': Decimal('48'), '17': Decimal('48'), '18': Decimal('48'), '19': Decimal('48'), '20': Decimal('48'), '21': Decimal('48'), '22': Decimal('48'), '23': Decimal('48'), '24': Decimal('48'), '25': Decimal('48'), 'SENTINEL:BIL': Decimal('0')}, data_version=1, shadow_snapshot_hash='6427ec08c5368bb52368478bd1b670970b257e25f2292e6130c184eb516e92ee', sentinel_transition_hash='4f3eea3131d8dd68a01dd6a559ba7691a985e9541dd6adaf987f97515e8f3dca', strategy_fingerprint='a5a770968e9865b5373e680c26fa282401982f7783f7ab30ba02aee348b12527', deployment_id='rolling-paper-test', broker='alpaca', broker_account_id='paper-fixture', takeover_epoch=1, publication_fingerprint='600233bb14708fe078a57b4c08cdd8d7fe719e7429bcde5c07c5bf2d07aacf9d', accoun...ty='SENTINEL:BIL', rollout_mode='CONTROLLER', rollout_version=2, rollout_certificate_sha256='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', superseded_by=None, opening_intents=()), sessions_replayed=0, warmup_sessions=0, state_fingerprint='6427ec08c5368bb52368478bd1b670970b257e25f2292e6130c184eb516e92ee', publication_version=1, frontier='2026-09-14', reconciliation=ReconciliationResult(runtime_state=<RuntimeState.RUNNING: 'RUNNING'>, observation=BrokerObservation(observed_at=datetime.datetime(2026, 8, 11, 14, 30, tzinfo=datetime.timezone.utc), started_at=datetime.datetime(2026, 8, 11, 14, 30, tzinfo=datetime.timezone.utc), orders=(), positions=(), completeness=<Completeness.COMPLETE: 'COMPLETE'>, terminal_recovery_through=datetime.datetime(2026, 9, 23, 7, 6, 6, 495812, tzinfo=datetime.timezone.utc), account_identity=BrokerAccountIdentity(broker='alpaca', account_id='paper-fixture', raw={}), exact_order_evidence=(), fills=(), fill_history_complete=False), expected={}, observed={}, corporate_actions={}, recovered_orders=(), foreign_positions=(), foreign_orders=(), unresolved=(), detail='reconciled', observation_id=1, restricted_securities={}), superseded_plans=0).plan
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 216, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 218, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 545, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 127, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 200, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 56, "job_id": "b3b3beda-70a4-4930-acff-32e633bf2511", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "sessions": 0, "stage": "historical_formation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-03-26", "sessions": 10, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-10", "sessions": 20, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-24", "sessions": 30, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-08", "sessions": 40, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-22", "sessions": 50, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-08", "sessions": 60, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-23", "sessions": 70, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-08", "sessions": 80, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-22", "sessions": 90, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-05", "sessions": 100, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-19", "sessions": 110, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-02", "sessions": 120, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-11", "sessions": 126, "stage": "historical_formation", "status": "completed"}
+------------------------------ Captured log call -------------------------------
+WARNING  sentinel.handover:handover.py:237 sentinel: account is bound but the ownership event log is empty — binding is authoritative; the log is audit evidence and appears to have been restored separately
+WARNING  sentinel.handover:handover.py:237 sentinel: account is bound but the ownership event log is empty — binding is authoritative; the log is audit evidence and appears to have been restored separately
+WARNING  sentinel.handover:handover.py:237 sentinel: account is bound but the ownership event log is empty — binding is authoritative; the log is audit evidence and appears to have been restored separately
+WARNING  sentinel.handover:handover.py:237 sentinel: account is bound but the ownership event log is empty — binding is authoritative; the log is audit evidence and appears to have been restored separately
+_ test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow[alpaca-True] _
+tests/sentinel/test_rolling_paper_inputs.py:164: in test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow
+    assert first.plan.opening_intents
+E   AssertionError: assert ()
+E    +  where () = ExecutionPlan(plan_id='sentinel-9552f85aa24d63c39d1b3c8d34aad4e4bae346f398657bac781fb93f80f3cc3b', decision_session=datetime.date(2026, 9, 14), effective_session=datetime.date(2026, 9, 15), target_exposure=Decimal('1.0'), target_basket={'6': Decimal('48'), '7': Decimal('48'), '8': Decimal('48'), '9': Decimal('48'), '10': Decimal('48'), '11': Decimal('48'), '12': Decimal('48'), '13': Decimal('48'), '14': Decimal('48'), '15': Decimal('48'), '16': Decimal('48'), '17': Decimal('48'), '18': Decimal('48'), '19': Decimal('48'), '20': Decimal('48'), '21': Decimal('48'), '22': Decimal('48'), '23': Decimal('48'), '24': Decimal('48'), '25': Decimal('48'), 'SENTINEL:BIL': Decimal('0')}, data_version=1, shadow_snapshot_hash='6427ec08c5368bb52368478bd1b670970b257e25f2292e6130c184eb516e92ee', sentinel_transition_hash='4f3eea3131d8dd68a01dd6a559ba7691a985e9541dd6adaf987f97515e8f3dca', strategy_fingerprint='a5a770968e9865b5373e680c26fa282401982f7783f7ab30ba02aee348b12527', deployment_id='rolling-paper-test', broker='alpaca', broker_account_id='paper-fixture', takeover_epoch=1, publication_fingerprint='c72f4ae7a8b706d33f33456f5f1bad1fd2286d34c6990d6f13814b1731fc8ef1', account_nav=Decimal('250000'), account_cash=Decimal('250000'), cash_residual=Decimal('8012.79999999998848'), unpriced_securities=(), defensive_security='SENTINEL:BIL', rollout_mode='CONTROLLER', rollout_version=2, rollout_certificate_sha256='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', superseded_by=None, opening_intents=()).opening_intents
+E    +    where ExecutionPlan(plan_id='sentinel-9552f85aa24d63c39d1b3c8d34aad4e4bae346f398657bac781fb93f80f3cc3b', decision_session=datetime.date(2026, 9, 14), effective_session=datetime.date(2026, 9, 15), target_exposure=Decimal('1.0'), target_basket={'6': Decimal('48'), '7': Decimal('48'), '8': Decimal('48'), '9': Decimal('48'), '10': Decimal('48'), '11': Decimal('48'), '12': Decimal('48'), '13': Decimal('48'), '14': Decimal('48'), '15': Decimal('48'), '16': Decimal('48'), '17': Decimal('48'), '18': Decimal('48'), '19': Decimal('48'), '20': Decimal('48'), '21': Decimal('48'), '22': Decimal('48'), '23': Decimal('48'), '24': Decimal('48'), '25': Decimal('48'), 'SENTINEL:BIL': Decimal('0')}, data_version=1, shadow_snapshot_hash='6427ec08c5368bb52368478bd1b670970b257e25f2292e6130c184eb516e92ee', sentinel_transition_hash='4f3eea3131d8dd68a01dd6a559ba7691a985e9541dd6adaf987f97515e8f3dca', strategy_fingerprint='a5a770968e9865b5373e680c26fa282401982f7783f7ab30ba02aee348b12527', deployment_id='rolling-paper-test', broker='alpaca', broker_account_id='paper-fixture', takeover_epoch=1, publication_fingerprint='c72f4ae7a8b706d33f33456f5f1bad1fd2286d34c6990d6f13814b1731fc8ef1', account_nav=Decimal('250000'), account_cash=Decimal('250000'), cash_residual=Decimal('8012.79999999998848'), unpriced_securities=(), defensive_security='SENTINEL:BIL', rollout_mode='CONTROLLER', rollout_version=2, rollout_certificate_sha256='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', superseded_by=None, opening_intents=()) = PreparationResult(plan=ExecutionPlan(plan_id='sentinel-9552f85aa24d63c39d1b3c8d34aad4e4bae346f398657bac781fb93f80f3cc3b', decision_session=datetime.date(2026, 9, 14), effective_session=datetime.date(2026, 9, 15), target_exposure=Decimal('1.0'), target_basket={'6': Decimal('48'), '7': Decimal('48'), '8': Decimal('48'), '9': Decimal('48'), '10': Decimal('48'), '11': Decimal('48'), '12': Decimal('48'), '13': Decimal('48'), '14': Decimal('48'), '15': Decimal('48'), '16': Decimal('48'), '17': Decimal('48'), '18': Decimal('48'), '19': Decimal('48'), '20': Decimal('48'), '21': Decimal('48'), '22': Decimal('48'), '23': Decimal('48'), '24': Decimal('48'), '25': Decimal('48'), 'SENTINEL:BIL': Decimal('0')}, data_version=1, shadow_snapshot_hash='6427ec08c5368bb52368478bd1b670970b257e25f2292e6130c184eb516e92ee', sentinel_transition_hash='4f3eea3131d8dd68a01dd6a559ba7691a985e9541dd6adaf987f97515e8f3dca', strategy_fingerprint='a5a770968e9865b5373e680c26fa282401982f7783f7ab30ba02aee348b12527', deployment_id='rolling-paper-test', broker='alpaca', broker_account_id='paper-fixture', takeover_epoch=1, publication_fingerprint='c72f4ae7a8b706d33f33456f5f1bad1fd2286d34c6990d6f13814b1731fc8ef1', accoun...y='SENTINEL:BIL', rollout_mode='CONTROLLER', rollout_version=2, rollout_certificate_sha256='aaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa', superseded_by=None, opening_intents=()), sessions_replayed=0, warmup_sessions=0, state_fingerprint='6427ec08c5368bb52368478bd1b670970b257e25f2292e6130c184eb516e92ee', publication_version=1, frontier='2026-09-14', reconciliation=ReconciliationResult(runtime_state=<RuntimeState.RUNNING: 'RUNNING'>, observation=BrokerObservation(observed_at=datetime.datetime(2026, 8, 11, 14, 30, tzinfo=datetime.timezone.utc), started_at=datetime.datetime(2026, 8, 11, 14, 30, tzinfo=datetime.timezone.utc), orders=(), positions=(), completeness=<Completeness.COMPLETE: 'COMPLETE'>, terminal_recovery_through=datetime.datetime(2026, 9, 23, 7, 6, 41, 390275, tzinfo=datetime.timezone.utc), account_identity=BrokerAccountIdentity(broker='alpaca', account_id='paper-fixture', raw={}), exact_order_evidence=(), fills=(), fill_history_complete=False), expected={}, observed={}, corporate_actions={}, recovered_orders=(), foreign_positions=(), foreign_orders=(), unresolved=(), detail='reconciled', observation_id=1, restricted_securities={}), superseded_plans=0).plan
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 207, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 217, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 601, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 136, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 198, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 55, "job_id": "1c4bc7e8-b0d7-4966-85d0-a325c4b6c2a9", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "sessions": 0, "stage": "historical_formation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-03-26", "sessions": 10, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-10", "sessions": 20, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-24", "sessions": 30, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-08", "sessions": 40, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-22", "sessions": 50, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-08", "sessions": 60, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-23", "sessions": 70, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-08", "sessions": 80, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-22", "sessions": 90, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-05", "sessions": 100, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-19", "sessions": 110, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-02", "sessions": 120, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-11", "sessions": 126, "stage": "historical_formation", "status": "completed"}
+------------------------------ Captured log call -------------------------------
+WARNING  sentinel.handover:handover.py:237 sentinel: account is bound but the ownership event log is empty — binding is authoritative; the log is audit evidence and appears to have been restored separately
+WARNING  sentinel.handover:handover.py:237 sentinel: account is bound but the ownership event log is empty — binding is authoritative; the log is audit evidence and appears to have been restored separately
+WARNING  sentinel.handover:handover.py:237 sentinel: account is bound but the ownership event log is empty — binding is authoritative; the log is audit evidence and appears to have been restored separately
+WARNING  sentinel.handover:handover.py:237 sentinel: account is bound but the ownership event log is empty — binding is authoritative; the log is audit evidence and appears to have been restored separately
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_rolling_paper_inputs.py::test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow[alpaca-False]
+FAILED tests/sentinel/test_rolling_paper_inputs.py::test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow[alpaca-True]
+================== 2 failed, 99 passed in 2439.96s (0:40:39) ===================

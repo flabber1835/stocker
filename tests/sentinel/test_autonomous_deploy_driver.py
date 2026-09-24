@@ -78,6 +78,47 @@ def test_data_wait_defaults_are_bounded_and_operator_overridable(tmp_path):
     assert cfg.data_wait_timeout_seconds == 600
 
 
+def test_shipped_wait_settings_agree_with_actual_driver(tmp_path):
+    import sentinel_env
+    env = _config_env(tmp_path)
+    example = sentinel_env.load(ROOT / '.env.example')
+    for key in ('SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS', 'SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS'):
+        if key in example:
+            env[key] = example[key]
+    env.update(SENTINEL_POSTGRES_PASSWORD='synthetic-database-password',
+               SENTINEL_AUTOMATION_ALERT_WEBHOOK_URL='https://alerts.example.test/sentinel')
+    sentinel_env.validate(env, profile='install', target='DUAL_RUN_OBSERVATION')
+    cfg = driver.Config(env)
+    assert cfg.data_wait_timeout_seconds == 43200
+    assert cfg.formation_timeout_seconds == 7200
+    env['SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS'] = '30'
+    sentinel_env.validate(env, profile='install', target='DUAL_RUN_OBSERVATION')
+    cfg = driver.Config(env)
+    assert cfg.data_wait_timeout_seconds == 43200 and cfg.formation_timeout_seconds == 30
+
+
+def test_driver_formation_cannot_consume_provider_wait_budget(tmp_path, monkeypatch):
+    env = _config_env(tmp_path)
+    env.update(SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS='43200',
+               SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS='30')
+    obj = object.__new__(driver.AutonomousDeploy)
+    obj.cfg = driver.Config(env)
+    obj.phase = lambda message: None
+    obj._authorized_compose = lambda: ['docker', 'compose']
+    clock = [0.0]
+
+    def status(*args, **kwargs):
+        assert 0 < kwargs['timeout'] <= 30
+        clock[0] = 31.0
+        return SimpleNamespace(returncode=0, stdout=json.dumps({
+            'session': '2026-08-28', 'verification': 'VERIFIED', 'shadow_verdict': 'SHADOW_GO'}))
+
+    obj.runner = SimpleNamespace(run=status)
+    monkeypatch.setattr(core.time, 'monotonic', lambda: clock[0])
+    with pytest.raises(core.DeployRefused, match='deployment timeout'):
+        obj._wait_for_dual_shadow_session('2026-08-28')
+
+
 def _deploy_for_wait(tmp_path):
     cfg = SimpleNamespace(
         data_retry_seconds=30,

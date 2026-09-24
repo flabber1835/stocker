@@ -4,7 +4,8 @@ from sentinel import paper
 from sentinel.paper import execution as paper_execution
 from sentinel.paper import preparation as paper_preparation
 from sentinel.paper import recovery as paper_recovery
-from sentinel.controller.champion_config import STRATEGY_ID, REFERENCE_SOURCE_SHA256
+from sentinel.controller.champion_config import REFERENCE_SOURCE_SHA256
+from sentinel.controller.owned_impairment import STRATEGY_ID
 from sentinel.controller.ldrc import LDRCConfig
 from sentinel.strategy import production_strategy
 

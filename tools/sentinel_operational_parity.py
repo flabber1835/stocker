@@ -108,6 +108,7 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
             frontier = held.window_end if rolling else store.latest_visible_session(conn)
             if not frontier or held.window_end != frontier:
                 raise OperationalParityRefused("publication does not end at visible frontier")
+            formation_proof = None
             if rolling:
                 from sentinel.rolling_runtime import SCHEMA as runtime_contract
                 from sentinel.controller.machine import Controller
@@ -115,14 +116,25 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
                 from sentinel.rolling_initialization import _published
                 from sentinel.shadow_runtime import _warmup_input_identity
                 rolling_go_inputs.require_first_deployment(conn)
-                binding, material, _ = rolling_go_inputs.validate(conn, held)
-                prior = warm_session_state(
-                    SessionState.fresh(starting_cash=float(cash), controller=Controller(controller),
-                                       strategy_identity=strategy), material.warmup,
-                    publication_version=held.version, prospective_concordance_witness=True)
-                warmup = _warmup_input_identity(material.warmup, material.warmup.sessions,
-                                               prospective_witness=True)
-                published = _published(material, held)
+                from sentinel.controller.owned_impairment import enabled as owned
+                if owned(strategy):
+                    # Readiness uses counts; formation owns its one feature
+                    # window. Do not retain a second, unused warmup corpus.
+                    binding, _ = rolling_go_inputs.validate_status(conn, held)
+                    from sentinel.core.formation_inputs import FormationInputs
+                    from sentinel.core import formation_preview
+                    source_inputs = FormationInputs(conn, binding, held)
+                    prior, warmup, published, formation_proof = formation_preview.run(
+                        source_inputs, capital=cash, strategy=strategy, data_version=held.version)
+                else:
+                    binding, material, _ = rolling_go_inputs.validate(conn, held)
+                    prior = warm_session_state(
+                        SessionState.fresh(starting_cash=float(cash), controller=Controller(controller),
+                                           strategy_identity=strategy), material.warmup,
+                        publication_version=held.version, prospective_concordance_witness=True)
+                    warmup = _warmup_input_identity(material.warmup, material.warmup.sessions,
+                                                   prospective_witness=True)
+                    published = _published(material, held)
                 coherence = {"coherent": True, "scope": rolling_go_inputs.SCOPE,
                              "version": held.version, "blocking_runs": [], "snapshot": binding}
             else:
@@ -163,7 +175,9 @@ def run_proof(conn, *, starting_cash: str, expected_commit: str) -> dict:
             },
             "proof": {
                 **({"runtime_contract": runtime_contract} if rolling else {}),
-                "scope": "ROLLING_STARTUP_AND_RESTART" if rolling else PROOF_SCOPE,
+                "scope": ("ROLLING_FORMED_STARTUP_AND_RESTART" if formation_proof else
+                          "ROLLING_STARTUP_AND_RESTART" if rolling else PROOF_SCOPE),
+                **({'formation': formation_proof} if formation_proof else {}),
                 "strategy_identity": strategy,
                 "controller_configuration_sha256": controller.digest,
                 "starting_cash": format(cash.normalize(), "f"),

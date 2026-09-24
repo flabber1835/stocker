@@ -661,7 +661,7 @@ def _forward_report():
                 "strategy": "sentinel-compact-champion-v1",
                 "controller_rule_sha256": "c" * 64},
             "controller_configuration_sha256": "c" * 64,
-            "starting_cash": "100000", "decision_session": "2026-07-31",
+            "starting_cash": "50000", "decision_session": "2026-07-31",
             "data_version": 1,
             "warmup_input": {"session_count": 252, "warmup_input_sha256": "b" * 64},
             "sentinel_source_sha256": "d" * 64,
@@ -676,8 +676,11 @@ def _forward_report():
     }
 
 
-def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary():
-    runner = _Runner(_forward_report())
+@pytest.mark.parametrize("capital", [None, "100000"])
+def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary(capital):
+    report = _forward_report()
+    report["proof"]["starting_cash"] = capital or "50000"
+    runner = _Runner(report)
     subjects = {}
     timings = {}
     ticks = iter((20.0, 22.25))
@@ -689,6 +692,7 @@ def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary():
             "ALPACA_API_KEY": "must-not-enter-compose",
             "ALPACA_SECRET_KEY": "must-not-enter-compose",
             "SENTINEL_PAPER_ACCOUNT_ID": "must-not-enter-compose",
+            **({"SENTINEL_SHADOW_STARTING_CASH": capital} if capital else {}),
         }, commit=COMMIT, candidate_image_digest=DIGEST_A,
         runtime_image_digest=DIGEST_B, source_identity_sha256=IDENTITY,
         now_text=NOW_TEXT, subject_values=subjects,
@@ -699,6 +703,7 @@ def test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary():
                    if "tools.sentinel_operational_parity" in call)
     assert "--no-deps" in forward
     assert "--starting-cash" in forward
+    assert forward[forward.index("--starting-cash") + 1] == (capital or "50000")
     assert "--expected-commit" in forward
     forward_env = next(env for call, env in runner.calls
                        if "tools.sentinel_operational_parity" in call)
@@ -757,7 +762,33 @@ def test_rolling_go_proof_requires_supported_runtime_and_exact_input_scope(defec
         report["publication_coherence"]["snapshot"]["job_id"] = []
     elif defect == "authority":
         report["publication_coherence"]["snapshot"]["operational_go"] = True
-    assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash="100000") is (defect is None)
+    assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash="50000") is (defect is None)
+
+
+@pytest.mark.parametrize('defect', [None, 'missing', 'policy', 'count', 'state', 'legacy_scope'])
+def test_owned55_go_requires_the_formed_book_proof(defect):
+    report = _forward_report()
+    proof = report['proof']
+    proof['strategy_identity']['strategy'] = 'sentinel-compact-champion-owned55-v1'
+    proof.update(scope='ROLLING_FORMED_STARTUP_AND_RESTART', runtime_contract='sentinel.rolling-shadow-runtime/1',
+                 formation=dict(schema='sentinel.formation-parity/1', policy='CURRENT_INFORMATION_INITIALIZATION_V1',
+                    sessions=126, end='2026-07-30', chain_sha256='a'*64,
+                    state_sha256=proof['prior_state_sha256'], source_sha256='b'*64))
+    report['publication_coherence'].update(scope='ROLLING_CURRENT_INPUTS_ONLY', snapshot={
+        'data_version': 1, 'scope': 'DATA_ONLY', 'operational_go': False,
+        'snapshot_id': 'e'*64, 'candidate_id': '11111111-1111-1111-1111-111111111111',
+        'job_id': '22222222-2222-2222-2222-222222222222'})
+    if defect == 'missing':
+        proof.pop('formation')
+    elif defect == 'policy':
+        proof['formation']['policy'] = 'HISTORICAL_PIT_V1'
+    elif defect == 'count':
+        proof['formation']['sessions'] = 125
+    elif defect == 'state':
+        proof['formation']['state_sha256'] = '0'*64
+    elif defect == 'legacy_scope':
+        proof['scope'] = 'ROLLING_STARTUP_AND_RESTART'
+    assert go._operational_parity_report_valid(report, commit=COMMIT, starting_cash='50000') is (defect is None)
 
 
 def test_shadow_configuration_digest_is_exact_runtime_contract():
@@ -936,16 +967,20 @@ def test_certified_probe_runs_all_three_merge_critical_suites_without_network():
     assert gate.status == go.PASS
     assert summary.complete is True
     assert summary.suites_completed == 3
-    assert summary.passed == 30
+    assert summary.passed == 60
     run_calls = [call for call, _env in runner.calls
                  if call[:2] == ["docker", "run"]
                  and not ("-m" in call and "sentinel" in call)]
-    assert len(run_calls) == 3
+    assert len(run_calls) == 6
     assert all("--network" in call and call[call.index("--network") + 1] == "none"
                for call in run_calls)
-    assert all(call[5].startswith("sha256:") for call in run_calls)
+    assert all(any(value.startswith("sha256:") for value in call) for call in run_calls)
     surface = "\n".join(" ".join(call) for call in run_calls)
-    assert "tests/sentinel" in surface
+    partitions = [call for call in run_calls if 'tools/sentinel_test_partition.py' in call]
+    assert [call[call.index('tools/sentinel_test_partition.py') + 1] for call in partitions] == [
+        'general', 'rolling', 'warmup', 'automation']
+    assert len({call[7] for call in partitions}) == 1
+    assert all(call[5:7] == ['--entrypoint', 'python'] for call in partitions)
     assert "tests/wealth_core" in surface
     wealth_call = next(call for call in run_calls
                        if "tests/wealth_core" in call)
@@ -962,7 +997,7 @@ def test_certified_probe_treats_a_signal_terminated_suite_as_failure():
     class KilledRunner(_Runner):
         def run(self, argv, *, env=None, cwd=ROOT):
             result = super().run(argv, env=env, cwd=cwd)
-            if argv[:2] == ["docker", "run"] and "tests/sentinel" in argv:
+            if argv[:2] == ["docker", "run"] and "rolling" in argv:
                 return subprocess.CompletedProcess(
                     argv, -9, stdout="10 passed in 1.00s\n", stderr="")
             return result
@@ -971,6 +1006,7 @@ def test_certified_probe_treats_a_signal_terminated_suite_as_failure():
         KilledRunner(), commit=COMMIT, now_text=NOW_TEXT)
 
     assert summary.exit_code == -9
+    assert summary.suites_completed == 2
     assert summary.complete is False
     assert gate.status == go.FAIL
 

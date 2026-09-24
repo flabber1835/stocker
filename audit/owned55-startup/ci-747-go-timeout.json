@@ -1,0 +1,176 @@
+{
+  "artifact_files": {
+    "production-composition/adjacent-go.txt": {
+      "bytes": 287,
+      "sha256": "1ee4b0b0782989c8ce4e86f44be26e195fd70d5880497d45d8e5fda41b0ff228"
+    },
+    "production-composition/adjacent-go.xml": {
+      "bytes": 19497,
+      "sha256": "7a5474e0f28078797fb74d367fb2bb91f41ee46ad3c3fd0a7425c07286fd9dab"
+    },
+    "production-composition/canonical-go.log": {
+      "bytes": 375844,
+      "sha256": "4feaa66cf8ec1d1f7fe9ceedd59e77c3d5e9dc0d7f3e75c005740241fbdaaebd"
+    },
+    "production-composition/junit.xml": {
+      "bytes": 97701,
+      "sha256": "3a94fe5082bf421317b3bed6bc1703e10d7bbb4ad4555f322e98af37273bfc9c"
+    },
+    "production-composition/live.json": {
+      "bytes": 1045,
+      "sha256": "bb1167dc54efba90fcf714eeeb01dbefdf17a1015d35d2d37cffbe9565f65271"
+    },
+    "production-composition/physical-restore.txt": {
+      "bytes": 211,
+      "sha256": "06d031a7c5c3633a904592691100f0491c0966f5b93b373649490607aa6f8a13"
+    },
+    "production-composition/physical-restore.xml": {
+      "bytes": 6506,
+      "sha256": "abf328873ece4d5d3ff05c4ea83fd7ea7889419e696dfb24821c8efa5bbd91d8"
+    },
+    "production-composition/production-go-e2e.json": {
+      "bytes": 36536,
+      "sha256": "a2e66436baaa59cb410810b02cb9883675bd5d7b9243508273649bde670b00e1"
+    },
+    "production-composition/pytest.txt": {
+      "bytes": 772,
+      "sha256": "3ed7064d6b2e35dd260727915917c9a9c1447a3af8e68464a7702d80bb2c29c7"
+    },
+    "production-composition/test-owner.json": {
+      "bytes": 4342,
+      "sha256": "fc33f45847df573fd916cd5880ef5b9cf6b8306189737ebf01e3dbf85d1ee446"
+    },
+    "production-composition/tested-commit.txt": {
+      "bytes": 41,
+      "sha256": "694ae52751b30e49d3b70cf1490d7cef3ee83dfd3b1b82d91d2b56a49bc662d9"
+    },
+    "sentinel/go-validation/backup-refresh-audit.json": {
+      "bytes": 452,
+      "sha256": "a08cb44e6bc56f11fef5d32fabe3046ff7eebb1cc3dd110e0159cd91e2643ccb"
+    },
+    "sentinel/go-validation/go-validation.lock": {
+      "bytes": 0,
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+    },
+    "sentinel/go-validation/stable-certification-ordinary-runtime.json": {
+      "bytes": 464,
+      "sha256": "db542642084afa4c6c823c5e5ef18e76d81183da42dc09fffe0da85f72afebfb"
+    },
+    "sentinel/go-validation/stable-certification.json": {
+      "bytes": 1050,
+      "sha256": "7cb62590fc150168792b5cfaa92adb16bbf82349675fb17270bf8968671d87a9"
+    }
+  },
+  "artifact_id": 10780910835,
+  "artifact_zip_sha256": "ec95b79c0a12f1b8278419c334bf6c19997eece874e5a5e5ec6a26b129dcc1b6",
+  "failure": {
+    "detail": "canonical GO did not complete successfully (rc=124)",
+    "type": "AuditFailure"
+  },
+  "full_go_qualified": false,
+  "full_job_log_sha256": "d00a22ccfcb9654d1c2542743d28e684abad71ae3b095b16f33828fb849a3bcb",
+  "job_id": 107317770388,
+  "limitations": [
+    "Runtime parity process returned success once; second image parity and final comparison were interrupted.",
+    "No final GO bundle, readiness/health completion, promotion or panel handoff proven by this run.",
+    "Stable suite summary proves tests only, not economic or full GO qualification."
+  ],
+  "result": "REFUSED_OUTER_TIMEOUT",
+  "reviewed_commit": "747cdcca8649a781351439a90888fc842d419ce5",
+  "run_id": 35900585894,
+  "run_url": "https://github.com/flabber1835/stocker/actions/runs/35900585894",
+  "stable_test_evidence": {
+    "evidence_sha256": "7632cc270dcb454185b445b4080a2686b9d971c602d4855c732d989868621fdf",
+    "git_commit": "747cdcca8649a781351439a90888fc842d419ce5",
+    "schema": "sentinel.nas-go-stable-certification/1",
+    "tests": {
+      "auxiliary_image_digests": [],
+      "candidate_image_digest": "sha256:76752fc1c35ef347198bbd42857cea19463db2636b1f48c1768dcf308876881e",
+      "complete": true,
+      "errors": 0,
+      "exit_code": 0,
+      "failed": 0,
+      "non_forward_historical_exclusions": [
+        "tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture",
+        "tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER",
+        "tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash"
+      ],
+      "passed": 6548,
+      "runtime_image_digest": "sha256:aec6c2edd33d6364fe5ead394aa185e64629feeeb30e3a208c3dfc7b5a8ecb78",
+      "schema": "sentinel.nas-go-test-summary/1",
+      "skipped": 0,
+      "source_identity_sha256": "4ed177e361323245bf4bc2aa698fd96dfee05673d41aae3cd1b642ce7d789ab8",
+      "suites_completed": 3,
+      "xfailed": 0,
+      "xpassed": 0
+    }
+  },
+  "timeline": [
+    "2026-09-23T18:42:52.8243081Z [RUN]  bash subprocess (deadline 14400s)",
+    "2026-09-23T18:43:11.6386993Z === PHASE A - CURRENT GIT IDENTITY ===",
+    "2026-09-23T18:43:11.6404766Z [RUN]  git fetch (deadline 10800s)",
+    "2026-09-23T18:43:11.6488422Z [PASS] git fetch (deadline 10800s)",
+    "2026-09-23T18:43:11.6491989Z [RUN]  git rev-parse (deadline 10800s)",
+    "2026-09-23T18:43:11.6507396Z [PASS] git rev-parse (deadline 10800s)",
+    "2026-09-23T18:43:11.6508409Z [RUN]  git symbolic-ref (deadline 10800s)",
+    "2026-09-23T18:43:11.6526076Z [PASS] git symbolic-ref (deadline 10800s)",
+    "2026-09-23T18:43:11.6526885Z [RUN]  git rev-parse (deadline 10800s)",
+    "2026-09-23T18:43:11.6543774Z [PASS] git rev-parse (deadline 10800s)",
+    "2026-09-23T18:43:11.6544699Z [RUN]  git status (deadline 10800s)",
+    "2026-09-23T18:43:11.6612306Z [PASS] git status (deadline 10800s)",
+    "2026-09-23T18:43:11.6614530Z [PASS] Git identity PASS",
+    "2026-09-23T18:43:11.6619202Z [FAIL] Alpaca PAPER account NOT_PROVEN",
+    "2026-09-23T18:43:11.6620074Z [RUN]  Docker build sentinel-go-runtime:747cdcca8649a781351439a90888fc842d419ce5 (deadline 10800s)",
+    "2026-09-23T18:43:11.8258124Z [PASS] Docker build sentinel-go-runtime:747cdcca8649a781351439a90888fc842d419ce5 (deadline 10800s)",
+    "2026-09-23T18:43:11.8260085Z [RUN]  Docker build sentinel-go-test:747cdcca8649a781351439a90888fc842d419ce5 (deadline 10800s)",
+    "2026-09-23T18:44:57.0843570Z [PASS] Docker build sentinel-go-test:747cdcca8649a781351439a90888fc842d419ce5 (deadline 10800s)",
+    "2026-09-23T18:44:57.0849006Z [RUN]  Docker image identity (deadline 10800s)",
+    "2026-09-23T18:44:57.1001617Z [PASS] Docker image identity (deadline 10800s)",
+    "2026-09-23T18:44:57.1003554Z [RUN]  Docker image identity (deadline 10800s)",
+    "2026-09-23T18:44:57.1141904Z [PASS] Docker image identity (deadline 10800s)",
+    "2026-09-23T18:44:57.1143127Z [RUN]  isolated Docker probe (deadline 10800s)",
+    "2026-09-23T18:44:58.3794710Z [PASS] isolated Docker probe (deadline 10800s)",
+    "2026-09-23T18:44:58.3927990Z [RUN]  isolated Docker probe (deadline 10800s)",
+    "2026-09-23T19:40:19.0655787Z [PASS] isolated Docker probe (deadline 10800s)",
+    "2026-09-23T19:40:19.2237116Z [RUN]  isolated Docker probe (deadline 10800s)",
+    "2026-09-23T21:17:08.5465863Z [PASS] isolated Docker probe (deadline 10800s)",
+    "2026-09-23T21:17:08.5598829Z [RUN]  isolated Docker probe (deadline 10800s)",
+    "2026-09-23T21:56:05.9953279Z [PASS] isolated Docker probe (deadline 10800s)",
+    "2026-09-23T21:56:06.0091351Z [RUN]  isolated Docker probe (deadline 10800s)",
+    "2026-09-23T21:58:05.8585122Z [PASS] isolated Docker probe (deadline 10800s)",
+    "2026-09-23T21:58:05.8729684Z [RUN]  pytest tests/wealth_core (deadline 10800s)",
+    "2026-09-23T22:02:02.2322290Z ================ 857 passed, 3 deselected in 235.55s (0:03:55) =================",
+    "2026-09-23T22:02:02.7789123Z [PASS] pytest tests/wealth_core (deadline 10800s)",
+    "2026-09-23T22:02:02.7959426Z [RUN]  pytest tests/scripts/test_sentinel_go_validate.py (deadline 10800s)",
+    "2026-09-23T22:02:04.1686847Z ============================== 79 passed in 0.53s ==============================",
+    "2026-09-23T22:02:04.2839935Z [PASS] pytest tests/scripts/test_sentinel_go_validate.py (deadline 10800s)",
+    "2026-09-23T22:02:04.3147163Z [RUN]  Docker image identity (deadline 10800s)",
+    "2026-09-23T22:02:04.3314009Z [PASS] Docker image identity (deadline 10800s)",
+    "2026-09-23T22:02:04.3496791Z === PHASE C - CERTIFIED FINANCIAL PREPARATION ===",
+    "2026-09-23T22:02:04.3504481Z [RUN]  resolve Sentinel Compose runtime (deadline 10800s)",
+    "2026-09-23T22:02:04.8135298Z [PASS] resolve Sentinel Compose runtime (deadline 10800s)",
+    "2026-09-23T22:02:05.0413612Z [RUN]  git rev-parse (deadline 10800s)",
+    "2026-09-23T22:02:05.0596531Z [PASS] git rev-parse (deadline 10800s)",
+    "2026-09-23T22:02:05.0597278Z [RUN]  git status (deadline 10800s)",
+    "2026-09-23T22:02:05.0876427Z [PASS] git status (deadline 10800s)",
+    "2026-09-23T22:02:05.0885792Z [RUN]  verify database backup health (deadline 10800s)",
+    "2026-09-23T22:02:07.6982502Z [PASS] verify database backup health (deadline 10800s)",
+    "2026-09-23T22:02:07.7006142Z [RUN]  resolve Sentinel Compose runtime (deadline 10800s)",
+    "2026-09-23T22:02:07.9389988Z [PASS] resolve Sentinel Compose runtime (deadline 10800s)",
+    "2026-09-23T22:02:07.9395266Z [RUN]  python3 subprocess (deadline 10800s)",
+    "2026-09-23T22:02:08.0111731Z [PASS] python3 subprocess (deadline 10800s)",
+    "2026-09-23T22:02:08.0117934Z [RUN]  certified financial preparation (deadline 7200s)",
+    "2026-09-23T22:11:38.7675303Z [PASS] certified financial preparation (deadline 7200s)",
+    "2026-09-23T22:11:38.7844340Z [PASS] financial preparation PASS",
+    "2026-09-23T22:11:38.7970425Z === PHASE D1 - WEALTH CORE PARITY ===",
+    "2026-09-23T22:11:38.7971090Z [RUN]  resolve Sentinel Compose runtime (deadline 10800s)",
+    "2026-09-23T22:11:39.0373027Z [PASS] resolve Sentinel Compose runtime (deadline 10800s)",
+    "2026-09-23T22:11:39.2472981Z [RUN]  resolve Sentinel Compose runtime (deadline 10800s)",
+    "2026-09-23T22:11:39.4920627Z [PASS] resolve Sentinel Compose runtime (deadline 10800s)",
+    "2026-09-23T22:11:39.4923575Z [RUN]  read-only financial probe (deadline 10800s)",
+    "2026-09-23T22:32:21.2493881Z [PASS] read-only financial probe (deadline 10800s)",
+    "2026-09-23T22:32:21.2627425Z [RUN]  read-only financial probe (deadline 10800s)",
+    "2026-09-23T22:42:52.9106061Z [FAIL] bash subprocess (deadline 14400s) (timeout after 14400s)",
+    "2026-09-23T22:42:56.5565417Z REFUSED: production GO E2E audit failed: canonical GO did not complete successfully (rc=124)"
+  ]
+}

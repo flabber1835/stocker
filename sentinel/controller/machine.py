@@ -498,9 +498,10 @@ class Controller:
         oracle allocation.  The parent severe state is derived exclusively
         from the supplied observation and prior durable state.
         """
-        from .champion_config import STRATEGY_ID, load as champion_config
-        if self.cfg.strategy_id == STRATEGY_ID:
-            if self.cfg != champion_config():
+        from .champion_config import enabled as champion_enabled
+        if champion_enabled({"strategy": self.cfg.strategy_id}):
+            from .median5 import controller_config
+            if self.cfg != controller_config({"strategy": self.cfg.strategy_id}):
                 raise ValueError("compact champion configuration differs")
             from .champion import native_step
             return native_step(observation=observation, state=state)

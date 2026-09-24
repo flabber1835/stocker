@@ -1,0 +1,44 @@
+FROZEN_VALIDATION_SOURCE_SHA256=8030785a418d9824309dbaca76b9828d804e1712d74be57101bbab01eb21a89e
+go_legacy_frontier KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "go_legacy_frontier",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/production_composition/test_canonical_go_e2e_harness.py::test_publication_observer_reads_the_selected_generation[rolling-startup]",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=go_legacy_frontier.baseline.log
+.                                                                        [100%]
+1 passed in 0.60s
+
+MUTATION_LOG=go_legacy_frontier.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___ test_publication_observer_reads_the_selected_generation[rolling-startup] ___
+tests/production_composition/test_canonical_go_e2e_harness.py:362: in test_publication_observer_reads_the_selected_generation
+    value = harness._publication_identity()
+            ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+tools/production_go_e2e_harness.py:556: in _publication_identity
+    result = _run_host([
+tests/production_composition/test_canonical_go_e2e_harness.py:358: in run_host
+    exec(compile(argv[-1], "<publication-observer>", "exec"), {})
+<publication-observer>:12: in <module>
+    ???
+tests/production_composition/test_canonical_go_e2e_harness.py:351: in legacy_frontier
+    assert not rolling, "rolling generation must not read an older legacy frontier"
+E   AssertionError: rolling generation must not read an older legacy frontier
+E   assert not True
+=========================== short test summary info ============================
+FAILED tests/production_composition/test_canonical_go_e2e_harness.py::test_publication_observer_reads_the_selected_generation[rolling-startup]
+1 failed in 0.47s

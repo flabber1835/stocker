@@ -16,7 +16,8 @@ STRATEGY_ID = "sentinel-median5-v1"
 def enabled(identity):
     from .ex3_v6 import STRATEGY_ID as V5_ID
     from .champion_config import STRATEGY_ID as CHAMPION_ID
-    return identity.get("strategy") in (STRATEGY_ID, V5_ID, CHAMPION_ID)
+    from .owned_impairment import STRATEGY_ID as OWNED_ID
+    return identity.get("strategy") in (STRATEGY_ID, V5_ID, CHAMPION_ID, OWNED_ID)
 
 
 def wealth_config(identity):
@@ -28,6 +29,9 @@ def wealth_config(identity):
 
 
 def controller_config(identity):
+    from .owned_impairment import enabled as owned_enabled, load as owned_load
+    if owned_enabled(identity):
+        return owned_load()
     from .champion_config import enabled as champion_enabled, load as champion_load
     if champion_enabled(identity):
         return champion_load()

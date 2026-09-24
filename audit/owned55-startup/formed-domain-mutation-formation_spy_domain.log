@@ -1,0 +1,33 @@
+FROZEN_VALIDATION_SOURCE_SHA256=462640a685fef8429d2f9b293539bebe28bb66d925478ef4b851f107df17cca1
+formation_spy_domain KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "formation_spy_domain",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_rolling_initialization.py::test_composed_input_keeps_spy_equity_and_bil_domains_separate[formed]",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=formation_spy_domain.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+____ test_composed_input_keeps_spy_equity_and_bil_domains_separate[formed] _____
+tests/sentinel/test_rolling_initialization.py:60: in test_composed_input_keeps_spy_equity_and_bil_domains_separate
+    assert published.spy_closeadj[:-2] == tuple(300.+i for i in range(251))
+E   assert (91.0, 91.0, ....0, 91.0, ...) == (300.0, 301.0...0, 305.0, ...)
+E
+E     At index 0 diff: 91.0 != 300.0
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_rolling_initialization.py::test_composed_input_keeps_spy_equity_and_bil_domains_separate[formed]
+1 failed in 1.32s

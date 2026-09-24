@@ -3,6 +3,7 @@ import asyncio
 from dataclasses import replace
 from datetime import date, timedelta
 from decimal import Decimal
+from fractions import Fraction
 from types import SimpleNamespace
 
 import pytest
@@ -11,8 +12,7 @@ from sentinel import binding, dual_plan_authority, rolling_runtime, rolling_init
 from sentinel import automation_runtime
 from sentinel.execution import feed_inputs, feed_actions, journal, certification, target_reprojection
 from sentinel.execution.feed_cash import SnapshotCashInputs
-from sentinel.execution.contract import BrokerAccountIdentity, CapabilityNotCertified
-from sentinel.execution.opening_prices import parse_bars
+from sentinel.execution.contract import BrokerAccountIdentity
 from sentinel.execution.simulator import SimulatedBroker
 from sentinel.config import DEFAULT_BASE_URL
 from sentinel.feed import calendar, publication, operational_snapshot as snapshots, rolling_store, universe
@@ -148,6 +148,23 @@ def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(
     assert first.sessions_replayed == first.warmup_sessions == 0
     assert first.state_fingerprint == shadow.state.state_hash
     assert first.plan.account_nav == Decimal("250000")
+    # Formation has already opened the Core positions. The live cash account
+    # acquires their scaled basket; it must not manufacture new Core entries.
+    assert shadow.state.wealth_core['episodes'] and not shadow.state.pending
+    assert not shadow.state.ledger['receivables']
+    assert first.plan.opening_intents == ()
+    shares = {e['security_id']: Fraction(str(e['current_shares']))
+              for e in shadow.state.wealth_core['episodes'].values()}
+    snapshot = snapshots._bound(conn, feed_inputs.require_current(conn))
+    marks = {str(sid): Fraction(str(price)) for sid, price in conn.execute(
+        'SELECT security_id,close_unadjusted FROM sentinel_snapshot_bars '
+        'WHERE candidate_id=%s AND session=%s', (snapshot['candidate_id'], DAY))}
+    core_nav = Fraction(str(shadow.state.wealth_core['cash'])) + sum(
+        (quantity * marks[sid] for sid, quantity in shares.items()), Fraction(0))
+    oracle = {sid: Decimal((quantity * Fraction(250000) * Fraction(first.plan.target_exposure) / core_nav) // 1)
+              for sid, quantity in shares.items()}
+    assert oracle and all(quantity > 0 for quantity in oracle.values())
+    assert {sid: first.plan.target_basket[sid] for sid in shares} == oracle
     proof = dual_plan_authority.rederive_plan(conn, plan=first.plan, binding=bound,
         rollout_state=load_rollout_state(conn), expected_shadow_result=shadow)
     assert proof["verdict"] == "MATCH"
@@ -158,10 +175,10 @@ def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(
     assert conn.execute("SELECT COUNT(*) FROM sentinel_processed_sessions WHERE cursor_name='catchup'").fetchone()[0] == 0
     assert conn.execute("SELECT COUNT(*) FROM sentinel_commands").fetchone()[0] == 0
 
-    # Certificate-free execution retains real opening sizing and durable retry
-    # identity. Only broker-delivered opening bars are simulated here.
+    # Certificate-free simulation retains real mature-basket sizing and durable
+    # retry identity. Dollar-entry opening-price guards are tested in tests/v5;
+    # neither a held Core position nor a broker capability invents a new entry.
     from sentinel.execution.guarded import AutomationExecutionGrant
-    assert first.plan.opening_intents
     monkeypatch.setattr(execution, "_guard_broker", lambda **kwargs: kwargs["broker"])
     grant = AutomationExecutionGrant("EXECUTE", "rolling-test-cycle", 1, "test", 1,
         "paper-fixture", bound.takeover_epoch, "CONTROLLER", 2, "a" * 64)
@@ -172,11 +189,7 @@ def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(
 
     async def opening_prices(*, session, instruments):
         opening_reads.append(dict(instruments))
-        payload = {"bars": {item.symbol: [
-            {"t": opened.isoformat(), "o": "100", "v": 10}]
-            for item in instruments.values()}, "next_page_token": None}
-        return parse_bars(payload, session=session, instruments=instruments,
-                          observed_at=opened + timedelta(minutes=1))
+        pytest.fail('mature held basket requested dollar-entry opening evidence')
 
     broker.capabilities = replace(broker.capabilities,
                                   regular_session_open_prices=opening_capability)
@@ -191,18 +204,11 @@ def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(
             today=opened + timedelta(seconds=seconds),
             dual_shadow_observation_id=OBS, dual_shadow_starting_cash=100000))
 
-    if not opening_capability:
-        with pytest.raises(CapabilityNotCertified, match="regular_session_open_prices"):
-            execute(60)
-        assert opening_reads == []
-        assert conn.execute("SELECT COUNT(*) FROM sentinel_commands").fetchone()[0] == 0
-        return
-
     result = execute(60)
     assert result.session.submitted
     projection = target_reprojection.load_projection(conn, plan_id=first.plan.plan_id)
-    assert projection.opening_sizing["mode"] == "V5_OPEN_WHOLE_SHARES"
-    assert len(opening_reads) == 1
+    assert projection.opening_sizing is None
+    assert opening_reads == []
     assert {command.security_id: command.quantity for command in result.session.submitted} == {
         sid: quantity for sid, quantity in projection.target_basket.items() if quantity > 0}
     for command in result.session.submitted:
@@ -210,7 +216,7 @@ def test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow(
     retry = execute(90)
     assert retry.session.submitted == ()
     assert target_reprojection.load_projection(conn, plan_id=first.plan.plan_id) == projection
-    assert len(opening_reads) == 1
+    assert opening_reads == []
     assert len(journal.load_commands(conn, bound.identity, plan_id=first.plan.plan_id)) == len(result.session.submitted)
     assert paper.current_paper_plan(conn, dual_shadow_observation_id=OBS,
         dual_shadow_starting_cash=100000)["plan"]["plan_id"] == first.plan.plan_id

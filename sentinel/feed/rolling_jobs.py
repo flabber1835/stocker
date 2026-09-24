@@ -9,7 +9,7 @@ from typing import Literal
 
 from pydantic import Field
 
-from sentinel.feed.rolling_contract import Contract, Digest, PriceWindow, canonical_json, digest
+from sentinel.feed.rolling_contract import Contract, Digest, FormationWindow, PriceWindow, canonical_json, digest
 from sentinel.feed import rolling_store
 
 State = Literal["ACQUIRING", "WAIT_SOURCE", "STAGING", "VALIDATING", "READY",
@@ -32,7 +32,7 @@ class JobWaiting(JobRefused):
 
 
 class PreparationRequest(Contract):
-    window: PriceWindow
+    window: FormationWindow | PriceWindow
     expected_publication_version: int | None = Field(default=None, ge=1, strict=True)
     cursor: date | None = None
     strategy_sha256: Digest

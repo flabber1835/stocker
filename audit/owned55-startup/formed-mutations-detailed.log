@@ -1,0 +1,245 @@
+FROZEN_VALIDATION_SOURCE_SHA256=beea872791d7aed60e3b14ec0b20c1ee2d84a7d21649999bb639083c608bae44
+unsigned_formed_origin KILLED
+unsigned_progress KILLED
+disconnected_formation KILLED
+free_stock_entry KILLED
+double_rotation_fee KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "unsigned_formed_origin",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_formed_startup.py::test_authenticated_origin_cannot_change_context_or_seed",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "unsigned_progress",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_formed_startup.py::test_progress_cannot_be_self_rehashed_or_rebound[rehashed_state]",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "disconnected_formation",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_rolling_initialization.py::test_real_publication_forms_historical_book_and_atomic_checkpoint",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "free_stock_entry",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_formed_economics.py::test_flat_half_cash_book_pays_for_stock_and_bil_only[1-.9995]",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  },
+  {
+    "name": "double_rotation_fee",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_formed_economics.py::test_canonical_rotation_cost_is_replaced_by_one_funded_entry",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=disconnected_formation.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+______ test_real_publication_forms_historical_book_and_atomic_checkpoint _______
+tests/sentinel/test_rolling_initialization.py:101: in test_real_publication_forms_historical_book_and_atomic_checkpoint
+    result = start(conn)
+             ^^^^^^^^^^^
+tests/sentinel/test_rolling_initialization.py:91: in start
+    return init.initialize(conn, observation_id=kwargs.get("observation_id", OBS),
+sentinel/rolling_initialization.py:125: in initialize
+    result = _initialize(conn, pub, binding, context)
+             ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sentinel/rolling_initialization.py:101: in _initialize
+    checkpoint = checkpoints.Checkpoint(
+E   pydantic_core._pydantic_core.ValidationError: 1 validation error for Checkpoint
+E     Value error, checkpoint origin kind differs from initialization evidence [type=value_error, input_value={'status': 'FORMED_START_...get_action': 'promote'}}, input_type=dict]
+E       For further information visit https://errors.pydantic.dev/2.13/v/value_error
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 257, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 258, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 594, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 139, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 209, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 61, "job_id": "9779070c-0ab1-4af5-90ca-6d1ed7faa1d9", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_rolling_initialization.py::test_real_publication_forms_historical_book_and_atomic_checkpoint
+1 failed in 10.01s
+
+MUTATION_LOG=double_rotation_fee.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_canonical_rotation_cost_is_replaced_by_one_funded_entry _________
+tests/sentinel/test_formed_economics.py:32: in test_canonical_rotation_cost_is_replaced_by_one_funded_entry
+    assert result['gross_factor'] == D('1.005')
+E   AssertionError: assert Decimal('1.0041') == Decimal('1.005')
+E    +  where Decimal('1.005') = D('1.005')
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_formed_economics.py::test_canonical_rotation_cost_is_replaced_by_one_funded_entry
+1 failed in 0.15s
+
+MUTATION_LOG=free_stock_entry.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_flat_half_cash_book_pays_for_stock_and_bil_only[1-.9995] _________
+tests/sentinel/test_formed_economics.py:23: in test_flat_half_cash_book_pays_for_stock_and_bil_only
+    assert result['net_factor'] == D(expected)
+E   AssertionError: assert Decimal('1.000') == Decimal('0.9995')
+E    +  where Decimal('0.9995') = D('.9995')
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_formed_economics.py::test_flat_half_cash_book_pays_for_stock_and_bil_only[1-.9995]
+1 failed in 0.15s
+
+MUTATION_LOG=unsigned_formed_origin.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+___________ test_authenticated_origin_cannot_change_context_or_seed ____________
+tests/sentinel/test_formed_startup.py:100: in test_authenticated_origin_cannot_change_context_or_seed
+    formed_origin.validate(forged, first_session=result.session)
+sentinel/formed_origin.py:66: in validate
+    raise ValueError('FORMED_ORIGIN_PLAN_CHANGED')
+E   ValueError: FORMED_ORIGIN_PLAN_CHANGED
+
+During handling of the above exception, another exception occurred:
+tests/sentinel/test_formed_startup.py:99: in test_authenticated_origin_cannot_change_context_or_seed
+    with pytest.raises(ValueError, match='AUTHENTICATION'):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   AssertionError: Regex pattern did not match.
+E    Regex: 'AUTHENTICATION'
+E    Input: 'FORMED_ORIGIN_PLAN_CHANGED'
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 241, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 230, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 597, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 141, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 210, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 62, "job_id": "855daa5b-04b4-43c3-8609-d08647753cea", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+----------------------------- Captured stderr call -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "sessions": 0, "stage": "historical_formation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-03-26", "sessions": 10, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-10", "sessions": 20, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-24", "sessions": 30, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-08", "sessions": 40, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-22", "sessions": 50, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-08", "sessions": 60, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-23", "sessions": 70, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-08", "sessions": 80, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-22", "sessions": 90, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-05", "sessions": 100, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-19", "sessions": 110, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-02", "sessions": 120, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-11", "sessions": 126, "stage": "historical_formation", "status": "completed"}
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_formed_startup.py::test_authenticated_origin_cannot_change_context_or_seed
+1 failed in 37.15s
+
+MUTATION_LOG=unsigned_progress.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_progress_cannot_be_self_rehashed_or_rebound[rehashed_state] _______
+tests/sentinel/test_formed_startup.py:84: in test_progress_cannot_be_self_rehashed_or_rebound
+    with pytest.raises(ValueError, match='FORMATION_PROGRESS_'):
+         ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+E   Failed: DID NOT RAISE <class 'ValueError'>
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 233, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 230, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 659, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 138, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 210, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 66, "job_id": "5df5ceaa-64c5-4d8d-973d-407c81d6701b", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+----------------------------- Captured stderr call -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-03-26", "sessions": 10, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-10", "sessions": 20, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-04-24", "sessions": 30, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-08", "sessions": 40, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-05-22", "sessions": 50, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-08", "sessions": 60, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-06-23", "sessions": 70, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-08", "sessions": 80, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-07-22", "sessions": 90, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-05", "sessions": 100, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-08-19", "sessions": 110, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-02", "sessions": 120, "stage": "historical_formation", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "required_sessions": 126, "rows": 0, "session": "2026-09-11", "sessions": 126, "stage": "historical_formation", "status": "completed"}
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_formed_startup.py::test_progress_cannot_be_self_rehashed_or_rebound[rehashed_state]
+1 failed in 36.73s

@@ -1,0 +1,41 @@
+FROZEN_VALIDATION_SOURCE_SHA256=c9473f23414dca8b98cba0774b835fc5c2604ade454328101c8bcc2b89889b06
+formation_env_collision KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "formation_env_collision",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_autonomous_deploy_driver.py::test_shipped_wait_settings_agree_with_actual_driver",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=formation_env_collision.baseline.log
+.                                                                        [100%]
+1 passed in 0.19s
+
+MUTATION_LOG=formation_env_collision.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____________ test_shipped_wait_settings_agree_with_actual_driver ______________
+tests/sentinel/test_autonomous_deploy_driver.py:91: in test_shipped_wait_settings_agree_with_actual_driver
+    cfg = driver.Config(env)
+          ^^^^^^^^^^^^^^^^^^
+scripts/sentinel_autonomous_deploy_driver.py:30: in __init__
+    super().__init__(env)
+scripts/sentinel_autonomous_deploy.py:1089: in __init__
+    self.formation_timeout_seconds = _int(
+scripts/sentinel_autonomous_deploy.py:1020: in _int
+    raise DeployRefused(
+E   sentinel_autonomous_deploy.DeployRefused: SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS must be in [30, 7200]
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_autonomous_deploy_driver.py::test_shipped_wait_settings_agree_with_actual_driver
+1 failed in 0.25s

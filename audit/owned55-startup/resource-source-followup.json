@@ -1,0 +1,12 @@
+{
+  "scope": "Comparison to retained 5000-security formation/status resource source",
+  "all_runtime_bytes_match": false,
+  "changed": [
+    "sentinel/observation_authority.py"
+  ],
+  "added": [
+    "sentinel/core/formation_preview.py",
+    "sentinel/observation_startup.py"
+  ],
+  "qualification": "Previous scale measurement applies to unchanged durable formation/storage/status paths; new read-only observation proof has targeted functional evidence, not a fresh broad-universe resource measurement."
+}

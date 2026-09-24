@@ -12,7 +12,7 @@ from typing import Iterable, Mapping
 
 from sentinel.feed import calendar
 from sentinel.feed.rolling_contract import (
-    CanonicalBar, CanonicalBenchmark, PriceWindow, RestartRequirement,
+    CanonicalBar, CanonicalBenchmark, FormationWindow, PriceWindow, RestartRequirement, snapshot_window,
     SnapshotManifest, canonical_json, digest,
 )
 
@@ -55,7 +55,7 @@ def begin(conn, *, window: PriceWindow, reference_sha256: str,
           source_evidence_sha256: str, expected_publication_version: int | None,
           dependencies_sha256: str) -> str:
     # Revalidate constructed/copied Pydantic instances as well as ordinary input.
-    window = PriceWindow.model_validate(window.model_dump(mode="json"))
+    window = snapshot_window(window.model_dump(mode="json"))
     load_evidence(conn, reference_sha256)
     load_evidence(conn, source_evidence_sha256)
     if expected_publication_version is not None and (
@@ -137,12 +137,19 @@ def write_benchmarks(conn, candidate_id: str,
                   model=CanonicalBenchmark, columns=BENCHMARK_COLUMNS)
 
 
-def _rows(conn, candidate_id, *, table, columns, order):
+def _rows(conn, candidate_id, *, table, columns, order, start=None, end=None):
     # Server-side cursor bounds memory independently of the universe size.
     with conn.cursor(name="snapshot_" + uuid.uuid4().hex) as cur:
         cur.itersize = BATCH_SIZE
+        bounds, params = '', [candidate_id]
+        if start is not None:
+            bounds += ' AND session>=%s'
+            params.append(start)
+        if end is not None:
+            bounds += ' AND session<=%s'
+            params.append(end)
         cur.execute(f"SELECT {','.join(columns)} FROM {table} "
-                    f"WHERE candidate_id=%s ORDER BY {order}", (candidate_id,))
+                    f"WHERE candidate_id=%s{bounds} ORDER BY {order}", params)
         for row in cur:
             yield dict(zip(columns, row))
 
@@ -164,7 +171,7 @@ def seal(conn, candidate_id: str, *, expected_keys: Iterable[tuple[str, str]],
     axis, reference, source, existing = _parent(conn, candidate_id, lock=True)
     if existing is not None:
         raise SnapshotStorageRefused("snapshot candidate is already sealed")
-    window = PriceWindow(sessions=axis)
+    window = (FormationWindow if len(axis) == 379 else PriceWindow)(sessions=axis)
     load_evidence(conn, reference)
     load_evidence(conn, source)
     bars_hash, coverage_hash = hashlib.sha256(), hashlib.sha256()
@@ -251,12 +258,12 @@ def require_payload(conn, candidate_id):
         raise SnapshotStorageRefused("SNAPSHOT_PAYLOAD_RETIRED")
 
 
-def read_bars(conn, candidate_id: str):
+def read_bars(conn, candidate_id: str, *, start=None, end=None):
     """Read one explicit sealed generation, independent of later candidates."""
     require_payload(conn, candidate_id)
     manifest(conn, candidate_id)
     for row in _rows(conn, candidate_id, table="sentinel_snapshot_bars",
-                     columns=BAR_COLUMNS, order='session,security_id COLLATE "C"'):
+                     columns=BAR_COLUMNS, order='session,security_id COLLATE "C"', start=start, end=end):
         yield CanonicalBar.model_validate(row)
 
 

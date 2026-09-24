@@ -1,0 +1,37 @@
+FROZEN_VALIDATION_SOURCE_SHA256=1b4659e149a9b51ea7e4031e146a85da36a348f8461776f611000da67a61c8bd
+go_action_filter_ignored KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "go_action_filter_ignored",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/production_composition/test_canonical_go_e2e_harness.py::test_real_source_membrane_consumes_local_pages_and_complete_exports",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=go_action_filter_ignored.baseline.log
+.                                                                        [100%]
+1 passed in 3.60s
+
+MUTATION_LOG=go_action_filter_ignored.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_____ test_real_source_membrane_consumes_local_pages_and_complete_exports ______
+tests/production_composition/test_canonical_go_e2e_harness.py:437: in test_real_source_membrane_consumes_local_pages_and_complete_exports
+    assert renames == []
+E   AssertionError: assert [{'action': '...-05-04', ...}] == []
+E
+E     Left contains 3 more items, first extra item: {'action': 'relation', 'contraname': 'MSFT fixture security', 'contraticker': 'MSFT', 'date': '2025-03-11', ...}
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/production_composition/test_canonical_go_e2e_harness.py::test_real_source_membrane_consumes_local_pages_and_complete_exports
+1 failed in 1.48s

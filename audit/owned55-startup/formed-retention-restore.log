@@ -1,0 +1,13 @@
+FROZEN_VALIDATION_SOURCE_SHA256=e38512f7e38b764e5d510b6404941190098287d526f0a3a5c0063115651e69f3
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 2 items
+
+tests/sentinel/test_rolling_retention_runtime.py::test_checkpoint_handoff_releases_origin_prices_and_restore_keeps_current_closure PASSED [ 50%]
+tests/sentinel/test_rolling_retention_runtime.py::test_service_keeps_valid_trading_state_when_cleanup_fails PASSED [100%]
+
+========================= 2 passed in 87.48s (0:01:27) =========================

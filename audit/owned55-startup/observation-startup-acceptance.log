@@ -1,0 +1,23 @@
+FROZEN_VALIDATION_SOURCE_SHA256=74eb909a220601529fee7c32a62616821dbe3e1efc5a0709a0e801854a8cdf0a
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 12 items
+
+tests/sentinel/test_rolling_admission_readers.py::test_warmup_is_the_selected_canonical_production_transition PASSED [  8%]
+tests/sentinel/test_rolling_admission_readers.py::test_owned_candidate_and_issuer_refuse_rehashed_cold_warmup PASSED [ 16%]
+tests/sentinel/test_rolling_admission_readers.py::test_signed_rolling_candidate_installs_and_activates_with_reobserved_inputs PASSED [ 25%]
+tests/sentinel/test_operational_parity.py::test_current_champion_real_startup_and_restart_from_operational_window PASSED [ 33%]
+tests/sentinel/test_operational_parity.py::test_legacy_observation_warmup_uses_the_same_selected_production_strategy PASSED [ 41%]
+tests/sentinel/test_operational_parity.py::test_real_transition_faults_refuse_and_rollback[mutate_prior] PASSED [ 50%]
+tests/sentinel/test_operational_parity.py::test_real_transition_faults_refuse_and_rollback[mutate_input] PASSED [ 58%]
+tests/sentinel/test_operational_parity.py::test_real_transition_faults_refuse_and_rollback[restart_diverges] PASSED [ 66%]
+tests/sentinel/test_operational_parity.py::test_real_transition_faults_refuse_and_rollback[wrong_version] PASSED [ 75%]
+tests/sentinel/test_operational_parity.py::test_real_transition_faults_refuse_and_rollback[no_advance] PASSED [ 83%]
+tests/sentinel/test_operational_parity.py::test_writable_snapshot_is_refused_before_loading_inputs PASSED [ 91%]
+tests/sentinel/test_operational_parity.py::test_wrong_image_revision_is_refused_before_database_reads PASSED [100%]
+
+======================== 12 passed in 79.36s (0:01:19) =========================

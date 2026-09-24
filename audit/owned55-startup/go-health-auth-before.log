@@ -1,0 +1,55 @@
+FROZEN_VALIDATION_SOURCE_SHA256=a1a1d9500ae6ce517117161cd375b32a9ec22fe1d39b1c6ab2bd721836044dc0
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/sentinel/test_rolling_go_health_auth.py::test_go_health_payload_uses_authenticated_connection_for_writer_exclusion FAILED [100%]
+
+=================================== FAILURES ===================================
+__ test_go_health_payload_uses_authenticated_connection_for_writer_exclusion ___
+tests/sentinel/test_rolling_go_health_auth.py:57: in test_go_health_payload_uses_authenticated_connection_for_writer_exclusion
+    exec(go._DATABASE_HEALTH_CODE, {})
+<string>:49: in <module>
+    ???
+sentinel/feed/rolling_go_health.py:46: in inspect
+    contender = store.connect(conn.info.dsn)
+                ^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+sentinel/feed/store.py:148: in connect
+    return psycopg.connect(dsn, **kwargs)
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+/usr/local/lib/python3.12/site-packages/psycopg/connection.py:122: in connect
+    raise last_ex.with_traceback(None)
+E   psycopg.OperationalError: connection failed: connection to server at "127.0.0.1", port 37573 failed: fe_sendauth: no password supplied
+
+During handling of the above exception, another exception occurred:
+tests/sentinel/test_rolling_go_health_auth.py:73: in test_go_health_payload_uses_authenticated_connection_for_writer_exclusion
+    conn.execute(sql.SQL("DROP ROLE {}").format(sql.Identifier(role)))
+/usr/local/lib/python3.12/site-packages/psycopg/connection.py:300: in execute
+    raise ex.with_traceback(None)
+E   psycopg.errors.DependentObjectsStillExist: role "health_5ca737fb2bcb4f76bf8e83343881723a" cannot be dropped because some objects depend on it
+E   DETAIL:  owner of view sentinel_active_ingest_rejections
+E   owner of view sentinel_active_actions
+---------------------------- Captured stderr setup -----------------------------
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 201, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "alias_discovery"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 0, "stage": "rolling_identity", "status": "started", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 5000, "stage": "rolling_identity", "status": "working", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 201, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 9475, "stage": "rolling_identity", "status": "completed", "subphase": "independent_coverage"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 0, "stage": "rolling_normalization", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 5000, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 9475, "stage": "rolling_normalization", "status": "working"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 512, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 9475, "stage": "rolling_normalization", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 0, "stage": "rolling_seal", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 121, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 9475, "stage": "rolling_seal", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 0, "stage": "rolling_operational_validation", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 191, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 0, "stage": "rolling_operational_validation", "status": "completed"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 0, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 0, "stage": "rolling_operational_publication", "status": "started"}
+SENTINEL_FEED_PROGRESS={"elapsed_ms": 62, "job_id": "81bfaab5-ffdf-482d-aa03-d969cedbeffb", "rows": 0, "stage": "rolling_operational_publication", "status": "completed"}
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_rolling_go_health_auth.py::test_go_health_payload_uses_authenticated_connection_for_writer_exclusion
+============================== 1 failed in 10.89s ==============================

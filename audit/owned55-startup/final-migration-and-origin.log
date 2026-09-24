@@ -1,0 +1,13 @@
+FROZEN_VALIDATION_SOURCE_SHA256=5f7e643792fa97bc2d18dcdc2869a31e458244c2ab415383e6a524b713845c0b
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 2 items
+
+tests/sentinel/test_rolling_snapshot_storage.py::test_existing_300_only_catalog_migrates_without_rewriting_old_manifest PASSED [ 50%]
+tests/sentinel/test_formed_startup.py::test_authenticated_origin_cannot_change_context_or_seed PASSED [100%]
+
+============================== 2 passed in 38.54s ==============================

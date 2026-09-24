@@ -1,0 +1,37 @@
+FROZEN_VALIDATION_SOURCE_SHA256=e12a426a440af71fee593f2f080b7d8516d0d9ee108f7cba0d7335503ca99e9b
+go_partition_misclassified KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "go_partition_misclassified",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/scripts/test_sentinel_go_suites.py::test_partition_plugin_covers_unknown_and_nested_modules_once",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=go_partition_misclassified.baseline.log
+.                                                                        [100%]
+1 passed in 0.07s
+
+MUTATION_LOG=go_partition_misclassified.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_________ test_partition_plugin_covers_unknown_and_nested_modules_once _________
+tests/scripts/test_sentinel_go_suites.py:60: in test_partition_plugin_covers_unknown_and_nested_modules_once
+    assert [str(item.path).replace('\\', '/') for item in items] == paths
+E   AssertionError: assert ['test_execut...e_feature.py'] == ['test_execut...e_feature.py']
+E
+E     Left contains 2 more items, first extra item: 'test_rolling_admission_readers.py'
+E     Use -v to get more diff
+=========================== short test summary info ============================
+FAILED tests/scripts/test_sentinel_go_suites.py::test_partition_plugin_covers_unknown_and_nested_modules_once
+1 failed in 0.09s

@@ -1,0 +1,47 @@
+{
+  "verdict": "PASS",
+  "scope": "SYNTHETIC_RESOURCE_ONLY",
+  "universe": 5000,
+  "rows": 1895000,
+  "formation_sessions": 126,
+  "phases": [
+    {
+      "phase": "publication",
+      "universe": 5000,
+      "rows": 1895000,
+      "seconds": 517.174766061944,
+      "vm_hwm_kib": 1681316,
+      "vm_rss_kib": 996676,
+      "rusage_maxrss_kib": 1681316
+    },
+    {
+      "phase": "formed_origin",
+      "seconds": 2930.2164228929905,
+      "vm_hwm_kib": 1681316,
+      "vm_rss_kib": 1152988,
+      "rusage_maxrss_kib": 1681316,
+      "state_sha256": "b374c67007407ba13a5820457da6a70003af9dc17e92e9ae0299a669812c5dff",
+      "holdings": 20,
+      "snapshot_id": "e733be95e37e0e22a1128e710e2815e4b54d2d26177595f724261036b5841aa9"
+    },
+    {
+      "phase": "verified_status",
+      "seconds": 78.4506155939307,
+      "vm_hwm_kib": 335996,
+      "vm_rss_kib": 331936,
+      "rusage_maxrss_kib": 1681316,
+      "state_sha256": "b374c67007407ba13a5820457da6a70003af9dc17e92e9ae0299a669812c5dff",
+      "authority_sha256": "8f486a8017ef663481093c2b2a47603693eab407e6b96db8524276dea579a2be"
+    },
+    {
+      "phase": "complete",
+      "universe": 5000,
+      "scope": "SYNTHETIC_RESOURCE_ONLY"
+    }
+  ],
+  "container_memory_limit_bytes": 4294967296,
+  "sampled_container_memory_peak_bytes": 3438551040,
+  "cgroup_samples": 103,
+  "last_memory_events": "low 0\nhigh 0\nmax 0\noom 0\noom_kill 0\noom_group_kill 0",
+  "metric_note": "Status budget uses /proc VmHWM. RUSAGE_MAXRSS inherited from the parent at process launch is not the clean child process high-water measure. The 4 GiB container shares disposable PostgreSQL; this is not a separately capped deployed panel or PG16 result."
+}

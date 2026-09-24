@@ -35,6 +35,7 @@ COPY research/bounded_20y/ /work/research/bounded_20y/
 COPY scripts/sentinel_feed_gate.py /work/scripts/sentinel_feed_gate.py
 COPY scripts/sentinel_forward_run.py /work/scripts/sentinel_forward_run.py
 COPY scripts/sentinel_test_run.py /work/scripts/sentinel_test_run.py
+COPY scripts/sentinel_go_suites.py /work/scripts/sentinel_go_suites.py
 COPY scripts/sentinel_reconcile_sep.py /work/scripts/sentinel_reconcile_sep.py
 COPY scripts/sentinel_ci_certification_verify.py /work/scripts/sentinel_ci_certification_verify.py
 COPY scripts/sentinel-measure.sh /work/scripts/sentinel-measure.sh

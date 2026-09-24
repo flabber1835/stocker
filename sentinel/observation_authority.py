@@ -200,7 +200,7 @@ def metadata_matches_claim(claimed: Mapping, current: Mapping) -> bool:
 
 
 def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
-    """Run the mandatory current 252+1 cold start without broker access."""
+    """Prove the selected canonical startup without broker access or writes."""
     from sentinel import shadow_runtime
     from sentinel.controller.machine import Controller
     from sentinel.core.decision import publication_fingerprint
@@ -211,12 +211,24 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
     from sentinel.feed import rolling_go_inputs
     from sentinel.rolling_initialization import _published
     from sentinel.strategy import production_strategy
+    from sentinel.controller.owned_impairment import enabled as owned
+    from sentinel import observation_startup
 
     controller, strategy = production_strategy()
     cash = shadow_runtime._starting_cash(starting_cash)
+    formation = None
     with readers.pinned(conn, commit=False) as pub:
         frontier = readers.frontier(conn, pub)
-        if readers.is_rolling(pub):
+        if owned(strategy):
+            if not readers.is_rolling(pub):
+                raise AuthorityRefused('Owned55 observation requires a formation publication')
+            from sentinel.core.formation_inputs import FormationInputs
+            from sentinel.core import formation_preview
+            binding, _ = rolling_go_inputs.validate_status(conn, pub)
+            source = FormationInputs(conn, binding, pub)
+            prior, warmup, published, formation = formation_preview.run(
+                source, capital=cash, strategy=strategy, data_version=pub.version)
+        elif readers.is_rolling(pub):
             _, material, _ = rolling_go_inputs.validate(conn, pub)
             prior = warm_session_state(
                 SessionState.fresh(starting_cash=float(cash),
@@ -237,10 +249,11 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
         fingerprint = publication_fingerprint(pub)
         corpus = _corpus_root_identity(conn, pub)
     record = {
-        "schema": "sentinel.paper-observation-warmup/2",
+        "schema": observation_startup.FORMED_SCHEMA if formation else observation_startup.COLD_SCHEMA,
         "historical_causality": HISTORICAL_CAUSALITY_UNVERIFIED,
         "historical_certification": "NOT_GRANTED",
-        "measured_sessions": 253,
+        "measured_sessions": 379 if formation else 253,
+        **({"formation": formation} if formation else {}),
         "warmup_sessions": warmup["session_count"],
         "first_session": warmup["first_warmup_session"],
         "decision_session": frontier,
@@ -255,7 +268,9 @@ def current_warmup_evidence(conn, *, starting_cash: float) -> Mapping:
     }
     if warmup["session_count"] != 252 or result.last_processed_session != frontier:
         raise AuthorityRefused(
-            "paper-observation warmup did not produce a 252+1 cold start")
+            "paper-observation warmup did not produce the current startup decision")
+    observation_startup.require(record, strategy_sha256=canonical_sha256(strategy),
+                                controller_sha256=controller.digest)
     return record
 
 
@@ -296,6 +311,7 @@ def build_candidate(
     from sentinel import binding as binding_mod
     from sentinel.authority import load_rollout_state
     from sentinel.strategy import controller_for_identity
+    from sentinel import observation_startup
     from sentinel.execution.authority_gate import (
         PUBLICATION_POLICY_SCHEMA,
         publication_policy_implementation_sha256,
@@ -337,12 +353,13 @@ def build_candidate(
     from sentinel.core.decision import publication_fingerprint
     with readers.pinned(conn, commit=False) as pub:
         inputs = current_input_bindings(conn)
-        if (warmup.get("schema") != "sentinel.paper-observation-warmup/2"
-                or warmup.get("current_corpus") != inputs["current_corpus"]
+        if (warmup.get("current_corpus") != inputs["current_corpus"]
                 or warmup.get("publication_fingerprint") != publication_fingerprint(pub)
                 or warmup.get("strategy_identity_sha256") != canonical_sha256(strategy_identity)
                 or warmup.get("decision_session") != readers.frontier(conn, pub)):
             raise AuthorityRefused("observation warmup publication or strategy differs")
+        observation_startup.require(warmup, strategy_sha256=canonical_sha256(strategy_identity),
+                                    controller_sha256=controller_for_identity(strategy_identity).digest)
     corpus = inputs["current_corpus"]
     metadata = inputs["current_metadata_snapshot"]
     controller = controller_for_identity(strategy_identity)

@@ -49,6 +49,7 @@ def case(*, cash=100000., entries=1, sale=False, exposure="1"):
     env.pending = [p.to_dict() for p in pending]
     env.wealth_core = state.to_dict()
     env.last_processed_session = DECISION_SESSION.isoformat(); env.data_version = 7
+    env.owned_impairment['last_session'] = env.last_processed_session
     env.last_decision = {"session": DECISION_SESSION.isoformat(), "target_core_exposure": float(exposure)}
     env.last_evidence = {"wealth_core": {"estimated_equity": 100000.}}
     plan = decision.build_execution_plan(env, _binding(), _publication(),

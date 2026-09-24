@@ -1,0 +1,21 @@
+{
+  "run_id": 35867834051,
+  "job_id": 107207288340,
+  "commit": "b7577af031204d32b4d77f1a0871becdb8a87d3c",
+  "job_started_utc": "2026-09-23T13:41:40.4387657Z",
+  "job_cancelled_utc": "2026-09-23T14:56:54.2135179Z",
+  "observed_job_seconds": 4513.775,
+  "configured_job_limit_minutes": 75,
+  "general_passed": 5091,
+  "general_seconds": 2643.92,
+  "rolling_collected": 344,
+  "rolling_progress_at_stop_percent": 13,
+  "conclusion": "Incomplete; the existing budget cannot cover the observed formed-startup fixtures. No software certification granted.",
+  "job_url": "https://github.com/flabber1835/stocker/actions/runs/35867834051/job/107207288340",
+  "excerpt": [
+    "2026-09-23T14:30:14.9222722Z ================ 5091 passed, 12 warnings in 2643.92s (0:44:03) ================",
+    "2026-09-23T14:30:47.9104753Z collecting ... collected 344 items",
+    "2026-09-23T14:56:23.6232906Z tests/sentinel/test_rolling_daily.py::test_overlap_guard_distinguishes_economic_changes[bil-BIL_RAW_ECONOMICS] PASSED [ 13%]",
+    "2026-09-23T14:56:54.2135179Z ##[error]The operation was canceled."
+  ]
+}

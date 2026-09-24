@@ -7,7 +7,7 @@ from zoneinfo import ZoneInfo
 
 from sentinel import backup_runtime_authority, identity
 from sentinel.feed import calendar, publication, rolling_jobs as jobs, rolling_store, store
-from sentinel.feed.rolling_contract import PriceWindow, digest
+from sentinel.feed.rolling_contract import FormationWindow, PriceWindow, digest
 
 SCHEMA = "sentinel.operational-snapshot-publication/1"
 VALIDATION_SCHEMA = "sentinel.operational-snapshot-validation/1"
@@ -45,7 +45,7 @@ def enqueue(conn, *, strategy_sha256, dependencies_sha256, budget_seconds=3600):
     """Freeze the current source-final target and ordinary publication CAS. No commit."""
     current = _current(conn)
     request = jobs.PreparationRequest(
-        window=PriceWindow.through(source_final_session()),
+        window=acquisition_window(conn, strategy_sha256),
         expected_publication_version=current.version if current else None,
         strategy_sha256=strategy_sha256,
         dependencies_sha256=digest({"schema": SCHEMA, "dependencies": dependencies_sha256}))
@@ -53,6 +53,20 @@ def enqueue(conn, *, strategy_sha256, dependencies_sha256, budget_seconds=3600):
     with conn.cursor() as cur:
         cur.execute("INSERT INTO sentinel_operational_snapshot_jobs VALUES (%s) ON CONFLICT DO NOTHING", (job,))
     return job
+
+
+def acquisition_window(conn, strategy_sha256):
+    from sentinel import rolling_checkpoint
+    from sentinel.strategy import production_strategy
+    _, strategy = production_strategy()
+    if strategy_sha256 == digest(strategy):
+        with conn.cursor() as cur:
+            cur.execute("SELECT to_regclass('sentinel_processed_sessions')")
+            installed = cur.fetchone()[0]
+        if installed and not rolling_checkpoint.lineage_names(conn):
+            rolling_checkpoint.require_fresh(conn)
+            return FormationWindow.through(source_final_session())
+    return PriceWindow.through(source_final_session())
 
 
 def freeze(conn, lease, request):
@@ -71,6 +85,10 @@ def freeze(conn, lease, request):
         raise OperationalSnapshotRefused("SOURCE_FINAL_TARGET_CHANGED")
     if current and current.window_end and str(request.window.end) < current.window_end:
         raise OperationalSnapshotRefused("PUBLICATION_FRONTIER_REGRESSION")
+    if isinstance(request.window, FormationWindow):
+        expected = acquisition_window(conn, request.strategy_sha256)
+        if expected != request.window:
+            raise OperationalSnapshotRefused('FORMATION_REQUIRES_FRESH_OWNED55_LINEAGE')
 
 
 def validate(conn, lease, request):

@@ -1,0 +1,207 @@
+{
+  "schema": "sentinel.owned55-go-health-failure/1",
+  "reviewed_commit": "54cd0a2454685c239982057a3012e01505c4da91",
+  "run_id": 35931143578,
+  "job_id": 107418100106,
+  "run_url": "https://github.com/flabber1835/stocker/actions/runs/35931143578",
+  "disposition": "FAILED_DATABASE_CONNECTION_NOT_TIMEOUT",
+  "test_summary": {
+    "auxiliary_image_digests": [],
+    "candidate_image_digest": "sha256:8bceb7ab27da27476928d61423522fe6d5c1db0db0e06212b4a3828c0f7950a3",
+    "complete": true,
+    "errors": 0,
+    "exit_code": 0,
+    "failed": 0,
+    "non_forward_historical_exclusions": [
+      "tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture",
+      "tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER",
+      "tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash"
+    ],
+    "passed": 6548,
+    "runtime_image_digest": "sha256:a0a4de595426cce702af2efa233fce9269d2ad7386cf8039df87eec07ed89223",
+    "schema": "sentinel.nas-go-test-summary/1",
+    "skipped": 0,
+    "source_identity_sha256": "4ed177e361323245bf4bc2aa698fd96dfee05673d41aae3cd1b642ce7d789ab8",
+    "suites_completed": 3,
+    "xfailed": 0,
+    "xpassed": 0
+  },
+  "gates": [
+    {
+      "evidence_sha256": "614cfef5fa4750474c12cd249ce4cd9bab732fd2d1710328b6ade7e366435c8d",
+      "id": "git_identity",
+      "observed_at": "2026-09-23T23:27:55Z",
+      "status": "PASS"
+    },
+    {
+      "evidence_sha256": "99ba3fd1af05e2a006b320a7dbb8f47df37201555899fa221ead36d340a66a1c",
+      "id": "certified_suite_no_skips",
+      "observed_at": "2026-09-23T23:27:55Z",
+      "status": "PASS"
+    },
+    {
+      "evidence_sha256": "bcbefbea67aa42f78d8623bc292c51f295df1feaeba6ef10a3607b43fb9fa30f",
+      "id": "database_financial_health",
+      "observed_at": "2026-09-23T23:27:55Z",
+      "status": "FAIL"
+    },
+    {
+      "evidence_sha256": "f0e79f89a91e4e7bc4a92e43832583aa0c7fa5d0dc0870dcabbd090d7d47b380",
+      "id": "wealth_core_nas_parity",
+      "observed_at": "2026-09-23T23:27:55Z",
+      "status": "PASS"
+    },
+    {
+      "evidence_sha256": "ebd2da1cfa2518dfccad9e4f253fedd1dd36ac7d32b7e938f6da0508af32bd05",
+      "id": "sharadar_readiness",
+      "observed_at": "2026-09-23T23:27:55Z",
+      "status": "PASS"
+    },
+    {
+      "evidence_sha256": "8bf80fac133fbd18b31f573e562062ef3cdcbb2b87f272364ddd09da7e462a71",
+      "id": "preopen_share_unit_authority",
+      "observed_at": "2026-09-23T23:27:55Z",
+      "status": "NOT_PROVEN"
+    },
+    {
+      "evidence_sha256": "851ae962ba2581e5a8ed571a0a2fe17b32512dbf3c8ca76e0fbe942b926d9707",
+      "id": "alpaca_paper_account",
+      "observed_at": "2026-09-24T03:28:10Z",
+      "status": "NOT_PROVEN"
+    },
+    {
+      "evidence_sha256": "515179f57fe692f4b7e2e753028f66b6519ef9db961b08bce0544e34d2c48321",
+      "id": "official_close_nav",
+      "observed_at": "2026-09-23T23:27:55Z",
+      "status": "NOT_PROVEN"
+    },
+    {
+      "evidence_sha256": "a88368fbd915a530e9275571106091ce876c124bfdcc8d929771a4da36fe1e00",
+      "id": "account_fill_interval",
+      "observed_at": "2026-09-23T23:27:55Z",
+      "status": "NOT_PROVEN"
+    },
+    {
+      "evidence_sha256": "deb28d424fb2f125236e6476af90c2f81ef01e9279209de62b5ba70b4bf76063",
+      "id": "close_cash_finality",
+      "observed_at": "2026-09-23T23:27:55Z",
+      "status": "NOT_PROVEN"
+    },
+    {
+      "evidence_sha256": "7f70a8788027fdfe5a483e74f38abec5efee9842111493dbc1f6cb55bfec52db",
+      "id": "paper_dividend_attribution",
+      "observed_at": "2026-09-23T23:27:55Z",
+      "status": "NOT_PROVEN"
+    },
+    {
+      "evidence_sha256": "ab9934823793726037162fccdd41a5a4025e340b06821e5662c26a4a0894ec2f",
+      "id": "zero_mutation_boundary",
+      "observed_at": "2026-09-24T03:28:10Z",
+      "status": "PASS"
+    }
+  ],
+  "health_failure": "DATABASE_HEALTH_DATABASE_CONNECTION_FAILURE",
+  "diagnosis": "Rolling health reconnected via conn.info.dsn, which omits the password. The exact GO payload independently reproduces fe_sendauth: no password supplied against isolated SCRAM PostgreSQL.",
+  "failure_stderr_sha256": "8321018914dda7416a1a66c5c6b26f911d2c2fe813262419544eed570ab6dfc2",
+  "bundle_sha256": "ebe36b00d586d1e278c09e47e7174e9ce98ad5499c08f17fe2c72bcd2fb020d5",
+  "archive_hashes_verified": true,
+  "secret_scan": {
+    "candidate_matches": 0,
+    "candidate_values_checked": 20,
+    "findings": 0,
+    "members_scanned": 6,
+    "prohibited_pattern_matches": 0,
+    "schema": "sentinel.nas-go-secret-scan/1",
+    "upload_permitted": true
+  },
+  "local_artifact_root": "C:\\GitHub\\stocker\\.codex-tmp\\owned55-go-attempt-35931143578",
+  "files": {
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/production-composition/adjacent-go.txt": {
+      "sha256": "bc0cf5a84326684fd90bbc36505aa9309c7dc3ba222ab175e7e71ea57d1a55c1",
+      "bytes": 287
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/production-composition/adjacent-go.xml": {
+      "sha256": "c144e2a4cf1a26237b5b4b6e8f544effe07c2683949fc66c21796eca45e74af1",
+      "bytes": 19497
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/production-composition/canonical-go.log": {
+      "sha256": "7317d81badc08ca67f96727472b53f115174cc47c385aa7db251d2fc5042050d",
+      "bytes": 379075
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/production-composition/junit.xml": {
+      "sha256": "bafe2f782d711e68607223f2e24eb3b48024d9c71cdefff9a46fc5fe812f42ca",
+      "bytes": 97867
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/production-composition/live.json": {
+      "sha256": "bb1167dc54efba90fcf714eeeb01dbefdf17a1015d35d2d37cffbe9565f65271",
+      "bytes": 1045
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/production-composition/physical-restore.txt": {
+      "sha256": "46fc1624bb01e926284bed251ff938b2cc174c88f9212f809a7b2bf0e4339c3f",
+      "bytes": 211
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/production-composition/physical-restore.xml": {
+      "sha256": "354607193345881ce6707f2dbb1d64b79d491bec2e54bfe6b40ca30115676407",
+      "bytes": 6506
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/production-composition/production-go-e2e.json": {
+      "sha256": "0a67062cfb86c890e1818aaf3a2400aea5e00e6232fae26fb617fcc9456c978d",
+      "bytes": 72689
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/production-composition/pytest.txt": {
+      "sha256": "488ea882cb03f0eb9ecb56fd87724f1815cd86fc68644387687333d546214aaa",
+      "bytes": 762
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/production-composition/test-owner.json": {
+      "sha256": "09e3abcb0e2494d98424ab586e6081ee0e3767ed5c74c0b784964ad37080d72a",
+      "bytes": 4342
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/production-composition/tested-commit.txt": {
+      "sha256": "e451888e3014070b29001890bf79f3dd11a6f612c33f3b2fdde20a97f1c740f0",
+      "bytes": 41
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/sentinel/go-validation/backup-refresh-audit.json": {
+      "sha256": "da8ac1205bf0da9ae2c503c10830f858da043431bdabcb1592c733737935d0e8",
+      "bytes": 452
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/sentinel/go-validation/go-validation.lock": {
+      "sha256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855",
+      "bytes": 0
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/sentinel/go-validation/stable-certification-ordinary-runtime.json": {
+      "sha256": "b97977c7a229a173da8c151ad406b9bffd851be965c60c8880a7d3d06d663e5b",
+      "bytes": 464
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/sentinel/go-validation/stable-certification.json": {
+      "sha256": "5865d496b9873ef5149fe3673cc645f6e33fb200df686caeee1ce09fb76e253a",
+      "bytes": 1050
+    },
+    "production-composition-exact-head-positive-54cd0a2454685c239982057a3012e01505c4da91/sentinel/go-validation/stocker-nas-go-validation-54cd0a245468-20260924T032810Z.zip": {
+      "sha256": "ebe36b00d586d1e278c09e47e7174e9ce98ad5499c08f17fe2c72bcd2fb020d5",
+      "bytes": 5100
+    }
+  },
+  "raw_log": {
+    "path": "C:\\GitHub\\stocker\\.codex-tmp\\owned55-go-35931143578.log",
+    "sha256": "d0a5a9814d258b5d1f9a06ae5bc04f4b65df22ab711d7bc95fbe8e0c714d76d8",
+    "bytes": 865689
+  },
+  "timeline_utc": {
+    "go_started": "2026-09-23T23:02:18Z",
+    "suites_completed": "2026-09-24T02:35:47Z",
+    "preparation_started": "2026-09-24T02:35:51Z",
+    "preparation_passed": "2026-09-24T02:44:07Z",
+    "runtime_parity_started": "2026-09-24T02:44:08Z",
+    "runtime_parity_passed": "2026-09-24T03:05:19Z",
+    "test_image_parity_passed": "2026-09-24T03:26:14Z",
+    "readiness_passed": "2026-09-24T03:26:57Z",
+    "health_failed": "2026-09-24T03:28:07Z",
+    "following_read_only_probe_passed": "2026-09-24T03:28:10Z"
+  },
+  "limitations": [
+    "No successful promotion/panel handoff; full GO remains open.",
+    "All false health check values are fail-closed defaults following a connection error, not independently measured schema or index failures.",
+    "Bundle main identity belongs to the isolated campaign checkout and does not claim the PR was merged.",
+    "Positive-only campaign does not prove all fault campaigns or provider/NAS qualification."
+  ]
+}

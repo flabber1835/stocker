@@ -133,6 +133,7 @@ def test_invalid_warmup_inputs_refuse_before_economic_activity(market, fault):
         window.median5_spy_closes[window.sessions[100]] = -1
     elif fault == "nonfresh":
         seed.last_processed_session = window.sessions[-1]
+        seed.owned_impairment['last_session'] = seed.last_processed_session
     original = deepcopy(seed.to_dict())
     with pytest.raises(ValueError):
         warm_session_state(seed, window, publication_version=1,

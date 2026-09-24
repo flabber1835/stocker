@@ -431,7 +431,7 @@ def test_fenced_shadow_mode_advances_without_constructing_broker(
 
 def test_shadow_mode_configuration_is_explicit_and_finite():
     assert automation_runtime.shadow_config_from_env({}) == (
-        False, "primary", automation_runtime.Decimal("100000"))
+        False, "primary", automation_runtime.Decimal("50000"))
     assert automation_runtime.shadow_config_from_env({
         "SENTINEL_SHADOW_OBSERVATION_ENABLED": "true",
         "SENTINEL_SHADOW_OBSERVATION_ID": "year-end-2026",

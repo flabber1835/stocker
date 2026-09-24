@@ -39,7 +39,7 @@ def test_prospective_warmup_keeps_book_cold_and_binds_peer_inputs():
     assert _validate_warmup_input_identity(proof, first_session=first) == proof
     ShadowObserver._assert_seed(SimpleNamespace(
         initial_state=warmed, strategy_identity=identity, controller_config=cfg,
-        starting_cash="1000000", first_session=first))
+        starting_cash="1000000", first_session=first, warmup_input_identity=proof))
     window.median5_spy_closes[sessions[-1]] *= 1.01
     changed = _warmup_input_identity(window, sessions, prospective_witness=True)
     assert changed["warmup_input_sha256"] != proof["warmup_input_sha256"]

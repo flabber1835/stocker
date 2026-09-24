@@ -81,14 +81,18 @@ def _candidate(path: Path) -> tuple[Mapping, Mapping]:
             "paper-observation candidate lacks an exact review record")
     warmup = evidence.get("warmup")
     if (not isinstance(warmup, Mapping)
-            or warmup.get("schema") != "sentinel.paper-observation-warmup/2"
             or warmup.get("historical_causality")
             != "HISTORICAL_CAUSALITY_UNVERIFIED"
-            or warmup.get("historical_certification") != "NOT_GRANTED"
-            or warmup.get("measured_sessions") != 253
-            or warmup.get("warmup_sessions") != 252):
+            or warmup.get("historical_certification") != "NOT_GRANTED"):
         raise IssuanceRefused(
             "paper-observation candidate lacks the current 252+1 warmup")
+    from sentinel import observation_startup
+    try:
+        observation_startup.require(warmup,
+            strategy_sha256=claims["bindings"]["strategy_identity_sha256"],
+            controller_sha256=claims["bindings"]["controller"]["rule_sha256"])
+    except (AuthorityRefused, ValueError, TypeError) as exc:
+        raise IssuanceRefused(str(exc)) from exc
     inputs = warmup.get("warmup_input")
     if (warmup.get("strategy_identity_sha256") != claims["bindings"]["strategy_identity_sha256"]
             or warmup.get("current_corpus") != claims["bindings"]["current_corpus"]

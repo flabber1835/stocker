@@ -45,6 +45,7 @@ def prior_book():
     env.last_known = {'A': 100.}
     env.data_version = 1
     env.last_processed_session = axis[-2]
+    env.owned_impairment['last_session'] = env.last_processed_session
     env.shadow_nav_history = [100000.]*41
     env.shadow_peak_nav = 100000.
     env.median5.update(selected=['A'], selected_closes={'A': 100.},

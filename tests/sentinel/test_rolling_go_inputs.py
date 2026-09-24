@@ -22,6 +22,14 @@ ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().par
 
 @pytest.fixture
 def issuer_source(operational_source):
+    from sentinel.feed.rolling_contract import FormationWindow
+    axis = [str(day) for day in FormationWindow.through(TARGET).sessions]
+    for table in ('SEP', 'SFP'):
+        first = min(r['date'] for r in operational_source[table])
+        templates = [dict(r) for r in operational_source[table] if r['date'] == first]
+        operational_source[table][:0] = [{**row, 'date': day} for day in axis if day < first for row in templates]
+    for row in operational_source['TICKERS']:
+        row['firstpricedate'] = axis[0]
     operational_source["TICKERS"][0]["relatedtickers"] = "AAA BBB"
     return operational_source
 
@@ -142,7 +150,7 @@ def test_sealed_payload_tamper_refuses(conn, published):
 
 def test_database_health_measures_actual_snapshot_queries_and_pin(conn, published):
     _read_only(conn)
-    report = health.inspect(conn)
+    report = health.inspect(conn, database_url=conn.info.dsn)
     assert report["input_contract"] == inputs.SCHEMA
     assert all(report["checks"].values()), report
     assert report["transaction_db_writes"] == 0
@@ -159,7 +167,7 @@ def test_database_health_refuses_a_missing_publication_pin(conn, published, monk
     # ownership paths to actually falsify the measured writer exclusion.
     monkeypatch.setattr(rolling_store, "_pin_reader", lambda _conn: None)
     _read_only(conn)
-    assert health.inspect(conn)["checks"]["publication_pin_excludes_writers"] is False
+    assert health.inspect(conn, database_url=conn.info.dsn)["checks"]["publication_pin_excludes_writers"] is False
 
 
 def test_supported_go_preparation_and_readiness_payloads_use_rolling(conn, published, monkeypatch, capsys):
@@ -201,9 +209,13 @@ def test_snapshot_parity_uses_canonical_warmup_without_creating_a_book(conn, pub
             "compatible": True, "pins_match": True, "sources_known": True, "pin_drift": {}, "lock_present": True,
             "sentinel_source": {"hash": "c" * 64}, "wealth_core_source": {"hash": "d" * 64}}})
     monkeypatch.setattr(parity, "_fresh_seed", lambda *_a, **_k: pytest.fail("legacy warmup"))
+    monkeypatch.setattr(inputs, 'validate', lambda *_a, **_k: pytest.fail('duplicate full feature corpus'))
     report = parity.run_proof(conn, starting_cash="100000", expected_commit=commit)
     assert report["verdict"] == "PASS"
-    assert report["proof"]["scope"] == "ROLLING_STARTUP_AND_RESTART"
+    assert report["proof"]["scope"] == "ROLLING_FORMED_STARTUP_AND_RESTART"
+    assert report['proof']['formation']['sessions'] == 126
+    assert report['proof']['formation']['policy'] == 'CURRENT_INFORMATION_INITIALIZATION_V1'
+    assert report['proof']['formation']['state_sha256'] == report['proof']['prior_state_sha256']
     assert all(report["proof"]["checks"].values())
     assert conn.execute("SELECT COUNT(*) FROM sentinel_processed_sessions").fetchone()[0] == 0
     conn.rollback()

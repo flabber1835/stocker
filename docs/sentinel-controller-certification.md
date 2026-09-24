@@ -1,5 +1,12 @@
 # Certifying the Sentinel controller — what is proven, and what step 2 blocks on
 
+[Owned55 and $50k historical startup](owned55-historical-startup.md) records the
+owner-selected profile and new formation acceptance gates. The production
+selector changes identity; prior certification and checkpoints do not silently
+qualify it. The formed startup caller, read-only GO proof and first funded-open
+accounting are implemented and locally tested. Final-head CI and the linked
+provider/deployment evidence gates remain distinct from local acceptance.
+
 **Economic audit 399, 2026-09-18: certification remains BLOCKED.** The corrected
 terminal leadership policy changes source identity; earlier performance figures
 do not certify it. See [the acceptance ledger](economic-audit-399-remediation.md)
@@ -264,6 +271,15 @@ SPY, equity and BIL values, including both BIL sessions. Substituting BIL for
 SPY, SPY for a BIL field, or an incorrect BIL domain must fail. Keep the
 tokenizer and sole sensor/import boundary unchanged. This exception adds no GO,
 execution or certification authority.
+
+**Historical formation transport (2026-09-23, PR #440).** Add exactly
+`sentinel/core/formation_inputs.py` to that same transport allowlist. Its sole
+`closeadj` occurrence passes the admitted typed benchmark's `spy_total_return`
+to `PublishedSession.spy_closeadj`. Historical formation uses the same SPY
+sensor, equity signal/raw fields and four BIL domains. Pin the single named
+occurrence and exercise the actual formation input composer with distinct SPY,
+equity and BIL values. Deliberately substituting BIL for SPY or swapping BIL
+domains must fail. This exception grants no raw-column reads or second sensor.
 
 **2. Why total return is CORRECT here.** SPY in this rule is not a holding. It
 is a market-regime sensor, and the frozen specification defines both of its

@@ -1,0 +1,9 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+______ test_owned_ceiling_preserves_independent_parent_defense[0.0-0.0] _______
+tests\champion\test_owned_impairment.py:152: in test_owned_ceiling_preserves_independent_parent_defense
+    assert result['target'] == expected
+E   assert 0.55 == 0.0
+=========================== short test summary info ===========================
+FAILED tests/champion/test_owned_impairment.py::test_owned_ceiling_preserves_independent_parent_defense[0.0-0.0]
+1 failed in 0.32s

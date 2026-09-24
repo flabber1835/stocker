@@ -39,6 +39,15 @@ queries, exact schema, real shared-lock exclusion, stable publication, complete
 warmup input and measured validation duration. Report the snapshot contract
 explicitly. Never report legacy-table query plans as proof of snapshot behavior.
 
+The independent writer-exclusion connection uses the caller's original database
+connection configuration, including authentication. A driver's diagnostic DSN
+is not reconnect authority: psycopg deliberately omits its password. Both
+connections must reach the configured database; connection or authentication
+failure refuses health rather than counting as successful writer exclusion.
+Validate the actual GO health payload against password-authenticated PostgreSQL,
+as well as the existing shared-pin removal falsifier. Credentials must not enter
+the health report or retained evidence.
+
 ## Authority and rollout
 
 The [rolling shadow runtime](rolling-shadow-runtime.md) now connects these data

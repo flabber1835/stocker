@@ -288,7 +288,7 @@ def shadow_configuration_document(
             "shadow observation id must be 1-64 ASCII letters, digits, dots or hyphens")
     try:
         amount = Decimal(str(env.get(
-            "SENTINEL_SHADOW_STARTING_CASH", "100000")).strip())
+            "SENTINEL_SHADOW_STARTING_CASH", "50000")).strip())
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise DeployRefused(
             "shadow starting cash must be a positive decimal") from exc
@@ -1086,6 +1086,10 @@ class Config:
             env.get("SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS", "300"),
             name="SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS",
             minimum=30, maximum=1800)
+        self.formation_timeout_seconds = _int(
+            env.get("SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS", "7200"),
+            name="SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS",
+            minimum=30, maximum=7200)
         self.allow_empty_bind = _as_bool(
             env.get("SENTINEL_DEPLOY_ALLOW_EMPTY_BIND", "0"),
             name="SENTINEL_DEPLOY_ALLOW_EMPTY_BIND")
@@ -2003,7 +2007,7 @@ class AutonomousDeploy:
             "c,plan=p,observation_id=os.environ.get("
             "'SENTINEL_SHADOW_OBSERVATION_ID','primary'),"
             "starting_cash=Decimal(os.environ.get("
-            "'SENTINEL_SHADOW_STARTING_CASH','100000'))); "
+            "'SENTINEL_SHADOW_STARTING_CASH','50000'))); "
             "print('SENTINEL_DUAL_RECONCILIATION='+json.dumps("
             "r,sort_keys=True)); c.rollback(); c.close()")
         completed = self.runner.run(self._authorized_compose() + [
@@ -2039,15 +2043,16 @@ class AutonomousDeploy:
         self.phase(
             "shadow: wait for current decision-close runtime attestation")
         started = time.monotonic()
-        deadline = started + max(self.cfg.health_timeout, min(
-            getattr(self.cfg, "data_wait_timeout_seconds", self.cfg.health_timeout), 7200))
+        deadline = started + self.cfg.formation_timeout_seconds
         last_report = started
         last = None
         while time.monotonic() < deadline:
             completed = self.runner.run(self._authorized_compose() + [
                 "--profile", "shadow", "exec", "-T", "sentinel-shadow",
                 "python", "-m", "sentinel", "shadow-status"],
-                capture=True, check=False, timeout=min(30, max(1, deadline - time.monotonic())))
+                capture=True, check=False, timeout=min(300, max(0.001, deadline - time.monotonic())))
+            if time.monotonic() >= deadline:
+                break
             if completed.returncode == 0:
                 try:
                     last = json.loads(completed.stdout or "")

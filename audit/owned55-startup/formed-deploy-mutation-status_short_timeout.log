@@ -1,0 +1,280 @@
+FROZEN_VALIDATION_SOURCE_SHA256=a48aab7c22ce15e162109d30377569d0585239ffbd00d6b265556d4a4cebb778
+status_short_timeout KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "status_short_timeout",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/sentinel/test_autonomous_deploy.py::test_real_config_allows_measured_formation_and_full_status_read",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=status_short_timeout.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+_______ test_real_config_allows_measured_formation_and_full_status_read ________
+tests/sentinel/test_autonomous_deploy.py:85: in test_real_config_allows_measured_formation_and_full_status_read
+    assert obj._wait_for_dual_shadow_session("2026-08-28")["verification"] == "VERIFIED"
+           ^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^^
+scripts/sentinel_autonomous_deploy.py:2050: in _wait_for_dual_shadow_session
+    completed = self.runner.run(self._authorized_compose() + [
+tests/sentinel/test_autonomous_deploy.py:77: in status
+    raise subprocess.TimeoutExpired("shadow-status", kwargs["timeout"])
+E   subprocess.TimeoutExpired: Command 'shadow-status' timed out after 30 seconds
+----------------------------- Captured stdout call -----------------------------
+[WAIT] shadow attestation for 2026-08-28; elapsed 12s; data-work budget remaining 7188s
+[WAIT] shadow attestation for 2026-08-28; elapsed 24s; data-work budget remaining 7176s
+[WAIT] shadow attestation for 2026-08-28; elapsed 36s; data-work budget remaining 7164s
+[WAIT] shadow attestation for 2026-08-28; elapsed 48s; data-work budget remaining 7152s
+[WAIT] shadow attestation for 2026-08-28; elapsed 60s; data-work budget remaining 7140s
+[WAIT] shadow attestation for 2026-08-28; elapsed 72s; data-work budget remaining 7128s
+[WAIT] shadow attestation for 2026-08-28; elapsed 84s; data-work budget remaining 7116s
+[WAIT] shadow attestation for 2026-08-28; elapsed 96s; data-work budget remaining 7104s
+[WAIT] shadow attestation for 2026-08-28; elapsed 108s; data-work budget remaining 7092s
+[WAIT] shadow attestation for 2026-08-28; elapsed 120s; data-work budget remaining 7080s
+[WAIT] shadow attestation for 2026-08-28; elapsed 132s; data-work budget remaining 7068s
+[WAIT] shadow attestation for 2026-08-28; elapsed 144s; data-work budget remaining 7056s
+[WAIT] shadow attestation for 2026-08-28; elapsed 156s; data-work budget remaining 7044s
+[WAIT] shadow attestation for 2026-08-28; elapsed 168s; data-work budget remaining 7032s
+[WAIT] shadow attestation for 2026-08-28; elapsed 180s; data-work budget remaining 7020s
+[WAIT] shadow attestation for 2026-08-28; elapsed 192s; data-work budget remaining 7008s
+[WAIT] shadow attestation for 2026-08-28; elapsed 204s; data-work budget remaining 6996s
+[WAIT] shadow attestation for 2026-08-28; elapsed 216s; data-work budget remaining 6984s
+[WAIT] shadow attestation for 2026-08-28; elapsed 228s; data-work budget remaining 6972s
+[WAIT] shadow attestation for 2026-08-28; elapsed 240s; data-work budget remaining 6960s
+[WAIT] shadow attestation for 2026-08-28; elapsed 252s; data-work budget remaining 6948s
+[WAIT] shadow attestation for 2026-08-28; elapsed 264s; data-work budget remaining 6936s
+[WAIT] shadow attestation for 2026-08-28; elapsed 276s; data-work budget remaining 6924s
+[WAIT] shadow attestation for 2026-08-28; elapsed 288s; data-work budget remaining 6912s
+[WAIT] shadow attestation for 2026-08-28; elapsed 300s; data-work budget remaining 6900s
+[WAIT] shadow attestation for 2026-08-28; elapsed 312s; data-work budget remaining 6888s
+[WAIT] shadow attestation for 2026-08-28; elapsed 324s; data-work budget remaining 6876s
+[WAIT] shadow attestation for 2026-08-28; elapsed 336s; data-work budget remaining 6864s
+[WAIT] shadow attestation for 2026-08-28; elapsed 348s; data-work budget remaining 6852s
+[WAIT] shadow attestation for 2026-08-28; elapsed 360s; data-work budget remaining 6840s
+[WAIT] shadow attestation for 2026-08-28; elapsed 372s; data-work budget remaining 6828s
+[WAIT] shadow attestation for 2026-08-28; elapsed 384s; data-work budget remaining 6816s
+[WAIT] shadow attestation for 2026-08-28; elapsed 396s; data-work budget remaining 6804s
+[WAIT] shadow attestation for 2026-08-28; elapsed 408s; data-work budget remaining 6792s
+[WAIT] shadow attestation for 2026-08-28; elapsed 420s; data-work budget remaining 6780s
+[WAIT] shadow attestation for 2026-08-28; elapsed 432s; data-work budget remaining 6768s
+[WAIT] shadow attestation for 2026-08-28; elapsed 444s; data-work budget remaining 6756s
+[WAIT] shadow attestation for 2026-08-28; elapsed 456s; data-work budget remaining 6744s
+[WAIT] shadow attestation for 2026-08-28; elapsed 468s; data-work budget remaining 6732s
+[WAIT] shadow attestation for 2026-08-28; elapsed 480s; data-work budget remaining 6720s
+[WAIT] shadow attestation for 2026-08-28; elapsed 492s; data-work budget remaining 6708s
+[WAIT] shadow attestation for 2026-08-28; elapsed 504s; data-work budget remaining 6696s
+[WAIT] shadow attestation for 2026-08-28; elapsed 516s; data-work budget remaining 6684s
+[WAIT] shadow attestation for 2026-08-28; elapsed 528s; data-work budget remaining 6672s
+[WAIT] shadow attestation for 2026-08-28; elapsed 540s; data-work budget remaining 6660s
+[WAIT] shadow attestation for 2026-08-28; elapsed 552s; data-work budget remaining 6648s
+[WAIT] shadow attestation for 2026-08-28; elapsed 564s; data-work budget remaining 6636s
+[WAIT] shadow attestation for 2026-08-28; elapsed 576s; data-work budget remaining 6624s
+[WAIT] shadow attestation for 2026-08-28; elapsed 588s; data-work budget remaining 6612s
+[WAIT] shadow attestation for 2026-08-28; elapsed 600s; data-work budget remaining 6600s
+[WAIT] shadow attestation for 2026-08-28; elapsed 612s; data-work budget remaining 6588s
+[WAIT] shadow attestation for 2026-08-28; elapsed 624s; data-work budget remaining 6576s
+[WAIT] shadow attestation for 2026-08-28; elapsed 636s; data-work budget remaining 6564s
+[WAIT] shadow attestation for 2026-08-28; elapsed 648s; data-work budget remaining 6552s
+[WAIT] shadow attestation for 2026-08-28; elapsed 660s; data-work budget remaining 6540s
+[WAIT] shadow attestation for 2026-08-28; elapsed 672s; data-work budget remaining 6528s
+[WAIT] shadow attestation for 2026-08-28; elapsed 684s; data-work budget remaining 6516s
+[WAIT] shadow attestation for 2026-08-28; elapsed 696s; data-work budget remaining 6504s
+[WAIT] shadow attestation for 2026-08-28; elapsed 708s; data-work budget remaining 6492s
+[WAIT] shadow attestation for 2026-08-28; elapsed 720s; data-work budget remaining 6480s
+[WAIT] shadow attestation for 2026-08-28; elapsed 732s; data-work budget remaining 6468s
+[WAIT] shadow attestation for 2026-08-28; elapsed 744s; data-work budget remaining 6456s
+[WAIT] shadow attestation for 2026-08-28; elapsed 756s; data-work budget remaining 6444s
+[WAIT] shadow attestation for 2026-08-28; elapsed 768s; data-work budget remaining 6432s
+[WAIT] shadow attestation for 2026-08-28; elapsed 780s; data-work budget remaining 6420s
+[WAIT] shadow attestation for 2026-08-28; elapsed 792s; data-work budget remaining 6408s
+[WAIT] shadow attestation for 2026-08-28; elapsed 804s; data-work budget remaining 6396s
+[WAIT] shadow attestation for 2026-08-28; elapsed 816s; data-work budget remaining 6384s
+[WAIT] shadow attestation for 2026-08-28; elapsed 828s; data-work budget remaining 6372s
+[WAIT] shadow attestation for 2026-08-28; elapsed 840s; data-work budget remaining 6360s
+[WAIT] shadow attestation for 2026-08-28; elapsed 852s; data-work budget remaining 6348s
+[WAIT] shadow attestation for 2026-08-28; elapsed 864s; data-work budget remaining 6336s
+[WAIT] shadow attestation for 2026-08-28; elapsed 876s; data-work budget remaining 6324s
+[WAIT] shadow attestation for 2026-08-28; elapsed 888s; data-work budget remaining 6312s
+[WAIT] shadow attestation for 2026-08-28; elapsed 900s; data-work budget remaining 6300s
+[WAIT] shadow attestation for 2026-08-28; elapsed 912s; data-work budget remaining 6288s
+[WAIT] shadow attestation for 2026-08-28; elapsed 924s; data-work budget remaining 6276s
+[WAIT] shadow attestation for 2026-08-28; elapsed 936s; data-work budget remaining 6264s
+[WAIT] shadow attestation for 2026-08-28; elapsed 948s; data-work budget remaining 6252s
+[WAIT] shadow attestation for 2026-08-28; elapsed 960s; data-work budget remaining 6240s
+[WAIT] shadow attestation for 2026-08-28; elapsed 972s; data-work budget remaining 6228s
+[WAIT] shadow attestation for 2026-08-28; elapsed 984s; data-work budget remaining 6216s
+[WAIT] shadow attestation for 2026-08-28; elapsed 996s; data-work budget remaining 6204s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1008s; data-work budget remaining 6192s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1020s; data-work budget remaining 6180s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1032s; data-work budget remaining 6168s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1044s; data-work budget remaining 6156s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1056s; data-work budget remaining 6144s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1068s; data-work budget remaining 6132s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1080s; data-work budget remaining 6120s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1092s; data-work budget remaining 6108s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1104s; data-work budget remaining 6096s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1116s; data-work budget remaining 6084s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1128s; data-work budget remaining 6072s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1140s; data-work budget remaining 6060s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1152s; data-work budget remaining 6048s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1164s; data-work budget remaining 6036s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1176s; data-work budget remaining 6024s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1188s; data-work budget remaining 6012s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1200s; data-work budget remaining 6000s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1212s; data-work budget remaining 5988s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1224s; data-work budget remaining 5976s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1236s; data-work budget remaining 5964s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1248s; data-work budget remaining 5952s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1260s; data-work budget remaining 5940s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1272s; data-work budget remaining 5928s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1284s; data-work budget remaining 5916s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1296s; data-work budget remaining 5904s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1308s; data-work budget remaining 5892s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1320s; data-work budget remaining 5880s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1332s; data-work budget remaining 5868s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1344s; data-work budget remaining 5856s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1356s; data-work budget remaining 5844s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1368s; data-work budget remaining 5832s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1380s; data-work budget remaining 5820s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1392s; data-work budget remaining 5808s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1404s; data-work budget remaining 5796s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1416s; data-work budget remaining 5784s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1428s; data-work budget remaining 5772s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1440s; data-work budget remaining 5760s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1452s; data-work budget remaining 5748s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1464s; data-work budget remaining 5736s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1476s; data-work budget remaining 5724s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1488s; data-work budget remaining 5712s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1500s; data-work budget remaining 5700s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1512s; data-work budget remaining 5688s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1524s; data-work budget remaining 5676s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1536s; data-work budget remaining 5664s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1548s; data-work budget remaining 5652s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1560s; data-work budget remaining 5640s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1572s; data-work budget remaining 5628s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1584s; data-work budget remaining 5616s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1596s; data-work budget remaining 5604s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1608s; data-work budget remaining 5592s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1620s; data-work budget remaining 5580s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1632s; data-work budget remaining 5568s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1644s; data-work budget remaining 5556s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1656s; data-work budget remaining 5544s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1668s; data-work budget remaining 5532s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1680s; data-work budget remaining 5520s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1692s; data-work budget remaining 5508s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1704s; data-work budget remaining 5496s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1716s; data-work budget remaining 5484s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1728s; data-work budget remaining 5472s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1740s; data-work budget remaining 5460s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1752s; data-work budget remaining 5448s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1764s; data-work budget remaining 5436s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1776s; data-work budget remaining 5424s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1788s; data-work budget remaining 5412s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1800s; data-work budget remaining 5400s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1812s; data-work budget remaining 5388s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1824s; data-work budget remaining 5376s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1836s; data-work budget remaining 5364s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1848s; data-work budget remaining 5352s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1860s; data-work budget remaining 5340s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1872s; data-work budget remaining 5328s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1884s; data-work budget remaining 5316s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1896s; data-work budget remaining 5304s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1908s; data-work budget remaining 5292s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1920s; data-work budget remaining 5280s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1932s; data-work budget remaining 5268s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1944s; data-work budget remaining 5256s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1956s; data-work budget remaining 5244s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1968s; data-work budget remaining 5232s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1980s; data-work budget remaining 5220s
+[WAIT] shadow attestation for 2026-08-28; elapsed 1992s; data-work budget remaining 5208s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2004s; data-work budget remaining 5196s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2016s; data-work budget remaining 5184s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2028s; data-work budget remaining 5172s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2040s; data-work budget remaining 5160s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2052s; data-work budget remaining 5148s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2064s; data-work budget remaining 5136s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2076s; data-work budget remaining 5124s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2088s; data-work budget remaining 5112s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2100s; data-work budget remaining 5100s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2112s; data-work budget remaining 5088s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2124s; data-work budget remaining 5076s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2136s; data-work budget remaining 5064s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2148s; data-work budget remaining 5052s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2160s; data-work budget remaining 5040s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2172s; data-work budget remaining 5028s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2184s; data-work budget remaining 5016s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2196s; data-work budget remaining 5004s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2208s; data-work budget remaining 4992s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2220s; data-work budget remaining 4980s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2232s; data-work budget remaining 4968s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2244s; data-work budget remaining 4956s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2256s; data-work budget remaining 4944s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2268s; data-work budget remaining 4932s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2280s; data-work budget remaining 4920s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2292s; data-work budget remaining 4908s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2304s; data-work budget remaining 4896s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2316s; data-work budget remaining 4884s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2328s; data-work budget remaining 4872s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2340s; data-work budget remaining 4860s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2352s; data-work budget remaining 4848s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2364s; data-work budget remaining 4836s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2376s; data-work budget remaining 4824s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2388s; data-work budget remaining 4812s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2400s; data-work budget remaining 4800s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2412s; data-work budget remaining 4788s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2424s; data-work budget remaining 4776s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2436s; data-work budget remaining 4764s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2448s; data-work budget remaining 4752s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2460s; data-work budget remaining 4740s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2472s; data-work budget remaining 4728s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2484s; data-work budget remaining 4716s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2496s; data-work budget remaining 4704s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2508s; data-work budget remaining 4692s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2520s; data-work budget remaining 4680s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2532s; data-work budget remaining 4668s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2544s; data-work budget remaining 4656s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2556s; data-work budget remaining 4644s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2568s; data-work budget remaining 4632s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2580s; data-work budget remaining 4620s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2592s; data-work budget remaining 4608s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2604s; data-work budget remaining 4596s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2616s; data-work budget remaining 4584s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2628s; data-work budget remaining 4572s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2640s; data-work budget remaining 4560s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2652s; data-work budget remaining 4548s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2664s; data-work budget remaining 4536s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2676s; data-work budget remaining 4524s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2688s; data-work budget remaining 4512s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2700s; data-work budget remaining 4500s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2712s; data-work budget remaining 4488s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2724s; data-work budget remaining 4476s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2736s; data-work budget remaining 4464s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2748s; data-work budget remaining 4452s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2760s; data-work budget remaining 4440s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2772s; data-work budget remaining 4428s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2784s; data-work budget remaining 4416s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2796s; data-work budget remaining 4404s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2808s; data-work budget remaining 4392s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2820s; data-work budget remaining 4380s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2832s; data-work budget remaining 4368s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2844s; data-work budget remaining 4356s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2856s; data-work budget remaining 4344s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2868s; data-work budget remaining 4332s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2880s; data-work budget remaining 4320s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2892s; data-work budget remaining 4308s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2904s; data-work budget remaining 4296s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2916s; data-work budget remaining 4284s
+[WAIT] shadow attestation for 2026-08-28; elapsed 2928s; data-work budget remaining 4272s
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_autonomous_deploy.py::test_real_config_allows_measured_formation_and_full_status_read
+1 failed in 0.22s

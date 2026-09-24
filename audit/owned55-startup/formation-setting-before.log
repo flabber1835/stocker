@@ -1,0 +1,26 @@
+FROZEN_VALIDATION_SOURCE_SHA256=6d566f120db9b6a0f0daab0d0c7e62f94b79c798aa52066a2e756c87c0172a6e
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 1 item
+
+tests/sentinel/test_autonomous_deploy_driver.py::test_shipped_wait_settings_agree_with_actual_driver FAILED [100%]
+
+=================================== FAILURES ===================================
+_____________ test_shipped_wait_settings_agree_with_actual_driver ______________
+tests/sentinel/test_autonomous_deploy_driver.py:91: in test_shipped_wait_settings_agree_with_actual_driver
+    cfg = driver.Config(env)
+          ^^^^^^^^^^^^^^^^^^
+scripts/sentinel_autonomous_deploy_driver.py:30: in __init__
+    super().__init__(env)
+scripts/sentinel_autonomous_deploy.py:1089: in __init__
+    self.data_wait_timeout_seconds = _int(
+scripts/sentinel_autonomous_deploy.py:1020: in _int
+    raise DeployRefused(
+E   sentinel_autonomous_deploy.DeployRefused: SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS must be in [30, 7200]
+=========================== short test summary info ============================
+FAILED tests/sentinel/test_autonomous_deploy_driver.py::test_shipped_wait_settings_agree_with_actual_driver
+============================== 1 failed in 0.27s ===============================

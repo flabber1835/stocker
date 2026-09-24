@@ -559,7 +559,7 @@ def shadow_configuration_document(
             "shadow observation id must be 1-64 ASCII letters, digits, dots or hyphens")
     try:
         amount = Decimal(str(env.get(
-            "SENTINEL_SHADOW_STARTING_CASH", "100000")).strip())
+            "SENTINEL_SHADOW_STARTING_CASH", "50000")).strip())
     except (InvalidOperation, TypeError, ValueError) as exc:
         raise ValidationRefused(
             "shadow starting cash must be a positive decimal") from exc
@@ -916,37 +916,11 @@ def probe_certified_suite(runner: CommandRunner, *, commit: Optional[str],
         except (AttributeError, json.JSONDecodeError):
             identity_hash = None
 
-    suite_commands = (
-        ["docker", "run", "--rm", "--network", "none", candidate_digest,
-         "tests/sentinel", "-q", "-ra"],
-        ["docker", "run", "--rm", "--network", "none", candidate_digest,
-         "tests/wealth_core",
-         *(item for node in NON_FORWARD_HISTORICAL_EXCLUSIONS
-           for item in ("--deselect", node)),
-         "-q", "-ra"],
-        ["docker", "run", "--rm", "--network", "none", candidate_digest,
-         "tests/scripts/test_sentinel_go_validate.py",
-         "tests/scripts/test_sentinel_reviewed_deploy_gate.py",
-         "-q", "-ra"],
-    )
-    aggregate = {
-        "passed": 0, "failed": 0, "errors": 0, "skipped": 0,
-        "xfailed": 0, "xpassed": 0,
-    }
-    combined_exit = 0
-    suites_completed = 0
-    for command in suite_commands:
-        suite = runner.run(command)
-        counts = _parse_pytest_summary(
-            (suite.stdout or "") + "\n" + (suite.stderr or ""))
-        for key in aggregate:
-            aggregate[key] += counts[key]
-        if suite.returncode != 0:
-            # Signals are negative return codes.  ``max(0, -9)`` would
-            # otherwise turn a killed suite into a successful aggregate.
-            combined_exit = int(suite.returncode) or 1
-        if counts["passed"] > 0:
-            suites_completed += 1
+    import sentinel_go_suites
+    aggregate, combined_exit, suites_completed = sentinel_go_suites.run(
+        runner, image=candidate_digest,
+        exclusions=NON_FORWARD_HISTORICAL_EXCLUSIONS,
+        parse_summary=_parse_pytest_summary)
     summary = TestSummary(
         candidate_image_digest=candidate_digest,
         runtime_image_digest=runtime_digest,
@@ -1222,7 +1196,7 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
                    and proof.get("scope") == "CURRENT_STRATEGY_STARTUP_AND_RESTART"
                    and "runtime_contract" not in proof)
     if (coherence.get("scope") == "ROLLING_CURRENT_INPUTS_ONLY"
-            and proof.get("scope") == "ROLLING_STARTUP_AND_RESTART"
+            and proof.get("scope") in {"ROLLING_STARTUP_AND_RESTART", "ROLLING_FORMED_STARTUP_AND_RESTART"}
             and proof.get("runtime_contract") == "sentinel.rolling-shadow-runtime/1"):
         snapshot = coherence.get("snapshot")
         scope_valid = (isinstance(snapshot, dict)
@@ -1234,6 +1208,16 @@ def _operational_parity_report_valid(report, *, commit, starting_cash):
                        and all(isinstance(snapshot.get(key), str) and re.fullmatch(
                            r"[0-9a-f]{8}(?:-[0-9a-f]{4}){3}-[0-9a-f]{12}", snapshot[key])
                            for key in ("candidate_id", "job_id")))
+    if strategy.get('strategy') == 'sentinel-compact-champion-owned55-v1':
+        formed = proof.get('formation')
+        scope_valid = (scope_valid and proof.get('scope') == 'ROLLING_FORMED_STARTUP_AND_RESTART'
+            and isinstance(formed, dict) and formed.get('schema') == 'sentinel.formation-parity/1'
+            and formed.get('policy') == 'CURRENT_INFORMATION_INITIALIZATION_V1'
+            and type(formed.get('sessions')) is int and formed['sessions'] == 126
+            and isinstance(formed.get('end'), str) and formed['end'] < proof.get('decision_session', '')
+            and formed.get('state_sha256') == proof.get('prior_state_sha256')
+            and all(_HEX64.fullmatch(str(formed.get(k) or '')) is not None
+                    for k in ('chain_sha256', 'state_sha256', 'source_sha256')))
     return (
         report.get("schema") == "sentinel.production-operational-parity/1"
         and report.get("verdict") == "PASS"
@@ -1517,7 +1501,8 @@ try:
 
     from sentinel.feed import rolling_go_inputs, rolling_go_health
     if rolling_go_inputs.is_rolling(rolling_go_inputs.current(c)):
-        print('SENTINEL_GO_DATABASE_HEALTH=' + json.dumps(rolling_go_health.inspect(c), sort_keys=True))
+        print('SENTINEL_GO_DATABASE_HEALTH=' + json.dumps(
+            rolling_go_health.inspect(c, database_url=os.environ['SENTINEL_DATABASE_URL']), sort_keys=True))
         raise SystemExit(0)
 
     with publication.pinned(c, commit=False) as held:

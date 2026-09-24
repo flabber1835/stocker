@@ -1,0 +1,17 @@
+["docker", "run", "--rm", "--network", "none", "--memory", "4g", "--cpus", "2", "--mount", "type=bind,source=C:/GitHub/stocker/.codex-tmp/owned55-bootstrap,target=/source,readonly", "--entrypoint", "python", "sentinel-test:ci", "-u", "-c", "import os,shutil,subprocess,sys\nshutil.copytree('/source','/tmp/repo',ignore=shutil.ignore_patterns('.git','.env','__pycache__'))\nos.chdir('/tmp/repo')\nos.environ.update(PYTHONPATH='/tmp/repo:/tmp/repo/shared:/tmp/repo/scripts',SENTINEL_REPO_ROOT='/tmp/repo',PYTHONDONTWRITEBYTECODE='1')\nraise SystemExit(subprocess.run([sys.executable,*sys.argv[1:]]).returncode)\n", "-m", "pytest", "tests/sentinel/test_rolling_initialization.py", "tests/sentinel/test_rolling_daily.py", "tests/sentinel/test_rolling_runtime.py", "tests/sentinel/test_rolling_paper_inputs.py", "tests/sentinel/test_projection_and_executor.py", "tests/sentinel/test_shadow_service.py", "tests/scripts/test_sentinel_go_validate.py", "tests/champion", "tests/sentinel/test_historical_formation.py", "-q", "-ra", "--tb=short", "-p", "no:cacheprovider"]
+........................................................................ [ 23%]
+........................................................................ [ 47%]
+......................................................................F. [ 71%]
+........................................................................ [ 95%]
+...............                                                          [100%]
+=================================== FAILURES ===================================
+____ test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary ____
+tests/scripts/test_sentinel_go_validate.py:697: in test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary
+    assert gate.status == go.PASS
+E   AssertionError: assert 'FAIL' == 'PASS'
+E
+E     - PASS
+E     + FAIL
+=========================== short test summary info ============================
+FAILED tests/scripts/test_sentinel_go_validate.py::test_active_wealth_parity_runs_candidate_in_read_only_compose_boundary
+1 failed, 302 passed in 643.44s (0:10:43)

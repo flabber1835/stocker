@@ -1,5 +1,11 @@
 # Wealth Core v1 — certification manifest
 
+[Owned55 and $50k historical startup](owned55-historical-startup.md) records the
+owner-selected profile and new formation acceptance gates. The production
+selector changes identity; prior certification and checkpoints do not silently
+qualify it. Historical startup admission remains incomplete until its input
+and GO integration pass the documented gates.
+
 **Cash-adjusted conversion, 2026-09-21:** the continuing stock's entry/peak
 references now receive the equity portion of a mixed deal's historical value.
 The bounded [economic certificate](../audit/cash_conversion/README.md) covers

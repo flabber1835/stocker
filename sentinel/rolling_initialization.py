@@ -69,26 +69,38 @@ def _initialize(conn, pub, binding, context):
     if request["strategy_sha256"] != digest(context["strategy"]):
         raise RollingColdStartRefused("ACQUISITION_STRATEGY_CHANGED")
     timing = _timing(conn, pub.window_end)
-    material = cold_start_inputs(conn, candidate_id=binding["candidate_id"], snapshot_id=binding["snapshot_id"])
-    initial = SessionState.fresh(starting_cash=float(context["starting_cash"]),
-        controller=Controller(context["controller"]), strategy_identity=context["strategy"])
-    seed = warm_session_state(initial, material.warmup, publication_version=pub.version,
-                              prospective_concordance_witness=True)
-    warmup = shadow_runtime._warmup_input_identity(
-        material.warmup, material.warmup.sessions, prospective_witness=True)
+    from sentinel.controller.owned_impairment import enabled as owned
+    if owned(context['strategy']):
+        from sentinel import formation_bootstrap
+        def current():
+            checkpoints.require_fresh(conn)
+            _timing(conn, pub.window_end)
+            if operational_snapshot._current(conn).to_dict() != pub.to_dict():
+                raise RollingColdStartRefused('FORMATION_PUBLICATION_CHANGED')
+        seed, warmup, published = formation_bootstrap.prepare(
+            conn, pub=pub, binding=binding, context=context, check_current=current)
+    else:
+        material = cold_start_inputs(conn, candidate_id=binding["candidate_id"], snapshot_id=binding["snapshot_id"])
+        initial = SessionState.fresh(starting_cash=float(context["starting_cash"]),
+            controller=Controller(context["controller"]), strategy_identity=context["strategy"])
+        seed = warm_session_state(initial, material.warmup, publication_version=pub.version,
+                                  prospective_concordance_witness=True)
+        warmup = shadow_runtime._warmup_input_identity(
+            material.warmup, material.warmup.sessions, prospective_witness=True)
+        published = _published(material, pub)
     store = shadow.PostgresShadowObservationStore(
         conn, observation_id=context["observation_id"], commit_genesis=False)
     observer = shadow.ShadowObserver(
         store=store, observation_id=context["observation_id"], starting_cash=context["starting_cash"],
-        first_session=material.session, initial_state=seed, controller_config=context["controller"],
+        first_session=published.session, initial_state=seed, controller_config=context["controller"],
         strategy_identity=context["strategy"], runtime_identity=context["runtime"],
         activation_timing=timing, warmup_input_identity=warmup)
-    published = _published(material, pub)
     result = observer.observe(shadow.FullyPublishedSession(published, pub.to_dict()))
-    completed = _timing(conn, material.session)
+    completed = _timing(conn, published.session)
     backup_runtime_authority.require(conn, operation="rolling cold-start checkpoint")
     checkpoint = checkpoints.Checkpoint(
-        observation_id=context["observation_id"], session=material.session,
+        status='FORMED_START_COMMITTED' if owned(context['strategy']) else 'COLD_START_COMMITTED',
+        observation_id=context["observation_id"], session=published.session,
         starting_cash=context["starting_cash"], strategy_identity=context["strategy"],
         runtime_identity=context["runtime"], snapshot=binding, publication=pub.to_dict(),
         genesis_sha256=observer.genesis_sha256, record_sha256=result.record_sha256,

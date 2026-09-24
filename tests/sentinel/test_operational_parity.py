@@ -95,7 +95,7 @@ def test_current_champion_real_startup_and_restart_from_operational_window(opera
     report = parity.run_proof(conn, starting_cash="100000.00", expected_commit=COMMIT)
     assert report["verdict"] == "PASS"
     proof = report["proof"]
-    assert proof["strategy_identity"]["strategy"] == "sentinel-compact-champion-v1"
+    assert proof["strategy_identity"]["strategy"] == "sentinel-compact-champion-owned55-v1"
     assert proof["warmup_input"]["session_count"] == 252
     assert proof["starting_cash"] == "100000"
     assert proof["decision_session"] == FRONTIER
@@ -110,6 +110,16 @@ def test_legacy_observation_warmup_uses_the_same_selected_production_strategy(
     from sentinel import observation_authority
     from sentinel.core import production
     from sentinel.feed import readers
+    from sentinel import strategy
+    from sentinel.controller.champion_config import load
+    from sentinel.core.decision import runtime_strategy_identity
+
+    def legacy():
+        controller = load()
+        return controller, runtime_strategy_identity(controller)
+
+    monkeypatch.setattr(strategy, 'production_strategy', legacy)
+    monkeypatch.setattr(parity, 'production_strategy', legacy)
 
     # Supply the legacy loader's deterministic material at its I/O boundary;
     # canonical warm_session_state and advance_session remain real.
@@ -123,6 +133,17 @@ def test_legacy_observation_warmup_uses_the_same_selected_production_strategy(
     assert evidence["warmup_sessions"] == 252 and evidence["decision_session"] == FRONTIER
     assert evidence["starting_cash"] == "100000"
     assert evidence["result_state_sha256"] == proof["proof"]["result_state_sha256"]
+
+
+def test_owned_observation_refuses_legacy_publication_before_loading_formation(
+        monkeypatch, operational_inputs):
+    from sentinel import observation_authority
+    from sentinel.authority import AuthorityRefused
+    from sentinel.feed import readers
+
+    monkeypatch.setattr(readers, 'pinned', lambda c, **kw: parity.rolling_go_inputs.pinned(c))
+    with pytest.raises(AuthorityRefused, match='requires a formation publication'):
+        observation_authority.current_warmup_evidence(Connection(), starting_cash=50000)
 
 
 @pytest.mark.parametrize("fault", ["mutate_prior", "mutate_input", "restart_diverges", "wrong_version", "no_advance"])

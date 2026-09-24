@@ -65,18 +65,49 @@ def _bind(conn):
 def test_warmup_is_the_selected_canonical_production_transition(conn, published):
     evidence = observation.current_warmup_evidence(conn, starting_cash=100000)
     assert evidence["warmup_sessions"] == 252
-    assert evidence["measured_sessions"] == 253
+    assert evidence["schema"] == "sentinel.paper-observation-warmup/3"
+    assert evidence["measured_sessions"] == 379
+    assert evidence["formation"]["sessions"] == 126
+    assert evidence["formation"]["policy"] == "CURRENT_INFORMATION_INITIALIZATION_V1"
     assert evidence["historical_certification"] == "NOT_GRANTED"
     assert evidence["strategy_identity_sha256"] == authority.canonical_sha256(production_strategy()[1])
     assert conn.execute("SELECT COUNT(*) FROM sentinel_processed_sessions").fetchone()[0] == 0
     conn.commit()
     # The independently invoked production initializer must reach this state.
-    # Twenty slots, no positions/fills and unchanged cash falsify V1 bootstrap.
-    actual = start(conn).state
+    # Nonempty historical positions distinguish formation from a cold witness.
+    actual = start(conn, starting_cash=100000).state
     assert len(actual.wealth_core["slots"]) == 20
-    assert not actual.wealth_core["episodes"] and actual.wealth_core["cash"] == 100000
+    assert actual.wealth_core["episodes"] and actual.wealth_core["cash"] < 100000
     assert actual.state_hash == evidence["result_state_sha256"]
     assert conn.execute("SELECT COUNT(*) FROM sentinel_fills").fetchone()[0] == 0
+
+
+def test_owned_candidate_and_issuer_refuse_rehashed_cold_warmup(conn, published, tmp_path):
+    from tools.sentinel_observation_authority import _candidate as validate_candidate
+    from tools.sentinel_certificate_issuer import IssuanceRefused
+
+    warmup = observation.current_warmup_evidence(conn, starting_cash=50000)
+    _bind(conn)
+    candidate = _candidate(conn, warmup)
+    path = tmp_path / 'candidate.json'
+    path.write_bytes(authority.canonical_json_bytes(candidate))
+    validate_candidate(path)  # Positive, source-bound formed evidence.
+
+    cold = deepcopy(warmup)
+    cold['schema'] = 'sentinel.paper-observation-warmup/2'
+    cold['measured_sessions'] = 253
+    cold.pop('formation')
+    with pytest.raises(authority.AuthorityRefused, match='formed startup proof'):
+        _candidate(conn, cold)
+
+    evidence = candidate['retained_evidence']
+    evidence['warmup'] = cold
+    retained = candidate['claims']['retained_evidence']
+    retained['warmup_sha256'] = authority.canonical_sha256(cold)
+    retained['sha256'] = authority.canonical_sha256(evidence)
+    path.write_bytes(authority.canonical_json_bytes(candidate))
+    with pytest.raises(IssuanceRefused, match='formed startup proof'):
+        validate_candidate(path)
 
 
 def test_signed_rolling_candidate_installs_and_activates_with_reobserved_inputs(

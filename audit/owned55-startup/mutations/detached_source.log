@@ -1,0 +1,9 @@
+F                                                                        [100%]
+================================== FAILURES ===================================
+_____ test_resume_cannot_rebase_capital_or_change_source_period[change1] ______
+tests\sentinel\test_historical_formation.py:175: in test_resume_cannot_rebase_capital_or_change_source_period
+    with pytest.raises(FormationRefused, match='BINDING_CHANGED'):
+E   Failed: DID NOT RAISE <class 'sentinel.core.formation.FormationRefused'>
+=========================== short test summary info ===========================
+FAILED tests/sentinel/test_historical_formation.py::test_resume_cannot_rebase_capital_or_change_source_period[change1]
+1 failed in 20.08s

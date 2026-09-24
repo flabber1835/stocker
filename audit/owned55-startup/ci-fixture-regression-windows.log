@@ -1,0 +1,37 @@
+
+=================================== ERRORS ====================================
+______ ERROR collecting tests/sentinel/test_issue_160_deployed_fenced.py ______
+ImportError while importing test module 'C:\GitHub\stocker\.codex-tmp\owned55-bootstrap\tests\sentinel\test_issue_160_deployed_fenced.py'.
+Hint: make sure your test modules/packages have valid Python names.
+Traceback:
+tests\sentinel\test_issue_160_deployed_fenced.py:25: in <module>
+    spec.loader.exec_module(deploy)
+scripts\sentinel_autonomous_deploy.py:27: in <module>
+    import fcntl
+E   ModuleNotFoundError: No module named 'fcntl'
+============================== warnings summary ===============================
+tests\v5\test_opening.py:217
+tests\v5\test_opening.py:217
+  C:\GitHub\stocker\.codex-tmp\owned55-bootstrap\tests\v5\test_opening.py:217: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\v5\test_opening.py:248
+tests\v5\test_opening.py:248
+  C:\GitHub\stocker\.codex-tmp\owned55-bootstrap\tests\v5\test_opening.py:248: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\v5\test_opening.py:336
+tests\v5\test_opening.py:336
+  C:\GitHub\stocker\.codex-tmp\owned55-bootstrap\tests\v5\test_opening.py:336: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+tests\v5\test_opening.py:349
+tests\v5\test_opening.py:349
+  C:\GitHub\stocker\.codex-tmp\owned55-bootstrap\tests\v5\test_opening.py:349: PytestUnknownMarkWarning: Unknown pytest.mark.asyncio - is this a typo?  You can register custom marks to avoid this warning - for details, see https://docs.pytest.org/en/stable/how-to/mark.html
+    @pytest.mark.asyncio
+
+-- Docs: https://docs.pytest.org/en/stable/how-to/capture-warnings.html
+=========================== short test summary info ===========================
+ERROR tests/sentinel/test_issue_160_deployed_fenced.py
+!!!!!!!!!!!!!!!!!!! Interrupted: 1 error during collection !!!!!!!!!!!!!!!!!!!!
+8 warnings, 1 error in 2.40s

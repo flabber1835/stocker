@@ -1,0 +1,13 @@
+FROZEN_VALIDATION_SOURCE_SHA256=faee53bb3ea9ba22a3cb61439da48300c438bc27d9a1b01591e758a8f3ca2e0d
+============================= test session starts ==============================
+platform linux -- Python 3.12.13, pytest-8.4.2, pluggy-1.6.0 -- /usr/local/bin/python
+rootdir: /tmp/repo
+configfile: pytest.ini
+plugins: asyncio-1.2.0, anyio-4.14.2
+asyncio: mode=Mode.STRICT, debug=False, asyncio_default_fixture_loop_scope=None, asyncio_default_test_loop_scope=function
+collecting ... collected 2 items
+
+tests/sentinel/test_rolling_paper_inputs.py::test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow[alpaca-False] PASSED [ 50%]
+tests/sentinel/test_rolling_paper_inputs.py::test_real_paper_preparation_and_restart_reuse_only_verified_rolling_shadow[alpaca-True] PASSED [100%]
+
+======================== 2 passed in 110.59s (0:01:50) =========================

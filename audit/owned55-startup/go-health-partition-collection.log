@@ -1,0 +1,2 @@
+FROZEN_VALIDATION_SOURCE_SHA256=4dd5e5a5bfa4141ca4ee5af8c439f833eb705c059ef48f194913cb02b357e9da
+{"baseline_count": 5613, "complete": true, "duplicate_nodes": 0, "full_collection_sha256": "1de4ef9e9aa70a84ae96e89d2803b9b7fcadd73afe5e32d4d41cfb3d4ebcb26e", "missing_nodes": 0, "partitions": {"automation": 142, "general": 5105, "rolling": 346, "warmup": 20}}

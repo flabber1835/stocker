@@ -13,7 +13,8 @@ RECOVERY_SESSIONS = 8
 
 def enabled(identity):
     from .champion_config import STRATEGY_ID as CHAMPION_ID
-    return identity.get("strategy") in (STRATEGY_ID, CHAMPION_ID)
+    from .owned_impairment import STRATEGY_ID as OWNED_ID
+    return identity.get("strategy") in (STRATEGY_ID, CHAMPION_ID, OWNED_ID)
 
 
 def load():

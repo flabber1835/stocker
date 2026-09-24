@@ -89,7 +89,7 @@ class ShadowServiceConfig:
             raise ShadowServiceRefused("shadow observation id is malformed")
         try:
             starting_cash = Decimal(str(source.get(
-                "SENTINEL_SHADOW_STARTING_CASH", "100000")).strip())
+                "SENTINEL_SHADOW_STARTING_CASH", "50000")).strip())
         except (InvalidOperation, TypeError, ValueError) as exc:
             raise ShadowServiceRefused(
                 "shadow starting cash must be a positive decimal") from exc

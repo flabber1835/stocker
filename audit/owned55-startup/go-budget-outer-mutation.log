@@ -1,0 +1,37 @@
+FROZEN_VALIDATION_SOURCE_SHA256=fc6c9b17958e633c8eaca1fc0991022b716f756180e8eb9a248b43b305d47698
+go_outer_budget_undersized KILLED
+MUTATION_RESULTS=[
+  {
+    "name": "go_outer_budget_undersized",
+    "killed": true,
+    "returncode": 1,
+    "command": [
+      "/usr/local/bin/python",
+      "-B",
+      "-m",
+      "pytest",
+      "tests/production_composition/test_canonical_go_e2e_harness.py::test_full_go_budget_covers_measured_work_and_preserves_refusal",
+      "-q",
+      "--tb=short",
+      "-p",
+      "no:cacheprovider"
+    ]
+  }
+]
+MUTATION_LOG=go_outer_budget_undersized.baseline.log
+.                                                                        [100%]
+1 passed in 0.15s
+
+MUTATION_LOG=go_outer_budget_undersized.log
+F                                                                        [100%]
+=================================== FAILURES ===================================
+________ test_full_go_budget_covers_measured_work_and_preserves_refusal ________
+tests/production_composition/test_canonical_go_e2e_harness.py:107: in test_full_go_budget_covers_measured_work_and_preserves_refusal
+    assert harness._invoke().returncode == 0
+E   AssertionError: assert 124 == 0
+E    +  where 124 = CompletedProcess(args=['bash', 'scripts/sentinel-go-validate.sh', '--local-full-certification', '--target', 'SHADOW'], returncode=124, stdout='measured timeline\n', stderr='').returncode
+E    +    where CompletedProcess(args=['bash', 'scripts/sentinel-go-validate.sh', '--local-full-certification', '--target', 'SHADOW'], returncode=124, stdout='measured timeline\n', stderr='') = <function _invoke at 0x7ded7bfda660>()
+E    +      where <function _invoke at 0x7ded7bfda660> = harness._invoke
+=========================== short test summary info ============================
+FAILED tests/production_composition/test_canonical_go_e2e_harness.py::test_full_go_budget_covers_measured_work_and_preserves_refusal
+1 failed in 0.14s

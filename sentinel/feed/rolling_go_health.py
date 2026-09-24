@@ -24,7 +24,7 @@ def _indexed(conn, query, params):
                                   for node in _nodes(plan))
 
 
-def inspect(conn):
+def inspect(conn, *, database_url: str):
     """Caller owns a repeatable-read read-only transaction. No verdict persistence."""
     isolation = conn.execute("SHOW transaction_isolation").fetchone()[0]
     read_only = conn.execute("SHOW transaction_read_only").fetchone()[0]
@@ -43,7 +43,7 @@ def inspect(conn):
             "SELECT COUNT(*) FROM pg_locks WHERE locktype='advisory' AND pid=pg_backend_pid() AND granted "
             "AND ((classid::bigint << 32) | objid::bigint)=%s AND mode='ShareLock'",
             (publication.CORPUS_LOCK_KEY,)).fetchone()[0] == 1
-        contender = store.connect(conn.info.dsn)
+        contender = store.connect(database_url)
         try:
             acquired = contender.execute("SELECT pg_try_advisory_lock(%s)",
                                           (publication.CORPUS_LOCK_KEY,)).fetchone()[0]

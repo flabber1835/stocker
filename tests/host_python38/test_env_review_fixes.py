@@ -178,6 +178,7 @@ class EnvReviewFixes(unittest.TestCase):
             "SENTINEL_DEPLOY_HEALTH_TIMEOUT_SECONDS": "29",
             "SENTINEL_DEPLOY_DATA_RETRY_SECONDS": "29",
             "SENTINEL_DEPLOY_DATA_WAIT_TIMEOUT_SECONDS": "299",
+            "SENTINEL_DEPLOY_FORMATION_TIMEOUT_SECONDS": "7201",
             "SENTINEL_DEPLOY_MAXIMUM_EXPOSURE": "0.50",
         }
         for key, value in invalid.items():

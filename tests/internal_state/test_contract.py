@@ -103,8 +103,10 @@ def test_independent_accounting_kills_false_facts(money, fault, expected):
 @pytest.fixture
 def state():
     day = "2026-10-20"
-    return {"strategy_identity": {"fixture": "frozen", "strategy": "sentinel-compact-champion-v1"}, "last_processed_session": day,
-        "controller": {"last_session": day}, "last_decision": {"session": day, "target_core_exposure": .55},
+    return {"strategy_identity": {"fixture": "frozen", "strategy": "sentinel-compact-champion-owned55-v1"}, "last_processed_session": day,
+        "controller": {"last_session": day}, "last_decision": {"session": day,
+            "target_core_exposure": .55, "champion_target_core_exposure": .55},
+        "owned_impairment": {"last_session": day, "active": False},
         "median5": {"last_session": day, "version": 2, "previous_desired": .55,
                     "full_streak": 0, "recent_positive_streak": 0}, "shadow_peak_nav": 1000,
         "wealth_core": {"slots": {str(i): {"occupied_by": None} for i in range(20)}, "cash": 100000, "episodes": {}},
@@ -115,6 +117,7 @@ def state():
 
 @pytest.mark.parametrize("fault,expected", [
     ("cursor", "state_cursor_atomicity"), ("witness", "witness_cursor"),
+    ("owned_cursor", "owned_cursor"), ("owned_cap", "owned_ceiling"),
     ("recovery", "recovery_allocation"), ("exposure", "exposure_bounds"),
     ("slot", "one_slot_per_episode"), ("future", "no_future_observation"),
     ("nan", "finite_state"), ("identity", "strategy_identity")])
@@ -127,9 +130,19 @@ def test_independent_state_contract_kills_corruption(state, fault, expected):
         state["median5"]["last_session"] = "2026-10-19"
     elif fault == "recovery":
         state["median5"]["previous_desired"] = 1.
+    elif fault == "owned_cursor":
+        state["owned_impairment"]["last_session"] = "2026-10-19"
+    elif fault == "owned_cap":
+        state["owned_impairment"]["active"] = True
+        state["last_decision"]["champion_target_core_exposure"] = 1.
+        state["median5"]["previous_desired"] = 1.
+        state["last_decision"]["target_core_exposure"] = 1.
     elif fault == "exposure":
-        state["last_decision"]["target_core_exposure"] = 1.01
-        state["median5"]["previous_desired"] = 1.01
+        # An upper-bound breach is already caught by the independent ceiling;
+        # a negative matched target isolates the long-only exposure guard.
+        state["last_decision"]["target_core_exposure"] = -.01
+        state["last_decision"]["champion_target_core_exposure"] = -.01
+        state["median5"]["previous_desired"] = -.01
     elif fault == "slot":
         state["wealth_core"]["slots"]["0"]["occupied_by"] = "same"
         state["wealth_core"]["slots"]["1"]["occupied_by"] = "same"
