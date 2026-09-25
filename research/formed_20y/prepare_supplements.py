@@ -12,14 +12,19 @@ def prepare(base: Path, output: Path):
     if hashlib.sha256(raw).hexdigest() != BASE_SHA256:
         raise ValueError('retained supplement bytes changed')
     rows = json.loads(raw)
-    event = json.loads(Path(__file__).with_name('trbs-supplement.json').read_text())
-    if any(row['id'] == event['id'] or row['security_id'] == event['security_id'] for row in rows):
-        raise ValueError('TRBS already has supplemental terms; independent reconciliation required')
+    events = [json.loads(Path(__file__).with_name(name).read_text()) for name in
+              ('trbs-supplement.json', 'isln-supplement.json')]
+    identities = {(row['id'], row['security_id']) for row in rows}
+    if any(any(event['id'] == row_id or event['security_id'] == security_id
+               for row_id, security_id in identities) for event in events):
+        raise ValueError('security already has supplemental terms; independent reconciliation required')
+    if len({event['id'] for event in events}) != len(events) or len({event['security_id'] for event in events}) != len(events):
+        raise ValueError('new supplement identities must be unique')
     with output.open('x', encoding='utf8') as stream:
-        json.dump(rows + [event], stream, indent=2, allow_nan=False)
+        json.dump(rows + events, stream, indent=2, allow_nan=False)
         stream.write('\n')
     return dict(base_sha256=BASE_SHA256, output_sha256=hashlib.sha256(output.read_bytes()).hexdigest(),
-                retained_records=len(rows), added_record=event['id'])
+                retained_records=len(rows), added_records=[event['id'] for event in events])
 
 
 if __name__ == '__main__':

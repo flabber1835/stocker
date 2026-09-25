@@ -101,3 +101,32 @@ performance trace. Acceptance must reproduce the original refusal, then show
 exactly 57 shares converted into $2,217.30 and resolved valuation with the
 sourced event. Missing terms must remain a refusal; corrupted consideration
 must fail the independent accounting assertion.
+
+## ISLN source completion after the replacement replay refusal
+
+The replacement replay at 89e34bb6 stopped on 2010-12-21 after 1,107
+measured closes. Its prior canonical book owned 109 ISLN shares (research
+identity 820747269304202648); the December 21 session had no quotation for
+that identity and the retained action corpus did not contain its terminal
+terms. The unchanged financial guard again correctly refused unresolved Core
+equity. Preserve the stopped attempt, its December 20 checkpoint, the
+reproduced candidate and the exact refusal evidence.
+
+Isilon's [December 21 Form 8-K](https://www.sec.gov/Archives/edgar/data/1373671/000119312510285149/d8k.htm)
+states that the merger became effective that day and each remaining common
+share was converted into the right to receive $33.85 cash, without interest
+and subject to withholding. EMC's [final tender-offer amendment](https://www.sec.gov/Archives/edgar/data/1373671/000119312510283854/dsctota.htm)
+independently records acceptance for payment and the same $33.85 cash merger
+consideration. There is no stock conversion or additional dividend to model.
+
+Add this exact cash event on December 21, the issuer-reported effective date.
+This is economic cash-equivalent recognition under the retained research
+convention. It does not establish the date a broker made proceeds spendable;
+C1/F6 remain open. Keep the original archives and prior supplement records
+immutable, create another fresh supplement output and rerun the scope proof
+and both guard-removal controls because the bound input identity changes.
+Restart the experiment from fresh state under a new frozen source; never join
+the refused partial trace into performance. Acceptance must reproduce the
+stopped state, convert exactly 109 shares into $3,689.65, resolve valuation and
+pass the independent funded-account calculation. Missing terms must still
+refuse, and any different consideration must fail the payout oracle.
