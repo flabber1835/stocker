@@ -24,6 +24,7 @@ parser = argparse.ArgumentParser()
 parser.add_argument('--mutation', choices=('adv20', 'both'))
 parser.add_argument('--inputs', type=Path, required=True)
 parser.add_argument('--output', type=Path, required=True)
+parser.add_argument('--supplements', type=Path, required=True)
 args = parser.parse_args()
 ROOT, OUT = args.inputs, args.output
 if args.mutation:
@@ -66,7 +67,7 @@ with zipfile.ZipFile(ROOT/'pit-source-5bdc6b39.zip') as z:
             inspect(io.TextIOWrapper(g, encoding='utf8'), 'base/'+member)
         with gzip.open(prefix/member, 'rt', encoding='utf8') as s:
             inspect(s, 'prefix/'+member)
-supplement_path = ROOT/'owned55-20y-run/supplements.json'
+supplement_path = args.supplements
 supplements = json.loads(supplement_path.read_text())
 for row in supplements:
     for key in ('delivered_security_id', 'child_security_id', 'delivered_ticker', 'child_ticker'):

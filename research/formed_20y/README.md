@@ -23,8 +23,9 @@ The original strict validator is unchanged and continues to reject the prefix.
 The full replay additionally refuses either identity in holdings, scored
 candidates or witness membership. A future source or runtime needs new proof.
 
-The evidence directory on the originating workstation is
-`C:/GitHub/stocker/.codex-tmp/owned55-formed-20y-run`. The retained input root is
+The first attempt and original scope evidence remain in
+`C:/GitHub/stocker/.codex-tmp/owned55-formed-20y-run`. The replacement attempt's
+evidence directory is its `attempt-002` subdirectory. The retained input root is
 `C:/GitHub/stocker/.codex-tmp`. These large licensed/research data are not
 redistributed in Git. Reproduction requires those exact input bytes.
 
@@ -36,10 +37,12 @@ and evidence at `/evidence`; set `PYTHONPATH=/work:/work/shared` and
 limit is two. The following are commands inside that container:
 
 ```sh
+python -m research.formed_20y.prepare_supplements \
+  --base /inputs/owned55-20y-run/supplements.json --output /evidence/supplements.json
 python -m research.formed_20y.extract_scope --inputs /inputs --output /evidence
-python -m research.formed_20y.verify_scope --inputs /inputs --output /evidence
-python -m research.formed_20y.verify_scope --inputs /inputs --output /evidence --mutation adv20
-python -m research.formed_20y.verify_scope --inputs /inputs --output /evidence --mutation both
+python -m research.formed_20y.verify_scope --inputs /inputs --output /evidence --supplements /evidence/supplements.json
+python -m research.formed_20y.verify_scope --inputs /inputs --output /evidence --supplements /evidence/supplements.json --mutation adv20
+python -m research.formed_20y.verify_scope --inputs /inputs --output /evidence --supplements /evidence/supplements.json --mutation both
 ```
 
 The baseline exits 0; each mutation must exit 2 with
@@ -47,7 +50,7 @@ The baseline exits 0; each mutation must exit 2 with
 
 ```sh
 python -m research.formed_20y.run --inputs /inputs --scope-evidence /evidence \
-  --supplements /inputs/owned55-20y-run/supplements.json \
+  --supplements /evidence/supplements.json \
   --output /evidence/segment-001 --seconds 21600
 ```
 
@@ -85,3 +88,32 @@ costs on flat prices. Removing formed-entry accounting incorrectly charges
 $22.50 and is caught. Historical shadow wealth is never substituted for the
 new funded baseline. The arithmetic oracle checks accounting equations; it
 does not independently establish every source event's historical truth.
+
+## First refusal and sourced replacement input
+
+Attempt one stopped at 2006-11-13 after 74 measured closes. TRBS was still a
+57-share holding, but the original November 10 terminal record lacked cash
+terms and the November 13 session had no quote. The financial refusal and exact
+candidate state were independently reproduced from the November 10 checkpoint.
+
+The issuer's SEC-archived completion release establishes $38.90 per share at
+5 p.m. Central on November 10. Its cancelled $0.04 dividend is not payable.
+`trbs-supplement.json` retains these sources and the existing next-session
+research cash-equivalent convention, which is not broker cash finality. The
+original archive and 160 existing supplement records are unchanged. The new
+combined file has SHA256
+`03e5b0afa32c6db5f827ff705a3793ef4d533f39e76e91b6ab4f92e15eefe6d3`.
+
+On the actual stopped book, the added record converts 57 shares to $2,217.30,
+resolves Core opening/closing equity, and passes independent funded accounting.
+Missing terms still refuse; including the cancelled dividend fails the payout
+oracle. The original trace is not joined to the replacement attempt. The new
+input binding requires a fresh 252+126 run.
+
+Validation after the addition:
+`python -m pytest research/formed_20y/test_run.py research/formed_20y/test_inputs.py research/formed_20y/test_review.py research/formed_20y/test_supplements.py tests/sentinel/test_formed_economics.py -q -p no:cacheprovider`
+passed **34 tests in 9.15s**. Removing the supplement hash, duplicate-identity,
+and exclusive-output guards separately killed their acceptance tests after the
+positive baseline. Both actual-data liquidity falsifiers were rerun and refused
+after the new supplement's passing scope baseline. Source/proof hashes now bind
+that new input; production bytes and policy remain unchanged.

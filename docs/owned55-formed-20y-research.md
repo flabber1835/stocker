@@ -69,3 +69,35 @@ check exact date coverage; partial progress is not a twenty-year result.
 No policy tuning, fixture repinning or source admission relaxation is allowed.
 All other unresolved historical metadata, cash-finality, native-fill,
 predecessor-completeness and NAS gates retain their original scope and status.
+
+## TRBS source completion after the first replay refusal
+
+The first frozen replay at 629d924a stopped on 2006-11-13 after 74 measured
+closes. Its prior canonical book owned 57 TRBS shares (research identity
+289789523990727230); the next session had no quote or terminal terms. The
+unchanged financial guard correctly refused unresolved Core equity. Preserve
+that attempt, its November 10 checkpoint and the reproduced candidate state.
+
+The issuer's [November 10 completion release](https://www.sec.gov/Archives/edgar/data/787648/000110465906074000/a06-23840_1ex99d1.htm)
+establishes merger completion at 5 p.m. Central time that day and $38.90 cash
+per common share. Its [November 9 announcement](https://www.sec.gov/Archives/edgar/data/787648/000110465906073463/a06-23050_3ex99d1.htm)
+and the completion release establish that the contingent $0.04 dividend was
+not paid. Do not credit that dividend or a stock conversion.
+
+Use the existing research convention of next-session economic recognition:
+add the exact cash consideration on November 13, the first session after the
+after-close merger. This is an economic cash-equivalent assumption, not proof
+of a broker's settlement or spendable-cash date; C1/F6 remain open. The original
+input archive and prior experiment supplements remain immutable. A separate
+formed-start supplement file contains the retained records plus this sourced
+event, with its own byte hash. No production or source-admission guard changes.
+
+Make the scope verifier take an explicit supplement path, rerun its baseline
+and both real guard-removal controls, and bind the new proof/program hashes.
+Because the input identity changes, rerun the requested experiment from fresh
+state under a new frozen source instead of transplanting the old checkpoint.
+The old attempt is failure evidence and must not be joined to the new full
+performance trace. Acceptance must reproduce the original refusal, then show
+exactly 57 shares converted into $2,217.30 and resolved valuation with the
+sourced event. Missing terms must remain a refusal; corrupted consideration
+must fail the independent accounting assertion.

@@ -1,6 +1,6 @@
 {
   "evidence_files": {
-    "current-code-reachability.json": "ac79e41b5aa8deef5ad9d6945ad398c11128ef166c30f5ed69caafc85bf5b53f",
+    "current-code-reachability.json": "26312bae8188cd03eceaa2767789a193aea9b3892f4629289dbd5c438a18dda5",
     "reachability-probe.json": "3581b029b0530cf531a2d7e65caa742736ddf4d4e4e1769302b6b05d684f483a",
     "reachability-refusal-adv20.json": "f50131f3a16a999998f7f86b0772139a739035f372a619ac49361ba74744aeae",
     "reachability-refusal-both.json": "b874e33e865f996c3aabee701d4ec084c2a4f18a1badde3be9f25516c76880b3"
@@ -11,7 +11,7 @@
   ],
   "proof_programs": {
     "extract_scope.py": "9fe1b00657e1f1431773449ce2f490c260d8edecf79ded91bcef590109241ef9",
-    "verify_scope.py": "1c36ca71aef70099c5be7c6049d9d9be5b43c314f14e38b1d74af5c8762e5279"
+    "verify_scope.py": "5f60e44733e9ebd682d93f7e48d9570a721fc3abaef3155a765ad1c8d115eee6"
   },
   "retained_source_failures": [
     "FCEC 2005-04-28",

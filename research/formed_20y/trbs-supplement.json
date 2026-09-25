@@ -1,0 +1,24 @@
+{
+  "id": "TRBS-2006-11-13-issuer-cash",
+  "effective_session": "2006-11-13",
+  "original_event_session": "2006-11-10",
+  "known_by": "2006-11-10",
+  "security_id": "289789523990727230",
+  "ticker": "TRBS",
+  "kind": "CASH_MERGER",
+  "cash_per_share": "38.90",
+  "delivered_security_id": "",
+  "delivered_ticker": "",
+  "delivered_issuer_id": "",
+  "exchange_ratio": "",
+  "cash_in_lieu_price_per_delivered_share": "",
+  "reference": "TRBS common shares converted to $38.90 cash at 5 p.m. Central on 2006-11-10; contingent $0.04 dividend cancelled. Next-session economic recognition on November 13 under retained research convention, not a broker settlement or spendable-cash date claim.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/787648/000110465906074000/a06-23840_1ex99d1.htm",
+    "https://www.sec.gov/Archives/edgar/data/787648/000110465906073463/a06-23050_3ex99d1.htm",
+    "https://www.sec.gov/Archives/edgar/data/787648/000110465906074000/a06-23840_18k.htm"
+  ],
+  "disposition": "EXACT_EVIDENCE",
+  "authority": "ISSUER_COMPLETION_RELEASE_SEC_ARCHIVE",
+  "research_cash_timing": "NEXT_SESSION_ECONOMIC_RECOGNITION_NOT_BROKER_FINALITY"
+}
