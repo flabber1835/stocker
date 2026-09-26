@@ -81,7 +81,7 @@
       "metadata_admitted": "1",
       "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1"
     },
-    {
+  {
       "session": "2016-07-25",
       "security_id": "177752727931112051",
       "ticker": "LVNTA",
@@ -107,7 +107,7 @@
       "tradeable": "1",
       "metadata_admitted": "0",
       "identity_source": "SEP_TAPE_CONTINUITY_CAUSAL_TERMINAL_RELISTING_V1"
-    }
+  }
   ],
   "actions": [
     {
@@ -188,7 +188,7 @@
       "authority": "PIT_ACTIONS_PLUS_SAME_SESSION_PRICE_DOMAIN",
       "evidence_hash": ""
     },
-    {
+  {
       "effective_session": "2016-07-25",
       "security_id": "177752727931112051",
       "ticker": "LVNTA",
@@ -200,8 +200,8 @@
       "known_by": "2016-07-25",
       "authority": "PIT_ACTIONS",
       "evidence_hash": ""
-    },
-    {
+  },
+{
       "effective_session": "2016-07-25",
       "security_id": "177752727931112051",
       "ticker": "LVNTA",
@@ -213,8 +213,8 @@
       "known_by": "2016-07-25",
       "authority": "PIT_ACTIONS",
       "evidence_hash": ""
-    },
-    {
+  },
+{
       "effective_session": "2016-07-25",
       "security_id": "177752727931112051",
       "ticker": "LVNTA",
@@ -226,8 +226,8 @@
       "known_by": "2016-07-25",
       "authority": "PIT_ACTIONS_PLUS_SAME_SESSION_PRICE_DOMAIN",
       "evidence_hash": ""
-    },
-    {
+  },
+{
       "effective_session": "2016-07-25",
       "security_id": "177752727931112051",
       "ticker": "LVNTA",
@@ -239,6 +239,6 @@
       "known_by": "2016-07-25",
       "authority": "PIT_ACTIONS_PLUS_SAME_SESSION_PRICE_DOMAIN",
       "evidence_hash": ""
-    }
+  }
   ]
 }
