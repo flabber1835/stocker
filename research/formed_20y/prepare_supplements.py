@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
-BASE_SHA256 = '70b796a8512a395cd00cb1e928d361548363cfadb9d2ada7753356749360fe17'
+BASE_SHA256 = '307b3ff1bed7b3a0a9e7a5420429eae546af3642ce08be07b8dc92c25c10d0ae'
 
 
 def prepare(base: Path, output: Path):
@@ -13,7 +13,7 @@ def prepare(base: Path, output: Path):
         raise ValueError('retained supplement bytes changed')
     rows = json.loads(raw)
     events = [json.loads(Path(__file__).with_name(name).read_text()) for name in
-              ('itc-supplement.json',)]
+              ('lvnta-2018-gliba-supplement.json',)]
     ids = {row['id'] for row in rows}
     keys = {(row.get('effective_session'), row['security_id'], row.get('child_security_id'))
             for row in rows}

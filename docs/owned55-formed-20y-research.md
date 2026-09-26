@@ -206,6 +206,39 @@ and preserve independent funded accounting. Missing terms must still refuse;
 an altered price, date, identity or payout must fail the independent oracle. No
 production kernel, provider admission or broker-finality claim changes.
 
+## LVNTA conversion after the eighth replay refusal
+
+Attempt 009 stopped before committing 2018-03-12, preserving the verified
+March 9 checkpoint after 2,923 measured closes. The book owned two LVNTA
+shares in slot 6. The retained source described the March 9 terminal event as
+an incomplete cash merger, and LVNTA had no March 12 quotation, so the
+unchanged unresolved-equity guard correctly refused the session.
+
+Liberty Interactive's March 9 Form 8-K and GCI Liberty's March 9 Form 8-K both
+state that the split-off completed after the market close and that each LVNTA
+share was redeemed for one GLIBA share. Liberty Interactive reported that no
+LVNTA shares remained outstanding and requested delisting after the split-off.
+The issuer completion release states that regular GLIBA trading began on
+March 12. The retained research tape names the delivered security `GLIBA1`,
+identity `758943436528193872`, and records a March 12 raw open of $54.29.
+
+Model this as an exact one-for-one `CONVERSION` on March 12 under the existing
+next-session recognition convention. Two held LVNTA shares become exactly two
+GLIBA1 shares. Preserve slot 6, episode age and the existing conversion
+reference-rebase mechanics. No contractual cash, fractional share or
+cash-in-lieu proxy applies. This is a correction to the reviewed research
+source; it does not change production code, policy, broker settlement, provider
+admission or the open PIT-certification status.
+
+Before continuing discovery, reproduce the stopped state and require the
+conversion to leave two delivered shares, the same slot and age, resolved
+opening and closing valuation, and independent funded accounting. Missing
+terms and wrong delivered identity must refuse without mutation; an altered
+ratio must fail the independent two-share oracle. Preserve all 168 earlier
+supplements byte-for-byte, migrate only from the verified March 9 checkpoint,
+and resume under the new binding. The final result still requires a fresh
+single-binding 252+126+5,032-session run.
+
 ## Discovery continuation and final fresh qualification
 
 Separate source discovery from final qualification. During discovery, a

@@ -39,13 +39,17 @@ def lvnta_2016():
             ('lvnta-2016-chuba-supplement.json', 'lvnta-2016-chubk-supplement.json')]
 
 
+def lvnta_2018():
+    return json.loads(Path(__file__).with_name('lvnta-2018-gliba-supplement.json').read_text())
+
+
 def test_retained_records_unchanged_and_new_output_cannot_overwrite(tmp_path, monkeypatch):
     original = [dict(id='other-event', security_id='other-security', cash_per_share='12.34')]
     base, output = tmp_path/'base.json', tmp_path/'new.json'
     base.write_text(json.dumps(original))
     monkeypatch.setattr(prepare_supplements, 'BASE_SHA256', hashlib.sha256(base.read_bytes()).hexdigest())
     prepare_supplements.prepare(base, output)
-    assert json.loads(output.read_text()) == original + [itc()]
+    assert json.loads(output.read_text()) == original + [lvnta_2018()]
     assert json.loads(base.read_text()) == original
     with pytest.raises(FileExistsError):
         prepare_supplements.prepare(base, output)
@@ -56,7 +60,7 @@ def test_retained_records_unchanged_and_new_output_cannot_overwrite(tmp_path, mo
 
 def test_existing_identity_cannot_be_silently_replaced(tmp_path, monkeypatch):
     base = tmp_path/'base.json'
-    base.write_text(json.dumps([itc()]))
+    base.write_text(json.dumps([lvnta_2018()]))
     monkeypatch.setattr(prepare_supplements, 'BASE_SHA256', hashlib.sha256(base.read_bytes()).hexdigest())
     with pytest.raises(ValueError, match='already exists'):
         prepare_supplements.prepare(base, tmp_path/'new.json')
@@ -256,3 +260,63 @@ def test_itc_altered_terms_fail_independent_oracle(field,value):
     assert result['applied']
     with pytest.raises(AssertionError):
         check_itc_oracle(state,ledger)
+
+
+def apply_lvnta_2018(event):
+    state, ledger = PortfolioState.fresh(1000), Ledger()
+    sid = event['security_id']
+    state.slots[6].occupied_by = sid
+    state.episodes[6] = HoldingEpisode(
+        security_id=sid, ticker='LVNTA', issuer_id='SID:'+sid, slot_id=6,
+        signal_date='2013-03-07', entry_date='2013-03-08', entry_raw_open=77.70,
+        entry_split_adjusted_price=17.52835790729045, initial_shares=1,
+        current_shares=2, episode_peak_split_adjusted_close=62.02,
+        market_sessions_held=1261)
+    result = apply_terminal(
+        state, terminals([event])['2018-03-12'][0], ledger=ledger,
+        session='2018-03-12', cfg=WealthCoreConfig(),
+        source_signal_to_raw_scale=1., delivered_signal_to_raw_scale=1.,
+        delivered_raw_open=54.29)
+    return state, ledger, result
+
+
+def check_lvnta_2018_oracle(state, ledger):
+    ep = state.episodes[6]
+    assert ep.security_id == '758943436528193872'
+    assert ep.ticker == 'GLIBA1' and ep.issuer_id == 'SID:758943436528193872'
+    assert ep.current_shares == 2 and ep.initial_shares == 1
+    assert ep.market_sessions_held == 1261 and ep.entry_date == '2013-03-08'
+    assert state.slots[6].occupied_by == ep.security_id and state.cash == 1000
+    assert len(ledger.events) == 1
+    detail = ledger.events[0].detail
+    assert detail['shares_in'] == 2 and detail['shares_delivered'] == 2
+    assert detail['exchange_ratio_exact'] == '1.0'
+    assert detail['cash_consideration'] == 0 and detail['cash_in_lieu'] == 0
+
+
+def test_lvnta_2018_exact_conversion_preserves_slot_age_and_two_shares():
+    event = lvnta_2018()
+    assert event['known_by'] == event['original_event_session'] == '2018-03-09'
+    assert event['effective_session'] == '2018-03-12'
+    state, ledger, result = apply_lvnta_2018(event)
+    assert result['applied'] and result['shares_delivered'] == 2
+    check_lvnta_2018_oracle(state, ledger)
+
+
+@pytest.mark.parametrize('field', [
+    'exchange_ratio', 'delivered_security_id', 'delivered_ticker',
+    'delivered_issuer_id'])
+def test_lvnta_2018_missing_terms_refuse_without_economic_mutation(field):
+    event = lvnta_2018(); event[field] = ''
+    state, ledger, result = apply_lvnta_2018(event)
+    assert not result['applied']
+    assert state.cash == 1000 and state.episodes[6].security_id == event['security_id']
+    assert state.episodes[6].current_shares == 2 and not ledger.events
+
+
+def test_lvnta_2018_altered_ratio_fails_independent_two_share_oracle():
+    event = lvnta_2018(); event['exchange_ratio'] = '0.5'
+    state, ledger, result = apply_lvnta_2018(event)
+    assert result['applied']
+    with pytest.raises(AssertionError):
+        check_lvnta_2018_oracle(state, ledger)

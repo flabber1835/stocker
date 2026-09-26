@@ -332,3 +332,41 @@ the 168-record source hashes to
 `307b3ff1bed7b3a0a9e7a5420429eae546af3642ce08be07b8dc92c25c10d0ae`.
 Scope baseline and both actual liquidity guard-removal controls were rerun;
 no target reached eligibility in the baseline, and both controls refused.
+
+## Eighth refusal: LVNTA/GCI Liberty one-for-one conversion
+
+Attempt 009 stopped before committing 2018-03-12 after 2,923 measured closes.
+The March 9 checkpoint held two LVNTA shares in slot 6, while the retained
+terminal row described an incomplete cash merger and LVNTA no longer printed.
+The fail-closed unresolved-equity refusal is preserved in
+`attempt-009/segment-001` and its candidate evidence in
+`attempt-009/diagnostic-2018-03-12`.
+
+The Liberty Interactive and GCI Liberty March 9 Form 8-K filings establish that
+the after-close split-off redeemed each LVNTA share for one GLIBA share, leaving
+no LVNTA shares outstanding. The issuer release establishes March 12 regular
+trading. The retained tape names that security `GLIBA1`, identity
+`758943436528193872`, with raw open $54.29. The new supplement records an exact
+one-for-one `CONVERSION` on March 12 with no cash or fractional proxy:
+
+* https://www.sec.gov/Archives/edgar/data/1355096/000110465918017857/a18-8242_18k.htm
+* https://www.sec.gov/Archives/edgar/data/808461/000110465918017479/a18-8247_18k.htm
+* https://www.sec.gov/Archives/edgar/data/75679/000110465918017494/a18-8246_1ex99d1.htm
+
+All 168 previous supplement records are unchanged; the 169-record source hashes
+to `9da63845647634783857156e484ffd50eb90c947ff9bbe96d0671fa6bd96b22c`.
+The six targeted modules passed 66 tests in 10.47s. The actual March 9 stopped
+state passed sourced conversion and independent daily accounting: two LVNTA
+shares became two GLIBA1 shares in the same slot with the same episode age,
+zero cash consideration and NAV $383,755.3222025809406430702172. Original
+missing terms, missing ratio and wrong delivered identity refused; an altered
+ratio was killed by the independent two-share oracle. Results hash to
+`b3628db670cbc0ec2579769da91bb33a4db5890d28f244cb6610d4e9059882b8`.
+
+The regenerated scope baseline passed and both actual liquidity guard-removal
+controls refused. Migration-v9 verified the old checkpoint bytes, all retained
+records and both bindings, and preserved economic state hash
+`c8a4bc40ba78f752c23f532d52225807a25448265b6bebd5e307d78da1433011`.
+This is discovery continuation only. Production code is unchanged, PIT and
+broker finality remain open, and final performance still requires the fresh
+single-binding 252+126+5,032-session replay.
