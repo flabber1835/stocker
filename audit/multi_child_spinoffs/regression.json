@@ -1,0 +1,17 @@
+{
+  "result": "PASS_WITH_THREE_UNCHANGED_HISTORICAL_XFAILS",
+  "passed": 1045,
+  "failures": 0,
+  "errors": 0,
+  "skipped": 0,
+  "xpassed": 0,
+  "xfailed": [
+    "tests/wealth_core/test_golden_fixture.py::test_the_result_matches_the_pinned_fixture",
+    "tests/wealth_core/test_golden_fixture.py::TestTheHashesAreInterpreterIndependent::test_the_run_hash_is_stable_in_a_FRESH_INTERPRETER",
+    "tests/wealth_core/test_performance_integration.py::test_measuring_does_not_move_the_pinned_result_hash"
+  ],
+  "xfail_reason": "intentional golden result-hash drift; one authorized re-pin pending",
+  "duration_seconds": 639.14,
+  "junit_sha256": "cb8a2298f175a3d2ab5e018b39f7ee3d37d97f722926777a663229ff6dfd88d4",
+  "log_sha256": "150a6dce6f49f7ba869c445367031e4d2f24fa0e3504c1f03d07745944dcfbcd"
+}

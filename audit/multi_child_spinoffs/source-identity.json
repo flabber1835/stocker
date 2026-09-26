@@ -1,0 +1,10 @@
+{
+  "result": "PASS",
+  "changed_modules": [
+    "sentinel.core.spinoffs"
+  ],
+  "previous_data_semantics": "2ac36c831ceaf728742f2cac2e14f1a191c18404095ace842568b64de29696b5",
+  "current_data_semantics": "57e9a043bd31b6688c1b00ba03ab37f94d2446f744aa4fe837cd258e40016497",
+  "source_sha256": "3ee01881e21a984c80cbdae1e2323fb42dc87f69dfe19f613b7141554e7ffeb2",
+  "baseline_sha256": "415a89ca975d36a4d20ec96cd9e779e473e49d31e5754faefd1cd8fdcf1cfb86"
+}

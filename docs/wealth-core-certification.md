@@ -1,5 +1,14 @@
 # Wealth Core v1 — certification manifest
 
+**Multi-child spin-offs, 2026-09-26:** the bounded
+[ownership certificate](../audit/multi_child_spinoffs/README.md) verifies atomic
+receipt/liquidation of multiple reviewed children, aggregate parent reference
+rebasing, fractional accounting and restart equivalence. Duplicate child terms
+remain refusals even under different source-row IDs. Forty single-child cases
+are byte-equivalent to main `f3e60671`; eleven deliberate defects are caught.
+This changes data-semantics source identity, not the broader certification
+verdict or any provider, broker or deployment admission gate below.
+
 [Owned55 and $50k historical startup](owned55-historical-startup.md) records the
 owner-selected profile and new formation acceptance gates. The production
 selector changes identity; prior certification and checkpoints do not silently
