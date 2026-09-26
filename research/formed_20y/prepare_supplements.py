@@ -13,7 +13,8 @@ def prepare(base: Path, output: Path):
         raise ValueError('retained supplement bytes changed')
     rows = json.loads(raw)
     events = [json.loads(Path(__file__).with_name(name).read_text()) for name in
-              ('trbs-supplement.json', 'isln-supplement.json', 'lvnta-supplement.json')]
+              ('trbs-supplement.json', 'isln-supplement.json', 'lvnta-supplement.json',
+               'cnqr-supplement.json')]
     identities = {(row['id'], row['security_id']) for row in rows}
     if any(any(event['id'] == row_id or event['security_id'] == security_id
                for row_id, security_id in identities) for event in events):

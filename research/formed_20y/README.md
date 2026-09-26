@@ -170,3 +170,33 @@ failed the independent oracle. Earlier diagnostic directories are retained:
 v1/v3 selected another same-day distribution in the wrong-ratio diagnostic,
 and v2 refused the temporarily unrebound scope evidence. They are diagnostic
 setup failures, not replay segments or successful acceptance evidence.
+
+## Fourth refusal and reviewed CNQR cash terms
+
+Attempt 004 refused 2014-12-05 after 2,103 measured closes through December 4.
+The stopped book held 45 CNQR shares, while the next session had neither a
+quote nor terminal cash terms. The exact checkpoint, refusal and daily trace
+are retained under `attempt-004/segment-003`; this trace remains stopped.
+
+Concur's SEC-filed completion report and SAP's SEC-archived completion release
+establish that the merger completed on December 4, 2014 and converted each
+outstanding CNQR share into $129 cash. `cnqr-supplement.json` records those
+terms using the existing next-session research recognition convention. For the
+stopped position the independently checked payout is $5,805. This convention
+does not establish broker cash finality.
+
+The replacement supplement retains all 160 original records plus the reviewed
+TRBS, ISLN, LVNTA and CNQR events (164 records), SHA256
+`c75d45188f61e6c777064ca3e2e5c0eacc7d4954a527430802192782b724166c`.
+Missing terms and a wrong identity still refuse. An altered cash amount fails
+the independent payout oracle. Because the supplement and scope-evidence
+bindings changed, attempt 004 cannot be joined to the replacement economic
+trace. Production strategy, provider loading and policy remain unchanged.
+
+Validation on this replacement source passed **45 tests in 9.03s** in the
+pinned offline image. Actual stopped-state acceptance is retained at
+`attempt-005/acceptance-2014-12-05-v2/results.json`: the sourced transition
+paid exactly $5,805, freed the CNQR slot, resolved valuation and passed funded
+accounting. Missing terms and wrong identity refused; $128.99 consideration
+failed the payout oracle. The scope baseline passed and both real liquidity
+mutants refused with `TARGET_BECAME_ELIGIBLE`.

@@ -171,3 +171,37 @@ input/harness binding requires a fresh attempt; never relabel or join attempt
 003 into its performance trace. Prior research results past an owned affected
 spinoff require re-evaluation for possible double counting; an equal accounting
 identity alone cannot establish source truth.
+
+## CNQR cash merger after the fourth replay refusal
+
+Attempt 004 at 8062350f stopped on 2014-12-05 after 2,103 measured closes,
+preserving its December 4 checkpoint. The book owned 45 CNQR shares (research
+identity 353727079700790510); the next session had no quotation or terminal
+terms, so the unchanged financial guard correctly refused unresolved Core
+equity. Preserve the stopped segment, checkpoint, candidate holdings and exact
+refusal evidence.
+
+Concur's [December 4 Form 8-K](https://www.sec.gov/Archives/edgar/data/1066026/000119312514433565/d833534d8k.htm)
+states that the merger became effective that day, each outstanding common share
+was cancelled and converted into the right to receive $129.00 cash without
+interest, and CNQR ceased trading at the close. SAP's
+[completion release](https://www.sec.gov/Archives/edgar/data/1066026/000119312514433565/d833534dex991.htm)
+independently states that all outstanding shares were converted into that same
+$129.00 cash right. There is no delivered security or additional distribution
+to model.
+
+Use the retained next-session economic-recognition convention on December 5,
+the first replay session after the after-close completion. This is a research
+cash-equivalent assumption, not evidence of broker settlement or spendable-cash
+timing; C1/F6 remain open. Preserve every prior supplement and input byte, add a
+new source-bound event, and rerun the scope proof because its supplement binding
+changes. Use the December 4 checkpoint only to reproduce the stopped
+transition. The changed supplement and scope-evidence binding requires a fresh
+replay under a newly frozen runtime. Attempt 004 remains part of the audit
+history but none of its sessions enter the replacement economic chain.
+
+Acceptance must reproduce the stopped transition, convert exactly 45 shares
+into $5,805.00, free the occupied slot, resolve both opening and closing equity,
+and preserve independent funded accounting. Missing terms must still refuse;
+an altered price, date, identity or payout must fail the independent oracle. No
+production kernel, provider admission or broker-finality claim changes.
