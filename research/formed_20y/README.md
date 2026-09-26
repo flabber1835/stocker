@@ -227,3 +227,26 @@ After discovery reaches 2026-07-31, run all 252 warmup, 126 formation and 5,032
 measured sessions fresh under one frozen binding. Only that end-to-end trace is
 eligible for the final independent twenty-year review; migrated discovery
 segments are never joined into final performance evidence.
+
+## Fifth refusal and reviewed YOKU cash terms
+
+Discovery attempt 006 refused 2016-04-06 after 2,437 measured closes through
+April 5. The stopped book held 231 YOKU ADSs, but YOKU disappeared from the
+next session without complete terminal terms. The stopped checkpoint, refusal
+and trace remain immutable evidence.
+
+Youku Tudou's SEC-filed completion release establishes that the merger
+completed on April 5, 2016 and that each outstanding ADS became the right to
+receive $27.60 cash. The research supplement recognizes that gross economic
+entitlement on the next session, April 6, matching the retained convention for
+an after-close completion. The separately disclosed ADS cancellation fee of up
+to $5 per 100 ADSs is broker/depositary cash-finality information: this replay
+does not invent an exact assessed fee or claim spendable cash. The resulting
+research entitlement for 231 ADSs is exactly $6,375.60.
+
+Discovery continuation must use the latest verified checkpoint strictly before
+April 6 and a new binding that retains every earlier supplement byte-for-byte.
+Missing terms and wrong identity must still refuse; altered consideration must
+fail an independent payout oracle. Production strategy code and policy remain
+unchanged. As with every discovery migration, this continued trace is not final
+uniform qualification; the completed source must later run fresh end to end.

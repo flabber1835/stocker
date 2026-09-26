@@ -30,13 +30,17 @@ def cnqr():
     return json.loads(Path(__file__).with_name('cnqr-supplement.json').read_text())
 
 
+def yoku():
+    return json.loads(Path(__file__).with_name('yoku-supplement.json').read_text())
+
+
 def test_retained_records_unchanged_and_new_output_cannot_overwrite(tmp_path, monkeypatch):
     original = [dict(id='other-event', security_id='other-security', cash_per_share='12.34')]
     base, output = tmp_path/'base.json', tmp_path/'new.json'
     base.write_text(json.dumps(original))
     monkeypatch.setattr(prepare_supplements, 'BASE_SHA256', hashlib.sha256(base.read_bytes()).hexdigest())
     prepare_supplements.prepare(base, output)
-    assert json.loads(output.read_text()) == original + [trbs(), isln(), lvnta(), cnqr()]
+    assert json.loads(output.read_text()) == original + [trbs(), isln(), lvnta(), cnqr(), yoku()]
     assert json.loads(base.read_text()) == original
     with pytest.raises(FileExistsError):
         prepare_supplements.prepare(base, output)
@@ -148,3 +152,46 @@ def test_cnqr_altered_consideration_fails_independent_payout_oracle():
     assert result['applied'] is True
     with pytest.raises(AssertionError):
         assert Decimal(str(ledger.events[0].cash_delta)) == Decimal('5805.00')
+
+
+def apply_yoku(event):
+    state, ledger = PortfolioState.fresh(1000), Ledger()
+    sid = event['security_id']
+    state.slots[8].occupied_by = sid
+    state.episodes[8] = HoldingEpisode(security_id=sid, ticker='YOKU', issuer_id='SID:'+sid,
+        slot_id=8, signal_date='2016-02-23', entry_date='2016-02-24', entry_raw_open=27.35,
+        entry_split_adjusted_price=27.35, initial_shares=231, current_shares=231,
+        episode_peak_split_adjusted_close=27.54, market_sessions_held=28)
+    result = apply_terminal(state, terminals([event])['2016-04-06'][0], ledger=ledger,
+                            session='2016-04-06', cfg=WealthCoreConfig())
+    return state, ledger, result
+
+
+@pytest.mark.parametrize('missing', [False, True])
+def test_sourced_yoku_gross_cash_terms_pay_231_ads(missing):
+    event = deepcopy(yoku())
+    assert event['known_by'] == event['original_event_session'] == '2016-04-05'
+    assert event['effective_session'] == '2016-04-06'
+    assert 'not claimed' in event['cash_finality_limitation']
+    if missing:
+        event['cash_per_share'] = ''
+    state, ledger, result = apply_yoku(event)
+    if missing:
+        assert result['applied'] is False
+        assert result['reason'] == 'MISSING_CASH_PER_SHARE'
+        assert state.cash == 1000 and 8 in state.episodes and not ledger.events
+    else:
+        assert result['applied'] is True and 8 not in state.episodes
+        assert Decimal(str(state.cash)) == Decimal('7375.60')
+        assert len(ledger.events) == 1
+        assert Decimal(str(ledger.events[0].cash_delta)) == Decimal('6375.60')
+        assert ledger.events[0].shares_delta == -231
+
+
+def test_yoku_altered_consideration_fails_independent_payout_oracle():
+    event = deepcopy(yoku())
+    event['cash_per_share'] = '27.59'
+    _, ledger, result = apply_yoku(event)
+    assert result['applied'] is True
+    with pytest.raises(AssertionError):
+        assert Decimal(str(ledger.events[0].cash_delta)) == Decimal('6375.60')
