@@ -1,0 +1,24 @@
+{
+  "id": "SC-2022-01-31-issuer-cash",
+  "effective_session": "2022-01-31",
+  "original_event_session": "2022-01-31",
+  "known_by": "2022-01-31",
+  "security_id": "280532350408782275",
+  "ticker": "SC",
+  "kind": "CASH_MERGER",
+  "cash_per_share": "41.50",
+  "delivered_security_id": "",
+  "delivered_ticker": "",
+  "delivered_issuer_id": "",
+  "exchange_ratio": "",
+  "cash_in_lieu_price_per_delivered_share": "",
+  "reference": "Santander Holdings USA completed the acquisition before the 2022-01-31 open; each remaining SC share was converted into the right to receive $41.50 cash. Same-session historical economic recognition, not a broker settlement or spendable-cash finality claim.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/811830/000119312522022416/d276632dex991.htm",
+    "https://www.sec.gov/Archives/edgar/data/876661/000087666122000106/ruleprovisionnotice.htm",
+    "https://www.sec.gov/Archives/edgar/data/1580608/000119312522022414/d301032d8k.htm"
+  ],
+  "disposition": "EXACT_EVIDENCE",
+  "authority": "ISSUER_COMPLETION_RELEASE_AND_NYSE_DELISTING_NOTICE_SEC_ARCHIVE",
+  "research_cash_timing": "SAME_SESSION_ECONOMIC_RECOGNITION_NOT_BROKER_FINALITY"
+}

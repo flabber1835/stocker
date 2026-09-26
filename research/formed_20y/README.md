@@ -370,3 +370,41 @@ records and both bindings, and preserved economic state hash
 This is discovery continuation only. Production code is unchanged, PIT and
 broker finality remain open, and final performance still requires the fresh
 single-binding 252+126+5,032-session replay.
+
+## Ninth refusal: Santander Consumer USA cash merger
+
+Attempt 010 stopped before committing 2022-01-31 after 3,903 measured closes.
+The January 28 checkpoint held 21 SC shares, while the retained terminal row
+identified a cash merger without the cash consideration and SC did not print on
+January 31. The unresolved-equity refusal and unchanged canonical state are
+preserved in `attempt-010/segment-001`.
+
+Santander Holdings USA's SEC-filed completion release and the NYSE delisting
+notice establish that the transaction completed on January 31, trading was
+suspended before the open, and each remaining SC share was converted into the
+right to receive $41.50 cash:
+
+* https://www.sec.gov/Archives/edgar/data/811830/000119312522022416/d276632dex991.htm
+* https://www.sec.gov/Archives/edgar/data/876661/000087666122000106/ruleprovisionnotice.htm
+* https://www.sec.gov/Archives/edgar/data/1580608/000119312522022414/d301032d8k.htm
+
+The research source therefore recognizes $871.50 for the 21 held shares on
+January 31, removes the resolved parent and frees its slot. This is economic
+recognition for the historical replay; it does not assert exchange-agent or
+broker cash finality. Acceptance must reproduce the actual stopped state,
+preserve refusal for missing terms or a wrong security identity, fail an
+independent $871.50 payout oracle for altered consideration, and pass funded
+daily accounting. A migration may resume only from the verified January 28
+checkpoint while retaining all prior supplement records byte-for-byte.
+
+The six targeted modules passed 70 tests in 2.08s. All 169 earlier records are
+unchanged; the 170-record source hashes to
+`f70b7a3d51834c1c8c1d2804e45fb911e51de834641d68f46ca4673d33a5fdf1`.
+The actual stopped-state acceptance passed missing-term and wrong-identity
+refusals, the sourced $871.50 payout, independent funded daily accounting, and
+the altered-consideration falsifier. Its results hash to
+`fe533e1fe00121921aef6d77d5c98d36a169c7d973bbc6f753c6faac8f43980b`;
+the resulting one-session research NAV is
+`805719.627906759704448160538`. The regenerated scope baseline passed and both
+real liquidity guard-removal controls refused. Production code remains
+unchanged, and final performance still requires the fresh single-binding run.

@@ -43,13 +43,17 @@ def lvnta_2018():
     return json.loads(Path(__file__).with_name('lvnta-2018-gliba-supplement.json').read_text())
 
 
+def sc():
+    return json.loads(Path(__file__).with_name('sc-supplement.json').read_text())
+
+
 def test_retained_records_unchanged_and_new_output_cannot_overwrite(tmp_path, monkeypatch):
     original = [dict(id='other-event', security_id='other-security', cash_per_share='12.34')]
     base, output = tmp_path/'base.json', tmp_path/'new.json'
     base.write_text(json.dumps(original))
     monkeypatch.setattr(prepare_supplements, 'BASE_SHA256', hashlib.sha256(base.read_bytes()).hexdigest())
     prepare_supplements.prepare(base, output)
-    assert json.loads(output.read_text()) == original + [lvnta_2018()]
+    assert json.loads(output.read_text()) == original + [sc()]
     assert json.loads(base.read_text()) == original
     with pytest.raises(FileExistsError):
         prepare_supplements.prepare(base, output)
@@ -60,7 +64,7 @@ def test_retained_records_unchanged_and_new_output_cannot_overwrite(tmp_path, mo
 
 def test_existing_identity_cannot_be_silently_replaced(tmp_path, monkeypatch):
     base = tmp_path/'base.json'
-    base.write_text(json.dumps([lvnta_2018()]))
+    base.write_text(json.dumps([sc()]))
     monkeypatch.setattr(prepare_supplements, 'BASE_SHA256', hashlib.sha256(base.read_bytes()).hexdigest())
     with pytest.raises(ValueError, match='already exists'):
         prepare_supplements.prepare(base, tmp_path/'new.json')
@@ -204,6 +208,55 @@ def test_yoku_altered_consideration_fails_independent_payout_oracle():
     assert result['applied'] is True
     with pytest.raises(AssertionError):
         assert Decimal(str(ledger.events[0].cash_delta)) == Decimal('6375.60')
+
+
+def apply_sc(event):
+    state, ledger = PortfolioState.fresh(1000), Ledger()
+    sid = event['security_id']
+    state.slots[7].occupied_by = sid
+    state.episodes[7] = HoldingEpisode(
+        security_id=sid, ticker='SC', issuer_id='SID:'+sid, slot_id=7,
+        signal_date='2021-07-09', entry_date='2021-07-12', entry_raw_open=40.63,
+        entry_split_adjusted_price=40.63, initial_shares=21, current_shares=21,
+        episode_peak_split_adjusted_close=42.02, market_sessions_held=141)
+    result = apply_terminal(state, terminals([event])['2022-01-31'][0], ledger=ledger,
+                            session='2022-01-31', cfg=WealthCoreConfig())
+    return state, ledger, result
+
+
+@pytest.mark.parametrize('mutation', ['none', 'missing'])
+def test_sourced_sc_cash_terms_pay_21_shares(mutation):
+    event = deepcopy(sc())
+    assert event['known_by'] == event['original_event_session'] == event['effective_session'] == '2022-01-31'
+    assert event['research_cash_timing'].endswith('NOT_BROKER_FINALITY')
+    if mutation == 'missing':
+        event['cash_per_share'] = ''
+    state, ledger, result = apply_sc(event)
+    if mutation == 'none':
+        assert result['applied'] is True and 7 not in state.episodes
+        assert Decimal(str(state.cash)) == Decimal('1871.50')
+        assert len(ledger.events) == 1
+        assert Decimal(str(ledger.events[0].cash_delta)) == Decimal('871.50')
+        assert ledger.events[0].shares_delta == -21
+    else:
+        assert result['applied'] is False
+        assert state.cash == 1000 and 7 in state.episodes and not ledger.events
+
+
+def test_sc_wrong_identity_cannot_supply_terms_for_held_security():
+    event = deepcopy(sc())
+    event['security_id'] = 'wrong-security'
+    reviewed = terminals([event])['2022-01-31']
+    assert not any(term.security_id == sc()['security_id'] for term in reviewed)
+
+
+def test_sc_altered_consideration_fails_independent_payout_oracle():
+    event = deepcopy(sc())
+    event['cash_per_share'] = '41.49'
+    _, ledger, result = apply_sc(event)
+    assert result['applied'] is True
+    with pytest.raises(AssertionError):
+        assert Decimal(str(ledger.events[0].cash_delta)) == Decimal('871.50')
 
 
 def itc():
