@@ -283,5 +283,11 @@ production-file change, every reviewed in-kind event through the checkpoint has
 exactly one child, all prior unresolved multi-child source events were unheld
 (the completed trace would otherwise have refused), the new sibling terms are
 strictly future-effective, and the old single-child behavior remains identical.
+The migration may rebind only the strategy identity's
+`data_semantics_source_sha256` to the reviewed kernel; every policy, controller,
+Wealth Core source, configuration and research-reference identity field must be
+unchanged. The resulting state hash and chain change, while cash, holdings,
+ledger, controller history, metadata, counters and accounting remain byte-for-byte
+equal.
 Any broader change refuses. The final result still requires a fresh
 252+126+5,032 run under one frozen source and runtime binding.

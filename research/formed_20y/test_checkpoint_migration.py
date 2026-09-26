@@ -1,9 +1,11 @@
 from copy import deepcopy
+from types import SimpleNamespace
 
 import pytest
 
 from .migrate_checkpoint import (
-    validate_certificates, validate_harness, validate_pre_cursor_single_child,
+    rebind_multi_child_identity, validate_certificates, validate_harness,
+    validate_pre_cursor_single_child,
     validate_supplement_extension,
 )
 
@@ -87,3 +89,16 @@ def test_scoped_harness_mode_still_rejects_unrelated_economic_change():
     with pytest.raises(ValueError, match='economic harness changed'):
         validate_harness(old, {**accepted, 'unrelated.py':'b'},
                          multi_child_compatibility=True)
+
+
+def test_multi_child_identity_rebind_changes_only_data_semantics():
+    from sentinel.strategy import production_strategy
+    current = production_strategy()[1]
+    prior = {**current, 'data_semantics_source_sha256':'old'}
+    state = SimpleNamespace(strategy_identity=prior)
+    result = rebind_multi_child_identity(state)
+    assert result['changed'] == ['data_semantics_source_sha256']
+    assert state.strategy_identity == current
+    with pytest.raises(ValueError, match='unscoped strategy identity'):
+        rebind_multi_child_identity(SimpleNamespace(strategy_identity={
+            **prior, 'wealth_core_config_sha256':'wrong'}))

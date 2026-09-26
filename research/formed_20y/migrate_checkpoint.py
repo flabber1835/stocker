@@ -10,6 +10,7 @@ from pathlib import Path
 from research.bounded_20y.inputs import sha256
 from sentinel.core.session import SessionState
 from sentinel.feed.rolling_contract import digest
+from sentinel.strategy import production_strategy
 from .inputs import START, END
 from .run import checkpoint, restore, write
 
@@ -79,6 +80,17 @@ def validate_pre_cursor_single_child(records, cursor):
     if multiple:
         raise ValueError(f'pre-checkpoint reviewed multi-child event exists: {multiple}')
     return len(groups)
+
+
+def rebind_multi_child_identity(state):
+    old = dict(state.strategy_identity)
+    new = dict(production_strategy()[1])
+    changed = sorted(key for key in set(old) | set(new)
+                     if old.get(key) != new.get(key))
+    if changed != ['data_semantics_source_sha256']:
+        raise ValueError(f'unscoped strategy identity change: {changed}')
+    state.strategy_identity = new
+    return dict(changed=changed, old=old, new=new)
 
 
 def validate_supplement_extension(old, new, cursor):
@@ -164,13 +176,28 @@ def migrate(old_pointer: Path, old_runtime: Path, old_supplements: Path,
         multi_child_compatibility=multi_child_compatibility,
         prior_single_child_events=prior_single_child_events)
     migrated = deepcopy(packet)
+    identity_rebind = None
+    if multi_child_compatibility:
+        if migrated['formation'] is not None:
+            raise ValueError('cannot rebind incomplete formation identity')
+        migrated_state = SessionState.from_dict(migrated['state'])
+        identity_rebind = rebind_multi_child_identity(migrated_state)
+        migrated['state'] = migrated_state.to_dict()
+        migrated['state_sha256'] = migrated_state.state_hash
+    migration_link['identity_rebind'] = identity_rebind
     migrated['binding'] = new_binding
     migrated['chain'] = digest(migration_link)
     migrated_pointer = checkpoint(output, migrated)
     restored, restored_state = restore(output/'latest-checkpoint.json', new_binding)
-    if restored_state.state_hash != state.state_hash:
+    if multi_child_compatibility:
+        old_state, new_state = deepcopy(packet['state']), deepcopy(restored['state'])
+        old_state.pop('strategy_identity')
+        new_state.pop('strategy_identity')
+        if old_state != new_state:
+            raise ValueError('economic state changed during identity rebind')
+    elif restored_state.state_hash != state.state_hash:
         raise ValueError('migrated state differs')
-    preserved = ('state','state_sha256','metadata','sectors','economics','count','measured',
+    preserved = ('metadata','sectors','economics','count','measured',
                  'formation','formation_receipt')
     if any(restored[k] != packet[k] for k in preserved):
         raise ValueError('migrated economic packet differs')
@@ -179,7 +206,8 @@ def migrate(old_pointer: Path, old_runtime: Path, old_supplements: Path,
         old_supplements_sha256=sha256(old_supplements),
         new_supplements_sha256=sha256(new_supplements),
         old_binding_sha256=digest(old_binding), new_binding_sha256=digest(new_binding),
-        state_sha256=state.state_hash, previous_chain=previous_chain,
+        old_state_sha256=state.state_hash, state_sha256=restored_state.state_hash,
+        identity_rebind=identity_rebind, previous_chain=previous_chain,
         migrated_chain=migrated['chain'], harness_changes=harness_changes,
         added_supplements=migration_link['added_supplements'],
         migrated_checkpoint=migrated_pointer,
