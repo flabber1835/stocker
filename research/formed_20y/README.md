@@ -250,3 +250,9 @@ Missing terms and wrong identity must still refuse; altered consideration must
 fail an independent payout oracle. Production strategy code and policy remain
 unchanged. As with every discovery migration, this continued trace is not final
 uniform qualification; the completed source must later run fresh end to end.
+
+The conditional FCEC/FSNMQ scope proof was regenerated against the exact
+YOKU-complete supplement. Its baseline still has no target eligibility and the
+same 5,284-day positive control; both real liquidity guard-removal variants
+still refuse with `TARGET_BECAME_ELIGIBLE`. The scope certificate pins those
+new evidence bytes before any continuation may consume them.
