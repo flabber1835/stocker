@@ -527,6 +527,23 @@ the price series itself. That was the right call while ACTIONS was un-ingested â
 a derived ratio beats no split handling â€” but it cannot support a certified
 claim, because it can only see events the vendor's own adjustment made visible.
 
+### Multi-child in-kind distributions are one atomic entitlement set
+
+A single parent can distribute more than one child security on the same
+session. The canonical ownership boundary therefore keys reviewed child terms
+by `(session, parent_security_id, child_security_id)` rather than treating
+`(session, parent_security_id)` as unique. All sibling terms and opening bars
+are preflighted before any ledger or portfolio mutation. Exact duplicate child
+terms, conflicting child identities, missing fractional cash-in-lieu evidence,
+or an incomplete sibling set refuse atomically. Each distinct child is then
+posted and liquidated separately, and the parent's reference basis is rebased
+by the product of the independently derived child scales.
+
+This permits an issuer-documented multi-class distribution without collapsing
+the children into invented cash or a synthetic security. Research may use a
+separately labelled first-regular-open convention for fractional entitlements;
+that convention is not broker cash finality.
+
 ### ACTIONS is the source; the derived ratio becomes a cross-check
 
 `split_ratio_from_domains` is **not deleted**. It recovers the ratio from

@@ -1,0 +1,30 @@
+{
+  "id": "ITC-2016-10-14-FTS-cash-stock",
+  "effective_session": "2016-10-14",
+  "original_event_session": "2016-10-14",
+  "known_by": "2016-10-14",
+  "security_id": "548427669988070562",
+  "ticker": "ITC",
+  "kind": "CASH_PLUS_STOCK",
+  "cash_per_share": "22.57",
+  "delivered_security_id": "900440039260292770",
+  "delivered_ticker": "FTS",
+  "delivered_issuer_id": "SID:900440039260292770",
+  "exchange_ratio": "0.7520",
+  "cash_in_lieu_price_per_delivered_share": "31.03",
+  "reference": "SEC completion 8-K: ITC suspended before 2016-10-14 open, each share receives USD22.57 plus 0.7520 FTS. Holder-level floor; fractional cash uses first retained US raw open USD31.03 as a research proxy, not exchange-agent cash finality. Preserve slot, age and cash-adjusted reference basis.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1317630/000110465916150305/a16-19905_18k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1666175/000110465916150155/a16-19757_4ex99d1.htm"
+  ],
+  "authority": "SEC_COMPLETION_8K",
+  "disposition": "SOURCED_CASH_AND_STOCK_WITH_RESEARCH_FRACTION_PROXY",
+  "cash_finality_limitation": "Actual fractional sale rate, payment timing and broker cash finality not claimed",
+  "price_evidence": {
+    "source": "retained observations-2016.csv.gz",
+    "session": "2016-10-14",
+    "ticker": "FTS",
+    "raw_open": "31.030000000000001",
+    "raw_close": "31.66"
+  }
+}

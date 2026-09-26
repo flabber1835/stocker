@@ -1,0 +1,24 @@
+{
+  "id": "LVNTA-2016-07-25-CHUBK-spinoff",
+  "effective_session": "2016-07-25",
+  "original_event_session": "2016-07-22",
+  "known_by": "2016-07-22",
+  "security_id": "177752727931112051",
+  "ticker": "LVNTA",
+  "kind": "SPINOFF",
+  "child_security_id": "1082580992675866020",
+  "child_ticker": "CHUBK",
+  "child_shares_per_parent": "0.2",
+  "child_price": "13.51",
+  "cash_in_lieu_price": "13.51",
+  "value_evidence": "0.2",
+  "reference": "Each LVNTA share received 0.2 CommerceHub Series C share; fractional shares were paid in cash. The retained first regular-session CHUBK opening price is $13.51 and is used only as the labelled research liquidation proxy.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1355096/000135509616000102/lint-20160722x8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1665658/000104746916013617/a2228759zs-1a.htm"
+  ],
+  "disposition": "DOCUMENTED_FRACTIONAL_CHILD_AND_FIRST_REGULAR_OPEN_PROXY",
+  "authority": "ISSUER_SEC_FILINGS_PLUS_RETAINED_PIT_OPEN",
+  "cash_finality_limitation": "Actual broker cash-in-lieu timing and proceeds are not claimed.",
+  "actual_legal_completion": "2016-07-22"
+}

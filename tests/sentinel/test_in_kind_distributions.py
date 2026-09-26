@@ -105,6 +105,49 @@ def test_complete_distribution_liquidates_child_and_rebases_parent_stop():
     assert restored_ledger.to_dict() == ledger.to_dict()
 
 
+def test_multi_child_distribution_is_atomic_and_rebases_once():
+    state, ledger = held_state(shares=2), Ledger()
+    first = complete_event(child_ticker="CHUBA", child_security_id="P:CHUBA",
+        source_row_id="source-lvnta-chuba", child_shares_per_parent="0.1",
+        cash_in_lieu_price="13.60")
+    second = complete_event(child_ticker="CHUBK", child_security_id="P:CHUBK",
+        source_row_id="source-lvnta-chubk", child_shares_per_parent="0.2",
+        cash_in_lieu_price="13.51")
+    child_a = VendorBar("2026-08-11", "P:CHUBA", "CHUBA", 13.00, 13.60, 1_000_000)
+    child_k = VendorBar("2026-08-11", "P:CHUBK", "CHUBK", 12.80, 13.51, 1_000_000)
+    audit = apply_supported_entitlements(
+        state, [first, second], bars=[bars()[0], child_a, child_k],
+        ledger=ledger, config=WealthCoreConfig())
+    expected_scale = 37.55 / (37.55 + 0.1 * 13.60 + 0.2 * 13.51)
+    assert state.cash == pytest.approx(1_000 + 0.2 * 13.60 + 0.4 * 13.51)
+    assert state.episodes[0].entry_split_adjusted_price == pytest.approx(
+        65.98 * expected_scale)
+    assert [row["child_security_id"] for row in audit] == ["P:CHUBA", "P:CHUBK"]
+    assert [row.event_type for row in ledger.events] == [
+        EventType.SPINOFF_RECEIPT, EventType.SPINOFF_LIQUIDATION,
+        EventType.SPINOFF_RECEIPT, EventType.SPINOFF_LIQUIDATION]
+
+
+def test_multi_child_missing_terms_or_duplicate_child_refuses_before_mutation():
+    state, ledger = held_state(shares=2), Ledger()
+    before = deepcopy(state.to_dict())
+    first = complete_event(child_ticker="CHUBA", child_security_id="P:CHUBA",
+        source_row_id="source-lvnta-chuba", child_shares_per_parent="0.1",
+        cash_in_lieu_price="13.60")
+    child_a = VendorBar("2026-08-11", "P:CHUBA", "CHUBA", 13.60, 13.00, 1_000_000)
+    with pytest.raises(SpinoffTermsRequired, match="tradable opening bars"):
+        apply_supported_entitlements(state, [first, replace(first,
+            child_ticker="CHUBK", child_security_id="P:CHUBK",
+            source_row_id="source-lvnta-chubk")], bars=[bars()[0], child_a],
+            ledger=ledger, config=WealthCoreConfig())
+    assert state.to_dict() == before and not ledger.events
+    with pytest.raises(SpinoffTermsRequired, match="duplicate held"):
+        apply_supported_entitlements(state, [first, first],
+            bars=[bars()[0], child_a], ledger=ledger,
+            config=WealthCoreConfig())
+    assert state.to_dict() == before and not ledger.events
+
+
 def test_fractional_entitlements_round_once_at_holder_boundary():
     state, ledger = held_state(shares=1), Ledger()
     state.slots[1].occupied_by = "P:ADP"

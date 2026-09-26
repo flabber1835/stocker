@@ -1,0 +1,24 @@
+{
+  "id": "YOKU-2016-04-06-issuer-cash",
+  "effective_session": "2016-04-06",
+  "original_event_session": "2016-04-05",
+  "known_by": "2016-04-05",
+  "security_id": "575883447447184472",
+  "ticker": "YOKU",
+  "kind": "CASH_MERGER",
+  "cash_per_share": "27.60",
+  "delivered_security_id": "",
+  "delivered_ticker": "",
+  "delivered_issuer_id": "",
+  "exchange_ratio": "",
+  "cash_in_lieu_price_per_delivered_share": "",
+  "reference": "Each YOKU ADS became the right to receive $27.60 cash when the merger completed on 2016-04-05. Next-session gross economic recognition on April 6 under the retained research convention. The disclosed cancellation fee of up to $5 per 100 ADSs is not an exact broker cash-finality observation and is not invented here.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1442596/000110465916109913/a15-24127_8ex99d1.htm",
+    "https://www.sec.gov/Archives/edgar/data/1442596/000104746916009873/a2227089zex-99_a1.htm"
+  ],
+  "disposition": "EXACT_GROSS_ECONOMIC_ENTITLEMENT",
+  "authority": "ISSUER_COMPLETION_RELEASE_AND_PROXY_SEC_ARCHIVE",
+  "research_cash_timing": "NEXT_SESSION_GROSS_ECONOMIC_RECOGNITION_NOT_BROKER_FINALITY",
+  "cash_finality_limitation": "ADS cancellation fee disclosed only as up to $5 per 100 ADSs; exact assessed broker/depositary cash is not claimed"
+}

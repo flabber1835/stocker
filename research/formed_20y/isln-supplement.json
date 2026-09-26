@@ -1,0 +1,23 @@
+{
+  "id": "ISLN-2010-12-21-issuer-cash",
+  "effective_session": "2010-12-21",
+  "original_event_session": "2010-12-21",
+  "known_by": "2010-12-21",
+  "security_id": "820747269304202648",
+  "ticker": "ISLN",
+  "kind": "CASH_MERGER",
+  "cash_per_share": "33.85",
+  "delivered_security_id": "",
+  "delivered_ticker": "",
+  "delivered_issuer_id": "",
+  "exchange_ratio": "",
+  "cash_in_lieu_price_per_delivered_share": "",
+  "reference": "Isilon common shares converted to $33.85 cash when the merger became effective on 2010-12-21. Economic recognition on the issuer-reported effective date under the retained research convention, not a broker settlement or spendable-cash date claim.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1373671/000119312510285149/d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1373671/000119312510283854/dsctota.htm"
+  ],
+  "disposition": "EXACT_EVIDENCE",
+  "authority": "ISSUER_FORM_8K_AND_ACQUIRER_TENDER_AMENDMENT_SEC_ARCHIVE",
+  "research_cash_timing": "EFFECTIVE_DATE_ECONOMIC_RECOGNITION_NOT_BROKER_FINALITY"
+}

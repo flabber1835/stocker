@@ -1,0 +1,36 @@
+{
+  "id": "LVNTA-2018-03-12-GLIBA-conversion",
+  "effective_session": "2018-03-12",
+  "original_event_session": "2018-03-09",
+  "known_by": "2018-03-09",
+  "security_id": "177752727931112051",
+  "ticker": "LVNTA",
+  "kind": "CONVERSION",
+  "cash_per_share": "",
+  "delivered_security_id": "758943436528193872",
+  "delivered_ticker": "GLIBA1",
+  "delivered_issuer_id": "SID:758943436528193872",
+  "exchange_ratio": "1",
+  "cash_in_lieu_price_per_delivered_share": "",
+  "reference": "SEC completion filings: after the 2018-03-09 market close, each LVNTA share was redeemed for one GLIBA share and no LVNTA shares remained. The retained research tape names the delivered security GLIBA1. Recognize on the next session, preserve slot and age, and apply no cash or fractional-share proxy.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1355096/000110465918017857/a18-8242_18k.htm",
+    "https://www.sec.gov/Archives/edgar/data/808461/000110465918017479/a18-8247_18k.htm",
+    "https://www.sec.gov/Archives/edgar/data/75679/000110465918017494/a18-8246_1ex99d1.htm"
+  ],
+  "authority": "ISSUER_AND_DELIVERED_ISSUER_FORM_8K_SEC_ARCHIVE",
+  "disposition": "EXACT_ONE_FOR_ONE_STOCK_CONVERSION",
+  "actual_legal_completion": "2018-03-09_AFTER_MARKET_CLOSE",
+  "research_recognition": "NEXT_SESSION_AFTER_CLOSE",
+  "price_evidence": {
+    "source": "retained observations-2018.csv.gz",
+    "session": "2018-03-12",
+    "ticker": "GLIBA1",
+    "raw_open": "54.289999999999999",
+    "raw_close": "54.729999999999997"
+  },
+  "limitations": [
+    "NOT_PROVIDER_PIT_CERTIFICATION",
+    "NO_BROKER_SETTLEMENT_OR_CASH_FINALITY_CLAIM"
+  ]
+}

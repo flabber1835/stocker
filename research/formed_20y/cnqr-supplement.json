@@ -1,0 +1,23 @@
+{
+  "id": "CNQR-2014-12-05-issuer-cash",
+  "effective_session": "2014-12-05",
+  "original_event_session": "2014-12-04",
+  "known_by": "2014-12-04",
+  "security_id": "353727079700790510",
+  "ticker": "CNQR",
+  "kind": "CASH_MERGER",
+  "cash_per_share": "129.00",
+  "delivered_security_id": "",
+  "delivered_ticker": "",
+  "delivered_issuer_id": "",
+  "exchange_ratio": "",
+  "cash_in_lieu_price_per_delivered_share": "",
+  "reference": "Concur common shares were cancelled and converted into the right to receive $129.00 cash when SAP completed the merger after close on 2014-12-04. Next-session economic recognition on December 5 under the retained research convention, not a broker settlement or spendable-cash date claim.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1066026/000119312514433565/d833534d8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1066026/000119312514433565/d833534dex991.htm"
+  ],
+  "disposition": "EXACT_EVIDENCE",
+  "authority": "ISSUER_FORM_8K_AND_ACQUIRER_COMPLETION_RELEASE_SEC_ARCHIVE",
+  "research_cash_timing": "NEXT_SESSION_ECONOMIC_RECOGNITION_NOT_BROKER_FINALITY"
+}
