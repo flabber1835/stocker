@@ -527,6 +527,14 @@ the price series itself. That was the right call while ACTIONS was un-ingested â
 a derived ratio beats no split handling â€” but it cannot support a certified
 claim, because it can only see events the vendor's own adjustment made visible.
 
+### Multiple child securities from a held parent
+
+[Multi-child spin-offs](multi-child-spinoffs.md) specifies atomic preflight of
+the supplied reviewed child set, duplicate economic-identity rejection,
+holder-level rounding per child and one aggregate parent reference rebase.
+The multiplier is `P / (P + sum(r_i * C_i))`, not a product of child multipliers.
+Source completeness and actual cash-in-lieu finality remain separate obligations.
+
 ### ACTIONS is the source; the derived ratio becomes a cross-check
 
 `split_ratio_from_domains` is **not deleted**. It recovers the ratio from

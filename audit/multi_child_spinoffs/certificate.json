@@ -1,0 +1,387 @@
+{
+  "scope": "bounded_multi_child_ownership_financial_certification",
+  "baseline_commit": "f3e60671b525219287231d517ad6945e6ef2b649",
+  "baseline_source_sha256": "415a89ca975d36a4d20ec96cd9e779e473e49d31e5754faefd1cd8fdcf1cfb86",
+  "source_sha256": "3ee01881e21a984c80cbdae1e2323fb42dc87f69dfe19f613b7141554e7ffeb2",
+  "test_sha256": "612081f2e6cd837b8d3e61899db8cb1823ccef49880d11d1739436a188b92534",
+  "runner_sha256": "c6ecc02f112ae25d46c059fedd2d8e2bb1bd5765c079266bbb62f5cbb6ed9a75",
+  "baseline": {
+    "name": "baseline",
+    "exit_code": 0,
+    "tests": 29,
+    "failed": [],
+    "junit_sha256": "201f4189605e6df90c00989c8255b89a35eab68e43038de53c7bdf87c190730e",
+    "log_sha256": "68f76938973242d0b98865e1e444967afa89caac8c491ff01aa22515444b9a80"
+  },
+  "single_child_byte_equivalence": [
+    {
+      "shares": 1,
+      "ratio": "1",
+      "episodes": 1,
+      "output_sha256": "aa1e448f1790c07ada51efedb966480c0422ae7c80caf51abac5178c0ed212c9"
+    },
+    {
+      "shares": 1,
+      "ratio": "1",
+      "episodes": 2,
+      "output_sha256": "baccea5aae8314fee4db2cb9e13a7abbc4ed8f61d291983a2f0dc7ab457f4e0f"
+    },
+    {
+      "shares": 1,
+      "ratio": "1/3",
+      "episodes": 1,
+      "output_sha256": "7046fffe735a4f0d94be03f13fc13d8b39024ba8159edb9cafa63ffed085024b"
+    },
+    {
+      "shares": 1,
+      "ratio": "1/3",
+      "episodes": 2,
+      "output_sha256": "3922fd0654999695fae15c2b7ae4e07de5bcea83f91694957765199d6f0de2cf"
+    },
+    {
+      "shares": 1,
+      "ratio": "1/2",
+      "episodes": 1,
+      "output_sha256": "0563e46ce966db490695f7dd010c35f6295a43a9594c99c66de66d383ab4b17b"
+    },
+    {
+      "shares": 1,
+      "ratio": "1/2",
+      "episodes": 2,
+      "output_sha256": "8c7d9ddbb92b18c2f3ee49901d31270c713ecf658ca92ca303b1f7be6bb3ed85"
+    },
+    {
+      "shares": 1,
+      "ratio": "7/5",
+      "episodes": 1,
+      "output_sha256": "eb66579db0c0fa7ae3d03370b00d49c005e88c0c890aee0b7b3f8d886aea598e"
+    },
+    {
+      "shares": 1,
+      "ratio": "7/5",
+      "episodes": 2,
+      "output_sha256": "52d3731ec3876b1cb1333ac7296175bdb3bff1e756f0454c9e0a769ab9df31b5"
+    },
+    {
+      "shares": 2,
+      "ratio": "1",
+      "episodes": 1,
+      "output_sha256": "0b9014b692a9b0cf40fa8f27ec55cce35b4c73b88db97a3504575bb5109100b2"
+    },
+    {
+      "shares": 2,
+      "ratio": "1",
+      "episodes": 2,
+      "output_sha256": "d13adf2bcd47bd0fca8b50939f9be997d98149df5f252b5ff09268df5d31f94a"
+    },
+    {
+      "shares": 2,
+      "ratio": "1/3",
+      "episodes": 1,
+      "output_sha256": "e463f6e4032045146da9c445d829f7a363c530d35944b3443d716a13990562fe"
+    },
+    {
+      "shares": 2,
+      "ratio": "1/3",
+      "episodes": 2,
+      "output_sha256": "7cd06d3f6f0acc4637f802a9bd0769f53e7aeae17bf10983faa817ff6b7af491"
+    },
+    {
+      "shares": 2,
+      "ratio": "1/2",
+      "episodes": 1,
+      "output_sha256": "c017006499dea31b665b0812828095b962820bd0ef580bbc2499494984e72b32"
+    },
+    {
+      "shares": 2,
+      "ratio": "1/2",
+      "episodes": 2,
+      "output_sha256": "3e127c86abf293712b87b1fe057c472aed6f833ce42eb77703ae5f45e90c9077"
+    },
+    {
+      "shares": 2,
+      "ratio": "7/5",
+      "episodes": 1,
+      "output_sha256": "d075e614c490055de84b585eb1b77f649e679c864473e96c4e11ae2bcd5eb848"
+    },
+    {
+      "shares": 2,
+      "ratio": "7/5",
+      "episodes": 2,
+      "output_sha256": "560442d5ff497df1da7d58a64ce35e7327e7b0609d557d0e1d715d3b7c9d9a03"
+    },
+    {
+      "shares": 3,
+      "ratio": "1",
+      "episodes": 1,
+      "output_sha256": "1e8fb594675068286dd2f0097587b63020a95f9164cbec1bf36262c477704737"
+    },
+    {
+      "shares": 3,
+      "ratio": "1",
+      "episodes": 2,
+      "output_sha256": "e2e1ab9023a06d74b4ee8a18826ca932d00bd109c37c780713e97535be4ad105"
+    },
+    {
+      "shares": 3,
+      "ratio": "1/3",
+      "episodes": 1,
+      "output_sha256": "2704daf665a5e2b0e037addf529cdec1a5f20e3a30049b106c6cd7acc6797587"
+    },
+    {
+      "shares": 3,
+      "ratio": "1/3",
+      "episodes": 2,
+      "output_sha256": "ade988b71e5c4d5a0dcecbc1b26203e106f72b1e517113295e2f79cc998b225b"
+    },
+    {
+      "shares": 3,
+      "ratio": "1/2",
+      "episodes": 1,
+      "output_sha256": "07e4e4e9de9746e74aea3813a1996658b94aae779dae42560bf61bf077d91878"
+    },
+    {
+      "shares": 3,
+      "ratio": "1/2",
+      "episodes": 2,
+      "output_sha256": "732b872f0e5e5026d7e527ac30f70a5289cde6b306c5666dc7419c41e5081682"
+    },
+    {
+      "shares": 3,
+      "ratio": "7/5",
+      "episodes": 1,
+      "output_sha256": "ad74adced80b140f5b2ebef3b1536584c7354b24c65c883152e6c0c0be1650ad"
+    },
+    {
+      "shares": 3,
+      "ratio": "7/5",
+      "episodes": 2,
+      "output_sha256": "9fd9e30833c3881104d82764eda44aac0f63a731f4f8058d85d3542b16a0f650"
+    },
+    {
+      "shares": 105,
+      "ratio": "1",
+      "episodes": 1,
+      "output_sha256": "35734691890fbecff199069e130c8647086188916e84f99b9082043111f06562"
+    },
+    {
+      "shares": 105,
+      "ratio": "1",
+      "episodes": 2,
+      "output_sha256": "293955f885a1c9ee961e8252c6c2fc59e5508dcd5667139793ad20d041750f89"
+    },
+    {
+      "shares": 105,
+      "ratio": "1/3",
+      "episodes": 1,
+      "output_sha256": "7876d9894857bdb0e3ad184df59517b66fe312e9e7f659915764df31ae326dbd"
+    },
+    {
+      "shares": 105,
+      "ratio": "1/3",
+      "episodes": 2,
+      "output_sha256": "c7649aed6d415ec47df0655df8b89d455b1d68abc0350c6c23d6672fab004813"
+    },
+    {
+      "shares": 105,
+      "ratio": "1/2",
+      "episodes": 1,
+      "output_sha256": "4745e3ae3437f4193e62e700559577a72f9832dc4be48fc25da62869c6666e88"
+    },
+    {
+      "shares": 105,
+      "ratio": "1/2",
+      "episodes": 2,
+      "output_sha256": "8de3c9bd66c353d0485fc393a34e801e4d9eb4b6db509bec0535970a3eb2aec0"
+    },
+    {
+      "shares": 105,
+      "ratio": "7/5",
+      "episodes": 1,
+      "output_sha256": "d60682dbc02239d3439d783308ac33d8a74ab98da87df0a6b88544d925cdd9fd"
+    },
+    {
+      "shares": 105,
+      "ratio": "7/5",
+      "episodes": 2,
+      "output_sha256": "ba74435b4a92355aa3b70685dba0bc31c4a8cb7db00f72bfbf1ca704d06d7c95"
+    },
+    {
+      "shares": 1000,
+      "ratio": "1",
+      "episodes": 1,
+      "output_sha256": "c481d44af45cd66d69dbcd33b52307fc722bf648e44bb6757630b12afb662bf7"
+    },
+    {
+      "shares": 1000,
+      "ratio": "1",
+      "episodes": 2,
+      "output_sha256": "8e81b49eb822425143ba1d7201ce5ab9eb7470bba4af26098faeec90d4831c6c"
+    },
+    {
+      "shares": 1000,
+      "ratio": "1/3",
+      "episodes": 1,
+      "output_sha256": "3972a780ee11e406255882288c5c8365b2544954cd1d10de4ae0444cbd70bd9c"
+    },
+    {
+      "shares": 1000,
+      "ratio": "1/3",
+      "episodes": 2,
+      "output_sha256": "843200f8e2da135816927e40e8f1aa45ae0d4fb7135c97054c0de3f570d76732"
+    },
+    {
+      "shares": 1000,
+      "ratio": "1/2",
+      "episodes": 1,
+      "output_sha256": "1ee3966f079d598c8f010c13d6aeacc0ca34148c679de989d93d20ba9450cdac"
+    },
+    {
+      "shares": 1000,
+      "ratio": "1/2",
+      "episodes": 2,
+      "output_sha256": "d990a2eda583056f2460eb3e22ef42e9bf14f536916f6658f3c138cf872df62c"
+    },
+    {
+      "shares": 1000,
+      "ratio": "7/5",
+      "episodes": 1,
+      "output_sha256": "223d88f517223414e1e380e8c720abd191f4b634445ba19ca054b0ee317ade0a"
+    },
+    {
+      "shares": 1000,
+      "ratio": "7/5",
+      "episodes": 2,
+      "output_sha256": "641ce1ca2925bf959945fed7f578b90a800c77cfa1bf309ce3b44dc56c6867d3"
+    }
+  ],
+  "mutants": [
+    {
+      "name": "parent_only_uniqueness",
+      "exit_code": 1,
+      "tests": 3,
+      "failed": [
+        "test_multiple_children_independent_financial_oracle[2]",
+        "test_multiple_children_independent_financial_oracle[3]",
+        "test_multiple_children_independent_financial_oracle[105]"
+      ],
+      "junit_sha256": "018a6cf12eb064fc845ba4cc8b220f400c1a46d9857f66dbf6504ff34ff2505f",
+      "log_sha256": "ac51680354bf39ea1982dffb8a9fade5f6406d7a5c3fe471fb06b6a1c132a5d2"
+    },
+    {
+      "name": "duplicate_guard_removed",
+      "exit_code": 1,
+      "tests": 4,
+      "failed": [
+        "test_duplicate_child_refuses_even_with_distinct_source[change0]",
+        "test_duplicate_child_refuses_even_with_distinct_source[change1]",
+        "test_duplicate_child_refuses_even_with_distinct_source[change2]",
+        "test_duplicate_child_refuses_even_with_distinct_source[change3]"
+      ],
+      "junit_sha256": "b0fe9ae68420a2b4a966e17d36a3331168d1b6271bab964a444635865fd44480",
+      "log_sha256": "c481332b686fb896a5ea81e3b685e61fde699b1a4bcaac2631a550d440c83275"
+    },
+    {
+      "name": "source_id_creates_second_entitlement",
+      "exit_code": 1,
+      "tests": 4,
+      "failed": [
+        "test_duplicate_child_refuses_even_with_distinct_source[change1]",
+        "test_duplicate_child_refuses_even_with_distinct_source[change2]",
+        "test_duplicate_child_refuses_even_with_distinct_source[change3]"
+      ],
+      "junit_sha256": "6f48d84fe1c7b00a2596c40bceb605baf06f1b6f7913589b83eb76b75d748495",
+      "log_sha256": "a3cf7fafa7d280dd1b0d533a127e590a4967fe5f19a25d21cd6d09404312e1b0"
+    },
+    {
+      "name": "opening_ticker_guard_removed",
+      "exit_code": 1,
+      "tests": 6,
+      "failed": [
+        "test_invalid_later_sibling_is_atomic[change2]"
+      ],
+      "junit_sha256": "707d443d6f1ea3c4298544a0ad6bc3b336bc2177dbcddf9a671be5af6d813171",
+      "log_sha256": "949c9d74695d7d54ea23ef76ab21e8985ad6f84a812d32ea7542f4cc62932ad6"
+    },
+    {
+      "name": "ambiguous_bar_guard_removed",
+      "exit_code": 1,
+      "tests": 3,
+      "failed": [
+        "test_ambiguous_opening_identity_refuses_atomically[0]",
+        "test_ambiguous_opening_identity_refuses_atomically[1]",
+        "test_ambiguous_opening_identity_refuses_atomically[2]"
+      ],
+      "junit_sha256": "19ae600c1dcfd34f0905bcd381ee3cc893d36d8b11c041f8987a36949ef283b3",
+      "log_sha256": "54c14ecfed1d88b349263f1f978d5308d45bcde5c4553214860ff3d330070ea2"
+    },
+    {
+      "name": "second_child_omitted_from_basis",
+      "exit_code": 1,
+      "tests": 3,
+      "failed": [
+        "test_multiple_children_independent_financial_oracle[2]",
+        "test_multiple_children_independent_financial_oracle[3]",
+        "test_multiple_children_independent_financial_oracle[105]"
+      ],
+      "junit_sha256": "2c3644c7531d77ea229fd7a08a58eabc190c586929a4024f0a2107491d188ea5",
+      "log_sha256": "a70b8fd7c25b71a2f448fa7e88960da28f0b8ab216b9f5e8c6f0bbd8c5f687e9"
+    },
+    {
+      "name": "basis_applied_twice",
+      "exit_code": 1,
+      "tests": 3,
+      "failed": [
+        "test_multiple_children_independent_financial_oracle[2]",
+        "test_multiple_children_independent_financial_oracle[3]",
+        "test_multiple_children_independent_financial_oracle[105]"
+      ],
+      "junit_sha256": "ada33f7b0490f4aafd481b57a322ec40b800ed3a911ec0f6078169f76f9cca85",
+      "log_sha256": "235596731083ac52130311dc7366a9d6ac728a0d1b61d23f2af82a091ed45e73"
+    },
+    {
+      "name": "holder_rounding_broken",
+      "exit_code": 1,
+      "tests": 1,
+      "failed": [
+        "test_multiple_children_round_each_at_holder_boundary"
+      ],
+      "junit_sha256": "27256763cdae3a48d8b3a54bbd83e3c1ad98cc4cfbd3f681b8b3cc579d9708b0",
+      "log_sha256": "44e41e7f7194a7ac0dcd5c67d3acdf3f955d8896a4af00d62f92fd827cdebcbc"
+    },
+    {
+      "name": "whole_share_fees_omitted",
+      "exit_code": 1,
+      "tests": 3,
+      "failed": [
+        "test_multiple_children_independent_financial_oracle[2]",
+        "test_multiple_children_independent_financial_oracle[3]",
+        "test_multiple_children_independent_financial_oracle[105]"
+      ],
+      "junit_sha256": "23c79360fbcd21c06b4d4cdcdacc55cb51a05f73e776f7a45a29d844228cebaa",
+      "log_sha256": "0223568819c9dec8e866d45c12a8a6018eec17bbeed29c81373ff196fe8b2a3f"
+    },
+    {
+      "name": "fractional_payout_omitted",
+      "exit_code": 1,
+      "tests": 1,
+      "failed": [
+        "test_lvnta_two_share_fractional_entitlements"
+      ],
+      "junit_sha256": "738f21d070f36b5f7bd50ef27c66c3f871cebb502a5f3c579ad3c5022ccc319d",
+      "log_sha256": "ffc7ce9cbf316adf18faa6d17dd96755ba41a9511ff8446dfeeb4d0e18603c5a"
+    },
+    {
+      "name": "canonical_order_removed",
+      "exit_code": 1,
+      "tests": 1,
+      "failed": [
+        "test_sibling_order_and_serialized_restart_are_identical"
+      ],
+      "junit_sha256": "e54dddc8294bf9247b86452fd93869ca17cdaa2beea85ca872d6869ff7becdff",
+      "log_sha256": "0d5a95d6e7c6b0f89b6a3ccb54a20cf2eb547a78cd3b56dcdbb2a1f507c416e4"
+    }
+  ],
+  "result": "PASS",
+  "image": "sha256:5d227c4740ad66a33e9719047cb368f60b9546e77cd6cc19f17695d3d2048146"
+}
