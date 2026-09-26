@@ -22,7 +22,7 @@ ALLOWED_HARNESS_CHANGES = {
     'test_checkpoint_migration.py',
 }
 MULTI_CHILD_COMPATIBLE_HARNESS_CHANGES = {
-    'run.py', 'spinoff_inputs.py', 'test_spinoff_inputs.py',
+    'inputs.py', 'run.py', 'spinoff_inputs.py', 'test_spinoff_inputs.py',
 }
 
 

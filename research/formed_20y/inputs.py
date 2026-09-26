@@ -28,7 +28,7 @@ CONFLICTS = [
 
 
 def verify_runtime(root: Path, certificate: dict):
-    if certificate['reviewed_revision'] != 'f3e60671b525219287231d517ad6945e6ef2b649':
+    if certificate['reviewed_revision'] != 'bffbfe64ecb620738621d990ff2e094cfe8f2764':
         raise ValueError('scope proof names another production revision')
     for name, expected in certificate['runtime_files'].items():
         if sha256(root / name) != expected:
