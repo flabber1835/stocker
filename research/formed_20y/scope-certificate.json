@@ -1,6 +1,6 @@
 {
   "evidence_files": {
-    "current-code-reachability.json": "000d6774d73f7e617e9bb82d2d9215b094a7c1372f19722e3cc9a347a602cfd0",
+    "current-code-reachability.json": "2a316d3f7a74b6ca11ba5af1eb3e76bcb28f42169f3fb3ead78e379e8af9b25e",
     "reachability-probe.json": "3581b029b0530cf531a2d7e65caa742736ddf4d4e4e1769302b6b05d684f483a",
     "reachability-refusal-adv20.json": "f50131f3a16a999998f7f86b0772139a739035f372a619ac49361ba74744aeae",
     "reachability-refusal-both.json": "b874e33e865f996c3aabee701d4ec084c2a4f18a1badde3be9f25516c76880b3"
@@ -17,7 +17,7 @@
     "FCEC 2005-04-28",
     "FSNMQ 2005-02-09"
   ],
-  "reviewed_revision": "f3e60671b525219287231d517ad6945e6ef2b649",
+  "reviewed_revision": "bffbfe64ecb620738621d990ff2e094cfe8f2764",
   "runtime_files": {
     "research/bounded_20y/__init__.py": "d9011be6b7a586ed9024b7fe98fe51f15d346f2342feae70801c3f32e46b3f90",
     "research/bounded_20y/inputs.py": "843d4799557fbd845169647562f735ada38172d6df83e8e9bbbf5c5fb804b385",
@@ -115,7 +115,7 @@
     "sentinel/core/rolling_inputs.py": "e3a52cbf9ace1ffd19ce1e880fb176660238d4c1e853747334eecf59e7b425dd",
     "sentinel/core/rolling_reader.py": "033b0f16f85287d5f266d8ec87becc4812636eb78d41061d93e0511ae42382b8",
     "sentinel/core/session.py": "3ea7a675e4340b882fb06ad16fb135933a280bc8326503da9baf3343b9a5f662",
-    "sentinel/core/spinoffs.py": "415a89ca975d36a4d20ec96cd9e779e473e49d31e5754faefd1cd8fdcf1cfb86",
+    "sentinel/core/spinoffs.py": "a7c20050c930bccb43ebb777e3ddefc5c53f58d092651e3b8b82f92adda8d0d1",
     "sentinel/core/terminal.py": "551a34f0ae3e6c2a0336055122f07fe5c48cbffdfdf42cba4a7a9427e3d140d7",
     "sentinel/dependency_availability.py": "8abd9e094ad99b0f94a076e0826dcb7e5879bc57f1c81adad140e7335656dcb7",
     "sentinel/deployment_fence.py": "42ffe14fa6048bc65f66439eecc883940525d078decade34f6afeaaf68198b15",
