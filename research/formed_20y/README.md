@@ -200,3 +200,30 @@ paid exactly $5,805, freed the CNQR slot, resolved valuation and passed funded
 accounting. Missing terms and wrong identity refused; $128.99 consideration
 failed the payout oracle. The scope baseline passed and both real liquidity
 mutants refused with `TARGET_BECAME_ELIGIBLE`.
+
+## Discovery checkpoint migration
+
+Research discovery and final qualification now use separate evidence rules.
+`migrate_checkpoint.py` may rebind a verified stopped checkpoint only when all
+retained supplements are unchanged, every addition is effective strictly after
+the selected cursor, production/proof commitments are identical and harness
+changes are confined to the named supplement and migration files. If an added
+event reaches further back, select an earlier verified checkpoint and replay
+from there. State, accounting, metadata, counters and formation evidence remain
+unchanged; the migration creates a source-linked chain root and records both
+bindings. Changed prior records, an event at or before the cursor, production
+changes, removed harness files or economic harness changes refuse.
+
+The owner intentionally stopped fresh attempt 005 during formation with zero
+measured sessions so discovery could continue from attempt 004. Its evidence is
+retained and marked `PRESERVED_NOT_JOINED`. The real migration from the
+attempt-004 December 4 checkpoint passed with state SHA256
+`2469263c37d7cea91d167f7159082741499b2afd0cffb92ece025ae9e84afecb`.
+A one-session canonical smoke continuation processed December 5, paid exactly
+$5,805 for 45 CNQR shares, reached measured session 2,104 and stopped resumably.
+The migration and smoke trace are discovery evidence only.
+
+After discovery reaches 2026-07-31, run all 252 warmup, 126 formation and 5,032
+measured sessions fresh under one frozen binding. Only that end-to-end trace is
+eligible for the final independent twenty-year review; migrated discovery
+segments are never joined into final performance evidence.

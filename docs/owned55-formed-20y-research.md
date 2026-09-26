@@ -205,3 +205,43 @@ into $5,805.00, free the occupied slot, resolve both opening and closing equity,
 and preserve independent funded accounting. Missing terms must still refuse;
 an altered price, date, identity or payout must fail the independent oracle. No
 production kernel, provider admission or broker-finality claim changes.
+
+## Discovery continuation and final fresh qualification
+
+Separate source discovery from final qualification. During discovery, a
+fail-closed replay may stop on incomplete historical corporate-action terms.
+After sourcing and testing a correction, a controlled checkpoint migration may
+continue from the latest verified checkpoint strictly before the earliest new
+effective session. That checkpoint may be earlier than the refusal when the
+new evidence reaches further back in the economic path. This avoids replaying
+history that predates the correction merely to discover the next missing event.
+It does not qualify the stitched result as a cryptographically uniform
+twenty-year performance run.
+
+Migration is permitted only when all of the following are proven:
+
+* the old checkpoint bytes, packet digest, state hash and old binding verify;
+* every retained supplement record is byte-for-byte equivalent and each added
+  record has an effective session strictly after the selected checkpoint
+  cursor; otherwise select an earlier checkpoint and replay forward;
+* production runtime-file commitments, proof-program commitments, capital,
+  dates, policy and limitation fields are unchanged;
+* changed research-harness files are confined to the named supplement builder,
+  its tests and the migration verifier itself;
+* economic state, metadata, sectors, accounting, formation receipt, counters
+  and the prior chain are preserved; and
+* the migration emits a new binding, a migration-linked chain root, a new
+  packet digest and an evidence record containing both source identities.
+
+Changing or deleting a prior supplement, adding a record effective on or before
+the cursor, changing production commitments, changing an economic harness file,
+or altering checkpoint state must refuse. Each correction still needs an actual
+stopped-state positive acceptance and missing/wrong-term falsifiers before the
+migrated continuation may run.
+
+Once discovery reaches the requested end date, freeze the complete reviewed
+supplement set and run a new 252-session warmup, 126-session formation and all
+5,032 measured closes from scratch. Only that single-binding fresh trace may be
+independently reviewed as the final twenty-year research result. Discovery
+segments remain an audit trail for data completeness and are never joined into
+the final performance evidence.
