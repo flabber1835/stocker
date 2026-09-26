@@ -45,7 +45,7 @@ def test_retained_records_unchanged_and_new_output_cannot_overwrite(tmp_path, mo
     base.write_text(json.dumps(original))
     monkeypatch.setattr(prepare_supplements, 'BASE_SHA256', hashlib.sha256(base.read_bytes()).hexdigest())
     prepare_supplements.prepare(base, output)
-    assert json.loads(output.read_text()) == original + lvnta_2016()
+    assert json.loads(output.read_text()) == original + [itc()]
     assert json.loads(base.read_text()) == original
     with pytest.raises(FileExistsError):
         prepare_supplements.prepare(base, output)
@@ -56,7 +56,7 @@ def test_retained_records_unchanged_and_new_output_cannot_overwrite(tmp_path, mo
 
 def test_existing_identity_cannot_be_silently_replaced(tmp_path, monkeypatch):
     base = tmp_path/'base.json'
-    base.write_text(json.dumps([lvnta_2016()[0]]))
+    base.write_text(json.dumps([itc()]))
     monkeypatch.setattr(prepare_supplements, 'BASE_SHA256', hashlib.sha256(base.read_bytes()).hexdigest())
     with pytest.raises(ValueError, match='already exists'):
         prepare_supplements.prepare(base, tmp_path/'new.json')
@@ -200,3 +200,59 @@ def test_yoku_altered_consideration_fails_independent_payout_oracle():
     assert result['applied'] is True
     with pytest.raises(AssertionError):
         assert Decimal(str(ledger.events[0].cash_delta)) == Decimal('6375.60')
+
+
+def itc():
+    return json.loads(Path(__file__).with_name('itc-supplement.json').read_text())
+
+
+def apply_itc(event):
+    state, ledger = PortfolioState.fresh(1000), Ledger()
+    sid = event['security_id']
+    state.slots[3].occupied_by = sid
+    state.episodes[3] = HoldingEpisode(security_id=sid, ticker='ITC', issuer_id='SID:'+sid,
+        slot_id=3, signal_date='2016-05-02', entry_date='2016-05-03', entry_raw_open=44.46,
+        entry_split_adjusted_price=44.46, initial_shares=153, current_shares=153,
+        episode_peak_split_adjusted_close=47.22, market_sessions_held=114)
+    result = apply_terminal(state, terminals([event])['2016-10-14'][0], ledger=ledger,
+        session='2016-10-14', cfg=WealthCoreConfig(), source_signal_to_raw_scale=1.,
+        delivered_signal_to_raw_scale=1., delivered_raw_open=31.03)
+    return state, ledger, result
+
+
+def check_itc_oracle(state, ledger):
+    ep = state.episodes[3]
+    assert ep.security_id == '900440039260292770' and ep.current_shares == 115
+    assert ep.market_sessions_held == 114 and ep.entry_date == '2016-05-03'
+    assert abs(Decimal(str(state.cash))-Decimal('4454.94768')) < Decimal('0.00000001')
+    detail = ledger.events[0].detail
+    assert Decimal(str(detail['cash_consideration'])) == Decimal('3453.21')
+    assert Decimal(str(detail['cash_in_lieu'])) == Decimal('1.73768')
+    package = Decimal('3454.94768') + Decimal(115)*Decimal('31.03')
+    scale = Decimal(153)*Decimal('31.03')/package
+    assert abs(Decimal(str(ep.episode_peak_split_adjusted_close))-Decimal('47.22')*scale) < Decimal('0.00000001')
+
+
+def test_itc_sourced_mixed_terms_preserve_slot_age_and_package_references():
+    state, ledger, result = apply_itc(itc())
+    assert result['applied']
+    check_itc_oracle(state, ledger)
+
+
+@pytest.mark.parametrize('field', ['cash_per_share', 'exchange_ratio',
+    'delivered_security_id', 'cash_in_lieu_price_per_delivered_share'])
+def test_itc_missing_terms_refuse_without_economic_mutation(field):
+    event = itc(); event[field] = ''
+    state, ledger, result = apply_itc(event)
+    assert not result['applied']
+    assert state.cash == 1000 and state.episodes[3].current_shares == 153
+    assert not ledger.events
+
+
+@pytest.mark.parametrize('field,value', [('cash_per_share','22.56'),('exchange_ratio','0.7530')])
+def test_itc_altered_terms_fail_independent_oracle(field,value):
+    event = itc(); event[field] = value
+    state, ledger, result = apply_itc(event)
+    assert result['applied']
+    with pytest.raises(AssertionError):
+        check_itc_oracle(state,ledger)

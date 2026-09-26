@@ -291,3 +291,44 @@ ledger, controller history, metadata, counters and accounting remain byte-for-by
 equal.
 Any broader change refuses. The final result still requires a fresh
 252+126+5,032 run under one frozen source and runtime binding.
+
+
+## Seventh refusal: ITC/Fortis mixed consideration
+
+Attempt 008 stopped before committing 2016-10-14, preserving the verified
+2016-10-13 state after 2,571 measured closes. The 153-share ITC episode lost its
+mark because the retained source carries incomplete cash-merger terms dated
+October 13. The SEC completion 8-K establishes suspension before the October 14
+open and conversion to $22.57 plus 0.7520 Fortis shares per ITC share:
+https://www.sec.gov/Archives/edgar/data/1317630/000110465916150305/a16-19905_18k.htm
+
+Use the existing CASH_PLUS_STOCK path on October 14. Retain the original
+incomplete source row and all earlier supplements. The supplied FTS tape identity
+is 900440039260292770, with the first US regular-session raw open $31.03 and
+close $31.66. The research fractional-share convention uses that first open as
+an explicitly labelled proxy, never as the actual exchange-agent cash rate.
+For 153 ITC shares the independent oracle is $3,453.21 contractual cash,
+115 whole FTS shares and a 0.056-share fraction valued at $1.73768. Total research
+cash is $3,454.94768; the original slot and episode age remain, and the existing
+cash-adjusted conversion rule rebases references at the FTS open.
+
+No production implementation or policy change is intended. Acceptance must
+reproduce the actual stopped state, preserve the original refusal without terms,
+refuse wrong identity/missing fraction valuation, reject altered cash/ratio via
+independent oracles, and pass funded daily accounting. Only then may a data-only
+migration retain October 13 and resume October 14. This discovery path remains
+separate from the final fresh run and from PIT or broker cash-finality evidence.
+
+
+ITC acceptance: 60 targeted tests passed in 9.89s with
+`python -m pytest -q -p no:cacheprovider research/formed_20y/test_supplements.py research/formed_20y/test_checkpoint_migration.py research/formed_20y/test_spinoff_inputs.py research/formed_20y/test_run.py research/formed_20y/test_inputs.py research/formed_20y/test_review.py`.
+The actual October 13 checkpoint acceptance passed sourced conversion and
+independent daily accounting; missing terms, missing fractional valuation and
+wrong identity refused; altered cash and ratio failed the independent oracle.
+Evidence and the diagnostic script are retained in local
+`.codex-tmp/owned55-formed-20y-run/attempt-009/acceptance-2016-10-14/results.json`
+and `attempt-009/accept-itc.py`. All 167 earlier supplement records are unchanged;
+the 168-record source hashes to
+`307b3ff1bed7b3a0a9e7a5420429eae546af3642ce08be07b8dc92c25c10d0ae`.
+Scope baseline and both actual liquidity guard-removal controls were rerun;
+no target reached eligibility in the baseline, and both controls refused.
