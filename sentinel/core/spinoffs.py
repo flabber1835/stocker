@@ -78,9 +78,10 @@ def apply_supported_entitlements(state, distributions, *, bars, ledger,
                for item in parents):
             raise SpinoffTermsRequired(
                 "held spin-off parent ticker conflicts with permanent identity")
-        key = (event.session, event.parent_security_id)
+        key = (event.session, event.parent_security_id,
+               event.child_security_id, event.source_row_id)
         if key in seen:
-            raise SpinoffTermsRequired("conflicting held spin-off terms")
+            raise SpinoffTermsRequired("duplicate held spin-off child terms")
         seen.add(key)
         if (event.policy != LIQUIDATE_CHILD_AT_OPEN
                 or not event.child_security_id or not event.child_ticker
@@ -117,10 +118,9 @@ def apply_supported_entitlements(state, distributions, *, bars, ledger,
         cil_proceeds = float(fractional * cil) if cil is not None else 0.0
         proceeds = whole_proceeds + cil_proceeds
         gross_child_value = float(entitlement * Fraction(str(child_open)))
-        reference_scale = parent_open / (
-            parent_open + float(ratio * Fraction(str(child_open))))
         if (not math.isfinite(proceeds) or proceeds < 0
-                or not 0 < reference_scale < 1):
+                or not math.isfinite(gross_child_value)
+                or gross_child_value <= 0):
             raise SpinoffTermsRequired("held spin-off economics are invalid")
         plans.append({
             "event": event, "parents": parents, "ratio": ratio,
@@ -128,12 +128,36 @@ def apply_supported_entitlements(state, distributions, *, bars, ledger,
             "child_open": child_open, "proceeds": proceeds,
             "whole_proceeds": whole_proceeds,
             "gross_child_value": gross_child_value,
-            "reference_scale": reference_scale,
         })
+
+    # A parent may distribute several child classes in one event.  Rebase its
+    # reference price once against their aggregate value; multiplying separate
+    # per-child scales would overstate the retained parent basis.
+    groups = {}
+    for plan in plans:
+        event = plan["event"]
+        key = (event.session, event.parent_security_id)
+        group = groups.setdefault(key, {
+            "parents": plan["parents"], "parent_open": float(
+                bar_by_security[event.parent_security_id].raw_open),
+            "child_value": 0.0,
+        })
+        if group["parents"] != plan["parents"]:
+            raise SpinoffTermsRequired("conflicting held spin-off parent terms")
+        group["child_value"] += plan["gross_child_value"] / sum(
+            float(item.current_shares) for item in plan["parents"])
+    for group in groups.values():
+        scale = group["parent_open"] / (
+            group["parent_open"] + group["child_value"])
+        if not math.isfinite(scale) or not 0 < scale < 1:
+            raise SpinoffTermsRequired("held spin-off economics are invalid")
+        group["reference_scale"] = scale
 
     audit = []
     for plan in plans:
         event = plan["event"]
+        reference_scale = groups[(event.session, event.parent_security_id)][
+            "reference_scale"]
         before = state.cash
         ledger.post(
             session=event.session, event_type=EventType.SPINOFF_RECEIPT,
@@ -155,12 +179,9 @@ def apply_supported_entitlements(state, distributions, *, bars, ledger,
             detail={"parent_security_id": event.parent_security_id,
                     "source_row_id": event.source_row_id,
                     "cash_in_lieu": plan["proceeds"]-plan["whole_proceeds"],
-                    "reference_scale": plan["reference_scale"]})
+                    "reference_scale": reference_scale})
         state.cash = sale.cash_after
         for parent in plan["parents"]:
-            parent.entry_split_adjusted_price *= plan["reference_scale"]
-            if parent.episode_peak_split_adjusted_close is not None:
-                parent.episode_peak_split_adjusted_close *= plan["reference_scale"]
             parent.source_lots = list(parent.source_lots) + [{
                 "kind": "SPINOFF_CHILD_LIQUIDATION",
                 "session": event.session,
@@ -170,7 +191,7 @@ def apply_supported_entitlements(state, distributions, *, bars, ledger,
                 "child_ticker": event.child_ticker,
                 "child_shares_per_parent": str(plan["ratio"]),
                 "child_open": plan["child_open"],
-                "reference_scale": plan["reference_scale"],
+                "reference_scale": reference_scale,
             }]
         audit.append({
             "parent_security_id": event.parent_security_id,
@@ -179,9 +200,14 @@ def apply_supported_entitlements(state, distributions, *, bars, ledger,
             "fractional_child_shares": str(plan["fractional"]),
             "cash_proceeds": plan["proceeds"],
             "gross_child_value": plan["gross_child_value"],
-            "reference_scale": plan["reference_scale"],
+            "reference_scale": reference_scale,
             "source_row_id": event.source_row_id,
         })
+    for group in groups.values():
+        for parent in group["parents"]:
+            parent.entry_split_adjusted_price *= group["reference_scale"]
+            if parent.episode_peak_split_adjusted_close is not None:
+                parent.episode_peak_split_adjusted_close *= group["reference_scale"]
     return tuple(audit)
 
 

@@ -95,17 +95,20 @@ def supplements_for(data, path):
     records = load_supplements(path, {}, None)
     terminal = terminals(data.small_rows('terminal-events.csv.gz'))
     spins = distributions(data.small_rows('actions.csv.gz'))
+    supplemental_spins = {}
     for row in records.values():
         day, sid = row['effective_session'], row['security_id']
         if row.get('kind') == 'SPINOFF':
-            spins[day] = [r for r in spins.get(day, ()) if r.parent_security_id != sid] + [
+            supplemental_spins.setdefault((day, sid), []).append(
                 SpinoffDistribution(session=day, parent_ticker=row['ticker'], parent_security_id=sid,
                     child_ticker=row['child_ticker'], child_security_id=row['child_security_id'],
                     source_row_id=row['id'], value_evidence=row.get('value_evidence'),
                     child_shares_per_parent=row['child_shares_per_parent'], child_price=row.get('child_price'),
-                    cash_in_lieu_price=row.get('cash_in_lieu_price'), policy=LIQUIDATE_CHILD_AT_OPEN)]
+                    cash_in_lieu_price=row.get('cash_in_lieu_price'), policy=LIQUIDATE_CHILD_AT_OPEN))
         else:
             terminal[day] = [r for r in terminal.get(day, ()) if r.security_id != sid] + terminals([row])[day]
+    for (day, sid), reviewed in supplemental_spins.items():
+        spins[day] = [r for r in spins.get(day, ()) if r.parent_security_id != sid] + reviewed
     return records, terminal, spins
 
 

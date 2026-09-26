@@ -34,13 +34,18 @@ def yoku():
     return json.loads(Path(__file__).with_name('yoku-supplement.json').read_text())
 
 
+def lvnta_2016():
+    return [json.loads(Path(__file__).with_name(name).read_text()) for name in
+            ('lvnta-2016-chuba-supplement.json', 'lvnta-2016-chubk-supplement.json')]
+
+
 def test_retained_records_unchanged_and_new_output_cannot_overwrite(tmp_path, monkeypatch):
     original = [dict(id='other-event', security_id='other-security', cash_per_share='12.34')]
     base, output = tmp_path/'base.json', tmp_path/'new.json'
     base.write_text(json.dumps(original))
     monkeypatch.setattr(prepare_supplements, 'BASE_SHA256', hashlib.sha256(base.read_bytes()).hexdigest())
     prepare_supplements.prepare(base, output)
-    assert json.loads(output.read_text()) == original + [trbs(), isln(), lvnta(), cnqr(), yoku()]
+    assert json.loads(output.read_text()) == original + lvnta_2016()
     assert json.loads(base.read_text()) == original
     with pytest.raises(FileExistsError):
         prepare_supplements.prepare(base, output)
@@ -51,9 +56,9 @@ def test_retained_records_unchanged_and_new_output_cannot_overwrite(tmp_path, mo
 
 def test_existing_identity_cannot_be_silently_replaced(tmp_path, monkeypatch):
     base = tmp_path/'base.json'
-    base.write_text(json.dumps([dict(id='another-id', security_id=trbs()['security_id'])]))
+    base.write_text(json.dumps([lvnta_2016()[0]]))
     monkeypatch.setattr(prepare_supplements, 'BASE_SHA256', hashlib.sha256(base.read_bytes()).hexdigest())
-    with pytest.raises(ValueError, match='already has supplemental terms'):
+    with pytest.raises(ValueError, match='already exists'):
         prepare_supplements.prepare(base, tmp_path/'new.json')
 
 

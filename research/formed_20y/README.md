@@ -141,7 +141,7 @@ provider loader and frozen policy remain unchanged from `f3e60671`.
 The new combined supplement retains all 160 originals plus TRBS, ISLN and
 LVNTA (163 records), SHA256
 `ec3f380e6d6c0037da6f80e09facb9217bc4b1b952538c9d2cc0e868fd991bc9`.
-The new source/input binding requires fresh attempt 004; attempts 001–003
+The new source/input binding requires fresh attempt 004; attempts 001â€“003
 remain distinct, stopped evidence and cannot contribute to its return trace.
 
 Validation on the replacement source:
@@ -256,3 +256,32 @@ YOKU-complete supplement. Its baseline still has no target eligibility and the
 same 5,284-day positive control; both real liquidity guard-removal variants
 still refuse with `TARGET_BECAME_ELIGIBLE`. The scope certificate pins those
 new evidence bytes before any continuation may consume them.
+
+## Sixth refusal and multi-child LVNTA distribution
+
+Discovery attempt 007 refused atomically on 2016-07-25 after 2,513 measured
+closes through July 22. The held book contained two LVNTA shares. Liberty's
+SEC-filed completion report establishes two simultaneous entitlements per
+LVNTA share: 0.1 CommerceHub Series A (CHUBA) and 0.2 CommerceHub Series C
+(CHUBK), with fractional shares paid in cash. The retained PIT tape supplies
+the first regular-session opens of $13.60 and $13.51 respectively.
+
+The prior kernel incorrectly treated one parent/session as permitting only one
+child. That is a production correctness defect: collapsing the two children
+would invent identity and value, while accepting only one would omit an
+entitlement. The reviewed design admits distinct children keyed by session,
+parent and child, preflights the complete sibling set before mutation, rejects
+exact duplicates, and records each child separately. For this research replay
+the two fractional entitlements use the existing first-regular-open convention;
+this is an economic research proxy and does not claim actual broker cash-in-lieu
+timing or finality.
+
+Because this changes the economic kernel, ordinary data-only migration remains
+insufficient. A narrowly scoped compatibility migration may retain the July 22
+checkpoint only if it proves that `sentinel/core/spinoffs.py` is the sole
+production-file change, every reviewed in-kind event through the checkpoint has
+exactly one child, all prior unresolved multi-child source events were unheld
+(the completed trace would otherwise have refused), the new sibling terms are
+strictly future-effective, and the old single-child behavior remains identical.
+Any broader change refuses. The final result still requires a fresh
+252+126+5,032 run under one frozen source and runtime binding.

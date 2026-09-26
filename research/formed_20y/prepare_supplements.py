@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
-BASE_SHA256 = '7c8b7da7363269d010bb4f30bdb0674563458c712a5c875568b577805919f725'
+BASE_SHA256 = '53d086bda80102cedf4a9b047d5f434ba22a4f0d4f6b1556ae6c9010d3bd86ee'
 
 
 def prepare(base: Path, output: Path):
@@ -13,13 +13,17 @@ def prepare(base: Path, output: Path):
         raise ValueError('retained supplement bytes changed')
     rows = json.loads(raw)
     events = [json.loads(Path(__file__).with_name(name).read_text()) for name in
-              ('trbs-supplement.json', 'isln-supplement.json', 'lvnta-supplement.json',
-               'cnqr-supplement.json', 'yoku-supplement.json')]
-    identities = {(row['id'], row['security_id']) for row in rows}
-    if any(any(event['id'] == row_id or event['security_id'] == security_id
-               for row_id, security_id in identities) for event in events):
-        raise ValueError('security already has supplemental terms; independent reconciliation required')
-    if len({event['id'] for event in events}) != len(events) or len({event['security_id'] for event in events}) != len(events):
+              ('lvnta-2016-chuba-supplement.json', 'lvnta-2016-chubk-supplement.json')]
+    ids = {row['id'] for row in rows}
+    keys = {(row.get('effective_session'), row['security_id'], row.get('child_security_id'))
+            for row in rows}
+    if any(event['id'] in ids or (event['effective_session'], event['security_id'],
+                                  event.get('child_security_id')) in keys
+           for event in events):
+        raise ValueError('supplemental event already exists; independent reconciliation required')
+    event_keys = {(event['effective_session'], event['security_id'],
+                   event.get('child_security_id')) for event in events}
+    if len({event['id'] for event in events}) != len(events) or len(event_keys) != len(events):
         raise ValueError('new supplement identities must be unique')
     with output.open('x', encoding='utf8') as stream:
         json.dump(rows + events, stream, indent=2, allow_nan=False)

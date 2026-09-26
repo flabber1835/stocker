@@ -28,6 +28,14 @@ def event(row):
         policy=LIQUIDATE_CHILD_AT_OPEN)
 
 
+def multi_events(row):
+    _, parent, children = spinoff_inputs.REVIEWED_MULTI[(row['session'], row['security_id'])]
+    return [SpinoffDistribution(row['session'], parent, row['security_id'], child,
+        child_id, 'sourced-'+child, None, child_shares_per_parent=ratio,
+        cash_in_lieu_price=price, policy=LIQUIDATE_CHILD_AT_OPEN)
+        for (child_id, child, ratio), price in zip(children, ('13.60', '13.51'))]
+
+
 @pytest.mark.parametrize('index', range(3))
 def test_exact_in_kind_proxy_removed_without_changing_other_fields(index):
     row = evidence()['observations'][index]
@@ -93,3 +101,29 @@ def test_lvnta_two_child_shares_no_additional_74_dollar_dividend():
     assert [e.event_type.value for e in ledger.events] == ['SPINOFF_RECEIPT', 'SPINOFF_LIQUIDATION']
     assert parent.dividend_per_share == 0
     assert abs(D(str(ledger.events[1].fees))-D('.07472')) < D('.00000001')
+
+
+def test_2016_lvnta_two_fractional_children_are_both_required_and_not_cash_proxy():
+    row = next(r for r in evidence()['observations'] if r['session'] == '2016-07-25')
+    terms = multi_events(row)
+    normalized, audit = spinoff_inputs.normalize([row], terms)
+    assert normalized[0]['dividend_per_share'] == '0'
+    assert audit[0]['original_dividend_per_share'] == '3.5999999999999996'
+    with pytest.raises(ValueError, match='child terms changed'):
+        spinoff_inputs.normalize([row], terms[:1])
+    state, ledger = PortfolioState.fresh(1000), Ledger()
+    state.slots[6].occupied_by = row['security_id']
+    state.episodes[6] = HoldingEpisode(security_id=row['security_id'], ticker='LVNTA',
+        issuer_id='SID:'+row['security_id'], slot_id=6, signal_date='2016-01-01',
+        entry_date='2016-01-04', entry_raw_open=40, entry_split_adjusted_price=40,
+        initial_shares=2, current_shares=2, episode_peak_split_adjusted_close=45)
+    parent = vendor(normalized[0])
+    child_a = replace(parent, security_id=terms[0].child_security_id, ticker='CHUBA',
+                      raw_open=13.6, raw_close=13, signal_close=13, tradeable=True)
+    child_k = replace(parent, security_id=terms[1].child_security_id, ticker='CHUBK',
+                      raw_open=13.51, raw_close=12.8, signal_close=12.8, tradeable=True)
+    result = apply_supported_entitlements(state, terms, bars=[parent, child_a, child_k],
+                                          ledger=ledger, config=WealthCoreConfig())
+    assert D(str(state.cash)) == D('1008.124')
+    assert [r['fractional_child_shares'] for r in result] == ['1/5', '2/5']
+    assert state.episodes[6].current_shares == 2

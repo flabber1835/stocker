@@ -2,7 +2,10 @@ from copy import deepcopy
 
 import pytest
 
-from .migrate_checkpoint import validate_certificates, validate_harness, validate_supplement_extension
+from .migrate_checkpoint import (
+    validate_certificates, validate_harness, validate_pre_cursor_single_child,
+    validate_supplement_extension,
+)
 
 
 def record(name='OLD', day='2010-01-04', cash='1'):
@@ -52,3 +55,35 @@ def test_production_or_proof_commitment_change_refuses():
     new['runtime_files']['economic.py'] = 'changed'
     with pytest.raises(ValueError, match='production or proof-program'):
         validate_certificates(old, new)
+
+
+def test_scoped_multi_child_compatibility_accepts_only_spinoff_kernel_change():
+    old = dict(runtime_files={'sentinel/core/spinoffs.py':'a', 'economic.py':'same'},
+               proof_programs={'proof.py':'same'}, evidence_files={'old':'x'},
+               reviewed_revision='old')
+    new = deepcopy(old)
+    new['runtime_files']['sentinel/core/spinoffs.py'] = 'b'
+    new['reviewed_revision'] = 'new'
+    validate_certificates(old, new, multi_child_compatibility=True)
+    new['runtime_files']['economic.py'] = 'changed'
+    with pytest.raises(ValueError, match='unscoped production'):
+        validate_certificates(old, new, multi_child_compatibility=True)
+
+
+def test_multi_child_compatibility_requires_all_prior_reviewed_events_single_child():
+    one = dict(id='one', kind='SPINOFF', effective_session='2014-01-02',
+               security_id='P', child_security_id='A')
+    assert validate_pre_cursor_single_child([one], '2016-07-22') == 1
+    with pytest.raises(ValueError, match='pre-checkpoint reviewed multi-child'):
+        validate_pre_cursor_single_child([one, {**one, 'id':'two',
+                                                'child_security_id':'B'}],
+                                         '2016-07-22')
+
+
+def test_scoped_harness_mode_still_rejects_unrelated_economic_change():
+    old = {'run.py':'a', 'spinoff_inputs.py':'a', 'unrelated.py':'a'}
+    accepted = {'run.py':'b', 'spinoff_inputs.py':'b', 'unrelated.py':'a'}
+    validate_harness(old, accepted, multi_child_compatibility=True)
+    with pytest.raises(ValueError, match='economic harness changed'):
+        validate_harness(old, {**accepted, 'unrelated.py':'b'},
+                         multi_child_compatibility=True)

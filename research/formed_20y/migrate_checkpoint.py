@@ -21,6 +21,9 @@ ALLOWED_HARNESS_CHANGES = {
     'migrate_checkpoint.py',
     'test_checkpoint_migration.py',
 }
+MULTI_CHILD_COMPATIBLE_HARNESS_CHANGES = {
+    'run.py', 'spinoff_inputs.py', 'test_spinoff_inputs.py',
+}
 
 
 def current_binding(supplements: Path, module_dir: Path | None = None):
@@ -35,21 +38,47 @@ def current_binding(supplements: Path, module_dir: Path | None = None):
         limitations=['NOT_PROVIDER_PIT_CERTIFICATION','NO_GO_AUTHORITY','NO_BROKER_OR_NAS_QUALIFICATION'])
 
 
-def validate_harness(old, new):
+def validate_harness(old, new, *, multi_child_compatibility=False):
     removed = sorted(set(old)-set(new))
     changed = sorted(k for k in set(old) & set(new) if old[k] != new[k])
     added = sorted(set(new)-set(old))
-    if removed or not set(changed + added) <= ALLOWED_HARNESS_CHANGES:
+    allowed = set(ALLOWED_HARNESS_CHANGES)
+    if multi_child_compatibility:
+        allowed |= MULTI_CHILD_COMPATIBLE_HARNESS_CHANGES
+    if removed or not set(changed + added) <= allowed:
         raise ValueError(f'economic harness changed: removed={removed}, changed={changed}, added={added}')
     return dict(removed=removed, changed=changed, added=added)
 
 
-def validate_certificates(old, new):
+def validate_certificates(old, new, *, multi_child_compatibility=False):
     old, new = deepcopy(old), deepcopy(new)
     old.pop('evidence_files', None)
     new.pop('evidence_files', None)
+    if multi_child_compatibility:
+        if old.pop('proof_programs') != new.pop('proof_programs'):
+            raise ValueError('proof-program commitments changed')
+        old_runtime, new_runtime = old.pop('runtime_files'), new.pop('runtime_files')
+        changed = sorted(k for k in set(old_runtime) | set(new_runtime)
+                         if old_runtime.get(k) != new_runtime.get(k))
+        if changed != ['sentinel/core/spinoffs.py']:
+            raise ValueError(f'unscoped production commitments changed: {changed}')
+        old.pop('reviewed_revision', None)
+        new.pop('reviewed_revision', None)
     if old != new:
         raise ValueError('production or proof-program commitments changed')
+
+
+def validate_pre_cursor_single_child(records, cursor):
+    groups = {}
+    for row in records:
+        if row.get('kind') != 'SPINOFF' or row['effective_session'] > cursor:
+            continue
+        key = (row['effective_session'], row['security_id'])
+        groups.setdefault(key, set()).add(row.get('child_security_id'))
+    multiple = sorted(key for key, children in groups.items() if len(children) != 1)
+    if multiple:
+        raise ValueError(f'pre-checkpoint reviewed multi-child event exists: {multiple}')
+    return len(groups)
 
 
 def validate_supplement_extension(old, new, cursor):
@@ -90,7 +119,8 @@ def read_verified_packet(pointer_path: Path):
 
 
 def migrate(old_pointer: Path, old_runtime: Path, old_supplements: Path,
-            new_supplements: Path, output: Path, module_dir: Path | None = None):
+            new_supplements: Path, output: Path, module_dir: Path | None = None,
+            multi_child_compatibility: bool = False):
     pointer, checkpoint_path, packet, state = read_verified_packet(old_pointer)
     old_binding = packet['binding']
     module_dir = module_dir or Path(__file__).parent
@@ -104,25 +134,35 @@ def migrate(old_pointer: Path, old_runtime: Path, old_supplements: Path,
         path = old_module_dir/name
         if not path.is_file() or sha256(path) != expected:
             raise ValueError(f'old harness bytes changed: {name}')
-    harness_changes = validate_harness(old_binding['harness'], new_binding['harness'])
+    harness_changes = validate_harness(old_binding['harness'], new_binding['harness'],
+        multi_child_compatibility=multi_child_compatibility)
 
     old_certificate_path = old_module_dir/'scope-certificate.json'
     new_certificate_path = module_dir/'scope-certificate.json'
     if sha256(old_certificate_path) != old_binding['source_certificate_sha256']:
         raise ValueError('old scope certificate bytes changed')
     validate_certificates(json.loads(old_certificate_path.read_text()),
-                          json.loads(new_certificate_path.read_text()))
+        json.loads(new_certificate_path.read_text()),
+        multi_child_compatibility=multi_child_compatibility)
     if sha256(old_supplements) != old_binding['supplements_sha256']:
         raise ValueError('old supplement bytes changed')
-    added = validate_supplement_extension(json.loads(old_supplements.read_text()),
-        json.loads(new_supplements.read_text()), state.last_processed_session)
+    old_records = json.loads(old_supplements.read_text())
+    new_records = json.loads(new_supplements.read_text())
+    added = validate_supplement_extension(old_records, new_records,
+                                          state.last_processed_session)
+    prior_single_child_events = None
+    if multi_child_compatibility:
+        prior_single_child_events = validate_pre_cursor_single_child(
+            old_records, state.last_processed_session)
 
     output.mkdir(parents=True, exist_ok=False)
     previous_chain = packet['chain']
     migration_link = dict(schema=SCHEMA, checkpoint_session=state.last_processed_session,
         previous_chain=previous_chain, old_binding_sha256=digest(old_binding),
         new_binding_sha256=digest(new_binding),
-        added_supplements=[dict(id=r['id'], effective_session=r['effective_session']) for r in added])
+        added_supplements=[dict(id=r['id'], effective_session=r['effective_session']) for r in added],
+        multi_child_compatibility=multi_child_compatibility,
+        prior_single_child_events=prior_single_child_events)
     migrated = deepcopy(packet)
     migrated['binding'] = new_binding
     migrated['chain'] = digest(migration_link)
@@ -142,7 +182,9 @@ def migrate(old_pointer: Path, old_runtime: Path, old_supplements: Path,
         state_sha256=state.state_hash, previous_chain=previous_chain,
         migrated_chain=migrated['chain'], harness_changes=harness_changes,
         added_supplements=migration_link['added_supplements'],
-        migrated_checkpoint=migrated_pointer)
+        migrated_checkpoint=migrated_pointer,
+        multi_child_compatibility=multi_child_compatibility,
+        prior_single_child_events=prior_single_child_events)
     write(output/'migration.json', evidence)
     return evidence
 
@@ -154,5 +196,6 @@ if __name__ == '__main__':
     parser.add_argument('--old-supplements', type=Path, required=True)
     parser.add_argument('--new-supplements', type=Path, required=True)
     parser.add_argument('--output', type=Path, required=True)
+    parser.add_argument('--multi-child-compatibility', action='store_true')
     args = parser.parse_args()
     print(json.dumps(migrate(**vars(args)), sort_keys=True))
