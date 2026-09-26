@@ -117,3 +117,56 @@ and exclusive-output guards separately killed their acceptance tests after the
 positive baseline. Both actual-data liquidity falsifiers were rerun and refused
 after the new supplement's passing scope baseline. Source/proof hashes now bind
 that new input; production bytes and policy remain unchanged.
+
+## Third refusal and reviewed spinoff inputs
+
+Attempt 003 at `da1acc87ba709027258d1724d074739a0f19ab53` refused
+2014-08-28 after 2,034 measured closes through August 27. Its stopped worker,
+final log, checkpoint and refusal are retained under
+`.codex-tmp/owned55-formed-20y-run/attempt-003/segment-003` (the final Docker
+log is `attempt-003/segment-003-final.log`). The checkpoint SHA256 is
+`df101f3d534d8263b00da0761f7f156d0f7e49642e941d9e0fc0c5ca236695d1`.
+The two LVNTA shares required reviewed LTRPA child terms. SEC sources and
+the exact treatment are in `lvnta-supplement.json` and the design document.
+
+The research adapter also now removes three exact in-kind cash proxies,
+bound to original observation hashes and matching reviewed child identities
+and ratios. This prevents counting both child ownership and cash for the same
+distribution. LVNTA, BAX and MRK original observations and ACTIONS records
+are preserved in `spinoff-source-rows.json`; unrelated dividends are unchanged.
+This is an economic correctness finding in research inputs. Earlier results
+past an owned affected distribution require re-evaluation. Production source,
+provider loader and frozen policy remain unchanged from `f3e60671`.
+
+The new combined supplement retains all 160 originals plus TRBS, ISLN and
+LVNTA (163 records), SHA256
+`ec3f380e6d6c0037da6f80e09facb9217bc4b1b952538c9d2cc0e868fd991bc9`.
+The new source/input binding requires fresh attempt 004; attempts 001–003
+remain distinct, stopped evidence and cannot contribute to its return trace.
+
+Validation on the replacement source:
+
+```sh
+python -m pytest research/formed_20y/test_run.py research/formed_20y/test_inputs.py research/formed_20y/test_review.py research/formed_20y/test_supplements.py research/formed_20y/test_spinoff_inputs.py tests/sentinel/test_formed_economics.py -q -p no:cacheprovider
+```
+
+**42 passed in 12.21s** in the pinned image, network disabled, 4 GiB and two
+CPUs. The six new spinoff checks passed again before source-hash, child-terms
+and cash-proxy mutants each failed the relevant oracle. The actual-data scope
+baseline passed; both `adv20` and `both` liquidity mutants refused with
+`TARGET_BECAME_ELIGIBLE`. All 337 production/dependency commitments and two
+proof programs matched. Exact commands and outputs are retained in
+`attempt-004/run-scope-checks.py`, `scope-*.log`, `mutate-spinoff-inputs.py`
+and `spinoff-*.log`. No skipped tests, repinned production goldens or relaxed
+guards were introduced. Full replay and independent final review remain pending.
+
+`attempt-004/accept-lvnta.py` reproduced the actual stopped transition using
+the canonical kernel and all verified input bytes. Its successful evidence is
+`acceptance-2014-08-28-v4/results.json`: two child shares received and sold,
+$74.64528 net proceeds, no extra $74 parent dividend, parent quantity/slot
+preserved, resolved valuation and independent funded accounting passed.
+Missing terms still refused; wrong-ratio and duplicate-dividend candidates
+failed the independent oracle. Earlier diagnostic directories are retained:
+v1/v3 selected another same-day distribution in the wrong-ratio diagnostic,
+and v2 refused the temporarily unrebound scope evidence. They are diagnostic
+setup failures, not replay segments or successful acceptance evidence.

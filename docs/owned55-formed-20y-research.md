@@ -130,3 +130,44 @@ the refused partial trace into performance. Acceptance must reproduce the
 stopped state, convert exactly 109 shares into $3,689.65, resolve valuation and
 pass the independent funded-account calculation. Missing terms must still
 refuse, and any different consideration must fail the payout oracle.
+
+## LVNTA child ownership and in-kind cash-proxy correction
+
+Attempt 003 at da1acc87 refused 2014-08-28 after 2,034 measured closes,
+preserving its August 27 checkpoint. The book holds two LVNTA shares. Liberty's
+[August 11 issuer announcement](https://www.sec.gov/Archives/edgar/data/1355096/000135509614000059/tripexhibit991.htm)
+specifies one LTRPA share for each LVNTA share and the August 28 ex-date with
+due bills through August 27. Its
+[completion release](https://www.sec.gov/Archives/edgar/data/1355096/000155837014000156/lint-20140827ex991479fde.htm)
+confirms completion after the August 27 close and regular trading August 28.
+The retained input contains LTRPA identity 905572516413780896 and a tradable
+raw opening price of $37.36. Use the existing reviewed child-liquidation
+policy: receive two whole child shares, sell at that open with existing costs,
+and preserve the parent's two shares and slot. Expected gross child value is
+$74.72, fees $0.07472, and net proceeds $74.64528. No fractional claim exists.
+
+The same corpus encodes the in-kind LVNTA distribution as a $37 cash dividend.
+Adding child ownership without removing that proxy would double-count $74.
+The existing BAX/BXLT and MRK/OGN supplements have the same source issue on
+2015-07-01 and 2021-06-03 respectively. Their complete same-day ACTIONS rows
+contain spinoff/spinoffdividend records, not an independent cash dividend.
+Preserve all original files and all 160 retained supplement records. In the
+research input adapter only, bind the exact three original observation-row
+hashes and change only their dividend field to zero when reviewed child terms
+are present. Record the transformation in the daily trace. Changed source
+rows, mismatched child identities/ratios, duplicate rows, or a positive proxy
+on any other supported spinoff must refuse; never blanket-zero dividends.
+Other cash dividends and all prices/volumes remain unchanged. The production
+kernel and provider loader are unchanged; this is a correction to the retained
+research corpus interpretation, not a policy or broker-settlement change.
+
+Before another full replay, reproduce the actual stopped transition, require
+the two child receipt/sale events, unchanged parent quantity/slot, no parent
+cash-dividend accrual, resolved valuation and independent funded accounting.
+Missing terms still refuse. Wrong ratio, missing proxy normalization, changed
+row identity and removed guards must fail their independent acceptance tests.
+Recheck the full scope proof and both real liquidity falsifiers. The changed
+input/harness binding requires a fresh attempt; never relabel or join attempt
+003 into its performance trace. Prior research results past an owned affected
+spinoff require re-evaluation for possible double counting; an equal accounting
+identity alone cannot establish source truth.

@@ -25,6 +25,7 @@ from sentinel.feed.rolling_contract import digest
 from sentinel.strategy import production_strategy
 from stock_strategy_shared.wealth_core.feed import DecisionMetadataTimelineBuilder, SecurityMeta
 from .inputs import Inputs, START, END, TARGETS
+from .spinoff_inputs import normalize as normalize_spinoff_inputs
 
 
 def write(path, value):
@@ -205,6 +206,7 @@ def run(args):
     status('INPUTS_VERIFIED', research_only=True, source_status='FAIL', resumed_after=after)
     with (args.output/'daily.jsonl').open('x', encoding='utf8') as trace:
         for day, raw in data.sessions(after=after):
+            raw, input_adjustments = normalize_spinoff_inputs(raw, spins.get(day, ()))
             rows = [classification.apply(r) for r in raw]
             next_meta, next_sectors = dict(meta), dict(sectors)
             for row in rows:
@@ -280,7 +282,8 @@ def run(args):
                 state_sha256=state.state_hash, chain=chain, holdings=state.wealth_core['episodes'],
                 decision=state.last_decision, evidence=state.last_evidence,
                 ledger_events=[e for e in state.ledger['events'] if e['session'] == day],
-                economics=economics if day >= START else None, spy=data.benchmark[day])
+                economics=economics if day >= START else None, spy=data.benchmark[day],
+                input_adjustments=input_adjustments)
             trace.write(json.dumps(row, separators=(',', ':'), allow_nan=False)+'\n')
             trace.flush()
             if (count+measured)%20 == 0 or day in (plan.end, START, END):
