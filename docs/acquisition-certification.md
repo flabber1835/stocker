@@ -97,16 +97,16 @@ Run in the existing PostgreSQL-capable Python 3.12 test image with networking
 disabled. Counts overlap; these are targeted regressions, not a full-suite claim.
 
 ```text
-python -m pytest tests/sentinel/test_export_readiness.py tests/sentinel/test_preparation_wait.py tests/sentinel/test_rolling_go_inputs.py tests/sentinel/test_rolling_snapshot_publisher.py tests/sentinel/test_rolling_snapshot_jobs.py tests/sentinel/test_source_acquisition_lifecycle.py -q --tb=short -p no:cacheprovider
+python -m pytest tests/sentinel/test_export_readiness.py tests/sentinel/test_acquisition_wait.py tests/sentinel/test_rolling_go_inputs.py tests/sentinel/test_rolling_snapshot_publisher.py tests/sentinel/test_rolling_snapshot_jobs.py tests/sentinel/test_source_acquisition_lifecycle.py -q --tb=short -p no:cacheprovider
 93 passed (initial waiting implementation)
 
-python -m pytest tests/sentinel/test_export_readiness.py tests/sentinel/test_preparation_wait.py tests/sentinel/test_sharadar_snapshot_export.py tests/sentinel/test_bounded_operational_feed.py tests/sentinel/test_go_source_final_preparation.py tests/sentinel/test_go_preparation_attempts.py -q --tb=short -p no:cacheprovider
+python -m pytest tests/sentinel/test_export_readiness.py tests/sentinel/test_acquisition_wait.py tests/sentinel/test_sharadar_snapshot_export.py tests/sentinel/test_bounded_operational_feed.py tests/sentinel/test_go_source_final_preparation.py tests/sentinel/test_go_preparation_attempts.py -q --tb=short -p no:cacheprovider
 70 passed
 
 python -m pytest tests/sentinel/test_source_acquisition_lifecycle.py tests/sentinel/test_sharadar_snapshot_export.py tests/sentinel/test_sharadar_secret_redaction.py tests/sentinel/test_rolling_snapshot_publisher.py tests/sentinel/test_go_source_final_preparation.py tests/sentinel/test_go_preparation_attempts.py tests/sentinel/test_go_readonly_data_preflight.py -q --tb=short -p no:cacheprovider
 93 passed (after transient classification change)
 
-python -m pytest tests/sentinel/test_preparation_wait.py tests/sentinel/test_export_readiness.py tests/sentinel/test_rolling_go_inputs.py::test_go_waits_for_all_exports_then_publishes_same_job -q --tb=short -p no:cacheprovider
+python -m pytest tests/sentinel/test_acquisition_wait.py tests/sentinel/test_export_readiness.py tests/sentinel/test_rolling_go_inputs.py::test_go_waits_for_all_exports_then_publishes_same_job -q --tb=short -p no:cacheprovider
 18 passed (final foreground driver, including concurrent publication)
 
 python -m tools.sentinel_acquisition_falsifiers

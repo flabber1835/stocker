@@ -40,7 +40,7 @@ def test_file(name):
         return "tests/sentinel/test_rolling_go_inputs.py"
     return "tests/sentinel/test_" + (
         "export_readiness" if name in {"first_pending_aborts", "pending_accepted"}
-        else "preparation_wait") + ".py"
+        else "acquisition_wait") + ".py"
 
 
 def main():
