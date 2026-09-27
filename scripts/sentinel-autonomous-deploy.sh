@@ -77,12 +77,18 @@ fi
 # Refuse a forged/stale marker rather than treating an environment variable as
 # proof that the lock is held.
 "$PYTHON" - "$SENTINEL_DEPLOY_LOCK_FD" <<'PY'
-import fcntl
 import os
 import sys
 fd = int(sys.argv[1])
-os.fstat(fd)
-fcntl.flock(fd, fcntl.LOCK_EX | fcntl.LOCK_NB)
+sys.path.insert(0, "scripts")
+from sentinel_lock_ownership import owns_exclusive_flock
+actual = os.fstat(fd)
+expected = os.stat("/tmp/sentinel-autonomous-deploy.lock")
+if ((actual.st_dev, actual.st_ino) != (expected.st_dev, expected.st_ino)
+        or not owns_exclusive_flock(fd)):
+    print("REFUSED: host cannot verify the inherited Sentinel deployment lock",
+          file=sys.stderr)
+    raise SystemExit(2)
 PY
 
 TARGET_BRANCH="${SENTINEL_DEPLOY_GIT_BRANCH:-main}"

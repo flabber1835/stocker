@@ -1,5 +1,6 @@
 """Descriptor ownership contracts on disposable Linux files; no deployment."""
 import fcntl
+import errno
 import io
 import json
 import os
@@ -17,6 +18,19 @@ sys.path.insert(0, str(SCRIPTS))
 import sentinel_backup_lock as backup
 import sentinel_go_lock as go
 import sentinel_lock_ownership as ownership
+
+
+@pytest.fixture(params=['modern', 'legacy'], autouse=True)
+def procfs_mode(monkeypatch, request):
+    original = Path.open
+    if request.param == 'legacy':
+        def old_procfs(path, *args, **kwargs):
+            if str(path).startswith('/proc/self/fdinfo/'):
+                # Exact field availability reported by the Linux 3.10 NAS.
+                return io.BytesIO(b'pos:\t0\nflags:\t02500002\n')
+            return original(path, *args, **kwargs)
+        monkeypatch.setattr(Path, 'open', old_procfs)
+    return request.param
 
 
 @pytest.fixture(params=['backup', 'go'])
@@ -111,27 +125,30 @@ def test_descriptor_lock_record_must_match_its_actual_inode(tmp_path, monkeypatc
         assert not ownership.owns_exclusive_flock(owner.fileno())
 
 
-def test_inherited_owner_still_verifies_after_original_process_exits(tmp_path):
+def test_inherited_owner_still_verifies_after_original_process_exits(tmp_path, procfs_mode):
     # Parent and child synchronize over pipes; no arbitrary sleep determines
     # ownership. Only disposable file operations occur in the child.
     path = tmp_path / 'lock'
     parent_code = """
 import fcntl,os,subprocess,sys
-path,scripts=sys.argv[1:]
+path,scripts,mode=sys.argv[1:]
 with open(path,'a+') as lock:
     fcntl.flock(lock,fcntl.LOCK_EX)
-    code='''import json,sys
+    code='''import io,json,sys
+from pathlib import Path
 sys.path.insert(0,sys.argv[1])
 from sentinel_lock_ownership import owns_exclusive_flock
+if sys.argv[3]=='legacy':
+    Path.open=lambda *a,**k: io.BytesIO(('pos: 0'+chr(10)+'flags: 02500002'+chr(10)).encode())
 fd=int(sys.argv[2])
 print('ready',flush=True)
 sys.stdin.readline()
 print(json.dumps({'owned_after_parent_exit':owns_exclusive_flock(fd)}),flush=True)
 sys.stdin.readline()
 '''
-    subprocess.Popen([sys.executable,'-c',code,scripts,str(lock.fileno())],pass_fds=(lock.fileno(),))
+    subprocess.Popen([sys.executable,'-c',code,scripts,str(lock.fileno()),mode],pass_fds=(lock.fileno(),))
 """
-    parent = subprocess.Popen([sys.executable, '-c', parent_code, str(path), str(SCRIPTS)],
+    parent = subprocess.Popen([sys.executable, '-c', parent_code, str(path), str(SCRIPTS), procfs_mode],
                               stdin=subprocess.PIPE, stdout=subprocess.PIPE,
                               stderr=subprocess.PIPE, text=True)
     try:
@@ -153,3 +170,94 @@ sys.stdin.readline()
         if parent.poll() is None:
             parent.kill()
         parent.wait(timeout=5)
+
+
+@pytest.mark.parametrize('error', [errno.ENOLCK, errno.EIO, errno.EBADF])
+def test_probe_errors_never_authorize_work(tmp_path, monkeypatch, error):
+    with (tmp_path / 'lock').open('a+') as owner:
+        fcntl.flock(owner, fcntl.LOCK_EX)
+        monkeypatch.setattr(Path, 'open', lambda *a, **k: io.BytesIO(b'pos: 0\nflags: 02\n'))
+        def broken(*args):
+            raise OSError(error, 'injected probe error')
+        monkeypatch.setattr(ownership.fcntl, 'flock', broken)
+        assert not ownership.owns_exclusive_flock(owner.fileno())
+
+
+@pytest.mark.parametrize('replacement', [False, True])
+def test_owner_exit_between_probes_requires_actual_exclusive_acquisition(tmp_path, monkeypatch, replacement):
+    with (tmp_path / 'lock').open('a+') as first, (tmp_path / 'lock').open('a+') as supplied, (tmp_path / 'lock').open('a+') as next_owner:
+        real_flock = fcntl.flock
+        real_flock(first, fcntl.LOCK_EX)
+        monkeypatch.setattr(Path, 'open', lambda *a, **k: io.BytesIO(b'pos: 0\nflags: 02\n'))
+        def race(fd, operation):
+            if operation == fcntl.LOCK_SH | fcntl.LOCK_NB:
+                try:
+                    real_flock(fd, operation)
+                except BlockingIOError:
+                    real_flock(first, fcntl.LOCK_UN)
+                    if replacement:
+                        real_flock(next_owner, fcntl.LOCK_EX)
+                    raise
+            else:
+                return real_flock(fd, operation)
+        monkeypatch.setattr(ownership.fcntl, 'flock', race)
+        assert ownership.owns_exclusive_flock(supplied.fileno()) is (not replacement)
+        with open(tmp_path / 'lock', 'a+') as contender:
+            with pytest.raises(BlockingIOError):
+                real_flock(contender, fcntl.LOCK_EX | fcntl.LOCK_NB)
+
+
+@pytest.mark.parametrize('kind', ['backup', 'go'])
+def test_real_launcher_and_child_accept_legacy_procfs_without_recursion(tmp_path, kind):
+    # sitecustomize changes only fdinfo availability in both real interpreters.
+    # Kernel locks, descriptor inheritance and subprocess launch remain real.
+    (tmp_path / 'sitecustomize.py').write_text('''import io
+from pathlib import Path
+original = Path.open
+def legacy(path, *args, **kwargs):
+    if str(path).startswith('/proc/self/fdinfo/'):
+        return io.BytesIO(b'pos: 0\\nflags: 02500002\\n')
+    return original(path, *args, **kwargs)
+Path.open = legacy
+''')
+    env = dict(os.environ, PYTHONPATH=os.pathsep.join([str(tmp_path), str(SCRIPTS)]))
+    if kind == 'backup':
+        env[backup.LOCK_ROOT_ENV] = str(tmp_path)
+        child = 'import sentinel_backup_lock as m; assert m.lock_is_held(); print("child-owned")'
+        command = [sys.executable, str(SCRIPTS / 'sentinel_backup_lock.py'), 'hold', sys.executable, '-c', child]
+    else:
+        child = ('import os; from pathlib import Path; import sentinel_go_lock as m; '
+                 'm.LOCK=Path(os.environ["TEST_GO_LOCK"]); '
+                 'assert m.lifecycle_lock_is_held(); assert m.current_run_token(); print("child-owned")')
+        env['TEST_GO_LOCK'] = str(tmp_path / 'go.lock')
+        launcher = ('import os,sys; from pathlib import Path; import sentinel_go_lock as m; '
+                    'm.LOCK=Path(os.environ["TEST_GO_LOCK"]); sys.exit(m.main(sys.argv[1:]))')
+        command = [sys.executable, '-c', launcher, sys.executable, '-c', child]
+    result = subprocess.run(command, env=env, capture_output=True, text=True, timeout=10)
+    assert result.returncode == 0, result.stderr
+    assert result.stdout.strip() == 'child-owned'
+
+
+def test_disposable_host_diagnostic(capsys):
+    assert ownership.main() == 0
+    assert 'host flock compatibility: PASS' in capsys.readouterr().out
+
+
+@pytest.mark.parametrize('kind', ['owned', 'unrelated', 'shared', 'unlocked'])
+def test_deployment_shell_verifies_exact_lock_before_git(tmp_path, procfs_mode, kind):
+    source = (SCRIPTS / 'sentinel-autonomous-deploy.sh').read_text()
+    boundary = source.split('"$PYTHON" - "$SENTINEL_DEPLOY_LOCK_FD" <<\'PY\'\n')[1].split('\nPY\n')[0]
+    path = tmp_path / 'deploy.lock'
+    path.touch()
+    selected = tmp_path / 'unrelated' if kind == 'unrelated' else path
+    boundary = boundary.replace('"/tmp/sentinel-autonomous-deploy.lock"', repr(str(path)))
+    boundary = boundary.replace('"scripts"', repr(str(SCRIPTS)))
+    if procfs_mode == 'legacy':
+        boundary = ('import io\nfrom pathlib import Path\n'
+                    'Path.open=lambda *a,**k: io.BytesIO(b"pos: 0\\nflags: 02\\n")\n' + boundary)
+    with selected.open('a+') as handle:
+        if kind != 'unlocked':
+            fcntl.flock(handle, fcntl.LOCK_SH if kind == 'shared' else fcntl.LOCK_EX)
+        result = subprocess.run([sys.executable, '-c', boundary, str(handle.fileno())],
+                                pass_fds=(handle.fileno(),), capture_output=True, text=True, timeout=5)
+        assert result.returncode == (0 if kind == 'owned' else 2), result.stderr

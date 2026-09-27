@@ -223,7 +223,7 @@ printf 'iso8601,container,mem_bytes,mem_limit_bytes,cpu_pct,host_mem_available_b
 sample_once() {
   local now avail
   now="$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-  avail="$(awk '/^MemAvailable:/ {print $2 * 1024}' /proc/meminfo 2>/dev/null || echo 0)"
+  avail="$(awk '/^MemAvailable:/ {printf "%.0f\n", $2 * 1024}' /proc/meminfo 2>/dev/null || true)"
   docker stats --no-stream --format '{{.Name}}|{{.MemUsage}}|{{.CPUPerc}}' 2>/dev/null \
     | SAMPLE_NOW="${now}" SAMPLE_AVAIL="${avail}" "${HOST_PYTHON}" -c '
 import os, re, sys
@@ -439,7 +439,7 @@ report = {
     "cpu_verdict": "PASS" if cpu_enforced else "UNSUPPORTED — CPU was measured "
                                                "but NOT bounded on this host",
     "headroom_verdict": "PASS",
-    "host_memory_verdict": "OBSERVED",
+    "host_memory_verdict": "OBSERVED" if min_avail is not None else "UNMEASURED",
     "io_limit_enforcement": "UNSUPPORTED" if any(
         "blkio" in w for w in json.loads(env.get("CAPS_JSON") or "{}"
                                          ).get("daemon_warnings", [])

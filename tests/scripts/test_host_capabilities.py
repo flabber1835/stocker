@@ -36,6 +36,7 @@ from __future__ import annotations
 
 import importlib.util
 import json
+import json
 import os
 import shlex
 import subprocess
@@ -363,6 +364,45 @@ class TestTheHarnessDoesNotClaimACpuEnvelope:
 
     def body(self) -> str:
         return MEASURE.read_text()
+
+    @pytest.mark.parametrize('meminfo,expected', [
+        ('MemTotal: 8388608 kB\nMemFree: 1024 kB\n', ''),
+        ('MemAvailable: 0 kB\n', '0'),
+        ('MemAvailable: 8388608 kB\n', '8589934592'),
+        (None, '')])
+    def test_memory_sampler_handles_old_missing_and_large_fields(self, tmp_path, meminfo, expected):
+        path = tmp_path / 'meminfo'
+        if meminfo is not None:
+            path.write_text(meminfo)
+        line = next(line for line in self.body().splitlines() if line.strip().startswith('avail="$('))
+        command = line.split('$(', 1)[1].rsplit(')"', 1)[0]
+        command = command.replace('/proc/meminfo', shlex.quote(str(path)))
+        result = subprocess.run(['bash', '-c', command], capture_output=True, text=True, timeout=5)
+        assert result.returncode == 0, result.stderr
+        assert result.stdout.strip() == expected
+
+    @pytest.mark.parametrize('available,expected', [
+        ('', 'UNMEASURED'), ('0', 'PRESSURE'), ('1024', 'OBSERVED')])
+    def test_real_report_does_not_invent_missing_host_memory(self, tmp_path, available, expected):
+        import re
+        body = self.body()
+        start = body.index('import csv, hashlib, json, os, pathlib, sys')
+        producer = body[start:body.index('\nPY\n', start)]
+        samples = tmp_path / 'samples.csv'
+        samples.write_text('iso8601,container,mem_bytes,mem_limit_bytes,cpu_pct,host_mem_available_bytes\n'
+                           'fixture,sentinel-test,10,100,1,' + available + '\n')
+        target = tmp_path / 'report.json'
+        env = dict(os.environ)
+        env.update({key: '0' for key in re.findall(r'env\["([A-Z_]+)"\]', producer)})
+        env.update(SAMPLES=str(samples), REPORT=str(target), LIMITS_JSON='{}',
+                   OOM_JSON='[]', PHASE_STATE='{}', COMMAND_JSON='[]',
+                   CAPS_JSON=json.dumps({'host': {'mem_total': 1024}}))
+        result = subprocess.run([sys.executable, '-c', producer], env=env,
+                                capture_output=True, text=True, timeout=10)
+        assert result.returncode == 0, result.stderr
+        report = json.loads(target.read_text())
+        assert report['host_memory_verdict'].startswith(expected)
+        assert report['host_min_mem_available_bytes'] == (int(available) if available else None)
 
     def test_the_verdicts_are_SEPARATE(self):
         """One summary word for both limits would either overclaim CPU or
