@@ -197,6 +197,7 @@ jobs:
         run: |
           set -euo pipefail
           python tools/production_composition_harness.py \
+            --include-shared-image-removal \
             --output artifacts/production-composition/live.json
 
       - name: Verify live evidence

@@ -6,6 +6,7 @@ import argparse
 import json
 import os
 from pathlib import Path
+import shlex
 import subprocess
 import sys
 import tempfile
@@ -81,7 +82,12 @@ def _compose_text(*, health: str = "pg", service_name: str = "sentinel-postgres"
     image: {POSTGRES}
     environment:
       POSTGRES_PASSWORD: composition-only-password
-{healthcheck}"""
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+{healthcheck}
+volumes:
+  pgdata:
+"""
 
 
 def _compose_args(path: Path, project: str):
@@ -197,6 +203,10 @@ def _recovery_case(tmp: Path, *, name: str, action: str):
     args = _compose_args(path, project)
     try:
         _ensure_ready(path, project, timeout_seconds=45, label=f"{name} initial")
+        sql = ["docker", "compose", *args, "exec", "-T", "sentinel-postgres",
+               "psql", "-U", "postgres", "-d", "postgres", "-v", "ON_ERROR_STOP=1", "-Atqc"]
+        _require(sql + ["CREATE TABLE recovery_marker (id integer PRIMARY KEY); "
+                        "INSERT INTO recovery_marker VALUES (1)"], label=name)
         if action == "stop":
             _require([
                 "docker", "compose", *args, "stop", "sentinel-postgres",
@@ -219,6 +229,9 @@ def _recovery_case(tmp: Path, *, name: str, action: str):
         else:
             raise HarnessFailure(f"{name}: unknown recovery action {action}")
         _ensure_ready(path, project, timeout_seconds=45, label=f"{name} recovered")
+        retained = _require(sql + ["SELECT id FROM recovery_marker"], label=name)
+        if retained.stdout.strip() != "1":
+            raise HarnessFailure(f"{name}: committed data did not survive recovery")
         return {"name": name, "status": "PASS", "reason": None}
     finally:
         _cleanup(path, project)
@@ -226,14 +239,17 @@ def _recovery_case(tmp: Path, *, name: str, action: str):
 
 def _initialization_case(tmp: Path):
     name = "postgres-initialization-is-not-ready"
-    script = tmp / "hold-init.sh"
-    script.write_bytes(
-        b"#!/bin/sh\ntouch /tmp/composition-initializing\n"
-        b"while [ ! -f /tmp/composition-release ]; do sleep 0.1; done\n")
     path = tmp / f"{name}.yml"
-    mount = json.dumps(script.as_posix() + ":/docker-entrypoint-initdb.d/hold-init.sh:ro")
-    path.write_text(_compose_text() + f"\n    volumes:\n      - {mount}\n",
-                    encoding="utf-8")
+    script = ("#!/bin/sh\ntouch /tmp/composition-initializing\n"
+              "while [ ! -f /tmp/composition-release ]; do sleep 0.1; done\n")
+    # The Docker daemon may be outside this controller's filesystem. Create
+    # the fixture in the disposable container rather than bind a host path.
+    command = ["bash", "-c", "printf '%s' " + shlex.quote(script)
+               + " > /docker-entrypoint-initdb.d/hold-init.sh; "
+               "exec docker-entrypoint.sh postgres"]
+    text = _compose_text().replace(
+        "    environment:", "    entrypoint: " + json.dumps(command) + "\n    environment:")
+    path.write_text(text, encoding="utf-8")
     project = "sentinel-composition-" + uuid.uuid4().hex[:12]
     prefix = ["docker", "compose", *_compose_args(path, project)]
     try:
@@ -279,13 +295,76 @@ def _scenario_count():
     return len(scenarios()) + len(EXTENDED_CASES)
 
 
-def run_live() -> dict:
+def _crash_transaction_case(tmp: Path):
+    """Real database process death: durable commit, rollback, bounded retry."""
+    name = "postgres-crash-rollback-and-retry"
+    path = tmp / (name + ".yml")
+    path.write_text(_compose_text(), encoding="utf-8")
+    project = "sentinel-composition-" + uuid.uuid4().hex[:12]
+    prefix = ["docker", "compose", *_compose_args(path, project)]
+    sql = prefix + ["exec", "-T", "-e", "PGAPPNAME=composition-observer",
+                    "sentinel-postgres", "psql", "-U", "postgres", "-d", "postgres",
+                    "-v", "ON_ERROR_STOP=1", "-Atqc"]
+    worker = None
+    try:
+        _ensure_ready(path, project, timeout_seconds=45, label=name)
+        _require(sql + ["CREATE TABLE recovery_marker (id integer PRIMARY KEY); "
+                        "INSERT INTO recovery_marker VALUES (1)"], label=name)
+        writer = prefix + ["exec", "-T", "-e", "PGAPPNAME=composition-open-tx",
+                           "sentinel-postgres", "psql", "-U", "postgres", "-d", "postgres",
+                           "-v", "ON_ERROR_STOP=1", "-Atqc",
+                           "BEGIN; INSERT INTO recovery_marker VALUES (2); "
+                           "SELECT pg_sleep(120); COMMIT"]
+        worker = subprocess.Popen(writer, cwd=ROOT, stdout=subprocess.PIPE,
+                                  stderr=subprocess.PIPE, text=True)
+        deadline = time.monotonic() + 15
+        while True:
+            observed = _require(sql + [
+                "SELECT count(*) FROM pg_stat_activity WHERE "
+                "application_name='composition-open-tx' AND wait_event='PgSleep'"
+            ], label=name)
+            if observed.stdout.strip() == "1":
+                break
+            if worker.poll() is not None or time.monotonic() >= deadline:
+                raise HarnessFailure(f"{name}: worker never reached open transaction")
+            time.sleep(0.1)
+        _require(prefix + ["kill", "-s", "SIGKILL", "sentinel-postgres"], label=name)
+        worker.communicate(timeout=15)
+        if worker.returncode == 0:
+            raise HarnessFailure(f"{name}: interrupted writer reported success")
+        _ensure_ready(path, project, timeout_seconds=45, label=name)
+        recovered = _require(sql + [
+            "SELECT string_agg(id::text, ',' ORDER BY id) FROM recovery_marker"
+        ], label=name)
+        if recovered.stdout.strip() != "1":
+            raise HarnessFailure(f"{name}: lost committed data or retained incomplete work")
+        for _attempt in range(2):
+            _require(sql + ["INSERT INTO recovery_marker VALUES (2) ON CONFLICT DO NOTHING"],
+                     label=name)
+        _require(prefix + ["restart", "sentinel-postgres"], label=name)
+        _ensure_ready(path, project, timeout_seconds=45, label=name)
+        final = _require(sql + [
+            "SELECT string_agg(id::text, ',' ORDER BY id) FROM recovery_marker"
+        ], label=name)
+        if final.stdout.strip() != "1,2":
+            raise HarnessFailure(f"{name}: retry did not converge durably")
+        return {"name": name, "status": "PASS", "reason": None}
+    finally:
+        _cleanup(path, project)
+        if worker is not None:
+            if worker.poll() is None:
+                worker.kill()
+            worker.communicate(timeout=10)
+
+
+def run_live(*, include_shared_image_removal: bool = False) -> dict:
     _require(["docker", "version"], label="Docker")
     _require(["docker", "compose", "version"], label="Docker Compose")
     results = []
     with tempfile.TemporaryDirectory(prefix="sentinel-composition-") as directory:
         tmp = Path(directory)
         results.append(_initialization_case(tmp))
+        results.append(_crash_transaction_case(tmp))
         results.append(_docker_case(
             tmp,
             name="postgres-healthy-and-restart",
@@ -300,8 +379,9 @@ def run_live() -> dict:
             tmp, name="postgres-removed-and-recovered", action="remove"))
         results.append(_recovery_case(
             tmp, name="postgres-network-down-and-recovered", action="network-down"))
-        results.append(_recovery_case(
-            tmp, name="postgres-image-deleted-and-repulled", action="image-delete"))
+        if include_shared_image_removal:
+            results.append(_recovery_case(
+                tmp, name="postgres-image-deleted-and-repulled", action="image-delete"))
         results.append(_docker_case(
             tmp,
             name="postgres-health-never-ready",
@@ -328,9 +408,11 @@ def run_live() -> dict:
 def main(argv=None) -> int:
     parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("--output", type=Path, required=True)
+    parser.add_argument("--include-shared-image-removal", action="store_true",
+                        help="delete/repull shared PostgreSQL image; disposable daemons only")
     args = parser.parse_args(argv)
     try:
-        result = run_live()
+        result = run_live(include_shared_image_removal=args.include_shared_image_removal)
         if not result["all_pass"]:
             raise HarnessFailure("one or more live gates failed")
     except (HarnessFailure, OSError, subprocess.TimeoutExpired) as exc:
