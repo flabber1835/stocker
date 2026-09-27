@@ -142,6 +142,51 @@ not consume the protected GitHub certification artifact.
 
 ## CI
 
+### Local deployment and recovery work package
+
+Local qualification exercises the actual operator shell, inherited lifecycle
+lock, environment bridge, diagnostic guard and refusal-to-promotion boundary.
+Expensive financial validation and broker operations are controlled fixtures in
+these small process tests; their success is not financial or deployment authority.
+Acquisition pending/resume behavior remains the separate acquisition workstream
+(PR #444). Neither workstream alone establishes full GO acceptance.
+
+Cancellation is an unsuccessful invocation even when a child catches the signal
+and exits zero. The diagnostic guard returns `128 + signal` for the first
+operator cancellation, forwards it to the process group, and retains escalation
+for unresponsive descendants. Ordinary nonnegative child exit codes remain
+unchanged; a child killed directly by a signal is normalized to `128 + signal`
+before returning through the shell.
+Subprocess evidence recognizes both Python's negative signal return codes and
+shell signal exit codes as termination. A rerun must acquire the real lock and
+reach the controlled success path; cancellation must never call promotion.
+
+The live Docker/PostgreSQL rehearsal uses unique Compose projects and durable
+volumes, checks SQL readiness, writes a marker, interrupts the database process,
+and proves committed data survives while an open transaction rolls back. It then
+retries the interrupted transaction and verifies one durable result. This checks
+the deployment/recovery seam, not economic calculations or feed publication.
+Initialization fixtures are created inside the disposable container so that a
+containerized test controller does not rely on host-visible bind paths.
+
+Deleting a shared PostgreSQL image is opt-in via
+`--include-shared-image-removal`, only for a disposable Docker daemon such as the
+CI runner. Local default runs must not delete shared images. CI retains that
+explicit image-repull case. Cleanup is restricted to each generated project.
+
+Remaining target checks are actual NAS kernel/storage behavior, production image
+identity, real provider availability and the complete GO verdict. Local results
+must identify the tested code and controlled boundaries without claiming those
+target checks passed.
+
+The acquisition recovery test kills a separate Python worker at two boundaries:
+before candidate sealing and after durable READY. It uses the real acquisition
+worker, database, leases and fencing with controlled provider responses and a
+small comparison-only universe. Only the fixture lease timestamp is advanced
+after SIGKILL; the acquisition deadline is unchanged. A competing connection
+must not claim active work, recovery must advance the fence, and repeated calls
+must resolve to one candidate/comparison without a production publication.
+
 ### Early database probe gate
 
 Before starting the campaign matrix, CI executes focused PostgreSQL contracts

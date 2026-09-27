@@ -169,7 +169,7 @@ def _classify(completed: Any) -> str:
         return "SUBPROCESS_TIMEOUT"
     if rc == 127:
         return "COMMAND_UNAVAILABLE"
-    if rc in {137, 143} or "killed" in text:
+    if rc < 0 or rc in {130, 137, 143} or "killed" in text:
         return "PROCESS_TERMINATED"
     if ("modulenotfounderror" in text or "importerror" in text
             or "no module named" in text):

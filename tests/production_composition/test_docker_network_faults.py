@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import signal
 import subprocess
 import sys
 import urllib.error
@@ -39,6 +40,37 @@ def test_subprocess_fault_classes_are_stable(completed, expected):
     assert evidence["exit_code"] == completed.returncode
     assert len(evidence["stdout_sha256"]) == 64
     assert len(evidence["stderr_sha256"]) == 64
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM, signal.SIGKILL])
+def test_real_signal_termination_has_same_class_as_shell_exit(signum):
+    child = probe.DeadlineCommandRunner().run_with_timeout([
+        sys.executable, "-c",
+        "import os,signal; signal.signal(signal.SIGINT, signal.SIG_DFL); "
+        "os.kill(os.getpid(), %d)" % signum,
+    ], timeout_seconds=5)
+    assert child.returncode == -signum
+    for result in (child, _completed(128 + signum)):
+        assert probe.subprocess_evidence(result, context="FAULT")[
+            "failure_class"] == "PROCESS_TERMINATED"
+
+
+@pytest.mark.parametrize("allow_removal", [False, True])
+def test_live_rehearsal_shared_image_removal_requires_explicit_opt_in(monkeypatch, allow_removal):
+    from tools import production_composition_harness as harness
+    actions = []
+    passed = {"name": "controlled-case", "status": "PASS", "reason": None}
+    monkeypatch.setattr(harness, "_require", lambda *a, **kw: None)
+    monkeypatch.setattr(harness, "_initialization_case", lambda *a: passed)
+    monkeypatch.setattr(harness, "_crash_transaction_case", lambda *a: passed)
+    monkeypatch.setattr(harness, "_docker_case", lambda *a, **kw: passed)
+    def recovery(*a, action, **kw):
+        actions.append(action)
+        return passed
+    monkeypatch.setattr(harness, "_recovery_case", recovery)
+    kwargs = {"include_shared_image_removal": True} if allow_removal else {}
+    assert harness.run_live(**kwargs)["all_pass"]
+    assert ("image-delete" in actions) is allow_removal
 
 
 class ScriptedRunner:
