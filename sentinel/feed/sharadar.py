@@ -103,6 +103,14 @@ class SharadarRetryDeferred(SharadarRequestError):
             "Deferring instead of retrying earlier than the provider requested.")
 
 
+class SharadarUnavailable(SharadarRetryDeferred):
+    """A bounded transport retry slice exhausted; safe to defer the durable job."""
+
+    def __init__(self, detail: str, delay: float, status: Optional[int] = None):
+        super().__init__(max(1, delay), status)
+        self.args = (detail,)
+
+
 class SharadarSource(Protocol):
     """Source-level contract; transport details do not escape this interface."""
 
@@ -410,9 +418,10 @@ def _get_with_retry(client, url: str, params: dict, *, http, sleep,
                   flush=True)
             acquisition_work.pause(delay, sleep=sleep)
     assert last_exc is not None
-    raise SharadarRequestError(
+    raise SharadarUnavailable(
         f"Sharadar request failed after {FETCH_MAX_RETRIES} attempt(s) "
-        f"({type(last_exc).__name__}) for {_safe_request_target(url, params)}") \
+        f"({type(last_exc).__name__}) for {_safe_request_target(url, params)}",
+        delay, status) \
         from None
 
 

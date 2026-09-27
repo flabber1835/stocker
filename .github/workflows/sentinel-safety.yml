@@ -395,6 +395,9 @@ jobs:
             --entrypoint python sentinel-test:ci \
             /work/tools/sentinel_mutation_certify.py \
             --output /evidence/report.json
+          docker run --rm --network none \
+            --entrypoint python sentinel-test:ci \
+            -m tools.sentinel_acquisition_falsifiers
 
       - name: Seal the successful lane evidence against the exact loaded images
         run: |

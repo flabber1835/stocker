@@ -159,10 +159,23 @@ def test_snapshot_transport_exhaustion_remains_shadow_availability(monkeypatch):
     from sentinel.shadow_worker import _sharadar_availability
     monkeypatch.setattr(sharadar, "FETCH_MAX_RETRIES", 1)
     http = _Http([_Response(status=503)])
-    with pytest.raises(sharadar.SharadarRequestError) as failure:
+    with pytest.raises(sharadar.SharadarUnavailable) as failure:
         export._safe_download(http.client, "https://unit.invalid/file", http=http,
                               sleep=lambda _: None, now=None)
     assert _sharadar_availability(failure.value)
+
+
+@pytest.mark.parametrize("status", [401, 403, 500, 503])
+def test_export_status_distinguishes_authentication_from_transient_exhaustion(monkeypatch, status):
+    monkeypatch.setattr(sharadar, "FETCH_MAX_RETRIES", 1)
+    http = _Http([_Response(status=status)])
+    error = sharadar.SharadarUnavailable if status >= 500 else sharadar.SharadarRequestError
+    with pytest.raises(error) as failure:
+        sharadar._get_with_retry(http.client, "https://unit.invalid/TICKERS.json", {},
+                                 http=http, sleep=lambda _: pytest.fail("one attempt"))
+    assert isinstance(failure.value, sharadar.SharadarRetryDeferred) == (status >= 500)
+    if status >= 500:
+        assert failure.value.delay >= 1
 
 
 def test_expired_export_url_is_renewed_without_changing_provider_generation():
