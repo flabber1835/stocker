@@ -1,11 +1,18 @@
 """Small provider schedules exercise the production preflight sweep."""
 from datetime import datetime, timezone
+import os
+from pathlib import Path
+import runpy
 
 import pytest
 
 from sentinel.feed import export_readiness as exports, snapshot_export as source
 from sentinel.feed import rolling_source, authority, sharadar
 from sentinel.feed.rolling_contract import FormationWindow
+
+# CI keeps host helpers in the inspection tree, outside the runtime import path.
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
+collect = runpy.run_path(str(REPO / "scripts" / "sentinel_go_feed_progress.py"))["collect"]
 
 
 @pytest.mark.parametrize("pending", [{0}, {1}, {0, 2}, set()])
@@ -22,7 +29,6 @@ def test_all_exports_requested_before_pending_is_returned(monkeypatch, capsys, p
     if pending:
         with pytest.raises(source.ExportPending):
             exports.probe_all(requests)
-        from scripts.sentinel_go_feed_progress import collect
         events = collect(capsys.readouterr().err)
         assert events[-1]["ready"] == 3 - len(pending)
         assert events[-1]["parts"] == 3

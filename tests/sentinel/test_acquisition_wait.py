@@ -1,9 +1,16 @@
 """Foreground waiting policy, independent of provider bytes and economics."""
+import os
+from pathlib import Path
+import runpy
 from unittest.mock import Mock
 
 import pytest
 
 from sentinel.feed import preparation_wait as driver, rolling_jobs as jobs, sharadar
+
+# CI keeps host helpers in the inspection tree, outside the runtime import path.
+REPO = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
+collect = runpy.run_path(str(REPO / "scripts" / "sentinel_go_feed_progress.py"))["collect"]
 
 
 def setup(monkeypatch, **updates):
@@ -34,7 +41,6 @@ def test_wait_respects_retry_time_and_reuses_exact_job(monkeypatch, capsys):
     assert result == {"published": True}
     assert sleeps == [10, 10, 5]
     assert [call.args for call in prepare.call_args_list] == [(conn, "same-job")] * 2
-    from scripts.sentinel_go_feed_progress import collect
     assert len(collect(capsys.readouterr().err)) == 3
 
 
