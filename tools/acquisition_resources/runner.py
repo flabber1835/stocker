@@ -137,7 +137,7 @@ def run(args):
         report["failure"] = f"{type(exc).__name__}: {exc}"
     finally:
         # Save the primary result before any fallible evidence/cleanup operation.
-        args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
         for role, name in (("worker", worker), ("provider", provider), ("database", db)):
             try:
                 raw = command("docker", "inspect", name, check=False)
@@ -160,7 +160,7 @@ def run(args):
         if cleanup_errors:
             report["cleanup_errors"] = cleanup_errors
             report["verdict"] = "FAIL"
-        args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8")
+        args.output.write_text(json.dumps(report, indent=2, sort_keys=True) + "\n", encoding="utf-8", newline="\n")
     print(json.dumps(dict(event="complete", verdict=report["verdict"], output=str(args.output))), flush=True)
     return report["verdict"] != "PASS_WITHIN_SYNTHETIC_PROFILE"
 
