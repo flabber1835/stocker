@@ -206,6 +206,21 @@ def test_pending_export_is_durable_wait_without_new_deadline(conn, source, monke
     assert jobs.status(conn, job)["deadline"] == deadline
 
 
+def test_transient_transport_exhaustion_releases_job_for_retry(conn, source, monkeypatch):
+    job = enqueue(conn)
+    deadline = jobs.status(conn, job)["deadline"]
+    def unavailable(table, **kwargs):
+        raise sharadar.SharadarUnavailable("source unavailable", 3, 503)
+    monkeypatch.setattr(snapshot_export, "probe_snapshot", unavailable)
+    with pytest.raises(sharadar.SharadarUnavailable):
+        publisher.prepare(conn, job)
+    state = jobs.status(conn, job)
+    assert state["state"] == "RETRY_WAIT" and state["owner"] is None
+    assert state["deadline"] == deadline
+    assert 0 < state["retry_seconds"] <= 3
+    assert count(conn, "sentinel_corpus_publications") == 0
+
+
 @pytest.mark.parametrize("boundary", ["seal", "ready"])
 def test_crash_restarts_from_durable_components_or_ready(conn, source, monkeypatch, boundary):
     job = enqueue(conn)

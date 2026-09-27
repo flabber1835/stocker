@@ -86,29 +86,18 @@ class OperationalCapture:
         requests.extend((sharadar.SEP, sharadar.date_params(lo, hi))
                         for lo, hi in _months(self.start, self.end))
         with progress.phase("source_preflight", date_from=self.start, date_to=self.end):
-            ready = {}
-            while len(ready) < len(requests):
-                pending = None
-                for index, (table, params) in enumerate(requests):
-                    if index in ready:
-                        continue
+            from sentinel.feed.export_readiness import probe_all
+            while True:
+                try:
+                    self.snapshots = probe_all(requests)
+                    break
+                except snapshot_export.ExportPending as pending:
+                    if not wait:
+                        raise
                     try:
-                        ready[index] = snapshot_export.probe_snapshot(table, params=params)
-                    except snapshot_export.ExportPending as exc:
-                        if not wait:
-                            raise
-                        pending = exc
-                if pending is not None:
-                    delay = max(1, snapshot_export.EXPORT_POLL_SECONDS)
-                    progress.emit("source_preflight", "working", reason="EXPORT_GENERATION_PENDING",
-                                  ready=len(ready), parts=len(requests),
-                                  retry_seconds=int(delay),
-                                  remaining_seconds=int(acquisition_work.remaining() or 0))
-                    try:
-                        acquisition_work.pause(delay)
+                        acquisition_work.pause(pending.delay)
                     except sharadar.SharadarRetryDeferred:
                         raise pending from None
-            self.snapshots = [ready[index] for index in range(len(requests))]
         self._require_sep_generation(self.snapshots)
 
     @staticmethod
