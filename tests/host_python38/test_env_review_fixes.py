@@ -46,8 +46,14 @@ class EnvReviewFixes(unittest.TestCase):
             for name in (
                     "sentinel-autonomous-deploy.sh",
                     "sentinel-env.sh",
+                    "sentinel_lock_ownership.py",
                     "sentinel_env.py"):
                 shutil.copyfile(SCRIPTS / name, scripts / name)
+            lock_path = root / "deploy.lock"
+            launcher = scripts / "sentinel-autonomous-deploy.sh"
+            launcher.write_text(launcher.read_text(encoding="utf-8").replace(
+                "/tmp/sentinel-autonomous-deploy.lock", str(lock_path)),
+                encoding="utf-8")
             (scripts / "sentinel_host_python.py").write_text(
                 "raise SystemExit(0)\n", encoding="utf-8")
             marker = root / "bootstrap-ran"
@@ -88,7 +94,7 @@ class EnvReviewFixes(unittest.TestCase):
                 encoding="utf-8")
             git.chmod(0o755)
 
-            lock = tempfile.TemporaryFile()
+            lock = lock_path.open("a+")
             self.addCleanup(lock.close)
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX | fcntl.LOCK_NB)
             os.set_inheritable(lock.fileno(), True)
