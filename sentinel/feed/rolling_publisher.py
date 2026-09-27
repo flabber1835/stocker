@@ -4,13 +4,14 @@ from __future__ import annotations
 import math
 
 from sentinel import backup_runtime_authority, identity
+from sentinel.dependency_availability import database_unavailable
 from sentinel.feed import (
     acquisition_work, authority, progress, rolling_builder, rolling_jobs as jobs,
     rolling_store, runtime_schema, sharadar, snapshot_export, staging, store,
 )
 from sentinel.feed.rolling_contract import digest
 from sentinel.feed.rolling_source import SharadarSource
-from sentinel.feed.publication import CorpusBusy
+from sentinel.feed.publication import CorpusLockUnavailable
 
 
 class ComparisonRefused(RuntimeError):
@@ -134,9 +135,11 @@ def _record_failure(conn, lease, exc, *, operational=False):
             state = jobs.status(conn, lease.job_id)["state"]
             jobs.wait(conn, lease, state="WAIT_SOURCE" if state == "ACQUIRING" else "RETRY_WAIT",
                       reason="EXPORT_GENERATION_PENDING", retry_seconds=delay)
-        elif isinstance(exc, (sharadar.SharadarRetryDeferred, ConnectionError, CorpusBusy)) and remaining > delay:
+        elif (isinstance(exc, (sharadar.SharadarRetryDeferred, ConnectionError, CorpusLockUnavailable))
+              or database_unavailable(exc)) and remaining > delay:
             reason = ("BACKUP_AUTHORITY_WAIT" if isinstance(exc, backup_runtime_authority.BackupRuntimeUnavailable)
-                      else "CORPUS_WRITER_BUSY" if isinstance(exc, CorpusBusy) else "SOURCE_RETRY")
+                      else "DATABASE_UNAVAILABLE" if database_unavailable(exc)
+                      else "CORPUS_WRITER_BUSY" if isinstance(exc, CorpusLockUnavailable) else "SOURCE_RETRY")
             jobs.wait(conn, lease, state="RETRY_WAIT", reason=reason, retry_seconds=delay)
         elif isinstance(exc, (KeyboardInterrupt, SystemExit)) and remaining > 2:
             jobs.wait(conn, lease, state="INTERRUPTED", reason="WORKER_INTERRUPTED", retry_seconds=1)

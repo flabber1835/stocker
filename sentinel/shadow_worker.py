@@ -6,7 +6,7 @@ import sys
 
 from sentinel import backup_guard, shadow_runtime
 from sentinel.feed import sharadar
-from sentinel.dependency_availability import database_unavailable
+from sentinel.dependency_availability import database_unavailable, local_contention
 from sentinel.shadow_recovery import (
     ShadowServiceConfig,
     ShadowServiceRefused,
@@ -59,7 +59,7 @@ def _availability_failure(exc: BaseException) -> bool:
     seen = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if database_unavailable(current) or isinstance(current, JobWaiting):
+        if database_unavailable(current) or local_contention(current) or isinstance(current, JobWaiting):
             return True
         if _backup_availability(current):
             return True

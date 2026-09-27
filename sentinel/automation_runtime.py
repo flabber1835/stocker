@@ -193,7 +193,7 @@ def classify_dependency_failure(
         exc: BaseException) -> AutomationRefused | None:
     """Map reviewed dependency failures; leave programming defects unknown."""
     from sentinel.backup_guard import BackupConfigurationRefused, BackupUnavailable
-    from sentinel.dependency_availability import database_unavailable
+    from sentinel.dependency_availability import database_unavailable, local_contention
     from sentinel.execution.guarded import BrokerAuthorityCheckFailed, PreTransportAuthorityRefused
 
     if isinstance(exc, (BrokerAuthorityCheckFailed, PreTransportAuthorityRefused)):
@@ -206,6 +206,8 @@ def classify_dependency_failure(
         return None
     if isinstance(exc, AutomationRefused):
         return exc
+    if local_contention(exc):
+        return TransientInfrastructureFailure(f"local database lock unavailable: {exc}")
     if isinstance(exc, BackupConfigurationRefused):
         return BackupPermanentFailure(f"backup integrity refused: {exc}")
     if isinstance(exc, BackupUnavailable):

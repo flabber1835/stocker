@@ -77,11 +77,11 @@ def begin(conn, *, window: PriceWindow, reference_sha256: str,
 
 
 def _pin_reader(conn):
-    from sentinel.feed.publication import CORPUS_LOCK_KEY, CorpusBusy
+    from sentinel.feed.publication import CORPUS_LOCK_KEY, CorpusLockUnavailable
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_xact_lock_shared(%s)", (CORPUS_LOCK_KEY,))
         if not cur.fetchone()[0]:
-            raise CorpusBusy("snapshot reader cannot pin during publication or retirement")
+            raise CorpusLockUnavailable("snapshot reader cannot pin during publication or retirement")
 
 
 def _parent(conn, candidate_id: str, *, lock: bool = False):
