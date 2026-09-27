@@ -408,3 +408,39 @@ the resulting one-session research NAV is
 `805719.627906759704448160538`. The regenerated scope baseline passed and both
 real liquidity guard-removal controls refused. Production code remains
 unchanged, and final performance still requires the fresh single-binding run.
+
+## Tenth refusal: Mandiant cash merger
+
+Attempt 011 stopped before committing 2022-09-12 after 4,057 measured closes.
+The September 9 checkpoint held 656 MNDT shares, while the retained terminal
+row lacked cash consideration and MNDT did not print on September 12. The
+refusal and unchanged canonical state are preserved in
+`attempt-011/segment-001`.
+
+Mandiant's SEC-filed Form 8-K and completion release establish that Google's
+acquisition completed on September 12 and every outstanding MNDT share was
+cancelled and converted into the right to receive $23.00 cash:
+
+* https://www.sec.gov/Archives/edgar/data/1370880/000110465922099178/tm2225581d1_8k.htm
+* https://www.sec.gov/Archives/edgar/data/1370880/000110465922099178/tm2225581d1_ex99-1.htm
+* https://www.sec.gov/Archives/edgar/data/1370880/000110465922099685/tm2225787d1_posasr.htm
+
+The research source recognizes $15,088.00 for the 656 held shares on September
+12, removes MNDT and frees its slot. This is historical economic recognition,
+not broker cash finality. Acceptance must reproduce the stopped state, retain
+refusal for missing terms and wrong identity, fail an independent $15,088.00
+oracle for altered consideration, and pass funded daily accounting. Migration
+may resume only from the verified September 9 checkpoint with all prior source
+records retained byte-for-byte.
+
+The six targeted modules passed 74 tests in 6.52s. All 170 earlier records are
+unchanged; the 171-record source hashes to
+`fb6d1de8fd2698484cf0890b49de5693f26f94d5ac6560ae7a21cad35059c31d`.
+The actual stopped-state acceptance passed missing-term and wrong-identity
+refusals, the sourced $15,088.00 payout, independent funded daily accounting,
+and the altered-consideration falsifier. Its results hash to
+`43d848267fdf35b66d3f171c8b4c292ae33bb137fe3cd1019427111edde01119`;
+the resulting one-session research NAV is
+`779586.2381699571429045117393`. The regenerated scope baseline passed and both
+real liquidity guard-removal controls refused. Production code remains
+unchanged.

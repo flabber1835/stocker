@@ -1,0 +1,24 @@
+{
+  "id": "MNDT-2022-09-12-issuer-cash",
+  "effective_session": "2022-09-12",
+  "original_event_session": "2022-09-12",
+  "known_by": "2022-09-12",
+  "security_id": "189419775281460054",
+  "ticker": "MNDT",
+  "kind": "CASH_MERGER",
+  "cash_per_share": "23.00",
+  "delivered_security_id": "",
+  "delivered_ticker": "",
+  "delivered_issuer_id": "",
+  "exchange_ratio": "",
+  "cash_in_lieu_price_per_delivered_share": "",
+  "reference": "Google completed the Mandiant acquisition on 2022-09-12; every outstanding MNDT share was cancelled and converted into the right to receive $23.00 cash. Same-session historical economic recognition, not broker cash finality.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1370880/000110465922099178/tm2225581d1_8k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1370880/000110465922099178/tm2225581d1_ex99-1.htm",
+    "https://www.sec.gov/Archives/edgar/data/1370880/000110465922099685/tm2225787d1_posasr.htm"
+  ],
+  "disposition": "EXACT_EVIDENCE",
+  "authority": "ISSUER_FORM_8K_COMPLETION_RELEASE_AND_POST_EFFECTIVE_AMENDMENT_SEC_ARCHIVE",
+  "research_cash_timing": "SAME_SESSION_ECONOMIC_RECOGNITION_NOT_BROKER_FINALITY"
+}

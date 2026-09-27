@@ -47,13 +47,17 @@ def sc():
     return json.loads(Path(__file__).with_name('sc-supplement.json').read_text())
 
 
+def mndt():
+    return json.loads(Path(__file__).with_name('mndt-supplement.json').read_text())
+
+
 def test_retained_records_unchanged_and_new_output_cannot_overwrite(tmp_path, monkeypatch):
     original = [dict(id='other-event', security_id='other-security', cash_per_share='12.34')]
     base, output = tmp_path/'base.json', tmp_path/'new.json'
     base.write_text(json.dumps(original))
     monkeypatch.setattr(prepare_supplements, 'BASE_SHA256', hashlib.sha256(base.read_bytes()).hexdigest())
     prepare_supplements.prepare(base, output)
-    assert json.loads(output.read_text()) == original + [sc()]
+    assert json.loads(output.read_text()) == original + [mndt()]
     assert json.loads(base.read_text()) == original
     with pytest.raises(FileExistsError):
         prepare_supplements.prepare(base, output)
@@ -64,7 +68,7 @@ def test_retained_records_unchanged_and_new_output_cannot_overwrite(tmp_path, mo
 
 def test_existing_identity_cannot_be_silently_replaced(tmp_path, monkeypatch):
     base = tmp_path/'base.json'
-    base.write_text(json.dumps([sc()]))
+    base.write_text(json.dumps([mndt()]))
     monkeypatch.setattr(prepare_supplements, 'BASE_SHA256', hashlib.sha256(base.read_bytes()).hexdigest())
     with pytest.raises(ValueError, match='already exists'):
         prepare_supplements.prepare(base, tmp_path/'new.json')
@@ -257,6 +261,54 @@ def test_sc_altered_consideration_fails_independent_payout_oracle():
     assert result['applied'] is True
     with pytest.raises(AssertionError):
         assert Decimal(str(ledger.events[0].cash_delta)) == Decimal('871.50')
+
+
+def apply_mndt(event):
+    state, ledger = PortfolioState.fresh(1000), Ledger()
+    sid = event['security_id']
+    state.slots[7].occupied_by = sid
+    state.episodes[7] = HoldingEpisode(
+        security_id=sid, ticker='MNDT', issuer_id='SID:'+sid, slot_id=7,
+        signal_date='2022-08-04', entry_date='2022-08-05', entry_raw_open=22.78,
+        entry_split_adjusted_price=22.78, initial_shares=656, current_shares=656,
+        episode_peak_split_adjusted_close=22.98, market_sessions_held=24)
+    result = apply_terminal(state, terminals([event])['2022-09-12'][0], ledger=ledger,
+                            session='2022-09-12', cfg=WealthCoreConfig())
+    return state, ledger, result
+
+
+@pytest.mark.parametrize('missing', [False, True])
+def test_sourced_mndt_cash_terms_pay_656_shares(missing):
+    event = deepcopy(mndt())
+    assert event['known_by'] == event['original_event_session'] == event['effective_session'] == '2022-09-12'
+    assert event['research_cash_timing'].endswith('NOT_BROKER_FINALITY')
+    if missing:
+        event['cash_per_share'] = ''
+    state, ledger, result = apply_mndt(event)
+    if missing:
+        assert result['applied'] is False
+        assert state.cash == 1000 and 7 in state.episodes and not ledger.events
+    else:
+        assert result['applied'] is True and 7 not in state.episodes
+        assert Decimal(str(state.cash)) == Decimal('16088.00')
+        assert Decimal(str(ledger.events[0].cash_delta)) == Decimal('15088.00')
+        assert ledger.events[0].shares_delta == -656
+
+
+def test_mndt_wrong_identity_cannot_supply_terms_for_held_security():
+    event = deepcopy(mndt())
+    event['security_id'] = 'wrong-security'
+    reviewed = terminals([event])['2022-09-12']
+    assert not any(term.security_id == mndt()['security_id'] for term in reviewed)
+
+
+def test_mndt_altered_consideration_fails_independent_payout_oracle():
+    event = deepcopy(mndt())
+    event['cash_per_share'] = '22.99'
+    _, ledger, result = apply_mndt(event)
+    assert result['applied'] is True
+    with pytest.raises(AssertionError):
+        assert Decimal(str(ledger.events[0].cash_delta)) == Decimal('15088.00')
 
 
 def itc():
