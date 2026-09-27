@@ -1,5 +1,9 @@
 # Sentinel — operational deployment ground truth
 
+[Acquisition reliability](acquisition-certification.md) defines the code scrub,
+isolated tests and foreground recovery of pending provider exports. It uses the
+existing durable preparation jobs and does not add economic or broker authority.
+
 [Owned55 and $50k historical startup](owned55-historical-startup.md) records the
 owner-selected profile and new formation acceptance gates. The production
 selector changes identity; prior certification and checkpoints do not silently

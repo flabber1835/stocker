@@ -79,7 +79,7 @@ def reason_code(phase, exc):
         return 'SOURCE_EXPORT_UNAVAILABLE'
     if name == 'ExportPending':
         return 'SOURCE_EXPORT_PENDING'
-    if name == 'SharadarRetryDeferred':
+    if name in {'SharadarRetryDeferred', 'SharadarUnavailable'}:
         return 'SOURCE_RETRY_DEFERRED'
     if name == 'MutationCursorUnavailable':
         return 'LOCAL_CURSOR_MISSING'

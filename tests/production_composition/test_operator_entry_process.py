@@ -46,6 +46,12 @@ case "$script" in
     exec "$REAL_PYTHON" "$@"
     ;;
 esac
+if [ "${COMPOSITION_REAL_GUARD:-0}" = 1 ]; then
+  case "$script" in
+    scripts/sentinel_go_output_guard.py) exec "$REAL_PYTHON" "$@" ;;
+    scripts/sentinel_go_verified_entry.py) exec "$REAL_PYTHON" -c "$COMPOSITION_CHILD" ;;
+  esac
+fi
 if [ -n "${COMPOSITION_FAIL_SCRIPT:-}" ] && [ "$script" = "$COMPOSITION_FAIL_SCRIPT" ]; then
   exit "${COMPOSITION_FAIL_RC:-41}"
 fi
@@ -187,3 +193,42 @@ def test_local_full_path_does_not_require_github_credential(tmp_path):
         tmp_path, include_github=False, args=("--local-full-certification",))
     assert completed.returncode == 0, completed.stderr
     assert any(line.startswith("scripts/sentinel_go_output_guard.py") for line in calls)
+
+
+@pytest.mark.parametrize("signum", [2, 15])
+def test_cancelled_real_guard_blocks_promotion_then_fresh_invocation_succeeds(
+        tmp_path, signum):
+    # The shell, lock, environment parser and guard are real processes. Only
+    # expensive preflights, financial validation and promotion are fixtures.
+    child = (
+        "import os,signal,sys,time; sys.path.insert(0,'scripts'); "
+        "import sentinel_go_lock as lock; "
+        "assert lock.lifecycle_lock_is_held(); "
+        "signal.signal(signal.SIGINT, lambda *_: sys.exit(0)); "
+        "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); "
+        "print(os.environ['SHARADAR_API_KEY'], flush=True); "
+        "os.kill(os.getppid(), %d); time.sleep(30)" % signum
+    )
+    failed, calls = _run(tmp_path, process_env={
+        "COMPOSITION_REAL_GUARD": "1", "COMPOSITION_CHILD": child})
+    assert failed.returncode == 128 + signum, failed.stderr
+    assert "[REDACTED]" in failed.stdout
+    assert "composition-sharadar" not in failed.stdout + failed.stderr
+    for name in ("promotion", "post_validation"):
+        assert not any(line.startswith(REAL_STAGES[name]) for line in calls)
+    assert "GO lifecycle completed successfully" not in failed.stdout
+
+    retry = tmp_path / "retry"
+    retry.mkdir()
+    success, calls = _run(retry, process_env={
+        "COMPOSITION_REAL_GUARD": "1",
+        "COMPOSITION_CHILD": (
+            "import sys; sys.path.insert(0,'scripts'); "
+            "import sentinel_go_lock as lock; "
+            "assert lock.lifecycle_lock_is_held(); print('CONTROLLED_VALIDATION_PASS')"
+        ),
+    })
+    assert success.returncode == 0, success.stderr
+    assert "CONTROLLED_VALIDATION_PASS" in success.stdout
+    assert _index(calls, REAL_STAGES["promotion"]) < _index(
+        calls, REAL_STAGES["post_validation"])

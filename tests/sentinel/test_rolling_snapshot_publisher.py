@@ -2,6 +2,12 @@
 from __future__ import annotations
 
 import copy
+import os
+from pathlib import Path
+import signal
+import subprocess
+import sys
+import time
 import uuid
 from datetime import datetime, timezone, timedelta
 
@@ -200,6 +206,21 @@ def test_pending_export_is_durable_wait_without_new_deadline(conn, source, monke
     assert jobs.status(conn, job)["deadline"] == deadline
 
 
+def test_transient_transport_exhaustion_releases_job_for_retry(conn, source, monkeypatch):
+    job = enqueue(conn)
+    deadline = jobs.status(conn, job)["deadline"]
+    def unavailable(table, **kwargs):
+        raise sharadar.SharadarUnavailable("source unavailable", 3, 503)
+    monkeypatch.setattr(snapshot_export, "probe_snapshot", unavailable)
+    with pytest.raises(sharadar.SharadarUnavailable):
+        publisher.prepare(conn, job)
+    state = jobs.status(conn, job)
+    assert state["state"] == "RETRY_WAIT" and state["owner"] is None
+    assert state["deadline"] == deadline
+    assert 0 < state["retry_seconds"] <= 3
+    assert count(conn, "sentinel_corpus_publications") == 0
+
+
 @pytest.mark.parametrize("boundary", ["seal", "ready"])
 def test_crash_restarts_from_durable_components_or_ready(conn, source, monkeypatch, boundary):
     job = enqueue(conn)
@@ -223,6 +244,82 @@ def test_crash_restarts_from_durable_components_or_ready(conn, source, monkeypat
     publisher.prepare(conn, job)
     assert count(conn, "sentinel_price_candidates") == 1
     assert jobs.status(conn, job)["deadline"] == deadline
+
+
+@pytest.mark.parametrize("boundary", ["seal", "ready"])
+def test_sigkill_worker_recovers_same_job_after_lease_expiry(conn, source, tmp_path, boundary):
+    """Real process death bypasses exception cleanup; PostgreSQL retains progress."""
+    job = enqueue(conn)
+    deadline = jobs.status(conn, job)["deadline"]
+    conn.rollback()
+    ready = tmp_path / "worker-ready"
+    child = '''
+import os, time
+from pathlib import Path
+import pytest
+from tests.sentinel import test_rolling_snapshot_publisher as fixture
+from sentinel import backup_runtime_authority
+from sentinel.feed import acquisition_work
+patch = pytest.MonkeyPatch()
+fixture.source.__wrapped__(patch)
+root = Path(os.environ['RECOVERY_FIXTURE_ROOT'])
+patch.setattr(backup_runtime_authority, 'POLICY_MARKER', root / 'no-production-policy')
+patch.setattr(acquisition_work, 'cache_root', lambda: root / 'source-cache')
+def pause(*args, **kwargs):
+    (root / 'worker-ready').touch()
+    time.sleep(60)
+owner = fixture.rolling_store if os.environ['RECOVERY_BOUNDARY'] == 'seal' else fixture.rolling_source.SharadarSource
+patch.setattr(owner, 'seal' if os.environ['RECOVERY_BOUNDARY'] == 'seal' else 'corroborate', pause)
+with fixture.store.connect(os.environ['RECOVERY_DSN']) as connection:
+    fixture.publisher.prepare(connection, os.environ['RECOVERY_JOB'])
+'''
+    (tmp_path / "source-cache").mkdir(exist_ok=True)
+    worker = subprocess.Popen([sys.executable, "-c", child],
+        cwd=Path(__file__).resolve().parents[2],
+        env=dict(os.environ, RECOVERY_DSN=conn.info.dsn, RECOVERY_JOB=job,
+                 RECOVERY_FIXTURE_ROOT=str(tmp_path), RECOVERY_BOUNDARY=boundary),
+        stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        wait_until = time.monotonic() + 30
+        while not ready.exists():
+            assert worker.poll() is None, worker.communicate()
+            assert time.monotonic() < wait_until, "worker never reached durable boundary"
+            time.sleep(0.02)
+        before = jobs.status(conn, job)
+        components = jobs.components(conn, job)
+        assert len(components) > 10
+        assert count(conn, "sentinel_snapshot_comparisons") == 0
+        # A second real connection cannot claim the still-owned job.
+        from psycopg.errors import LockNotAvailable
+        with store.connect(conn.info.dsn) as competitor:
+            competitor.execute("SET LOCAL lock_timeout='1s'")
+            with pytest.raises((jobs.JobWaiting, LockNotAvailable)):
+                jobs.claim(competitor, job)
+            competitor.rollback()
+        worker.kill()
+        worker.communicate(timeout=10)
+        assert worker.returncode == -signal.SIGKILL
+        conn.rollback()
+        assert jobs.status(conn, job)["owner"] == before["owner"]
+        # Advance only this fixture's lease to avoid waiting the production
+        # 600-second interval. Keep the original acquisition deadline intact.
+        conn.execute("UPDATE sentinel_snapshot_jobs SET lease_until=clock_timestamp()-interval '1 second' "
+                     "WHERE job_id=%s", (job,))
+        conn.commit()
+        result = publisher.prepare(conn, job)
+        assert publisher.prepare(conn, job) == result
+        after = jobs.status(conn, job)
+        assert after["fence"] == before["fence"] + 1
+        assert after["deadline"] == deadline
+        assert after["owner"] is None
+        assert jobs.components(conn, job) == components
+        assert count(conn, "sentinel_price_candidates") == 1
+        assert count(conn, "sentinel_snapshot_comparisons") == 1
+        assert count(conn, "sentinel_corpus_publications") == 0
+    finally:
+        if worker.poll() is None:
+            worker.kill()
+        worker.communicate(timeout=10)
 
 
 def test_corroboration_refuses_changed_ticker_fields(conn, source, monkeypatch):

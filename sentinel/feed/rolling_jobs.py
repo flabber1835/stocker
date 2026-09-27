@@ -103,6 +103,10 @@ def status(conn, job_id: str) -> dict:
         raise JobRefused("preparation request changed after enqueue")
     value["remaining_seconds"] = max(0.0, (
         datetime.fromisoformat(value["deadline"]) - now).total_seconds())
+    # Use the same database clock as claim(), not the caller's wall clock.
+    waits = [datetime.fromisoformat(value[key]) for key in ("next_retry", "lease_until")
+             if value.get(key) and (key != "lease_until" or value.get("owner"))]
+    value["retry_seconds"] = max([0.0] + [(instant - now).total_seconds() for instant in waits])
     value["elapsed_seconds"] = max(0.0, (
         now - datetime.fromisoformat(value["created_at"])).total_seconds())
     value["phase_elapsed_seconds"] = max(0.0, (
