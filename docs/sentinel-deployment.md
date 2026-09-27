@@ -33,8 +33,10 @@ Foreground backup selection requires a cluster-scoped record published by the
 updated verified backup command. Existing installations need a fresh verified
 base before runtime admission; see [bounded selection and rollout](backup-runtime-selection.md).
 
-Host GO and backup helpers require Linux descriptor-associated exclusive flock
-evidence. See [ownership verification and qualification prerequisites](host-lock-ownership.md).
+Host GO, deployment and backup helpers establish exclusive descriptor ownership
+with bounded fdinfo evidence or the Linux 3.10 nonblocking kernel reassertion
+protocol. See [ownership verification and qualification prerequisites](host-lock-ownership.md)
+and the [NAS compatibility audit](nas-linux-compatibility.md).
 
 [Automatic share-unit reconciliation](automatic-share-unit-reconciliation.md)
 supersedes the universal pre-open certificate requirement below. Ordinary paper

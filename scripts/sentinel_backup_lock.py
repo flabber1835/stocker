@@ -89,6 +89,10 @@ def _hold(command: Sequence[str]) -> int:
                     file=sys.stderr,
                 )
                 return 2
+            if not owns_exclusive_flock(handle.fileno()):
+                print("REFUSED: host cannot verify the acquired Sentinel backup lock",
+                      file=sys.stderr)
+                return 2
             os.set_inheritable(handle.fileno(), True)
             env = dict(os.environ)
             env[LOCK_HELD_ENV] = "1"

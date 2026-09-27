@@ -1,5 +1,62 @@
 # Host lock ownership verification
 
+## Linux 3.10 compatibility decision (2026-09-26)
+
+The NAS at source `78fcaa85017e6bcfa0f110f71a1a6fda8c91845b` acquired a
+temporary exclusive flock successfully but its fdinfo contained only `pos` and
+`flags`. The backup child therefore rejected its inherited lock and attempted
+to acquire the parent's lock again. The resulting contention message did not
+establish another backup job. GO uses the same verifier and has the same defect.
+
+The decision below supersedes the fdinfo-only host prerequisite and the
+read-only-verifier restriction in the original review. Keep the existing
+descriptor/inode checks, lock scopes, inheritance and GO run token. Retain the
+bounded fdinfo proof when a lock record exists. Malformed, unreadable or
+oversized fdinfo still refuses. When readable, valid fdinfo has no lock record,
+use two nonblocking kernel operations on regular local lock files:
+
+1. Independently reopen the supplied descriptor through `/proc/self/fd`, and
+   verify its device/inode. Try a shared flock on that independent description.
+   If it succeeds, close that probe and refuse: there was no exclusive owner.
+   Only EAGAIN/EACCES contention permits the next step; other errors refuse.
+2. Reassert `LOCK_EX | LOCK_NB` on the supplied descriptor. A descriptor
+   independent of a continuing exclusive owner cannot succeed. The inherited
+   owner can. Never accept contention alone and never issue LOCK_UN on the
+   supplied descriptor.
+
+This fallback establishes exclusive ownership at completion, not an immutable
+history of acquisition. If an owner exits between the two operations, the
+second operation may acquire the now-free lock. That is safe for serialization:
+success still requires exclusive ownership on the supplied, inode-bound
+description. A shared-lock transition during that race can also be converted
+by the kernel; callers must not concurrently mutate the supplied descriptor or
+rely on preserving a shared lock after a refusal. Stable shared and unlocked
+descriptors refuse before that operation. No verification path releases an
+existing exclusive owner's lock, and no work proceeds on failure. This explicit
+acquisition contract avoids pretending that old procfs can provide the original
+read-only proof. It requires neither global `/proc/locks`, PID ownership,
+privileged kcmp, kernel-version guesses nor environment opt-outs.
+
+The autonomous deployment launcher's inherited-lock check must also bind the
+descriptor to its exact lock inode and use this shared helper. Its former bare
+flock call could accept a descriptor for an unrelated file. All three entry
+paths must validate immediately after acquisition, before spawning work, so an
+unsupported filesystem or procfs reports a capability refusal rather than
+recursive apparent contention.
+
+Acceptance covers both procfs formats with real flocks: owner/duplicate,
+independent descriptor, shared/unlocked descriptor, parent death, genuine
+contention, probe errors, an owner disappearing between operations, and a
+replacement owner winning that race. The old-kernel format is injected only at
+the fdinfo read; locking remains real. Python 3.8 and shell composition tests
+must exercise the helpers. Actual NAS backup/restore remains a post-merge check.
+
+The related host audit includes GO, deployment, backup/maintenance/media locks,
+boot identity, CPU/cgroup capability selection and host memory evidence.
+Container-only GNU utilities are not host prerequisites. Missing MemAvailable
+must remain UNMEASURED, not healthy or a fabricated memory estimate. No database,
+strategy, broker authority, backup generation or production permissions change.
+
 Step 1 review on main `65e261312ec219e014f062c0b6b374066db19d75`
 found that the backup and GO lock verifiers established contention at the lock
 inode, but did not establish that their supplied descriptor owned that lock.

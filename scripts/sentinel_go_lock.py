@@ -29,8 +29,8 @@ def lifecycle_lock_is_held(env=None) -> bool:
     The shell marker alone is not authority: an unsupported direct Python call
     could set an environment variable.  The supported lock parent passes its
     actually locked descriptor into the child.  We verify that descriptor names
-    the exact lock inode, then require Linux descriptor-associated evidence of
-    an exclusive whole-file flock. Contention alone does not identify its owner.
+    the exact lock inode, then establish exclusive ownership using the shared
+    Linux helper. Contention alone does not identify its owner.
     """
     values = os.environ if env is None else env
     if str(values.get(LOCK_HELD_ENV) or "") != "1":
@@ -74,6 +74,10 @@ def main(argv=None) -> int:
                     "REFUSED: another Sentinel GO validation is already running on this host",
                     file=sys.stderr,
                 )
+                return 2
+            if not owns_exclusive_flock(handle.fileno()):
+                print("REFUSED: host cannot verify the acquired Sentinel GO lock",
+                      file=sys.stderr)
                 return 2
             env = dict(os.environ)
             env[LOCK_HELD_ENV] = "1"

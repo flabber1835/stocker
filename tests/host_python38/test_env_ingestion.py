@@ -353,8 +353,11 @@ class EnvHarness(unittest.TestCase):
     def shell_repo(self):
         scripts = self.root / "scripts"
         scripts.mkdir(exist_ok=True)
-        for name in ("sentinel_env.py", "sentinel-env.sh", "sentinel-compose.sh", "sentinel-autonomous-deploy.sh", "sentinel-go-validate.sh", "sentinel-bringup.sh"):
+        for name in ("sentinel_env.py", "sentinel-env.sh", "sentinel-compose.sh", "sentinel-autonomous-deploy.sh", "sentinel-go-validate.sh", "sentinel-bringup.sh", "sentinel_lock_ownership.py"):
             shutil.copyfile(ROOT / "scripts" / name, scripts / name)
+        launcher = scripts / "sentinel-autonomous-deploy.sh"
+        launcher.write_text(launcher.read_text().replace(
+            "/tmp/sentinel-autonomous-deploy.lock", str(self.root / "deploy.lock")))
         (scripts / "sentinel_host_python.py").write_text("pass\n")
         # Every downstream operation records a canary; invalid env must never
         # reach these substitutes. No database, Docker daemon or network exists.
@@ -430,7 +433,7 @@ class EnvHarness(unittest.TestCase):
             ("sentinel-go-validate.sh", ()),
             ("sentinel-bringup.sh", ()),
         )
-        with tempfile.TemporaryFile() as lock:
+        with (self.root / "deploy.lock").open("a+") as lock:
             fcntl.flock(lock.fileno(), fcntl.LOCK_EX)
             process["SENTINEL_DEPLOY_LOCK_FD"] = str(lock.fileno())
             for launcher, args in launchers:

@@ -1,5 +1,6 @@
 """Run the actual descriptor-ownership helper on minimum supported host Python."""
 import fcntl
+import io
 import os
 from pathlib import Path
 import sys
@@ -13,6 +14,26 @@ import sentinel_go_lock as go
 
 
 class LockOwnershipCompatibility(unittest.TestCase):
+    def test_linux310_procfs_with_real_flocks(self):
+        with tempfile.TemporaryDirectory() as directory:
+            path = Path(directory) / 'lock'
+            with path.open('a+') as owner, path.open('a+') as other:
+                with patch.object(backup, '_lock_path', return_value=path), patch.object(go, 'LOCK', path):
+                    with patch.object(Path, 'open', return_value=io.BytesIO()) as proc:
+                        proc.side_effect = lambda *a, **k: io.BytesIO(b'pos: 0\nflags: 02500002\n')
+                        for module, verify in ((backup, backup.lock_is_held), (go, go.lifecycle_lock_is_held)):
+                            values = {module.LOCK_HELD_ENV: '1', module.LOCK_FD_ENV: str(owner.fileno())}
+                            self.assertFalse(verify(values))
+                            fcntl.flock(owner, fcntl.LOCK_SH)
+                            self.assertFalse(verify(values))
+                            fcntl.flock(owner, fcntl.LOCK_EX)
+                            self.assertTrue(verify(values))
+                            values[module.LOCK_FD_ENV] = str(other.fileno())
+                            self.assertFalse(verify(values))
+                            with self.assertRaises(BlockingIOError):
+                                fcntl.flock(other, fcntl.LOCK_EX | fcntl.LOCK_NB)
+                            fcntl.flock(owner, fcntl.LOCK_UN)
+
     def test_both_verifiers_accept_only_the_actual_exclusive_description(self):
         with tempfile.TemporaryDirectory() as directory:
             path = Path(directory) / 'lock'
