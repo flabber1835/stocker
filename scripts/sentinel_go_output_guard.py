@@ -3,8 +3,9 @@
 
 The supported shell launcher uses this boundary for production diagnostics that
 may contain child exception text. It preserves live stdout/stderr, the child exit
-code, and the inherited verified lifecycle-lock descriptor while ensuring
-configured authority values cannot reach the terminal or CI logs even when an
+status (with shell signal normalization), and the verified lifecycle-lock
+descriptor. Operator cancellation always refuses further stages. Configured
+authority values cannot reach the terminal or CI logs even when an
 exception prints a bare secret with no identifying key.
 """
 from __future__ import annotations
@@ -131,10 +132,13 @@ def run_guarded(command: Sequence[str]) -> int:
     termination_started = threading.Event()
     escalation_threads = []
     pending_signals = []
+    cancellation = []
     proc_holder = [None]
     threads = []
 
     def forward(signum, _frame) -> None:
+        if not cancellation:
+            cancellation.append(signum)
         proc = proc_holder[0]
         if proc is None:
             pending_signals.append(signum)
@@ -195,14 +199,21 @@ def run_guarded(command: Sequence[str]) -> int:
         for thread in threads:
             thread.start()
 
-        return int(proc.wait())
+        return_code = int(proc.wait())
     finally:
-        for signum, handler in previous.items():
-            signal.signal(signum, handler)
-        for escalator in escalation_threads:
-            escalator.join(timeout=_TERMINATION_GRACE_SECONDS + 1.0)
         for thread in threads:
             thread.join(timeout=2)
+        # Cancellation may arrive during output draining after the leader has
+        # exited. Join any escalator it starts before this guard exits too.
+        for escalator in escalation_threads:
+            escalator.join(timeout=_TERMINATION_GRACE_SECONDS + 1.0)
+        for signum, handler in previous.items():
+            signal.signal(signum, handler)
+    # A child may handle cancellation by cleaning up and exiting zero. That
+    # does not authorize the shell's next promotion/handoff stage.
+    if cancellation:
+        return 128 + cancellation[0]
+    return 128 - return_code if return_code < 0 else return_code
 
 
 def main(argv=None) -> int:

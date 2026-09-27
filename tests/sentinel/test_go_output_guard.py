@@ -8,6 +8,8 @@ import subprocess
 import sys
 import time
 
+import pytest
+
 
 ROOT = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
 SCRIPT_DIR = ROOT / "scripts"
@@ -59,6 +61,16 @@ def test_run_guarded_preserves_child_exit_code(monkeypatch, capsys):
     ])
     assert rc == 23
     assert "typed refusal" in capsys.readouterr().err
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM, signal.SIGKILL])
+def test_child_signal_exit_is_normalized_for_shell(monkeypatch, signum):
+    monkeypatch.setattr(guard.go, "merged_environment", lambda: {})
+    assert guard.run_guarded([
+        sys.executable, "-c",
+        "import os,signal; signal.signal(signal.SIGINT, signal.SIG_DFL); "
+        "os.kill(os.getpid(), %d)" % signum,
+    ]) == 128 + signum
 
 
 def test_webhook_is_redacted_from_streams_and_scanned_in_bundles(monkeypatch, capsys):
@@ -139,6 +151,37 @@ def test_signal_arriving_during_child_start_is_forwarded_after_spawn(monkeypatch
     assert sent == [signal.SIGTERM]
 
 
+def test_signal_during_output_drain_waits_for_descendant_escalation(monkeypatch):
+    joined = []
+    sent = []
+
+    class FakePopen:
+        pid = 12345
+        stdout = io.StringIO("")
+        stderr = io.StringIO("")
+        def __init__(self, *_a, **_kw):
+            pass
+        def wait(self):
+            return 0  # Leader exited; descendants may still hold the pipes.
+
+    class ControlledThread:
+        def __init__(self, *, target, **_kw):
+            self.target = target
+        def start(self):
+            pass
+        def join(self, **_kw):
+            joined.append(self.target.__name__)
+            if not sent:
+                signal.raise_signal(signal.SIGTERM)
+
+    monkeypatch.setattr(guard.go, "merged_environment", lambda: {})
+    monkeypatch.setattr(guard.subprocess, "Popen", FakePopen)
+    monkeypatch.setattr(guard.threading, "Thread", ControlledThread)
+    monkeypatch.setattr(guard, "_send_process_group", lambda _p, sig: sent.append(sig))
+    assert guard.run_guarded(["controlled-child"]) == 143
+    assert "_escalate_process_group" in joined
+
+
 def test_output_guard_forwards_termination_to_child_process_group(tmp_path):
     survived = tmp_path / "grandchild-survived"
     grandchild = (
@@ -188,6 +231,34 @@ def test_process_group_escalation_uses_sigkill_after_grace(monkeypatch):
         guard, "_send_process_group", lambda _proc, signum: sent.append(signum))
     guard._escalate_process_group(fake)
     assert sent == [signal.SIGKILL]
+
+
+@pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
+def test_cancellation_is_not_success_when_child_exits_zero(tmp_path, signum):
+    ready = tmp_path / "ready"
+    child = (
+        "import pathlib,signal,sys,time; "
+        "signal.signal(signal.SIGINT, lambda *_: sys.exit(0)); "
+        "signal.signal(signal.SIGTERM, lambda *_: sys.exit(0)); "
+        "pathlib.Path(%r).touch(); time.sleep(30)" % str(ready)
+    )
+    proc = subprocess.Popen([
+        sys.executable, str(SCRIPT_DIR / "sentinel_go_output_guard.py"),
+        sys.executable, "-c", child,
+    ], cwd=ROOT, stdout=subprocess.PIPE, stderr=subprocess.PIPE, text=True)
+    try:
+        deadline = time.monotonic() + 10
+        while not ready.exists():
+            assert proc.poll() is None, proc.communicate()
+            assert time.monotonic() < deadline, "child never became ready"
+            time.sleep(0.02)
+        proc.send_signal(signum)
+        out, err = proc.communicate(timeout=10)
+        assert proc.returncode == 128 + signum, (out, err)
+    finally:
+        if proc.poll() is None:
+            proc.kill()
+            proc.wait(timeout=5)
 
 
 def test_supported_launcher_guards_both_sensitive_diagnostic_surfaces():
