@@ -126,7 +126,7 @@ class TestTheFailure:
                                      run_id=run2, require_lock=True)
                     blocked["result"] = "WROTE"
                 except Exception as exc:                      # noqa: BLE001
-                    blocked["result"] = type(exc).__name__
+                    blocked["result"] = exc
 
             t = threading.Thread(target=try_to_write)
             t.start()
@@ -140,8 +140,9 @@ class TestTheFailure:
 
         t.join(timeout=5)
         writer.close()
-        assert blocked.get("result") == "CorpusBusy", (
-            "the ingest rewrote a row while a reader held the corpus pinned")
+        assert isinstance(blocked.get("result"), P.CorpusLockUnavailable), (
+            "the writer did not report retryable corpus-lock contention: "
+            f"{blocked.get('result')!r}")
 
     def test_the_row_CONTENT_is_stable_across_the_whole_pin(self, conn, pg):
         """Hiding is not the only way a snapshot moves. A restated split ratio
