@@ -1,0 +1,23 @@
+{
+  "id": "COWN-2023-03-01-issuer-cash",
+  "effective_session": "2023-03-01",
+  "original_event_session": "2023-03-01",
+  "known_by": "2023-03-01",
+  "security_id": "936400114104709882",
+  "ticker": "COWN",
+  "kind": "CASH_MERGER",
+  "cash_per_share": "39.00",
+  "delivered_security_id": "",
+  "delivered_ticker": "",
+  "delivered_issuer_id": "",
+  "exchange_ratio": "",
+  "cash_in_lieu_price_per_delivered_share": "",
+  "reference": "Cowen completed its merger with TD Bank Group on 2023-03-01; each common share was converted into the right to receive $39.00 cash. Same-session historical economic recognition, not broker cash finality.",
+  "sources": [
+    "https://www.sec.gov/Archives/edgar/data/1466538/000095015723000197/form8-k.htm",
+    "https://www.sec.gov/Archives/edgar/data/1466538/000114036122036813/ny20005205x2_defm14a.htm"
+  ],
+  "disposition": "EXACT_EVIDENCE",
+  "authority": "ISSUER_FORM_8K_AND_DEFINITIVE_PROXY_SEC_ARCHIVE",
+  "research_cash_timing": "SAME_SESSION_ECONOMIC_RECOGNITION_NOT_BROKER_FINALITY"
+}

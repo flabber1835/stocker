@@ -444,3 +444,32 @@ the resulting one-session research NAV is
 `779586.2381699571429045117393`. The regenerated scope baseline passed and both
 real liquidity guard-removal controls refused. Production code remains
 unchanged.
+
+## Eleventh refusal: Cowen cash merger
+
+Attempt 012 stopped before committing 2023-03-01 after 4,174 measured closes.
+The February 28 checkpoint held 389 COWN shares; the retained cash-merger row
+lacked consideration and COWN did not print on March 1. Cowen's SEC-filed Form
+8-K records completion on March 1, and its definitive proxy establishes $39.00
+cash per common share:
+
+* https://www.sec.gov/Archives/edgar/data/1466538/000095015723000197/form8-k.htm
+* https://www.sec.gov/Archives/edgar/data/1466538/000114036122036813/ny20005205x2_defm14a.htm
+
+The historical research source recognizes $15,171.00 for 389 shares, removes
+COWN and frees its slot. This does not claim broker cash finality. Acceptance
+must reproduce the stopped state, preserve missing-term and wrong-identity
+refusals, fail an independent $15,171.00 oracle for altered consideration, and
+pass funded daily accounting. Migration may resume only from the verified
+February 28 checkpoint with every prior source record unchanged.
+
+The six targeted modules passed 78 tests in 2.91s. All 171 earlier records are
+unchanged; the 172-record source hashes to
+`aac7fd0e9110503f6b32c26ba93e8bbb044b2ada494ba2b8ca88e968dde09aa5`.
+The actual stopped-state acceptance passed missing-term and wrong-identity
+refusals, the sourced $15,171.00 payout, independent funded daily accounting,
+and the altered-consideration falsifier. Its results hash is
+`fb44e63df8433297b84f4ae723126e30d79d3ccdde0c6465fcbd5f4d3993c902`;
+the resulting one-session research NAV is
+`833187.0427661495117237975429`. The regenerated scope baseline passed and both
+real liquidity guard-removal controls refused. Production code is unchanged.

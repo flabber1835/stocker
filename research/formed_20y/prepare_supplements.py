@@ -4,7 +4,7 @@ import hashlib
 import json
 from pathlib import Path
 
-BASE_SHA256 = 'f70b7a3d51834c1c8c1d2804e45fb911e51de834641d68f46ca4673d33a5fdf1'
+BASE_SHA256 = 'fb6d1de8fd2698484cf0890b49de5693f26f94d5ac6560ae7a21cad35059c31d'
 
 
 def prepare(base: Path, output: Path):
@@ -13,7 +13,7 @@ def prepare(base: Path, output: Path):
         raise ValueError('retained supplement bytes changed')
     rows = json.loads(raw)
     events = [json.loads(Path(__file__).with_name(name).read_text()) for name in
-              ('mndt-supplement.json',)]
+              ('cown-supplement.json',)]
     ids = {row['id'] for row in rows}
     keys = {(row.get('effective_session'), row['security_id'], row.get('child_security_id'))
             for row in rows}
