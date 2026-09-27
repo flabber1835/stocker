@@ -72,6 +72,45 @@ def test_preparation_retry_reuses_job_and_original_deadline(conn, issuer_source,
     assert seen[0]["deadline"] == seen[1]["deadline"]
 
 
+def test_go_waits_for_all_exports_then_publishes_same_job(conn, issuer_source, monkeypatch):
+    from types import SimpleNamespace
+    from sentinel import schema
+    from sentinel.feed import preparation_wait, snapshot_export
+    from psycopg.pq import TransactionStatus
+    schema.ensure_schema(conn)
+    original = snapshot_export.probe_snapshot
+    requested = set()
+    ready = False
+    def probe(table, *, params=None, **kwargs):
+        requested.add((table, str(params)))
+        if not ready:
+            raise snapshot_export.ExportPending(table, "creating", params)
+        return original(table, params=params, **kwargs)
+    monkeypatch.setattr(snapshot_export, "probe_snapshot", probe)
+    observed = []
+    def pause(seconds):
+        nonlocal ready
+        assert 0 < seconds <= 10
+        assert conn.info.transaction_status == TransactionStatus.IDLE
+        assert len(requested) > 15  # First pending ACTIONS must not starve SEP.
+        job = conn.execute("SELECT job_id FROM sentinel_snapshot_jobs").fetchone()[0]
+        state = rolling_jobs.status(conn, str(job))
+        assert state["state"] == "WAIT_SOURCE" and state["owner"] is None
+        assert conn.execute("SELECT COUNT(*) FROM sentinel_corpus_publications").fetchone()[0] == 0
+        observed.append(state)
+        conn.execute("UPDATE sentinel_snapshot_jobs SET next_retry=clock_timestamp() WHERE job_id=%s", (job,))
+        conn.commit()
+        ready = True
+    monkeypatch.setattr(preparation_wait, "time", SimpleNamespace(sleep=pause))
+    result = inputs.prepare(conn, target_session=TARGET)
+    assert result["status"] == "PUBLISHED" and len(observed) == 1
+    final = rolling_jobs.status(conn, observed[0]["job_id"])
+    assert final["deadline"] == observed[0]["deadline"]
+    assert final["fence"] > observed[0]["fence"]
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_jobs").fetchone()[0] == 1
+    assert conn.execute("SELECT COUNT(*) FROM sentinel_corpus_publications").fetchone()[0] == 1
+
+
 def test_source_final_target_cannot_be_selected_by_caller(conn, issuer_source):
     from sentinel import schema
     schema.ensure_schema(conn)

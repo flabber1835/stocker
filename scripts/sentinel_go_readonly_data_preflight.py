@@ -296,7 +296,7 @@ def execute():
             code = 'SOURCE_EXPORT_UNAVAILABLE'
         elif name == 'ExportPending':
             code = 'SOURCE_EXPORT_PENDING'
-        elif name == 'SharadarRetryDeferred':
+        elif name in {'SharadarRetryDeferred', 'SharadarUnavailable'}:
             code = 'SOURCE_RETRY_DEFERRED'
         elif name in {
                 'TickersStructureInvalid', 'TickerMetadataIncomplete',

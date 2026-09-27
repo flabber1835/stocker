@@ -5,7 +5,7 @@ from decimal import Decimal
 from datetime import date
 
 from sentinel.feed import (
-    action_source, authority, calendar, coherence, session_envelope, sharadar,
+    action_source, authority, calendar, coherence, export_readiness, session_envelope, sharadar,
     snapshot_export, tickers_authority,
 )
 from sentinel.feed.operational_source import _months
@@ -56,8 +56,7 @@ class SharadarSource:
                     (sharadar.TICKERS, {})]
         requests.extend((sharadar.SEP, sharadar.date_params(lo, hi))
                         for lo, hi in _months(str(self.window.start), str(self.window.end)))
-        self.snapshots = [snapshot_export.probe_snapshot(table, params=params)
-                          for table, params in requests]
+        self.snapshots = export_readiness.probe_all(requests)
         if len({s.refreshed for s in self.snapshots if s.table == sharadar.SEP}) != 1:
             raise authority.VendorPublicationUnstable("SEP partitions crossed a table refresh")
 
