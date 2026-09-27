@@ -7,7 +7,7 @@ from statistics import median
 from sentinel import rolling_checkpoint, schema
 from sentinel.core.rolling_inputs import cold_start_inputs, readiness_inputs, summarize_readiness
 from sentinel.feed import calendar, operational_snapshot as snapshots, publication
-from sentinel.feed import rolling_jobs, runtime_schema
+from sentinel.feed import preparation_wait, rolling_jobs, runtime_schema
 from sentinel.feed.rolling_contract import digest
 from sentinel.feed.readiness_impl import Readiness, PASS, FAIL, MIN_FRONTIER_POPULATION_RATIO
 from sentinel.feed.authority import MIN_FRONTIER_DOMAIN_COVERAGE
@@ -138,13 +138,14 @@ def prepare(conn, *, target_session, budget_seconds=3600):
     try:
         require_schemas(conn)
         require_first_deployment(conn)
-        return _prepare(conn, target_session=target_session, budget_seconds=budget_seconds)
+        return _prepare(conn, target_session=target_session, budget_seconds=budget_seconds,
+                        wait=True)
     except BaseException:
         conn.rollback()
         raise
 
 
-def _prepare(conn, *, target_session, budget_seconds=3600):
+def _prepare(conn, *, target_session, budget_seconds=3600, wait=False):
     """Shared acquisition; callers first prove fresh or attested runtime state."""
     try:
         if target_session != snapshots.source_final_session():
@@ -172,7 +173,13 @@ def _prepare(conn, *, target_session, budget_seconds=3600):
                                 dependencies_sha256=digest({"scope": SCHEMA}),
                                 budget_seconds=budget_seconds)
         conn.commit()
-        binding = snapshots.prepare(conn, job)
+        def check_target():
+            if target_session != snapshots.source_final_session():
+                raise RollingGoRefused("ROLLING_SOURCE_FINAL_TARGET_CHANGED")
+
+        binding = (preparation_wait.run(conn, job, prepare=snapshots.prepare,
+                                        check_target=check_target)
+                   if wait else snapshots.prepare(conn, job))
         with snapshots.pinned(conn, commit=False) as (held, _):
             checked, _ = validate_status(conn, held)
             if checked != binding or held.window_end != target_session:

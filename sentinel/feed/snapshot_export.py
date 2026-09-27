@@ -272,9 +272,9 @@ def _safe_download(client, link: str, *, http, sleep, now, details=None) -> byte
             now=now or (lambda: datetime.now(timezone.utc)))
         if attempt < sharadar.FETCH_MAX_RETRIES - 1:
             work.pause(delay, sleep=sleep)
-    raise sharadar.SharadarRequestError(
+    raise sharadar.SharadarUnavailable(
         f"Sharadar snapshot download failed after "
-        f"{sharadar.FETCH_MAX_RETRIES} attempt(s) ({last_kind})")
+        f"{sharadar.FETCH_MAX_RETRIES} attempt(s) ({last_kind})", delay, status)
 
 
 def _csv_rows(blob: bytes, *, required: set[str]) -> list[dict]:
