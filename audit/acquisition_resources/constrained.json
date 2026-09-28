@@ -1,0 +1,169 @@
+{
+  "database_final_state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 0,
+    "FinishedAt": "0001-01-01T00:00:00Z",
+    "OOMKilled": false,
+    "Paused": false,
+    "Pid": 658998,
+    "Restarting": false,
+    "Running": true,
+    "StartedAt": "2026-09-27T18:12:47.606406096Z",
+    "Status": "running"
+  },
+  "database_limit": 1073741824,
+  "database_measurement": {
+    "anon_peak_bytes": 10440704,
+    "cgroup": {
+      "anon": 4481024,
+      "current": 70029312,
+      "events": {
+        "oom": 0,
+        "oom_kill": 0
+      },
+      "limit": 1073741824,
+      "peak": 79224832,
+      "working": 36556800
+    },
+    "samples": 5,
+    "working_peak_bytes": 42905600
+  },
+  "excluded": [
+    "candidate building",
+    "strategy",
+    "GO",
+    "broker",
+    "NAS qualification"
+  ],
+  "failure": "AssertionError: worker did not complete",
+  "image": "sha256:94c4590523825720fd253693559e8789988961879077a22b5babd8f6020d1b66",
+  "limits": {
+    "database": {
+      "Memory": 1073741824,
+      "MemorySwap": 1073741824,
+      "NanoCpus": 1500000000,
+      "ShmSize": 1073741824
+    },
+    "worker": {
+      "Memory": 268435456,
+      "MemorySwap": 268435456,
+      "NanoCpus": 2000000000,
+      "ShmSize": 67108864
+    }
+  },
+  "phases": [
+    {
+      "cgroup": {
+        "anon": 35356672,
+        "current": 37597184,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 268435456,
+        "peak": 38203392,
+        "working": 37597184
+      },
+      "disk": {
+        "cache_bytes": 0,
+        "cache_files": 0,
+        "other_bytes": 0,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "schema",
+      "process_peak_bytes": 58720256,
+      "seconds": 0.474
+    },
+    {
+      "cgroup": {
+        "anon": 83705856,
+        "current": 88387584,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 268435456,
+        "peak": 88653824,
+        "working": 88383488
+      },
+      "disk": {
+        "cache_bytes": 0,
+        "cache_files": 0,
+        "other_bytes": 12288,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "cold:preflight",
+      "process_peak_bytes": 126922752,
+      "seconds": 0.277
+    }
+  ],
+  "postgres_image": "postgres:16@sha256:95206741a5b214807675e14165369d05b93a9cf692223b616d07cca227e74b0b",
+  "profile": "startup",
+  "provider_final_state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 0,
+    "FinishedAt": "0001-01-01T00:00:00Z",
+    "OOMKilled": false,
+    "Paused": false,
+    "Pid": 659082,
+    "Restarting": false,
+    "Running": true,
+    "StartedAt": "2026-09-27T18:12:48.625815487Z",
+    "Status": "running"
+  },
+  "resources": {
+    "containers": {
+      "database": "acq-resource-2197e11a401e-db",
+      "provider": "acq-resource-2197e11a401e-provider",
+      "worker": "acq-resource-2197e11a401e-worker"
+    },
+    "network": "acq-resource-2197e11a401e-net",
+    "volumes": [
+      "acq-resource-2197e11a401e-db",
+      "acq-resource-2197e11a401e-cache"
+    ]
+  },
+  "schema": "sentinel.local-acquisition-resources/1",
+  "scope": "SYNTHETIC_HTTP_REFERENCES_AND_SQL_STAGING",
+  "verdict": "FAIL",
+  "worker_cpus": 2,
+  "worker_final_state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 137,
+    "FinishedAt": "2026-09-27T18:13:07.954311788Z",
+    "OOMKilled": true,
+    "Paused": false,
+    "Pid": 0,
+    "Restarting": false,
+    "Running": false,
+    "StartedAt": "2026-09-27T18:13:02.481912971Z",
+    "Status": "exited"
+  },
+  "worker_limit": 268435456,
+  "worker_state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 137,
+    "FinishedAt": "2026-09-27T18:13:07.954311788Z",
+    "OOMKilled": true,
+    "Paused": false,
+    "Pid": 0,
+    "Restarting": false,
+    "Running": false,
+    "StartedAt": "2026-09-27T18:13:02.481912971Z",
+    "Status": "exited"
+  }
+}

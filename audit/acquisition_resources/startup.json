@@ -1,0 +1,805 @@
+{
+  "database_final_state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 0,
+    "FinishedAt": "0001-01-01T00:00:00Z",
+    "OOMKilled": false,
+    "Paused": false,
+    "Pid": 642820,
+    "Restarting": false,
+    "Running": true,
+    "StartedAt": "2026-09-27T17:56:42.126092624Z",
+    "Status": "running"
+  },
+  "database_limit": 1073741824,
+  "database_measurement": {
+    "anon_peak_bytes": 50892800,
+    "cgroup": {
+      "anon": 14143488,
+      "current": 667148288,
+      "events": {
+        "oom": 0,
+        "oom_kill": 0
+      },
+      "limit": 1073741824,
+      "peak": 871976960,
+      "working": 594034688
+    },
+    "samples": 188,
+    "working_peak_bytes": 796106752
+  },
+  "excluded": [
+    "candidate building",
+    "strategy",
+    "GO",
+    "broker",
+    "NAS qualification"
+  ],
+  "image": "sha256:94c4590523825720fd253693559e8789988961879077a22b5babd8f6020d1b66",
+  "limits": {
+    "database": {
+      "Memory": 1073741824,
+      "MemorySwap": 1073741824,
+      "NanoCpus": 1500000000,
+      "ShmSize": 1073741824
+    },
+    "worker": {
+      "Memory": 4294967296,
+      "MemorySwap": 4294967296,
+      "NanoCpus": 2000000000,
+      "ShmSize": 67108864
+    }
+  },
+  "phases": [
+    {
+      "cgroup": {
+        "anon": 35368960,
+        "current": 37851136,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 38326272,
+        "working": 37851136
+      },
+      "disk": {
+        "cache_bytes": 0,
+        "cache_files": 0,
+        "other_bytes": 0,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "schema",
+      "process_peak_bytes": 58662912,
+      "seconds": 0.449
+    },
+    {
+      "cgroup": {
+        "anon": 83750912,
+        "current": 88854528,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 89116672,
+        "working": 88850432
+      },
+      "disk": {
+        "cache_bytes": 0,
+        "cache_files": 0,
+        "other_bytes": 12288,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "cold:preflight",
+      "process_peak_bytes": 126754816,
+      "seconds": 0.23
+    },
+    {
+      "cgroup": {
+        "anon": 409133056,
+        "current": 415375360,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 417800192,
+        "working": 413794304
+      },
+      "disk": {
+        "cache_bytes": 1560823,
+        "cache_files": 2,
+        "other_bytes": 12416,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "cold:references",
+      "process_peak_bytes": 454447104,
+      "seconds": 4.887
+    },
+    {
+      "cgroup": {
+        "anon": 443904000,
+        "current": 466272256,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 477630464,
+        "working": 449478656
+      },
+      "disk": {
+        "cache_bytes": 16648397,
+        "cache_files": 21,
+        "other_bytes": 13632,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "cold:download_parse_stage",
+      "process_peak_bytes": 502292480,
+      "seconds": 85.158
+    },
+    {
+      "cgroup": {
+        "anon": 443908096,
+        "current": 466538496,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 477630464,
+        "working": 449744896
+      },
+      "disk": {
+        "cache_bytes": 16648397,
+        "cache_files": 21,
+        "other_bytes": 13632,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "cold:database_sort_read",
+      "process_peak_bytes": 502292480,
+      "seconds": 17.587
+    },
+    {
+      "cgroup": {
+        "anon": 441856000,
+        "current": 464240640,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 477630464,
+        "working": 447447040
+      },
+      "disk": {
+        "cache_bytes": 16648397,
+        "cache_files": 21,
+        "other_bytes": 13632,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "cold:corroborate",
+      "process_peak_bytes": 502292480,
+      "seconds": 1.688
+    },
+    {
+      "cgroup": {
+        "anon": 268210176,
+        "current": 291287040,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 477630464,
+        "working": 274493440
+      },
+      "disk": {
+        "cache_bytes": 16648397,
+        "cache_files": 21,
+        "other_bytes": 13632,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "cached:preflight",
+      "process_peak_bytes": 502292480,
+      "seconds": 0.16
+    },
+    {
+      "cgroup": {
+        "anon": 413188096,
+        "current": 435781632,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 477630464,
+        "working": 418988032
+      },
+      "disk": {
+        "cache_bytes": 16648397,
+        "cache_files": 21,
+        "other_bytes": 13632,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "cached:references",
+      "process_peak_bytes": 502292480,
+      "seconds": 6.057
+    },
+    {
+      "cgroup": {
+        "anon": 441159680,
+        "current": 463527936,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 487243776,
+        "working": 446734336
+      },
+      "disk": {
+        "cache_bytes": 16648397,
+        "cache_files": 21,
+        "other_bytes": 13632,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "cached:download_parse_stage",
+      "process_peak_bytes": 507719680,
+      "seconds": 94.411
+    },
+    {
+      "cgroup": {
+        "anon": 440131584,
+        "current": 462761984,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 487243776,
+        "working": 445968384
+      },
+      "disk": {
+        "cache_bytes": 16648397,
+        "cache_files": 21,
+        "other_bytes": 13632,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "cached:database_sort_read",
+      "process_peak_bytes": 507719680,
+      "seconds": 15.444
+    },
+    {
+      "cgroup": {
+        "anon": 439099392,
+        "current": 461488128,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 487243776,
+        "working": 444694528
+      },
+      "disk": {
+        "cache_bytes": 16648397,
+        "cache_files": 21,
+        "other_bytes": 13632,
+        "partial_bytes": 0
+      },
+      "event": "phase_end",
+      "phase": "cached:corroborate",
+      "process_peak_bytes": 507719680,
+      "seconds": 1.558
+    }
+  ],
+  "profile": "startup",
+  "provider_final_state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 0,
+    "FinishedAt": "0001-01-01T00:00:00Z",
+    "OOMKilled": false,
+    "Paused": false,
+    "Pid": 642908,
+    "Restarting": false,
+    "Running": true,
+    "StartedAt": "2026-09-27T17:56:42.611298922Z",
+    "Status": "running"
+  },
+  "schema": "sentinel.local-acquisition-resources/1",
+  "scope": "SYNTHETIC_HTTP_REFERENCES_AND_SQL_STAGING",
+  "verdict": "PASS_WITHIN_SYNTHETIC_PROFILE",
+  "worker": {
+    "cycles": [
+      {
+        "acquisition_seconds": 90.28961496986449,
+        "checkpoints": 22,
+        "cycle": "cold",
+        "database": {
+          "database_bytes": 277388311,
+          "staging_bytes": 267780096,
+          "temp_bytes": 225828864,
+          "temp_files": 4,
+          "wal_bytes": 16777216
+        },
+        "disk": {
+          "cache_bytes": 16648397,
+          "cache_files": 21,
+          "other_bytes": 13632,
+          "partial_bytes": 0
+        },
+        "provider": {
+          "downloads": 21,
+          "manifest": {
+            "ACTIONS": {
+              "compressed_bytes": 1380567,
+              "csv_bytes": 22750055,
+              "rows": 250000,
+              "sha256": "2155860409c93522705525c4f469baf2be31e4b95a42ab9f343f3d2ba318c29a"
+            },
+            "SEP-2025-03-25-2025-03-31": {
+              "compressed_bytes": 197349,
+              "csv_bytes": 1792563,
+              "rows": 25000,
+              "sha256": "501ba4313db51b3b984a9bcebca5703fac308ead5e392b9fae17249be560120e"
+            },
+            "SEP-2025-04-01-2025-04-30": {
+              "compressed_bytes": 828039,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "e893e34cd044d9927eb34f267d3e03c7531b1a8894d2ed0824878b70c91d885d"
+            },
+            "SEP-2025-05-01-2025-05-31": {
+              "compressed_bytes": 828072,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "f259c6fc334806a6ebc6a8adb0f47f5cd45d5c271a5c8909a1128d2e9abb60a1"
+            },
+            "SEP-2025-06-01-2025-06-30": {
+              "compressed_bytes": 788614,
+              "csv_bytes": 7170063,
+              "rows": 100000,
+              "sha256": "49a923789f40f013a4b4e0e8325744bd1b508a44f73045796bef3f81bc241615"
+            },
+            "SEP-2025-07-01-2025-07-31": {
+              "compressed_bytes": 867468,
+              "csv_bytes": 7887063,
+              "rows": 110000,
+              "sha256": "697fe2c5bd53985d82a62690092309427e94129d94b671248daff8eae103126d"
+            },
+            "SEP-2025-08-01-2025-08-31": {
+              "compressed_bytes": 828087,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "51880b1f0d403383c7bd6520e8d47031ff110222b3575186926d649866d1ed7e"
+            },
+            "SEP-2025-09-01-2025-09-30": {
+              "compressed_bytes": 828052,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "83170643bad2fc802a0127c7da0b8e61daf1b5d05a9bbc928184560815816616"
+            },
+            "SEP-2025-10-01-2025-10-31": {
+              "compressed_bytes": 906880,
+              "csv_bytes": 8245563,
+              "rows": 115000,
+              "sha256": "a0a1e4f910d56adf3221cc241c168f17721961c46bcf0ad4458246fa1016f40f"
+            },
+            "SEP-2025-11-01-2025-11-30": {
+              "compressed_bytes": 749200,
+              "csv_bytes": 6811563,
+              "rows": 95000,
+              "sha256": "68870dd9bcc609f543200456ee4161a31506295f1a1b98ba135e1faf3d04474f"
+            },
+            "SEP-2025-12-01-2025-12-31": {
+              "compressed_bytes": 867472,
+              "csv_bytes": 7887063,
+              "rows": 110000,
+              "sha256": "0f140ee38a35020363d9490c3e190f69f1bceb875e5b39216c3156e6be8d8b42"
+            },
+            "SEP-2026-01-01-2026-01-31": {
+              "compressed_bytes": 804932,
+              "csv_bytes": 7170063,
+              "rows": 100000,
+              "sha256": "3b92c819d8afe350ba0c9a0442443452365762a13d6f4466a265616f1ed436ee"
+            },
+            "SEP-2026-02-01-2026-02-28": {
+              "compressed_bytes": 764664,
+              "csv_bytes": 6811563,
+              "rows": 95000,
+              "sha256": "c9ec4b312d1d309249e1cb9a6d73e9fcf3da99d8f4d2cc2ad626cdeb3ac99559"
+            },
+            "SEP-2026-03-01-2026-03-31": {
+              "compressed_bytes": 885372,
+              "csv_bytes": 7887063,
+              "rows": 110000,
+              "sha256": "86f80ca2aac1e037b03b3fce6ec7356d0195de1e38c515403ab696ac956cab78"
+            },
+            "SEP-2026-04-01-2026-04-30": {
+              "compressed_bytes": 845120,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "f2739d4b0444ae4be51e14be4b944adaff5994f97fabf1ceac9cd3b8309b769e"
+            },
+            "SEP-2026-05-01-2026-05-31": {
+              "compressed_bytes": 804937,
+              "csv_bytes": 7170063,
+              "rows": 100000,
+              "sha256": "b41738a7ad6892af9868af4ec6dd1d271816f83267d17bb54d25ac994362450e"
+            },
+            "SEP-2026-06-01-2026-06-30": {
+              "compressed_bytes": 845138,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "92debe61edf884d5aeb7dc2e0b7a7217daa74b17718e540b9f491f4e5190868c"
+            },
+            "SEP-2026-07-01-2026-07-31": {
+              "compressed_bytes": 885359,
+              "csv_bytes": 7887063,
+              "rows": 110000,
+              "sha256": "811a3e09bcdce7f5a2cb6b03f83d2f6da78ec166a8718f337be762fe299fb135"
+            },
+            "SEP-2026-08-01-2026-08-31": {
+              "compressed_bytes": 845128,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "19ab80ac6340e69d569c2260be2e48c27fd8c651b7be3f5e7c049d899b27dcd6"
+            },
+            "SEP-2026-09-01-2026-09-25": {
+              "compressed_bytes": 717691,
+              "csv_bytes": 6453063,
+              "rows": 90000,
+              "sha256": "48984c9905753b6209bd9e047f46c7545f311071dca7692b3f848bc4105c12cd"
+            },
+            "TICKERS": {
+              "compressed_bytes": 180256,
+              "csv_bytes": 2321005,
+              "rows": 22000,
+              "sha256": "3037e6a76196d92d58b5ed3679f9f9aadba04f51b23155ab504439743b622b85"
+            }
+          },
+          "profile": {
+            "actions": 250000,
+            "formation": true,
+            "name": "startup",
+            "securities": 5000,
+            "tickers": 22000
+          },
+          "transferred_bytes": 16648397
+        },
+        "rows": 1895000,
+        "staged_sha256": "1fc02e7ce0f117e7f74b747f1683530129bf75ae65761b6210544fddc0d2de37"
+      },
+      {
+        "acquisition_seconds": 100.63904179004021,
+        "checkpoints": 22,
+        "cycle": "cached",
+        "database": {
+          "database_bytes": 452631575,
+          "staging_bytes": 443015168,
+          "temp_bytes": 451657728,
+          "temp_files": 8,
+          "wal_bytes": 16777216
+        },
+        "disk": {
+          "cache_bytes": 16648397,
+          "cache_files": 21,
+          "other_bytes": 13632,
+          "partial_bytes": 0
+        },
+        "provider": {
+          "downloads": 21,
+          "manifest": {
+            "ACTIONS": {
+              "compressed_bytes": 1380567,
+              "csv_bytes": 22750055,
+              "rows": 250000,
+              "sha256": "2155860409c93522705525c4f469baf2be31e4b95a42ab9f343f3d2ba318c29a"
+            },
+            "SEP-2025-03-25-2025-03-31": {
+              "compressed_bytes": 197349,
+              "csv_bytes": 1792563,
+              "rows": 25000,
+              "sha256": "501ba4313db51b3b984a9bcebca5703fac308ead5e392b9fae17249be560120e"
+            },
+            "SEP-2025-04-01-2025-04-30": {
+              "compressed_bytes": 828039,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "e893e34cd044d9927eb34f267d3e03c7531b1a8894d2ed0824878b70c91d885d"
+            },
+            "SEP-2025-05-01-2025-05-31": {
+              "compressed_bytes": 828072,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "f259c6fc334806a6ebc6a8adb0f47f5cd45d5c271a5c8909a1128d2e9abb60a1"
+            },
+            "SEP-2025-06-01-2025-06-30": {
+              "compressed_bytes": 788614,
+              "csv_bytes": 7170063,
+              "rows": 100000,
+              "sha256": "49a923789f40f013a4b4e0e8325744bd1b508a44f73045796bef3f81bc241615"
+            },
+            "SEP-2025-07-01-2025-07-31": {
+              "compressed_bytes": 867468,
+              "csv_bytes": 7887063,
+              "rows": 110000,
+              "sha256": "697fe2c5bd53985d82a62690092309427e94129d94b671248daff8eae103126d"
+            },
+            "SEP-2025-08-01-2025-08-31": {
+              "compressed_bytes": 828087,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "51880b1f0d403383c7bd6520e8d47031ff110222b3575186926d649866d1ed7e"
+            },
+            "SEP-2025-09-01-2025-09-30": {
+              "compressed_bytes": 828052,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "83170643bad2fc802a0127c7da0b8e61daf1b5d05a9bbc928184560815816616"
+            },
+            "SEP-2025-10-01-2025-10-31": {
+              "compressed_bytes": 906880,
+              "csv_bytes": 8245563,
+              "rows": 115000,
+              "sha256": "a0a1e4f910d56adf3221cc241c168f17721961c46bcf0ad4458246fa1016f40f"
+            },
+            "SEP-2025-11-01-2025-11-30": {
+              "compressed_bytes": 749200,
+              "csv_bytes": 6811563,
+              "rows": 95000,
+              "sha256": "68870dd9bcc609f543200456ee4161a31506295f1a1b98ba135e1faf3d04474f"
+            },
+            "SEP-2025-12-01-2025-12-31": {
+              "compressed_bytes": 867472,
+              "csv_bytes": 7887063,
+              "rows": 110000,
+              "sha256": "0f140ee38a35020363d9490c3e190f69f1bceb875e5b39216c3156e6be8d8b42"
+            },
+            "SEP-2026-01-01-2026-01-31": {
+              "compressed_bytes": 804932,
+              "csv_bytes": 7170063,
+              "rows": 100000,
+              "sha256": "3b92c819d8afe350ba0c9a0442443452365762a13d6f4466a265616f1ed436ee"
+            },
+            "SEP-2026-02-01-2026-02-28": {
+              "compressed_bytes": 764664,
+              "csv_bytes": 6811563,
+              "rows": 95000,
+              "sha256": "c9ec4b312d1d309249e1cb9a6d73e9fcf3da99d8f4d2cc2ad626cdeb3ac99559"
+            },
+            "SEP-2026-03-01-2026-03-31": {
+              "compressed_bytes": 885372,
+              "csv_bytes": 7887063,
+              "rows": 110000,
+              "sha256": "86f80ca2aac1e037b03b3fce6ec7356d0195de1e38c515403ab696ac956cab78"
+            },
+            "SEP-2026-04-01-2026-04-30": {
+              "compressed_bytes": 845120,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "f2739d4b0444ae4be51e14be4b944adaff5994f97fabf1ceac9cd3b8309b769e"
+            },
+            "SEP-2026-05-01-2026-05-31": {
+              "compressed_bytes": 804937,
+              "csv_bytes": 7170063,
+              "rows": 100000,
+              "sha256": "b41738a7ad6892af9868af4ec6dd1d271816f83267d17bb54d25ac994362450e"
+            },
+            "SEP-2026-06-01-2026-06-30": {
+              "compressed_bytes": 845138,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "92debe61edf884d5aeb7dc2e0b7a7217daa74b17718e540b9f491f4e5190868c"
+            },
+            "SEP-2026-07-01-2026-07-31": {
+              "compressed_bytes": 885359,
+              "csv_bytes": 7887063,
+              "rows": 110000,
+              "sha256": "811a3e09bcdce7f5a2cb6b03f83d2f6da78ec166a8718f337be762fe299fb135"
+            },
+            "SEP-2026-08-01-2026-08-31": {
+              "compressed_bytes": 845128,
+              "csv_bytes": 7528563,
+              "rows": 105000,
+              "sha256": "19ab80ac6340e69d569c2260be2e48c27fd8c651b7be3f5e7c049d899b27dcd6"
+            },
+            "SEP-2026-09-01-2026-09-25": {
+              "compressed_bytes": 717691,
+              "csv_bytes": 6453063,
+              "rows": 90000,
+              "sha256": "48984c9905753b6209bd9e047f46c7545f311071dca7692b3f848bc4105c12cd"
+            },
+            "TICKERS": {
+              "compressed_bytes": 180256,
+              "csv_bytes": 2321005,
+              "rows": 22000,
+              "sha256": "3037e6a76196d92d58b5ed3679f9f9aadba04f51b23155ab504439743b622b85"
+            }
+          },
+          "profile": {
+            "actions": 250000,
+            "formation": true,
+            "name": "startup",
+            "securities": 5000,
+            "tickers": 22000
+          },
+          "transferred_bytes": 16648397
+        },
+        "rows": 1895000,
+        "staged_sha256": "1fc02e7ce0f117e7f74b747f1683530129bf75ae65761b6210544fddc0d2de37"
+      }
+    ],
+    "event": "result",
+    "measurement": {
+      "cgroup": {
+        "anon": 340860928,
+        "current": 362917888,
+        "events": {
+          "high": 0,
+          "low": 0,
+          "max": 0,
+          "oom": 0,
+          "oom_group_kill": 0,
+          "oom_kill": 0
+        },
+        "limit": 4294967296,
+        "peak": 487243776,
+        "working": 346124288
+      },
+      "phases": {
+        "cached:corroborate": {
+          "anon_peak_bytes": 440131584,
+          "working_peak_bytes": 446468096
+        },
+        "cached:database_sort_read": {
+          "anon_peak_bytes": 441163776,
+          "working_peak_bytes": 447254528
+        },
+        "cached:download_parse_stage": {
+          "anon_peak_bytes": 464424960,
+          "working_peak_bytes": 470450176
+        },
+        "cached:preflight": {
+          "anon_peak_bytes": 269242368,
+          "working_peak_bytes": 275468288
+        },
+        "cached:references": {
+          "anon_peak_bytes": 413188096,
+          "working_peak_bytes": 418988032
+        },
+        "cold:corroborate": {
+          "anon_peak_bytes": 443908096,
+          "working_peak_bytes": 449523712
+        },
+        "cold:database_sort_read": {
+          "anon_peak_bytes": 443908096,
+          "working_peak_bytes": 450080768
+        },
+        "cold:download_parse_stage": {
+          "anon_peak_bytes": 455823360,
+          "working_peak_bytes": 461398016
+        },
+        "cold:preflight": {
+          "anon_peak_bytes": 82259968,
+          "working_peak_bytes": 87416832
+        },
+        "cold:references": {
+          "anon_peak_bytes": 411131904,
+          "working_peak_bytes": 415956992
+        },
+        "schema": {
+          "anon_peak_bytes": 70750208,
+          "working_peak_bytes": 74752000
+        },
+        "startup": {
+          "anon_peak_bytes": 34168832,
+          "working_peak_bytes": 36229120
+        }
+      },
+      "process_peak_bytes": 507719680,
+      "sampled_disk_peaks": {
+        "cache_bytes": 16648397,
+        "other_bytes": 13632,
+        "partial_bytes": 200704
+      },
+      "samples": 1746,
+      "working_peak_bytes": 470450176
+    },
+    "profile": {
+      "actions": 250000,
+      "formation": true,
+      "name": "startup",
+      "securities": 5000,
+      "tickers": 22000
+    },
+    "seconds": 229.3085185859818,
+    "sessions": 379,
+    "source_sha256": "7a83946028ba9cdfc23ddf467c2f62e52157a4284ecd34486aa85d83132e2f31"
+  },
+  "worker_final_state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 0,
+    "FinishedAt": "2026-09-27T18:00:44.271386832Z",
+    "OOMKilled": false,
+    "Paused": false,
+    "Pid": 0,
+    "Restarting": false,
+    "Running": false,
+    "StartedAt": "2026-09-27T17:56:53.978870521Z",
+    "Status": "exited"
+  },
+  "worker_limit": 4294967296,
+  "worker_state": {
+    "Dead": false,
+    "Error": "",
+    "ExitCode": 0,
+    "FinishedAt": "2026-09-27T18:00:44.271386832Z",
+    "OOMKilled": false,
+    "Paused": false,
+    "Pid": 0,
+    "Restarting": false,
+    "Running": false,
+    "StartedAt": "2026-09-27T17:56:53.978870521Z",
+    "Status": "exited"
+  }
+}
