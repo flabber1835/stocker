@@ -967,18 +967,18 @@ def test_certified_probe_runs_all_three_merge_critical_suites_without_network():
     assert gate.status == go.PASS
     assert summary.complete is True
     assert summary.suites_completed == 3
-    assert summary.passed == 60
+    assert summary.passed == 80
     run_calls = [call for call, _env in runner.calls
                  if call[:2] == ["docker", "run"]
                  and not ("-m" in call and "sentinel" in call)]
-    assert len(run_calls) == 6
+    assert len(run_calls) == 8
     assert all("--network" in call and call[call.index("--network") + 1] == "none"
                for call in run_calls)
     assert all(any(value.startswith("sha256:") for value in call) for call in run_calls)
     surface = "\n".join(" ".join(call) for call in run_calls)
     partitions = [call for call in run_calls if 'tools/sentinel_test_partition.py' in call]
     assert [call[call.index('tools/sentinel_test_partition.py') + 1] for call in partitions] == [
-        'general', 'rolling', 'warmup', 'automation']
+        'general', 'contention', 'status', 'rolling', 'warmup', 'automation']
     assert len({call[7] for call in partitions}) == 1
     assert all(call[5:7] == ['--entrypoint', 'python'] for call in partitions)
     assert "tests/wealth_core" in surface

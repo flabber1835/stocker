@@ -1,5 +1,5 @@
 """Shared complete-suite execution for the two local GO certification callers."""
-SENTINEL_PARTITIONS = ('general', 'rolling', 'warmup', 'automation')
+SENTINEL_PARTITIONS = ('general', 'contention', 'status', 'rolling', 'warmup', 'automation')
 AUTOMATION_MODULES = frozenset((
     'test_automation_service.py', 'test_automation_composition.py',
     'test_automation_worker_source_recovery.py', 'test_issue_201_automation_financial_grade.py',
@@ -9,6 +9,10 @@ AUTOMATION_MODULES = frozenset((
 
 
 def partition_for(filename):
+    if filename == 'test_runtime_contention.py':
+        return 'contention'
+    if filename == 'test_status_memory.py':
+        return 'status'
     if filename == 'test_source_seed_warmup.py':
         return 'warmup'
     if filename.startswith('test_rolling_'):

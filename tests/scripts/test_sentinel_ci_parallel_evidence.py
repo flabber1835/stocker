@@ -15,7 +15,7 @@ import yaml
 from tools import sentinel_ci_parallel_evidence as evidence
 
 
-@pytest.mark.parametrize("failed_group", [0, 1, 2])
+@pytest.mark.parametrize("failed_group", [0, 1, 2, 3, 4])
 def test_main_container_partition_preserves_modules_and_propagates_failure(tmp_path, failed_group):
     root = Path(__file__).resolve().parents[2]
     workflow = yaml.safe_load((root / ".github/workflows/sentinel-safety.yml").read_text(encoding="utf-8"))
@@ -66,7 +66,7 @@ ET.ElementTree(suite).write(target)
         assert not (output / "sentinel-main.xml").exists()
     else:
         assert result.returncode == 0, result.stdout + result.stderr
-        assert int((tmp_path / "calls").read_text()) == 2
+        assert int((tmp_path / "calls").read_text()) == 4
         excluded = {"test_source_seed_warmup.py", "test_automation_composition.py",
             "test_automation_worker_source_recovery.py", "test_automation_service.py",
             "test_issue_201_automation_financial_grade.py", "test_automation_p1_continuity.py",
@@ -74,6 +74,28 @@ ET.ElementTree(suite).write(target)
         cases = list(ET.parse(output / "sentinel-main.xml").iter("testcase"))
         assert {c.get("classname") + ".py" for c in cases} == modules - excluded
         assert len(cases) == len(modules - excluded)
+
+
+@pytest.mark.parametrize('fault', ['duplicate_status', 'missing_status_report'])
+@pytest.mark.parametrize('partition,module', [('status', 'test_status_memory.py'),
+                                            ('contention', 'test_runtime_contention.py')])
+def test_main_partition_coverage_rejects_status_omission_or_duplication(tmp_path, monkeypatch, fault, partition, module):
+    original = yaml.safe_load
+
+    def broken_workflow(text):
+        workflow = original(text)
+        step = next(s for s in workflow['jobs']['parallel-certification']['steps']
+                    if s.get('if') == "${{ matrix.lane == 'sentinel-main' }}")
+        removed = (f'--ignore=tests/sentinel/{module}'
+                   if fault == 'duplicate_status'
+                   else f'/tmp/sentinel-lane-evidence/sentinel-main-{partition}.xml')
+        assert removed in step['run']
+        step['run'] = step['run'].replace(removed, '')
+        return workflow
+
+    monkeypatch.setattr(yaml, 'safe_load', broken_workflow)
+    with pytest.raises(AssertionError):
+        test_main_container_partition_preserves_modules_and_propagates_failure(tmp_path, 0)
 
 
 def test_warmup_lane_streams_progress_without_raising_its_deadline():

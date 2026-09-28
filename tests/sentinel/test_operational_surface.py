@@ -353,10 +353,10 @@ def test_ci_pytest_logs_are_pipefail_safe_and_distinguish_skip_from_xfail():
         if run and "| tee" in run:
             assert run.splitlines()[0] == "set -euo pipefail"
         if run and "sentinel-main-general.xml" in run:
-            # Both fresh containers write into one pipefail-protected log group.
+            # All fresh containers write into one pipefail-protected log group.
             assert "{\n" in run
             assert "} 2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt" in run
-            for part in ("general", "rolling"):
+            for part in ("general", "contention", "status", "rolling"):
                 invocation = re.search(
                     rf"docker run\b[^\n]+--junitxml=/evidence/sentinel-main-{part}.xml",
                     run.replace("\\\n", ""))
