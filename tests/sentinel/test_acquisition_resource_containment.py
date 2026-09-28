@@ -91,8 +91,12 @@ def test_http_compression_refuses_before_decompression():
 @pytest.mark.parametrize("recovery", [False, True])
 def test_go_refusal_reason_is_resource_not_provider_pending(monkeypatch, capsys, recovery):
     import json
+    from pathlib import Path
     from types import SimpleNamespace
-    from scripts import sentinel_go_validate_entry, sentinel_go_24x7_entry
+    root = Path(os.environ.get("SENTINEL_REPO_ROOT") or Path(__file__).resolve().parents[2])
+    monkeypatch.syspath_prepend(str(root / "scripts"))
+    import sentinel_go_validate_entry
+    import sentinel_go_24x7_entry
     from sentinel import backup_guard, schema
     from sentinel.feed import store, rolling_go_inputs, outage_recovery
     calls = []
