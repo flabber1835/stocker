@@ -106,6 +106,65 @@ if True:
     assert "E2E_STAGE_FAULT:publication-check" in capsys.readouterr().out
 
 
+@pytest.mark.parametrize("fault,phase,last_stage", [
+    (None, None, "publication"),
+    ("schema-feed-permission", "BACKUP_DURABILITY", "connect"),
+    ("schema-migration", "SCHEMA_MIGRATION", "backup"),
+    ("feed-catchup", "DAILY_CATCHUP", "feed-schema"),
+    ("publication-check", "PUBLICATION_CHECK", "prepare"),
+])
+def test_real_preparation_payload_rolls_back_and_never_emits_success_after_fault(
+        monkeypatch, capsys, fault, phase, last_stage):
+    """Execute the complete production payload; DB/provider effects are fixtures."""
+    import datetime as dt
+    import json
+    from sentinel import backup_guard, schema
+    from sentinel.feed import calendar, publication, rolling_go_inputs, store
+    from sentinel import shadow_runtime
+    import sentinel_go_24x7_entry as preparation
+
+    events = []
+    connection = SimpleNamespace(
+        rollback=lambda: events.append("rollback"), close=lambda: events.append("close"))
+    target = "2026-09-25"
+    monkeypatch.setenv("SENTINEL_DATABASE_URL", "fixture")
+    monkeypatch.setattr(store, "connect", lambda _url: events.append("connect") or connection)
+    monkeypatch.setattr(backup_guard, "require_writes_permitted",
+                        lambda *_a, **_k: events.append("backup"))
+    monkeypatch.setattr(schema, "ensure_schema", lambda _c: events.append("schema"))
+    monkeypatch.setattr(store, "migrate_schema", lambda _c: events.append("feed-schema"))
+    monkeypatch.setattr(calendar, "latest_closed_session", lambda _now: target)
+    monkeypatch.setattr(calendar, "next_session", lambda _day: "2026-09-28")
+    monkeypatch.setattr(calendar, "session_window", lambda _day: (
+        dt.datetime.max.replace(tzinfo=dt.timezone.utc), None))
+    monkeypatch.setattr(shadow_runtime, "publication_not_before", lambda _day:
+                        dt.datetime.min.replace(tzinfo=dt.timezone.utc))
+    monkeypatch.setattr(rolling_go_inputs, "prepare", lambda *_a, **_k:
+                        events.append("prepare") or {"status": "PUBLISHED", "schema": "fixture"})
+    monkeypatch.setattr(rolling_go_inputs, "current", lambda _c:
+                        events.append("publication") or SimpleNamespace(window_end=target))
+    monkeypatch.setattr(publication, "chain_gaps", lambda _c: [])
+    code = preparation._PREPARATION_CODE
+    if fault:
+        code = faults.docker_arguments(["compose", "run", "-c", code], fault)[-1]
+        with pytest.raises(RuntimeError, match="E2E_STAGE_FAULT:" + fault):
+            exec(compile(code, "<production-preparation>", "exec"), {})
+        assert events[-3:] == [last_stage, "rollback", "close"]
+        output = capsys.readouterr().out
+        failures = [json.loads(line.split("=", 1)[1]) for line in output.splitlines()
+                    if line.startswith("SENTINEL_GO_PREPARATION_FAILURE=")]
+        assert len(failures) == 1 and failures[0]["phase"] == phase
+        assert not any(line.startswith("SENTINEL_GO_PREPARATION=")
+                       for line in output.splitlines())
+    else:
+        exec(compile(code, "<production-preparation>", "exec"), {})
+        assert events == ["connect", "backup", "schema", "feed-schema",
+                          "prepare", "publication", "close"]
+        output = capsys.readouterr().out
+        assert '"publication_current": true' in output
+        assert "SENTINEL_GO_PREPARATION_FAILURE=" not in output
+
+
 def test_host_evidence_fault_occurs_when_writer_is_called(monkeypatch, capsys):
     events = []
     writer = SimpleNamespace(write_zip_no_clobber=lambda: events.append("write"))

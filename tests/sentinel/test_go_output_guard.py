@@ -233,6 +233,17 @@ def test_process_group_escalation_uses_sigkill_after_grace(monkeypatch):
     assert sent == [signal.SIGKILL]
 
 
+def test_exited_owner_does_not_leave_descendants_for_full_cleanup_grace(monkeypatch):
+    sent = []
+    fake = type("FakeProc", (), {"pid": 12345, "poll": lambda _: 0})()
+    monkeypatch.setattr(guard, "_process_group_alive", lambda _proc: True)
+    monkeypatch.setattr(guard, "_send_process_group", lambda _proc, sig: sent.append(sig))
+    monkeypatch.setattr(guard.time, "sleep", lambda _: pytest.fail(
+        "exited owner left descendants waiting for cleanup grace"))
+    guard._escalate_process_group(fake)
+    assert sent == [signal.SIGKILL]
+
+
 @pytest.mark.parametrize("signum", [signal.SIGINT, signal.SIGTERM])
 def test_cancellation_is_not_success_when_child_exits_zero(tmp_path, signum):
     ready = tmp_path / "ready"

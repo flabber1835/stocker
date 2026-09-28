@@ -5,16 +5,23 @@ import threading
 import uuid
 from contextlib import contextmanager
 
+CLIENT_WAIT_SECONDS = 5
+DOCKER_CLEANUP_SECONDS = 20
+# The enclosing output guard must not kill this owner halfway through cleanup.
+CLEANUP_GRACE_SECONDS = 2 * CLIENT_WAIT_SECONDS + 2 * DOCKER_CLEANUP_SECONDS + 5
+
 
 def _remove_owned(name):
     result = subprocess.run(["docker", "rm", "-f", name],
                             stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                            timeout=20, text=True)
+                            timeout=DOCKER_CLEANUP_SECONDS, text=True,
+                            start_new_session=True)
     if result.returncode == 0:
         return
     check = subprocess.run(["docker", "ps", "-aq", "--filter", "name=^/" + name + "$"],
                            stdout=subprocess.PIPE, stderr=subprocess.PIPE,
-                           timeout=20, text=True)
+                           timeout=DOCKER_CLEANUP_SECONDS, text=True,
+                           start_new_session=True)
     if check.returncode != 0 or check.stdout.strip():
         raise RuntimeError("GO could not verify cleanup of its owned Docker container")
 
@@ -49,10 +56,10 @@ def owned_command(command):
                     if proc.poll() is None:
                         proc.terminate()
                         try:
-                            proc.wait(timeout=5)
+                            proc.wait(timeout=CLIENT_WAIT_SECONDS)
                         except subprocess.TimeoutExpired:
                             proc.kill()
-                    proc.wait(timeout=5)
+                    proc.wait(timeout=CLIENT_WAIT_SECONDS)
             finally:
                 if name:
                     _remove_owned(name)
