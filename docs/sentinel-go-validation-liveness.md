@@ -106,6 +106,45 @@ G  separately reviewed autonomous deployment / signed activation
 
 ## Retained certification / retry behavior
 
+### Cancellation and owned Docker cleanup
+
+The output guard must allow the disposable-command owner's bounded cleanup to
+finish before killing its process group. A real local cancellation probe found
+that the old five-second group deadline expired while the owner was still
+waiting five seconds for the Docker client; the daemon-side container survived.
+Terminating a Docker client is not evidence that its container has stopped.
+
+The guard's termination grace therefore covers both five-second client waits,
+the twenty-second exact-container removal, the twenty-second absence check,
+and five seconds of scheduling margin (55 seconds total). Repeated SIGINT or
+SIGTERM does not shorten that deadline. Docker removal/absence subprocesses
+run in separate sessions so terminal process-group signals cannot interrupt
+the cleanup itself. A wedged process group is still killed when the bounded
+grace expires, and cancellation always returns a nonzero status even if the
+child exits successfully. Once the owner exits, remaining group descendants
+are killed immediately; they cannot consume the owner's cleanup grace.
+Removal and verification remain restricted to the
+single generated container name; no broad Docker cleanup is permitted.
+
+This contract covers cooperative SIGINT/SIGTERM cancellation, including repeated
+signals. SIGKILL of the whole host process tree or an unavailable Docker daemon
+cannot prove daemon-side cleanup; these are refusals, never GO evidence.
+Regression coverage composes the real output guard and command owner with a
+delayed external-worker fixture, plus an independent tiny Docker reproduction.
+Failure-path qualification must distinguish isolated stage tests from the full
+canonical sensitivity campaign; a positive GO alone does not prove the latter.
+
+Local validation on 2026-09-28: 166 focused cancellation, operator-shell,
+preparation, atomic evidence, promotion, restore/upgrade binding and stage-fault
+checks passed; 30 selected financial-verdict refusal checks passed. Three
+independent mutations (restore the five-second grace, kill on repeat signal,
+remove cleanup session isolation) each failed both SIGINT/SIGTERM regressions.
+The independent 32-MiB offline Docker probe orphaned its worker before the fix
+and removed it after the fix, including repeated cancellation. Python 3.8 host
+syntax and test ownership checks passed. This is isolated failure-path evidence;
+the full canonical sensitivity campaign and actual NAS qualification are not
+claimed by these results.
+
 A volatile preparation, final paper-account, or readiness failure no longer destroys already-earned stable certification evidence. On retry, the full suite may be reused only when all of the following remain true:
 
 - exact Git commit is unchanged, clean, on current `main`, and equals refreshed `origin/main`;
