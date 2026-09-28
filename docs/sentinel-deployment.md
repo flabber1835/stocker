@@ -1637,6 +1637,12 @@ The runtime's 4 GiB ceiling is the existing #235 Compose correction; the former
 for separately capped synthetic runtime/database/panel probes. Those probes do
 not replace the NAS's exact-image, retained-corpus and filesystem qualification.
 
+[Local acquisition capacity measurements](acquisition-resource-qualification.md)
+exercise real HTTP acquisition and PostgreSQL staging with synthetic startup,
+daily and stress loads under the runtime/database ceilings. Their profile-specific
+verdicts, cache byte-limit gap and sensitivity experiment are separate from full
+formation, GO and NAS resource qualification.
+
 "Later" is finding #15. It needs a Docker daemon and the seeded corpus, so it
 runs on the NAS and nowhere else. Run it with `scripts/sentinel-measure.sh`
 rather than by hand:
