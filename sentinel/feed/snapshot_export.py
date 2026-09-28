@@ -26,13 +26,12 @@ import os
 import time
 import zipfile
 import hashlib
-from contextlib import nullcontext
 from dataclasses import dataclass, field
 from datetime import datetime, timezone
 from typing import Callable, Iterable, Mapping
 from urllib.parse import urlparse
 
-from sentinel.feed import sharadar
+from sentinel.feed import sharadar, acquisition_limits as limits
 
 EXPORT_MAX_POLLS = int(os.getenv("SHARADAR_EXPORT_MAX_POLLS", "20"))
 EXPORT_POLL_SECONDS = float(os.getenv("SHARADAR_EXPORT_POLL_SECONDS", "30"))
@@ -230,21 +229,24 @@ def _safe_download(client, link: str, *, http, sleep, now, details=None) -> byte
         try:
             with sharadar._quiet_http_client_diagnostics():
                 options = work.request_options()
-                response_context = (client.stream("GET", link, **options)
-                                    if hasattr(client, "stream") else
-                                    nullcontext(client.get(link, **options)))
+                response_context = client.stream(
+                    "GET", link, headers={"Accept-Encoding": "identity"}, **options)
                 with response_context as response:
                     status = int(response.status_code)
                     if status in sharadar.RETRYABLE_STATUS:
                         retry_after = response.headers.get("Retry-After")
                         raise RuntimeError("retryable download status")
                     response.raise_for_status()
-                    if not hasattr(response, "iter_bytes"):
-                        return bytes(response.content)
+                    if response.headers.get("Content-Encoding", "identity").lower() != "identity":
+                        raise SharadarSnapshotExportError("Sharadar export requires identity Content-Encoding")
+                    length = response.headers.get("Content-Length")
+                    if length is not None:
+                        limits.check("ZIP_BYTES", int(length), limits.ZIP_BYTES)
                     buffer = io.BytesIO()
                     last_report = time.monotonic()
-                    for chunk in response.iter_bytes():
+                    for chunk in response.iter_bytes(chunk_size=limits.CHUNK_BYTES):
                         work.request_options()
+                        limits.check("ZIP_BYTES", buffer.tell() + len(chunk), limits.ZIP_BYTES)
                         buffer.write(chunk)
                         if time.monotonic() - last_report >= 5:
                             from sentinel.feed import progress
@@ -252,7 +254,8 @@ def _safe_download(client, link: str, *, http, sleep, now, details=None) -> byte
                                           **(details or {}))
                             last_report = time.monotonic()
                     return buffer.getvalue()
-        except sharadar.SharadarRetryDeferred:
+        except (sharadar.SharadarRetryDeferred, limits.AcquisitionResourceExceeded,
+                SharadarSnapshotExportError):
             raise
         except Exception as exc:  # noqa: BLE001
             if sharadar._is_transport_error(exc, http):
@@ -279,20 +282,28 @@ def _safe_download(client, link: str, *, http, sleep, now, details=None) -> byte
 
 def _csv_rows(blob: bytes, *, required: set[str]) -> list[dict]:
     try:
+        limits.check_zip_directory(blob)
         archive = zipfile.ZipFile(io.BytesIO(blob))
     except (zipfile.BadZipFile, ValueError) as exc:
         raise SharadarSnapshotExportError(
             "Sharadar export body is not a valid ZIP archive") from exc
     with archive:
+        limits.check("ZIP_ENTRIES", len(archive.infolist()), limits.ZIP_ENTRIES)
         files = [name for name in archive.namelist()
                  if not name.endswith("/") and name.lower().endswith(".csv")]
         if len(files) != 1:
             raise SharadarSnapshotExportError(
                 f"Sharadar export must contain exactly one CSV, found {len(files)}")
-        with archive.open(files[0]) as raw:
-            text = io.TextIOWrapper(raw, encoding="utf-8-sig", newline="")
-            reader = csv.DictReader(text)
-            fields = list(reader.fieldnames or [])
+        info = archive.getinfo(files[0])
+        if info.compress_type not in {zipfile.ZIP_STORED, zipfile.ZIP_DEFLATED} or info.flag_bits & 1:
+            raise SharadarSnapshotExportError("Sharadar export CSV uses unsupported compression or encryption")
+        limits.check("CSV_BYTES", info.file_size, limits.CSV_BYTES)
+        with archive.open(files[0]) as raw, io.TextIOWrapper(
+                io.BufferedReader(limits.ExpandedReader(raw)), encoding="utf-8-sig", newline="") as text:
+            lines = limits.RecordLines(text)
+            reader = csv.reader(lines)
+            fields = next(reader, [])
+            limits.check("COLUMNS", len(fields), limits.COLUMNS)
             if len(fields) != len(set(fields)) or any(not str(x).strip() for x in fields):
                 raise SharadarSnapshotExportError(
                     "Sharadar export CSV has invalid/duplicate column names")
@@ -302,12 +313,20 @@ def _csv_rows(blob: bytes, *, required: set[str]) -> list[dict]:
                     "Sharadar export CSV lacks required column(s): "
                     + ", ".join(sorted(missing)))
             rows: list[dict] = []
-            for row in reader:
-                if None in row:
+            while True:
+                lines.total = 0
+                row = next(reader, None)
+                if row is None:
+                    break
+                if not row:
+                    continue  # Preserve DictReader's blank-line semantics.
+                limits.check("ROWS", len(rows) + 1, limits.ROWS)
+                limits.check("CELLS", (len(rows) + 1) * len(fields), limits.CELLS)
+                if len(row) > len(fields):
                     raise SharadarSnapshotExportError(
                         "Sharadar export CSV contains a row wider than its header")
                 rows.append({key: (None if value == "" else value)
-                             for key, value in row.items()})
+                             for key, value in zip(fields, row + [None] * (len(fields) - len(row)))})
             return rows
 
 

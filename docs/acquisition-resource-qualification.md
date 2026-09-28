@@ -176,6 +176,12 @@ production capacity, automation and NAS qualification remain open.
 
 ## Remaining boundaries
 
+The later [resource containment change](acquisition-resource-containment.md)
+adds fixed ZIP/CSV/object-count limits and reserves aggregate cache bytes under
+a global lock before writes. The unbounded-export/cache findings below describe
+the original experiment, not the updated production behavior. Process RSS,
+database growth and real-provider/NAS sizing remain separate qualification work.
+
 The code scrub found these limits on the claim:
 
 - `snapshot_export._safe_download` buffers the full compressed file;

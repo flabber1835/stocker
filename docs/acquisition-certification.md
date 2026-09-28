@@ -1,5 +1,9 @@
 # Acquisition reliability: design and certification
 
+[Resource containment](acquisition-resource-containment.md) adds enforced
+complete-export and cache limits. It supersedes the unbounded-byte limitation
+recorded in the original validation below without claiming total NAS capacity.
+
 Certification here means scrubbing the production code and proving small,
 isolated behaviors, then testing their composition. It does not introduce a
 signed certificate, an approval ceremony or an economic claim. The immediate
