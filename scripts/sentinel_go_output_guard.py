@@ -25,13 +25,14 @@ if str(SCRIPT_DIR) not in sys.path:
 
 import sentinel_go_lock as go_lock  # noqa: E402
 import sentinel_go_validate as go  # noqa: E402
+from sentinel_go_process import CLEANUP_GRACE_SECONDS  # noqa: E402
 
 
 _EXTRA_SECRET_NAMES = frozenset({
     "SENTINEL_GO_RUN_TOKEN",
 })
 _REPLACEMENT = "[REDACTED]"
-_TERMINATION_GRACE_SECONDS = 5.0
+_TERMINATION_GRACE_SECONDS = CLEANUP_GRACE_SECONDS
 
 
 def _secret_values(values: Mapping[str, str]) -> tuple[str, ...]:
@@ -102,6 +103,11 @@ def _escalate_process_group(proc: subprocess.Popen) -> None:
     while time.monotonic() < deadline:
         if not _process_group_alive(proc):
             return
+        if proc.poll() is not None:
+            # The owner has finished; lingering descendants no longer need its
+            # cleanup grace (and may otherwise keep output pipes open).
+            _send_process_group(proc, signal.SIGKILL)
+            return
         time.sleep(0.05)
     if _process_group_alive(proc):
         _send_process_group(proc, signal.SIGKILL)
@@ -144,7 +150,8 @@ def run_guarded(command: Sequence[str]) -> int:
             pending_signals.append(signum)
             return
         if termination_started.is_set():
-            _send_process_group(proc, signal.SIGKILL)
+            # A second Ctrl-C must not kill the owner while Docker removal is
+            # in flight. The original bounded escalator still enforces exit.
             return
         termination_started.set()
         _send_process_group(proc, signum)
