@@ -73,7 +73,9 @@ def _canonical_chunks(value):
 
     def walk(item):
         if type(item) not in (dict, list, tuple):
-            yield from encoder.iterencode(item)
+            # iterencode builds recursive Python closures even for one scalar.
+            # encode uses the same spelling without leaving those cycles for GC.
+            yield encoder.encode(item)
             return
         marker = id(item)
         if marker in active:
@@ -111,7 +113,12 @@ def _canonical_chunks(value):
         finally:
             active.remove(marker)
 
-    yield from walk(value)
+    try:
+        yield from walk(value)
+    finally:
+        # The recursive function otherwise owns a cell pointing back to itself.
+        # Release its encoder on exhaustion and on early generator close.
+        walk = None
 
 
 def _hash(value) -> str:

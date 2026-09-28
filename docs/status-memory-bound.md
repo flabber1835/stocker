@@ -1,5 +1,49 @@
 # Single-request shadow status memory
 
+## Encoder lifetime correction, 2026-09-27
+
+Verified base: main `b4278f4a78484c64ad4149f2f55e72c5de744e83` after #447 merged.
+
+The local GO investigation found an execution-order-dependent memory increase
+before a fresh-process recovery test timed out. The state suite used about
+60 MiB alone, but increased the long general worker from 318 to 1,018 MiB.
+A controlled probe identified unnecessary cyclic garbage in canonical hashing:
+200 hashes of a 100-scalar mapping retained 621,800 tracked objects when cyclic
+collection was deferred. The scalar path called `JSONEncoder.iterencode`, which
+constructs recursive Python encoder closures for every scalar.
+
+Decision before implementation: encode each scalar with the same standard
+encoder's `encode` method and clear the traversal's recursive helper on completion
+or generator close. Scalars already occupy a single encoded chunk, so this
+preserves the streaming container and 256-element batching bounds. Keep the
+standard numeric/mixed-key dictionary fallback, strict rejection, and canonical
+bytes unchanged. Do not change GC policy, test timeouts, or resource limits.
+
+Acceptance includes an independent JSON/hash oracle and weak-reference lifetime
+checks while cyclic GC is disabled, including early generator close. Restoring
+either scalar streaming or the recursive closure must fail the lifetime check.
+This explains a production allocation mechanism; the complete final-head GO
+rehearsal remains a separate requirement.
+
+Validation in Python 3.12 offline containers, against the unchanged base test
+image with the modified source and regression module mounted read-only:
+
+```text
+python -m pytest tests/sentinel/test_state_hash_allocations.py tests/sentinel/test_production_state.py tests/sentinel/test_status_memory.py tests/sentinel/test_returning_identity.py -vv -ra --tb=short -p no:cacheprovider
+111 passed in 308.59s; 2 GiB memory/swap-total cap, one CPU
+
+python -m pytest tests/sentinel/test_strict_recovery_predecessor.py -vv -ra --tb=short --durations=2 -p no:cacheprovider
+2 passed in 6.15s; 1 GiB, one CPU, unchanged 40-second subprocess timeout
+
+python -m pytest tests/sentinel/test_state_hash_allocations.py -k lifetime -q --tb=short -p no:cacheprovider
+Restored scalar iterencode: 3 failed (mutation detected)
+Removed recursive-helper cleanup: 3 failed (mutation detected)
+
+python tools/validate_test_responsibility.py --base b4278f4a78484c64ad4149f2f55e72c5de744e83 --output <local-report>
+PASS: 512 modules, zero unowned
+git diff --check: PASS
+```
+
 Base: main `99410e5aff363f9d3d1b0b8d3dbc4e9b93ef4b45`, with reviewed #417
 `c661821cc383836c74746d27faa9fcc14a609b2f` integrated as a dependency. Delivery
 is a feature-branch PR; neither pending PR nor main is rewritten.

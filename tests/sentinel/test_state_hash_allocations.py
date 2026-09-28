@@ -1,14 +1,53 @@
 """Independent canonical bytes, mutation sensitivity and allocation budget."""
+import gc
 import hashlib
 import json
 import subprocess
 import sys
 import tracemalloc
+import weakref
 
 import pytest
 
+from sentinel.core import session as session_module
 from sentinel.core.session import SessionState
 from tests.sentinel.test_production_state import _fresh
+
+
+@pytest.mark.parametrize('operation', ['hash', 'validate', 'close'])
+def test_canonical_encoder_lifetime_does_not_depend_on_cyclic_gc(monkeypatch, operation):
+    value = {'scalars': {'k' + str(i): i / 3 for i in range(100)},
+             'nested': [None, True, -0.0, 'unicode: \u03bb', {'a': [1, 2]}]}
+    expected = independent_hash(value)
+    original = json.JSONEncoder
+    references = []
+
+    class TrackedEncoder(original):
+        def __init__(self, *args, **kwargs):
+            super().__init__(*args, **kwargs)
+            references.append(weakref.ref(self))
+
+    monkeypatch.setattr(json, 'JSONEncoder', TrackedEncoder)
+    enabled = gc.isenabled()
+    gc.disable()
+    try:
+        for _ in range(20):
+            if operation == 'hash':
+                assert session_module._hash(value) == expected
+            elif operation == 'validate':
+                session_module._validate_json(value)
+            else:
+                stream = session_module._canonical_chunks(value)
+                # Reach an encoded scalar before closing the active traversal.
+                for chunk in stream:
+                    if chunk == 'null':
+                        break
+                stream.close()
+                del stream
+            assert references and all(reference() is None for reference in references)
+    finally:
+        if enabled:
+            gc.enable()
 
 
 def wide_state(size=1000, length=260):
