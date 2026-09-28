@@ -11,7 +11,7 @@ from contextlib import contextmanager
 from contextvars import ContextVar
 from pathlib import Path
 
-from sentinel.feed import sharadar
+from sentinel.feed import sharadar, acquisition_limits as limits
 
 SLICE_SECONDS = 600
 _DEADLINE = ContextVar("source_acquisition_deadline", default=None)
@@ -98,12 +98,18 @@ def file_key(snapshot):
 @contextmanager
 def cached_file(snapshot):
     """Serialize same-file downloads without holding the corpus writer lock."""
-    import fcntl
     root = cache_root()
     key = file_key(snapshot)
-    deadline = time.monotonic() + SLICE_SECONDS
     # Fixed lock stripes do not accumulate per-generation lock files.
-    with (root / (key[:2] + ".lock")).open("a+b") as lock:
+    with _cache_lock(root / (key[:2] + ".lock")):
+        yield root / (key + ".zip")
+
+
+@contextmanager
+def _cache_lock(path):
+    import fcntl
+    deadline = time.monotonic() + SLICE_SECONDS
+    with path.open("a+b") as lock:
         while True:
             try:
                 fcntl.flock(lock, fcntl.LOCK_EX | fcntl.LOCK_NB)
@@ -113,18 +119,25 @@ def cached_file(snapshot):
                     raise sharadar.SharadarRetryDeferred(30) from None
                 pause(1)
         try:
-            yield root / (key + ".zip")
+            yield
         finally:
             fcntl.flock(lock, fcntl.LOCK_UN)
 
 
 def read_cached(path):
-    try:
-        blob = path.read_bytes()
-        expected = path.with_suffix(".sha256").read_text(encoding="ascii")
-    except FileNotFoundError:
-        return None
-    return blob if hashlib.sha256(blob).hexdigest() == expected else None
+    with _cache_lock(path.parent / "cache.lock"):
+        _reserve_cache(path.parent)
+        try:
+            with path.open("rb") as stream:
+                size = os.fstat(stream.fileno()).st_size
+                limits.check("ZIP_BYTES", size, limits.ZIP_BYTES)
+                blob = stream.read(size + 1)
+                limits.check("ZIP_BYTES", len(blob), limits.ZIP_BYTES)
+            with path.with_suffix(".sha256").open("rb") as stream:
+                expected = stream.read(65)
+        except FileNotFoundError:
+            return None
+    return blob if hashlib.sha256(blob).hexdigest().encode("ascii") == expected else None
 
 
 def _atomic_write(path, blob):
@@ -140,25 +153,47 @@ def _atomic_write(path, blob):
 
 
 def save_cached(path, blob):
-    _atomic_write(path, blob)
-    _atomic_write(path.with_suffix(".sha256"), hashlib.sha256(blob).hexdigest().encode("ascii"))
-    # Only cache artifacts are pruned; open/locked readers remain valid on Linux.
-    ages = []
-    for item in path.parent.glob("*.zip"):
+    limits.check("ZIP_BYTES", len(blob), limits.ZIP_BYTES)
+    incoming = len(blob) + 64  # Reserve checksum and temporary bytes before writing.
+    limits.check("CACHE_BYTES", incoming, limits.CACHE_BYTES)
+    limits.check("CACHE_FILES", 1, limits.CACHE_FILES)
+    with _cache_lock(path.parent / "cache.lock"):
+        # Every writer holds this lock, including during reservation.
+        _reserve_cache(path.parent, incoming=incoming, replacement=path)
         try:
-            ages.append((item.stat().st_mtime, item))
-        except FileNotFoundError:
-            pass
-    files = [item for _, item in sorted(ages, reverse=True)]
-    for old in files[64:]:
+            _atomic_write(path, blob)
+            _atomic_write(path.with_suffix(".sha256"), hashlib.sha256(blob).hexdigest().encode("ascii"))
+        except BaseException:
+            path.unlink(missing_ok=True)
+            path.with_suffix(".sha256").unlink(missing_ok=True)
+            raise
+
+
+def _reserve_cache(root, *, incoming=0, replacement=None):
+    """Caller holds cache.lock; account for old files and pending replacement."""
+    for partial in root.glob(".partial-*"):
+        partial.unlink(missing_ok=True)
+    for checksum in root.glob("*.sha256"):
+        if not checksum.with_suffix(".zip").exists():
+            checksum.unlink(missing_ok=True)
+    ages = []
+    for item in root.glob("*.zip"):
+        size = item.stat().st_size
+        checksum = item.with_suffix(".sha256")
+        if checksum.exists():
+            size += checksum.stat().st_size
+        ages.append((item.stat().st_mtime, item, size))
+    total = sum(size for _, _, size in ages)
+    count = len(ages)
+    # Remove the old target first: atomic replacement would need both copies.
+    for _, old, size in sorted(ages, key=lambda x: (x[1] != replacement, x[0], x[1])):
+        if (old != replacement and total + incoming <= limits.CACHE_BYTES
+                and count + int(replacement is not None) <= limits.CACHE_FILES):
+            continue
         old.unlink(missing_ok=True)
         old.with_suffix(".sha256").unlink(missing_ok=True)
-    for partial in path.parent.glob(".partial-*"):
-        try:
-            if time.time() - partial.stat().st_mtime > 86400:
-                partial.unlink(missing_ok=True)
-        except FileNotFoundError:
-            pass
+        total -= size
+        count -= 1
 
 
 def retry_source(operation, *, rollback, target_session, wait_seconds=3600,

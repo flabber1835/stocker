@@ -68,6 +68,8 @@ def failure_detail(exc):
 
 def reason_code(phase, exc):
     name = type(exc).__name__
+    if name == 'AcquisitionResourceExceeded':
+        return 'SOURCE_RESOURCE_LIMIT'
     lowered = str(exc).lower()
     if name == 'SeedIdentityCollision':
         return 'SOURCE_IDENTITY_COLLISION'

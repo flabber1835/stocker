@@ -4,6 +4,14 @@
 isolated tests and foreground recovery of pending provider exports. It uses the
 existing durable preparation jobs and does not add economic or broker authority.
 
+[Acquisition resource containment](acquisition-resource-containment.md) refuses
+oversized exports with SOURCE_RESOURCE_LIMIT and bounds the source cache before
+writes. Stop old source-acquisition workers before installing this image so every
+writer sharing its cache follows the global reservation lock. Oversize refusal
+requires reviewing the source size and envelope; it never authorizes a shortened
+history or automatic limit increase. No schema or operational-book migration is
+introduced, and actual NAS capacity remains to be measured.
+
 [Owned55 and $50k historical startup](owned55-historical-startup.md) records the
 owner-selected profile and new formation acceptance gates. The production
 selector changes identity; prior certification and checkpoints do not silently

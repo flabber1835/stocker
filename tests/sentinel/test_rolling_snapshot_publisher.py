@@ -221,6 +221,27 @@ def test_transient_transport_exhaustion_releases_job_for_retry(conn, source, mon
     assert count(conn, "sentinel_corpus_publications") == 0
 
 
+def test_resource_refusal_never_publishes_or_waits(conn, source, monkeypatch):
+    from sentinel.feed import acquisition_limits as limits
+    from tests.sentinel.test_acquisition_resource_containment import zipped
+    job = enqueue(conn)
+    original = snapshot_export.download_snapshot
+    def oversized(*args, **kwargs):
+        return snapshot_export._csv_rows(zipped("ticker\nAAA\nBBB\n"), required={"ticker"})
+    with monkeypatch.context() as patch:
+        patch.setattr(limits, "ROWS", 1)
+        patch.setattr(snapshot_export, "download_snapshot", oversized)
+        with pytest.raises(limits.AcquisitionResourceExceeded, match="ROWS"):
+            publisher.prepare(conn, job)
+    state = jobs.status(conn, job)
+    assert state["state"] == "REFUSED" and state["reason"] == "SOURCE_RESOURCE_LIMIT"
+    assert state["owner"] is None and state["publication_version"] is None
+    assert count(conn, "sentinel_corpus_publications") == 0
+    assert count(conn, "sentinel_snapshot_comparisons") == 0
+    assert snapshot_export.download_snapshot is original
+    assert publisher.prepare(conn, enqueue(conn))["scope"] == "COMPARISON_ONLY"
+
+
 @pytest.mark.parametrize("boundary", ["seal", "ready"])
 def test_crash_restarts_from_durable_components_or_ready(conn, source, monkeypatch, boundary):
     job = enqueue(conn)

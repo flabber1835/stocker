@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import io
 import zipfile
+from contextlib import contextmanager
 
 import pytest
 
@@ -17,6 +18,10 @@ class _Response:
 
     def json(self):
         return self._payload
+
+    def iter_bytes(self, chunk_size):
+        for offset in range(0, len(self.content), chunk_size):
+            yield self.content[offset:offset + chunk_size]
 
     def raise_for_status(self):
         if not 200 <= self.status_code < 300:
@@ -57,6 +62,11 @@ class _Client:
     def get(self, url, params=None, **kwargs):
         self.calls.append((url, dict(params or {})))
         return self.responses.pop(0)
+
+    @contextmanager
+    def stream(self, method, url, **kwargs):
+        assert method == "GET"
+        yield self.get(url, **kwargs)
 
 
 class _Http:

@@ -124,6 +124,7 @@ def _checkpoint(conn, lease, *, ready, component, generation, artifact, rows, by
 
 
 def _record_failure(conn, lease, exc, *, operational=False):
+    from sentinel.feed.acquisition_limits import AcquisitionResourceExceeded
     conn.rollback()
     if jobs.expire(conn, lease.job_id):
         conn.commit()
@@ -144,7 +145,8 @@ def _record_failure(conn, lease, exc, *, operational=False):
         elif isinstance(exc, (KeyboardInterrupt, SystemExit)) and remaining > 2:
             jobs.wait(conn, lease, state="INTERRUPTED", reason="WORKER_INTERRUPTED", retry_seconds=1)
         else:
-            reason = ("SOURCE_GENERATION_CHANGED" if isinstance(exc, authority.VendorPublicationUnstable)
+            reason = ("SOURCE_RESOURCE_LIMIT" if isinstance(exc, AcquisitionResourceExceeded)
+                      else "SOURCE_GENERATION_CHANGED" if isinstance(exc, authority.VendorPublicationUnstable)
                       else "OPERATIONAL_PREPARATION_REFUSED" if operational
                       else "COMPARISON_PREPARATION_REFUSED")
             jobs.finish(conn, lease, state="REFUSED", reason=reason)
