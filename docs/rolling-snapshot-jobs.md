@@ -1,5 +1,10 @@
 # Durable rolling snapshot preparation jobs
 
+[Acquisition resumption](acquisition-resumption.md) adds logged reusable parts
+and a bounded successor lineage. The checkpoint hashes below remain immutable;
+they are now accompanied by verified payload rather than being mistaken for a
+resumable staging cursor.
+
 The second implementation boundary for feature #384 builds on
 [immutable candidate storage](rolling-snapshot-storage.md).
 

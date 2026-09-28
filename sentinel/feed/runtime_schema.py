@@ -488,9 +488,11 @@ from sentinel.feed import rolling_job_catalog as _rolling_job_catalog
 from sentinel.feed import rolling_publication_catalog as _rolling_publication_catalog
 from sentinel.feed import operational_snapshot_catalog as _operational_snapshot_catalog
 from sentinel.feed import history_retention_catalog as _history_retention_catalog
+from sentinel.feed import acquisition_part_schema as _acquisition_part_catalog
 
 for _snapshot_catalog in (_rolling_catalog, _rolling_job_catalog, _rolling_publication_catalog,
-                          _operational_snapshot_catalog, _history_retention_catalog):
+                          _operational_snapshot_catalog, _history_retention_catalog,
+                          _acquisition_part_catalog):
     _RELATIONS.update({name: ("r", "p", False, False, False)
                       for name in _snapshot_catalog.COLUMNS})
     _COLUMNS.update(_snapshot_catalog.COLUMNS)
@@ -500,6 +502,9 @@ for _snapshot_catalog in (_rolling_catalog, _rolling_job_catalog, _rolling_publi
     _CONSTRAINT_WITNESSES.update(_snapshot_catalog.CONSTRAINTS)
     _INDEXES.update({name + "_pkey": True for name in _snapshot_catalog.COLUMNS})
 _INDEXES["sentinel_snapshot_jobs_active_request"] = True
+_INDEXES["sentinel_acquisition_bindings_part"] = False
+_INDEX_WITNESSES["sentinel_acquisition_bindings_part"] = (
+    "sentinel_acquisition_bindings", "part_id", "job_id")
 _INDEX_WITNESSES["sentinel_snapshot_jobs_active_request"] = (
     "sentinel_snapshot_jobs", "request_sha256", "refused", "aborted", "published")
 
@@ -588,6 +593,15 @@ def _validate_catalog(catalog) -> None:
 def _validate_views(cur) -> None:
     from sentinel.feed.history_retention_catalog import require_recovery_pin
     require_recovery_pin(cur)
+    for statement in _acquisition_part_catalog.DDL:
+        if statement.startswith("CREATE OR REPLACE FUNCTION"):
+            function = statement.split("FUNCTION ")[1].split("(")[0]
+            signature = "text" if function.endswith("part_pinned") else ""
+            cur.execute("SELECT prosrc FROM pg_proc WHERE oid=to_regprocedure(%s)",
+                        (f"public.{function}({signature})",))
+            row = cur.fetchone()
+            if row is None or _fold(row[0]) != _fold(statement.split("$$")[1]):
+                raise _refuse("acquisition protection function has changed semantics: " + function)
     for view, witnesses in _VIEW_WITNESSES.items():
         cur.execute("SELECT pg_catalog.pg_get_viewdef(%s::regclass,true)",
                     (f"public.{view}",))

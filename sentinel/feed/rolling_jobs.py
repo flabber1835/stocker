@@ -62,7 +62,7 @@ def _seconds(value, *, maximum):
     return value
 
 
-def enqueue(conn, request: PreparationRequest, *, budget_seconds: int) -> str:
+def enqueue(conn, request: PreparationRequest, *, budget_seconds: int, absolute_deadline=None) -> str:
     """Coalesce the exact active request without renewing its original budget."""
     budget = _seconds(budget_seconds, maximum=86400)
     request = PreparationRequest.model_validate(request.model_dump(mode="json"))
@@ -73,6 +73,12 @@ def enqueue(conn, request: PreparationRequest, *, budget_seconds: int) -> str:
     # to be retained without making their request identity permanently unique.
     key = int(identity[:15], 16)
     with conn.cursor() as cur:
+        if absolute_deadline is not None:
+            cur.execute("SELECT %s::timestamptz>clock_timestamp() AND "
+                        "%s::timestamptz<=clock_timestamp()+interval '86400 seconds'",
+                        (absolute_deadline, absolute_deadline))
+            if not cur.fetchone()[0]:
+                raise JobRefused("successor deadline must remain within the maximum job budget")
         cur.execute("SELECT pg_advisory_xact_lock(%s)", (key,))
         cur.execute("SELECT job_id FROM sentinel_snapshot_jobs WHERE request_sha256=%s "
                     "AND state NOT IN ('REFUSED','ABORTED','PUBLISHED')", (identity,))
@@ -84,9 +90,9 @@ def enqueue(conn, request: PreparationRequest, *, budget_seconds: int) -> str:
         cur.execute(
             "INSERT INTO sentinel_snapshot_jobs "
             "(job_id,request_sha256,request,deadline,state,resume_state,reason) "
-            "VALUES (%s,%s,%s::jsonb,clock_timestamp()+%s*interval '1 second',"
+            "VALUES (%s,%s,%s::jsonb,COALESCE(%s::timestamptz,clock_timestamp()+%s*interval '1 second'),"
             "'ACQUIRING','ACQUIRING','QUEUED')",
-            (job_id, identity, canonical_json(request.model_dump(mode="json")), budget))
+            (job_id, identity, canonical_json(request.model_dump(mode="json")), absolute_deadline, budget))
     return job_id
 
 
@@ -261,8 +267,10 @@ def checkpoint(conn, lease: Lease, *, component: str, generation_sha256: str,
         cur.execute("SELECT generation_sha256,artifact_sha256,rows_done,bytes_done "
                     "FROM sentinel_snapshot_job_components WHERE job_id=%s AND component=%s",
                     (lease.job_id, component))
-        if cur.fetchone() != values:
-            raise JobRefused("completed component changed generation or content; refuse this attempt")
+        previous = cur.fetchone()
+        if previous != values:
+            from sentinel.feed.acquisition_parts import SourceRevision
+            raise SourceRevision(component, digest(previous), digest(values))
 
 
 def components(conn, job_id: str) -> list[dict]:

@@ -10,7 +10,7 @@ from sentinel.feed import (
     rolling_store, runtime_schema, sharadar, snapshot_export, staging, store,
 )
 from sentinel.feed.rolling_contract import digest
-from sentinel.feed.rolling_source import SharadarSource
+from sentinel.feed.retained_source import RetainedSource
 from sentinel.feed.publication import CorpusLockUnavailable
 
 
@@ -112,7 +112,8 @@ def _checkpoint(conn, lease, *, ready, component, generation, artifact, rows, by
         expected = {"component": component, "generation_sha256": digest(generation),
                     "artifact_sha256": artifact, "rows": rows, "bytes": bytes_}
         if matching != [expected]:
-            raise ComparisonRefused("sealed candidate source checkpoint changed")
+            from sentinel.feed.acquisition_parts import SourceRevision
+            raise SourceRevision(component, digest(matching), digest([expected]))
     else:
         jobs.checkpoint(conn, lease, component=component, generation_sha256=digest(generation),
                         artifact_sha256=artifact, rows=rows, bytes_=bytes_)
@@ -188,7 +189,7 @@ def _prepare(conn, job_id, *, operational):
         with store.corpus_write_lock(conn):
             boundary.freeze(conn, lease, request)
             conn.commit()
-        source = SharadarSource(request.window)
+        source = RetainedSource(request.window, conn, lease)
 
         def pulse():
             jobs.heartbeat(conn, lease, lease_seconds=600)
@@ -200,12 +201,11 @@ def _prepare(conn, job_id, *, operational):
 
         # A callback slice cannot outlive its worker lease. All retries retain
         # the server-owned absolute deadline; budget() also caps nested HTTP work.
-        with acquisition_work.budget(seconds=min(500, current["remaining_seconds"])):
+        with source.parts.unit():
             source.preflight()
             pulse()
-            source.references(checkpoint)
-            staging.stage(conn, source.prices(checkpoint, pulse), run_id=lease.owner,
-                          chunk=rolling_builder.CHUNK)
+        source.references(checkpoint)
+        source.acquire_prices(checkpoint, pulse)
         if not ready:
             with store.corpus_write_lock(conn):
                 identity.require_feed_producer_identity()

@@ -252,7 +252,7 @@ def test_active_job_and_worker_scratch_survive_maintenance(conn, operational_sou
         with psycopg.connect(conn.info.dsn) as other:
             assert MAINTAIN(other)['status'] == 'COMPLETE'
         assert conn.execute('SELECT count(*) FROM sentinel_snapshot_bars').fetchone()[0] == 600
-        assert conn.execute('SELECT count(*) FROM sentinel_sep_staging').fetchone()[0] == 600
+        assert conn.execute('SELECT count(*) FROM sentinel_acquisition_prices').fetchone()[0] == 600
         return real(source)
     monkeypatch.setattr(SharadarSource, 'corroborate', concurrent)
     assert publish(conn)['data_version'] == 1

@@ -73,8 +73,12 @@ def reason_code(phase, exc):
     lowered = str(exc).lower()
     if name == 'SeedIdentityCollision':
         return 'SOURCE_IDENTITY_COLLISION'
-    if name == 'VendorPublicationUnstable':
+    if name in {'VendorPublicationUnstable', 'SourceRevision'}:
         return 'SOURCE_PUBLICATION_UNSTABLE'
+    if name == 'PartCorrupt':
+        return 'ACQUISITION_PART_CORRUPT'
+    if name == 'SourceRecoveryExhausted':
+        return 'SOURCE_RECOVERY_EXHAUSTED'
     if name == 'OperationalAcquisitionRefused':
         return 'OPERATIONAL_ACQUISITION_BOUND_EXCEEDED'
     if name == 'SharadarSnapshotExportError':

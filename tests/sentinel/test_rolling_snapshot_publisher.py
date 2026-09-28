@@ -365,7 +365,7 @@ def test_corroboration_refuses_changed_refresh(conn, source, monkeypatch):
                             replace(probe(*a, **kw), refreshed=self.snapshots[0].refreshed + timedelta(days=1)))
         return original(self)
     monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", changed)
-    with pytest.raises(rolling_source.authority.VendorPublicationUnstable, match="refresh"):
+    with pytest.raises(rolling_source.authority.VendorPublicationUnstable, match="ACTIONS.*changed generation"):
         publisher.prepare(conn, enqueue(conn))
     assert count(conn, "sentinel_snapshot_comparisons") == 0
 
@@ -441,9 +441,17 @@ def test_ready_checkpoint_changed_content_refuses(conn, source, monkeypatch):
     with pytest.raises(KeyboardInterrupt):
         publisher.prepare(conn, job)
     source["SEP"][40]["volume"] = "11000"
+    # A real export cache is generation-bound. Advertise the source revision,
+    # rather than letting the test downloader silently bypass that cache law.
+    from dataclasses import replace
+    probe = snapshot_export.probe_snapshot
+    def revised(table, **kwargs):
+        snapshot = probe(table, **kwargs)
+        return replace(snapshot, refreshed=snapshot.refreshed + timedelta(days=1)) if table == "SEP" else snapshot
+    monkeypatch.setattr(snapshot_export, "probe_snapshot", revised)
     retry_now(conn, job)
     monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", original)
-    with pytest.raises(publisher.ComparisonRefused, match="checkpoint changed"):
+    with pytest.raises(rolling_source.authority.VendorPublicationUnstable, match="SEP.*changed generation"):
         publisher.prepare(conn, job)
     assert count(conn, "sentinel_snapshot_comparisons") == 0
 
@@ -476,7 +484,7 @@ def test_corroboration_refuses_changed_benchmark(conn, source, monkeypatch):
         source["SFP"][40][SPY_PRICE_COLUMN] = "60.01"
         original(self)
     monkeypatch.setattr(rolling_source.SharadarSource, "corroborate", changed)
-    with pytest.raises(rolling_source.authority.VendorPublicationUnstable, match="SPY/BIL"):
+    with pytest.raises(rolling_source.authority.VendorPublicationUnstable, match="SFP"):
         publisher.prepare(conn, enqueue(conn))
     assert count(conn, "sentinel_snapshot_comparisons") == 0
 

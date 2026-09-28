@@ -6,6 +6,43 @@ import sys
 from tools.sentinel_rolling_storage_falsifiers import child
 
 MUTANTS = {
+    "resume_ticker_packaging": ("sentinel.feed.retained_source",
+        'keys = ordered(keys)', 'pass',
+        "test_reordered_ticker_export_has_same_content_commitment"),
+    "resume_manifest_integrity": ("sentinel.feed.acquisition_parts",
+        'if digest(manifest) != part_id or manifest.get("schema") != SCHEMA:', 'if False:',
+        "test_retained_identity_corruption_refuses[manifest]"),
+    "resume_binding_identity": ("sentinel.feed.acquisition_parts",
+        'if manifest["component"] != component:', 'if False:',
+        "test_retained_identity_corruption_refuses[binding]"),
+    "resume_price_key": ("sentinel.feed.acquisition_parts",
+        'if row["date"] != str(day) or row["ticker"] != ticker:', 'if False:',
+        "test_retained_identity_corruption_refuses[price_key]"),
+    "resume_append_guard": ("sentinel.feed.acquisition_part_schema",
+        'IF EXISTS(SELECT 1 FROM sentinel_acquisition_bindings WHERE part_id=NEW.part_id) THEN',
+        'IF FALSE THEN', "test_price_payload_is_immutable_after_binding"),
+    "resume_price_integrity": ("sentinel.feed.acquisition_parts",
+        "if not valid:", "if False:",
+        "test_corrupt_retained_payload_refuses_before_source_io[SEP.2025-03-12.2025-03-31]"),
+    "resume_reference_integrity": ("sentinel.feed.acquisition_parts",
+        "if not valid:", "if False:",
+        "test_corrupt_retained_payload_refuses_before_source_io[TICKERS]"),
+    "resume_generation": ("sentinel.feed.acquisition_parts",
+        'if manifest["generation"] == generation:', 'if True:',
+        "test_sep_refresh_invalidates_old_prices_but_reuses_references"),
+    "resume_restart_limit": ("sentinel.feed.acquisition_parts",
+        "depth >= MAX_SUCCESSORS or", "depth > MAX_SUCCESSORS or",
+        "test_persistent_reference_instability_stops_at_durable_restart_limit"),
+    "resume_final_fence": ("sentinel.feed.acquisition_parts",
+        "jobs._owned(self.conn, self.lease)\n        self.conn.execute(\"INSERT INTO sentinel_acquisition_bindings",
+        "pass\n        self.conn.execute(\"INSERT INTO sentinel_acquisition_bindings",
+        "test_write_rechecks_fence_after_copy"),
+    "resume_retention_pin": ("sentinel.feed.acquisition_part_schema",
+        "WHERE b.part_id=target)", "WHERE b.part_id=target AND FALSE)",
+        "test_retention_pins_parts_until_successor_finishes"),
+    "resume_deadline": ("sentinel.feed.acquisition_parts",
+        'absolute_deadline=current["deadline"]', 'absolute_deadline=None',
+        "test_reference_revision_reuses_prices_and_preserves_deadline[TICKERS]"),
     "first_pending_aborts": ("sentinel.feed.export_readiness",
         "pending = pending or exc", "raise",
         "test_all_exports_requested_before_pending_is_returned[pending0]"),
@@ -83,6 +120,8 @@ MUTANTS = {
 
 
 def test_file(name):
+    if name.startswith("resume_"):
+        return "tests/sentinel/test_acquisition_resumption.py"
     if name.startswith("resource_"):
         return "tests/sentinel/test_acquisition_resource_containment.py"
     if name == "transport_exhaustion_terminal":

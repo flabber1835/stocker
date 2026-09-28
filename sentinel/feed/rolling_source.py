@@ -127,14 +127,17 @@ class SharadarSource:
             checkpoint(component(snapshot), generation(snapshot), proof["file_sha256"], len(rows), 0)
 
     def corroborate(self):
+        from sentinel.feed.acquisition_parts import SourceRevision
         for captured in self.snapshots:
             checked = snapshot_export.probe_snapshot(captured.table, params=captured.params)
             if checked.refreshed != captured.refreshed:
-                raise authority.VendorPublicationUnstable("source refresh changed during preparation")
-        if self._tickers_json(self._ticker_keys) != self.tickers:
-            raise authority.VendorPublicationUnstable("TICKERS changed during preparation")
-        if self._sfp() != self.sfp:
-            raise authority.VendorPublicationUnstable("SPY/BIL changed during preparation")
+                raise SourceRevision(component(captured), digest(generation(captured)), digest(generation(checked)))
+        tickers = self._tickers_json(self._ticker_keys)
+        if tickers != self.tickers:
+            raise SourceRevision("TICKERS", digest(self.tickers), digest(tickers))
+        sfp = self._sfp()
+        if sfp != self.sfp:
+            raise SourceRevision("SFP", digest(self.sfp), digest(sfp))
 
     def reference_payload(self):
         return {"schema": "sentinel.rolling-sharadar-references/1",

@@ -1,5 +1,10 @@
 # Acquisition reliability: design and certification
 
+[Acquisition resumption](acquisition-resumption.md) supersedes the original
+hash-only reuse and no-successor policy below. Typed source revisions now have
+bounded successors sharing the original deadline; arbitrary integrity failures
+still refuse. Completed validated parts survive download-cache eviction.
+
 [Resource containment](acquisition-resource-containment.md) adds enforced
 complete-export and cache limits. It supersedes the unbounded-byte limitation
 recorded in the original validation below without claiming total NAS capacity.

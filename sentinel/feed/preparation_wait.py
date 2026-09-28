@@ -1,4 +1,4 @@
-"""Foreground driver for one durable job. Never renews or replaces its request."""
+"""Foreground driver with fixed-request, fixed-deadline revision successors."""
 from __future__ import annotations
 
 import time
@@ -8,11 +8,17 @@ from sentinel.feed.publication import CorpusBusy
 
 
 def run(conn, job_id, *, prepare, check_target, sleep=None):
+    from sentinel.feed.acquisition_parts import SourceRevision, successor
     sleep = sleep or time.sleep
     while True:
         check_target()
         try:
             return prepare(conn, job_id)
+        except SourceRevision as exc:
+            conn.rollback()
+            check_target()
+            job_id = successor(conn, job_id, exc.component)
+            continue
         except (sharadar.SharadarRetryDeferred, ConnectionError, CorpusBusy,
                 jobs.JobWaiting):
             conn.rollback()
