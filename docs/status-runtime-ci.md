@@ -1,5 +1,61 @@
 # Runtime cost review: CI integration, 2026-09-20
 
+## Recovery fixture isolation, 2026-09-27
+
+Run `36359030215`, job `108732909903`, at `72de5865` exited 137
+at `test_status_memory.py::test_daily_checkpoint_verifies_history_once`,
+after the general collection reached 93%. No assertion failure or kernel OOM
+diagnostic was retained. The aggregate checks correctly refused the incomplete
+lane. Exit 137 alone does not prove which memory limit or process caused it.
+
+The local GO retry on the same revision also exited 137 during
+`test_runtime_contention.py::test_real_rolling_worker_recovers_without_reset_or_duplicate_state[corpus_reader]`
+at 82%, with the unrelated backtest already stopped. This second heavy fixture
+needs the same isolation; freeing unrelated workload memory alone was insufficient.
+
+Decision before implementation: execute each entire `test_status_memory.py`
+and `test_runtime_contention.py` module in its own fresh, sequential container,
+rather than after thousands of general cases in the same Python process.
+Their real formed-startup and daily-recovery fixtures remain unchanged. Apply
+the same `status` and `contention` partitions to local GO and CI; merge general,
+contention, status and rolling JUnit reports before the independent
+complete-collection gate. Keep every test, no-skip gates,
+runtime limits and job deadlines unchanged. This bounds fixture/allocator
+lifetime across these groups; it does not certify production memory headroom
+or claim a demonstrated kernel OOM root cause.
+
+Acceptance must exercise the workflow shell's disjoint module union and failure
+propagation for each of the four containers, local GO refusal for every
+incomplete partition result, and both real recovery modules in fresh containers.
+Removing a general exclusion or a recovery report must fail coverage checks.
+The failed local GO on the previous frozen image remains separate evidence.
+
+Validation against main `df242a5a` (merged #446), using the existing Python 3.12
+test image with the updated tests/scripts/workflow mounted read-only and the
+unchanged production runtime:
+
+```text
+python -m pytest tests/scripts/test_sentinel_go_suites.py tests/scripts/test_sentinel_go_validate.py tests/scripts/test_sentinel_ci_parallel_evidence.py tests/scripts/test_test_responsibility.py tests/sentinel/test_adversarial_certification_tools.py tests/sentinel/test_operational_surface.py -q -ra --tb=short -p no:cacheprovider
+247 passed in 30.22s; includes four detected omission/duplication mutations
+
+python tools/sentinel_test_partition.py contention -vv -ra --tb=short -p no:cacheprovider --junitxml=/evidence/contention.xml
+16 passed in 101.92s, separate offline 2 GiB / one-CPU container
+python tools/sentinel_test_partition.py status -vv -ra --tb=short -p no:cacheprovider --junitxml=/evidence/status.xml
+74 passed in 273.14s, separate offline 2 GiB / one-CPU container
+
+python tools/validate_test_responsibility.py --base df242a5a808be7837463f298a04cf7d9b0f87d86 --output <local-report>
+PASS: 512 modules, zero unowned
+AST parsing of all six changed Python files: PASS
+git diff --check: PASS
+```
+
+Independent actual collection matches the disjoint partition union: **5,698**
+nodes = 5,096 general + 16 contention + 74 status + 350 rolling + 20 warmup
++ 142 automation. These targeted passes do not replace a complete final-head
+CI or GO run. No production strategy or trading behavior changed in this fix.
+
+## Original integration decision
+
 Integrate verified main `daa43caf995779bfa7e67195785520744021cb45` without
 rewriting the published branch. The four conflicts repeat #418's implementation;
 retain this PR's bounded encoder, exact-decimal comparisons and additional tests.

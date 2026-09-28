@@ -208,12 +208,12 @@ def corpus_write_lock(conn):
     holder's connection dies — an ingest killed mid-chunk must not lock the
     corpus until someone notices.
     """
-    from sentinel.feed.publication import CORPUS_LOCK_KEY, CorpusBusy
+    from sentinel.feed.publication import CORPUS_LOCK_KEY, CorpusLockUnavailable
 
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_lock(%s)", (CORPUS_LOCK_KEY,))
         if not bool(cur.fetchone()[0]):
-            raise CorpusBusy(
+            raise CorpusLockUnavailable(
                 "the corpus is PINNED by a reader (or another ingest holds the "
                 "write lock); refusing to write. Rewriting a row a session is "
                 "reading would change what its recorded data_version describes "

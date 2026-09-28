@@ -1,6 +1,13 @@
 """Reviewed PostgreSQL availability states shared by broker-free workers."""
 
 
+def local_contention(exc: BaseException) -> bool:
+    """Only failed lock acquisitions, never missing ownership or integrity."""
+    from sentinel.execution.journal import WriterLockUnavailable
+    from sentinel.feed.publication import CorpusLockUnavailable
+    return isinstance(exc, (WriterLockUnavailable, CorpusLockUnavailable))
+
+
 def database_unavailable(exc: BaseException) -> bool:
     sqlstate = str(getattr(exc, 'sqlstate', '') or '')
     if sqlstate:

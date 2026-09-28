@@ -14,6 +14,7 @@ from sentinel.feed._publication_impl import (  # noqa: F401
     CORPUS_LOCK_KEY,
     CoherenceReport,
     CorpusBusy,
+    CorpusLockUnavailable,
     CorpusIncoherent,
     NoPublishedVersion,
     Publication,
@@ -374,7 +375,7 @@ def _publish_atomic(conn, *, run_id=None, window_start=None, window_end=None,
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_lock(%s)", (_core.CORPUS_LOCK_KEY,))
         if not bool(cur.fetchone()[0]):
-            raise _core.CorpusBusy(
+            raise CorpusLockUnavailable(
                 "a session currently has the corpus PINNED; refusing to "
                 "publish. Moving the corpus midway through a decision would "
                 "make that decision's recorded data_version a lie.")

@@ -182,7 +182,7 @@ jobs:
     name: sentinel-suite-${{ matrix.lane }}
     needs: [runtime-build]
     runs-on: ubuntu-latest
-    # Main runs both complete partitions serially; other lanes retain 45 minutes.
+    # Main runs four complete partitions serially; other lanes retain 45 minutes.
     timeout-minutes: ${{ matrix.lane == 'sentinel-main' && 150 || 45 }}
     strategy:
       fail-fast: false
@@ -233,7 +233,17 @@ jobs:
               -v /tmp/sentinel-lane-evidence:/evidence \
               sentinel-test:ci tests/sentinel "${ignore_args[@]}" \
               '--ignore-glob=tests/sentinel/test_rolling_*.py' -vv -ra \
+              --ignore=tests/sentinel/test_status_memory.py \
+              --ignore=tests/sentinel/test_runtime_contention.py \
               --junitxml=/evidence/sentinel-main-general.xml
+            docker run --rm --network none \
+              -v /tmp/sentinel-lane-evidence:/evidence \
+              sentinel-test:ci tests/sentinel/test_runtime_contention.py -vv -ra \
+              --junitxml=/evidence/sentinel-main-contention.xml
+            docker run --rm --network none \
+              -v /tmp/sentinel-lane-evidence:/evidence \
+              sentinel-test:ci tests/sentinel/test_status_memory.py -vv -ra \
+              --junitxml=/evidence/sentinel-main-status.xml
             docker run --rm --network none \
               -v /tmp/sentinel-lane-evidence:/evidence \
               sentinel-test:ci "${rolling_files[@]}" -vv -ra \
@@ -241,6 +251,8 @@ jobs:
             python tools/merge_junit.py \
               --output /tmp/sentinel-lane-evidence/sentinel-main.xml \
               /tmp/sentinel-lane-evidence/sentinel-main-general.xml \
+              /tmp/sentinel-lane-evidence/sentinel-main-contention.xml \
+              /tmp/sentinel-lane-evidence/sentinel-main-status.xml \
               /tmp/sentinel-lane-evidence/sentinel-main-rolling.xml
           } 2>&1 | tee /tmp/sentinel-lane-evidence/summary.txt
 

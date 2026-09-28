@@ -12,7 +12,7 @@ import sentinel_go_validate as go
 from tools.sentinel_test_partition import Partition
 
 
-@pytest.mark.parametrize('partition', ['general', 'rolling', 'warmup', 'automation'])
+@pytest.mark.parametrize('partition', ['general', 'contention', 'status', 'rolling', 'warmup', 'automation'])
 @pytest.mark.parametrize('code,output', [
     (-9, '10 passed in 1s'), (1, '9 passed, 1 failed in 1s'),
     (0, ''), (0, '1 skipped in 1s'), (0, '9 passed, 1 xfailed in 1s'),
@@ -28,7 +28,7 @@ def test_any_incomplete_partition_blocks_go(partition, code, output):
 
     counts, exit_code, complete = suites.run(SimpleNamespace(run=run), image='sha256:' + 'a'*64,
         exclusions=(), parse_summary=go._parse_pytest_summary)
-    assert len(calls) == 6
+    assert len(calls) == 8
     assert complete == 2  # The other two logical suites cannot hide the missing portion.
     assert exit_code == code
     summary = go.TestSummary(candidate_image_digest='sha256:'+'a'*64,
@@ -42,6 +42,8 @@ def test_partition_plugin_covers_unknown_and_nested_modules_once():
     # Explicit expected ownership, including future names; independent of the classifier.
     expected = {
         'general': ['test_execution.py', 'nested/test_new_future_feature.py'],
+        'status': ['test_status_memory.py'],
+        'contention': ['test_runtime_contention.py'],
         'rolling': ['test_rolling_admission_readers.py', 'test_rolling_future_feature.py'],
         'warmup': ['test_source_seed_warmup.py'],
         'automation': ['test_automation_service.py', 'test_automation_composition.py',

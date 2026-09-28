@@ -786,6 +786,9 @@ def advance_ready_shadow(
     except ShadowRuntimeRefused:
         raise
     except Exception as exc:
+        from sentinel.dependency_availability import database_unavailable, local_contention
+        if database_unavailable(exc) or local_contention(exc):
+            raise
         raise ShadowRuntimeRefused(
             f"shadow runtime refused: {type(exc).__name__}: {exc}") from exc
 
@@ -805,6 +808,9 @@ def verified_shadow_status(
     except ShadowRuntimeRefused:
         raise
     except Exception as exc:
+        from sentinel.dependency_availability import database_unavailable, local_contention
+        if database_unavailable(exc) or local_contention(exc):
+            raise
         raise ShadowRuntimeRefused(
             f"shadow status refused: {type(exc).__name__}: {exc}") from exc
 
@@ -827,6 +833,9 @@ def classify_shadow_lineage(
     except ShadowRuntimeRefused:
         raise
     except Exception as exc:
+        from sentinel.dependency_availability import database_unavailable, local_contention
+        if database_unavailable(exc) or local_contention(exc):
+            raise
         raise ShadowRuntimeRefused(
             f"shadow lineage refused: {type(exc).__name__}: {exc}") from exc
 

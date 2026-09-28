@@ -61,6 +61,8 @@ def test_production_go_certification_builds_runtime_then_test_lens_only(certify)
     assert summary.candidate_image_digest == TEST_ID
     assert summary.auxiliary_image_digests == ()
     assert summary.complete
-    assert summary.suites_completed == 3 and summary.passed == 6
-    assert sum('tools/sentinel_test_partition.py' in call for call in runner.commands) == 4
+    assert summary.suites_completed == 3 and summary.passed == 8
+    partitions = [call[call.index('tools/sentinel_test_partition.py') + 1]
+                  for call in runner.commands if 'tools/sentinel_test_partition.py' in call]
+    assert partitions == ['general', 'contention', 'status', 'rolling', 'warmup', 'automation']
     assert gate.status == go.PASS

@@ -91,6 +91,10 @@ class CorpusBusy(RuntimeError):
     """
 
 
+class CorpusLockUnavailable(CorpusBusy):
+    """A competing session prevented a nonblocking corpus-lock acquisition."""
+
+
 class NoPublishedVersion(RuntimeError):
     """The corpus has rows but has never been published.
 
@@ -669,7 +673,7 @@ def pinned(conn, *, commit: bool = True) -> Iterator[Publication]:
     with conn.cursor() as cur:
         cur.execute("SELECT pg_try_advisory_lock_shared(%s)", (CORPUS_LOCK_KEY,))
         if not bool(cur.fetchone()[0]):
-            raise CorpusBusy(
+            raise CorpusLockUnavailable(
                 "the corpus is being WRITTEN — a publish or an ingest holds it "
                 "exclusively — so it cannot be pinned. Pinning now would stamp "
                 "a decision with a version whose rows are half one generation "
