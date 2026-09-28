@@ -136,7 +136,7 @@ class Parts:
 
 
 def price_rows(conn, job_id):
-    """Preserve the canonical staging representation and global session order."""
+    """Project only SEP equity domains in canonical global session order."""
     from sentinel.feed.staging_impl import _source_or_compat
     query = ("SELECT p.payload FROM sentinel_acquisition_prices p JOIN sentinel_acquisition_bindings b "
              "USING(part_id) WHERE b.job_id=%s AND b.component LIKE 'SEP.%%' "
@@ -151,7 +151,7 @@ def price_rows(conn, job_id):
             previous = key
             yield {"date": row["date"], "ticker": row["ticker"], **{
                 field: _source_or_compat(row.get(field), row.get(field))
-                for field in ("open", "close", "closeunadj", "closeadj", "volume")}}
+                for field in ("open", "close", "closeunadj", "volume")}}
 
 
 def successor(conn, job_id, component):

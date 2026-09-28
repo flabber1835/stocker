@@ -442,6 +442,20 @@ def test_retained_price_reader_preserves_exact_source_decimals(conn, source):
     assert str(recovered[0]["volume"]) == rows[0]["volume"]
 
 
+def test_retained_equity_reader_excludes_total_return_price(conn, source):
+    from sentinel.feed.acquisition_parts import Parts, price_rows
+    job = formation_job(conn, source)
+    lease = jobs.claim(conn, job, lease_seconds=600)
+    conn.commit()
+    rows = [{**source["SEP"][0], "closeadj": "987654321.123456789"}]
+    Parts(conn, lease).put("SEP.2025-03-12.2025-03-31", {}, prices=rows, rows=1)
+    recovered = list(price_rows(conn, job))
+    assert len(recovered) == 1
+    assert set(recovered[0]) == {"date", "ticker", "open", "close", "closeunadj", "volume"}
+    assert str(recovered[0]["close"]) == rows[0]["close"]
+    assert str(recovered[0]["closeunadj"]) == rows[0]["closeunadj"]
+
+
 def test_old_hash_only_job_is_preserved_and_superseded_without_operator_reset(conn, source, monkeypatch):
     job = formation_job(conn, source)
     lease = jobs.claim(conn, job, lease_seconds=600)
