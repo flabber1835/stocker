@@ -1,5 +1,9 @@
 # Sentinel — operational deployment ground truth
 
+[GO WAL renewal](go-wal-renewal.md) defines bounded host backup renewal when
+acquisition exceeds the runtime restore-horizon budget. GO resumes the same
+fenced job and revalidates retained parts without resetting its deadline.
+
 [Acquisition resumption](acquisition-resumption.md) defines retained validated
 partitions and bounded recovery across provider revisions. Its additive feed
 tables require the ordinary GO schema migration with old acquisition workers

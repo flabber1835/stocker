@@ -26,7 +26,7 @@ def test_over_budget_chain_refuses_before_name_enumeration(monkeypatch, kind):
         return builtins.range(*args)
 
     monkeypatch.setattr(authority, "range", enumerated, raising=False)
-    with pytest.raises(authority.BackupRuntimeRefused, match="reviewed bound"):
+    with pytest.raises(authority.BackupHorizonExceeded, match="reviewed bound"):
         authority._expected_wals(wal_name(0, timeline), wal_name(last, timeline),
                                  segment_size=SEGMENT_SIZE)
     assert calls == [], "over-budget horizon enumerated names before refusing"
@@ -100,6 +100,7 @@ def test_alias_introduced_after_hashing_cannot_enter_cache(world, monkeypatch):
         return values
 
     monkeypatch.setattr(authority, "_archive_metadata", changed)
-    with pytest.raises(authority.BackupRuntimeRefused, match="alias/hardlink"):
+    with pytest.raises(authority.BackupRuntimeRefused, match="alias/hardlink") as caught:
         authority.require(world, operation="late alias")
+    assert not isinstance(caught.value, authority.BackupHorizonExceeded)
     assert authority._PROOF_CACHE == {}

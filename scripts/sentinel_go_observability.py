@@ -215,13 +215,14 @@ def _raw_stream_is_safe(command: Sequence[str]) -> bool:
 
 
 def _timeout_seconds(controller: Any, go: Any, command: Sequence[str]) -> int:
+    from sentinel_go_deadline import command_timeout
     default = controller._safe_int_env("SENTINEL_GO_COMMAND_TIMEOUT_SECONDS", 10_800)
     preparation = controller._safe_int_env(
         "SENTINEL_GO_PREPARATION_TIMEOUT_SECONDS",
         max(1, go.MAX_BOUNDED_INGEST_MS // 1000),
     )
-    return preparation if any(
-        "SENTINEL_GO_PREPARATION=" in str(item) for item in command) else default
+    return command_timeout(preparation if any(
+        "SENTINEL_GO_PREPARATION=" in str(item) for item in command) else default)
 
 
 def _streaming_run(controller: Any, go: Any, command: Sequence[str], *,
@@ -238,6 +239,8 @@ def _streaming_run_owned(controller, go, command, *, env, cwd, raw_stream, owner
     values = [str(item) for item in command]
     label = _command_label(values)
     timeout = _timeout_seconds(controller, go, values)
+    if timeout <= 0:
+        return subprocess.CompletedProcess(values, 124, stdout="", stderr="")
     label += " (deadline %ss)" % timeout
     _start(label)
     try:

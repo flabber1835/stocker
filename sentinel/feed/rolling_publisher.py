@@ -133,7 +133,11 @@ def _record_failure(conn, lease, exc, *, operational=False):
     try:
         remaining = jobs.status(conn, lease.job_id)["remaining_seconds"]
         delay = max(1, math.ceil(exc.delay)) if isinstance(exc, sharadar.SharadarRetryDeferred) else 10
-        if isinstance(exc, snapshot_export.ExportPending) and remaining > delay:
+        horizon = isinstance(exc, backup_runtime_authority.BackupHorizonExceeded)
+        if horizon and remaining > 2:
+            jobs.wait(conn, lease, state="RETRY_WAIT",
+                      reason="BACKUP_HORIZON_EXCEEDED", retry_seconds=1)
+        elif isinstance(exc, snapshot_export.ExportPending) and remaining > delay:
             state = jobs.status(conn, lease.job_id)["state"]
             jobs.wait(conn, lease, state="WAIT_SOURCE" if state == "ACQUIRING" else "RETRY_WAIT",
                       reason="EXPORT_GENERATION_PENDING", retry_seconds=delay)
@@ -152,6 +156,10 @@ def _record_failure(conn, lease, exc, *, operational=False):
                       else "COMPARISON_PREPARATION_REFUSED")
             jobs.finish(conn, lease, state="REFUSED", reason=reason)
         conn.commit()
+        if horizon and remaining > 2 and operational:
+            # Publish a resume capability only after rollback, fenced wait and
+            # commit. A lost lease or uncertain commit must not trigger renewal.
+            exc.resume_job_id = str(lease.job_id)
     except jobs.JobRefused:
         # Another owner or an expired lease owns the next action, not this worker.
         conn.rollback()

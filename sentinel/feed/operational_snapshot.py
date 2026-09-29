@@ -41,7 +41,8 @@ def _current(conn):
     return publication._validate_publication(conn, publication._core.current(conn), allow_snapshot=True)
 
 
-def enqueue(conn, *, strategy_sha256, dependencies_sha256, budget_seconds=3600):
+def enqueue(conn, *, strategy_sha256, dependencies_sha256, budget_seconds=3600,
+            resume_job_id=None):
     """Freeze the current source-final target and ordinary publication CAS. No commit."""
     current = _current(conn)
     request = jobs.PreparationRequest(
@@ -49,6 +50,16 @@ def enqueue(conn, *, strategy_sha256, dependencies_sha256, budget_seconds=3600):
         expected_publication_version=current.version if current else None,
         strategy_sha256=strategy_sha256,
         dependencies_sha256=digest({"schema": SCHEMA, "dependencies": dependencies_sha256}))
+    if resume_job_id is not None:
+        state = jobs.status(conn, resume_job_id)
+        if (not registered(conn, resume_job_id)
+                or jobs.PreparationRequest.model_validate(state["request"]) != request
+                or state["state"] != "RETRY_WAIT"
+                or state["reason"] != "BACKUP_HORIZON_EXCEEDED"
+                or state["remaining_seconds"] <= 0
+                or state["owner"] is not None):
+            raise OperationalSnapshotRefused("BACKUP_RESUME_JOB_NOT_CURRENT")
+        return str(resume_job_id)
     job = jobs.enqueue(conn, request, budget_seconds=budget_seconds)
     with conn.cursor() as cur:
         cur.execute("INSERT INTO sentinel_operational_snapshot_jobs VALUES (%s) ON CONFLICT DO NOTHING", (job,))

@@ -133,19 +133,19 @@ def readiness(conn, *, now=None):
         return report
 
 
-def prepare(conn, *, target_session, budget_seconds=3600):
+def prepare(conn, *, target_session, budget_seconds=3600, resume_job_id=None):
     """First-deployment coordinator; retry reuses the durable exact request."""
     try:
         require_schemas(conn)
         require_first_deployment(conn)
         return _prepare(conn, target_session=target_session, budget_seconds=budget_seconds,
-                        wait=True)
+                        wait=True, resume_job_id=resume_job_id)
     except BaseException:
         conn.rollback()
         raise
 
 
-def _prepare(conn, *, target_session, budget_seconds=3600, wait=False):
+def _prepare(conn, *, target_session, budget_seconds=3600, wait=False, resume_job_id=None):
     """Shared acquisition; callers first prove fresh or attested runtime state."""
     try:
         if target_session != snapshots.source_final_session():
@@ -171,7 +171,7 @@ def _prepare(conn, *, target_session, budget_seconds=3600, wait=False):
         _, strategy = production_strategy()
         job = snapshots.enqueue(conn, strategy_sha256=digest(strategy),
                                 dependencies_sha256=digest({"scope": SCHEMA}),
-                                budget_seconds=budget_seconds)
+                                budget_seconds=budget_seconds, resume_job_id=resume_job_id)
         conn.commit()
         def check_target():
             if target_session != snapshots.source_final_session():
