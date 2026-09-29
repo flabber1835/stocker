@@ -7,7 +7,7 @@ from sentinel import backup_runtime_authority, identity
 from sentinel.dependency_availability import database_unavailable
 from sentinel.feed import (
     acquisition_work, authority, progress, rolling_builder, rolling_jobs as jobs,
-    rolling_store, runtime_schema, sharadar, snapshot_export, staging, store,
+    rolling_store, rolling_work, runtime_schema, sharadar, snapshot_export, staging, store,
 )
 from sentinel.feed.rolling_contract import digest
 from sentinel.feed.retained_source import RetainedSource
@@ -214,24 +214,27 @@ def _prepare(conn, job_id, *, operational):
             pulse()
         source.references(checkpoint)
         source.acquire_prices(checkpoint, pulse)
-        if not ready:
-            with store.corpus_write_lock(conn):
-                identity.require_feed_producer_identity()
-                rolling_builder.build(conn, lease, request, source)
+        with rolling_work.renewing(lambda: jobs.heartbeat(conn, lease, lease_seconds=600)):
+            if not ready:
+                with store.corpus_write_lock(conn):
+                    identity.require_feed_producer_identity()
+                    rolling_builder.build(conn, lease, request, source)
+                    conn.commit()
+            else:
+                manifest = rolling_store.manifest(conn, str(current["candidate_id"]))
+                if (manifest.reference_sha256 != digest(source.reference_payload())
+                        or manifest.source_evidence_sha256 != digest(source.source_payload())):
+                    raise ComparisonRefused("sealed candidate references/source changed on resume")
                 conn.commit()
-        else:
-            manifest = rolling_store.manifest(conn, str(current["candidate_id"]))
-            if (manifest.reference_sha256 != digest(source.reference_payload())
-                    or manifest.source_evidence_sha256 != digest(source.source_payload())):
-                raise ComparisonRefused("sealed candidate references/source changed on resume")
-            conn.commit()
-        with acquisition_work.budget(seconds=min(500, jobs.status(conn, job_id)["remaining_seconds"])):
-            conn.commit()
-            source.corroborate()
-        if operational:
-            with progress.phase("rolling_operational_validation", job_id=job_id):
-                operational_snapshot.validate(conn, lease, request)
+            rolling_work.checkpoint()
+            with acquisition_work.budget(seconds=min(500, jobs.status(conn, job_id)["remaining_seconds"])):
                 conn.commit()
+                source.corroborate()
+            rolling_work.checkpoint()
+            if operational:
+                with progress.phase("rolling_operational_validation", job_id=job_id):
+                    operational_snapshot.validate(conn, lease, request)
+                    conn.commit()
         phase = "rolling_operational_publication" if operational else "rolling_comparison_publication"
         with progress.phase(phase, job_id=job_id), store.corpus_write_lock(conn):
             producer = identity.require_feed_producer_identity()

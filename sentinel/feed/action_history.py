@@ -7,7 +7,7 @@ from collections import defaultdict
 from datetime import date
 from decimal import Decimal
 
-from sentinel.feed import calendar, rolling_store
+from sentinel.feed import calendar, rolling_store, rolling_work
 from sentinel.feed.rolling_contract import canonical_json, digest
 
 SCHEMA = "sentinel.retained-action-history/1"
@@ -84,6 +84,7 @@ def _material(conn, refs, pub):
     from sentinel.execution.feed_actions import snapshot_lookup
     lo, hi = refs.manifest.window.start, refs.manifest.window.end
     lookup = snapshot_lookup(conn, refs=refs, pub=pub, start=lo, end=hi)
+    rolling_work.checkpoint()
     material = defaultdict(lambda: dict(scalar=[], unsupported=[], unresolved=[],
                                         sources=[], bars=[], predecessors=[], dispositions=[], defensive=None))
     for name, events in (("scalar", lookup.scalar_events), ("unsupported", lookup.unsupported_events),
@@ -96,6 +97,7 @@ def _material(conn, refs, pub):
             material[day]["sources"].append(dict(payload, source_row_id=source))
     # Store only action/dividend coordinates and their actual predecessors.
     for day, item in material.items():
+        rolling_work.checkpoint()
         symbols = sorted({p["ticker"] for p in item["sources"]}
                          | {p["ticker"] for k in ("scalar", "unsupported", "unresolved") for p in item[k]})
         identities = {e['security_id'] for k in ('scalar', 'unsupported', 'unresolved') for e in item[k]}
@@ -152,6 +154,7 @@ def append(conn, *, candidate, version, previous):
             current_sources[calendar.session_on_or_after(payload["date"])].append(dict(payload, source_row_id=source))
     corrections, correction_evidence, added = [], {}, {}
     for day in sorted(set(old) | set(new) | {d for d in current_sources if str(basis) < d <= str(prior[1] if prior else basis)}):
+        rolling_work.checkpoint()
         existing, observed = old.get(day), new.get(day)
         historical = prior is not None and day <= str(prior[1])
         sources = sorted(current_sources.get(day, []), key=lambda p: p["source_row_id"])

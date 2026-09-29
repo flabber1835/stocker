@@ -6,7 +6,6 @@ import json
 import os
 from pathlib import Path
 import re
-import subprocess
 import sys
 import tempfile
 
@@ -19,6 +18,7 @@ import sentinel_go_ci_runtime as ci_runtime  # noqa: E402
 import sentinel_go_lock as go_lock  # noqa: E402
 import sentinel_go_phase_entry as phase  # noqa: E402
 import sentinel_runtime_selection as runtime  # noqa: E402
+from sentinel_host_command import run as run_host_command  # noqa: E402
 
 OUT = ROOT / "artifacts" / "sentinel" / "deployment" / "validated-artifact-handoff.json"
 HEX40 = re.compile(r"^[0-9a-f]{40}$")
@@ -31,10 +31,7 @@ class Refused(RuntimeError):
 
 
 def run(argv, *, env=None):
-    return subprocess.run(
-        [str(x) for x in argv], cwd=str(ROOT),
-        env=dict(env) if env is not None else None,
-        text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False)
+    return run_host_command(argv, cwd=ROOT, env=env)
 
 
 def git(*args):
@@ -67,13 +64,27 @@ def running_panel_image_id(env) -> str:
     image = (inspected.stdout or "").strip()
     if inspected.returncode != 0 or IMAGE_ID.fullmatch(image) is None:
         raise Refused("recreated panel image identity is unavailable")
+    observed = run([
+        "docker", "container", "inspect", "--format", "{{json .State}}", container,
+    ], env=env)
+    try:
+        state = json.loads(observed.stdout or "")
+    except ValueError:
+        state = None
+    if (observed.returncode != 0 or not isinstance(state, dict)
+            or state.get("Status") != "running" or state.get("Running") is not True
+            or state.get("Restarting") is not False
+            or not isinstance(state.get("Health"), dict)
+            or state["Health"].get("Status") != "healthy"):
+        raise Refused("recreated panel is not healthy and running")
     return image
 
 
 def recreate_panel(env, *, expected_image_id: str) -> None:
     completed = run([
         "bash", "scripts/sentinel-compose.sh", "--run",
-        "up", "-d", "--no-deps", "--force-recreate", "sentinel-panel",
+        "up", "-d", "--no-deps", "--force-recreate", "--wait",
+        "--wait-timeout", "180", "sentinel-panel",
     ], env=env)
     if completed.returncode != 0:
         raise Refused("promoted panel could not be recreated")

@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from pathlib import Path
+import json
 import subprocess
 import sys
 
@@ -182,6 +183,10 @@ def test_recreate_panel_refuses_wrong_promoted_image(monkeypatch):
         if "ps" in command:
             return subprocess.CompletedProcess(command, 0, stdout=container + "\n", stderr="")
         if command[:3] == ["docker", "container", "inspect"]:
+            if "{{json .State}}" in command:
+                return subprocess.CompletedProcess(command, 0, stdout=json.dumps({
+                    "Status": "running", "Running": True, "Restarting": False,
+                    "Health": {"Status": "healthy"}}), stderr="")
             return subprocess.CompletedProcess(
                 command, 0, stdout="sha256:" + "d" * 64 + "\n", stderr="")
         raise AssertionError(command)
@@ -204,3 +209,41 @@ def test_recreate_panel_refuses_ambiguous_multiple_containers(monkeypatch):
     monkeypatch.setattr(post, "run", run)
     with pytest.raises(post.Refused, match="not uniquely running"):
         post.recreate_panel({}, expected_image_id=LOCAL)
+
+
+@pytest.mark.parametrize("health,running,restarting,passed", [
+    ("healthy", True, False, True), ("starting", True, False, False),
+    ("unhealthy", True, False, False), ("healthy", False, False, False),
+    ("healthy", True, True, False), (None, True, False, False),
+])
+def test_panel_wait_and_actual_health_precede_handoff(monkeypatch, tmp_path,
+        health, running, restarting, passed):
+    out, _events, _handoff = _post_common(monkeypatch, tmp_path)
+    calls = []
+    def run(argv, **kwargs):
+        calls.append(argv)
+        if "up" in argv:
+            assert "--wait" in argv and argv[argv.index("--wait-timeout") + 1] == "180"
+            return subprocess.CompletedProcess(argv, 0, "", "")
+        if "ps" in argv:
+            return subprocess.CompletedProcess(argv, 0, "a" * 64, "")
+        if "{{.Image}}" in argv:
+            return subprocess.CompletedProcess(argv, 0, LOCAL, "")
+        if "{{json .State}}" in argv:
+            state = dict(Status="running" if running else "exited", Running=running,
+                         Restarting=restarting, Health={"Status": health} if health else None)
+            return subprocess.CompletedProcess(argv, 0, json.dumps(state), "")
+        raise AssertionError(argv)
+    monkeypatch.setattr(post, "run", run)
+    assert post.main([]) == (0 if passed else 2)
+    assert out.exists() is passed
+
+
+@pytest.mark.parametrize("code", [1, 124])
+def test_panel_health_wait_failure_never_writes_handoff(monkeypatch, tmp_path, code):
+    out, _events, _handoff = _post_common(monkeypatch, tmp_path)
+    def run(argv, **kwargs):
+        assert "up" in argv
+        return subprocess.CompletedProcess(argv, code, "", "health wait failed")
+    monkeypatch.setattr(post, "run", run)
+    assert post.main([]) == 2 and not out.exists()

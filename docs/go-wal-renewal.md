@@ -66,3 +66,41 @@ boundary: healthy start, completed downloads, a runtime horizon refusal, verifie
 renewal and successful reuse. Exercise the READY boundary as well as ACQUIRING,
 failed renewal, interruption, deadline exhaustion, malformed signals and a
 non-horizon integrity refusal. Falsify the resumable-state and retry guards.
+
+## Progress across the remaining worker stages
+
+The overall preparation deadline does not replace the ten-minute worker lease.
+Sealing, source corroboration and operational validation must renew at stage
+boundaries and during bounded units of actual work. Snapshot storage scans pulse
+after each 5,000 rows, and corroboration pulses between bounded provider checks.
+A scoped callback on the worker's existing connection supplies the heartbeat;
+outside that scope (including read-only GO, panel and strategy readers) the
+storage hook does nothing. The scope is always reset on success or failure.
+Callbacks never commit candidate construction or create a second writer. Every
+renewal checks the original owner, fence, current lease and absolute job deadline.
+An uninterrupted blocking unit that exceeds its lease still refuses.
+The publication transaction applies the same scoped renewal while retaining
+sparse action history, with checkpoints between action dates. That scope ends
+before the job becomes terminal; no heartbeat may resurrect a published job.
+
+Both foreground GO and scheduled rolling publication use this same publisher.
+Automation leadership remains a separate supervised lease; renewing acquisition
+never renews broker authority. Alpaca transport ambiguity retains UNKNOWN and
+the existing deterministic command identity. Qualification must slow the actual
+storage/source work between callbacks, rather than manufacture heartbeats in a
+test wrapper, and cover deadline expiry, stolen fences and scope cleanup.
+
+## Bounded final handoff
+
+Promotion-time Git and final Docker/Compose subprocesses must also honor the
+host command timeout. Run each in an owned process group and terminate/reap that
+group on timeout or interruption. Do not remove persistent service containers
+when terminating their Compose client; an interrupted handoff is refused and
+ordinary retry inspects/recreates the named panel. This command helper grants no
+broker authority and is independent of the acquisition budget.
+
+Panel finalization waits for the existing health check with a 180-second startup
+bound, then verifies both healthy/running state and exact image identity before
+writing handoff evidence. Wrong image, unhealthy/exited/restarting state, timeout
+or unobservable health cannot produce a successful handoff. The selected runtime
+and completed data publication remain available for retry.

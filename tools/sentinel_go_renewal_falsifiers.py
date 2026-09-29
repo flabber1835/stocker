@@ -8,6 +8,22 @@ from tools.sentinel_rolling_storage_falsifiers import child
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 MUTANTS = {
+    "silent_storage_scan": (
+        "sentinel.feed.rolling_store", "if index % BATCH_SIZE == 0:", "if False:",
+        "test_real_work_renews_only_live_owned_job[go-seal-None]"),
+    "silent_action_history": (
+        "sentinel.feed.action_history", "rolling_work.checkpoint()\n        symbols =",
+        "pass\n        symbols =",
+        "test_real_work_renews_only_live_owned_job[go-publication-None]"),
+    "unbounded_final_command": (
+        "sentinel_host_command", "proc.communicate(timeout=timeout)", "proc.communicate(timeout=None)",
+        "test_final_runners_enforce_timeout_and_kill_descendants[run]"),
+    "unhealthy_panel_handoff": (
+        "sentinel_go_post_validate", 'or state["Health"].get("Status") != "healthy"', "or False",
+        "test_panel_wait_and_actual_health_precede_handoff[unhealthy-True-False-False]"),
+    "leaked_worker_scope": (
+        "sentinel.feed.rolling_work", "_HEARTBEAT.reset(token)", "pass",
+        "test_nested_work_scope_restores_previous_owner_and_cleans_up"),
     "inner_one_hour": (
         "sentinel_go_24x7_entry",
         "        absolute_deadline=rolling_go_inputs.deadline_from_host(\n"
@@ -41,6 +57,11 @@ MUTANTS = {
         "test_one_deadline_includes_renewal_and_prevents_restart"),
 }
 TESTS = {
+    "silent_storage_scan": "tests/sentinel/test_rolling_work_liveness.py",
+    "silent_action_history": "tests/sentinel/test_rolling_work_liveness.py",
+    "unbounded_final_command": "tests/scripts/test_host_command_deadline.py",
+    "unhealthy_panel_handoff": "tests/production_composition/test_runtime_handoff_atomicity.py",
+    "leaked_worker_scope": "tests/sentinel/test_rolling_work_liveness.py",
     "inner_one_hour": "tests/sentinel/test_go_preparation_deadline.py",
     "deadline_reset": "tests/sentinel/test_go_preparation_deadline.py",
     "hidden_builder_progress": "tests/scripts/test_feed_progress.py",

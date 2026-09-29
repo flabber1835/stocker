@@ -14,6 +14,7 @@ import unittest
 
 from scripts import sentinel_forward_run
 from scripts import sentinel_test_run
+from scripts import sentinel_host_command
 
 
 ROOT = Path(os.environ.get(
@@ -74,6 +75,14 @@ def _manifest(*, lifecycle="FINALIZED", verdict="PASS", closure="4",
 
 
 class HostPythonCompatibilityTests(unittest.TestCase):
+
+    def test_final_host_command_timeout_on_minimum_python(self):
+        with tempfile.TemporaryDirectory() as directory:
+            result = sentinel_host_command.run(
+                [sys.executable, "-c", "import time; time.sleep(10)"],
+                cwd=directory, env=dict(os.environ, SENTINEL_GO_COMMAND_TIMEOUT_SECONDS="1"))
+            self.assertEqual(result.returncode, 124)
+            self.assertIn("deadline exceeded", result.stderr)
 
     def test_preflight_exercises_host_call_graph_and_repo_digest_paths(self):
         completed = subprocess.run(
