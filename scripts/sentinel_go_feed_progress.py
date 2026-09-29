@@ -15,7 +15,7 @@ STAGES = frozenset({
     "readiness_history", "readiness_domains", "readiness_splits", "readiness_maintenance",
     "rolling_identity", "rolling_normalization", "rolling_seal",
     "rolling_operational_validation", "rolling_operational_publication",
-    "rolling_comparison_publication",
+    "rolling_comparison_publication", "historical_formation",
 } | {kind + "_" + table for kind in ("capture", "download")
      for table in ("sep", "sfp", "tickers", "actions")})
 
@@ -30,8 +30,15 @@ def parse(line):
     required = {"stage", "status", "rows", "elapsed_ms"}
     optional = {"refreshed_at", "snapshot_at", "table", "date_from", "date_to",
                 "updated_from", "updated_to", "part", "parts", "reason",
-                "ready", "retry_seconds", "remaining_seconds", "bytes", "job_id", "subphase"}
+                "ready", "retry_seconds", "remaining_seconds", "bytes", "job_id", "subphase",
+                "sessions", "required_sessions", "session"}
     if not isinstance(value, dict) or not required.issubset(value) or set(value) - required - optional:
+        return None
+    if value.get("stage") == "historical_formation":
+        if (type(value.get("sessions")) is not int or not 0 <= value["sessions"] <= 126
+                or type(value.get("required_sessions")) is not int or value["required_sessions"] != 126):
+            return None
+    elif {"sessions", "required_sessions", "session"} & set(value):
         return None
     if "job_id" in value and (not isinstance(value["job_id"], str) or not re.fullmatch(
             r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", value["job_id"])):
@@ -45,9 +52,11 @@ def parse(line):
     if "table" in value and (not isinstance(value["table"], str)
                              or value["table"] not in {"SEP", "SFP", "TICKERS", "ACTIONS"}):
         return None
-    for field in ("date_from", "date_to", "updated_from", "updated_to"):
+    for field in ("date_from", "date_to", "updated_from", "updated_to", "session"):
         if field in value:
             day = value[field]
+            if field == "session" and not day:
+                return None
             if not isinstance(day, str) or (day and not re.fullmatch(r"\d{4}-\d{2}-\d{2}", day)):
                 return None
             try:
@@ -96,7 +105,11 @@ def describe(value):
     if value.get("updated_from") or value.get("updated_to"):
         text += "; updated " + (value.get("updated_from") or "all") + ".." + (value.get("updated_to") or "all")
     text += ": %s" % value["status"]
-    if value["stage"] not in {"schema_migration", "database_connect", "source_preflight", "export_preflight"}:
+    if value["stage"] == "historical_formation":
+        text += "; %s/%s sessions" % (value["sessions"], value["required_sessions"])
+        if value.get("session"):
+            text += "; through " + value["session"]
+    elif value["stage"] not in {"schema_migration", "database_connect", "source_preflight", "export_preflight"}:
         text += "; %s rows" % format(value["rows"], ",")
     if "ready" in value:
         text += "; %s/%s exports ready" % (value["ready"], value.get("parts", "?"))

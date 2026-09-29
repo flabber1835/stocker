@@ -8,6 +8,24 @@ from tools.sentinel_rolling_storage_falsifiers import child
 
 sys.path.insert(0, str(Path(__file__).resolve().parents[1] / "scripts"))
 MUTANTS = {
+    "hidden_formation_progress": (
+        "sentinel_go_feed_progress", '"rolling_comparison_publication", "historical_formation",', '"rolling_comparison_publication",',
+        "test_real_formation_protocol_reaches_host"),
+    "shadow_claim_expiry_terminal": (
+        "sentinel.feed.rolling_jobs", "if state and state[0] not in TERMINAL and not state[1]:", "if False:",
+        "test_expired_deadline_cannot_be_extended_or_reclaimed"),
+    "shadow_preflight_budget_reset": (
+        "sentinel.shadow_service", "acquisition_deadline=acquisition_deadline", "acquisition_deadline=shadow_budget.cutoff()",
+        "test_rolling_preflight_consumes_original_attempt_budget"),
+    "shadow_one_hour": (
+        "sentinel.rolling_runtime", "absolute_deadline=acquisition_deadline", "absolute_deadline=None",
+        "test_daily_service_uses_its_two_hour_budget[None]"),
+    "shadow_terminal_deadline": (
+        "sentinel.shadow_worker", "(JobWaiting, JobDeadlineExceeded)", "(JobWaiting,)",
+        "test_expired_shadow_worker_exits_availability_without_work"),
+    "shadow_spawn_deadline_reset": (
+        "sentinel.shadow_supervisor", "stdin=subprocess.DEVNULL, env=worker_env", "stdin=subprocess.DEVNULL",
+        "test_shadow_spawn_carries_exact_cutoff_and_overwrites_stale_parent"),
     "silent_storage_scan": (
         "sentinel.feed.rolling_store", "if index % BATCH_SIZE == 0:", "if False:",
         "test_real_work_renews_only_live_owned_job[go-seal-None]"),
@@ -57,6 +75,12 @@ MUTANTS = {
         "test_one_deadline_includes_renewal_and_prevents_restart"),
 }
 TESTS = {
+    "hidden_formation_progress": "tests/scripts/test_feed_progress.py",
+    "shadow_claim_expiry_terminal": "tests/sentinel/test_rolling_snapshot_jobs.py",
+    "shadow_preflight_budget_reset": "tests/sentinel/test_shadow_service.py",
+    "shadow_one_hour": "tests/sentinel/test_shadow_acquisition_budget.py",
+    "shadow_terminal_deadline": "tests/sentinel/test_supervisor_timing_admission.py",
+    "shadow_spawn_deadline_reset": "tests/sentinel/test_supervisor_timing_admission.py",
     "silent_storage_scan": "tests/sentinel/test_rolling_work_liveness.py",
     "silent_action_history": "tests/sentinel/test_rolling_work_liveness.py",
     "unbounded_final_command": "tests/scripts/test_host_command_deadline.py",

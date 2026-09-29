@@ -290,6 +290,8 @@ def _causal_target(*, preflight_status: str,
 def advance_once(config: ShadowServiceConfig, *,
                  now: Optional[datetime] = None) -> dict:
     """Advance the current fully published close and append one verified row."""
+    from sentinel import shadow_budget
+    acquisition_deadline = shadow_budget.cutoff()
     # Prove immutable lineage structure before allowing the corpus to move.
     # Full current-corpus status is deliberately postponed until after ingest:
     # at the source-final boundary an honest database is exactly one session
@@ -309,11 +311,15 @@ def advance_once(config: ShadowServiceConfig, *,
         conn = feed_store.connect(config.database_url)
         try:
             return rolling_runtime.service_advance(conn, through=target,
-                observation_id=config.observation_id, starting_cash=config.starting_cash).to_dict()
+                observation_id=config.observation_id, starting_cash=config.starting_cash,
+                acquisition_deadline=acquisition_deadline).to_dict()
         except Exception as exc:
             from sentinel.rolling_reconstruction_evidence import InputsUnavailable
+            from sentinel.feed.rolling_jobs import JobDeadlineExceeded
             if isinstance(exc, InputsUnavailable):
                 raise ShadowServiceWaiting(str(exc)) from exc
+            if isinstance(exc, JobDeadlineExceeded):
+                raise ShadowServiceRetry("rolling shadow acquisition deadline exhausted") from exc
             from sentinel.shadow_worker import _availability_failure
             if _availability_failure(exc):
                 raise ShadowServiceRetry("rolling shadow source/backup unavailable") from exc

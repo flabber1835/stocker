@@ -90,6 +90,32 @@ the existing deterministic command identity. Qualification must slow the actual
 storage/source work between callbacks, rather than manufacture heartbeats in a
 test wrapper, and cover deadline expiry, stolen fences and scope cleanup.
 
+Host diagnostics also accept the existing historical-formation progress events.
+Display completed sessions out of the fixed 126-session formation, plus a
+validated session date when present. These bounded counters describe canonical
+startup work after acquisition; they are not another source download or a GO
+verdict. Reject malformed counters, dates and unreviewed fields as before.
+
+## Scheduled shadow acquisition budget
+
+The rolling shadow service owns daily acquisition; paper automation waits for
+its verified result. Each supervised shadow attempt supplies its absolute UTC
+cutoff to the rolling acquisition job, captured before spawning the worker.
+The existing configurable 30–7200 second supervisor limit remains unchanged.
+Direct service calls capture the same configured budget before preflight.
+Preflight and acquisition consume one allowance; neither nested calls nor
+coalescing an existing durable job may extend its original deadline.
+
+An exhausted durable acquisition deadline is a retryable availability outcome,
+like the supervisor's process timeout, not evidence of integrity failure. The
+expired job remains terminal; a later attempt may enqueue a new job and reuse
+independently validated retained source parts. Uncommitted candidate work may
+need rebuilding. Stolen fences, invalid identities and other integrity refusals
+still latch. Publication and following-open timing checks remain mandatory and
+no stale shadow result becomes broker authority. A local controlled-clock test
+must traverse the actual shadow service, exceed one hour with legitimate work
+renewals, and separately exhaust the configured cutoff without publication.
+
 ## Bounded final handoff
 
 Promotion-time Git and final Docker/Compose subprocesses must also honor the

@@ -54,12 +54,13 @@ def _backup_availability(exc: BaseException) -> bool:
 
 
 def _availability_failure(exc: BaseException) -> bool:
-    from sentinel.feed.rolling_jobs import JobWaiting
+    from sentinel.feed.rolling_jobs import JobWaiting, JobDeadlineExceeded
     current: BaseException | None = exc
     seen = set()
     while current is not None and id(current) not in seen:
         seen.add(id(current))
-        if database_unavailable(current) or local_contention(current) or isinstance(current, JobWaiting):
+        if (database_unavailable(current) or local_contention(current)
+                or isinstance(current, (JobWaiting, JobDeadlineExceeded))):
             return True
         if _backup_availability(current):
             return True

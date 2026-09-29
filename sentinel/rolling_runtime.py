@@ -158,8 +158,11 @@ def advance(conn, *, through, observation_id, starting_cash):
         raise
 
 
-def service_advance(conn, *, through, observation_id, starting_cash):
+def service_advance(conn, *, through, observation_id, starting_cash, acquisition_deadline=None):
     """Acquire only after checking the previous runtime authority and adjacency."""
+    from sentinel import shadow_budget
+    if acquisition_deadline is None:
+        acquisition_deadline = shadow_budget.cutoff()
     classified = classify(conn, observation_id=observation_id, starting_cash=starting_cash, structural_only=True)
     if classified["status"] in {"ATTESTED_STRUCTURAL", "RECONSTRUCTED_STRUCTURAL", "RECONSTRUCTION_REQUIRED"}:
         previous = classified["latest_session"]
@@ -179,7 +182,9 @@ def service_advance(conn, *, through, observation_id, starting_cash):
                 raise Refused("ROLLING_RUNTIME_SESSION_GAP")
             initial._timing(conn, through)
             conn.rollback()
-            inputs._prepare(conn, target_session=through)
+            shadow_budget.require_remaining(acquisition_deadline)
+            inputs._prepare(conn, target_session=through,
+                            absolute_deadline=acquisition_deadline)
     # Fresh genesis and crash recovery must consume the reviewed/current exact
     # publication; neither is permitted to replace it with newly acquired data.
     result = advance(conn, through=through, observation_id=observation_id, starting_cash=starting_cash)

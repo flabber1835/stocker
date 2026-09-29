@@ -321,9 +321,11 @@ def test_unattended_services_enable_runtime_restore_horizon():
     assert "SENTINEL_AUTOMATION_ALERT_MAX_ATTEMPTS:-8" in compose
 
 
-def test_shadow_timeout_is_restartable_not_terminal_latch():
+def test_shadow_timeout_is_restartable_not_terminal_latch(monkeypatch):
     text = (ROOT / "sentinel" / "shadow_supervisor.py").read_text(
         encoding="utf-8")
     assert "if code == EXIT_RETRY:" in text
     assert "code in {EXIT_RETRY, 124}" not in text
-    assert '"7200"' in text
+    from sentinel import shadow_budget
+    monkeypatch.delenv('SENTINEL_SHADOW_ADVANCE_DEADLINE_SECONDS', raising=False)
+    assert shadow_budget.seconds() == 7200
