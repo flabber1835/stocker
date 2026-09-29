@@ -70,6 +70,8 @@ def reason_code(phase, exc):
     name = type(exc).__name__
     if name == 'BackupHorizonExceeded':
         return 'BACKUP_RUNTIME_HORIZON_EXCEEDED'
+    if name == 'JobDeadlineExceeded':
+        return 'PREPARATION_DEADLINE_EXHAUSTED'
     if name == 'AcquisitionResourceExceeded':
         return 'SOURCE_RESOURCE_LIMIT'
     lowered = str(exc).lower()
@@ -183,6 +185,8 @@ try:
     progress.emit('daily_catchup', 'started', date_to=target)
     daily_attempted = True
     recovered = rolling_go_inputs.prepare(c, target_session=target,
+        absolute_deadline=rolling_go_inputs.deadline_from_host(
+            os.environ.get('SENTINEL_GO_PREPARATION_DEADLINE')),
         resume_job_id=os.environ.get('SENTINEL_GO_RESUME_JOB_ID'))
     print(RECOVERY_MARKER + json.dumps({
         'mode': recovered['status'],

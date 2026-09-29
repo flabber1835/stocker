@@ -40,7 +40,7 @@ def run(conn, job_id, *, prepare, check_target, sleep=None):
             if state["remaining_seconds"] <= 0:
                 jobs.expire(conn, job_id)
                 conn.commit()
-                raise jobs.JobRefused("preparation deadline exhausted")
+                raise jobs.JobDeadlineExceeded("preparation deadline exhausted")
             if state["state"] in jobs.TERMINAL:
                 raise jobs.JobRefused("preparation ended: " + state["reason"])
             delay = min(state["retry_seconds"], state["remaining_seconds"], 10.0)

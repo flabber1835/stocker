@@ -73,10 +73,13 @@ def test_rolling_fault_reaches_the_production_call_site(monkeypatch, capsys, fau
     reached = []
     resume_job = "b7de9b0c-4ec0-4d72-824c-9b7b8e92aaff"
     monkeypatch.setenv("SENTINEL_GO_RESUME_JOB_ID", resume_job)
+    deadline = "2026-09-29T20:00:00+00:00"
+    monkeypatch.setenv("SENTINEL_GO_PREPARATION_DEADLINE", deadline)
     monkeypatch.setattr(rolling_go_inputs, attribute, lambda *_a, **kw: reached.append(kw))
     namespace = dict(rolling_go_inputs=rolling_go_inputs, c=None, target="2026-09-22", os=os)
     exec(witness, namespace)
-    expected = [{"target_session": "2026-09-22", "resume_job_id": resume_job}] if attribute == "prepare" else [{}]
+    expected = [{"target_session": "2026-09-22", "resume_job_id": resume_job,
+                 "absolute_deadline": rolling_go_inputs.deadline_from_host(deadline)}] if attribute == "prepare" else [{}]
     assert reached == expected
     changed = faults.docker_arguments(["compose", "run", "-c", witness], fault)
     with pytest.raises(RuntimeError, match="E2E_STAGE_FAULT:" + fault):
@@ -132,6 +135,7 @@ def test_real_preparation_payload_rolls_back_and_never_emits_success_after_fault
         rollback=lambda: events.append("rollback"), close=lambda: events.append("close"))
     target = "2026-09-25"
     monkeypatch.setenv("SENTINEL_DATABASE_URL", "fixture")
+    monkeypatch.setenv("SENTINEL_GO_PREPARATION_DEADLINE", "2026-09-29T20:00:00+00:00")
     monkeypatch.setattr(store, "connect", lambda _url: events.append("connect") or connection)
     monkeypatch.setattr(backup_guard, "require_writes_permitted",
                         lambda *_a, **_k: events.append("backup"))

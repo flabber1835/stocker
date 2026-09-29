@@ -42,7 +42,7 @@ def _current(conn):
 
 
 def enqueue(conn, *, strategy_sha256, dependencies_sha256, budget_seconds=3600,
-            resume_job_id=None):
+            resume_job_id=None, absolute_deadline=None):
     """Freeze the current source-final target and ordinary publication CAS. No commit."""
     current = _current(conn)
     request = jobs.PreparationRequest(
@@ -60,7 +60,8 @@ def enqueue(conn, *, strategy_sha256, dependencies_sha256, budget_seconds=3600,
                 or state["owner"] is not None):
             raise OperationalSnapshotRefused("BACKUP_RESUME_JOB_NOT_CURRENT")
         return str(resume_job_id)
-    job = jobs.enqueue(conn, request, budget_seconds=budget_seconds)
+    job = jobs.enqueue(conn, request, budget_seconds=budget_seconds,
+                       absolute_deadline=absolute_deadline)
     with conn.cursor() as cur:
         cur.execute("INSERT INTO sentinel_operational_snapshot_jobs VALUES (%s) ON CONFLICT DO NOTHING", (job,))
     return job

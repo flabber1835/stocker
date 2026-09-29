@@ -3,7 +3,7 @@ import json
 import subprocess
 from uuid import UUID
 
-from sentinel_go_deadline import command_timeout
+from sentinel_go_deadline import DEADLINE_ENV, command_timeout, job_deadline
 
 FAILURE = "SENTINEL_GO_PREPARATION_FAILURE="
 PROGRESS = "SENTINEL_FEED_PROGRESS="
@@ -82,12 +82,15 @@ class RenewalRunner:
             return self.runner.run(command, env=env, cwd=cwd)
         run_env = dict(env or {})
         run_env.pop(RESUME_ENV, None)
+        run_env[DEADLINE_ENV] = job_deadline()
         prior = []
         job = None
         for attempt in range(MAX_RENEWALS + 1):
             if command_timeout(1) <= 0:
                 return self._refused(command, "BACKUP_RENEWAL_DEADLINE_EXHAUSTED", prior)
             invocation = list(command)
+            index = invocation.index("--entrypoint")
+            invocation[index:index] = ["--env", DEADLINE_ENV]
             if job is not None:
                 run_env[RESUME_ENV] = job
                 index = invocation.index("--entrypoint")

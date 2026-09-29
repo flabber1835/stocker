@@ -27,6 +27,10 @@ class JobRefused(RuntimeError):
     pass
 
 
+class JobDeadlineExceeded(JobRefused):
+    """The original durable deadline expired, regardless of the outer process."""
+
+
 class JobWaiting(JobRefused):
     """A valid active request is temporarily owned or not yet due for retry."""
 
@@ -163,6 +167,9 @@ def _owned(conn, lease: Lease):
         now = cur.fetchone()[0]
         if row is not None:
             row = (*row, now)
+    if (row is not None and str(row[4]) == lease.owner and row[5] == lease.fence
+            and row[2] <= row[10]):
+        raise JobDeadlineExceeded("preparation job deadline exhausted")
     if (row is None or str(row[4]) != lease.owner or row[5] != lease.fence
             or row[0] not in ACTIVE or row[3] is None or row[3] <= row[10]
             or row[2] <= row[10]):

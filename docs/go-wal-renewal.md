@@ -27,6 +27,24 @@ are permitted (after acquisition and after candidate construction). All attempts
 and backup commands share one monotonic preparation deadline; neither renewal
 nor subprocess restart resets the durable acquisition deadline.
 
+GO supplies the durable job's absolute UTC deadline from the host preparation
+budget, captured before the initial backup check. Initial backup, container
+startup, schema preparation, acquisition, renewal and validation all consume
+that same budget. The host also enforces its monotonic deadline independently.
+The GO path must not fall back to the standalone preparation API's one-hour
+default. A supplied deadline is validated against the database clock and the
+existing maximum job horizon of 24 hours. Resuming or coalescing an existing job
+never extends its original deadline; expired jobs remain refused.
+
+The runtime reports job deadline exhaustion distinctly from a lost worker lease
+or fence. The ten-minute worker lease and its ownership checks are unchanged.
+The host accepts the builder's bounded rolling identity, normalization, sealing,
+validation and publication progress, including only validated job UUIDs and
+enumerated subphases. It must not keep showing a completed source partition
+while discarding those later progress events. Qualification uses a controlled
+clock to compose work beyond one hour with backup renewal, unchanged deadline
+on resume, retained-part reuse, and refusal at the actual deadline.
+
 The next preparation explicitly resumes the named operational job. Its request
 must still equal the current strategy, dependencies, publication CAS and source
 window. Expired, terminal, comparison, leased or unrelated jobs cannot be silently

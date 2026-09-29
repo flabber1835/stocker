@@ -13,6 +13,9 @@ STAGES = frozenset({
     "source_replay", "bounded_recovery", "corpus_publication", "database_connect", "readiness_check",
     "backup_durability", "schema_migration", "daily_catchup", "publication_check",
     "readiness_history", "readiness_domains", "readiness_splits", "readiness_maintenance",
+    "rolling_identity", "rolling_normalization", "rolling_seal",
+    "rolling_operational_validation", "rolling_operational_publication",
+    "rolling_comparison_publication",
 } | {kind + "_" + table for kind in ("capture", "download")
      for table in ("sep", "sfp", "tickers", "actions")})
 
@@ -27,8 +30,14 @@ def parse(line):
     required = {"stage", "status", "rows", "elapsed_ms"}
     optional = {"refreshed_at", "snapshot_at", "table", "date_from", "date_to",
                 "updated_from", "updated_to", "part", "parts", "reason",
-                "ready", "retry_seconds", "remaining_seconds", "bytes"}
+                "ready", "retry_seconds", "remaining_seconds", "bytes", "job_id", "subphase"}
     if not isinstance(value, dict) or not required.issubset(value) or set(value) - required - optional:
+        return None
+    if "job_id" in value and (not isinstance(value["job_id"], str) or not re.fullmatch(
+            r"[0-9a-f]{8}-(?:[0-9a-f]{4}-){3}[0-9a-f]{12}", value["job_id"])):
+        return None
+    if "subphase" in value and (not isinstance(value["subphase"], str)
+                               or value["subphase"] not in {"alias_discovery", "independent_coverage"}):
         return None
     if "reason" in value and (not isinstance(value["reason"], str)
                              or not re.fullmatch(r"[A-Z][A-Z_0-9]{0,79}", value["reason"])):
@@ -76,6 +85,8 @@ def parse(line):
 
 def describe(value):
     text = value["stage"].replace("_", " ")
+    if value.get("subphase"):
+        text += " " + value["subphase"].replace("_", " ")
     if value.get("table"):
         text += " " + value["table"]
     if value.get("date_from") or value.get("date_to"):
