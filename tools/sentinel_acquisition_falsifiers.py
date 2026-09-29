@@ -32,7 +32,7 @@ MUTANTS = {
         "test_sep_refresh_invalidates_old_prices_but_reuses_references"),
     "resume_restart_limit": ("sentinel.feed.acquisition_parts",
         "depth >= MAX_SUCCESSORS or", "depth > MAX_SUCCESSORS or",
-        "test_persistent_reference_instability_stops_at_durable_restart_limit"),
+        "test_persistent_reference_instability_stops_at_durable_restart_limit[123456]"),
     "resume_final_fence": ("sentinel.feed.acquisition_parts",
         "jobs._owned(self.conn, self.lease)\n        self.conn.execute(\"INSERT INTO sentinel_acquisition_bindings",
         "pass\n        self.conn.execute(\"INSERT INTO sentinel_acquisition_bindings",

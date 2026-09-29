@@ -1,5 +1,6 @@
 """Production-shaped acquisition recovery; real jobs, source and PostgreSQL."""
 from collections import Counter
+from datetime import datetime, timedelta
 from uuid import uuid4
 
 import pytest
@@ -13,7 +14,7 @@ REAL_DOWNLOAD = snapshot_export.download_snapshot
 __all__ = ["conn", "pg", "source"]
 
 
-def formation_job(conn, source):
+def formation_job(conn, source, *, absolute_deadline=None):
     window = FormationWindow.through("2026-09-14")
     source["SEP"] = [dict(ticker=symbol, date=str(day), open="49", close="50",
                           closeunadj="100", volume="10000", lastupdated="2026-09-15")
@@ -26,7 +27,7 @@ def formation_job(conn, source):
         row["firstpricedate"] = str(window.start)
     job = jobs.enqueue(conn, jobs.PreparationRequest(window=window,
         strategy_sha256=digest(uuid4().hex), dependencies_sha256=digest({})),
-        budget_seconds=3600)
+        budget_seconds=3600, absolute_deadline=absolute_deadline)
     conn.commit()
     return job
 
@@ -145,10 +146,16 @@ def test_reference_revision_reuses_prices_and_preserves_deadline(conn, source, m
     assert conn.execute("SELECT COUNT(*) FROM sentinel_acquisition_prices").fetchone()[0] == 758
 
 
-def test_persistent_reference_instability_stops_at_durable_restart_limit(conn, source, monkeypatch):
+@pytest.mark.parametrize("microsecond", [0, 100000, 123450, 123456])
+def test_persistent_reference_instability_stops_at_durable_restart_limit(conn, source, monkeypatch, microsecond):
     from sentinel.feed.acquisition_parts import MAX_SUCCESSORS
-    job = formation_job(conn, source)
-    deadline = jobs.status(conn, job)["deadline"]
+    # Exercise PostgreSQL JSON's trimmed fractional seconds independently of
+    # whichever microsecond the database clock happens to return in CI.
+    now = conn.execute("SELECT clock_timestamp()").fetchone()[0]
+    expected_deadline = (now + timedelta(hours=1)).replace(microsecond=microsecond)
+    job = formation_job(conn, source, absolute_deadline=expected_deadline)
+    deadline = datetime.fromisoformat(jobs.status(conn, job)["deadline"])
+    assert deadline == expected_deadline
     original = rolling_source.SharadarSource.corroborate
     counter = [0]
     def revised(self):
@@ -161,7 +168,8 @@ def test_persistent_reference_instability_stops_at_durable_restart_limit(conn, s
     assert counter[0] == MAX_SUCCESSORS + 1
     states = conn.execute("SELECT state,deadline FROM sentinel_snapshot_jobs").fetchall()
     assert len(states) == MAX_SUCCESSORS + 1
-    assert all(state == "REFUSED" and stamp.isoformat() == deadline for state, stamp in states)
+    assert all(state == "REFUSED" for state, _ in states), states
+    assert all(stamp == deadline for _, stamp in states), states
     assert conn.execute("SELECT COUNT(*) FROM sentinel_snapshot_comparisons").fetchone()[0] == 0
 
 
